@@ -8,7 +8,6 @@ import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -73,6 +72,14 @@ public class PropertyVerificationController {
         return queue.listMyCases(principal, pageable);
     }
 
+    @GetMapping(Routes.Moderation.ME_PROPERTY_REVIEWS + "/unread-count")
+    public UnreadCount unreadCount(@CurrentUser AuthPrincipal principal) {
+        return new UnreadCount(queue.unreadCount(principal));
+    }
+
+    public record UnreadCount(long count) {
+    }
+
     /** {@code POST /properties/{id}/verification} (contract {@code initPropertyVerification}) — 201. */
     @PostMapping(Routes.Moderation.PROPERTY_VERIFICATION)
     @ResponseStatus(HttpStatus.CREATED)
@@ -81,15 +88,24 @@ public class PropertyVerificationController {
         return service.initiate(principal, id);
     }
 
-    /**
-     * {@code POST /properties/{id}/verification/messages} — 201. {@code attachments} is accepted and
-     * ignored; saying so here is what makes that honest rather than a silently dropped field.
-     */
     @PostMapping(Routes.Moderation.VERIFICATION_MESSAGES)
     @ResponseStatus(HttpStatus.CREATED)
     public PropertyReviewResponse addMessage(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody MessageRequest body) {
-        return service.addMessage(principal, id, body.body());
+        return service.addMessage(principal, id, body.body(), Boolean.TRUE.equals(body.clarificationRequested()));
+    }
+
+    @PostMapping(Routes.Moderation.PROPERTY_VERIFICATION + "/start")
+    @PreAuthorize(PROPERTIES_WRITE)
+    public PropertyReviewResponse start(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.start(principal, id);
+    }
+
+    @PatchMapping("/properties/{id}/lifecycle")
+    @PreAuthorize(PROPERTIES_WRITE)
+    public PropertyReviewResponse correct(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @Valid @RequestBody LifecycleCorrection body) {
+        return service.correct(principal, id, body.lifecycleStage(), body.reason());
     }
 
     /** {@code POST /properties/{id}/verification/read} (contract {@code markVerificationRead}) — 204. */
@@ -121,8 +137,11 @@ public class PropertyVerificationController {
         return service.setChecklistItem(principal, id, body.item(), Boolean.TRUE.equals(body.pass()));
     }
 
-    /** Body of {@code addVerificationMessage} (schema {@code MessageCreate}). */
-    public record MessageRequest(@NotBlank @Size(max = 4000) String body, List<String> attachments) {
+    public record MessageRequest(@NotBlank @Size(max = 4000) String body, Boolean clarificationRequested) {
+    }
+
+    public record LifecycleCorrection(@NotBlank String lifecycleStage,
+            @NotBlank @Size(max = 2000) String reason) {
     }
 
     /** Body of {@code verificationDecision} (schema {@code DecisionRequest}). */

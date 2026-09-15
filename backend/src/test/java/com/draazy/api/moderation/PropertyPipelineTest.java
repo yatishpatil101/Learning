@@ -22,28 +22,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * {@code POST /properties/{id}/pipeline} — the owner hand-back funnel for staff-posted listings.
- *
- * <p><strong>What the funnel is.</strong> Staff sometimes create a listing for an owner who phoned
- * it in. That listing goes live owned by an account its owner has never signed into, which is a
- * liability with a clock on it, and the funnel is the record of handing it over.
- *
- * <p><strong>Why two vocabularies became two columns (D27).</strong> The admin board shipped
- * {@code contacted, info_collected, listed, docs_submitted, under_review, live}; the old V3's column said
- * {@code listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed}. They
- * agreed on two, and four of the board's six would have been refused by Postgres on write. That was
- * never a naming argument: the board's early values ask how far the owner got towards there being a
- * listing, the column's late values ask how far the platform got towards giving it back, and a
- * listing sits at a point on both at once. V92 split them — {@code pipeline_stage} keeps the
- * acquisition funnel, {@code handback_milestone} takes the hand-back — and this route accepts a
- * point on either, deciding from the value which column is meant. {@code under_review} and
- * {@code live} survive in neither: they are {@code status} under different names.
- *
- * <p><strong>The visibility tests are the point of the change, not decoration.</strong>
- * {@code adminPipeline} rides on {@code PropertyResponse}, which is also what the public
- * {@code GET /properties/{id}} returns. Without an audience gate, every buyer browsing a listing
- * would be told which listings the platform manufactured rather than received, and which staff
- * member did it.
+ * {@code POST /properties/{id}/pipeline} — hand-back funnel for staff-posted listings, with an
+ * audience gate on {@code adminPipeline} so buyers cannot see which listings the platform manufactured.
  */
 @DisplayName("D215 — the post-on-behalf hand-back funnel")
 class PropertyPipelineTest extends AbstractApiTest {
@@ -87,12 +67,8 @@ class PropertyPipelineTest extends AbstractApiTest {
     }
 
     /**
-     * The three contract booleans are derived from the hand-back milestone, so reaching a later one
-     * sets every earlier flag without anyone writing them.
-     *
-     * <p>This is the whole reason they are not stored. A row saying {@code claimed} with
-     * {@code photosUploaded: false} would be unanswerable — somebody would have to decide which
-     * half to believe — and derivation makes that state unrepresentable.
+     * Milestones are derived, not stored — a row saying {@code claimed} with
+     * {@code photosUploaded: false} would be unanswerable, and derivation makes it unrepresentable.
      */
     @Test
     @DisplayName("the milestone flags are derived from the milestone, so they cannot contradict it")
@@ -107,27 +83,25 @@ class PropertyPipelineTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].adminPipeline.handbackMilestone")
                         .value(PipelineStage.PHOTOS_UPLOADED))
-                // Reaching the hand-back pins the acquisition funnel at its last stage: the
-                // paperwork must be in before a hand-back can start, and leaving this behind at
-                // `listed` would show the board a listing still waiting for documents it has.
+                // Reaching hand-back pins the acquisition funnel at its last stage: leaving it at
+                // {@code listed} would show the board a listing still waiting for its paperwork.
                 .andExpect(jsonPath("$.content[0].adminPipeline.pipelineStage")
                         .value(PipelineStage.DOCS_SUBMITTED))
                 .andExpect(jsonPath("$.content[0].adminPipeline.photosUploaded").value(true))
-                .andExpect(jsonPath("$.content[0].adminPipeline.aadhaarVerified").value(false))
+                .andExpect(jsonPath("$.content[0].adminPipeline.identityVerified").value(false))
                 .andExpect(jsonPath("$.content[0].adminPipeline.claimLinkSent").value(false));
 
         move(staff, p, PipelineStage.CLAIMED, 200);
         mvc.perform(get("/admin/properties").param("q", "Pipeline flat")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(jsonPath("$.content[0].adminPipeline.photosUploaded").value(true))
-                .andExpect(jsonPath("$.content[0].adminPipeline.aadhaarVerified").value(true))
+                .andExpect(jsonPath("$.content[0].adminPipeline.identityVerified").value(true))
                 .andExpect(jsonPath("$.content[0].adminPipeline.claimLinkSent").value(true));
     }
 
     /**
-     * The two axes are independent facts, and the acquisition stage is not one of the hand-back
-     * milestones dressed up. A listing still being chased for information has reached no milestone,
-     * and its flags must all read false however far along the board it looks.
+     * The two axes are independent — a listing still being chased for information has reached no
+     * hand-back milestone, so its flags must all read false whatever the acquisition stage says.
      */
     @Test
     @DisplayName("the console's two extra stages are accepted, and reach no hand-back milestone")
@@ -136,7 +110,7 @@ class PropertyPipelineTest extends AbstractApiTest {
         User staff = user("9852000012", "staff");
         Property p = listing(owner, true, staff.getId().toString());
 
-        // Both were board-only vocabulary before D27 and would have been refused on write.
+        // Both were board-only vocabulary and would have been refused at the CHECK constraint.
         move(staff, p, PipelineStage.CONTACTED, 200);
         move(staff, p, PipelineStage.INFO_COLLECTED, 200);
 
@@ -147,15 +121,13 @@ class PropertyPipelineTest extends AbstractApiTest {
                         .value(PipelineStage.INFO_COLLECTED))
                 .andExpect(jsonPath("$.content[0].adminPipeline.handbackMilestone").doesNotExist())
                 .andExpect(jsonPath("$.content[0].adminPipeline.photosUploaded").value(false))
-                .andExpect(jsonPath("$.content[0].adminPipeline.aadhaarVerified").value(false))
+                .andExpect(jsonPath("$.content[0].adminPipeline.identityVerified").value(false))
                 .andExpect(jsonPath("$.content[0].adminPipeline.claimLinkSent").value(false));
     }
 
     /**
-     * {@code under_review} and {@code live} are the two console stages that did not survive D27.
-     * They are {@code status} under different names, and accepting them would give a listing two
-     * disagreeing opinions about whether it is public. The board still shows those columns; it
-     * reads them off {@code status} rather than storing them here.
+     * {@code under_review} and {@code live} are {@code status} in disguise — accepting them here
+     * would give a listing two disagreeing opinions about whether it is public.
      */
     @Test
     @DisplayName("the two console stages that are really `status` are refused")
@@ -169,13 +141,8 @@ class PropertyPipelineTest extends AbstractApiTest {
     }
 
     /**
-     * Backwards is allowed, because the stages record what has actually come back from an owner and
-     * that can be undone — a document turns out to be the wrong flat, a claim link goes to a stale
-     * number. A forward-only funnel leaves the desk no way to say so except to lie.
-     *
-     * <p>Stepping back onto the acquisition funnel also clears the hand-back milestone. The
-     * alternative strands a row claiming its claim link went out while also saying its paperwork is
-     * still outstanding, which is the exact contradiction D27 split the column to prevent.
+     * Backwards allowed (evidence withdrawn — wrong-flat document, stale claim number). Stepping
+     * back onto acquisition also clears the milestone, or a row contradicts itself on paperwork.
      */
     @Test
     @DisplayName("a stage can be walked back when evidence is withdrawn, and the hand-back unwinds")
@@ -188,8 +155,8 @@ class PropertyPipelineTest extends AbstractApiTest {
         move(staff, p, PipelineStage.LISTED, 200);
 
         properties.flush();
-        // Read the columns, not the entity: a cached instance would report the values this test
-        // just set regardless of whether the second call reached the database at all.
+        // Read the columns, not the entity — a cached instance would report the values just set
+        // regardless of whether the second call reached the database at all.
         assertThat(jdbc.queryForObject(
                 "select pipeline_stage from properties where id = ?", String.class, p.getId()))
                 .isEqualTo(PipelineStage.LISTED);
@@ -198,10 +165,7 @@ class PropertyPipelineTest extends AbstractApiTest {
                 .isNull();
     }
 
-    /**
-     * A listing the owner posted themselves has already arrived where the funnel is trying to get
-     * to, so putting it on the board would create an item that can never be cleared.
-     */
+    /** An owner-posted listing has already arrived where the funnel is going, so it can never clear. */
     @Test
     @DisplayName("a listing its owner posted has no hand-back to track")
     void ownerPostedListingsAreRefused() throws Exception {
@@ -213,15 +177,8 @@ class PropertyPipelineTest extends AbstractApiTest {
     }
 
     /**
-     * The regression that D27 shipped and the live suite caught: a concierge listing nobody has
-     * moved yet.
-     *
-     * <p>Both columns are null on such a row, and every other test in this file writes at least one
-     * of them before reading, so none of them exercised the shape that is by far the most common on
-     * a real desk — a listing that has just been created. Deriving the three flags called
-     * {@code indexOf(null)} on a {@code List.of} constant, which throws rather than answering -1,
-     * so the whole moderation queue answered 500 as soon as one un-moved concierge listing was in
-     * the page. This asserts the row renders, not merely that the flags are false.
+     * Both columns null on an untouched concierge listing — {@code indexOf(null)} on the derivation
+     * list threw and the whole queue answered 500. Asserts the row renders, not just the flags.
      */
     @Test
     @DisplayName("a concierge listing nobody has moved yet still renders on the queue")
@@ -234,14 +191,13 @@ class PropertyPipelineTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].adminPipeline.postedByAdmin").value(true))
-                // `markPostedOnBehalf` starts the acquisition funnel at `listed` — the desk has by
-                // definition listed it. The hand-back column stays null until the owner does
-                // something, and that null is the case this test exists for.
+                // {@code markPostedOnBehalf} starts the funnel at {@code listed}; the hand-back
+                // column stays null until the owner moves, and that null is the case exercised here.
                 .andExpect(jsonPath("$.content[0].adminPipeline.pipelineStage")
                         .value(PipelineStage.LISTED))
                 .andExpect(jsonPath("$.content[0].adminPipeline.handbackMilestone").doesNotExist())
                 .andExpect(jsonPath("$.content[0].adminPipeline.photosUploaded").value(false))
-                .andExpect(jsonPath("$.content[0].adminPipeline.aadhaarVerified").value(false))
+                .andExpect(jsonPath("$.content[0].adminPipeline.identityVerified").value(false))
                 .andExpect(jsonPath("$.content[0].adminPipeline.claimLinkSent").value(false));
     }
 
@@ -253,15 +209,14 @@ class PropertyPipelineTest extends AbstractApiTest {
         User staff = user("9852000008", "staff");
         Property p = listing(owner, true, staff.getId().toString());
 
-        // `under_review` is one of the four board stages the CHECK constraint would refuse. Caught
-        // in Java so the caller gets a sentence naming the six valid stages rather than a 500 from
-        // a constraint violation.
+        // Caught in Java so the caller gets a sentence naming valid stages rather than a 500 from
+        // the CHECK constraint.
         move(staff, p, "under_review", 400);
     }
 
     /**
-     * The audience gate. {@code PropertyResponse} is shared between the moderation queue and the
-     * public listing page, so the funnel has to be omitted rather than merely unused by consumers.
+     * {@code PropertyResponse} is shared between the queue and the public detail page, so the
+     * funnel must be omitted from the projection rather than merely ignored by consumers.
      */
     @Test
     @DisplayName("a buyer reading the listing is not told the platform posted it")
@@ -284,9 +239,8 @@ class PropertyPipelineTest extends AbstractApiTest {
     }
 
     /**
-     * The guard is {@code postOnBehalf:write}, not {@code properties:write}. A moderator who may
-     * approve and flag supply is not automatically the desk accountable for listings the platform
-     * created in a stranger's name.
+     * Guard is {@code postOnBehalf:write}, not {@code properties:write}: approving supply is not
+     * the same authority as being the desk of record for a listing in a stranger's name.
      */
     @Test
     @DisplayName("a buyer cannot move the funnel")

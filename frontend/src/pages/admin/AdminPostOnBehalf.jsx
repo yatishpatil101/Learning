@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
-import { STEPS, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialSubtypes, pgSharingOptions } from './post-on-behalf/constants.js';
+import { STEPS, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialSubtypes } from './post-on-behalf/constants.js';
 import { OwnerStep, PropertyStep, LocationStep, PricingStep, PhotosStep, ReviewStep } from './post-on-behalf/WizardSteps.jsx';
 import { resolveLocalitySlug } from '../../data/localities.js';
 
@@ -35,25 +35,9 @@ export default function AdminPostOnBehalf() {
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
 
-  /*
-   * How many listings each mobile already has waiting on a moderator.
-   *
-   * The owner step warns "this owner already has N pending listings", which is the one chance the
-   * desk gets to notice it is taking the same flat down twice — most often because the owner rang
-   * a second time and got a different operator. It used to be counted out of `rawDb().listings`,
-   * i.e. the mock store, which the live provider never writes to; against the API the warning was
-   * therefore always absent and always would be.
-   *
-   * Read once when the wizard opens, not per keystroke. `status: 'pending'` is the whole of what
-   * the warning is about — an approved listing is not a queue collision — and it keeps the read to
-   * the smallest slice of the queue that answers the question. The tally is by mobile because that
-   * is the only identifier the operator has while on the phone; the wizard has no user id to work
-   * with, and that is the same reason `POST /admin/properties` takes a mobile.
-   *
-   * A failure is swallowed to an empty map rather than surfaced. This is an advisory count on a
-   * screen whose actual job is to take down a listing, and the server runs its own duplicate probe
-   * on the write regardless — an error banner here would stop an operator mid-call over a hint.
-   */
+  /* Backs the "this owner already has N pending listings" warning, the desk's one chance to notice
+     it is taking the same flat down twice. Read once on open, keyed by mobile because that is the
+     only identifier an operator has on the phone; failure is advisory, so it stays silent. */
   const [pendingByMobile, setPendingByMobile] = useState(() => new Map());
   useEffect(() => {
     let alive = true;
@@ -71,33 +55,10 @@ export default function AdminPostOnBehalf() {
     return () => { alive = false; };
   }, []);
 
-  /*
-   * Where this owner stands against their own plan, once the operator has typed a whole number.
-   *
-   * The desk is exempt from the freemium listing ceiling. It has to be: the ceiling is a rule about
-   * self-service, and inheriting it meant an operator on a call with somebody who owns three flats
-   * could record one of them and was refused the rest — with the owner's own wizard copy ("take one
-   * down, upgrade your plan, or refer an owner"), addressed to a member of staff, about an account
-   * that is not theirs.
-   *
-   * Exempt is not blind, though. An owner going past what they pay for is an upgrade conversation,
-   * and the operator is the only person on the call able to have it. So the numbers are shown and
-   * the desk decides — which is the whole reason the refusal was the wrong tool.
-   *
-   * Keyed off the mobile rather than read once on open, unlike the pending tally above: the tally
-   * is a slice of a queue the wizard can fetch before it knows anything, this is a question about
-   * one person and there is nobody to ask about until the field is complete. Ten digits is the gate
-   * — the server 400s on anything shorter, and asking on every keystroke would spend nine requests
-   * to answer the tenth.
-   *
-   * The response echoes the mobile back, and a reply for a number the operator has since edited is
-   * dropped. Without that, a fast typist gets one owner's standing rendered against another's name
-   * — the classic out-of-order-response bug, and a uniquely bad one here because what it mislabels
-   * is somebody's billing position.
-   *
-   * Swallowed on failure, for the same reason as the tally: advisory copy must never be able to
-   * stop a listing being taken down.
-   */
+  /* The desk is exempt from the freemium ceiling — it is a rule about self-service — but an owner
+     past their plan is an upgrade conversation only the operator can have, so show the numbers and
+     let the desk decide. Asked at ten digits, and a reply for an edited number is dropped so one
+     owner's standing never renders against another's name. */
   const [standing, setStanding] = useState(null);
   const ownerMobile = form.ownerMobile;
   useEffect(() => {
@@ -135,8 +96,6 @@ export default function AdminPostOnBehalf() {
       // the saved listing or the Review screen.
       if (field === 'propertyType') {
         next.bhk = '';
-        next.sharing = [];
-        next.sharingRents = {};
         next.amenities = [];
         next.furniture = [];
         next.bathrooms = ''; next.balconies = ''; next.builtUp = ''; next.plotArea = ''; next.floorsInHouse = '';
@@ -144,7 +103,7 @@ export default function AdminPostOnBehalf() {
         next.plotLength = ''; next.plotWidth = ''; next.openSides = ''; next.roadWidth = ''; next.cornerPlot = false; next.boundaryWall = false; next.plotZone = ''; next.naSanctioned = false; next.waterSource = ''; next.electricity = false; next.roadAccess = false; next.satbara = false;
         if (value !== 'commercial') next.commercialType = '';
         if (LAND_TYPES.includes(value)) {
-          next.floor = ''; next.totalFloors = ''; next.facing = ''; next.age = ''; next.furnishing = 'unfurnished';
+          next.floor = ''; next.totalFloors = ''; next.facing = ''; next.overlooking = ''; next.age = ''; next.furnishing = 'unfurnished';
         }
       }
       // Sale has no security deposit or preferred-tenant list — drop rent-era values.
@@ -162,8 +121,7 @@ export default function AdminPostOnBehalf() {
     } else if (s === 2) {
       if (!form.propertyType) err.propertyType = true;
       if (form.propertyType === 'commercial' && !form.commercialType) err.commercialType = true;
-      if (!form.bhk && form.propertyType !== 'pg' && !NONRES_TYPES.includes(form.propertyType)) err.bhk = true;
-      if (form.propertyType === 'pg' && !(form.sharing && form.sharing.length)) err.sharing = true;
+      if (!form.bhk && !NONRES_TYPES.includes(form.propertyType)) err.bhk = true;
       if (!form.carpetArea) err.carpetArea = true;
     } else if (s === 3) {
       if (!form.locality) err.locality = true;
@@ -181,17 +139,14 @@ export default function AdminPostOnBehalf() {
     if (!validateStep(step)) return;
     setSubmitting(true);
     try {
-      const isPg = form.propertyType === 'pg';
       const land = NONRES_TYPES.includes(form.propertyType) && LAND_TYPES.includes(form.propertyType);
       const isCommercial = form.propertyType === 'commercial';
-      const residentialHome = !NONRES_TYPES.includes(form.propertyType) && !isPg;
-      const bhkNum = (isPg || NONRES_TYPES.includes(form.propertyType)) ? 0 : (Number(form.bhk) || 0);
-      const typeMap = { flat: 'Flat', independent: 'Independent House', villa: 'Villa', pg: 'PG / Hostel', commercial: 'Commercial', openplot: 'Open Plot', farmland: 'Farm Land' };
+      const residentialHome = !NONRES_TYPES.includes(form.propertyType);
+      const bhkNum = NONRES_TYPES.includes(form.propertyType) ? 0 : (Number(form.bhk) || 0);
+      const typeMap = { flat: 'Flat', independent: 'Independent House', villa: 'Villa', commercial: 'Commercial', openplot: 'Open Plot', farmland: 'Farm Land' };
       const subtypeLabel = commercialSubtypes.find((s) => s.value === form.commercialType)?.label || '';
       const typeLabel = (form.propertyType === 'commercial' && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
-      const primaryShare = isPg && Array.isArray(form.sharing) && form.sharing.length ? form.sharing[0] : '';
-      const sharingLabel = primaryShare ? (pgSharingOptions.find((o) => o.value === primaryShare)?.label || '') : '';
-      const titlePrefix = isPg && sharingLabel ? sharingLabel + ' ' : bhkNum ? bhkNum + ' BHK ' : '';
+      const titlePrefix = bhkNum ? bhkNum + ' BHK ' : '';
       const title = titlePrefix + typeLabel + ' in ' + (form.locality || 'Pune');
 
       const listing = {
@@ -203,13 +158,12 @@ export default function AdminPostOnBehalf() {
         plotArea: Number(form.plotArea) || 0,
         floorsInHouse: Number(form.floorsInHouse) || 0,
         furniture: form.furniture || [],
-        ...(isPg && { shareType: 'pg', sharing: form.sharing, sharingRents: form.sharingRents || {}, room: 'shared' }),
         ...(isCommercial && { shellType: form.shellType || '', washrooms: form.washrooms || '', parkingSpaces: Number(form.parkingSpaces) || 0, powerBackup: form.powerBackup, pantry: form.pantry, camCharges: parseAmount(form.camCharges), suitableFor: form.suitableFor || [] }),
         ...(land && { plotLength: Number(form.plotLength) || 0, plotWidth: Number(form.plotWidth) || 0, openSides: form.openSides || '', roadWidth: Number(form.roadWidth) || 0, cornerPlot: form.cornerPlot, boundaryWall: form.boundaryWall, plotZone: form.plotZone || '', naSanctioned: form.naSanctioned, waterSource: form.waterSource || '', electricity: form.electricity, roadAccess: form.roadAccess, satbara: form.satbara }),
         locality: form.locality || 'Pune',
         localitySlug: resolveLocalitySlug(form.locality || 'Pune'),
         area: Number(form.carpetArea) || 0, floor: form.floor || 'N/A',
-        totalFloors: Number(form.totalFloors) || 0, facing: form.facing || '',
+        totalFloors: Number(form.totalFloors) || 0, facing: form.facing || '', overlooking: form.overlooking || '',
         age: form.age || 'new', furnishing: form.furnishing,
         price: parseAmount(form.price), priceNegotiable: form.priceNegotiable,
         monthlyMaintenance: parseAmount(form.maintenance),
@@ -222,40 +176,20 @@ export default function AdminPostOnBehalf() {
         ownership: form.deal === 'buy' ? (form.ownership || '') : '',
         loanAvailable: residentialHome ? form.loanAvailable : false,
         available: (form.deal === 'rent' || form.possession === 'available') ? (form.availableFrom || '') : '',
-        tenants: isPg ? (form.pgGender || 'any') : (form.preferredTenants || []).join(','),
-        food: isPg ? (form.pgMeals === 'veg' ? 'veg' : 'any') : 'any',
+        tenants: (form.preferredTenants || []).join(','),
+        food: 'any',
         lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration || '11',
         description: form.description || '', society: form.society || '',
         address: form.address || '', landmark: form.landmark || '',
         deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0,
-        /* `postedByAdmin`, `postedByStaff` and `postedByStaffMobile` used to be set here and sent
-           in the body. They are server-set now — see `createListingOnBehalf` — and a client that
-           names the actor is a client asking to be believed about it. `owner`/`ownerMobile` go as
-           the request's own arguments rather than listing fields, because they decide ownership. */
+        /* The staff actor is server-set: a client that names the actor is a client asking to be
+           believed about it. Owner identity goes as request arguments, not listing fields. */
         adminNotes: form.ownerNotes || '', status: 'pending',
       };
 
       const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
-      /*
-       * `OnBehalfListingService` records two audit rows for this one call —
-       * `user.provision_on_behalf` when the owner account is created, and
-       * `property.create_on_behalf` for the listing — both naming the staff member from their
-       * token. The `logAudit` line that stood here wrote a third, browser-local sentence that no
-       * reader on this deployment can see.
-       *
-       * `logStaffActivity` has now gone the same way, and the comment that kept it was wrong on the
-       * point it turned on. It said the Staff Activity console was "a different record with a
-       * different purpose and **no server home yet**". It has one: `AdminStaffActivity.jsx` reads
-       * `GET /admin/staff-activity`, which is `audit_log` narrowed to back-office actors, and
-       * `property.create_on_behalf` is exactly such a row. So the browser-local write was not
-       * feeding that console on a live build — nothing read it — while the console showed the
-       * server's version of the same event either way.
-       *
-       * Decision 40 ("keep post-on-behalf visible on Staff Activity … the operator-facing activity
-       * surface keeps that event as a first-class item") is unaffected and still satisfied: the
-       * event is on that surface, from the server, which is the only place it was ever visible to
-       * a second operator.
-       */
+      /* No client-side audit write: `OnBehalfListingService` records both rows itself, naming the
+         staff member from their token, and the Staff Activity console reads those. */
       setCreatedId(created.id);
       setSuccess(true);
       clearDraft();

@@ -1,23 +1,21 @@
 import { Building2, Camera, Check, IndianRupee, MapPin, User } from 'lucide-react';
 import {
-  localities, facingOptions, ageOptions, floorOptions, totalFloorsOptions,
+  localities, facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   ownershipOptions, agreementOptions, lockinOptions, noticeOptions,
   shellOptions, washroomOptions, suitableForTags, plotZoneOptions,
   openSidesOptions, waterSourceOptions,
   PROPERTY_TYPES, COMMERCIAL_SUBTYPES,
-  amenitiesFor as amenitiesCatalogFor, furnitureFor as furnitureCatalogFor,
-  isLandType, isCommercialType, isPgType, isHouseType,
+  amenitiesFor as amenitiesCatalogFor, furnitureItems,
+  isLandType, isCommercialType, isHouseType,
 } from '../../consumer/list-property/constants.js';
-import { PG_SHARING } from '../../../data/propertyTypes.js';
-export { PG_SHARING_HELP } from '../../../data/propertyTypes.js';
 
 /* Shared canonical option data, imported from the consumer "Post a property" flow
    so the two forms can never drift apart. Re-exported for the wizard steps. */
 export {
-  localities, facingOptions, ageOptions, floorOptions, totalFloorsOptions,
+  localities, facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   ownershipOptions, agreementOptions, lockinOptions, noticeOptions,
   plotZoneOptions, openSidesOptions, waterSourceOptions, washroomOptions,
-  isLandType, isCommercialType, isPgType, isHouseType,
+  isLandType, isCommercialType, isHouseType,
 };
 
 export const typeOptions = PROPERTY_TYPES;
@@ -33,8 +31,6 @@ export const bhkOptions = [
 ];
 export const bathroomOptions = ['1', '2', '3', '4+'];
 export const balconyOptions = ['0', '1', '2', '3+'];
-/* PG occupancy, derived from the canonical PG_SHARING taxonomy. */
-export const pgSharingOptions = PG_SHARING.map(([value, label]) => ({ value, label }));
 
 /* Furnishing keys match the consumer canonical (unfurnished / semi / furnished) so
    an admin-posted listing is found under the same Furnishing filter. */
@@ -47,7 +43,7 @@ export const furnishingOptions = [
 /* Commercial shell type (consumer stores tuples; expose {value,label}). */
 export const shellTypeOptions = shellOptions.map(([value, label]) => ({ value, label }));
 
-/* Sale / possession / tenant / PG selectors mirror the consumer inline options
+/* Sale / possession / tenant selectors mirror the consumer inline options
    value-for-value so listings created either way filter identically. */
 export const transactionTypeOptions = [
   { value: 'new', label: 'New Property' }, { value: 'resale', label: 'Resale' },
@@ -59,12 +55,6 @@ export const preferredTenantsOptions = [
   { value: 'family', label: 'Family' }, { value: 'bachelors', label: 'Bachelors' },
   { value: 'company', label: 'Company Lease' }, { value: 'anyone', label: 'Anyone' },
 ];
-export const pgGenderOptions = [
-  { value: 'boys', label: 'Boys' }, { value: 'girls', label: 'Girls' }, { value: 'any', label: 'Anyone' },
-];
-export const pgMealsOptions = [
-  { value: 'none', label: 'No Meals' }, { value: 'veg', label: 'Veg' }, { value: 'both', label: 'Veg & Non-veg' },
-];
 export const suitableForOptions = suitableForTags;
 
 /* Amenities & furniture as plain label strings (persist straight into the listing,
@@ -72,7 +62,7 @@ export const suitableForOptions = suitableForTags;
    catalog so values line up with the consumer amenity / furniture filters. */
 export const amenitiesFor = (type, commercialType) =>
   amenitiesCatalogFor(type, commercialType).map((a) => a.label);
-export const furnitureFor = (type) => furnitureCatalogFor(type).map((f) => f.label);
+export const furnitureLabels = furnitureItems.map((f) => f.label);
 
 /* localStorage key for the concierge draft (survives an accidental refresh mid-call). */
 export const DRAFT_KEY = 'dz_pob_draft_v1';
@@ -88,11 +78,10 @@ export const STEPS = [
 
 export const INITIAL_FORM = {
   ownerName: '', ownerMobile: '', ownerNotes: '',
-  deal: 'rent', propertyType: '', commercialType: '', bhk: '', sharing: [], carpetArea: '',
+  deal: 'rent', propertyType: '', commercialType: '', bhk: '', carpetArea: '',
   bathrooms: '', balconies: '', builtUp: '', plotArea: '', floorsInHouse: '',
-  floor: '', totalFloors: '', facing: '', age: '',
+  floor: '', totalFloors: '', facing: '', overlooking: '', age: '',
   furnishing: 'unfurnished', furniture: [],
-  sharingRents: {}, pgGender: 'any', pgMeals: 'none',
   washrooms: '', shellType: '', parkingSpaces: '', powerBackup: false, pantry: false, camCharges: '', suitableFor: [],
   plotLength: '', plotWidth: '', openSides: '', roadWidth: '', cornerPlot: false,
   boundaryWall: false, plotZone: '', naSanctioned: false, waterSource: '',

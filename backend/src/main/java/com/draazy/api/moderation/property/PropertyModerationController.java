@@ -43,29 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Listing moderation endpoints (contract tag {@code Moderation}).
- *
- * <p>The four moderator-only routes carry {@code @PreAuthorize} matching the {@code x-roles} the
- * contract gained in spec fix S28. {@code archive}/{@code restore} deliberately do not: they are
- * dual-audience (owner <em>or</em> staff) and their guard lives in the service, because
- * {@code @PreAuthorize} can express "is staff" but not "is staff or owns this row".
- *
- * <p>The status routes carry no response body. That is the contract's choice, not an omission —
- * {@code setPropertyStatus}, {@code toggleFeatured}, {@code flagProperty}, {@code archiveProperty}
- * and {@code restoreProperty} all declare a bare {@code '200': { description: ... }} with no schema.
- * The admin UI re-reads the listing after acting. {@code adminUpdateProperty} is the exception: it
- * returns the listing, because it is the only one whose effect the caller cannot predict from the
- * request they sent.
- *
- * <p><strong>{@code adminUpdateProperty} maps here but does its work in
- * {@code catalog.listing.ListingService}.</strong> Its body is {@code ListingUpdate}, i.e. all of
- * {@code ListingCreate} made optional, and the owner-facing update already applies exactly that
- * mapping. Rebuilding it here would guarantee two copies that drift, so the two paths share one
- * private {@code apply} and differ only in what they do afterwards — an owner's edit re-opens
- * moderation, a moderator's does not (slice 15).
- *
- * <p><strong>Also not here:</strong> {@code archive}/{@code restore}. They already ship in
- * {@code catalog.property.PropertyController}, authorized owner-or-staff in the service — which is
- * the dual-audience rule spec fix S28 recorded, already correctly implemented in slice 2.
+ * Rationale: docs/flows/admin/property-verification.md#moderation-controller.
  */
 @RestController
 public class PropertyModerationController {
@@ -78,21 +56,15 @@ public class PropertyModerationController {
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
 
     /**
-     * Acting on a listing — approve, reject, feature, flag, correct.
-     *
-     * <p>One atom for all five rather than a finer split. The console offers them from the same row
-     * of the same table, so an account that can reach any of them can reach all of them, and a
-     * vocabulary that pretended otherwise would be describing a screen that does not exist.
+     * Acting on a listing — approve, reject, feature, flag, correct. One atom for all five: the
+     * console offers them from the same table row, so a finer split would describe no real screen.
      */
     private static final String PROPERTIES_WRITE =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
 
     /**
-     * Creating a listing owned by somebody else.
-     *
-     * <p>Its own atom, deliberately not {@link #PROPERTIES_WRITE} — see
-     * {@link OnBehalfListingService}. This is the only route on the platform where the caller names
-     * the owner of what they create.
+     * Creating a listing owned by somebody else. Its own atom, not {@link #PROPERTIES_WRITE}: the
+     * only route where the caller names the owner of what they create.
      */
     private static final String POST_ON_BEHALF_WRITE =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_POSTONBEHALF_WRITE;
@@ -122,42 +94,7 @@ public class PropertyModerationController {
 
     /**
      * {@code GET /admin/properties} (contract {@code listPropertiesForModeration}) — the queue.
-     *
-     * <p>The read the other five operations here shipped without. Every one of them addresses a
-     * listing by {@code {id}}, and until now nothing on the platform could produce such an id for an
-     * unapproved listing: {@code GET /properties} pins {@code status='approved' AND archived=false}
-     * unconditionally (it takes no principal, so it cannot relax for staff), and
-     * {@code GET /me/listings} is scoped to the caller's own {@code owner_id}. A moderator could
-     * approve a listing only if someone told them it existed.
-     *
-     * <p>{@code status} and the five {@link ModerationFacets} axes are what the public search
-     * cannot express; all five are tri-state ({@code null} = both) because "everything" and "only
-     * the live ones" are different questions. The remaining facets are shared with the public search
-     * verbatim, so a moderator filtering by locality gets the same semantics a seeker does.
-     *
-     * <p>{@code recheck=true} is the stays-live queue (Q14) and is a third axis rather than another
-     * {@code status} value for the reason that outcome exists at all: every status except
-     * {@code approved} is off search, so expressing "waiting for a moderator" as a status would
-     * re-impose the exact cost the split was introduced to avoid.
-     *
-     * <p>{@code featured}, {@code postedByAdmin} and {@code unconfirmed} arrived together, and for
-     * one reason: the console had a tab for each and evaluated all three <em>in the browser</em>,
-     * over whichever hundred listings had already been fetched. Measured on a 322-listing
-     * catalogue that rendered the Flagged and Featured queues as <strong>empty</strong> while the
-     * summary tiles beside them, which this same controller answers, said four and five — a page
-     * disagreeing with itself on screen. A predicate the database cannot see cannot page.
-     *
-     * <p>Rendered {@link ContactVisibility#REVEALED}, and this controller reversed itself on that.
-     * It previously masked, on the reasoning that a list exposes numbers in bulk rather than one at
-     * a time. That reasoning was sound about the risk and wrong about the job: the desk this feeds
-     * exists to phone owners whose listings are stuck, and a moderator who cannot read the number
-     * simply looks it up somewhere the platform cannot see, which trades an audited disclosure for
-     * an unaudited one. The mask never protected the owner from staff — it only protected staff
-     * from being recorded.
-     *
-     * <p>What still holds is that this is the <em>only</em> reason to reveal. The gate
-     * ({@code owner|approved|pending|declined|none}) governs seekers, and no amount of back-office
-     * role satisfies it; what governs here is {@code properties:read}, an atom granted per account.
+     * Rationale: docs/flows/admin/property-verification.md#moderation-controller.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(PROPERTIES_READ)
@@ -178,9 +115,8 @@ public class PropertyModerationController {
             @RequestParam(required = false) Boolean postedByAdmin,
             @RequestParam(required = false) Boolean unconfirmed,
             @PageableDefault(size = 20) Pageable pageable) {
-        // The owner facet exists for the public profile page and is deliberately not offered here:
-        // the moderation desk already finds an owner's stock through the user record, and adding a
-        // second way in would be a filter nobody maintains.
+        // The owner facet is the public profile page's, deliberately not offered here: the desk
+        // already reaches an owner's stock through the user record.
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 null);
@@ -194,13 +130,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code GET /admin/properties/summary} (contract {@code propertyModerationSummary}) — the
-     * console's headline counts, over every listing rather than over the page just fetched.
-     *
-     * <p>Takes no filters, deliberately. These are the platform's totals; a strip that narrowed
-     * with the console's search box would be a second rendering of the table's own row count, and
-     * the question it exists to answer — "how much is waiting that I am not looking at" — is
-     * precisely the one a filtered count cannot answer.
+     * {@code GET /admin/properties/summary} — platform-wide headline counts. Unfiltered on purpose:
+     * "how much is waiting that I am not looking at" is what a filtered count cannot answer.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_SUMMARY)
     @PreAuthorize(PROPERTIES_READ)
@@ -240,16 +171,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code PATCH /properties/{id}/admin} (contract {@code adminUpdateProperty}) — correct another
-     * user's listing in place.
-     *
-     * <p>The one moderation route that returns a body, because it is the one that changes fields
-     * the moderator chose rather than a status they can already see. Rendered
-     * {@link ContactVisibility#REVEALED}, like {@link #queue} — a moderator correcting somebody
-     * else's listing is the caller most likely to need to ring them about it.
-     *
-     * <p>The work is delegated to {@link ListingService#updateAsModerator}, which owns the single
-     * copy of the {@code ListingUpdate} field mapping — see this class's Javadoc.
+     * {@code PATCH /properties/{id}/admin} — correct another user's listing in place. The one
+     * moderation route returning a body; field mapping lives in {@link ListingService}.
      */
     @PatchMapping(Routes.Moderation.PROPERTY_ADMIN_UPDATE)
     @PreAuthorize(PROPERTIES_WRITE)
@@ -262,20 +185,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code POST /admin/properties} — post a listing on an owner's behalf; 201.
-     *
-     * <p>Same path as {@link #queue}, different method, and the pairing is exact: {@code GET} is the
-     * supply an operator moderates, {@code POST} is supply an operator adds. Both are the
-     * back-office's view of {@code /properties}, which is why neither lives under it.
-     *
-     * <p>Carries {@link #POST_ON_BEHALF_WRITE} rather than {@code properties:write} — this is the
-     * one route where the caller names somebody else as the owner of what they create. See
-     * {@link OnBehalfListingService}.
-     *
-     * <p>Rendered {@link ContactVisibility#REVEALED}, like every other response on this controller.
-     * Here it is not even a disclosure: the operator typed this number into the request a moment
-     * ago, so masking it on the way back would have hidden a value from the only person who already
-     * had it, while making the response inconsistent with the queue the new listing lands in.
+     * {@code POST /admin/properties} — post a listing on an owner's behalf; 201. Carries
+     * {@link #POST_ON_BEHALF_WRITE} because the caller names somebody else as owner.
      */
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
@@ -289,19 +200,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code GET /admin/properties/owner-standing} — how much of their listing ceiling this owner is
-     * already using; 200 even for a number with no account.
-     *
-     * <p>Guarded by {@link #POST_ON_BEHALF_WRITE}, not {@code properties:read}. This is the one read
-     * on the controller that discloses a fact about a named individual's plan rather than about
-     * supply, and its only audience is the desk that is about to post past that plan. Guarding a
-     * read with a write atom is unusual, and the alternative was worse: a {@code postOnBehalf:read}
-     * would add a row to the permission grid that exists solely to be ticked alongside the row above
-     * it, and {@code BackOfficePermissions} is explicit that it does not hold names which guard
-     * nothing anybody reasons about separately.
-     *
-     * <p>The number is normalised in the service, the same way the console holds it. An operator
-     * types what the caller reads out.
+     * {@code GET /admin/properties/owner-standing} — this owner's listing-ceiling usage; 200 even
+     * for a number with no account. Guarded by the write atom: its only audience is that desk.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_OWNER_STANDING)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
@@ -311,14 +211,7 @@ public class PropertyModerationController {
 
     /**
      * {@code GET /admin/properties/duplicates} — listings that look like the same doorway, grouped.
-     *
-     * <p>Beside {@link #queue} because it is the same supply seen a different way, and guarded the
-     * same: {@code properties:read} already discloses every one of these listings in full. What is
-     * added here is a relation between them, which is strictly less than the rows themselves.
-     *
-     * <p>Returns a report rather than a bare list so the caller is told when the scan hit its
-     * ceiling. That matters more here than on a paged endpoint — see
-     * {@link DuplicateClusterReport#truncated()}.
+     * A report, not a bare list, so the caller is told when the scan hit its ceiling.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES)
     @PreAuthorize(PROPERTIES_READ)
@@ -327,15 +220,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code POST /admin/properties/duplicates/merge} — keep one, archive the rest; 204.
-     *
-     * <p>{@link #PROPERTIES_WRITE}: it archives listings, which is what that atom governs wherever
-     * else it happens. Reaching the decision from the duplicates desk does not make it a smaller
-     * act than reaching it from the queue.
-     *
-     * <p>No body back. The caller's next move is to re-read the desk — the merge changes which
-     * clusters exist, and returning the merged one would be returning the thing that no longer
-     * exists.
+     * {@code POST /admin/properties/duplicates/merge} — keep one, archive the rest; 204. Archiving
+     * is what {@link #PROPERTIES_WRITE} governs everywhere else, so it governs here too.
      */
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_MERGE)
     @PreAuthorize(PROPERTIES_WRITE)
@@ -347,14 +233,7 @@ public class PropertyModerationController {
 
     /**
      * {@code POST /admin/properties/duplicates/dismiss} — record that a cluster is a coincidence;
-     * 204.
-     *
-     * <p>{@link #PROPERTIES_WRITE} although no listing is touched. See
-     * {@link Routes.Moderation#ADMIN_PROPERTIES_DUPLICATES_DISMISS} for why the read atom was the
-     * wrong instinct here.
-     *
-     * <p>Idempotent, so a double-click and two operators reaching the same verdict both return 204
-     * rather than one of them hitting the unique index.
+     * 204. Idempotent so a double-click or a second operator returns 204, not a unique-index clash.
      */
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_DISMISS)
     @PreAuthorize(PROPERTIES_WRITE)
@@ -365,15 +244,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code POST /properties/{id}/pipeline} — move a staff-posted listing along the owner
-     * hand-back funnel.
-     *
-     * <p>{@link #POST_ON_BEHALF_WRITE}, matching {@link #createOnBehalf}: the funnel only exists for
-     * listings that route created, and reporting on a liability belongs with the power to open it.
-     *
-     * <p>Rendered {@link BackOfficeVisibility#VISIBLE} — the caller is the desk the funnel is for,
-     * and returning the listing without the stage it was just moved to would make the response
-     * useless for the board that issued the call.
+     * {@code POST /properties/{id}/pipeline} — move a staff-posted listing along the owner hand-back
+     * funnel. {@link #POST_ON_BEHALF_WRITE}: the funnel only exists for listings that route created.
      */
     @PostMapping(Routes.Moderation.PROPERTY_PIPELINE)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
@@ -390,18 +262,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code POST /properties/{id}/outreach} — chase this listing's owner.
-     *
-     * <p>Returns the composed message and a {@code handoffLink} the console opens, which is where
-     * the send actually happens: WhatsApp opens on the staff member's own device with the text
-     * typed out and they press send. See {@link com.draazy.api.common.trust.MessageSender} for why
-     * the server records this as {@code prepared} rather than claiming a delivery it cannot witness.
-     *
-     * <p>{@link #POST_ON_BEHALF_WRITE}. The atom is named for creating listings on somebody's
-     * behalf, and this is the same power pointed at the same people: it puts a message on a member
-     * of the public's personal phone, in the platform's name, unprompted. An operator trusted to
-     * manufacture a listing under a stranger's number is trusted to message that number; an operator
-     * granted only {@code properties:write} — moderating supply that already exists — is not.
+     * {@code POST /properties/{id}/outreach} — chase this listing's owner. The send happens on the
+     * staff member's own device, so the server records {@code prepared}, not a delivery.
      */
     @PostMapping(Routes.Moderation.PROPERTY_OUTREACH)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
@@ -411,12 +273,8 @@ public class PropertyModerationController {
     }
 
     /**
-     * {@code GET /properties/{id}/outreach} — every chaser sent to this listing's owner.
-     *
-     * <p>Readable with {@link #PROPERTIES_READ} rather than the write atom that produced the rows,
-     * because the point of a shared log is that the colleague about to phone this owner can check
-     * whether somebody already has. Gating the history behind the permission to add to it would
-     * leave exactly the person who should back off unable to find out.
+     * {@code GET /properties/{id}/outreach} — every chaser sent to this listing's owner. Read atom,
+     * not write: the colleague who should back off must be able to see somebody already called.
      */
     @GetMapping(Routes.Moderation.PROPERTY_OUTREACH)
     @PreAuthorize(PROPERTIES_READ)
@@ -426,6 +284,15 @@ public class PropertyModerationController {
 
     /** Body of {@code sendOwnerOutreach}. */
     public record OutreachRequest(@NotBlank String templateId) {
+    }
+
+    @PostMapping("/properties/{id}/outreach/{messageId}/sent")
+    @PreAuthorize("hasAnyRole('STAFF', 'ADMIN') and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE
+            + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void recordClaimLinkSent(@CurrentUser AuthPrincipal actor, @PathVariable String id,
+            @PathVariable String messageId) {
+        outreach.recordClaimLinkSent(actor, id, messageId);
     }
 
     /** Body of {@code setPropertyStatus} (schema {@code PropertyStatusUpdate}). */

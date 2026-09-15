@@ -13,6 +13,8 @@ import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.moderation.report.Report;
 import com.draazy.api.moderation.report.ReportRepository;
+import com.draazy.api.security.Roles;
+import com.draazy.api.security.Teams;
 import com.draazy.api.support.AbstractApiTest;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -25,14 +27,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * The abuse queue's decisions have to <em>land</em> (tech debt D68).
- *
- * <p>Before the enforcement field, {@code PATCH /reports/{id}} with {@code status=actioned} changed
- * a word in a status column and nothing else: the reported listing stayed live, the reported account
- * stayed signed in, and the admin screen's "Take down" button took nothing down. Every assertion
- * here is about the gap between saying and doing — a report moved to {@code actioned} with an
- * enforcement must leave the <em>target</em> in a different state, in the same transaction, with the
- * acting moderator named on it.
+ * A report moved to {@code actioned} with an enforcement must leave the target in a different state,
+ * in the same transaction, with the acting moderator named on it.
  */
 @DisplayName("Report triage — the decision reaches the thing that was reported")
 class ReportEnforcementTest extends AbstractApiTest {
@@ -44,11 +40,7 @@ class ReportEnforcementTest extends AbstractApiTest {
     @Autowired
     ReportRepository reports;
 
-    /**
-     * Audit writes run {@code REQUIRES_NEW}, so they commit past this test's own rollback. Every
-     * assertion below is scoped to a specific entity id rather than to an action name, and the rows
-     * are removed here — without this the class would be quietly order-dependent.
-     */
+    /** Audit writes run {@code REQUIRES_NEW} and commit past rollback; wipe them per-actor to keep the class order-independent. */
     private final List<String> createdActors = new ArrayList<>();
 
     @AfterEach
@@ -61,6 +53,9 @@ class ReportEnforcementTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName(name);
         u.setMobileVerified(true);
+        // Staff without a desk are refused outright; the seeded document grants all six the same
+        // set, so which one is immaterial here.
+        if (Roles.Wire.STAFF.equals(role)) u.setTeam(Teams.RENTAL);
         User saved = users.saveAndFlush(u);
         createdActors.add(saved.getId().toString());
         return saved;
@@ -88,9 +83,8 @@ class ReportEnforcementTest extends AbstractApiTest {
     // ------------------------------------------------------------------ authorisation
 
     /**
-     * The queue holds unproven allegations about named people, so reading it is ops-only and acting
-     * on it more so. This is the guard the whole feature rests on: a buyer who can reach either verb
-     * can read every complaint on the platform and decide them.
+     * Reading the queue is ops-only; acting on it more so. A buyer reaching either verb would learn
+     * every complaint on the platform and could decide them.
      */
     @Test
     @DisplayName("a non-ops caller can neither read the queue nor decide a report")
@@ -138,8 +132,8 @@ class ReportEnforcementTest extends AbstractApiTest {
         // with no reason is a listing that went dark for no recorded cause.
         assertThat(after.getFlagReason()).contains("Reported: fake");
 
-        // Two audit rows, deliberately: one against the queue, one against the listing. Somebody
-        // auditing the listing must see why it went dark without knowing a report existed.
+        // Two audit rows, deliberately: one against the queue, one against the listing — an auditor
+        // must see why a listing went dark without knowing a report existed.
         assertThat(jdbc.queryForObject(
                 "select count(*) from audit_log where action = 'report.triage' and entity_id = ?",
                 Integer.class, filed.getId().toString())).isEqualTo(1);
@@ -193,9 +187,8 @@ class ReportEnforcementTest extends AbstractApiTest {
     }
 
     /**
-     * A review can be taken down, but not from here — and the refusal has to say so. A 422 reading
-     * only "not allowed" would leave the moderator believing the platform cannot remove a fake
-     * review at all, which is untrue and is the kind of belief that ends up in a policy document.
+     * A review can be taken down, but not from here — the refusal has to name the alternative, or the
+     * moderator will believe fake reviews cannot be removed at all.
      */
     @Test
     @DisplayName("an unsupported target refuses by naming the endpoint that can do the job")
@@ -213,10 +206,7 @@ class ReportEnforcementTest extends AbstractApiTest {
                         org.hamcrest.Matchers.containsString("/reviews/{id}/status")));
     }
 
-    /**
-     * A report with no enforcement field is the pre-existing caller, and it must keep working
-     * exactly as it did — decide the complaint, touch nothing.
-     */
+    /** A request with no enforcement is the pre-existing caller; it must still decide and touch nothing. */
     @Test
     @DisplayName("triage without an enforcement field still decides and still changes nothing")
     void absentEnforcementIsNone() throws Exception {
@@ -240,8 +230,8 @@ class ReportEnforcementTest extends AbstractApiTest {
     // ------------------------------------------------------------------ filters
 
     /**
-     * The filters have to be applied by the server. A client-side filter over one page is a filter
-     * that stops being true the moment the queue outgrows the page, and says nothing when it does.
+     * A client-side filter over one page stops being true the moment the queue outgrows the page,
+     * and says nothing when it does.
      */
     @Test
     @DisplayName("the queue filters by reason and by target type, server-side")
@@ -267,8 +257,8 @@ class ReportEnforcementTest extends AbstractApiTest {
                         .value(org.hamcrest.Matchers.everyItem(
                                 org.hamcrest.Matchers.equalTo("fake"))));
 
-        // A mistyped filter must not read as "queue clear" — an empty page is the same thing a
-        // moderator sees when there is genuinely nothing to do.
+        // A mistyped filter must not read as "queue clear" — same appearance as a genuinely empty
+        // queue.
         mvc.perform(get("/reports").param("reason", "notareason")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isBadRequest());
@@ -276,10 +266,7 @@ class ReportEnforcementTest extends AbstractApiTest {
 
     // ------------------------------------------------------------------ the dashboard tile
 
-    /**
-     * D68's own words: "the one scorecard ops looks at does not show the reports backlog at all".
-     * The count comes from the queue's definition of outstanding, not from a second copy of it.
-     */
+    /** The count comes from the queue's definition of outstanding, not a second copy of it. */
     @Test
     @DisplayName("the ops scorecard carries the reports backlog, counting claimed-but-undecided")
     void scorecardCarriesTheBacklog() throws Exception {

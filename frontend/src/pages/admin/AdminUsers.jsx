@@ -28,14 +28,8 @@ const STATUS_OPTS = [
   { value: 'archived', label: 'Archived' },
 ];
 
-/**
- * How each confirmable action is worded and what it needs before Confirm is allowed.
- *
- * `requiresReason` is not a house style. The server enforces it — a flag without a reason is a 422,
- * and the database carries a matching check constraint — so a Confirm button that stayed enabled
- * would submit a request that could only fail. Suspension and archiving take an optional reason
- * because a moderator acting on something obvious should not have to type prose to stop an abuser.
- */
+/* `requiresReason` mirrors a server 422 and a database check constraint, so a Confirm button that
+   stayed enabled would submit a request that could only fail. */
 const ACTION_COPY = {
   verifyGrant: { title: 'Grant Verified badge', requiresReason: true, hint: 'Say what you checked. The badge is a claim the platform makes on this person\u2019s behalf.' },
   verifyRemove: { title: 'Remove Verified badge', requiresReason: true, hint: 'Say what changed. Removing a badge is visible to everyone browsing their listings.' },
@@ -70,30 +64,22 @@ export default function AdminUsers() {
   const [busy, setBusy] = useState(false);
   const [timelineUser, setTimelineUser] = useState(null);
   const [timeline, setTimeline] = useState(null); // null = still loading
-  /* Notes on this person (D29). Separate from `timeline` because they are a separate route with a
-     separate audience: the timeline is admin-only and has no `note` kind, and these are written by
-     staff who must be able to read them back. null = still loading. */
+  /* Separate from `timeline`: a separate route with a separate audience, since the timeline is
+     admin-only and has no `note` kind. null = still loading. */
   const [userNotes, setUserNotes] = useState(null);
   const [userNoteDraft, setUserNoteDraft] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // Guards every post-await setState. Re-armed in the effect body, not merely cleared in cleanup:
-  // under StrictMode a mount/unmount/re-mount would otherwise leave it false forever and silently
-  // swallow the first load.
+  // Guards every post-await setState. Re-armed in the effect body rather than only cleared in
+  // cleanup, or StrictMode's mount/unmount/re-mount leaves it false forever.
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; };
   }, []);
 
-  /**
-   * One request per filter change, not one big fetch filtered in the browser.
-   *
-   * The old page loaded every account once and did all three filters client-side, which is why the
-   * "Suspended" option had to be simulated: there was no server-side status filter to ask for. Now
-   * there is, and asking for it is also the only way the counts under the heading can be true \u2014 a
-   * client-side filter can only ever count what it was given.
-   */
+  /* One request per filter change rather than one fetch filtered in the browser: the status filter
+     only exists server-side, and a client-side filter can only count what it was given. */
   const load = useCallback(async () => {
     const page = await listUsers({ role, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE });
     if (!alive.current) return;
@@ -130,16 +116,8 @@ export default function AdminUsers() {
   };
   const closeTimeline = () => { setTimelineUser(null); setTimeline(null); setUserNotes(null); setUserNoteDraft(''); };
 
-  /**
-   * File a note against this person.
-   *
-   * No `action` label: the four listing notes are filed beside a decision and say which one, but a
-   * note written here is the whole of what happened. Labelling it "Note" would add a word and no
-   * information.
-   *
-   * The list is refetched rather than optimistically prepended, because the server decides the id,
-   * the timestamp and the byline — and the byline is the point of the panel.
-   */
+  /* Refetched rather than optimistically prepended: the server decides the id, the timestamp and
+     the byline, and the byline is the point of the panel. */
   const submitUserNote = async () => {
     const text = userNoteDraft.trim();
     if (!text || !timelineUser || savingNote) return;
@@ -155,15 +133,8 @@ export default function AdminUsers() {
     }
   };
 
-  /**
-   * Every action ends in a reload rather than a local patch.
-   *
-   * Two of the four routes return no body, and the two that do return the whole account \u2014 including
-   * fields this row does not carry. Re-reading the page is cheaper to reason about than four
-   * different merge rules, and it is the only version that stays correct when the server refuses:
-   * a rejected suspension leaves the row exactly as the server still has it, rather than as the
-   * click assumed it would be.
-   */
+  /* Every action ends in a reload rather than a local patch: the four routes return nothing or the
+     whole account, and a reload stays correct when the server refuses the change. */
   const confirmAction = async () => {
     if (busy || !actionModal) return;
     const { user: u, action, copy } = actionModal;
@@ -204,9 +175,8 @@ export default function AdminUsers() {
       closeAction();
       await load();
     } catch (err) {
-      // The server's own sentence, not a generic failure: it is the only place that knows *why*.
-      // "This account is archived, not suspended" tells the moderator what to do next; "Something
-      // went wrong" sends them to look for a bug that is not there.
+      // The server's own sentence, not a generic failure: it is the only place that knows why, and
+      // it tells the moderator what to do next.
       toast(err?.message || 'That could not be done', 'error');
     } finally {
       if (alive.current) setBusy(false);
@@ -230,13 +200,13 @@ export default function AdminUsers() {
           <Eye className="h-4 w-4" />
         </button>
       )}
-      {/* An Aadhaar-earned badge cannot be withdrawn by hand \u2014 the server answers 409 and nothing
-          would restore it. Disabling the button with the reason attached is more use than a
-          control that can only fail. */}
+      {/* No `disabled` here on purpose. The badge used to be withdrawable only when a human had
+          not granted it, and the guard read an `identityVerified` field — which no provider sends
+          and the server has never carried, so it was always false and the control was always
+          enabled anyway. See tasks/todo.md: the server needs to answer 409 first. */}
       <button
         onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')}
-        disabled={u.verified && u.aadhaarVerified}
-        title={u.verified && u.aadhaarVerified ? 'Verified through Aadhaar \u2014 cannot be removed by hand' : u.verified ? 'Remove Verified badge' : 'Grant Verified badge'}
+        title={u.verified ? 'Remove Verified badge' : 'Grant Verified badge'}
         className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}
       >
         <ShieldCheck className="h-4 w-4" />

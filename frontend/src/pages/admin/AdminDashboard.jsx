@@ -68,33 +68,9 @@ export default function AdminDashboard() {
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
   const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
 
-  /* Every figure on this screen except the listings used to be read straight out of `lib/mockApi.js`,
-     below the service seam. With the backend running and every other admin console live, the landing
-     page still showed the browser's demo database: total users, enquiries, visits, service requests,
-     deals, revenue and the platform-health panel were all seeded numbers, presented without
-     qualification beside four listing tiles that were real. It is the first screen an operator opens.
-
-     ## Where each number comes from now, and why the split
-     `getAdminKpis()` used to be the tenth call here and its result was never read; the comment that
-     replaced it recorded that adopting it was "a product decision, not a cleanup", because the
-     server counts the catalogue while this component counted whatever it had happened to fetch. That
-     decision has now been taken, and the answer is both, along one line:
-
-       catalogue-wide totals  ->  `dashboardKpis()` (`GET /admin/dashboard`), counted in SQL
-       queue depths and rows  ->  the collections the tile links through to
-
-     The totals had to move because the collections are **paged** and the tiles did not say so: the
-     enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. "Total Users" read
-     as a fact about the platform while counting a page, and would have kept reading 20 for ever. The
-     queue tiles stay on the collections deliberately — a queue tile is a click-through, and it should
-     agree with the list it opens rather than with a number computed somewhere else.
-
-     ## Reads that fail cost a tile, not the page
-     Unlike the Analytics tabs, whose entire purpose is their figures, this screen's job is to route
-     somebody to the right queue. So the four non-essential reads are caught individually and their
-     tiles are hidden rather than zeroed — a dashboard that renders "0 pending" during an outage sends
-     the moderation desk home. The three queue reads and the settings read are not caught: without
-     them there is no screen. */
+  /* Catalogue-wide totals are counted in SQL; queue depths come from the paged collections their
+     tiles link through to, so a tile always agrees with the list it opens. Non-essential reads hide
+     their tile rather than zero it — "0 pending" during an outage sends the desk home. */
   useEffect(() => {
     let alive = true;
 
@@ -105,34 +81,20 @@ export default function AdminDashboard() {
         return null;
       });
 
-    /* Two reads of the service desk, both `soft`. They used to be gated on `isHttpDomain('ticket')`
-       because `ticket` was a live-only domain — there was no mock provider, deliberately, since the
-       mock store knew three statuses where the server knows five — and asking for one threw, which
-       inside this `Promise.all` would have left the screen on <Loading /> for ever. Every domain is
-       live now, so there is nothing to gate on; a desk that cannot be read still costs a tile
-       rather than the page. */
+    /* Two `soft` reads of the service desk: a desk that cannot be read costs a tile, not the page. */
 
     Promise.all([
-      /* Narrowed from `listForModeration({}, 'newest')` (D249). Every use of this array below is
-         pending-only — the follow-up list, the stale list, the review card — and the one use that
-         was not (the Flagged Listings tile) now takes its number from `moderationSummary`, which
-         the server counts over the whole catalogue.
-
-         The old read was wrong in the worst available direction. It fetched the *newest* hundred
-         rows and then looked for the listings that had been waiting longest, so on a catalogue over
-         the page cap the rows it dropped were precisely the ones it existed to surface: the stalest
-         pending listing is the last thing a newest-first page keeps. `oldest` inverts that — a cap
-         now truncates the freshest rows, which are the ones neither list wants. */
+      /* Pending-only and `oldest`-first: every use below wants the listings waiting longest, and a
+         newest-first page cap drops precisely those. The Flagged tile takes its number from
+         `moderationSummary`, which the server counts over the whole catalogue. */
       listForModeration({ status: 'pending', archived: false }, 'oldest'),
       soft('the catalogue counters', moderationSummary()),
       listEnquiries(),
       listVisits(),
       listDeals(),
-      /* Five rows for the activity card, and a separate size=1 read purely for its `total`. Two
-         requests rather than one because the card wants the newest tickets whatever their state,
-         while the tile wants an exact count of one state — and counting the first five would report
-         "3 open" on a desk with ninety. `open`, not `new`: `new` is the mock's word and the server
-         would reject it. */
+      /* Two reads: the card wants the newest tickets whatever their state, the tile wants an exact
+         count of one state — counting the first five would report "3 open" on a desk with ninety.
+         `open`, not `new`: `new` is the mock's word and the server rejects it. */
       soft('the service desk', listTicketQueue({ size: 5 })),
       soft('the service desk', listTicketQueue({ status: 'open', size: 1 })),
       /* Same trick for the owner sub-label: one row fetched, only `total` used. */
@@ -159,21 +121,13 @@ export default function AdminDashboard() {
   const schedVisits = visits.filter((x) => x.status === 'scheduled').length;
   const dealsProg = deals.filter((x) => x.status === 'in_progress').length;
 
-  /* Counted by the server over the whole catalogue, not by the browser over a page (D249).
-     `listings.filter(status === 'flagged').length` read as a count and behaved as one right up to
-     the catalogue's hundredth row, after which it reported however many flagged listings happened
-     to fall inside the fetched window — a number that only ever moves downwards, and reads on
-     screen as "the queue is shorter than it is". `moderationSummary`'s own docblock warns against
-     exactly this: it is there because the same mistake once painted `Active 0` over 54 approved
-     listings. Null when the read failed, which hides the tile rather than claiming zero. */
+  /* Counted by the server over the whole catalogue: a browser-side filter over a paged window
+     reports a queue as shorter than it is. Null on a failed read, which hides the tile. */
   const flagged = summary?.flagged ?? null;
 
-  /* Catalogue-wide, counted by the server. `pendingModeration` falls back to the counters read when
-     the scorecard read failed: this is the tile the moderation desk works from, so a degraded number
-     with a console warning beside it beats no tile at all. Not to `listings.length` — that array is
-     now a page of the pending queue, so on a large backlog it would report the page size as the
-     backlog. The glance tiles below take the opposite view and disappear, because nobody routes work
-     from them. */
+  /* Catalogue-wide, counted by the server. `pendingModeration` degrades to the counters rather than
+     vanishing — the desk routes work from this tile, so a warned-about number beats no tile, and
+     never `listings.length`, which is a page of the queue and would report the page as the backlog. */
   const pendingVerif = kpis ? kpis.pendingModeration : summary?.pending ?? null;
 
   const tickets = ticketPage?.items || [];
@@ -187,11 +141,9 @@ export default function AdminDashboard() {
   const lastDay = days[days.length - 1] || null;
   const sessions30 = days.reduce((sum, d) => sum + d.sessions, 0);
 
-  /* Pending for more than 48 hours. `listings` arrives pending-only and oldest-first from the
-     server, so the five this keeps are the five oldest in the *catalogue* rather than the five
-     oldest in a page — which is the whole point of the narrowed read above. The status guard stays
-     as a guard: it is now redundant against the query, and it should be the query that changes if
-     this card ever wants a second status, not this filter that quietly widens. */
+  /* `listings` arrives pending-only and oldest-first, so these five are the oldest in the catalogue
+     rather than in a page. The status guard is redundant against the query on purpose: widen the
+     query if this card ever wants a second status, not this filter. */
   const now = Date.now();
   const staleListings = listings
     .filter((l) => {
@@ -201,31 +153,19 @@ export default function AdminDashboard() {
     })
     .slice(0, 5);
 
-  /* Owners who received a claim link but have not finished (no photos OR no Aadhaar). Same
-     pending-only, oldest-first array, so the ones surfaced are the ones that have been stuck
-     longest rather than whichever incomplete claims happened to be recent. There is no server-side
-     filter for "photos or Aadhaar missing", so this leg stays a client filter — but it is now a
-     filter over the oldest pending listings rather than over an arbitrary hundred. */
+  /* Owners who got a claim link but finished neither photos nor Aadhaar. No server-side filter
+     exists for that, so it stays a client filter — but over the oldest pending listings, which
+     surfaces the ones stuck longest rather than whichever were recent. */
   const awaitingOwner = listings
-    .filter((l) => l.postedByAdmin && l.status === 'pending' && (!l.photosUploaded || !l.aadhaarVerified))
+    .filter((l) => l.postedByAdmin && l.status === 'pending' && (!l.photosUploaded || !l.identityVerified))
     .slice(0, 5);
 
   const followUpItems = [...staleListings, ...awaitingOwner]
     .filter((v, i, a) => a.findIndex((x) => x.id === v.id) === i);
 
-  /* Tiles whose source went away are dropped rather than left showing a plausible figure:
-
-     - **Owner KYC Pending** counted `role === 'owner' && !verified` in the browser. There is no live
-       equivalent: `/users` has no `verified` filter, `AdminKpis` has no such field, and
-       `verificationService` is self-service only (`/me/verification/aadhaar`) with no admin queue
-       behind it. Recorded in tasks/DECISIONS-NEEDED.md.
-     - **New Service Requests** is now **Open**. `new` is the mock's word; `TicketStatuses` knows
-       `open, in-progress, waiting, resolved, closed` and the mapper deliberately does not translate,
-       so the old filter would have matched nothing live.
-     - **Open Reports** takes the freed slot. It is `AdminKpis.openReports` — by its own javadoc "the
-       second queue tile tech debt D68 was waiting for" — so the abuse queue finally has a way in
-       from the landing page. It hides when the scorecard read fails rather than claiming zero
-       reports, which is the one thing a moderation tile must never say wrongly. */
+  /* A tile whose source went away is dropped rather than left showing a plausible figure. Owner KYC
+     Pending has no live equivalent here (the queue belongs to the ops identity desk) and its slot
+     goes to Open Reports, which hides on a failed read rather than claiming zero. */
   const actionTiles = [
     { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: pendingVerif != null },
     { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
@@ -238,14 +178,8 @@ export default function AdminDashboard() {
   ].filter((t) => t.show).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
 
   /* `revenue30d` is null for a `staff` caller by design — the server redacts the one admin-only
-     figure rather than refusing the whole read (`AdminKpis` javadoc, spec fix S61). `fmtINR(null)`
-     would print ₹0, so null means the tile is not rendered at all, which is what a redaction looks
-     like. In practice no staffer reaches this screen — the admin shell refuses them outright — so
-     this branch is defence in depth against a future read-only ops console, not something a user
-     can watch happen; `live-admin-dashboard.spec.js` pins both halves so they cannot drift apart.
-     The MoM delta is gone with it: the server sends one rolling 30-day sum, not a month-by-month
-     series, so there is no prior period to compare against without a second read — and the label now
-     says "last 30 days" because that is what the number is. Finance keeps the trend line. */
+     figure rather than refusing the whole read. `fmtINR(null)` would print ₹0, so null hides the
+     tile, which is what a redaction looks like. One rolling 30-day sum, hence no MoM delta. */
   const glanceTilesAll = [
     { lbl: 'Total Users', val: kpis?.totalUsers, display: fmtNum(kpis?.totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: owners == null ? 'buyers & owners' : `${fmtNum(owners)} owners`, show: Boolean(kpis) },
     { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },

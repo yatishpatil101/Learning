@@ -16,17 +16,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The moderation record for one listing under review (schema {@code PropertyReview}, table
- * {@code property_reviews} from V5).
- *
- * <p>Deliberately <em>not</em> a duplicate of {@code properties.status}. The two answer different
- * questions and both are needed: {@code properties.status} is the listing's public visibility, while
- * this row is the case file behind the decision — who reviewed it, against which checklist, what was
- * said, and when it was decided. Collapsing them would mean approving a listing erased the record of
- * why it was approved.
- *
- * <p>{@code property_id} is {@code UNIQUE}, so a listing has at most one review case at a time; a
- * re-submission reopens the same row rather than starting a parallel history.
+ * The moderation record for one listing under review (table {@code property_reviews}). Not a
+ * duplicate of {@code properties.status}: that is visibility, this is the case file behind it.
  */
 @Entity
 @Table(name = "property_reviews")
@@ -51,11 +42,8 @@ public class PropertyReview extends AuditedEntity {
     private Instant decidedAt;
 
     /**
-     * When anyone last said anything in this thread, and what the ops queue sorts on (V81, V82).
-     *
-     * <p>Never null: a case nobody has spoken in carries the moment it was opened, so the sort key
-     * means one thing on every row rather than needing a coalesce that no index can serve.
-     * Maintained in {@link #add}; see the note there for why {@code updatedAt} could not do this job.
+     * When anyone last said anything in this thread, and what the ops queue sorts on. Never null —
+     * a case nobody has spoken in carries the moment it was opened, so no index-defeating coalesce.
      */
     @Column(name = "last_message_at", nullable = false)
     private Instant lastMessageAt = Instant.now();
@@ -87,37 +75,26 @@ public class PropertyReview extends AuditedEntity {
     }
 
     public ReviewMessage addMessage(UUID senderId, String body) {
-        return add(senderId, body, false);
+        return addMessage(senderId, body, false);
+    }
+
+    public ReviewMessage addMessage(UUID senderId, String body, boolean clarificationRequested) {
+        return add(senderId, body, false, clarificationRequested);
     }
 
     /**
-     * A note only staff can read (V80).
-     *
-     * <p>Takes no sender because there is nobody to attribute it to: these are written by the
-     * platform itself, not by a moderator, and inventing a system user to sign them would put a
-     * fictional participant in a thread whose whole value is being an accurate record of who said
-     * what.
+     * A note only staff can read. Takes no sender: the platform writes these, and inventing a system
+     * user would put a fictional participant in a thread whose value is being an accurate record.
      */
     public ReviewMessage addInternalNote(String body) {
-        return add(null, body, true);
+        return add(null, body, true, false);
     }
 
-    private ReviewMessage add(UUID senderId, String body, boolean internal) {
-        ReviewMessage message = new ReviewMessage(this, senderId, body, internal);
+    private ReviewMessage add(UUID senderId, String body, boolean internal, boolean clarificationRequested) {
+        ReviewMessage message = new ReviewMessage(this, senderId, body, internal, clarificationRequested);
         messages.add(message);
-        /* Touch the parent, or the ops queue never learns anything was said. review_messages owns
-         * the association, so adding to this list inserts a child and leaves property_reviews
-         * clean: @UpdateTimestamp does not fire, the set_updated_at trigger does not fire, and a
-         * queue sorted on updated_at leaves the case exactly where it was. An owner replying to a
-         * moderator, and a duplicate flag landing on a case file that already existed, both sank.
-         *
-         * A column rather than a manual updated_at poke because this one names what the desk
-         * triages by. It sorts identically to updated_at today -- writing it dirties the row, so
-         * updated_at follows, and decide() is the only other writer that touches the parent and it
-         * posts a message too -- but it is the write that makes the row dirty in the first place,
-         * which was the whole bug, and it stays correct the first time something touches a case
-         * without speaking in it. Never null: a case nobody has spoken in carries the moment it was
-         * opened (V82), so the sort key means one thing on every row. */
+        /* Touch the parent, or the ops queue never learns anything was said: review_messages owns
+         * the association, so adding a child leaves property_reviews clean and the case does not move. */
         this.lastMessageAt = Instant.now();
         return message;
     }
@@ -127,6 +104,12 @@ public class PropertyReview extends AuditedEntity {
         this.reviewer = reviewer;
         this.notes = note;
         this.decidedAt = Instant.now();
+    }
+
+    public void begin(String reviewer) {
+        if (this.reviewer == null) {
+            this.reviewer = reviewer;
+        }
     }
 
 }

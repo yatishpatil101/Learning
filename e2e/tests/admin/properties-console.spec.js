@@ -2,105 +2,11 @@ import { expect, test, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 import { appReady } from '../../helpers/app.js';
 
-/**
- * LIVE: the properties console — the screen the supply desk actually works in.
- *
- * ## What this file owns, and why it had to exist separately
- *
- * `live-properties-moderation` proves the four decisions: approve, reject, flag, archive, their
- * refusals, and who may see a listing after each. Those are *routes*. Nobody working the desk ever
- * calls a route — they open `/admin/properties`, read the numbers off the top of the screen,
- * pick a tab, narrow with a search box, and act on what is left. That page had no live coverage at
- * all. `admin/properties.spec.js` covers it in twenty-eight tests, every one of them against
- * `draazyDB_v5`: a store in the test's own browser, seeded by the test, read back by the test.
- *
- * The consequence is sharper than "it uses a mock". The mock spec asserts that seven KPI cards
- * render and that clicking each one moves the tab. It cannot assert that any of those seven
- * *numbers is right*, because the only authority on the number was the fixture the test had just
- * written. A console whose Pending tile silently disagreed with the verification queue would pass
- * that suite in full, and it is precisely the failure that matters: the tile is what tells a
- * moderator whether there is work today. The Duplicate tile below is the same failure, caught:
- * seven tiles rendered, seven tiles were asserted, and one of them was answering a question about
- * a fixture.
- *
- * So the load-bearing test here is `the KPI tiles and the row counter agree with the listings the
- * server returned`. It intercepts the page's own `GET /api/admin/properties` response, recomputes
- * the five derivable counters from that exact payload using the rules in `AdminProperties`'s
- * `counts` memo, and compares them with what got painted. Nothing is hardcoded and nothing is
- * asserted as a magnitude, which is what makes it survivable on a database three other specs are
- * writing to at the same time.
- *
- * ## The writes, added late (D250)
- *
- * The section below used to begin "*The four decisions.* … it does not press the button", and that
- * stood for as long as it took to count the tests: sixteen, and every one of them a read. On a
- * moderation console. The argument for it was that `live-properties-moderation` pins the decisions
- * at the route, which is true and is not the same claim — a route that works behind a button that
- * never sends is exactly the shape of failure nobody notices, because the toast fires either way.
- * The mock twin could not close it: its clear-flag regression asserts that a flagged card appears
- * on the Flagged tab, which is a claim about a store the browser owns.
- *
- * So two of them are pressed now, chosen because they are the two the desk uses most and the two
- * with the least server feedback: `flagging a listing is a decision the server keeps, and clearing
- * it publishes again`, and `moving a card across the pipeline board is a stage the server stores`.
- * Both act through the UI on a listing the test created and searched down to a single card, then
- * re-read `GET /admin/properties` over a separate connection — the only faithful re-read available,
- * since `GET /properties/{id}` enforces the public floor and 404s for anything flagged or pending.
- * Both were mutation-proven by no-opping the http provider's `flagListing` and `setPipelineStage`:
- * each went red on the server assertion while the UI carried on reporting success.
- *
- * Two details worth keeping. `clearFlag` sets `approved` *unconditionally* rather than restoring
- * the previous status, so the flag test approves the listing first — otherwise the final assertion
- * would agree with the server for the wrong reason. And the stage test asserts the row was **not**
- * already in the stage it moves to, which is not decoration: concierge listings are created at
- * `listed`, the first draft moved one to `listed`, and that guard is what caught it.
- *
- * ## What it deliberately leaves alone
- *
- * *The other two decisions.* Approving from this modal and rejecting with a reason —
- * `live-properties-moderation` already pins both at the route, including the two transitions
- * `/status` refuses. This file opens the review modal and asserts that everything an approval
- * decision needs is *in front of the operator*; it does not press those two.
- *
- * *The Duplicates tab and its KPI — removed from live builds, then rebuilt properly (D255).* An
- * earlier revision of this header read: "the tile is counted here (it is one of the seven that must
- * render) but never clicked, and the tab is named in the strip but never opened — a live test of
- * either would be a test of `localStorage`, dressed up." Every word of that was true, and the
- * conclusion drawn from it was wrong. `findDuplicateClusters` and `resolveDuplicate` in
- * `frontend/src/lib/data/properties-admin.js` ran a union-find over the fixture store and archived
- * the loser into `localStorage`; the backend had no cluster route and no merge route. What was
- * missed is that the store is seeded on a live build too — `main.jsx` calls `ensureMockDb()`
- * unconditionally — so the tile did not sit blank waiting for a backend. It rendered a **0**.
- * Measured against this lane's database: `Duplicate listings: 0` while `GET /admin/properties`
- * returned 71 rows containing four repeated titles, one of them four times over.
- *
- * A test that cannot honestly click a control is evidence about the control, not about the test.
- * So the tile and the tab came out of live builds, and this file asserted their absence — until the
- * server grew the missing half. `GET /admin/properties/duplicates` now derives the clusters, and
- * merge and dismiss are audited server writes. The strip below is nine tabs again and the tile is
- * back among `KPI_LABELS`; what the control *does* is proven in `live-duplicates.spec.js`, which
- * seeds a real collision over the wire rather than trusting a count.
- *
- * That is also the reason **`admin/properties.spec.js` must not be deleted once this file lands**.
- * Seeded-catalogue shapes several of its tests depend on are still only exercised there. This file
- * is a twin, not a replacement. (Its "Pipeline board's stage writes" used to be on that list; they
- * are covered live now, and the mock file's header records why they were the worst item on it.
- * Duplicate detection has just left that list too.)
- *
- * ## Fixtures
- *
- * Every listing in this file is created by the test that needs it, under an owner with a mobile no
- * other run will use, and rejected again in `afterEach`. The live database is shared with other
- * sessions and is not reset between runs, so a pending row left behind is not tidy-up debt — it is
- * a row on somebody's real verification queue.
- *
- *   cd e2e; npx playwright test tests/admin/live-properties-console.spec.js --config=playwright.config.js
- */
+// Counters are recomputed from the page's own `GET /api/admin/properties` payload: on a shared
+// live catalogue no magnitude is stable, so the rendered body is the only honest baseline.
 
-/* `PAGE_LIMIT` in `pages/admin/properties/constants.js`. Only the first fifteen rows of a filtered
-   set are rendered, which is why every assertion below that looks for a specific card first narrows
-   the list to it by search — on a shared catalogue, "my row is not on screen" and "my row is on
-   page two" are the same pixels. */
+// Only the first `PAGE_LIMIT` rows of a filtered set render, so every card assertion below first
+// narrows by search - "not on screen" and "on page two" are otherwise the same pixels.
 const PAGE_LIMIT = 15;
 
 /** The strip, in render order, from `tabItems`. Two of the nine carry a count when it is non-zero. */
@@ -132,16 +38,8 @@ const BASE_LISTING = {
 };
 
 /*
- * The one console error this screen is allowed to emit, and why it is filtered rather than fixed.
- *
- * `listForModeration` fetches `size=100` and `warnIfTruncated` reports through `console.error` when
- * the catalogue is larger than that — deliberately loud, because every client-side aggregate over
- * the result is then partial (register item 33). On a shared live database that has been accumulating
- * test listings, it is a statement about the *size of the database*, not about the console under
- * test, and it would turn the no-errors assertion into a clock that goes off on a fixed date.
- *
- * Anchored to the exact wording so it cannot swallow anything else. If the app throws for any other
- * reason, the assertion still fails.
+ * `warnIfTruncated` fires through `console.error` whenever the shared live catalogue outgrows the
+ * `size=100` fetch - a fact about the database, not the console, so it must not fail no-error runs.
  */
 const CATALOGUE_TRUNCATED = /^\[property\] \d+ listings matched but only \d+ were fetched/;
 const realErrors = (errors) => errors.filter((e) => !CATALOGUE_TRUNCATED.test(e));
@@ -161,16 +59,8 @@ async function api(method, path, headers, body) {
 const created = new Set();
 
 /**
- * A pending listing with a title no other row can match, under an owner nobody else shares.
- *
- * Created through the owner's own route rather than by an admin write, because "pending" has to be
- * the state the *server* puts a new submission in — that is the premise every verification-queue
- * assertion below rests on, and a fixture that forced the status would keep passing after the
- * server stopped producing it.
- *
- * Returns both handles the tests need, because they are different strings: `id` is the uuid the
- * moderation routes bind, and `label` is what `propertyMapper` will call the row's `id` on screen
- * (`slug || id`), which is what the review modal prints under "Listing ID".
+ * Created through the owner's own route, not an admin write, so "pending" is the state the *server*
+ * assigns - every verification-queue assertion below rests on that.
  */
 async function pendingListing(tag) {
   const title = `Zztest console ${tag}`;
@@ -182,12 +72,8 @@ async function pendingListing(tag) {
 }
 
 /**
- * Take this file's listings back out of the working queue.
- *
- * Rejection rather than deletion, because there is no delete: the platform keeps a moderated
- * listing and records the decision, which is the whole point of the audit row. A rejected listing
- * leaves the verification queue, leaves the public site, and stops counting towards Pending — which
- * is the state a shared queue needs it in.
+ * Rejection rather than deletion, because the platform has no delete: a rejected listing leaves the
+ * verification queue and the public site, which is the state a shared queue needs it in.
  */
 test.afterEach(async () => {
   if (!created.size) return;
@@ -202,54 +88,8 @@ test.afterEach(async () => {
 });
 
 /**
- * Open the console and hand back the payload it rendered from.
- *
- * Waiting on the response rather than on the page settling, and returning it, are the same
- * decision: `AdminProperties` renders `<Loading />` until `all` is non-null, so a screen that never
- * got an answer and a screen mid-flight are indistinguishable — and every count on it is derived
- * from this one body, so a test that fetched the queue *separately* to compare against would be
- * racing whatever another session did in between. The bytes the component rendered from are the
- * only honest baseline.
- *
- * The `/api/` prefix on the matcher is load-bearing. This screen lives at `/admin/properties`, so a
- * bare `/properties` pattern also matches the page's own document request and the wait resolves on
- * the navigation itself — the test then races the very fetch it meant to wait for, and fails with a
- * sentence about missing listings rather than about timing.
- *
- * The second half excludes the re-check queue's fetch, which is the same endpoint with
- * `recheck=true` and lands at roughly the same moment.
- *
- * The wait is armed *after* the navigation commits, not before it, and that ordering is
- * load-bearing. Arming first is the more obvious shape and it is wrong here: the admin shell the
- * test is already sitting on fetches this same endpoint, so the waiter can settle on that older
- * request — and then `goto` tears its document down, taking the body with it. What surfaces is
- * `Protocol error (Network.getResponseBody): No resource with given identifier found` at the
- * `res.json()` line, which reads like a transport fault in the helper rather than what it is: a
- * response belonging to a page that no longer exists. It failed roughly one run in fifteen, moving
- * between tests, because it depended on whether a shell fetch happened to be in flight.
- *
- * `waitUntil: 'commit'` returns as soon as the new document is installed, which is well before the
- * bundle has booted and issued this fetch, so nothing is missed by arming at that point.
- */
-/**
- * True only for the All Listings fetch — the unfaceted read the console's `all` array is built
- * from.
- *
- * This used to be a substring test (`includes('/api/admin/properties')` minus a hand-kept list of
- * excluded words) and it kept losing races, because a prefix matches every sibling the screen
- * fetches on mount: `/recheck` did, then `/duplicates` did, and when the five per-queue reads
- * landed here they did too — `?status=pending`, `?featured=true`, `?postedByAdmin=true` and the
- * rest all satisfy the prefix, are GET, and contain none of the excluded words. Six responses
- * matched, whichever arrived first won, and the symptom was a *different* test failing each run:
- * one run the deep-link test, the next the KPI test asserting a freshly minted row was in `rows`
- * — because `rows` was some other queue's body.
- *
- * The exclusion list was the flaw, not its contents: every queue added later has to be remembered,
- * and forgetting one costs a wandering failure that reads as page flakiness. So this matches
- * *positively* instead. The All fetch is `listForModeration({}, 'newest')`, and `toQuery` drops
- * every undefined filter, so it is the only read of this exact path carrying nothing but paging
- * and sort. Any facet — existing or added next week — puts a key in the query string and takes the
- * request out of scope automatically, with no list to maintain.
+ * Matches positively on the exact path plus paging-only params, so any facet added later drops out
+ * of scope on its own - an exclusion list kept losing races against sibling fetches on mount.
  */
 const LIST_PAGING_PARAMS = ['sort', 'page', 'size'];
 function isAllListingsFetch(res) {
@@ -268,10 +108,8 @@ function isAllListingsFetch(res) {
 async function openConsole(page, search = '') {
   await page.goto(`/admin/properties${search}`, { waitUntil: 'commit' });
   const [res, summaryRes] = await Promise.all([
-    page.waitForResponse(isAllListingsFetch),    /* The bytes the KPI strip renders from, captured here rather than re-fetched in the test.
-       Re-fetching would be a second read of a database three other specs are writing to, and any
-       legitimate drift between the two reads would surface as "a tile is wrong". Same discipline as
-       the list payload above, and the same reason. */
+    page.waitForResponse(isAllListingsFetch),    /* The bytes the KPI strip renders from, captured rather than re-fetched: a second read of a
+       database three other specs write to would surface legitimate drift as "a tile is wrong". */
     page.waitForResponse(
       (r) => r.url().includes('/api/admin/properties/summary') && r.request().method() === 'GET',
     ),
@@ -305,11 +143,8 @@ async function kpiValue(page, label) {
 }
 
 /**
- * Pick an option from `components/ui/Select`, which is not a `<select>`.
- *
- * It is a button plus a portalled listbox, so `selectOption` throws and a plain click on the option
- * can land before the portal has mounted. The `aria-expanded` assertions either side are what make
- * this deterministic: open, choose, closed.
+ * `components/ui/Select` is a button plus a portalled listbox, so `selectOption` throws and a plain
+ * click can land before the portal mounts - the `aria-expanded` assertions make it deterministic.
  */
 async function pickOption(page, ariaLabel, optionText) {
   const trigger = page.getByRole('button', { name: ariaLabel });
@@ -340,20 +175,14 @@ test.describe('LIVE: the properties console', () => {
     await login.asAdmin();
     await openConsole(page);
 
-    /* Order matters as much as membership. This strip is a workflow read left to right — everything,
-       then what needs a decision, then what needs chasing — and a tab that quietly moves changes
-       which one a moderator's muscle memory hits first. Two of the nine carry a live count in their
-       label, which is why these are patterns rather than strings.
-
-       Nine, not eight: `Duplicates` was gated out of live builds while it had no server behind it,
-       and came back in D255 when it got one. `TABS` is the exact strip, so this assertion is also
-       what would catch it disappearing again. */
+    /* Order matters as much as membership: the strip reads left to right as a workflow, so a tab
+       that moves changes which one a moderator's muscle memory hits first. */
     const labels = await page.getByRole('tab').allInnerTexts();
     expect(labels).toHaveLength(TABS.length);
     TABS.forEach((pattern, i) => expect(labels[i].trim()).toMatch(pattern));
 
     /* Landing anywhere other than All Listings would mean the console had an opinion about what the
-       operator came here to do. It has not; the opinion belongs to the KPI tiles. */
+       operator came here to do. That opinion belongs to the KPI tiles. */
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
     await expect(tab(page, 'All Listings')).toHaveAttribute('aria-selected', 'true');
   });
@@ -364,15 +193,13 @@ test.describe('LIVE: the properties console', () => {
 
     await openTab(page, 'Verification Queue');
 
-    /* Exactly one selected tab, not "the new one is selected". A strip that added a selection
-       instead of moving it looks correct in a screenshot and is unreadable to a screen reader, and
-       it is the failure mode of every tab implementation that stores a set instead of a value. */
+    /* Exactly one selected tab, not "the new one is selected": a strip that adds a selection instead
+       of moving it looks right in a screenshot and is unreadable to a screen reader. */
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
     await expect(tab(page, 'All Listings')).toHaveAttribute('aria-selected', 'false');
 
-    /* The URL is the half that makes this console shareable. `useTabParam` writes `?tab=` with
-       `replace: true`, so a moderator who pastes their address bar into a thread sends the queue
-       they were looking at rather than the front page of the console. */
+    /* The URL is what makes this console shareable: pasting the address bar into a thread has to
+       send the queue the moderator was looking at, not the console's front page. */
     await expect(page).toHaveURL(/[?&]tab=verify\b/);
   });
 
@@ -380,9 +207,8 @@ test.describe('LIVE: the properties console', () => {
     await login.asAdmin();
     await openConsole(page, '?tab=featured');
 
-    /* The other direction of the same contract, and the one that actually gets used: the link a
-       colleague was sent has to resolve to the tab, not to the default with a stale query string
-       hanging off it. */
+    /* The other direction of the same contract: a link a colleague was sent has to resolve to the
+       tab, not to the default with a stale query string hanging off it. */
     await expect(tab(page, 'Featured')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
   });
@@ -395,12 +221,8 @@ test.describe('LIVE: the properties console', () => {
       await expect(page.getByTitle(`View ${label} listings`)).toBeVisible();
     }
 
-    /* The tiles are the console's navigation for anybody who came here because a number looked
-       wrong, so each one has to land on the list that explains it. `Pending` is the interesting
-       case: it counts `status === 'pending'` but jumps to the *Verification Queue* rather than to
-       All Listings filtered by status, and those are two different lists — the queue ignores the
-       archived flag. A tile that jumped to the wrong one would send a moderator to a count that
-       does not match the tile they clicked. */
+    /* Each tile has to land on the list that explains its number. `Pending` counts `status ===
+       'pending'` but jumps to the Verification Queue, which ignores the archived flag. */
     const jumps = [
       ['Total', 'All Listings', /[?&]tab=all\b/],
       ['Active', 'All Listings', /[?&]tab=all\b/],
@@ -417,25 +239,13 @@ test.describe('LIVE: the properties console', () => {
       await expect(page).toHaveURL(url);
     }
 
-    /* `Duplicate` is the seventh tile, and for four releases it was not here at all. This spec
-       originally skipped it with the note that clicking it "would take this spec into
-       `localStorage`"; that was the right diagnosis attached to the wrong remedy, because a tile a
-       live test cannot honestly click is a tile a live operator cannot honestly read. Measured then,
-       it displayed `Duplicate listings: 0` against a catalogue of 71 rows carrying four repeated
-       titles — a clean bill of health issued by a union-find over `db.json`. It was removed, and is
-       back now only because `GET /admin/properties/duplicates` exists to answer it.
-
-       What this test pins is the tile and its jump. It deliberately asserts nothing about the
-       *number*, which on a shared catalogue is whatever other sessions have left lying around;
-       `live-duplicates.spec.js` seeds a known collision and follows it through the merge. */
+    /* The tile's number is not asserted: on a shared catalogue it is whatever other sessions left
+       behind. `live-duplicates.spec.js` seeds a known collision and follows it through the merge. */
   });
 
   test('a bookmarked ?tab=duplicates opens the duplicates tab', async ({ page, login }) => {
-    /* This used to assert the opposite — that the deep link degraded to All Listings, because the
-       tab key was filtered out of `useTabParam`'s valid list on a live build. It is a real tab
-       again, so the bookmark resolves to it. Kept as a test rather than deleted with the gate: the
-       deep link is how one moderator sends another a queue, and it is the half of `useTabParam`
-       that the "switching tabs writes the URL" test above does not cover. */
+    /* The deep link is how one moderator sends another a queue, and it is the half of `useTabParam`
+       the "switching tabs writes the URL" test above does not cover. */
     await login.asAdmin();
     await page.goto('/admin/properties?tab=duplicates');
 
@@ -444,8 +254,7 @@ test.describe('LIVE: the properties console', () => {
   });
 
   test('the KPI tiles and the row counter agree with the listings the server returned', async ({ page, login }) => {
-    /* The test the mock structurally could not write, and the reason this file exists.
-       A pending listing is created first so the Pending tile is provably counting something real
+    /* A pending listing is created first so the Pending tile is provably counting something real
        rather than passing on a zero it agrees with by coincidence. */
     const subject = await pendingListing(`kpi ${Date.now().toString(36)}`);
 
@@ -454,20 +263,12 @@ test.describe('LIVE: the properties console', () => {
 
     const rows = payload.content;
     expect(Array.isArray(rows)).toBe(true);
-    /* The premise. If the subject is not in the body the page rendered from, every comparison below
-       would still pass while proving nothing about a listing this test can account for. It is the
-       newest row in a `createdAt,desc` page of a hundred, so its absence would be a real finding. */
+    /* If the subject is not in the body the page rendered from, every comparison below would still
+       pass while proving nothing about a listing this test can account for. */
     expect(rows.some((p) => p.id === subject.id)).toBe(true);
 
     /* The tiles are the database's counts over the whole catalogue, taken from the exact
-       `/summary` body the strip rendered from.
-
-       This assertion used to be the other way round: it recomputed the five counters from `rows` —
-       the page the console had just fetched — and compared the tiles to that. It passed for as long
-       as it existed, and it passed while the strip displayed **Active 0** over 54 approved
-       listings, because the console and the test were making the same mistake. Both counted a
-       capped page and called the result the catalogue. A test that derives its expectation the same
-       way the code does cannot fail on the thing they agree about, however exact it looks. */
+       `/summary` body the strip rendered from - a page-derived expectation could not fail. */
     const s = payload.summary;
     const expected = {
       Total: s.total,
@@ -483,25 +284,16 @@ test.describe('LIVE: the properties console', () => {
       expect(await kpiValue(page, label), `the ${label} tile disagrees with the catalogue it counts`).toBe(value);
     }
 
-    /* The anti-regression clause, and the only part of this test that knows the old bug by name.
-       When the catalogue is bigger than the page — which is the only condition under which the two
-       readings can differ at all — the Total tile must not be the page-local count. Restoring the
-       `useMemo` over `all` fails here specifically, rather than merely disagreeing with a number
-       that could have drifted for some other reason. */
+    /* Only when the catalogue outgrows the page can the two readings differ, and only then can this
+       catch a Total tile that counts the fetched page instead of the catalogue. */
     const pageLocalTotal = rows.filter((p) => p.archived !== true).length;
     if (s.total > rows.length) {
       expect(await kpiValue(page, 'Total'),
         'the Total tile is counting the fetched page, not the catalogue').not.toBe(pageLocalTotal);
     }
 
-    /* `Duplicate` is deliberately absent from that table. It used to be asserted only as
-       `Number.isFinite`, excused as coming "from the browser's own store" — which is the whole
-       defect written down: a tile sourced from the browser's store cannot be wrong about the
-       server, because it was never about the server. It painted a perfectly finite `0` and passed
-       for as long as it existed, and `Number.isFinite` would never have caught it, because a wrong
-       number is finite too. It is a server count now and it is proven where a known collision can
-       be put into the catalogue and watched: `live-duplicates.spec.js`. What this file pins is that
-       the tile exists and navigates, asserted above. */
+    /* `Duplicate` is deliberately absent from that table: its count is proven where a known
+       collision can be put into the catalogue and watched, in `live-duplicates.spec.js`. */
 
     /* And the counter beside the search box — the same claim one layer down. With no filters set it
        reads `N of M` where both are the catalogue: N is the rows rendered from this page and M is
@@ -519,20 +311,9 @@ test.describe('LIVE: the properties console', () => {
       await expect(cards(page)).toHaveCount(PAGE_LIMIT);
     }
 
-    /* Ported from `properties.spec.js`'s `cards carry the listing title and locality...`, which is
-       retired by this test. Two claims lived there that the paragraphs above do not make.
-
-       First, the row count below the cap. The branch above asserts a full page when the match set
-       overflows; this asserts the exact count when it does not, so a list that renders *fewer*
-       cards than it matched is caught. Without it the only pinned case is the one where the number
-       is a constant, and `toHaveCount(15)` passes on a page that dropped every row it could not
-       fit as well as on one that dropped rows for no reason at all.
-
-       Second, what a card actually says. The counter agreeing with the server proves the arithmetic
-       and nothing about the rendering: a grid of fifteen cards each drawn from a listing whose
-       title failed to map would satisfy every assertion above it. The heading is asserted non-empty
-       and the locality is asserted to be the one the server sent for that row, matched by id rather
-       than by position, because the sort is the server's and reading `rows[0]` assumes it. */
+    /* Two claims the paragraphs above do not make: the exact row count when the match set is under
+       the cap, and that a card renders the title and the locality the server filed for that row
+       (matched by id, since the sort is the server's). */
     const rendered = Math.min(s.total, rows.length, PAGE_LIMIT);
     await expect(cards(page), 'the grid dropped rows the server returned').toHaveCount(rendered);
 
@@ -553,12 +334,8 @@ test.describe('LIVE: the properties console', () => {
 
     await login.asAdmin();
 
-    /* The catalogue's true size, from the endpoint the console now reads its counters from. It is
-       fetched here rather than counted off the console's own list response on purpose: counting the
-       rows the page fetched is precisely the bug this test exists to hold shut. That is not a
-       hypothetical either — this assertion used to be written that way, and it passed while the
-       screen displayed "1 of 100 listings" against 207 real listings, because both sides of the
-       comparison were the same capped page. */
+    /* The catalogue's true size, fetched independently: counting the rows the page itself fetched
+       is the bug this test holds shut ("1 of 100" against 207 real listings). */
     const summary = await (await fetch(`${API}/admin/properties/summary`, {
       headers: await authHeaders(ACTORS.admin),
     })).json();
@@ -590,15 +367,9 @@ test.describe('LIVE: the properties console', () => {
     await expect(page.getByText('No listings match your filters')).toBeVisible();
     await expect(page.getByText('0 of 0 listings')).toBeVisible();
 
-    /* Ported from `properties.spec.js`'s `search narrows the list to rows that match`, retired by
-       this test. Everything above searches a tag this test minted, which proves the box does not
-       exclude too much but says nothing about a term that matches *many* rows — and locality is the
-       third of the three fields the placeholder promises. A search that quietly ignored the term
-       and returned the unfiltered page would pass every assertion above, because a one-row match on
-       a unique tag is indistinguishable from a lucky sort. Here the claim is the shape of the
-       result set: every surviving card carries the term, and at least one survives. `Baner` is the
-       seeded locality with the most rows, so an empty result is a finding rather than a property of
-       the fixture. */
+    /* A term that matches *many* rows, and locality is the third field the placeholder promises: a
+       one-row match on a unique tag is indistinguishable from a lucky sort. `Baner` is the seeded
+       locality with the most rows, so an empty result is a finding, not a fixture property. */
     await search.fill('Baner');
     const localityCards = cards(page);
     await expect(localityCards, 'searching a seeded locality returned nothing').not.toHaveCount(0);
@@ -613,12 +384,9 @@ test.describe('LIVE: the properties console', () => {
     await login.asAdmin();
     await openConsole(page);
 
-    /* Every filter below is asserted against a listing whose deal, status and age this test set
-       itself, with the search box already narrowing to it. That is deliberate: the mock twin
-       asserted that a filter *changed the count*, which a filter that dropped everything would also
-       satisfy. Here each control has to keep exactly the row it should keep and drop exactly the
-       row it should drop, and because the set is one row deep the assertion cannot be confounded by
-       the fifteen-row page limit. */
+    /* Every filter is asserted against a listing whose deal, status and age this test set itself,
+       narrowed to one row: "the count changed" is also satisfied by a filter that drops everything,
+       and a one-row set cannot be confounded by the fifteen-row page limit. */
     await page.getByPlaceholder('Search title, owner, locality').fill(subject.tag);
     await expect(cards(page)).toHaveCount(1);
 
@@ -628,11 +396,8 @@ test.describe('LIVE: the properties console', () => {
     await pickOption(page, 'Filter by status', 'Pending');
     await expect(cards(page)).toHaveCount(1);
     await pickOption(page, 'Filter by status', 'All statuses');
-    /* Ported from the mock twin: resetting the control has to restore the row, not merely stop
-       narrowing. `All statuses` is a real value the console sends, and a reset that dropped it on
-       the floor would leave the previous filter latched — invisible, because the select reads
-       `All statuses` while the list is still the narrowed one. Asserted on the row rather than on
-       the counter so it holds whatever else is in the catalogue. */
+    /* Resetting has to restore the row, not merely stop narrowing: a dropped `All statuses` leaves
+       the previous filter latched while the select reads unfiltered. */
     await expect(cards(page), 'clearing the status filter did not restore the row').toHaveCount(1);
 
     // Deal. `DealPills` is a button group, not a select — it writes `fDeal` straight through.
@@ -642,11 +407,8 @@ test.describe('LIVE: the properties console', () => {
     await expect(cards(page)).toHaveCount(1);
     await page.getByRole('button', { name: 'All', exact: true }).first().click();
 
-    /* Date. `7d`, not `Today`, and the reason is a real edge rather than caution: `propertyMapper`
-       slices `createdAt` to `YYYY-MM-DD`, so a row created minutes ago compares as midnight UTC of
-       its own date. Between 00:00 and 05:30 IST that is more than twenty-four hours behind `now`,
-       and a `Today` filter would drop a listing this test had just created — a flake that only
-       fires overnight. A seven-day window has no such boundary. */
+    /* `7d`, not `Today`: `propertyMapper` slices `createdAt` to `YYYY-MM-DD`, so between 00:00 and
+       05:30 IST a just-created row compares as over a day old and `Today` would drop it. */
     await page.getByRole('button', { name: '7d', exact: true }).click();
     await expect(cards(page)).toHaveCount(1);
   });
@@ -656,11 +418,8 @@ test.describe('LIVE: the properties console', () => {
 
     await login.asAdmin();
 
-    /* Ported from the mock twin, and asserted in both directions on purpose. The `N pending` count
-       belongs to the verification queue, so it must be absent on All Listings and present once the
-       queue is open. Only the second half is usually written, and on its own it is satisfied by a
-       counter that renders on every tab — which tells a moderator there is work waiting no matter
-       which desk they are standing at. */
+    /* Both directions: the `N pending` count belongs to the verification queue, so a counter that
+       renders on every tab tells a moderator there is work waiting at whichever desk they stand. */
     await openConsole(page);
     await expect(page.getByText(/\d+ pending/),
       'the verification backlog is being counted on a tab it does not belong to',
@@ -702,6 +461,16 @@ test.describe('LIVE: the properties console', () => {
     await expect(dialog).toContainText('Property details');
     await expect(dialog).toContainText('Communicate with the owner');
 
+    /* Typed a character at a time on purpose: `fill()` sets the value in one shot and passes against
+       a dialog that steals focus back to its own panel after every render, which is the state that
+       lets an operator enter exactly one character and no more. */
+    const composer = dialog.getByPlaceholder(/Ask for a clarification/);
+    await composer.click();
+    await page.keyboard.type('needs a clearer photo');
+    await expect(composer,
+      'the owner composer dropped keystrokes — the dialog is reclaiming focus on re-render',
+    ).toHaveValue('needs a clearer photo');
+
     /* Both decisions, side by side, and the rejection is the one that has to be two steps: the
        button reads `Reject…` until a reason has somewhere to go. `live-properties-moderation` owns
        what each verb does to the listing; this owns that the operator is offered both rather than
@@ -717,19 +486,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /**
-   * The console's decisions, checked against the server rather than against the screen.
-   *
-   * Everything above this point is a read. That was the gap: this is a moderation console, its
-   * entire purpose is to change listings, and until now nothing on a live build asserted that any
-   * change survived the request. The mock twin could not close it — `properties.spec.js`'s
-   * clear-flag regression asserts that a flagged card shows up on the Flagged tab, which is a claim
-   * about a store the browser owns, and it would pass identically against a server that dropped the
-   * write on the floor.
-   *
-   * So each test below acts through the UI and then re-reads `GET /admin/properties` over a
-   * separate connection. The listing is one this test created and searched down to a single card,
-   * so the re-read is exact rather than statistical, and a server that answered the request without
-   * honouring it fails on the row's own `status`.
+   * Each test below acts through the UI, then re-reads `GET /admin/properties` over a separate
+   * connection, so a server that answered the request without honouring it fails on the row.
    */
   test('flagging a listing is a decision the server keeps, and clearing it publishes again', async ({ page, login }) => {
     const subject = await pendingListing(`flag ${Date.now().toString(36)}`);
@@ -780,13 +538,9 @@ test.describe('LIVE: the properties console', () => {
 
     await flagModal.locator('textarea').first().fill(reason);
 
-    /* And the note is actually written, because the disclosure being *present* is a weaker claim
-       than the one the retired mock test `a note filed beside a decision survives the decision`
-       made. What that test was really about is read back at the end of this one: a note filed from
-       the flag form has to be legible from a *different* modal on the same listing, since the
-       moderator who opens it next is as likely to be reaching for Archive as for Flag. A note
-       history keyed per-modal, or per-decision, would satisfy everything above and still lose the
-       note. */
+    /* Read back at the end of this test: a note filed from the flag form has to be legible from a
+       *different* modal on the same listing, since the next moderator is as likely to reach for
+       Archive as for Flag. */
     const noteText = 'Owner admitted the photos are the builder\u2019s renders.';
     await flagModal.getByRole('button', { name: /Internal note \(optional\)/ }).click();
     await flagModal.getByPlaceholder(/Add a note for the team/).fill(noteText);
@@ -819,17 +573,9 @@ test.describe('LIVE: the properties console', () => {
        the browser decided. */
     expect((await serverRow()).status, 'clearing the flag never reached the server').toBe('approved');
 
-    /* The cross-modal read, ported here when `admin/notes.spec.js` was retired. Everything the
-       browser knew about that note has been thrown away twice over by now — the flag modal closed,
-       the tab changed, the decision was undone — and this reload throws away the rest, so what the
-       Archive form draws below is a fresh fetch of the listing's note history rather than anything
-       this session is still holding.
-
-       Asserted on the *Archive* modal on purpose. The note was filed from the Flag form; a history
-       that is scoped to the form that wrote it, or to the decision it accompanied, would pass every
-       assertion made above and still leave the next moderator's screen blank. The `Flagged` label
-       is the other half: the note is filed against what was being done at the time, which is what
-       makes a bare line of text readable a week later. */
+    /* The reload throws away everything the session still holds, so the Archive form below draws a
+       fresh fetch. Asserted on *Archive* on purpose: a history scoped to the form that wrote it, or
+       to the decision it accompanied, would leave the next moderator's screen blank. */
     await page.reload();
     await openTab(page, 'All Listings');
     await page.getByPlaceholder('Search title, owner, locality').fill(subject.tag);
@@ -847,15 +593,8 @@ test.describe('LIVE: the properties console', () => {
       'the note is on the listing but no longer says what was being done when it was written',
     ).toBeVisible();
 
-    /* The byline, ported from the same retired test. This is the one place it can be checked on a
-       listing's own note history: `live-notes.spec.js` proves the server *stores* an author and
-       renders one in the user drawer and the communication log, but neither of those is this
-       widget. A history that drops the name renders a wall of anonymous lines, which is the state a
-       shared note file exists to avoid — and it is exactly what the mock provider used to produce,
-       since it had no author to resolve.
-
-       Matched on the role names rather than on a specific person: the login fixture decides who
-       took the decision, and pinning this to one account would make it a test of the fixture. */
+    /* A history that drops the author renders a wall of anonymous lines. Matched on role names, not
+       a person: the login fixture decides who decided, and pinning it would test the fixture. */
     await expect(archiveModal.getByText(/Admin|Staff/).first(),
       'the note history shows the words but not who wrote them',
     ).toBeVisible();
@@ -890,15 +629,9 @@ test.describe('LIVE: the properties console', () => {
     await openConsole(page);
     await openTab(page, 'Needs Follow-up');
 
-    /* This tab is the console's answer to "what has gone quiet", and its sub-filter is the only
-       place the three ways a listing stalls are named apart: waiting on us, waiting on the owner,
-       or live but unconfirmed. They need different actions, so a desk that cannot separate them
-       chases the wrong people.
-
-       The list itself is not asserted — whether anything is currently stale is a fact about the
-       shared database on the day, and pinning it would make this spec fail for a reason that has
-       nothing to do with the screen. The regex is anchored so it matches the counter span itself
-       rather than every ancestor that happens to contain it. */
+    /* The sub-filter is the only place the three ways a listing stalls are named apart — waiting on
+       us, on the owner, or live but unconfirmed — and each needs a different action. The list is
+       not asserted: what is stale today is a fact about the shared database, not the screen. */
     await expect(page.getByText(/^\d+ listings$/)).toBeVisible();
 
     const trigger = page.getByRole('button', { name: 'Filter by reason' });
@@ -908,11 +641,8 @@ test.describe('LIVE: the properties console', () => {
       await expect(page.locator('.dz-dropdown__option', { hasText: reason })).toHaveCount(1);
     }
 
-    /* Chosen from the menu that is already open, rather than through `pickOption`. That helper
-       starts by clicking the trigger, and a click on an open `components/ui/Select` closes it — so
-       calling it here would have shut the dropdown and then waited fifteen seconds for the
-       `aria-expanded="true"` that its own click had just undone. Reading the failure, it looks like
-       the component refusing to open; it is really the test opening it twice. */
+    /* Chosen from the already-open menu rather than through `pickOption`: that helper starts by
+       clicking the trigger, which on an open `components/ui/Select` closes it. */
     await page.locator('.dz-dropdown__option', { hasText: 'Unconfirmed (stale)' }).first().click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toContainText('Unconfirmed (stale)');
@@ -923,31 +653,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /**
-   * The unconfirmed queue is a *freshness* predicate, and this is the test that says so.
-   *
-   * The test above deliberately declines the claim — it accepts `All caught up` or a populated
-   * board, because whether anything is stale today is a fact about the shared database. That is the
-   * right call for a test about the sub-filter's option set, and it leaves the predicate itself
-   * unasserted in both directions. Both directions have already been wrong here:
-   *
-   *   - Too narrow. The predicate opened `if (!l.real …)`, and `real` is a mock-store field the http
-   *     mapper has never emitted, so every live listing failed the first clause. The tab read
-   *     "All caught up" over fifty-three listings whose owners had gone silent.
-   *   - Too wide is the same bug wearing the other face, and it is the one nothing guards. Drop the
-   *     `unconfirmed` parameter from `unconfirmedQueue` and the tab lists *every* approved listing:
-   *     a full board, plausible rows, a busy-looking desk — and staff ringing owners who confirmed
-   *     this morning. There is no error and no empty state to notice. It reads as work.
-   *
-   * Converted from `listing-freshness.spec.js`, which asserted this against a listing it had written
-   * into `localStorage` with a `freshenedAt` it chose. Freshness is derived from
-   * `properties.last_confirmed_at` by `Freshness.unconfirmedBefore`, so the mock file was reading
-   * back its own arithmetic and could not have caught either failure above.
-   *
-   * The discriminator is a listing that is unambiguously *not* stale — one created moments ago —
-   * held against a queue that is proven non-empty in the same breath. The listing is approved
-   * first, because `unconfirmed` only selects among rows that are approved, un-archived and earning
-   * impressions right now; a pending row would be excluded for the wrong reason and the test would
-   * pass without the facet doing anything.
+   * The discriminator is a just-created listing, unambiguously not stale, held against a queue
+   * proven non-empty: a too-wide predicate lists every live listing and still looks like work.
    */
   test('the follow-up queue is the owners who went quiet, not every listing that is live', async ({ page, login }) => {
     const headers = await authHeaders(ACTORS.admin);
@@ -986,11 +693,9 @@ test.describe('LIVE: the properties console', () => {
       'a listing created moments ago is being chased as though its owner had gone quiet')
       .toBe(false);
 
-    /* The same term, typed into two boxes on the same console, has to give opposite answers — and
-       the only thing that differs between the two requests is the freshness facet. Doing it on
-       screen rather than by a third fetch is the point: the queue the operator sees is assembled by
-       `unconfirmedQueue`, and it is that hook's parameters, not the endpoint's, that decide who
-       gets rung. */
+    /* The same term in two boxes on the same console has to give opposite answers, with only the
+       freshness facet differing. On screen rather than by a third fetch, because it is
+       `unconfirmedQueue`'s parameters — not the endpoint's — that decide who gets rung. */
     await login.asAdmin();
     await openConsole(page);
     /* Both tabs use this same placeholder, and only the active one is mounted — so the locator is
@@ -1006,28 +711,8 @@ test.describe('LIVE: the properties console', () => {
     await expect(cards(page).filter({ hasText: fresh.title })).toHaveCount(0);
   });
 
-  /*
-     The Staff Posted tab, which had no live cover at all.
-
-     `post-on-behalf.spec.js` claimed it, in a test that posted a listing through the six-step
-     wizard and then looked for it under the tab. Against the mock that worked, and it worked for a
-     reason that does not survive the move: the console used to pack `postedByStaff: <display name>`
-     into the create body, the mock provider stored the object it was handed verbatim, and the tab
-     filtered on the field it had just written. Client, store and assertion were the same sentence
-     three times.
-
-     The server does not accept that field. It takes the staff id from the caller's token — see
-     `the funnel is opened, and it names the staff member by id` in `live-post-on-behalf.spec.js` —
-     so live, `postedByStaff` is a uuid that arrived from somewhere the browser has no say over. The
-     interesting question is therefore whether the tab still finds anything, and it is a question the
-     mock could not be wrong about.
-
-     One more thing the old test asserted and should not have: `getByText('Administrator').first()`,
-     under a comment about a "Posted By column with staff name". There is no such column — the staff
-     tab renders the same card list as every other tab — and "Administrator" is the signed-in name
-     printed in the admin topbar on every page of the console. It matched the chrome. It would have
-     matched on the tab being empty, on the tab not existing, and on a completely different screen.
-  */
+  /* The server derives `postedByStaff` from the caller's token, so it is a uuid the browser has no
+     say over — the tab's filter is therefore the only thing under test here. */
 
   /** A listing the desk typed on somebody's behalf, under an owner nobody else shares. */
   async function conciergeListing(tag) {
@@ -1055,14 +740,9 @@ test.describe('LIVE: the properties console', () => {
     await openConsole(page, '?tab=staff');
     await expect(tab(page, 'Staff Posted')).toHaveAttribute('aria-selected', 'true');
 
-    /* Present, first. An absence asserted before anything has been shown to render is a statement
-       about an empty pane, and this tab starts empty on every page load.
-
-       The placeholder used to say "staff name", and this box used to be able to honour it — against
-       the mock, where the console wrote a display name into `postedByStaff` and then searched the
-       row it had just written. The live server derives that field from the caller's token, so it
-       holds a uuid inside a jsonb map and no staff name was ever matchable. The promise went; a
-       real staff-name filter is a `users` join and a query parameter of its own. */
+    /* Present first: an absence asserted before anything has rendered is a statement about an empty
+       pane, and this tab starts empty on every page load. The box cannot match a staff name — the
+       server holds a uuid — so this searches the title tag. */
     const search = page.getByPlaceholder('Search title, owner, locality');
     await search.fill(desk.tag);
     await expect(cards(page)).toHaveCount(1);
@@ -1083,16 +763,9 @@ test.describe('LIVE: the properties console', () => {
   });
 
   test('a concierge listing is drawn with the hand-back pipeline an owner submission never gets', async ({ page, login }) => {
-    /* `postedByAdmin` is the other half of the same wire hop, and it is the one with a visible
-       consequence: `AdminPropertyCard` picks between two entirely different progress rows with it.
-       A desk listing is tracked through the hand-back — has the owner sent their Aadhaar, are the
-       photos in — because the desk is chasing a person who has not seen the listing yet. An owner
-       submission is tracked through review, because the owner has already done their part.
-
-       If the field is lost in the mapper it defaults to `false`, and every concierge listing on the
-       console silently renders as if the owner had filed it themselves: the moderator sees "In
-       Review" on a row whose actual blocker is an owner who has not answered the phone. Nothing
-       errors, and no count changes — which is why it needs asserting from both sides. */
+    /* `AdminPropertyCard` picks between two different progress rows on `postedByAdmin`. Lost in the
+       mapper it defaults to `false`, so a concierge row silently reads "In Review" when its real
+       blocker is an owner who has not answered the phone — nothing errors, so assert both sides. */
     const tag = Date.now().toString(36);
     const desk = await conciergeListing(`pipe ${tag}`);
     const owner = await pendingListing(`pipe-self ${tag}`);
@@ -1117,21 +790,14 @@ test.describe('LIVE: the properties console', () => {
   });
 
   test('moving a card across the pipeline board is a stage the server stores', async ({ page, login }) => {
-    /* The board's write, checked the same way as the flag above and for the same reason: nothing
-       on a live build asserted that dragging a concierge listing along the funnel outlived the
-       request. It is also the write most likely to be quietly refused rather than quietly lost —
-       `POST /properties/{id}/pipeline` takes eight values and answers 400 for anything else, and
-       two of the six columns this board draws (`Under Review`, `Live`) are `status` read sideways
-       and are *not* among them. The mock twin asserts that the dropdown does not offer those two,
-       which is a claim about a list of strings in the client; this asserts that the four it does
-       offer are ones the server accepts. */
+    /* `POST /properties/{id}/pipeline` takes eight values and 400s on anything else, and two of the
+       six columns this board draws are `status` read sideways and are not among them — so this
+       asserts the four the dropdown offers are ones the server accepts. */
     const desk = await conciergeListing(`stage ${Date.now().toString(36)}`);
     const headers = await authHeaders(ACTORS.admin);
 
-    /* `adminPipeline.pipelineStage`, not a top-level field. This read sits *below* the mapper, so
-       it has to speak the wire's vocabulary rather than the client's — `propertyMapper` is what
-       flattens the nested block into `pipelineStage`, and a probe written in the client's words
-       reads `undefined` forever and reports it as a write that never landed. */
+    /* `adminPipeline.pipelineStage`, not a top-level field: this read sits below `propertyMapper`,
+       so it must speak the wire's vocabulary or it reads `undefined` forever. */
     const serverStage = async () => {
       const res = await api('GET', '/admin/properties?size=100', headers);
       expect(res.status).toBe(200);
@@ -1146,11 +812,8 @@ test.describe('LIVE: the properties console', () => {
     await openConsole(page, '?tab=pipeline');
     await expect(tab(page, 'Pipeline')).toHaveAttribute('aria-selected', 'true');
 
-    /* The card this test owns, not merely the first card on a shared board. `Contacted` is chosen
-       for two reasons: it is an acquisition stage, so it lands in `pipeline_stage` rather than in
-       `handback_milestone` and the field read back below is the one being written; and a concierge
-       listing is *created* at `listed`, so moving it there would have been a write the fixture had
-       already made — the `before` guard at the end of this test is what caught that. */
+    /* `Contacted` because it is an acquisition stage (so it lands in `pipeline_stage`, the field
+       read back below) and because a concierge listing is created at `listed`, not there. */
     const card = page.locator('.rounded-xl', { hasText: desk.title }).last();
     await expect(card).toBeVisible();
     const stagePicker = card.locator('[aria-label^="Change pipeline stage"]').first();
@@ -1177,42 +840,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /*
-   * ---------------------------------------------------------------------------------------------
-   * Every queue's horizon is the server's, not the first page's.
-   * ---------------------------------------------------------------------------------------------
-   *
-   * The defect these four tests exist for, measured on this database before the fix (322 listings,
-   * `size=100`, newest first):
-   *
-   *     tab                  server holds   the screen rendered
-   *     Verification Queue        91               27
-   *     Flagged                    4                0
-   *     Featured                   5                0
-   *     Staff Posted              67               27
-   *
-   * The All tab fetched one hundred rows and every other tab filtered *that array* in the browser,
-   * so each queue's contents were "the members of this queue that happen to be among the hundred
-   * newest listings on the platform" — a sentence nobody would have written down, and one that gets
-   * strictly worse as the catalogue grows. Flagged and Featured had crossed the line already: both
-   * rendered an empty queue while the KPI tile eighty pixels above them said 4 and 5. A page
-   * disagreeing with itself on screen.
-   *
-   * Each tab now issues its own `GET /admin/properties` with its own facet, so the two assertions
-   * below are the two halves of that claim:
-   *
-   *   (1) the FACET WENT TO THE SERVER — asserted on the request, because it is the only place the
-   *       difference is unambiguous. A client that still filtered in the browser would fetch the
-   *       unfiltered page and could, on a small enough catalogue, render exactly the right rows.
-   *   (2) the SCREEN'S COUNT IS THE SERVER'S COUNT — asserted against `totalElements` from an
-   *       independent read of the same facet. This is the half that fails on the old build: 0 vs 5.
-   *
-   * The fixture is the vacuity guard, and it is deliberately not the thing being proved. Each test
-   * mints a row that belongs to its queue, which makes the queue non-empty and gives (1) something
-   * to land on — without it, a tab that rendered nothing at all would satisfy every count
-   * assertion here on a database that happened to hold nothing. The minted row is by definition the
-   * *newest* listing, so it would have been on the old build's page too; it proves the tab renders,
-   * not that the horizon moved. Only the count against `totalElements` does that, which is why the
-   * test also asserts the server total is larger than what one page could have contributed.
+   * Each tab issues its own facetted `GET /admin/properties`, so these tests assert the facet
+   * reached the server and that the screen's count is the server's `totalElements`, not a page's.
    */
   const QUEUES = [
     { name: 'Verification Queue', facet: 'status=pending', param: 'status=pending', banner: 'verify-truncated', search: 'Search title, owner, locality' },
@@ -1224,26 +853,18 @@ test.describe('LIVE: the properties console', () => {
   /** `PAGE_SIZE` in `services/providers/http/propertyProvider.js` — the cap that caused all of this. */
   const PAGE_SIZE = 100;
 
-  /* The banner prints through `lib/format.js`'s `fmtNum`, which is `en-IN` grouping — 1,00,000 and
-     not 100,000. Asserting the raw digits would pass on a three-digit queue and start failing the
-     day the catalogue crossed a lakh, which is exactly the kind of expiry date a truncation test
-     must not carry. */
+  /* The banner prints through `fmtNum` (`en-IN` grouping), so asserting raw digits would pass today
+     and start failing the day the catalogue crossed a lakh. */
   const fmtNum = (n) => Number(n).toLocaleString('en-IN');
 
   /**
-   * Put one row into the queue under test and hand back its title.
-   *
-   * Every one of these goes through the route an operator would use, not through a status write,
-   * because a fixture that set the column directly would keep passing after the verb that is
-   * supposed to produce that state stopped producing it.
+   * Each row goes through the route an operator would use, not a direct status write, so the
+   * fixture stops passing if the verb that produces the state stops producing it.
    */
   async function seedInto(queueName, tag) {
     const admin = await authHeaders(ACTORS.admin);
-    /* Staff Posted reads `posted_by_admin`, a column only the concierge route sets — so this one
-       cannot start from an owner-created listing at all. `conciergeListing` above already speaks
-       that route's shape (the listing body nests under `listing:`), so it is reused rather than
-       re-described here; the first draft of this helper inlined its own POST, guessed a flat body,
-       and earned a 422 naming `listing: must not be null`. */
+    /* Staff Posted reads `posted_by_admin`, a column only the concierge route sets, so this one
+       cannot start from an owner-created listing at all. */
     if (queueName === 'Staff Posted') return conciergeListing(`${tag} staff`);
 
     const listing = await pendingListing(tag);
@@ -1309,46 +930,16 @@ test.describe('LIVE: the properties console', () => {
         await expect(cards(page)).toHaveCount(reachable);
       }
 
-      /* The positive anchor, last: the queue is not merely the right size, it contains the row that
-         was put into it. An assertion about a count alone is satisfied by a coincidence. The
-         placeholder is named per queue rather than matched loosely — every tab renders its own box
-         and three of them share a placeholder, so a regex plus `.first()` would be asserting about
-         whichever pane happened to be in the DOM. */
+      /* The positive anchor, last: a count alone is satisfied by a coincidence, so assert the queue
+         holds the row that was put into it. */
       await page.getByPlaceholder(q.search).fill(fixture.title);
       await expect(page.getByText(fixture.title, { exact: false }).first()).toBeVisible();
     });
   }
 
   /**
-   * The search box searches the *queue*, not the page of it that happens to be loaded.
-   *
-   * This is the companion defect to the counts above and it was the one an operator would actually
-   * ring about. Every box on this screen said "Search title, owner, locality…" and every one of
-   * them filtered an array the browser already held — so the reachable catalogue was the newest
-   * hundred rows, and a term that matched nothing in those hundred produced the sentence "No
-   * listings match your filters". Not "not on this page". The console stated, in as many words,
-   * that a listing sitting in its own verification queue did not exist. The truncation banners
-   * added alongside make it worse if left unfixed: they tell the operator to narrow with the search
-   * box to reach the rest, which was advice the box could not take.
-   *
-   * The subject row is chosen at runtime as the *oldest* row in the queue — the last page of a
-   * newest-first sort — and the test then asserts it is absent from the hundred rows the console
-   * fetches. That assertion is the vacuity guard, and it is the whole test: without it this reads
-   * as "search finds a row", which the browser-side filter also did. With it, every search below is
-   * for a row the old build provably did not have in memory. It is skipped rather than faked when
-   * the queue is smaller than a page, because on a small database there is no such row to find and
-   * a test that invented one would be testing its own fixture.
-   *
-   * Two terms here, because these are the two the browser could otherwise have answered. The old
-   * filter was `(title + owner + locality + id).includes(q)` over the loaded array, so owner *name*
-   * — what the placeholder always promised — and the *id tail* — how a listing travels between two
-   * people in chat, matched as a substring precisely so a fragment pasted out of a message works —
-   * both worked already for anything on the first page. Only distance makes them a test.
-   *
-   * Owner *mobile* is deliberately not here. It was reachable by neither half of the old build, so
-   * it needs no distance to be meaningful, and keeping it in a test that skips below a hundred rows
-   * would have left the one axis a desk actually uses unproven on every clean database. It has its
-   * own test below.
+   * The subject is the oldest row in the queue and is asserted absent from the fetched page, so a
+   * browser-side filter over the loaded array could not satisfy either search term below.
    */
   test('an owner name or id fragment finds a queue row the fetched page never held', async ({ page, login }) => {
     const admin = await authHeaders(ACTORS.admin);
@@ -1402,20 +993,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /**
-   * The one key a desk actually has in its hand.
-   *
-   * The caller is on the phone. Their number is the only thing they can read out without spelling
-   * it, and until this wave it was the one thing the console could not be asked. The old build had
-   * no path to it at all: the server's `q` was title-or-locality, and the browser's was
-   * `(title + owner + locality + id).includes(q)` over the loaded array. A mobile number is in
-   * neither list, so this needed no page-cap argument to be a real gap, and it needs none to be a
-   * real test \u2014 which is why it is here and not in the sibling above, whose premise cannot exist on
-   * a queue of fifteen rows and which therefore skips on every clean database.
-   *
-   * The vacuity guard is the other half. A number that happened to appear inside the row's own
-   * title or id would have been found by the old browser filter incidentally, and this would then
-   * pass on the build it is meant to fail on. So the term is asserted absent from exactly the
-   * string that filter concatenated, field for field.
+   * The mobile is asserted absent from the row's title, owner name, locality and id, so a match
+   * cannot be an incidental hit on the fields a browser-side filter already concatenated.
    */
   test("an owner's phone number finds their listing, which no browser-side filter could have matched", async ({ page, login }) => {
     const admin = await authHeaders(ACTORS.admin);
@@ -1456,20 +1035,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /**
-   * And the same widening must not have happened on the public search.
-   *
-   * `q` used to be one shared predicate over title and locality, which is why widening it was a
-   * one-line change and why that one line would have been a leak: `/properties?q=98234` on an
-   * endpoint that needs no login would have answered "which landlords' numbers begin 98234, and
-   * exactly what does each of them own" — an owner directory, assembled from the field the listing
-   * page masks on purpose. Hence two named builders rather than one with a flag.
-   *
-   * The negative half is worthless alone: a public search returns nothing for an unpublished row,
-   * for a typo, or for an endpoint that has stopped working, and all three read as privacy. So the
-   * subject is taken from the *public* list — a row any visitor can already see — and each absence
-   * is paired with the same term put to the admin search, which must find it. The pair is the
-   * assertion: this term is a real key that identifies this row, and it works from a desk and does
-   * not work from the street.
+   * Each absence from the public search is paired with the same term found by the admin search, so
+   * the pair proves the term is a real key that works from a desk and not from the street.
    */
   test('the public search cannot be turned into an owner directory', async ({ page }) => {
     const admin = await authHeaders(ACTORS.admin);
@@ -1518,31 +1085,8 @@ test.describe('LIVE: the properties console', () => {
   });
 
   /**
-   * The cost of moving the search to the server, and the row that pays it.
-   *
-   * A browser-side filter narrowed on the keystroke, so what the box said and what the list showed
-   * could never disagree. A server-side one cannot: there is a fetch between them, and for its
-   * duration the box reads the new term while the rows below are still the answer to the old one.
-   * Every one of those rows carries Approve, Reject, Archive and — on the follow-up tab — Remind,
-   * which writes a chaser addressed to a named owner and opens WhatsApp on it.
-   *
-   * That is not hypothetical. `listing-freshness.spec.js` caught it the first time this shipped:
-   * the desk searched one owner's listing, pressed Remind on the only row it could see, and the
-   * toast came back "Chaser written for Tanvi Jain" — a different owner, a real outbound message,
-   * produced by a search box. The fix is that a queue whose rows answer a previous term is inert
-   * until they do not, so a click waits for the row it was aimed at instead of landing on whatever
-   * was underneath.
-   *
-   * The test therefore does the one thing a careful test usually avoids: it does not wait. Typing
-   * and clicking with no settle in between is the whole subject. Three things make it non-vacuous —
-   * the row on top before the term is typed is asserted to be a *different* listing, so a click
-   * that ignores the term has a wrong answer available to give; the queue is asserted to be
-   * mid-update at the moment of the click, so the click really is made inside the window; and the
-   * term is the target's id, which matches exactly one row, so "the top row" and "the target" can
-   * only coincide on purpose.
-   *
-   * View, not Approve: the assertion needs an action that names the row it acted on, and this one
-   * is observable without changing anything. The hazard is the same for every button beside it.
+   * Typing and clicking with no settle in between is the subject: a queue whose rows answer the
+   * previous term must be inert, or a click lands on a different owner's listing.
    */
   test('a row clicked the instant a term is typed is the row that was typed for', async ({ page, login }) => {
     const admin = await authHeaders(ACTORS.admin);
@@ -1588,11 +1132,9 @@ test.describe('LIVE: the properties console', () => {
       'the queue never marked itself as answering a stale term, so the click below is not being made during the window this test is about',
     ).toBeVisible();
 
-    /* Deliberately no wait: this is the click a real operator makes, into rows that still answer
-       the previous term. Scoped to the card, and exact: `getByTitle` matches substrings, so a bare
-       `getByTitle('View')` also selects the shell's `title="View live site"` button, which precedes
-       the queue in the DOM. `.first()` then clicks it and leaves the console for the public home
-       page — a failure that reads exactly like the defect this test hunts. */
+    /* Deliberately no wait: this is the click a real operator makes, into rows that still answer the
+       previous term. Exact, because `getByTitle('View')` also matches the shell's "View live site"
+       button, which precedes the queue in the DOM. */
     await cards(page).first().getByTitle('View', { exact: true }).click();
 
     /* Then let it settle. The search is selective to one row, so the list can only be showing the
@@ -1634,11 +1176,9 @@ test.describe('LIVE: the properties console', () => {
   });
 
   test('a signed-out visitor is sent to the staff sign-in', async ({ page }) => {
-    /* And the redirect has to be `/staff-login`, not `/signin`. A moderator who has been logged out
-       mid-shift and lands on the consumer sign-in will sign in as themselves and get a consumer
-       session, which fails the role check they were just bounced for — the loop looks like a broken
-       account rather than a wrong door. `next` carries the page they were trying to reach so the
-       correct sign-in returns them to it. */
+    /* `/staff-login`, not `/signin`: a moderator logged out mid-shift would sign in as themselves,
+       get a consumer session, and fail the same role check — a loop that reads as a broken account
+       rather than a wrong door. */
     await page.goto('/admin/properties');
     await page.waitForURL(/\/staff-login/);
     expect(new URL(page.url()).pathname).toBe('/staff-login');

@@ -24,42 +24,26 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Opening a verification case file is idempotent when two people do it at once.
- *
- * <p><strong>The bug this is about.</strong> {@code VerificationCases.ensure} was
- * {@code findByPropertyId(...).orElseGet(insert)}, and its own Javadoc called that idempotent
- * because {@code property_reviews.property_id} is UNIQUE. The constraint is real and the claim was
- * half true: it holds for two calls in a row, and not for two calls at once. Two transactions both
- * read no row, both insert, and the loser is handed
- * {@code duplicate key value violates unique constraint "property_reviews_property_id_key"} — a
- * moderator told the database rejected their write for opening a listing a colleague opened in the
- * same second.
- *
- * <p>It was not hypothetical, and it was not rare. React's development double-mount fires the review
- * modal's open request twice concurrently, so the <em>first</em> case file opened after every
- * database reset failed, every time — which is how it was found: the same live spec red as the first
- * test of a run and green as the second, with the identical helper.
- *
- * <p><strong>Read the annotations before the assertions.</strong> There is no {@code @Transactional}
- * here and there cannot be. {@code AbstractApiTest} rolls back, and a rolled-back insert is
- * invisible to every other connection forever — so the racing threads would never collide and the
- * test would pass identically against the broken code. That is the same reasoning
- * {@code RateLimitRaceTest} sets out at length; this class is its second customer, which is why
- * {@link Races} is shared rather than local. The rows here commit, so {@link #cleanUp()} is
- * load-bearing.
- *
- * <p>{@code ensure} is {@code MANDATORY}, so the {@link TransactionTemplate} is supplying what a
- * caller would rather than working around it — and it is also what gives the advisory lock the
- * lifetime it needs, since {@code pg_advisory_xact_lock} is released by the caller's commit.
+ * Opening a verification case file is idempotent under concurrency. No {@code @Transactional} —
+ * {@code AbstractApiTest}'s rollback would hide every collision — so {@link #cleanUp()} is load-bearing.
  */
 @SpringBootTest
 @DisplayName("Verification case files under concurrency — one listing, one case file")
 class VerificationCaseRaceTest {
 
-    /**
-     * Distinct from every mobile used elsewhere in the suite. These rows genuinely commit, so a
-     * shared number would make this test's litter another test's fixture.
-     */
+        @Test
+        void aStaleListingWriterCannotOverwriteAConcurrentLifecycleDecision() {
+                Property stale = properties.findById(propertyId).orElseThrow();
+                tx.executeWithoutResult(status -> properties.findById(propertyId).orElseThrow().setStatus("approved"));
+                stale.revertToPending();
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> properties.saveAndFlush(stale))
+                                .isInstanceOf(org.springframework.dao.OptimisticLockingFailureException.class);
+                Property current = properties.findById(propertyId).orElseThrow();
+                assertThat(current.getStatus()).isEqualTo("approved");
+                assertThat(current.getLifecycleStage()).isEqualTo("live");
+        }
+
+    /** Distinct from every mobile elsewhere: these rows commit, so a shared number becomes another test's fixture. */
     private static final String OWNER_MOBILE = "9876000221";
 
     /** Enough to lose the race reliably on a machine with spare cores; small enough to stay quick. */
@@ -93,10 +77,8 @@ class VerificationCaseRaceTest {
     }
 
     /**
-     * Ordered children first, then the case file, then the listing, then the owner. Written as SQL
-     * rather than through the repositories because a half-created fixture from a failed run has to
-     * be removable too, and a delete that depends on the object graph loading is a delete that stops
-     * working exactly when it is needed.
+     * Ordered children first, then the case file, listing, owner. SQL rather than repositories so a
+     * half-created fixture from a failed run stays removable.
      */
     @AfterEach
     void cleanUp() {
@@ -140,18 +122,8 @@ class VerificationCaseRaceTest {
     }
 
     /**
-     * Four moderators open the same listing at the same instant.
-     *
-     * <p>Both halves of the claim are asserted, and neither implies the other. Nobody may be handed
-     * an error, because the caller did nothing wrong — this is the assertion that fails against the
-     * old code, and it fails with the constraint violation quoted verbatim in the class comment. And
-     * exactly one case file may exist, because a fix that swallowed the collision and let two rows
-     * through would satisfy the first assertion while breaking the thing the UNIQUE index is there
-     * to protect.
-     *
-     * <p>The checklist count is the third: a rental case opens with three items, and a second
-     * insert that partially succeeded would show up here as six. Cheap, and it is the only
-     * assertion that would notice a fix which reused the row but re-ran the seeding.
+     * Both halves asserted separately: nobody may be handed an error, and exactly one case file may
+     * exist. Checklist count catches a fix that reused the row but re-seeded it.
      */
     @Test
     @DisplayName("four simultaneous opens of one listing produce one case file and no errors")
@@ -171,13 +143,8 @@ class VerificationCaseRaceTest {
     }
 
     /**
-     * The same four racers arriving after the case file already exists.
-     *
-     * <p>This is the path every open after the first one takes, and it is the one the fast path in
-     * {@code ensure} exists for — it must not take the lock, and more importantly it must not have
-     * regressed into creating anything. Kept separate from the test above rather than folded into
-     * it because a single test that opened and then re-opened would prove the second behaviour only
-     * on a code path warmed by the first.
+     * Every open after the first takes the fast path — it must not take the lock, and it must
+     * create nothing. Separate class so this is proved on a cold code path.
      */
     @Test
     @DisplayName("racing an existing case file returns the same one, and creates nothing")

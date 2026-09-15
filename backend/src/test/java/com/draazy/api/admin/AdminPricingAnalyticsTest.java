@@ -12,6 +12,7 @@ import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.Roles;
+import com.draazy.api.security.Teams;
 import com.draazy.api.support.AbstractApiTest;
 import java.math.BigDecimal;
 import java.util.List;
@@ -22,25 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/**
- * {@code /admin/analytics/pricing} — the read that replaced a browser-side comparison.
- *
- * <p><strong>Every locality here is created by the test.</strong> The reference seed carries real
- * Pune localities with curated rates and, in a freshly migrated database, no approved listings
- * behind them. Asserting against those would produce a class that passes whether the aggregate is
- * right or wrong, because every figure it could check is null either way — and it would start
- * failing the day somebody seeds a listing in Baner for an unrelated reason. Each test inserts the
- * locality whose shape it is asserting, under a slug nothing else uses, and {@code @Transactional}
- * rolls it back.
- *
- * <p><strong>The fixture prices are chosen so that the wrong implementations disagree.</strong> Two
- * buy listings at ₹10,000 and ₹12,000 a square foot average to ₹11,000 against a curated market rate
- * of ₹9,000. Every number is distinct: an implementation that returned the market rate reports
- * 9,000, one that averaged in a zero-area listing as zero reports 5,500, one that summed rupees and
- * divided by summed area rather than averaging the rates would separate too if the areas differed.
- * A locality whose curated rate happened to equal its listings' average would have made all of those
- * pass.
- */
+/** {@code /admin/analytics/pricing}. Every locality is created by the test, under a slug nothing
+ *  else uses, with prices chosen so each wrong implementation reports a different number. */
 @DisplayName("/admin/analytics/pricing — asking price against the curated rate")
 class AdminPricingAnalyticsTest extends AbstractApiTest {
 
@@ -59,6 +43,9 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName(name);
         u.setMobileVerified(true);
+        // A staff account is keyed in the permission map by its desk, and one with no desk is refused
+        // outright. Which desk is immaterial here — the seeded document grants all six the same set.
+        if (Roles.Wire.STAFF.equals(role)) u.setTeam(Teams.RENTAL);
         return bearer(users.saveAndFlush(u));
     }
 
@@ -71,11 +58,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         return bearerFor("9877750002", Roles.Wire.BUYER, "Pricing seeker");
     }
 
-    /**
-     * A distinct owner per listing. The mobile is drawn from a counter rather than built out of the
-     * caller's suffix: the suffix also names the fixture, so the moment one was not a digit it
-     * produced a mobile the column's check constraint rejected.
-     */
+    /** The mobile is drawn from a counter rather than the fixture suffix, which is not always a
+     *  digit and produced values the column's check constraint rejected. */
     private final AtomicInteger ownerSeq = new AtomicInteger();
 
     private User owner(String suffix) {
@@ -93,11 +77,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
                 """, slug, "Fixture " + slug, MARKET_RATE, AVG_RENT, DEMAND);
     }
 
-    /**
-     * An approved listing. {@code area} is passed as a {@code BigDecimal} so a test can hand in null
-     * or zero, which is the case the averages have to survive. Returns the saved row so a caller can
-     * push it out of the report's scope afterwards — the visibility filters need rows to exclude.
-     */
+    /** {@code area} is a {@code BigDecimal} so a test can hand in null or zero, the case the
+     *  averages have to survive. Returns the saved row so callers can push it out of scope. */
     private Property listing(String slug, String deal, long price, BigDecimal area, String suffix) {
         Property p = new Property(owner(suffix), "Fixture " + slug + " " + suffix,
                 deal, "apartment", price, "Fixture " + slug, "Pune");
@@ -146,12 +127,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(num(row, "demand")).isEqualTo((long) DEMAND);
     }
 
-    /**
-     * ₹30,000 a month over 1,000 sqft is ₹30 per sqft per month, ₹360 a year, against a capital rate
-     * of ₹9,000 — exactly 4%. The report's only figure that combines both halves of the schema, so
-     * it is the one that catches a query that annualised the wrong side or forgot to at all: a
-     * missing ×12 reports 0.3, and dividing by the monthly rent instead reports something absurd.
-     */
+    /** The only figure combining both halves of the schema: a missing ×12 reports 0.3, and dividing
+     *  by the monthly rent reports something absurd. */
     @Test
     void rentalYieldAnnualisesTheAskingRentOverTheCapitalRate() throws Exception {
         String slug = "d999-pricing-yield";
@@ -163,12 +140,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(((Number) row.get("rentalYieldPct")).doubleValue()).isEqualTo(4.0);
     }
 
-    /**
-     * <strong>The regression this endpoint exists for.</strong> The browser version fell back to the
-     * curated market rate whenever it had no listings to average, so a locality Draazy has never
-     * sold a home in showed a deviation of exactly zero and read as the best-priced place in the
-     * city. An empty locality has no asking average, and the report has to say so.
-     */
+    /** Falling back to the curated rate gives an empty locality a deviation of exactly zero, which
+     *  reads as the best-priced place in the city. */
     @Test
     void aLocalityWithNoApprovedListingsReportsNullNotTheMarketRate() throws Exception {
         String slug = "d999-pricing-empty";
@@ -192,12 +165,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(num(row, "buyCount")).isZero();
     }
 
-    /**
-     * A listing with no usable area is supply without a price signal. It must count as the former
-     * and contribute nothing to the latter: coalescing the missing area to zero rupees a square foot
-     * would pull this locality's average from ₹11,000 down to ₹5,500 — a 50% drop caused entirely by
-     * two owners skipping a form field.
-     */
+    /** Coalescing a missing area to zero rupees a square foot halves this locality's average —
+     *  a 50% drop caused entirely by two owners skipping a form field. */
     @Test
     void aListingWithNoUsableAreaDoesNotCorruptTheAverage() throws Exception {
         String slug = "d999-pricing-noarea";
@@ -218,10 +187,7 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(num(row, "totalListings")).isEqualTo(4L);
     }
 
-    /**
-     * Locality-by-locality pricing is commercially sensitive and staff-gated. A signed-in seeker is
-     * still the public.
-     */
+    /** Locality-by-locality pricing is commercially sensitive; a signed-in seeker is still public. */
     @Test
     void aPlainConsumerIsRefused() throws Exception {
         mvc.perform(get(Routes.Admin.ANALYTICS_PRICING)
@@ -229,11 +195,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
                 .andExpect(status().isForbidden());
     }
 
-    /**
-     * The other end of the same guard. Refusing everyone is a way to pass {@link
-     * #aPlainConsumerIsRefused()} while the report is unreachable by the team that sources on it, so
-     * the acceptance side is asserted too — sourcing is ops work, not an admin-only privilege.
-     */
+    /** The acceptance half: refusing everyone would pass the test above while leaving the report
+     *  unreachable by the team that sources on it. */
     @Test
     void opsStaffReachesIt() throws Exception {
         mvc.perform(get(Routes.Admin.ANALYTICS_PRICING)
@@ -249,12 +212,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /**
-     * The two clauses that keep the report about the catalogue a buyer can actually see. Both are
-     * invisible to a fixture that only ever builds approved, non-archived rows: delete either from
-     * the query and every other test here still passes, while the report starts pricing a locality
-     * off listings nobody can buy — and a withdrawn ₹40,000/sqft outlier moves a mean a long way.
-     */
+    /** The only test that builds a non-approved or archived row: drop either clause and everything
+     *  else here still passes while the report prices localities off listings nobody can buy. */
     @Test
     void aPendingOrArchivedListingIsNeitherCountedNorAveraged() throws Exception {
         String slug = "d999-pricing-invisible";

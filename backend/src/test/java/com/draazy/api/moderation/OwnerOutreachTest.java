@@ -26,19 +26,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * {@code /properties/{id}/outreach} — chasing the owner of a listing.
- *
- * <p><strong>What shipped without a server.</strong> The console's Follow-up tab called
- * {@code sendOwnerReminder}, which incremented a number in the browser's own copy of the data and
- * produced no message at all. Its WhatsApp panel called {@code sendWhatsappTemplate}, which did open
- * a real chat — but recorded nothing, so two staff members chasing the same owner on the same
- * morning had no way to discover each other.
- *
- * <p><strong>Why every row says {@code prepared}.</strong> The send is WhatsApp click-to-chat: the
- * server renders the text, the staff member's own WhatsApp opens with it typed out, and they press
- * send. That is a real mechanism — no Business Solution Provider, no vendor, no Meta template
- * approval — but one this server cannot witness. Writing {@code sent} would be the platform
- * asserting delivery in the very table meant to be the evidence for it.
+ * {@code /properties/{id}/outreach} — WhatsApp click-to-chat outreach. Every row records
+ * {@code prepared}, not {@code sent}: the staff member's own WhatsApp does the send.
  */
 @DisplayName("D216 — chasing a listing's owner")
 class OwnerOutreachTest extends AbstractApiTest {
@@ -90,13 +79,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * The owner's name, the listing's title and the staff member's name are substituted from the
-     * database rather than from anything the caller sent.
-     *
-     * <p>The caller supplies a template id and nothing else, on purpose. A request that carried the
-     * message body would let any staff account send arbitrary text to a member of the public in the
-     * platform's name, which is a different and much larger power than picking from an approved
-     * library.
+     * Caller supplies a template id only. A request carrying the body would let staff send
+     * arbitrary text to a member of the public in the platform's name.
      */
     @Test
     @DisplayName("the message is rendered server-side from the listing, its owner and the sender")
@@ -113,18 +97,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * A placeholder with no value is left standing as literal text rather than blanked.
-     *
-     * <p>{@code wa-pricing} asks for {@code market_rate}, which the mock answered with the string
-     * "9,500" for every locality in Pune. Carrying an invented figure across would mean quoting it
-     * to an owner deciding what to charge, so the key resolves to nothing — and the failure is loud,
-     * in the preview the staff member reads before pressing send, instead of a silently truncated
-     * sentence nobody notices.
-     *
-     * <p>This listing has no {@code localitySlug} at all, which is the harder of the two ways to
-     * arrive here: {@code LocalityResolver} declined to bind it to any row, so there is nothing to
-     * ask for a rate. The sibling below covers the softer way — a locality that exists and has
-     * simply not published one.
+     * Unresolved keys survive as literal text so the failure is loud in the staff member's preview
+     * rather than a silently truncated sentence. Here the listing carries no {@code localitySlug}.
      */
     @Test
     @DisplayName("an unresolved placeholder survives as literal text, where a human will see it")
@@ -139,14 +113,7 @@ class OwnerOutreachTest extends AbstractApiTest {
         assertThat(body).contains("Sunita Rao");
     }
 
-    /**
-     * A locality that exists but has published no rate leaves the key standing too.
-     *
-     * <p>The distinction matters because the two cases look identical in the message and are not
-     * identical in the data: an unbound listing is a curation problem, and a bound listing with no
-     * rate is a coverage problem. Both correctly refuse to invent a number. 15 of the 155 seeded
-     * localities carry {@code rate_per_sqft}; {@code akurdi} is one of the 140 that do not.
-     */
+    /** A bound locality with no {@code rate_per_sqft} leaves the key standing; {@code akurdi} is one of the 140 without. */
     @Test
     @DisplayName("a locality with no published rate leaves the key standing rather than guessing")
     void unratedLocalityLeavesTheKeyStanding() throws Exception {
@@ -162,16 +129,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * When the locality has published a rate, the owner is quoted that one.
-     *
-     * <p>The same figure {@code GET /localities/{slug}} already shows buyers. That is the whole
-     * argument for wiring it: the alternative to quoting the owner the number their buyers see is
-     * either inventing one (what the mock did) or keeping it from them (what the server did until
-     * now), and a pricing chaser that cannot name a price is not a pricing chaser.
-     *
-     * <p>{@code 11200} is {@code kothrud}'s seeded {@code rate_per_sqft}. Hard-coded on purpose: if
-     * the seed moves, this test should say so rather than quietly re-derive whatever it finds and
-     * assert that it equals itself.
+     * Quote the same figure {@code GET /localities/{slug}} shows buyers. {@code 11200} is
+     * {@code kothrud}'s seeded {@code rate_per_sqft} — hard-coded so a seed move fails loudly.
      */
     @Test
     @DisplayName("a locality with a published rate is quoted, not guessed at")
@@ -188,18 +147,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * The link an owner is asked to tap points at <em>this</em> deployment.
-     *
-     * <p>Three templates wrote the URL out by hand as {@code draazy.com/property/{listing_id}}.
-     * Nothing failed: the message rendered, the handoff link opened, and the sentence read
-     * correctly — while every chaser sent from a staging box asked an owner to confirm availability
-     * on production, against a listing id that only exists here. The owner taps it, sees a 404 or,
-     * worse, somebody else's flat, and the platform has just told them their listing is gone.
-     *
-     * <p>Asserted against the configured base URL rather than a literal, and paired with the
-     * negative: a template that reverted to the hard-coded host would still contain a plausible
-     * link, so "contains a URL" is not the assertion. {@code draazy.com} deliberately does not
-     * appear in the test configuration for this reason — see {@code application.properties}.
+     * Asserted against the configured base URL — a template hard-coding {@code draazy.com} looks
+     * plausible but 404s an owner on production against a staging id.
      */
     @Test
     @DisplayName("the listing link points at the deployment that sent it, not at production")
@@ -221,13 +170,7 @@ class OwnerOutreachTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * The handoff link is a real {@code wa.me} URL addressed to the owner's actual number, carrying
-     * the rendered message.
-     *
-     * <p>This is where the send happens, so a link to the wrong number is not a cosmetic bug — it is
-     * a message about somebody's flat arriving on a stranger's phone.
-     */
+    /** A wrong number sends someone's flat details to a stranger's phone — not cosmetic. */
     @Test
     @DisplayName("the handoff link addresses the owner's own number and carries the message")
     void handoffLinkIsAddressedToTheOwner() throws Exception {
@@ -245,12 +188,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * Every chaser is recorded, and the log is what the next colleague reads before picking up the
-     * phone.
-     *
-     * <p>Asserted through the read endpoint rather than the table, because a ledger nobody can query
-     * is not a ledger. The status assertion is deliberate: this platform knows a message was
-     * composed and handed to a human, and must not claim more.
+     * Asserted through the read endpoint because a ledger nobody can query is not a ledger. The
+     * platform must not claim delivery: it only knows the message was composed and handed to a human.
      */
     @Test
     @DisplayName("chasers accumulate in a log the next colleague can read, marked prepared")
@@ -260,25 +199,20 @@ class OwnerOutreachTest extends AbstractApiTest {
         Property p = listing(owner, true, staff.getId().toString());
 
         chase(staff, p, "wa-photos", 200);
-        chase(staff, p, "wa-aadhaar", 200);
+        chase(staff, p, "wa-identity", 200);
 
         mvc.perform(get("/properties/" + p.getId() + "/outreach")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].templateId").value("wa-aadhaar"))
+                .andExpect(jsonPath("$[0].templateId").value("wa-identity"))
                 .andExpect(jsonPath("$[0].status").value("prepared"))
                 .andExpect(jsonPath("$[1].templateId").value("wa-photos"));
     }
 
     /**
-     * The count on a pipeline card comes from the messages themselves.
-     *
-     * <p>D215 shipped {@code reminderCount} hard-coded to zero with a contract note promising it
-     * would become a count over outbound messages rather than a column — precisely so it could not
-     * drift from the messages actually sent. This is that promise being kept, and the reason it is
-     * asserted through the moderation queue is that the queue is the one read where the number is
-     * computed for a whole page at once.
+     * Counted from the outbound-message table (never a stored column), so the number cannot drift
+     * from the messages actually sent. Asserted through the queue where it is computed page-wide.
      */
     @Test
     @DisplayName("reminderCount is counted from the ledger, not stored beside the listing")
@@ -300,11 +234,7 @@ class OwnerOutreachTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].adminPipeline.reminderCount").value(3));
     }
 
-    /**
-     * A template id the library does not know is refused rather than sent as literal text.
-     *
-     * <p>The alternative — silently sending the id — would put "wa-onbaord" on an owner's phone.
-     */
+    /** Silently sending the id would put "wa-onbaord" on an owner's phone. */
     @Test
     @DisplayName("an unknown template is refused")
     void unknownTemplatesAreRefused() throws Exception {
@@ -316,11 +246,8 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     /**
-     * Buyers cannot chase owners.
-     *
-     * <p>The guard is {@code postOnBehalf:write} rather than {@code properties:write} because this
-     * puts a message on a member of the public's personal phone in the platform's name — the same
-     * power, pointed at the same people, as creating a listing under their number.
+     * Guard is {@code postOnBehalf:write} not {@code properties:write}: this puts a message on a
+     * private phone in the platform's name, same power as creating a listing under their number.
      */
     @Test
     @DisplayName("a buyer cannot send outreach")
@@ -342,8 +269,8 @@ class OwnerOutreachTest extends AbstractApiTest {
         mvc.perform(get("/admin/message-templates")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == 'wa-aadhaar')].name").value("Aadhaar verification"))
-                .andExpect(jsonPath("$[?(@.id == 'wa-aadhaar')].body").value(
+                .andExpect(jsonPath("$[?(@.id == 'wa-identity')].name").value("Identity verification"))
+                .andExpect(jsonPath("$[?(@.id == 'wa-identity')].body").value(
                         org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.containsString("{owner_name}"))));
     }
 }

@@ -10,29 +10,15 @@ import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.Roles;
+import com.draazy.api.security.Teams;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
 /**
- * Contract + behaviour proof for the three back-office reporting reads (slice 14).
- *
- * <p>The properties worth proving on an analytics surface are not the arithmetic — that is one
- * {@code count(*)} per line and a test asserting a count equals a count proves nothing. They are the
- * ones a reporting endpoint gets wrong in ways nobody notices for months:
- *
- * <ol>
- *   <li><strong>Revenue does not leak sideways.</strong> {@code /admin/finance} is admin-only, so
- *       the staff-visible dashboard must not carry a revenue figure either — otherwise the role
- *       split on the next endpoint is decorative.</li>
- *   <li><strong>Empty buckets are zeros, not gaps.</strong> A series that omits quiet days renders
- *       as a line jumping Monday to Thursday, which reads as a broken pipeline rather than a quiet
- *       Tuesday.</li>
- *   <li><strong>An unbounded range is refused.</strong> Every bucket is a grouped scan; without a
- *       cap, {@code from=1900-01-01&interval=day} is a denial of service with a chart on it.</li>
- *   <li><strong>An unknown metric is a 400, not an invented answer.</strong></li>
- * </ol>
+ * Behaviour proof for the three back-office reporting reads (slice 14): revenue doesn't leak
+ * sideways, empty buckets are zeros not gaps, unbounded ranges are refused, unknown metrics are 400.
  */
 class AdminMetricsEndpointsTest extends AbstractApiTest {
 
@@ -42,6 +28,9 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName("Metrics " + mobile.substring(6));
         u.setMobileVerified(true);
+        // Staff without a desk are refused outright; the seeded document grants all six the same
+        // set, so which one is immaterial here.
+        if (Roles.Wire.STAFF.equals(role)) u.setTeam(Teams.RENTAL);
         return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
     }
 
@@ -71,9 +60,7 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.dealsClosed30d").isNumber());
     }
 
-    /**
-     * The S61 invariant. Staff may run the ops board; staff may not learn what the platform earns.
-     */
+    /** Staff may run the ops board; staff may not learn what the platform earns. */
     @Test
     void revenueIsBlankForStaffAndPresentForAdmin() throws Exception {
         mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, staff()))
@@ -125,9 +112,8 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The breakdown always names both sources, including the one earning nothing. A source
-     * that vanishes when it is idle makes "we made no money on boosts" indistinguishable from
-     * "boosts are no longer reported".
+     * The breakdown always names both sources: a source that vanishes when idle makes "we made no
+     * money on boosts" indistinguishable from "boosts are not reported".
      */
     @Test
     void financeAlwaysNamesEverySource() throws Exception {
@@ -159,10 +145,8 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The bug this test exists for: on a weekly series the first bucket starts on Monday, but the
-     * query used to start at the caller's {@code from}. A Wednesday request therefore returned a
-     * Monday bucket holding only Wednesday onwards — a bucket silently reporting a fraction of
-     * itself, which no chart can show and no operator can notice.
+     * On a weekly series the first bucket must span the whole week, not start at {@code from}, or a
+     * mid-week request returns a Monday bucket silently reporting only Wednesday onwards.
      */
     @Test
     void theFirstWeeklyBucketCountsTheWholeWeekNotJustFromTheRequestedDay() throws Exception {

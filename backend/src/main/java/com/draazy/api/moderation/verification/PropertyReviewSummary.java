@@ -12,5 +12,11 @@ public record PropertyReviewSummary(
         String reviewer,
         int unread,
         Instant decidedAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        String propertyTitle,
+        String propertyImage,
+        String lastMessage,
+        Instant lastMessageAt,
+        String lifecycleTrack,
+        String lifecycleStage) {
 }

@@ -67,7 +67,7 @@ const FURN_LABEL = { furnished: 'Furnished', semi: 'Semi-furnished', unfurnished
 const STAFF_STEPS = [
   { key: 'claimLinkSent', label: 'Link Sent' },
   { key: 'claimLinkOpened', label: 'Opened' },
-  { key: 'aadhaarVerified', label: 'Aadhaar' },
+  { key: 'identityVerified', label: 'Identity' },
   { key: 'photosUploaded', label: 'Photos & Docs' },
   { key: '_live', label: 'Live' },
 ];
@@ -137,15 +137,8 @@ function ProgressRow({ listing: l }) {
 }
 
 /**
- * Rich horizontal property card for admin panels — mirrors consumer list-view layout.
- * Shows image, full property details, price, and admin action buttons.
- *
- * @param {object} props
- * @param {object} props.listing - Full listing object
- * @param {object} [props.actions] - { onView, onEdit, onFeature, onFlag, onArchive, onRestore, onReview, onRecheckPass, onRecheckFail }
- * @param {boolean} [props.selectable] - show checkbox
- * @param {boolean} [props.selected] - checkbox state
- * @param {(id: string) => void} [props.onSelect] - toggle selection
+ * Rich horizontal property card for admin panels, mirroring the consumer list-view layout so an
+ * admin sees what a buyer sees alongside the moderation actions.
  */
 export default function AdminPropertyCard({ listing: l, actions = {}, selectable, selected, onSelect, showQualityScore = true }) {
   const isRent = l.deal === 'rent';

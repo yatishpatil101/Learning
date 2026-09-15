@@ -1,36 +1,12 @@
 /**
- * Ops → referral fraud desk, against the **live** backend.
- *
- * The mock half of this suite could only ever prove that a table renders, because the two sides
- * disagree about what a referral is: `lib/mockApi.js` has a `flagged` status the server does not
- * know, hands out unmasked phone numbers the server withholds, and its Approve grants a perk where
- * the server pays rupees. Everything below is about the disagreements.
- *
- * ## The desk mints its own data
- *
- * `draazy_e2e` seeds **no referrals** — the scheme is a thing users do, not a fixture — so each
- * test redeems one through the public path: the referrer reads their own code from
- * `GET /me/referrals`, the referee posts it to `POST /referrals/redeem`. That is worth more than a
- * fixture would be, because it proves the desk sees what the consumer flow actually produces.
- *
- * Every test uses its own referrer **and** its own referee, for two independent server rules.
- * `uq_referrals_referred_mobile` admits one referral per referee ever, and the velocity signal
- * turns high on a referrer's fifth redemption inside a day — sharing either account would make
- * these tests depend on the order they run in.
- *
- * ## Why every referral here is `medium` risk
- *
- * `risk()` reads three inputs, and one of them is fixed by the test environment: referrer and
- * referee both reach the API from 127.0.0.1, so `sameIp` is always true and the band is raised to
- * medium. That is the correct behaviour — a couple on one router is the platform's most common
- * genuine referral, and the correlation is a reason for a human to look, not a refusal — and it is
- * exactly what makes the High risk tab worth a test: a medium referral must not appear in it.
+ * Each test redeems its own referral through the public path with its own referrer and referee, so
+ * per-referee uniqueness and the velocity signal cannot make results depend on run order.
  */
 import { ACTORS, expect, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
 /**
- * One referrer and one referee per test. Referees are chosen for their Aadhaar badge, because that
+ * One referrer and one referee per test. Referees are chosen for their identity badge, because that
  * is what `ReferralService.approve` gates on since wave 2c.
  */
 const PAIRS = {
@@ -42,16 +18,15 @@ const PAIRS = {
     referrer: { mobile: '9124855617', name: 'Sneha Shah' },
     referee: { mobile: '9152892152', name: 'Diya Deshpande' },
   },
-  // Deliberately an account with no Aadhaar badge.
+  // Deliberately an account with no identity badge.
   blocked: {
     referrer: { mobile: '9133973978', name: 'Nikhil Nair' },
     referee: { mobile: '9394055866', name: 'Sneha Jain' },
   },
   clawback: {
     referrer: { mobile: '9470744469', name: 'Meera Deshpande' },
-    // Active, Aadhaar-verified, no listings — the same shape as every other referee here. It was
-    // Riya Rao, who is one of the six seeded `suspended` accounts; login has enforced that column
-    // since V77, so she could no longer sign in to be referred.
+    // Active, identity-verified, no listings - the same shape as every other referee here, and not
+    // one of the seeded `suspended` accounts, which login refuses.
     referee: { mobile: '9318202961', name: 'Vikram Rao' },
   },
   risk: {
@@ -97,13 +72,8 @@ async function decide(id, verb, accessToken) {
 const rowFor = (page, name) => page.getByRole('row').filter({ hasText: name }).first();
 
 /**
- * What the desk *renders* for each wire status.
- *
- * `Badge` is a translation layer, not a passthrough: it relabels `pending` as **Under Review** —
- * the desk's word for a referral nobody has looked at yet — and strips the hyphen out of
- * `clawed-back`. Asserting the wire word here would be asserting a lie about the screen, so the
- * mapping is stated once and the wire vocabulary is checked where it belongs, in
- * `ReferralEndpointsTest`, against the endpoint itself.
+ * `Badge` is a translation layer, not a passthrough, so the mapping is stated once here and the
+ * wire vocabulary is checked against the endpoint in `ReferralEndpointsTest`.
  */
 const LABEL = {
   pending: 'Under Review',
@@ -116,11 +86,8 @@ const LABEL = {
 const statusOf = (page, name, status) => rowFor(page, name).getByText(LABEL[status], { exact: true });
 
 /**
- * Move to another tab.
- *
- * The desk opens on **Pending**, and a decision takes the referral out of that tab — which is the
- * behaviour a queue should have, and means every assertion about the *result* of a decision has to
- * follow the row to where it went.
+ * The desk opens on Pending and a decision takes the referral out of that tab, so every assertion
+ * about a decision's result has to follow the row to where it went.
  */
 const openTab = (page, label) => page.getByRole('button', { name: new RegExp(`^${label}`) }).click();
 
@@ -149,7 +116,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await expect(page.getByText(referrer.mobile)).toHaveCount(0);
 
     // The signals are what the desk gets instead, and they are computed server-side.
-    await expect(row).toContainText('Aadhaar verified');
+    await expect(row).toContainText('Identity verified');
     await expect(row).toContainText('Same IP');
   });
 
@@ -165,13 +132,9 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await openTab(page, 'Rewarded');
     await expect(statusOf(page, referee.name, 'rewarded')).toBeVisible();
 
-    /* The mock granted a free listing slot or +15 contacts by looking the referrer up by phone
-       number - a number that is no longer on the wire. The server used to pay rupees of platform
-       credit instead, which nothing could be spent on; D31b re-denominated it into the unit the
-       scheme always advertised, owner contacts. These are the only assertions that prove the
-       approval reached the referrer at all rather than just recolouring a chip - and the second
-       pair proves it reached the thing the referrer can actually spend, which is the entitlement,
-       not the summary. */
+    /* The only assertions proving the approval reached the referrer rather than just recolouring a
+       chip — and the second pair proves it reached the entitlement, which is the thing a referrer
+       can actually spend, not the summary. */
     const { accessToken } = await apiLogin(referrer.mobile);
     const summary = await fetch(`${API}/me/referrals`, { headers: auth(accessToken) }).then((r) => r.json());
     expect(summary.converted).toBe(1);
@@ -183,7 +146,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     expect(ent.contacts.allowance).toBeGreaterThan(ent.contacts.referralBonus);
   });
 
-  test('the Aadhaar rule is the server\u2019s now, and the greyed-out button only mirrors it', async ({ page, login }) => {
+  test('the identity rule is the server’s now, and the greyed-out button only mirrors it', async ({ page, login }) => {
     const { referee } = PAIRS.blocked;
     await seedReferral(PAIRS.blocked);
     await openDesk(page, login);
@@ -198,7 +161,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     const { row: dto, accessToken } = await readAsStaff(referee.name);
     const refused = await decide(dto.id, 'approve', accessToken);
     expect(refused.status).toBe(409);
-    expect(await refused.text()).toContain('not Aadhaar-verified');
+    expect(await refused.text()).toContain('not identity-verified');
 
     // Rejecting stays available - a desk must be able to close a referral it will never pay.
     await row.getByRole('button', { name: 'Reject' }).click();
@@ -214,7 +177,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     expect((await decide(dto.id, 'approve', accessToken)).status).toBe(200);
 
     await openDesk(page, login);
-    // Approved above, so it is no longer in Pending - Clawback lives with the paid referrals.
+    // Approved above, so it has left Pending - Clawback lives with the paid referrals.
     await openTab(page, 'Rewarded');
     await rowFor(page, referee.name).getByRole('button', { name: 'Clawback' }).click();
 
@@ -245,30 +208,8 @@ test.describe('Ops → referral fraud desk (live)', () => {
   });
 
   /**
-   * ## The guard, moved here from the retired mock twin
-   *
-   * `ops/referrals.spec.js` proved one third of this: an unauthenticated visitor is bounced from
-   * `/ops/referrals` to staff-login. Mock mode could prove no more, because there is no server in
-   * it to refuse anything — a redirect is the only refusal a browser can observe on its own.
-   *
-   * A redirect is also the weakest of the three refusals that matter. The desk decides who gets
-   * paid; the router is a convenience, and anyone who can open devtools can call `GET /referrals`
-   * without it. So this version asserts all three: the router turns away a visitor with no session,
-   * the router turns away a signed-in **buyer** — the adversarial case, an account that passes every
-   * "is anyone there?" check and must still be refused — and the API refuses that same buyer's token
-   * directly, which is the refusal the money actually rests on.
-   *
-   * `ACTORS.buyer` is the row that would otherwise pass. Rahul is a real, active, fully signed-in
-   * account: a guard keyed on the session rather than on the role would let him through both.
-   *
-   * The staff 200 at the end is the positive anchor. Without it, every assertion above is satisfied
-   * by an endpoint that is simply broken for everyone, and three absences would read as three gates.
-   *
-   * Both negatives are mutation-proved, and the two mutations are different code: adding `buyer` to
-   * the ops `RoleRoute` in `App.jsx` reddens the redirect and nothing else, and relaxing
-   * `@PreAuthorize(STAFF_OR_ADMIN)` to `isAuthenticated()` on `ReferralsController#queue` reddens
-   * the 403 and nothing else — with the whole masked queue printed in the failure message, which is
-   * what the guard is for.
+   * All three refusals, since a redirect is the weakest: the router turns away no session and a
+   * signed-in buyer, and the API refuses that buyer's token, which is what the money rests on.
    */
   test('the desk is staff-only at the router and at the API, and a signed-in buyer is not staff', async ({ page, login }) => {
     await page.goto('/ops/referrals');

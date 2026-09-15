@@ -12,10 +12,8 @@ import {
 import {
   getPermissionCatalogue, getMemberPermissions, saveMemberPermissions,
 } from '../../services/permissionsService.js';
-// No `logAudit` import any more. Every write on this page is a server call that records its own
-// audit row from the authenticated actor — `user.staff.create`, `user.update`, `user.suspend`,
-// `user.reactivate`, `user.staff.approve`, `user.permissions.replace`. The browser's second copy
-// was composed from the row the grid happened to be holding and could not be read back.
+// No client-side audit write: every write on this page is a server call that records its own audit
+// row from the authenticated actor, which the browser cannot read back anyway.
 import { OPS_TEAMS, permissionLabel } from '../../lib/adminModules.js';
 import { roleLabel } from '../../lib/auth.js';
 import { classNames, isoToDisplay } from '../../lib/format.js';
@@ -139,12 +137,9 @@ export default function AdminTeam() {
 
   const activeAdmins = useMemo(() => (members || []).filter((m) => m.role === 'admin' && m.status === 'active'), [members]);
 
-  /* What the table can say about someone's access without a request per row.
-
-     It used to say more, by recomputing the effective module set in the browser. It cannot any
-     more, and that is the improvement: the effective set is the server's, it is not on the
-     directory row, and inventing a second answer here is what this whole change removes. The real
-     document is one click away, in the member's own record, where it is read from the server. */
+  /* All the table can say about access without a request per row. It deliberately does not recompute
+     the effective module set: that answer is the server's, and inventing a second one here is what
+     this removes. The real document is one click away in the member's own record. */
   const accessSummary = (m) => {
     if (m.role === 'admin') return 'Every module';
     if (m.role === 'staff') return m.teams?.length ? m.teams.map(teamLabel).join(', ') : 'No teams assigned';
@@ -157,15 +152,10 @@ export default function AdminTeam() {
      is refused. Defaulting to a role that cannot be created would make the primary action fail. */
   const openNewMember = () => setMemberModal({ id: null, name: '', mobile: '', email: '', role: 'staff', teams: [], status: 'active', permissions: null, loadedPermissions: null, effective: [], scoped: false, permissionsError: null });
 
-  /* Opening a record fetches that person's permission document. It is deliberately *not* on the
-     directory row: the row is a masked projection of a user, and an access-control document is not
-     something to ship in a list of eighty people to render a one-line summary nobody has asked to
-     see yet.
-
-     `permissions` is what an administrator scoped them to, `effective` is what that resolves to
-     against their role's baseline. Both are shown, because they differ in the case that matters: a
-     document may only *narrow*, so an atom ticked here that the role never had stays off in
-     `effective`, and an operator who is not shown that will believe they granted it. */
+  /* Fetched on open, not shipped on the directory row: an access-control document should not ride
+     along in a list of eighty people to render a summary nobody asked for. Both `permissions` and
+     `effective` are shown, because a document may only *narrow* — an atom ticked here that the role
+     never had stays off, and an operator not shown that will believe they granted it. */
   const openEditMember = (m) => {
     setMemberModal({
       id: m.id, name: m.name || '', mobile: m.mobile || '', email: m.email || '',
@@ -211,6 +201,13 @@ export default function AdminTeam() {
       if (members.some((m) => digits10(m.mobile) === mobile)) return toast('Another member already uses this mobile', 'error');
     }
     const current = f.id ? members.find((m) => m.id === f.id) : null;
+    /* A staff account is keyed in the permission map by its desk, so the server refuses one without
+       a team (422). Caught here because the team picker is on this form and a server refusal would
+       arrive as a toast after the modal had already taken a mobile and an email. Only on create:
+       team is immutable afterwards, and `saveTeamMember` already refuses a change to it with a 409. */
+    if (!f.id && f.role === 'staff' && !f.teams.length) {
+      return toast('Choose a team for this staff account', 'error');
+    }
     // Guardrail on the edit form: the contract has no role-change route at all, so demoting the
     // final active administrator is a console-only path and has to be stopped in the console.
     if (current) {
@@ -231,18 +228,10 @@ export default function AdminTeam() {
     };
     const rec = await saveTeamMember(payload, current || null).catch((err) => { failed(err); return null; });
     if (!rec) return;
-    /* The permission document is a second request, and it is second on purpose: it is a different
-       resource with a different guard (`users:write`, administrator-only) and different refusals
-       (403 on editing your own, 422 on an unknown atom or a consumer account). Folding it into the
-       profile save would mean a rejected permission edit also discarded a corrected email.
-
-       Only sent when the record was open long enough for the document to arrive — `permissions` is
-       null until then, and PUTting null would replace the document with nothing.
-
-       And only when the grid actually changed. An unscoped account is shown its baseline ticked, so
-       saving an unrelated email correction would otherwise write a document where none existed and
-       silently move the account from "follows the role" to "pinned to whatever the role allowed on
-       the day someone fixed a typo". There is no route that removes a document once written. */
+    /* A second request on purpose: different guard, different refusals — folding it into the profile
+       save would let a rejected permission edit discard a corrected email. Sent only once the
+       document has arrived (PUTting null would erase it) and only when the grid changed, since an
+       unscoped account shows its baseline ticked and there is no route that removes a document. */
     if (f.id && Array.isArray(f.permissions) && changedFrom(f.loadedPermissions, f.permissions)) {
       try {
         await saveMemberPermissions(f.id, f.permissions);
@@ -258,11 +247,9 @@ export default function AdminTeam() {
     reloadPending();
   };
 
-  /* No client-side pre-check on the last administrator any more. That guard was the console's own
-     invention and it answered from a list this page happened to be holding; the platform's floor
-     lives in `AdministratorGuard`, counts administrators who can still manage back-office access,
-     and holds an advisory lock while it counts. Letting the refusal come back from the provider is
-     the entire point of D205 \u2014 the console now reports what actually happened. */
+  /* No client-side pre-check on the last administrator: the platform's floor lives in
+     `AdministratorGuard`, which counts under an advisory lock, where this page could only answer
+     from the list it happened to be holding. Let the refusal come back from the provider. */
   const toggleMemberStatus = async (m) => {
     const next = m.status === 'active' ? 'suspended' : 'active';
     try {
@@ -288,14 +275,8 @@ export default function AdminTeam() {
     reloadPending();
   };
 
-  // ---- Custom roles: retired ----
-  /* There used to be a third tab here that built named module bundles, and a `roleId` on every
-     member that pointed at one. Both are gone. The server has no route for either and refuses the
-     settings key outright with 422 (D67/V61), so the whole feature resolved entirely in the
-     browser — the page itself carried a banner saying so. A named bundle that grants nothing is
-     worse than no feature: it is an access-control vocabulary an operator believes in. The
-     equivalent is now ticking the same atoms on each account, against a catalogue the server
-     publishes and enforces. */
+  /* No named role bundles: the server publishes and enforces a permission catalogue, so access is
+     granted by ticking those atoms per account. */
 
   if (!members) return <Loading />;
 
@@ -349,11 +330,9 @@ export default function AdminTeam() {
 
   const waitingSince = (m) => isoToDisplay(String(m.approval?.createdAt || m.createdAt || '').slice(0, 10)) || '—';
 
-  /* Pending approvals reuse the members table wholesale — same columns in the same order, same
-     pills, same stacked card below `sm` — because it is the same population of people in a
-     different state, and giving it its own visual language would imply it was a different subject.
-     The columns that differ are the two an operator triages on: who raised the account and how
-     long it has been waiting. */
+  /* Pending approvals reuse the members table wholesale — same population of people in a different
+     state, and its own visual language would imply a different subject. Only the two columns an
+     operator triages on differ: who raised the account and how long it has waited. */
   const approvalColumns = [
     { key: 'name', header: t('team.approvals.columns.member'), render: (m) => (
       <div>

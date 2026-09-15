@@ -27,12 +27,8 @@ import PropertyReviewModal from './properties/PropertyReviewModal.jsx';
 import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyBulkRejectModal, PropertyRecheckRejectModal } from './properties/PropertyModals.jsx';
 import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, fmtAgo, exportCsv } from './properties/constants.js';
 
-/**
- * The verification routes bind `{id}` as a UUID, and `propertyMapper` sets a listing's `id` to
- * `slug || id` with the real key on `uuid` — so `listing.id` is the wrong argument for exactly the
- * listings that have a slug. The moderation and status routes below take either, which is why only
- * the review calls go through this.
- */
+// The verification routes bind `{id}` as a UUID while `propertyMapper` sets `id` to `slug || id`,
+// so only the review calls need the real key off `uuid`.
 const pid = (listing) => listing?.uuid || listing?.id;
 
 const PaginationHint = ({ total }) =>
@@ -40,16 +36,8 @@ const PaginationHint = ({ total }) =>
     <p className="text-center text-xs text-gray-500 pt-2">Showing {PAGE_LIMIT} of {total} — use filters to narrow down</p>
   ) : null;
 
-/**
- * A headline tile.
- *
- * `value == null` renders an em-dash, not a number. This is the tile's whole contract with the
- * rest of the screen: every fetch behind this strip resolves to `null` when it fails or has not
- * answered yet, and `fmtNum(null)` is `"0"` — `Number(null)` is `0`, and the `|| 0` swallows
- * `NaN` and `undefined` too. So the honest "we do not know" and the load-bearing "nothing is
- * waiting" arrived on screen as the same glyph, and the tile that had lost its server looked like
- * the tile with a clean queue. A moderator stops looking at a zero.
- */
+// `value == null` draws an em-dash: every fetch behind this strip resolves to `null` on failure,
+// and `fmtNum(null)` would print "0" — a tile that lost its server must not look like a clean queue.
 function KpiCard({ label, value, icon: Icon, tint, onClick }) {
   return (
     <button type="button" onClick={onClick} title={`View ${label} listings`} className="group dz-card p-4 sm:p-5 text-left transition hover:border-brand-teal/40 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-brand-teal/40">
@@ -63,91 +51,16 @@ function KpiCard({ label, value, icon: Icon, tint, onClick }) {
   );
 }
 
-/* The stays-live re-check queue's fetch (Q14).
-   A failed fetch must not read as a drained queue: `[]` means "nothing waiting", `null` means "we
-   do not know yet", and the tab renders a loader for the second — so an outage is never mistaken
-   for an empty backlog. Module scope, with the reporter passed in, so the mount effect that calls
-   it needs no dependency on the component's `toast`. */
+/* `[]` means "nothing waiting" and `null` means "we do not know yet", so an outage never reads as
+   a drained queue. Module scope so the mount effect needs no dependency on the component's toast. */
 const fetchRecheckQueue = (onError) => listForModeration({ recheck: true, archived: false }, 'newest')
   .catch((err) => { onError(err); return []; });
 
-/* Duplicate detection used to be the one feature on this console with no server behind it, and the
-   shape of its failure was worse than "unimplemented".
+/* The duplicate count and clusters come from the server, and stay `null` until the read answers or
+   while an error stands: `0` is a claim about the catalogue this control cannot make on its own. */
 
-   `findDuplicateClusters` ran a union-find over `rawDb().listings` — the fixture store `main.jsx`
-   seeds into `localStorage` at boot, unconditionally and with no reference to the domain allow-list.
-   On a mock build that store *is* the catalogue and the answer was right. On a live build it was a
-   copy of `db.json` that had never met a production listing, so the tile did not go blank or throw:
-   it rendered a calm, confident **0**, and the tab rendered "nothing to merge".
-
-   Measured against this lane's e2e database on 2026-08-25: the tile read `Duplicate listings: 0`
-   while `GET /admin/properties` returned 71 rows containing four repeated titles, one of them four
-   times over. A moderator reading that tile was being told the catalogue is clean by a control that
-   never looked at it — and an all-clear nobody asked for is more expensive than a blank, because it
-   ends the search. The merge button was the same problem one step further on: `resolveDuplicate`
-   archived the loser into `localStorage`, so a cross-owner merge changed nothing another person
-   could see and was gone when the browser was cleared. It also wrote `duplicateFlag` and
-   `duplicateOf`, two columns no table on this platform has ever had.
-
-   D255 built the missing half — `GET /admin/properties/duplicates` derives the clusters from the
-   same three signals the write-time probe uses, and merge/dismiss are server writes that leave
-   audit rows. So the tile and the tab are unconditional again, and the count below is the server's.
-
-   What survives from the old arrangement is the lesson rather than the gate: this count is `null`
-   until the read answers, and `null` while an error stands. It is never `0` on a catalogue nobody
-   looked at, because that number is a claim and this control is not entitled to make it. */
-
-/**
- * One queue, one server query.
- *
- * Every tab on this console used to derive itself from a single fetch of `listForModeration({})` —
- * one page, capped at a hundred rows — and then filter that page in the browser. Measured against
- * this lane's e2e database on a 322-listing catalogue, that is what the desk was actually shown:
- *
- * | tab | in the database | on the screen |
- * |---|---|---|
- * | Verification queue | 91 | 27 |
- * | Flagged | 4 | **0** |
- * | Featured | 5 | **0** |
- * | Staff posted | 67 | 27 |
- * | Unconfirmed | 53 | **0** |
- *
- * Two things are worth separating there. The verification queue at 27-of-91 is the ordinary
- * page-cap defect and reads as plausible — a moderator drains it, sees it empty, and walks away
- * from sixty-four listings. Flagged and Featured are worse than plausible: they render *empty*
- * while the KPI tiles two inches above them, which come from `GET /admin/properties/summary` and
- * are therefore right, say four and five. The page contradicts itself on screen and still nobody
- * had reported it, because an empty moderation queue is the outcome everybody wants.
- *
- * The fix is not a bigger page. It is that each queue asks the database its own question:
- * `status`, `featured`, `postedByAdmin` and `unconfirmed` are all real columns and all now real
- * query parameters. A predicate the database cannot see cannot page.
- *
- * `null` page and `failed` are distinct on purpose, and neither is `[]`. An empty array renders
- * "No listings match your filters", which is a claim about the catalogue; a request that failed has
- * made no such claim, and a queue that reports itself drained because a fetch rejected is the same
- * confident zero in a different costume.
- *
- * Keyed on the serialised filters so a caller can pass an object literal without memoising it —
- * `JSON.stringify` also drops the `undefined` values that would not have been sent anyway.
- *
- * Debounced, because `q` made these fetches keystroke-driven: an owner's name is a dozen requests
- * typed at speed, and without a delay the last one to *arrive* wins rather than the last one sent.
- * The `alive` flag already stops a stale response overwriting a fresh one, but it cannot stop the
- * requests being made. The delay is skipped when there is no term — tab switches, the deal filter
- * and `reloadToken` after a moderation decision are all single events, and making the desk wait a
- * quarter second to watch a row disappear after they approved it would be a worse screen.
- *
- * `stale` is the price of that delay, and it is not cosmetic. Moving `q` to the server put time
- * between the term the operator typed and the rows answering it; for those few hundred milliseconds
- * the list still shows the *previous* result set while the box reads the new term. Every row on it
- * carries Approve, Reject, Archive and Remind. Caught by `listing-freshness.spec.js`: the desk
- * searched one owner's listing, pressed Remind on the only row it could see, and the chaser was
- * written for a different owner entirely — a real outbound message, to the wrong person, produced
- * by a search box. So the hook says out loud when its page does not answer the current key, and the
- * list is inert until it does. This is inherent to a server-side search, not to the debounce: even
- * at zero delay the fetch is not instant.
- */
+// Each queue asks the database its own question, because a predicate the database cannot see cannot
+// page. `null`, `failed` and `[]` stay distinct, and `stale` makes rows inert until they answer `key`.
 function useModerationQueue(filters, reloadToken) {
   const key = JSON.stringify(filters);
   // The key the settled page answers, tracked with it rather than beside it so the two can never be
@@ -179,16 +92,8 @@ function useModerationQueue(filters, reloadToken) {
   );
 }
 
-/**
- * Says out loud when a queue holds more than the page fetched for it.
- *
- * The same treatment the re-check queue already had, generalised — because the alternative is what
- * every other tab did, which is to present a slice as the whole and let the operator infer the
- * difference from a row count nobody compares. Compared against the server's own `total` rather
- * than tested for `>= PAGE_SIZE`: the row array hitting the cap is a proxy for the question and not
- * the question, it cannot say how many are missing, and it reads a queue of exactly one hundred as
- * truncated.
- */
+// Compared against the server's `total` rather than `>= PAGE_SIZE`: the row array hitting the cap
+// cannot say how many are missing, and reads a queue of exactly one page as truncated.
 function QueueTruncated({ page, noun, testId }) {
   if (page == null || page.items.length >= page.total) return null;
   return (
@@ -200,19 +105,8 @@ function QueueTruncated({ page, noun, testId }) {
   );
 }
 
-/**
- * The list, made inert while it is answering the previous search term.
- *
- * `pointer-events-none` is the load-bearing part and the rest is so the operator can see why: the
- * rows below are a real answer to a question nobody is asking any more, and every one of them
- * carries Approve, Reject, Archive and Remind. Blanking them instead would be worse — an empty list
- * here reads as "no such listing", which is the lie this whole wave exists to stop, and it would
- * make the page jump about under somebody who is still typing.
- *
- * Module scope rather than a closure inside the page, because a component declared during render is
- * a new type on every render and React remounts its whole subtree — here, the entire queue, on
- * every keystroke.
- */
+// `pointer-events-none` is the load-bearing part: rows answering a superseded term still carry
+// Approve/Reject/Remind. Module scope, since a component declared during render remounts the queue.
 function QueueBody({ stale, children }) {
   return (
     <div
@@ -225,15 +119,8 @@ function QueueBody({ stale, children }) {
   );
 }
 
-/**
- * The other half of `useModerationQueue`'s two-state failure: what a queue renders when its fetch
- * rejected.
- *
- * Worth a component rather than a ternary in nine places, because the wording is the point. The
- * default empty state on this screen is "No listings match your filters", and a queue that says
- * that after a 500 has told the operator the backlog is clear on the strength of a request nobody
- * answered. That is the same confident zero the KPI tiles were rebuilt to stop printing.
- */
+// Worth a component because the wording is the point: the default "No listings match your filters"
+// after a 500 would tell the operator the backlog is clear on the strength of an unanswered request.
 function QueueFailed({ noun, testId }) {
   return (
     <p className="dz-card p-8 text-center text-gray-400" data-testid={testId}>
@@ -261,14 +148,7 @@ export default function AdminProperties() {
   );
 
   /* A reviewer who can read the supply console but not write it is locked to the Verification
-     Queue — the one tab whose action (`decideVerification`) is a separate route the server guards
-     with `properties:write` of its own.
-
-     This used to be a `properties:verify` sub-scope the console invented. The server's catalogue
-     has no such atom and will not grow one: verifying, featuring and archiving are all reached
-     through the same `properties:write`, so a name that promised only the first was a promise the
-     server could not keep. "Read without write" is the honest version of the same restriction and
-     is enforced end to end. */
+     Queue, whose `decideVerification` route the server guards with its own `properties:write`. */
   const verifyOnly = !canWriteModule(user, 'properties');
   const activeTab = verifyOnly ? 'verify' : tab;
 
@@ -301,48 +181,15 @@ export default function AdminProperties() {
   const [recheckRejectReason, setRecheckRejectReason] = useState('');
   const [internalNote, setInternalNote] = useState('');
 
-  /* The stays-live re-check queue (Q14) is fetched on its own axis rather than filtered out of
-     `all` like the other list tabs.
-
-     Every other tab narrows on something already in the page's single fetch (`status`, `featured`,
-     `archived`), but a queued re-check is by definition an *approved, un-archived* listing — that
-     is the whole outcome — so `all` cannot be narrowed to it without the recheck fields, and the
-     moderation fetch is one page of `PAGE_SIZE` (100, set by the provider; the endpoint's own
-     default of 20 is not what this screen gets). Filtering client-side would therefore quietly show
-     the re-checks that happen to fall in that page and silently drop the rest, which for a queue is
-     worse than showing nothing: it looks drained. `?recheck=true` asks the server the actual
-     question, and the mock answers it identically.
-
-     That argument was right and was applied to exactly one tab. It holds for all of them — the
-     other eight still slice this same capped page — which is how the KPI strip came to report
-     `Active 0` over 54 approved listings.
-
-     `DuplicatesTab` already establishes a tab with its own data source.
-
-     `archived: false` is sent explicitly rather than left to the outcome's definition. Archiving
-     does not call `clearRecheck()`, and `adminSearch` adds no archived predicate when the filter is
-     null, so a listing archived while a re-check was outstanding still matches `recheck=true`
-     server-side. The mock drops archived rows unconditionally, so without this the two sides would
-     disagree — and the live queue would carry rows that no longer need reviewing. */
+  /* Fetched on its own axis: a queued re-check is by definition an approved, un-archived listing, so
+     slicing the page's single capped fetch would show only the re-checks that happen to land in it
+     and leave the queue looking drained. `archived: false` is explicit because archiving does not
+     `clearRecheck()`, so an archived row still matches `recheck=true` server-side. */
   const [recheckAll, setRecheckAll] = useState(null);
 
-  /* The headline counts, from `GET /admin/properties/summary` — the database counting the whole
-     catalogue, not this page counting the rows it happens to hold.
-
-     These five numbers used to be a `useMemo` over `all`, and `all` is one page of at most a
-     hundred listings. Against a 207-row catalogue whose newest hundred rows were all pending, the
-     strip painted **Active 0, Flagged 0, Featured 0** over 54 approved, 4 flagged and 5 featured
-     listings, and Total 92 over 199. Nothing about that reads as broken — three tiles at zero and a
-     plausible total is what a quiet morning looks like, which is exactly why it survived.
-
-     The endpoint has existed and been correct the whole time. `PropertyModerationSummary` even
-     documents this failure in the past tense, as though the console had already been moved onto it;
-     it never had been, and grep found no reference to the route anywhere in the frontend. That is
-     the same shape as `?recheck=true` before D-Q14 — server half shipped, tested and unreachable —
-     and `toModerationQuery` says so about itself in its own javadoc. Third time on this endpoint.
-
-     `null` until it answers, and `null` again if it fails — never a zero. `KpiCard` renders an
-     em-dash for `null`, so an outage says "we do not know" instead of "all clear". */
+  /* The database counting the whole catalogue, not this page counting the capped hundred rows it
+     happens to hold. `null` until it answers and `null` again if it fails, never a zero: `KpiCard`
+     renders an em-dash, so an outage says "we do not know" instead of "all clear". */
   const [summary, setSummary] = useState(null);
   const loadSummary = useCallback(() => moderationSummary()
     .then(setSummary)
@@ -393,13 +240,8 @@ export default function AdminProperties() {
   const jumpTo = (t, status) => { setTab(t); if (t === 'all') { setQAll(''); setFDeal(''); setFStatus(status || ''); } };
 
   // ---- computed data ----
-  /* The number of distinct duplicate clusters awaiting an Ops merge decision — from the server, and
-     `null` until it answers or if it fails.
-
-     `null` rather than `0` on failure is the whole point of this variable's history. The KPI reads
-     "Duplicate: —" when the question is unanswered, and only ever shows a number the server
-     actually computed. A tile that renders `0` because a fetch rejected is an all-clear nobody
-     issued, and it is more expensive than a blank because it ends the moderator's search. */
+  /* `null` rather than `0` on failure: a tile rendering `0` because a fetch rejected is an all-clear
+     nobody issued, and it ends the moderator's search. `KpiCard` shows an em-dash instead. */
   const [dupCount, setDupCount] = useState(null);
   useEffect(() => {
     let live = true;
@@ -410,10 +252,8 @@ export default function AdminProperties() {
         if (live) setDupCount(null);
       });
     return () => { live = false; };
-    // Re-read after a write rather than after `all` changes. The clusters are derived server-side
-    // from the whole catalogue, so the page of listings this component happens to hold is not an
-    // input to them — keying on it was borrowing another fetch's timing for want of a signal of
-    // its own, and `reloadToken` is that signal.
+    // Keyed on `reloadToken`, not `all`: the clusters are derived server-side from the whole
+    // catalogue, so the page of listings this component holds is not an input to them.
   }, [reloadToken]);
 
   /* Surfaced in the tab label and as a KPI. A re-check that nobody is *told about* is the same as
@@ -421,20 +261,8 @@ export default function AdminProperties() {
      are live, approved and un-archived, so they raise none of the existing counters. */
   const recheckCount = (recheckAll || []).length;
 
-  /* The All tab has its own server query, and this is the substantive half of the fix.
-   *
-   * It used to filter `all` — one capped page — in the browser. On a 207-listing catalogue that
-   * meant 107 listings could not be found by any search term: typing an exact title of a listing
-   * that exists returned "No listings match your filters". A moderation search that answers
-   * "nothing" for a row it simply did not fetch is worse than one that errors, because the operator
-   * believes it. `q` has been forwarded by `toModerationQuery` the whole time; nobody sent it.
-   *
-   * `status`/`archived` go with it, so the Active and Archived views are the database's answer
-   * rather than whatever the newest hundred rows happened to contain.
-   *
-   * Debounced only while typing — a filter chip applies immediately, since a click is already a
-   * deliberate act and waiting 250ms after one just reads as lag.
-   */
+  /* The All tab runs its own server query so `q`, `status` and `archived` are database predicates.
+     Debounced only while typing — a filter chip is a deliberate click and waiting just reads as lag. */
   const [allPage, setAllPage] = useState(null);
   const [allFailed, setAllFailed] = useState(false);
   /* Which query the settled page answers — see `useModerationQueue`'s note on `stale`. This tab
@@ -448,10 +276,8 @@ export default function AdminProperties() {
       searchForModeration({
         q: q || undefined,
         deal: fDeal || undefined,
-        // Archived is a view, not a status: the server keeps it on its own axis, so asking for it
-        // means `archived=true` with no status, and every other view means `archived=false`. Left
-        // unset, an unfiltered moderation read includes archived rows by design — which on the All
-        // tab would silently mix soft-deleted listings into the live catalogue.
+        // Archived is a view on its own axis, not a status. Left unset, an unfiltered moderation
+        // read includes archived rows, mixing soft-deleted listings into the live catalogue.
         ...(fStatus === 'archived'
           ? { archived: true }
           : { archived: false, status: fStatus || undefined }),
@@ -469,13 +295,8 @@ export default function AdminProperties() {
   }, [qAll, fStatus, fDeal, reloadToken, allQueryKey]);
   const allStale = allKey != null && allKey !== allQueryKey;
 
-  /* The two axes the server cannot answer, applied to the page it returned.
-   *
-   * `dateRange` has no parameter on `GET /admin/properties`, and quality is a score this client
-   * computes from the listing's own fields — there is no column to filter on. Both therefore narrow
-   * *within* the fetched page, which is why the row counter below stops quoting a catalogue total
-   * whenever one of them is active: it would be describing a different set than the one on screen.
-   * The freshness filter has the same shape and is already filed in `tasks/DECISIONS-NEEDED.md`. */
+  /* `dateRange` has no query parameter and quality is a client-computed score, so both narrow within
+     the fetched page — which is why the counter below stops quoting a catalogue total when they run. */
   const rowsAll = useMemo(() => {
     const list = allPage?.items || [];
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
@@ -486,19 +307,8 @@ export default function AdminProperties() {
     });
   }, [allPage, dateRange, fQuality]);
 
-  /* The row counter, which is the other thing that was lying.
-   *
-   * It read `of ${all.length} listings` — `all.length` is the page cap, so it printed "of 100" on a
-   * 207-row catalogue and would print "of 100" on a million. It also counted the archived rows the
-   * tab was excluding, which is how "1 of 100 listings" came to sit beside a Total tile reading 92.
-   *
-   * Now: the server's `total` for the current query, and when a page-local narrowing is on, the
-   * count of what was actually fetched, said in those words.
-   *
-   * "on this page" is a claim about truncation, so it is only made when the page actually is
-   * truncated. With a catalogue that fits in one fetch, the local narrowing saw every matching row,
-   * `items.length` and `total` are the same number, and the long form said it twice — "3 of 41 on
-   * this page (41 match the filters above)" — while implying rows had been withheld. */
+  /* Counts the server's `total` for the current query. "on this page" is a claim about truncation,
+     so it is only made when the page really is truncated. */
   const narrowedLocally = Boolean(dateRange || fQuality);
   const allTruncated = allPage != null && allPage.items.length < allPage.total;
   const allCountLabel = allPage == null
@@ -507,48 +317,23 @@ export default function AdminProperties() {
       ? `of ${fmtNum(allPage.items.length)} on this page (${fmtNum(allPage.total)} match the filters above)`
       : `of ${fmtNum(allPage.total)} listings`;
 
-  /* Each queue is its own server query now — see `useModerationQueue` for what the single shared
-     fetch was actually showing the desk.
-   *
-   * `deal` and `q` both go to the server. `q` could not until the server's term matched what these
-   * boxes claim to search: it was title-or-locality, while every placeholder on this screen also
-   * offers owner and listing id, so pushing it down would have traded a page-cap defect for a
-   * narrower search. `adminTextSearch` now covers title, locality, owner name, owner mobile and the
-   * id, so the term is a predicate the database can see — which is what the truncation banners have
-   * been telling operators to do all along ("narrow with the search box to reach the rest"). Typing
-   * a name that only appears on page three used to answer "no listings match your filters".
-   *
-   * Debounced, because this is a keystroke-driven fetch: see `useModerationQueue`.
-   *
-   * The date pills stay in the browser. They are a `createdAt` window with no query parameter, and
-   * unlike `q` they narrow a set the operator can already see rather than reaching past the page.
-   *
-   * Owner *mobile* is new to these boxes and deliberately not advertised in every placeholder — the
-   * three that say "owner" mean the person, and a desk with a caller on the line will try the
-   * number whether or not the grey text invites it. */
+  /* Each queue is its own server query; `deal` and `q` are database predicates via `adminTextSearch`
+     (title, locality, owner name, owner mobile, id). The date pills stay page-local — no parameter. */
   const verifyQueue = useModerationQueue({ status: 'pending', archived: false, q: qVerify || undefined, deal: fDeal || undefined }, reloadToken);
   const flaggedQueue = useModerationQueue({ status: 'flagged', archived: false, q: qFlagged || undefined, deal: fDeal || undefined }, reloadToken);
   const featuredQueue = useModerationQueue({ featured: true, archived: false, q: qFeatured || undefined, deal: fDeal || undefined }, reloadToken);
   const staffQueue = useModerationQueue({ postedByAdmin: true, archived: false, q: qStaff || undefined, deal: fDeal || undefined }, reloadToken);
-  /* The one queue whose rows are approved, un-archived and live in search right now — which is why
-     it needs a desk at all. It also used to be empty by construction against the live API: the
-     predicate began `if (!l.real ...)`, and `real` is a mock-store field the http mapper has never
-     emitted, so every live listing failed the first test. The tab read "All caught up" over
-     fifty-three listings whose owners had gone silent. */
+  /* The one queue whose rows are approved, un-archived and live in search right now, which is why it
+     needs a desk. Never predicate it on `real` — a mock-store field the http mapper never emits,
+     which once made the tab read "All caught up" over fifty-three silent listings. */
   const unconfirmedQueue = useModerationQueue({ status: 'approved', archived: false, unconfirmed: true, q: qFollowUp || undefined, deal: fDeal || undefined }, reloadToken);
-  /* The follow-up tab asks the verification queue's question with its own search box, so it needs
-     its own fetch: folding it back into `verifyQueue` would mean typing in the Verification tab's
-     box silently re-cut the follow-up split, and typing in the follow-up box re-cut the
-     verification queue. Identical requests while both boxes are empty, which is the honest cost of
-     two independent controls over one question — and cheaper than the alternative, which is a
-     shared fetch that answers whichever box was typed in last. */
+  /* Its own fetch, because the follow-up tab asks the verification queue's question with its own
+     search box: a shared fetch would let whichever box was typed in last re-cut both splits. */
   const followUpQueue = useModerationQueue({ status: 'pending', archived: false, q: qFollowUp || undefined, deal: fDeal || undefined }, reloadToken);
 
-  /* The `q` term is gone from every row filter below, not merely duplicated at the server.
-     Leaving it would have been worse than redundant: the server matches owner *mobile* and these
-     predicates never did, so a desk searching the number of the owner on the phone would have had
-     the server find the row and the browser throw it away — a search that works everywhere except
-     the screen. The date pills stay, being a window with no query parameter behind it. */
+  /* No `q` term in the row filters: the server matches owner *mobile* and these predicates cannot,
+     so a desk searching the number of the owner on the phone would have the server find the row and
+     the browser throw it away. The date pills stay — a window with no query parameter behind it. */
 
   const rowsVerify = useMemo(() => {
     const list = verifyQueue.page?.items || [];
@@ -562,25 +347,20 @@ export default function AdminProperties() {
     return list.filter((l) => !cutoff || new Date(l.createdAt).getTime() >= cutoff);
   }, [flaggedQueue, dateRange]);
 
-  /* Oldest first, always. Sorting is deliberately not offered: the queue's only ordering that
-     means anything is how long each listing has been live-but-unreviewed, and letting a moderator
-     re-sort it is letting them work the easy end. Server-side sorting is not an option either —
-     `sort` is clamped to the catalogue's shared whitelist, and widening it for `recheckRequestedAt`
-     would expose the column to the public search too (see the endpoint's spec note). */
+  /* Oldest first, always: the only ordering that means anything here is how long a listing has been
+     live-but-unreviewed, and re-sorting lets a moderator work the easy end. Server-side sort is out
+     too — `sort` is clamped to the catalogue whitelist, shared with the public search. */
   const rowsRecheck = useMemo(() => {
     const list = recheckAll || [];
     const q = qRecheck.toLowerCase();
-    // The shared date pills mean "queued in the last N days" here, not "posted" — a listing posted
-    // two years ago and repriced this morning belongs at the top of this queue, and filtering it on
-    // `createdAt` like the other tabs would hide exactly the rows that matter.
+    // The shared date pills mean "queued in the last N days" here, not "posted": a stale listing
+    // repriced this morning belongs at the top of this queue.
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
     return list
       .filter((l) => (!fDeal || l.deal === fDeal)
         && (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q))
-        // A row with no timestamp survives every cutoff. `new Date('').getTime()` is NaN and every
-        // NaN comparison is false, so the naive form drops precisely the rows whose age is unknown
-        // — the ones the strip is prepared to render as "waiting — no timestamp", and the ones
-        // most likely to be the oldest.
+        // A row with no timestamp survives every cutoff: NaN comparisons are all false, so the
+        // naive form would drop exactly the rows whose age is unknown and likely oldest.
         && (!cutoff || !l.recheckRequestedAt || new Date(l.recheckRequestedAt).getTime() >= cutoff))
       .sort((a, b) => new Date(a.recheckRequestedAt || 0) - new Date(b.recheckRequestedAt || 0));
   }, [recheckAll, qRecheck, dateRange, fDeal]);
@@ -612,7 +392,7 @@ export default function AdminProperties() {
     list.forEach((l) => {
       const created = new Date(l.createdAt).getTime();
       const isStale = (now - created) > 48 * 60 * 60 * 1000;
-      const isAwaitingOwner = l.postedByAdmin && (!l.photosUploaded || !l.aadhaarVerified);
+      const isAwaitingOwner = l.postedByAdmin && (!l.photosUploaded || !l.identityVerified);
       if (isAwaitingOwner) awaiting.push(l);
       else if (isStale) stale.push(l);
     });
@@ -637,35 +417,16 @@ export default function AdminProperties() {
      truncation states have to follow the sub-filter rather than being pinned to one of them. */
   const activeFollowUpQueue = followUpSub === 'unconfirmed' ? unconfirmedQueue : followUpQueue;
 
-  /* Resolves an id back to its row. It used to search `all` alone, which was survivable only while
-     every tab was a slice of `all`; now that each queue is its own fetch, a listing can be selected
-     on the verification tab and absent from `all` entirely — `all` is one page and the pending queue
-     is a different one. The bulk callers treated a miss as `return`, so an approve would skip the
-     row, count it as neither done nor failed, and report "N approved" for a selection of N+k.
-     Searching every page currently on the client removes the miss; the callers now throw on one
-     anyway, so if it ever comes back it is reported instead of absorbed. */
+  /* Resolves an id against every page on the client: each queue is its own fetch, so a row selected
+     on one tab can be absent from `all`. The bulk callers throw on a miss rather than absorbing it. */
   const findListing = useCallback((id) => [
     verifyQueue.page?.items, flaggedQueue.page?.items, featuredQueue.page?.items,
     staffQueue.page?.items, unconfirmedQueue.page?.items, allPage?.items, recheckAll, all,
   ].reduce((hit, rows) => hit || (rows || []).find((l) => l.id === id), undefined),
   [verifyQueue, flaggedQueue, featuredQueue, staffQueue, unconfirmedQueue, allPage, recheckAll, all]);
 
-  /* `?review=<id>` opens the review modal. It resolves through `findListing`, which reads every
-   * page currently on the client — all five queues plus the All page and the re-check list.
-   *
-   * Both narrower forms of this were wrong, in opposite directions. Resolving against `all` alone
-   * meant one page of the catalogue ordered newest-first, so a link about a listing posted this
-   * morning opened and one about a listing posted last month did not. Resolving against the pending
-   * queue alone looks more principled — "a link asking someone to review a listing is asking about a
-   * listing awaiting review" — and breaks the case the link exists for: a decision moves the listing
-   * off that queue, so the modal could be opened once and never reopened, and the case file with its
-   * communication log became unreachable the moment it was acted on. The union is not a compromise
-   * between them; it is the set that answers "show me this listing's case file", which is the
-   * question the link actually asks.
-   *
-   * A miss is now reported. The horizon is still the loaded pages, so a decided listing old enough
-   * to have fallen off all of them cannot be resolved from the client — but the operator is told
-   * that, instead of being dropped on a console that silently ignored the link they followed. */
+  /* `?review=<id>` resolves through `findListing` across every loaded page, since a decision moves a
+     listing off the pending queue and its case file must stay reachable. A miss is reported, not ignored. */
   const deepLinkSettled = [verifyQueue, flaggedQueue, featuredQueue, staffQueue, unconfirmedQueue]
     .every((qz) => qz.page || qz.failed) && (allPage != null || allFailed);
   useEffect(() => {
@@ -693,50 +454,7 @@ export default function AdminProperties() {
   const toggleOneVer = toggleOne(setSelVer);
 
   // ---- actions ----
-  // There used to be a `logAudit(...)` line after each of these, writing a sentence into a
-  // browser-local array. Every moderation call below now goes to the server, and every one of those
-  // endpoints records its own audit row from the authenticated principal — the audit actions
-  // property.status, property.featured, property.flag, property.archive and review.decide. (Written
-  // unquoted on purpose: check-i18n-route-namespaces.mjs reads any quoted dotted literal as a
-  // translation key, and would drag the 40 KB `property` namespace onto this route for a comment.)
-  // The browser's copy
-  // was a duplicate of a record it could not see, composed from the row the table happened to be
-  // holding rather than from what the server actually did, and it survived a failed call in one
-  // case and a partial bulk failure in three. Two audit trails that can disagree are worse than
-  // one, and the one that cannot be tampered with from a console is the one to keep.
-  //
-  // `setPipelineStage` was the last exception and is no longer one (D27). It used to write to
-  // `localStorage` because this console's funnel and the server's shared one field and disagreed
-  // about what belonged in it: the read side was already the server's — `adminPipeline.pipelineStage`
-  // through `propertyMapper` — while the write sent `under_review` and `live`, which the server's
-  // enum did not contain and would have answered 400.
-  //
-  // V92 settled the disagreement by splitting the field rather than picking a winner. `pipeline_stage`
-  // is the acquisition funnel the desk works (contacted → info collected → listed → docs submitted),
-  // `handback_milestone` is the owner's half once the desk hands over (photos uploaded → Aadhaar
-  // verified → claim sent → claimed), and the two no longer overwrite each other. `under_review` and
-  // `live` turned out to belong to neither: they are `status` under another name — `pending` and
-  // `approved` — so the board derives those two columns and nothing stores them.
-  //
-  // That is why the port removed writes rather than translating them. Approving a listing already
-  // sets its status, so "and also move it to Live" was a second way to say the same thing that could
-  // fail on its own; opening a review modal already means the listing is pending, so "and also mark
-  // it Under Review" recorded nothing that was not already true. Both are gone. The one surviving
-  // write is the board's own Select, below, and it goes to `POST /properties/{id}/pipeline`.
-  // Resolves a selected id back to its row. It used to search `all` alone, which was survivable
-  // only while every tab was a slice of `all`; now that each queue is its own fetch, a listing can
-  // be selected on the verification tab and absent from `all` entirely — `all` is one page and the
-  // pending queue is a different one. The callers below treated a miss as `return`, so the bulk
-  // approve would skip the row, count it as neither done nor failed, and report "N approved" for a
-  // selection of N+k. Searching every page currently on the client removes the miss; the callers
-  // now throw on one anyway, so if it ever comes back it is reported instead of absorbed.
-  // Every moderation call is awaited and every failure is surfaced. Against the API these are real
-  // network writes that can 403 (self-dealing is refused server-side, so staff cannot moderate their
-  // own listing), 404 or fail outright; the earlier fire-and-forget form produced an unhandled
-  // rejection *and* a green success toast for the same click, which is worse than either alone.
-  //
-  // None of them reads the resolved value: the API returns no body for any moderation decision, so
-  // the new state is derived from the row already on screen and confirmed by the `refresh()` below.
+  // Awaited and surfaced: these are real writes that can 403 (self-dealing is refused) or 404.
   const doFeature = async (l) => {
     try {
       await toggleFeatured(l.id);
@@ -756,10 +474,8 @@ export default function AdminProperties() {
       toast(`Could not clear the flag: ${err.message}`, 'error');
       return;
     }
-    // No pipeline write here. `clearFlag` sets the status to `approved` server-side, and the board's
-    // Live column reads `status`, so the listing moves the moment the list refreshes. The
-    // `setPipelineStage(l.id, 'live')` that used to sit on this line was an unawaited second write
-    // of the same fact, which could fail silently under the success toast below.
+    // No pipeline write: `clearFlag` sets the status to `approved` server-side and the board's Live
+    // column reads `status`, so the listing moves as soon as the list refreshes.
     toast('Flag cleared — listing published', 'success');
     refresh();
   };
@@ -783,16 +499,10 @@ export default function AdminProperties() {
     const r = recheckRejectReason.trim();
     if (!r) { toast('Add a reason before rejecting', 'error'); return; }
     const target = recheckRejectFor;
-    /* One call. The server's decision writes the case file, `properties.status` and the
-       "⛔ Your property could not be approved. Reason: …" message into the owner's thread in one
-       transaction — a takedown an owner cannot see the reason for is one they cannot fix or
-       appeal. This used to be `decideReview` *plus* `setListingStatus`, because the mock's case
-       file and the mock's listing were unrelated records; keeping the second call would now write
-       the same field twice, and the second write is the one that can silently disagree.
-
-       `startPropertyReview` first because deciding requires a case file to exist (404 otherwise),
-       and this queue holds listings that went live without ever being submitted for one. It is
-       idempotent, so it is a no-op for the ones that have. */
+    /* One call: the decision writes the case file, the status and the owner's reason message in one
+       transaction — a takedown an owner cannot see the reason for is one they cannot appeal.
+       `startPropertyReview` first because deciding 404s without a case file, and this queue holds
+       listings that went live without ever being submitted for one; it is idempotent. */
     const l = findListing(target.id) || target;
     try {
       await startPropertyReview(pid(l));
@@ -829,12 +539,8 @@ export default function AdminProperties() {
      the catalogue's not-a-bedroom-count marker), and seeding the box with that string meant the
      value going back out was prose where the contract wants an integer. */
   const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
-  /**
-   * Field edits and a status change are two different operations against the API — `ListingUpdate`
-   * deliberately omits `status` so a PATCH cannot self-escalate — so a modal that changes both has
-   * to make two calls. Sending them together used to look like it worked: the status simply
-   * vanished from the request body and the dropdown silently did nothing.
-   */
+  // Two calls: `ListingUpdate` deliberately omits `status` so a PATCH cannot self-escalate, so a
+  // modal changing fields and status has to send them separately.
   const submitEdit = async () => {
     const title = edit.title.trim();
     const price = +edit.price;
@@ -844,16 +550,9 @@ export default function AdminProperties() {
     if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error');
     if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error');
     if (!loc) return toast('Locality is required', 'error');
-    /* This field was sent as `bhk` and `toListingUpdate` reads `bhkNum`, so on live builds every
-       BHK correction was deleted from the request body while the toast said it had saved. The cost
-       was doubled because `bhk` is a *foundation* field: the listing kept the wrong configuration
-       **and** never earned the re-review that changing one is supposed to trigger, so a 2BHK
-       corrected to 3BHK went on being searchable under the wrong number indefinitely.
-
-       Both names go out. `bhkNum` is what the wire mapper reads; `bhk` is the label the mock store
-       renders straight from the patch. An empty box is omitted rather than sent as 0, because 0 is
-       a real value here — the marker for plots and studios — and writing it on an untouched blank
-       would silently reclassify a flat as having no bedrooms. An admin who means 0 can type it. */
+    /* Both names go out: `bhkNum` is what the wire mapper reads, `bhk` is the label the mock store
+       renders. An empty box is omitted rather than sent as 0 — 0 is a real value here, the marker
+       for plots and studios, so writing it on an untouched blank reclassifies a flat. */
     const bhkRaw = String(edit.bhk ?? '').trim();
     const bhkNum = bhkRaw === '' ? undefined : Number(bhkRaw);
     if (bhkNum !== undefined && (!Number.isInteger(bhkNum) || bhkNum < 0)) {
@@ -877,27 +576,8 @@ export default function AdminProperties() {
   };
   const openReview = (l) => { setReview(l); };
 
-  /*
-   * Chase an owner over WhatsApp.
-   *
-   * One helper behind both buttons, because they only ever differed in which template they picked.
-   * What they used to do differed a great deal more:
-   *
-   *   "Send reminder"  called sendOwnerReminder, which incremented a counter in localStorage and
-   *                    sent nothing at all. The toast said "Reminder sent to <owner>" and there was
-   *                    no message, no record, and no way for the next person to find that out.
-   *   "Confirm still
-   *    available"      composed and opened wa.me in the browser, so the only trace was a mock audit
-   *                    line. Two staff chasing the same owner could not see each other.
-   *
-   * `{id}` is parsed as a UUID and the list mapper sets `id` to `slug || id`, so live listings --
-   * the ones with slugs -- are exactly the ones that would 404 on `l.id`.
-   *
-   * The tab is opened synchronously inside the click and navigated only once the server accepts:
-   * opening it after the await loses it to popup blockers, and navigating it before would promise a
-   * message the ledger has no row for. "Written", not "sent" -- click-to-chat hands the text to the
-   * staff member's own WhatsApp and they may still edit it, or close the tab.
-   */
+  /* The tab is opened synchronously inside the click and navigated only once the server accepts:
+     opening it after the await loses it to popup blockers, and before would promise an unrecorded send. */
   const chase = async (l, templateId) => {
     const handoff = window.open('', '_blank');
     try {
@@ -929,13 +609,7 @@ export default function AdminProperties() {
   };
 
   // ---- bulk ----
-  // `allSettled`, not `all`: a partial failure still applied to some listings, and reporting "12
-  // approved" when 3 failed — or throwing away the 9 that succeeded — are both lies. Report what
-  // actually happened and refresh either way, since the table is now out of date regardless.
-  //
-  // Partial failure is the expected case here, not a remote one: the server refuses self-dealing,
-  // so a staff member selecting a page that includes one of their own listings gets a 403 for that
-  // row and success for the rest.
+  // `allSettled`: self-dealing 403s make partial failure the expected case, so report and refresh.
   const bulkFeature = async () => {
     if (!selAllIds.length) return;
     if (!window.confirm(`Toggle featured for ${selAllIds.length} listing(s)?`)) return;
@@ -953,9 +627,8 @@ export default function AdminProperties() {
     if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return;
     const results = await Promise.allSettled(selVerIds.map(async (id) => {
       const l = findListing(id);
-      // Throw rather than return: `Promise.allSettled` counts a rejection, and a row nobody could
-      // resolve is a row nobody approved. Returning quietly made it vanish from both halves of the
-      // tally, so the toast reported a clean run over a selection it had only partly acted on.
+      // Throw rather than return: `Promise.allSettled` counts a rejection, so a quiet return would
+      // drop the row from both halves of the tally and report a clean run.
       if (!l) throw new Error(`listing ${id} is no longer on this page`);
       await startPropertyReview(pid(l));
       await decidePropertyReview(pid(l), 'approve');
@@ -995,14 +668,8 @@ export default function AdminProperties() {
     else exportCsv('draazy-listings.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Views', 'Enquiries', 'Deal', 'Status', 'Featured'], rowsAll.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.views, l.enquiries, l.deal, l.status, l.featured ? 'Yes' : 'No']));
   };
 
-  /* Each tab waits for its own fetch, not for a shared one.
-   *
-   * The old form was `if (!all) return <Loading />` over the whole screen, which was honest while
-   * every tab was a slice of `all` and is not any more. A tab whose queue has not answered yet must
-   * not render its list, for the reason the re-check tab already documented below: "No listings
-   * match your filters" is a claim about the catalogue, and a queue is not entitled to make it
-   * while its own request is still in flight. Getting this wrong does not look like a bug — it
-   * looks like an empty queue, which is the outcome everybody is hoping for. */
+  /* Each tab waits for its own fetch: "No listings match your filters" is a claim about the
+     catalogue, and a queue must not make it while its own request is still in flight. */
   const TAB_GATE = {
     all: () => allPage == null && !allFailed,
     verify: () => verifyQueue.page == null && !verifyQueue.failed,
@@ -1030,12 +697,8 @@ export default function AdminProperties() {
 
   const actions = { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onClearFlag: doClearFlag, onArchive: doArchive, onRestore: doRestore, onReview: openReview, onReminder: handleReminder, onRecheckPass: doRecheckPass, onRecheckFail: openRecheckReject };
 
-  /* Whether the rows on screen still answer the term in the box, per tab.
-   *
-   * Looked up from `activeTab` rather than threaded through `renderListTab`, which already takes
-   * ten positional arguments; every call to it sits inside its own tab's branch, so the active tab
-   * *is* the queue being rendered. Re-check and Pipeline are absent because neither has a server
-   * `q` — `qRecheck` still narrows its own fetched rows client-side and so is never out of step. */
+  /* Looked up from `activeTab` rather than threaded through `renderListTab`'s ten arguments.
+     Re-check and Pipeline are absent: neither has a server `q`, so neither can fall out of step. */
   const staleByTab = {
     all: allStale,
     verify: verifyQueue.stale,

@@ -11,49 +11,28 @@ import Loading from '../../components/ui/Loading.jsx';
 const RISK = { high: 'text-red-300', medium: 'text-amber-300', low: 'text-emerald-300' };
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
 
-/**
- * How many rows the desk pulls.
- *
- * A window, not a page: the tabs and stat tiles count what is in hand, and the banner above the
- * table says so when the server's total is larger. A fraud queue this size is a queue with a
- * problem, and a desk should be told rather than shown the first hundred as if that were all.
- */
+/* A window, not a page: the tiles count what is in hand and the banner says so when the server's
+   total is larger, because a fraud queue this size is itself the signal. */
 const WINDOW = 100;
 
 /* Background-check signals. goodWhenTrue=true → green when present; false → red when present. */
 const SIGNALS = [
-  ['aadhaarVerified', 'Aadhaar verified', true],
-  ['aadhaarUnique', 'Aadhaar unique', true],
+  ['identityVerified', 'Identity verified', true],
+  ['identityUnique', 'Identity unique', true],
   ['activated', 'Activated', true],
   ['sameDevice', 'Same device', false],
   ['sameIp', 'Same IP', false],
   ['velocityHigh', 'High velocity', false],
 ];
 
-/**
- * Whether Approve is offered.
- *
- * A **mirror** of `ReferralService.approve`, not the rule itself — that distinction is the whole
- * point of wave 2c here. Until then this function was the only thing standing between an unverified
- * referee and a released reward, while the endpoint would have paid anyone who called it directly.
- * Now the server refuses with a sentence and this only spares the desk a pointless round trip.
- *
- * `aadhaarUnique` is checked alongside `aadhaarVerified` because the desk's banner promises both,
- * even though the server derives the second from the first (a second account cannot verify an
- * identity hash the platform already holds).
- */
+/* A mirror of `ReferralService.approve`, never the rule itself: the server refuses with a sentence
+   and this only spares the desk a pointless round trip. */
 function canQualify(r) {
-  return !!(r.aadhaarVerified && r.aadhaarUnique);
+  return !!(r.identityVerified && r.identityUnique);
 }
 
-/**
- * The tabs, and the query each one asks.
- *
- * `flagged` is gone. There is no such status — `ReferralStatuses` is
- * `pending | qualified | rewarded | rejected | clawed-back` — and risk is a separate field, so the
- * tab would have sat permanently empty while telling a fraud desk there was nothing suspicious.
- * **High risk** asks the question it was reaching for, using a filter the server already has.
- */
+/* Tabs match statuses the server actually has. Risk is a separate field, so **High risk** is a risk
+   filter rather than a status one — a status tab for it would sit permanently empty. */
 const TABS = [
   { id: 'pending', label: 'Pending', match: (r) => r.status === 'pending' || r.status === 'qualified' },
   { id: 'high-risk', label: 'High risk', match: (r) => r.risk === 'high' },
@@ -111,12 +90,10 @@ export default function OpsReferrals() {
     return state.items.filter(match);
   }, [state.items, tab]);
 
-  /* An `offline` state stood here, for the case where `referral` was left out of the domain
-     allow-list. Referral decisions release money and the offline store disagreed with the server
-     about what a referral even is — a `flagged` status the server does not have, phone numbers the
-     server masks, and a reward granted by looking the referrer up by that same number, which the
-     wire no longer carries. A desk shown that data would have been approving something else. Both
-     the allow-list and the store are gone; the error branch below is the only failure left. */
+  /* No offline fallback: referral decisions release money, and the offline store disagreed with the
+     server about what a referral even is — a status the server does not have, unmasked numbers, a
+     reward granted by a lookup the wire no longer carries. A desk shown that data would have been
+     approving something else. The error branch below is the only failure left. */
 
   if (state.status === 'error') {
     return (
@@ -141,8 +118,8 @@ export default function OpsReferrals() {
   const windowed = state.total > state.items.length;
 
   const doExport = () => exportCsv('draazy-referrals.csv',
-    ['ID', 'Referrer', 'Referred', 'Channel', 'Reward', 'Amount', 'Risk', 'Status', 'Aadhaar verified', 'Aadhaar unique', 'Same device', 'Same IP', 'High velocity', 'Redeemed'],
-    rows.map((r) => [r.id, r.referrer, r.referred, r.channel, r.reward, r.rewardAmount, r.risk, r.status, r.aadhaarVerified ? 'Yes' : 'No', r.aadhaarUnique ? 'Yes' : 'No', r.sameDevice ? 'Yes' : 'No', r.sameIp ? 'Yes' : 'No', r.velocityHigh ? 'Yes' : 'No', fmtDate(r.at)]));
+    ['ID', 'Referrer', 'Referred', 'Channel', 'Reward', 'Amount', 'Risk', 'Status', 'Identity verified', 'Identity unique', 'Same device', 'Same IP', 'High velocity', 'Redeemed'],
+    rows.map((r) => [r.id, r.referrer, r.referred, r.channel, r.reward, r.rewardAmount, r.risk, r.status, r.identityVerified ? 'Yes' : 'No', r.identityUnique ? 'Yes' : 'No', r.sameDevice ? 'Yes' : 'No', r.sameIp ? 'Yes' : 'No', r.velocityHigh ? 'Yes' : 'No', fmtDate(r.at)]));
 
   const STAT_TILES = [
     { label: 'Pending', value: stats.pending, icon: Clock, tab: 'pending' },
@@ -177,10 +154,10 @@ export default function OpsReferrals() {
         ))}
       </div>
 
-      {/* Mandatory-Aadhaar banner */}
+      {/* Mandatory-identity banner */}
       <div className="mb-4 flex items-start gap-3 rounded-xl border border-brand-teal/25 bg-brand-teal/5 p-4 text-sm text-gray-300">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-teal" />
-        <div>A referral is paid only after background checks pass. <b className="text-gray-200">Mandatory:</b> the referred tenant must be <b className="text-gray-200">Aadhaar-verified</b> — the server refuses to release a reward without it. Self/duplicate-device and high-velocity referrals are scored <b className="text-gray-200">high risk</b> for review.</div>
+        <div>A referral is paid only after background checks pass. <b className="text-gray-200">Mandatory:</b> the referred tenant must hold the <b className="text-gray-200">Verified badge</b> — the server refuses to release a reward without it. Self/duplicate-device and high-velocity referrals are scored <b className="text-gray-200">high risk</b> for review.</div>
       </div>
 
       {/* Tabs */}
@@ -224,7 +201,7 @@ export default function OpsReferrals() {
                       {(r.status === 'pending' || r.status === 'qualified') ? <>
                         {canApprove
                           ? <button onClick={() => doAction(r, 'approve')} className="inline-flex items-center gap-1 rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal"><Check className="h-3 w-3" />Approve</button>
-                          : <button disabled title="The server refuses to release a reward until the referred party is Aadhaar-verified" className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-500 opacity-50"><Lock className="h-3 w-3" />Blocked</button>}
+                          : <button disabled title="The server refuses to release a reward until the referred party holds the Verified badge" className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-500 opacity-50"><Lock className="h-3 w-3" />Blocked</button>}
                         <button onClick={() => doAction(r, 'reject')} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5"><X className="h-3 w-3" />Reject</button>
                       </> : r.status === 'rewarded' ? (
                         <button onClick={() => doAction(r, 'clawback')} className="inline-flex items-center gap-1 rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300"><Undo2 className="h-3 w-3" />Clawback</button>

@@ -26,20 +26,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * The owner&lt;-&gt;ops verification thread.
- *
- * <p>The interesting property of this surface is that <strong>its guard is not a role</strong>. Four
- * of the five routes carry no {@code @PreAuthorize}, because the listing owner is a participant in
- * the review of their own listing; the rule is participant-or-staff and lives in the service. That
- * makes it exactly the kind of authorization a role sweep cannot verify, so it is tested here
- * instead: a stranger must be shut out, and shut out with a <em>404</em>, because a 403 confirms
- * that a listing with that id exists and is under review.
- *
- * <p>The other tests cover the invariants that would fail silently rather than loudly: that
- * {@code from} is derived server-side (an owner cannot post as ops), that {@code markRead} touches
- * only the other side's messages (marking your own read would clear the badge the other participant
- * is waiting on), that a decision writes <em>both</em> the case file and the listing status, and
- * that it drains any stays-live re-check the listing was queued for.
+ * Verification thread — participant-or-staff, tested here because a role sweep cannot verify a
+ * service-layer rule. Denials answer 404 so the code is not an existence oracle.
  */
 @DisplayName("Verification thread — participant-or-staff, and both halves of a decision")
 class VerificationThreadTest extends AbstractApiTest {
@@ -50,6 +38,8 @@ class VerificationThreadTest extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+        @Autowired
+        com.draazy.api.documents.vault.DocumentRepository documents;
 
     /** Audit rows are written {@code REQUIRES_NEW} and therefore survive this test's rollback. */
     private final List<String> createdActors = new ArrayList<>();
@@ -75,7 +65,10 @@ class VerificationThreadTest extends AbstractApiTest {
         p.setPriceUnit("rent".equals(deal) ? "per-month" : "total");
         p.setArea(new BigDecimal("900"));
         p.setStatus(PropertyStatus.PENDING);
-        return properties.saveAndFlush(p);
+        p = properties.saveAndFlush(p);
+        documents.saveAndFlush(new com.draazy.api.documents.vault.Document(p.getId(), "Index II",
+                "proof.pdf", "test/verification-proof", 100, "application/pdf"));
+        return p;
     }
 
     private String path(Property p, String suffix) {
@@ -119,10 +112,8 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.checklist.length()").value(6));
 
-        // Re-submitting is idempotent: property_reviews.property_id is UNIQUE, so a double-click
-        // must return the existing case rather than violate the constraint. The checklist length is
-        // not evidence of that on its own -- two cases would each carry three lines -- so count the
-        // rows. properties.flush() first, because JdbcTemplate does not trigger a Hibernate flush.
+        // Re-submit is idempotent (property_reviews.property_id UNIQUE): row count is the only
+        // evidence, since two cases would each carry three lines. properties.flush() first.
         mvc.perform(post(path(rental, "")).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.checklist.length()").value(3));
@@ -186,7 +177,7 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a decision writes both the case file and properties.status")
+        @DisplayName("verification approves the case but keeps the listing pending until publication")
     void aDecisionMovesBothHalves() throws Exception {
         User owner = user("9820000506", Roles.Wire.OWNER);
         User ops = user("9820000507", Roles.Wire.STAFF);
@@ -203,7 +194,9 @@ class VerificationThreadTest extends AbstractApiTest {
 
         properties.flush();
         assertThat(jdbc.queryForObject("select status from properties where id = ?",
-                String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
+                String.class, listingId)).isEqualTo(PropertyStatus.PENDING);
+        assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id = ?",
+                String.class, listingId)).isEqualTo("verified");
         assertThat(jdbc.queryForObject("select status from property_reviews where property_id = ?",
                 String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
     }
@@ -228,11 +221,10 @@ class VerificationThreadTest extends AbstractApiTest {
                 // Non-null only because decide() flushes: id and createdAt are assigned at insert.
                 .andExpect(jsonPath("$.messages[0].id").isNotEmpty())
                 .andExpect(jsonPath("$.messages[0].body")
-                        .value("\u2705 Your property has been verified and approved. Index II matched."));
+                        .value("\u2705 Your property has been verified. Index II matched."));
 
-        // The rejection is read back by the *owner*, which is the whole point: the sentence is a
-        // persisted row, not something the deciding console painted on its own screen. A blank note
-        // still owes them a reason and an instruction.
+        // Rejection is read back by the *owner*: the sentence is a persisted row, not painted on
+        // the deciding console's screen. A blank note still owes them a reason and instruction.
         mvc.perform(post(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated());
         mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
@@ -247,20 +239,8 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     /**
-     * A decision is a moderator looking at the listing, which is the whole of what a queued
-     * stays-live re-check (Q14) was asking for — so deciding must drain it, exactly as
-     * {@code PATCH /properties/{id}/status} does. The rule lived only on that other route, and this
-     * one wrote {@code properties.status} through the raw setter, so a re-check failed from the
-     * console left {@code recheck_requested_at} standing on a rejected listing.
-     *
-     * <p>The queue filters on that column alone, so the row was undrainable, the tab's backlog count
-     * was permanently wrong, and — the reason this is a test and not a tidy-up — the stale row still
-     * offered "Looks fine", which PATCHes the listing back to {@code approved}. One click to undo a
-     * rejection, on a screen that gives no sign that is what it does.
-     *
-     * <p>Both verdicts, because the harm is not symmetrical and neither is the code: {@code approve}
-     * also clears {@code flagReason} and would be the natural place to put a clear-on-approve fix
-     * that leaves the dangerous half untouched.
+     * Deciding must drain {@code recheck_requested_at}. Both verdicts because {@code approve}
+     * clears {@code flagReason}, tempting a fix that leaves {@code reject} stranding the row.
      */
     @Test
     @DisplayName("either verdict clears a pending stays-live re-check")
@@ -273,9 +253,8 @@ class VerificationThreadTest extends AbstractApiTest {
             listing.setStatus(PropertyStatus.APPROVED);
             listing.requestRecheck(List.of("price"));
             properties.saveAndFlush(listing);
-            // The premise, asserted rather than assumed: requestRecheck is a no-op on a listing that
-            // is not publicly visible, so a setup that silently queued nothing would satisfy the
-            // assertion below with the fix removed.
+            // requestRecheck is a no-op on a non-public listing, so asserting the queue actually
+            // has something to drain guards against a fixture that silently queues nothing.
             assertThat(listing.isRecheckPending())
                     .as("the fixture did not queue a re-check to begin with")
                     .isTrue();
@@ -316,10 +295,8 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     /**
-     * D218. The checklist was write-only in the wrong direction: seeded at {@code initiate} and then
-     * never touched, so every tick the console recorded lived in the reviewer's own browser. The
-     * case that matters is therefore not "a tick round-trips" but "a <em>second</em> reviewer sees
-     * it" — which is the one browser storage could never satisfy.
+     * Checklist was seeded at {@code initiate} and never read back, so every tick lived only in the
+     * reviewer's browser. What matters is a <em>second</em> reviewer seeing it.
      */
     @Test
     @DisplayName("a tick persists, is addressed by item text, and the next reviewer sees it")
@@ -331,9 +308,8 @@ class VerificationThreadTest extends AbstractApiTest {
 
         mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated())
-                // The baseline the rest of this test measures against, stated positively. A filter
-                // for ticked lines returning nothing is also what an absent checklist returns, so
-                // the negative form would have established nothing.
+                // Baseline stated positively — a filter for ticked lines returning nothing is
+                // also what an absent checklist returns.
                 .andExpect(jsonPath("$.checklist.length()").value(3))
                 .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(false));
 
@@ -349,10 +325,8 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(true));
 
-        // Read the column itself, not the response. Both reads above are served from the same
-        // persistence context, so they would pass identically if the tick never left memory — which
-        // is the one failure mode this endpoint exists to rule out. JdbcTemplate does not trigger a
-        // Hibernate auto-flush, so this sees the row only if the write really was flushed.
+        // Read the column via JdbcTemplate: same persistence context means the response reads
+        // would pass even if the tick never left memory, and JdbcTemplate skips Hibernate's auto-flush.
         properties.flush();
         assertThat(jdbc.queryForObject(
                 "select pass from property_review_checklist c join property_reviews r on r.id = c.review_id"
@@ -391,11 +365,8 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     /**
-     * D218. The owner dashboard needs a status and an unread badge per listing, and until this
-     * route existed the only way to get them was one participant-scoped GET per card — nineteen of
-     * which 404 on a twenty-listing dashboard. What has to hold is the scoping: this is the one
-     * queue route with no role guard at all, so if the owner filter were wrong it would hand every
-     * owner every other owner's case files.
+     * The one queue route with no role guard, so a wrong owner filter would hand every owner
+     * every other owner's case files.
      */
     @Test
     @DisplayName("the owner queue returns only my listings, with ops' unread messages counted")
@@ -434,9 +405,8 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
                         .value(1));
 
-        // Reading clears one side only. This is the assertion that would catch `markRead` being
-        // widened to every message, which would silently clear the badge the other side is waiting
-        // on — a bug neither participant could see from their own screen.
+        // Reading clears one side only — the assertion that would catch {@code markRead} being
+        // widened to every message and silently clearing the badge the other side is waiting on.
         mvc.perform(post(path(mine, "/read")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isNoContent());
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))

@@ -7,13 +7,13 @@ import MultiSelect from '../../../components/ui/MultiSelect.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import {
-  localities, facingOptions, ageOptions, floorOptions, totalFloorsOptions,
+  localities, facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   typeOptions, commercialSubtypes, NONRES_TYPES, isLandType, isHouseType,
-  bhkOptions, bathroomOptions, balconyOptions, pgSharingOptions, furnishingOptions, furnitureFor,
+  bhkOptions, bathroomOptions, balconyOptions, furnishingOptions, furnitureLabels,
   shellTypeOptions, washroomOptions, suitableForOptions, plotZoneOptions, openSidesOptions, waterSourceOptions,
   ownershipOptions, agreementOptions, lockinOptions, noticeOptions,
-  transactionTypeOptions, possessionOptions, preferredTenantsOptions, pgGenderOptions, pgMealsOptions,
-  amenitiesFor, fld, label, errCls, PG_SHARING_HELP,
+  transactionTypeOptions, possessionOptions, preferredTenantsOptions,
+  amenitiesFor, fld, label, errCls,
 } from './constants.js';
 
 const furnLabel = (v) => furnishingOptions.find((o) => o.value === v)?.label || v;
@@ -47,17 +47,11 @@ const moneyWords = (v) => {
 
 export function OwnerStep({ form, set, errors, pendingByMobile, standing }) {
   const mobileValid = /^[6-9]\d{9}$/.test(form.ownerMobile);
-  /* Counted by the page, not here. This used to read `rawDb().listings` directly — the mock store,
-     which the live provider never writes to, so against the API the warning could never appear.
-     The tally now arrives as a prop from one read of the pending queue when the wizard opens; see
-     `AdminPostOnBehalf`. Defaulted so the step still renders if it is mounted without one. */
+  /* The tally arrives as a prop from one read of the pending queue when the wizard opens. Defaulted
+     so the step still renders if it is mounted without one. */
   const dupCount = mobileValid ? (pendingByMobile?.get(form.ownerMobile) || 0) : 0;
-  /* Shown, never enforced. The desk is exempt from the owner's plan ceiling — that exemption is
-     what lets an operator record all three flats the caller is describing instead of one — so this
-     is information for the call, not a gate on the form. It reads as a sales prompt rather than a
-     warning for exactly that reason: nothing has gone wrong, there is simply a conversation to
-     have. `known` is false on most first calls, and an owner sitting exactly on their limit is not
-     over it, so neither renders anything. */
+  /* Shown, never enforced: the desk is exempt from the owner's plan ceiling, so this is information
+     for the call and reads as a sales prompt rather than a warning. */
   const overage = standing?.known && standing.overAllowance ? standing : null;
   return (
     <div className="space-y-5">
@@ -78,20 +72,16 @@ export function PropertyStep({ form, set, errors }) {
   const t = form.propertyType;
   const land = isLandType(t);
   const commercial = t === 'commercial';
-  const pg = t === 'pg';
   const house = isHouseType(t);
-  const home = !!t && !land && !commercial && !pg; // flat / independent / villa
+  const home = !!t && !land && !commercial; // flat / independent / villa
   const amenityOptions = amenitiesFor(t, form.commercialType);
-  const furnitureOptions = furnitureFor(t);
-  const showFurniture = (home || pg) && (form.furnishing === 'semi' || form.furnishing === 'furnished');
+  const showFurniture = home && (form.furnishing === 'semi' || form.furnishing === 'furnished');
   const numInput = (field) => (e) => set(field, e.target.value.replace(/\D/g, ''));
   return (
     <div className="space-y-5">
       <div><label className={label}>Property Type *</label><Select value={form.propertyType} onChange={(v) => set('propertyType', v)} options={typeOptions} placeholder="Select type" ariaLabel="Property type" invalid={!!errors.propertyType} /><FieldError show={!!errors.propertyType}>Select a property type.</FieldError></div>
       {commercial && <div><label className={label}>Commercial Type *</label><Select value={form.commercialType} onChange={(v) => set('commercialType', v)} options={commercialSubtypes} placeholder="Select commercial type" ariaLabel="Commercial type" invalid={!!errors.commercialType} /><FieldError show={!!errors.commercialType}>Select the commercial type.</FieldError></div>}
-      {pg
-        ? <div><label className={label}>Sharing Types *</label><p className="mb-1.5 text-xs text-gray-500">{PG_SHARING_HELP}</p><MultiSelect values={form.sharing || []} onChange={(arr) => set('sharing', arr)} options={pgSharingOptions} placeholder="Select sharing types" ariaLabel="Sharing" invalid={!!errors.sharing} /><FieldError show={!!errors.sharing}>Select at least one room sharing type.</FieldError></div>
-        : !NONRES_TYPES.includes(t) && <div><label className={label}>BHK *</label><Select value={form.bhk} onChange={(v) => set('bhk', v)} options={bhkOptions} placeholder="Select BHK" ariaLabel="BHK" invalid={!!errors.bhk} /><FieldError show={!!errors.bhk}>Select the BHK configuration.</FieldError></div>}
+      {!NONRES_TYPES.includes(t) && <div><label className={label}>BHK *</label><Select value={form.bhk} onChange={(v) => set('bhk', v)} options={bhkOptions} placeholder="Select BHK" ariaLabel="BHK" invalid={!!errors.bhk} /><FieldError show={!!errors.bhk}>Select the BHK configuration.</FieldError></div>}
       <div><label htmlFor="pob-carpetArea" className={label}>{land ? 'Plot Area (sq.ft) *' : 'Carpet Area (sq.ft) *'}</label><input id="pob-carpetArea" inputMode="numeric" value={form.carpetArea} onChange={numInput('carpetArea')} placeholder="e.g. 850" className={classNames(fld, errors.carpetArea && errCls)} /><FieldError show={!!errors.carpetArea}>{land ? 'Plot area is required.' : 'Carpet area is required.'}</FieldError></div>
 
       {home && (
@@ -113,12 +103,12 @@ export function PropertyStep({ form, set, errors }) {
       {!land && (
         <>
           <div className="grid grid-cols-2 gap-3"><div><label className={label}>Floor</label><Select value={form.floor} onChange={(v) => set('floor', v)} options={floorOptions} placeholder="Floor" ariaLabel="Floor" /></div><div><label className={label}>Total Floors</label><Select value={form.totalFloors} onChange={(v) => set('totalFloors', v)} options={totalFloorsOptions} placeholder="Total" ariaLabel="Total floors" /></div></div>
-          <div className="grid grid-cols-2 gap-3"><div><label className={label}>Facing</label><Select value={form.facing} onChange={(v) => set('facing', v)} options={facingOptions} placeholder="Facing" ariaLabel="Facing" /></div><div><label className={label}>Age</label><Select value={form.age} onChange={(v) => set('age', v)} options={ageOptions} placeholder="Property age" ariaLabel="Property age" /></div></div>
-          <div><label className={label}>Furnishing</label><Select value={form.furnishing} onChange={(v) => set('furnishing', v)} options={furnishingOptions} ariaLabel="Furnishing" /></div>
+          <div className="grid grid-cols-2 gap-3"><div><label className={label}>Facing</label><Select value={form.facing} onChange={(v) => set('facing', v)} options={facingOptions} placeholder="Facing" ariaLabel="Facing" /></div><div><label className={label}>Overlooking</label><Select value={form.overlooking} onChange={(v) => set('overlooking', v)} options={overlookingOptions} placeholder="Overlooking" ariaLabel="Overlooking" /></div></div>
+          <div className="grid grid-cols-2 gap-3"><div><label className={label}>Age</label><Select value={form.age} onChange={(v) => set('age', v)} options={ageOptions} placeholder="Property age" ariaLabel="Property age" /></div><div><label className={label}>Furnishing</label><Select value={form.furnishing} onChange={(v) => set('furnishing', v)} options={furnishingOptions} ariaLabel="Furnishing" /></div></div>
         </>
       )}
-      {showFurniture && furnitureOptions.length > 0 && (
-        <div><label className={label}>Furniture Included</label><MultiSelect values={form.furniture || []} onChange={(arr) => set('furniture', arr)} options={furnitureOptions} placeholder="Select furniture" ariaLabel="Furniture included" /></div>
+      {showFurniture && furnitureLabels.length > 0 && (
+        <div><label className={label}>Furniture Included</label><MultiSelect values={form.furniture || []} onChange={(arr) => set('furniture', arr)} options={furnitureLabels} placeholder="Select furniture" ariaLabel="Furniture included" /></div>
       )}
 
       {commercial && (
@@ -184,8 +174,7 @@ export function LocationStep({ form, set, errors }) {
 
 export function PricingStep({ form, set, errors }) {
   const land = isLandType(form.propertyType);
-  const pg = form.propertyType === 'pg';
-  const residentialHome = !!form.propertyType && !NONRES_TYPES.includes(form.propertyType) && !pg;
+  const residentialHome = !!form.propertyType && !NONRES_TYPES.includes(form.propertyType);
   const money = (field) => ({ value: formatIndian(form[field]), onChange: (e) => set(field, e.target.value.replace(/\D/g, '')) });
   const setDepositMonths = (months) => {
     const rent = parseAmount(form.price);
@@ -222,12 +211,6 @@ export function PricingStep({ form, set, errors }) {
       {/* Rent-only terms — mirrors the consumer flow so both stay in sync. */}
       {form.deal === 'rent' && (
         <div><label className={label}>Available From</label><DateField value={form.availableFrom} onChange={(v) => set('availableFrom', v)} ariaLabel="Available from date" className={fld} /></div>
-      )}
-      {form.deal === 'rent' && pg && (
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className={label}>PG is for</label><Select value={form.pgGender} onChange={(v) => set('pgGender', v)} options={pgGenderOptions} ariaLabel="PG is for" /></div>
-          <div><label className={label}>Meals</label><Select value={form.pgMeals} onChange={(v) => set('pgMeals', v)} options={pgMealsOptions} ariaLabel="Meals" /></div>
-        </div>
       )}
       {form.deal === 'rent' && residentialHome && (
         <div><label className={label}>Preferred Tenants</label><MultiSelect values={form.preferredTenants || []} onChange={(arr) => set('preferredTenants', arr)} options={preferredTenantsOptions} placeholder="Select tenants" ariaLabel="Preferred tenants" /></div>
@@ -280,7 +263,7 @@ export function PhotosStep({ form, set }) {
 
 export function ReviewStep({ form }) {
   const land = isLandType(form.propertyType);
-  const home = !!form.propertyType && !land && form.propertyType !== 'commercial' && form.propertyType !== 'pg';
+  const home = !!form.propertyType && !land && form.propertyType !== 'commercial';
   return (
     <div className="space-y-5">
       <h3 className="text-lg font-semibold mb-1">Review & Send to Owner</h3>
@@ -288,9 +271,8 @@ export function ReviewStep({ form }) {
       <div className="space-y-3">
         <ReviewRow label="Owner" value={`${form.ownerName} \u2022 +91 ${form.ownerMobile}`} />
         <ReviewRow label="Type" value={`${form.deal === 'rent' ? 'For Rent' : 'For Sale'} \u2022 ${typeOptions.find((o) => o.value === form.propertyType)?.label || '-'}`} />
-        {form.propertyType === 'pg' && <ReviewRow label="Config" value={`${(form.sharing || []).map((s) => pgSharingOptions.find((o) => o.value === s)?.label).filter(Boolean).join(', ') || 'Sharing'} \u2022 ${form.carpetArea} sq.ft`} />}
-        {form.propertyType !== 'pg' && form.bhk && <ReviewRow label="Config" value={`${form.bhk} BHK \u2022 ${form.carpetArea} sq.ft`} />}
-        {form.propertyType !== 'pg' && !form.bhk && <ReviewRow label={land ? 'Plot Area' : 'Area'} value={`${form.carpetArea} sq.ft`} />}
+        {form.bhk && <ReviewRow label="Config" value={`${form.bhk} BHK \u2022 ${form.carpetArea} sq.ft`} />}
+        {!form.bhk && <ReviewRow label={land ? 'Plot Area' : 'Area'} value={`${form.carpetArea} sq.ft`} />}
         {home && form.bathrooms && <ReviewRow label="Bath" value={`${form.bathrooms} Bathroom${form.bathrooms === '1' ? '' : 's'}`} />}
         {!land && form.furnishing && <ReviewRow label="Furnishing" value={furnLabel(form.furnishing)} />}
         <ReviewRow label="Location" value={[form.society, form.locality, form.landmark].filter(Boolean).join(', ') || '-'} />
@@ -298,7 +280,7 @@ export function ReviewStep({ form }) {
         {form.deal === 'rent' && form.deposit && <ReviewRow label="Deposit" value={`₹${formatIndian(form.deposit)}`} />}
         {form.maintenance && <ReviewRow label="Maintenance" value={`₹${formatIndian(form.maintenance)}/mo`} />}
         {form.deal === 'buy' && !land && (form.transactionType || form.possession) && <ReviewRow label="Sale" value={[optLabel(transactionTypeOptions, form.transactionType), optLabel(possessionOptions, form.possession)].filter(Boolean).join(' \u2022 ')} />}
-        {form.deal === 'rent' && form.propertyType !== 'pg' && form.preferredTenants?.length > 0 && <ReviewRow label="Tenants" value={form.preferredTenants.map((v) => optLabel(preferredTenantsOptions, v)).join(', ')} />}
+        {form.deal === 'rent' && form.preferredTenants?.length > 0 && <ReviewRow label="Tenants" value={form.preferredTenants.map((v) => optLabel(preferredTenantsOptions, v)).join(', ')} />}
         {form.deal === 'rent' && form.availableFrom && <ReviewRow label="Available" value={form.availableFrom} />}
         {form.amenities?.length > 0 && <ReviewRow label="Amenities" value={form.amenities.join(', ')} />}
         <ReviewRow label="Photos" value={`${form.photos.length} photo${form.photos.length === 1 ? '' : 's'} added`} />

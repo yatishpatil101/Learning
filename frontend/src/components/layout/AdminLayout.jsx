@@ -11,7 +11,7 @@ import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
-import { ADMIN_MODULES, canAccessModule } from '../../lib/adminModules.js';
+import { ADMIN_MODULES, canAccessModule, hasPermission } from '../../lib/adminModules.js';
 import { AdminFlagsProvider, useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import AdminTopbarTools from './AdminTopbarTools.jsx';
 
@@ -21,19 +21,19 @@ const OPS_NAV = [
   // The two live-seam screens. Kept next to the demo queues rather than in a section of their own:
   // an operator navigates by the work, not by which store answers.
   ['/ops/support', 'Support queue', LifeBuoy],
-  // One row where there were six. Rent Agreement / Legal / Interior / Packers / Valuation were
-  // five one-line wrappers over a single component reading `localStorage`; the desk they are now
-  // is the same screen with `?type=` set, so a sidebar row per type would be five links to one
-  // page — and five of them would light up as the active route at once.
+  // Fifth slot is an optional permission atom: every unscoped ops account holds identity:read, so
+  // this only hides the row from one an administrator has deliberately scoped off the queue.
+  ['/ops/kyc-review', 'KYC review', UserPlus, false, 'identity:read'],
+  // One row, not six: the five service desks are the same screen with `?type=` set, so a row per
+  // type would be five links to one page and five active-route highlights at once.
   ['/ops/drafting-desk', 'Drafting desk', PenLine],
   ['/ops/referrals', 'Referrals', Gift],
   ['/ops/flatmate-review', 'Flatmate', BedDouble],
 ];
 
 export default function AdminLayout({ variant = 'admin' }) {
-  // Both variants render AdminLayoutInner, which calls useAdminFlags(); the
-  // provider must wrap both so the ops variant doesn't throw (blank screen).
-  // It only *reads* for the admin variant, though — see AdminFlagsContext.
+  // Both variants render AdminLayoutInner, which calls useAdminFlags(), so the provider must wrap
+  // both or the ops variant throws a blank screen; it only *reads* for the admin variant.
   return (
     <AdminFlagsProvider read={variant === 'admin'}>
       <AdminLayoutInner variant={variant} />
@@ -45,18 +45,12 @@ function AdminLayoutInner({ variant = 'admin' }) {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { tabEnabled } = useAdminFlags();
-  /* The sidebar is the module registry filtered by two independent things: the global tab flag,
-     which is what the platform has switched on for everyone, and the caller's own permission
-     atoms, which are what this person may open.
-
-     The `adminOnly` field is no longer a third filter. It used to be, because the console resolved
-     access itself and needed a rule that a scoped user could never be granted a control surface;
-     now the atoms behind those modules (`settings:read`, `finance:read`, `audit:read`,
-     `users:write`) are administrator-only in the server's own catalogue, so an operations account
-     cannot hold one and the atom check already excludes them. The field stays as documentation of
-     which rows those are — and as the thing the Team & Access grid dims. */
+  /* The registry filtered by two independent things: the global tab flag (what the platform has
+     switched on for everyone) and the caller's own atoms (what this person may open). `adminOnly`
+     is not a third filter — the atoms behind those modules are administrator-only in the server's
+     catalogue, so the atom check already excludes them; the field documents which rows those are. */
   const nav = variant === 'ops'
-    ? OPS_NAV
+    ? OPS_NAV.filter(([, , , , atom]) => !atom || hasPermission(user, atom))
     : ADMIN_MODULES
         .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && canAccessModule(user, m.key))
         .map((m) => [m.path, m.label, m.icon, m.end]);

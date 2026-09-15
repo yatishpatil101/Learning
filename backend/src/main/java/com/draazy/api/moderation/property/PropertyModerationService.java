@@ -3,6 +3,7 @@ package com.draazy.api.moderation.property;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
+import com.draazy.api.catalog.property.PropertyLifecycle;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
@@ -11,7 +12,6 @@ import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.security.AuthPrincipal;
-import com.draazy.api.security.Roles;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -19,12 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Listing moderation: the state transitions a moderator can drive on somebody else's listing.
- *
- * <p>Every method here writes an audit row. That is the point of the slice, not decoration: these
- * are the operations where one user changes another user's property, so "who did this, when, and
- * why" is the only thing that makes the power accountable. {@code AuditService} existed since slice
- * 1 with <strong>zero callers</strong> — {@code GET /admin/audit-log} would have returned an empty
- * page forever. These are its first writes.
+ * Every method writes an audit row — these are the operations where one user changes another's.
  */
 @Service
 public class PropertyModerationService {
@@ -36,25 +31,19 @@ public class PropertyModerationService {
     private final PropertyRepository properties;
     private final AuditService audit;
     private final Notifier notifier;
+    private final PropertyLifecycle lifecycle;
 
     public PropertyModerationService(PropertyRepository properties, AuditService audit,
-            Notifier notifier) {
+            Notifier notifier, PropertyLifecycle lifecycle) {
         this.properties = properties;
         this.audit = audit;
         this.notifier = notifier;
+        this.lifecycle = lifecycle;
     }
 
     /**
-     * {@code PATCH /properties/{id}/status} — approve or reject.
-     *
-     * <p>{@code flagged} and {@code archived} are rejected here even though both are legal values of
-     * {@code PropertyStatus}: each has its own endpoint that maintains state this one cannot
-     * ({@code flag_reason}, the {@code archived} triplet). Allowing them through would let a
-     * moderator set {@code status='archived'} while {@code archived=false}, leaving the row visible
-     * on the public site while every admin screen showed it as deleted.
-     *
-     * <p><strong>Approval requires a locality (register item 24).</strong> See
-     * {@link #denyApprovingUnfiled}.
+     * {@code PATCH /properties/{id}/status} — approve or reject. {@code flagged}/{@code archived}
+     * are refused here: each owns state this route cannot maintain, so the row would go incoherent.
      */
     @Transactional
     public Property setStatus(AuthPrincipal actor, String id, String status, String reason) {
@@ -67,23 +56,24 @@ public class PropertyModerationService {
         denyApprovingUnfiled(property, status);
 
         String from = property.getStatus();
-        property.setStatus(status);
         if (PropertyStatus.APPROVED.equals(status)) {
-            property.setFlagReason(null);
+            lifecycle.publish(actor, property, false);
+        } else {
+            lifecycle.requireChecker(actor, property);
+            if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
+                    || PropertyStatus.RENTED.equals(property.getStatus())) {
+                throw new ConflictException("Restore or reopen this listing first");
+            }
+            property.setStatus(status);
         }
-        // A moderator has now looked at this listing, which is exactly what a pending stays-live
-        // re-check was asking for (Q14). Clearing it here rather than behind its own endpoint is
-        // deliberate: the re-check is a request for a decision, and this is where decisions are
-        // made. Re-approving an already-approved listing is therefore the "checked it, all fine"
-        // action, and needs no new route to express.
+        // A moderator has now looked at this listing, which is what a pending stays-live re-check
+        // was asking for; the re-check is a request for a decision, and this is where they are made.
         property.clearRecheck();
         audit.record(actor, "property.status", "property", id, "from", from, "to", status,
                 "reason", reason, "owner", String.valueOf(property.getOwner().getId()));
 
-        // Tell the owner what the moderator decided about their listing (tech-debt D92). Only the
-        // two terminal verdicts are announced: a bounce back to `pending` is an internal queue
-        // move, not an outcome the owner acted to reach. A rejected listing is not publicly
-        // viewable, so its link points at the dashboard rather than the dead /property page.
+        // Only the two terminal verdicts are announced; a bounce back to `pending` is a queue move.
+        // A rejected listing is not publicly viewable, so its link points at the dashboard.
         UUID ownerId = property.getOwner().getId();
         if (PropertyStatus.APPROVED.equals(status)) {
             notifier.notify(ownerId, "listing.approved",
@@ -114,12 +104,8 @@ public class PropertyModerationService {
     }
 
     /**
-     * {@code POST /properties/{id}/flag} — raise a moderation flag.
-     *
-     * <p>Flagging sets <em>both</em> {@code status='flagged'} and {@code flag_reason}, matching
-     * {@code lib/data/properties-admin.js#flagListing}. They are not redundant: the status takes the
-     * listing off the public site (it is no longer {@code approved}) while the reason is what the
-     * owner and the next moderator actually read. Neither alone does the job.
+     * {@code POST /properties/{id}/flag} — raise a moderation flag. Sets both {@code status} and
+     * {@code flag_reason}: the status delists, the reason is what a human reads. Neither alone works.
      */
     @Transactional
     public Property flag(AuthPrincipal actor, String id, String reason) {
@@ -135,14 +121,8 @@ public class PropertyModerationService {
     }
 
     /**
-     * {@code DELETE /properties/{id}/flag} — clear it.
-     *
-     * <p>Clearing returns the listing to {@code approved}, per the mock. That looks like a
-     * moderation bypass — a never-reviewed listing reaching {@code approved} without passing the
-     * queue — but it is not: only staff/admin can reach this endpoint, so clearing a flag <em>is</em>
-     * a human review, and the reviewer has just said the listing is fine. Sending it to
-     * {@code pending} instead would punish an owner for someone else's bad report by taking their
-     * live listing off the site.
+     * {@code DELETE /properties/{id}/flag} — clear it, returning the listing to {@code approved}.
+     * Only staff reach this, so clearing a flag <em>is</em> the human review.
      */
     @Transactional
     public void clearFlag(AuthPrincipal actor, String id) {
@@ -150,19 +130,14 @@ public class PropertyModerationService {
         denySelfDealing(actor, property);
 
         String from = property.getStatus();
-        property.setStatus(PropertyStatus.APPROVED);
-        property.setFlagReason(null);
-        property.clearRecheck();
+        lifecycle.publish(actor, property, false);
         audit.record(actor, "property.flag.clear", "property", id, "from", from,
                 "owner", String.valueOf(property.getOwner().getId()));
     }
 
     /**
-     * A moderator may not moderate their own listing.
-     *
-     * <p>Staff are owners too — the role is additive, not exclusive — so without this a staff member
-     * could approve, feature and un-flag their own listing, which is the cheapest possible abuse of
-     * the role and leaves an audit trail that looks entirely normal.
+     * A moderator may not moderate their own listing. Staff are owners too — the role is additive —
+     * and self-approval leaves an audit trail that looks entirely normal.
      */
     private static void denySelfDealing(AuthPrincipal actor, Property property) {
         if (actor.userId().equals(property.getOwner().getId())) {
@@ -171,21 +146,8 @@ public class PropertyModerationService {
     }
 
     /**
-     * Refuse to publish a listing the catalogue cannot file (register item 24).
-     *
-     * <p>{@code locality_slug} is null when {@code LocalityResolver} could not confidently match the
-     * free text the owner typed, and every locality-keyed read on the platform skips a null slug:
-     * the search facet, {@code /locality/{slug}}, the saved-search alert and the society join. So
-     * approving one produces a listing that is live by every measure the console shows and reachable
-     * by almost none a buyer uses — while its owner is sent "It is now live and visible to buyers",
-     * which is the part that makes this worth a 409 rather than a warning. The listing is not
-     * broken; the <em>ordering</em> is, and only a refusal fixes an ordering.
-     *
-     * <p>Only approval is blocked. Rejecting an unfiled listing is exactly right — it never needed
-     * a locality — and bouncing one back to {@code pending} is a queue move. There is no override:
-     * the remedy is {@code PATCH /admin/locality-queue/{propertyId}}, which the same
-     * {@code properties:write} permission grants, so this can never deadlock the moderator it
-     * stops. Curating first and approving second is the whole of the fix.
+     * Refuse to publish a listing the catalogue cannot file: every locality-keyed read skips a null
+     * slug, so it would be live by the console's measure and unreachable by a buyer's. Curate first.
      */
     private static void denyApprovingUnfiled(Property property, String status) {
         if (PropertyStatus.APPROVED.equals(status) && property.getLocalitySlug() == null) {
@@ -197,22 +159,23 @@ public class PropertyModerationService {
     }
 
     /**
-     * Resolve the path token to a listing, accepting a <strong>slug or a UUID</strong>.
-     *
-     * <p>It was UUID-only, which made these five routes the odd ones out on {@code /properties/{id}}:
-     * the public read ({@code PropertyService.resolve}) and archive/restore
-     * ({@code ListingService.resolvePermitted}) both accept either. That inconsistency is invisible
-     * until something takes an id from one route and uses it on another — which is precisely what
-     * the admin UI does, because a listing's public URL key is its slug. Approve worked from a hand-
-     * typed UUID and 404'd from the screen, for a listing the moderator was looking at.
-     *
-     * <p>No visibility filter here, deliberately: unlike the public read this must resolve pending,
-     * rejected, flagged and archived rows — they are the ones being moderated.
+     * Resolve the path token to a listing, accepting a <strong>slug or a UUID</strong> as the public
+     * read does. No visibility filter: pending, rejected, flagged and archived rows are the job.
      */
     private Property load(String idOrSlug) {
-        return Ids.parseUuid(idOrSlug)
-                .flatMap(properties::findById)
-                .or(() -> properties.findBySlug(idOrSlug))
-                .orElseThrow(() -> NotFoundException.of("Property"));
+        UUID id = Ids.parseUuid(idOrSlug).orElseGet(() -> properties.findBySlug(idOrSlug)
+            .map(Property::getId).orElseThrow(() -> NotFoundException.of("Property")));
+        return properties.findForVerificationDecision(id)
+            .orElseThrow(() -> NotFoundException.of("Property"));
+    }
+
+    @Transactional
+    public Property publish(AuthPrincipal actor, String id) {
+        Property property = load(id);
+        lifecycle.publish(actor, property, true);
+        audit.record(actor, "property.publish", "property", property.getId().toString());
+        notifier.notify(property.getOwner().getId(), "listing.approved", "Your listing is live",
+            "It is now visible to buyers.", "/property/" + property.getId());
+        return property;
     }
 }
