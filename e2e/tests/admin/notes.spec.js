@@ -255,8 +255,20 @@ test.describe('LIVE — notes on the communication log', () => {
     const modal = page.getByRole('dialog');
     const text = 'Rang the owner; the rent excludes maintenance.';
     await writeNote(modal, text);
-    /* Approving with checklist items unticked raises a `window.confirm`, which Playwright dismisses
-       by default — that would abort the decision and leave this asserting nothing. */
+    /* Every checklist line has to be ticked first. The server refuses an approval while any line is
+       still open, so the browser's old `window.confirm` — which merely warned about it — is no
+       longer the thing standing in the way: skipping the ticks now fails the request outright and
+       this spec would assert nothing.
+
+       The lines are read off the dialog rather than named here, because the checklist the server
+       seeds differs by deal type. Each tick is its own round trip, so the assertion between clicks
+       is what keeps the next one from racing a stale render. */
+    const unticked = modal.getByTitle('Mark as checked');
+    for (let left = await unticked.count(); left > 0; left -= 1) {
+      await unticked.first().click();
+      await expect(unticked).toHaveCount(left - 1);
+    }
+
     page.once('dialog', (d) => d.accept());
     await modal.getByRole('button', { name: /Approve & publish/ }).click();
     await expect(page.getByText(/Approved & published/)).toBeVisible();

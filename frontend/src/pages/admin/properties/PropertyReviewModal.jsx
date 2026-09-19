@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Check, CheckCircle, ExternalLink, FileCheck2, FileText,
-  Info, MapPin, MessagesSquare,
+  HelpCircle, Info, MapPin, MessagesSquare,
   Send, X, XCircle, History, ArrowRight, AlertTriangle, TrendingDown,
 } from 'lucide-react';
 import {
-  startPropertyReview, getPropertyReview, markPropertyReviewRead,
+  startPropertyReview, markPropertyReviewRead,
   setPropertyReviewChecklistItem, addPropertyReviewMessage, decidePropertyReview,
 } from '../../../services/propertyReviewService.js';
-import { clearFlag, setListingStatus } from '../../../services/propertyService.js';
+import { setListingStatus } from '../../../services/propertyService.js';
 import { chaseOwner, listOutreachTemplates, listOwnerOutreach } from '../../../services/outreachService.js';
 import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
 import { fmtINR, classNames } from '../../../lib/format.js';
@@ -25,6 +25,7 @@ import { iconBtn } from './review-modal/styles.js';
 import WhatsappTemplates from './review-modal/WhatsappTemplates.jsx';
 import CommunicationLog from './review-modal/CommunicationLog.jsx';
 import OwnershipEvidencePanel from './review-modal/OwnershipEvidencePanel.jsx';
+import { SubmittedPhotos, SubmittedDescription, SubmittedLocation } from './review-modal/SubmittedContent.jsx';
 
 // Verification routes require UUIDs; the display id may be a public slug.
 const pid = (listing) => listing?.uuid || listing?.id;
@@ -48,6 +49,10 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     // Decisions stay disabled while their server write is pending.
   const [busy, setBusy] = useState(false);
 
+  /* Read once per render rather than inside the effect, so it can be a dependency: flags resolve async, and
+     one turning true after the modal opened left the timeline mounted empty with no second fetch. */
+  const commsLogOn = optionEnabled('properties.commsLog');
+
     // Per-run cancellation prevents StrictMode and listing-switch races. Idempotent open avoids
     // a get-then-create race; the read receipt is bodyless, so render the opened case file.
   useEffect(() => {
@@ -63,12 +68,15 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       } catch (err) {
         if (cancelled) return;
         toast(err?.message || 'Could not open the verification case file', 'error');
+        /* Close rather than sit on a dialog that renders nothing: the parent hands back the same listing
+           object, so leaving `review` set means React bails out and the row cannot be reopened. */
         setThread(null);
+        setReview(null);
       }
     })();
     setOutreach([]);
     setNotes([]);
-    if (optionEnabled('properties.commsLog')) {
+    if (commsLogOn) {
       // A collapsed timeline's fetch must not block the checklist or decision buttons.
       (async () => {
         try {
@@ -102,7 +110,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       setThread(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [review]);
+  }, [review, commsLogOn]);
 
   // The shared template library is independent of the listing and renders its own empty state.
   useEffect(() => {
@@ -151,30 +159,29 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     }
   };
 
-  const reviewSend = async () => {
+  const reviewSend = async (clarificationRequested = false) => {
     const v = msg.trim();
     if (!v) return;
     try {
-      const caseFile = await addPropertyReviewMessage(pid(review), v);
+      const caseFile = await addPropertyReviewMessage(pid(review), v, clarificationRequested);
       setMsg('');
       setThread(caseFile);
-      toast('Message sent to owner');
+      toast(clarificationRequested
+        ? 'Clarification requested \u2014 returned to the owner'
+        : 'Message sent to owner');
+      if (clarificationRequested) onRefresh();
     } catch (err) {
       toast(err?.message || 'Could not send the message', 'error');
     }
   };
 
-  // A decision atomically updates the case, listing status and owner message; do not pair it with
-  // a separate status write. Pending case status alone does not indicate a completed checklist.
+  // A decision atomically updates the case, listing status and owner message, so do not pair it with a
+  // separate status write. The server refuses an approval while any checklist line is still open.
   const reviewApprove = async () => {
     if (busy) return;
-    const unchecked = (thread?.checklist || []).filter((c) => !c.pass);
-    if (unchecked.length && !window.confirm(`${unchecked.length} checklist item(s) are not ticked yet. Approve and publish anyway?`)) return;
     setBusy(true);
     try {
       await decidePropertyReview(pid(review), 'approve');
-      // Clearing a flag needs the moderation endpoint, not the owner's field-whitelisted PATCH.
-      await clearFlag(review.id);
       const noted = await saveNoteIfAny('listing', review.id, internalNote, 'Approved');
       handleClose();
       toast(noted.error
@@ -217,7 +224,9 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setBusy(true);
     try {
       await setListingStatus(review.id, 'approved', 'Owner edits reviewed');
-      setThread(await getPropertyReview(pid(review)));
+      /* Close rather than refetch: the re-review panel renders from `review`, the parent's row, so refreshing
+         only the case file left the modal announcing an edit it had cleared, over a button that now 409s. */
+      handleClose();
       toast('Owner edits approved \u2014 re-review cleared', 'success');
       onRefresh();
     } catch (err) {
@@ -240,9 +249,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     claim_link: `${window.location.origin}/signin`,
   });
 
-  /* `window.open` runs first and synchronously so the tab stays inside the gesture that authorised
-     it, then is navigated only once the server accepts — a refusal leaves an empty tab rather than
-     a message the platform has no record of. The toast says "written", never "sent". */
+  /* `window.open` runs first and synchronously so the tab stays inside the authorising gesture, then is
+     navigated only once the server accepts — a refusal leaves an empty tab, not an unrecorded message. */
   const handleSendWaTemplate = async () => {
     if (busy || !waPreview) return;
     setBusy(true);
@@ -254,7 +262,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       setWaOpen(false);
       setWaPreview(null);
       // Re-read the server ledger rather than manufacturing a local history entry.
-      if (optionEnabled('properties.commsLog')) {
+      if (commsLogOn) {
         try {
           setOutreach(await listOwnerOutreach(pid(review)));
         } catch {
@@ -321,6 +329,12 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
             </div>
           </div>
 
+          <SubmittedPhotos listing={review} />
+
+          <SubmittedDescription listing={review} />
+
+          <SubmittedLocation listing={review} />
+
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-200">
               <Info className="h-4 w-4 text-brand-teal" /> Property details
@@ -352,7 +366,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                 {review.reReview.identityChanged ? ' The owner changed a core identity field (type/locality).' : ''}
               </p>
               <div className="space-y-1.5">
-                {review.reReview.fields.map((f) => (
+                {(review.reReview.fields || []).map((f) => (
                   <div key={f.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="text-[11px] uppercase tracking-wide text-gray-500">{f.label}</div>
@@ -366,7 +380,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                   </div>
                 ))}
               </div>
-              <button onClick={approveEdits} className="dz-btn dz-btn-success mt-3">
+              <button onClick={approveEdits} disabled={busy} className="dz-btn dz-btn-success mt-3">
                 <CheckCircle className="h-4 w-4" /> Approve edits
               </button>
             </div>
@@ -410,10 +424,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
             <div className="flex max-h-60 flex-col gap-2 overflow-y-auto rounded-xl border border-white/10 bg-ink p-2">
               {thread.messages.length ? (
                 thread.messages.map((m) => {
-                  /* An internal message is one the owner cannot see, so it must not be laid out as
-                     part of a conversation the heading says the owner is party to. A moderator
-                     reading it as an ordinary ops bubble concludes the owner has been told — which
-                     is the same disclosure the server-side filter exists to prevent, one step on. */
+                  /* An internal message must not be laid out as part of a conversation the heading says the
+                     owner is party to: read as an ordinary bubble, a moderator assumes the owner was told. */
                   if (m.internal) {
                     return (
                       <div key={m.id} className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-50">
@@ -440,8 +452,26 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
               )}
             </div>
             <div className="mt-2.5 flex items-stretch gap-2">
-              <textarea value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') reviewSend(); }} rows={2} placeholder={'Ask for a clarification or share a note for the owner\u2026'} className="dz-input flex-1 resize-none" />
-              <button onClick={reviewSend} title="Send" className="dz-btn dz-btn-primary"><Send className="h-4 w-4" /></button>
+              <textarea value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') reviewSend(false); }} rows={2} placeholder={'Share a note, or ask for a clarification to hand the listing back for correction\u2026'} className="dz-input flex-1 resize-none" />
+              <div className="flex flex-col gap-2">
+                <button onClick={() => reviewSend(false)} title="Send" className="dz-btn dz-btn-primary"><Send className="h-4 w-4" /></button>
+                {/* Handing a listing back only means something while it is still waiting on us: the
+                    server refuses it for anything already published, so an always-live button spent
+                    a reviewer's click to produce a 409. Plain Send stays available either way, since
+                    writing to the owner of a live listing is perfectly ordinary. (A listing our own
+                    staff posted is refused too, but the track is not in the read this modal gets —
+                    that one is still left to the server's message.) */}
+                <button
+                  onClick={() => reviewSend(true)}
+                  disabled={review.status !== 'pending'}
+                  title={review.status === 'pending'
+                    ? 'Request clarification \u2014 hands the listing back to the owner to correct'
+                    : 'Only a listing still awaiting review can be handed back'}
+                  className="dz-btn dz-btn-ghost"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -459,7 +489,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
             />
           )}
 
-          {optionEnabled('properties.commsLog') && (
+          {commsLogOn && (
             <CommunicationLog
               commsOpen={commsOpen}
               setCommsOpen={setCommsOpen}

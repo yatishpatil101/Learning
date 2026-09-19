@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
 import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
-import { parseAmount } from '../../lib/format.js';
+import { classNames, parseAmount } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
-import { classNames } from '../../lib/format.js';
-import { STEPS, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialSubtypes } from './post-on-behalf/constants.js';
+import {
+  STEPS, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialLabelOf, COMMERCIAL_SPEC_KEYS,
+  amenitiesFor, commercialProfileOf, commercialSpecsFor, fixturesFor, landUseFor, suitableForFor,
+  defaultAreaUnitFor,
+} from './post-on-behalf/constants.js';
 import { OwnerStep, PropertyStep, LocationStep, PricingStep, PhotosStep, ReviewStep } from './post-on-behalf/WizardSteps.jsx';
 import { resolveLocalitySlug } from '../../data/localities.js';
 
@@ -35,9 +38,8 @@ export default function AdminPostOnBehalf() {
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
 
-  /* Backs the "this owner already has N pending listings" warning, the desk's one chance to notice
-     it is taking the same flat down twice. Read once on open, keyed by mobile because that is the
-     only identifier an operator has on the phone; failure is advisory, so it stays silent. */
+  /* Backs the "this owner already has N pending listings" warning, the desk's one chance to notice it is
+     taking the same flat down twice. Keyed by mobile — the only identifier an operator has on the phone. */
   const [pendingByMobile, setPendingByMobile] = useState(() => new Map());
   useEffect(() => {
     let alive = true;
@@ -55,10 +57,8 @@ export default function AdminPostOnBehalf() {
     return () => { alive = false; };
   }, []);
 
-  /* The desk is exempt from the freemium ceiling — it is a rule about self-service — but an owner
-     past their plan is an upgrade conversation only the operator can have, so show the numbers and
-     let the desk decide. Asked at ten digits, and a reply for an edited number is dropped so one
-     owner's standing never renders against another's name. */
+  /* The desk is exempt from the freemium ceiling, but an owner past their plan is an upgrade conversation
+     only the operator can have. A reply for an edited number is dropped so standing never crosses owners. */
   const [standing, setStanding] = useState(null);
   const ownerMobile = form.ownerMobile;
   useEffect(() => {
@@ -83,7 +83,13 @@ export default function AdminPostOnBehalf() {
 
   const resumeDraft = () => {
     if (!draft) return;
-    setForm(draft.form);
+    const { powerBackup, ...restoredForm } = draft.form;
+    setForm({
+      ...restoredForm,
+      amenities: powerBackup && restoredForm.propertyType === 'commercial'
+        ? [...new Set([...(restoredForm.amenities || []), 'Power Backup'])]
+        : restoredForm.amenities || [],
+    });
     setStep(Math.min(Math.max(draft.step || 1, 1), 6));
     setRestored(true);
     setDraft(null);
@@ -98,19 +104,45 @@ export default function AdminPostOnBehalf() {
         next.bhk = '';
         next.amenities = [];
         next.furniture = [];
+        /* A value absent from the new type's list is still displayed by Select's raw-value fallback and
+           still published, so "Family" on a warehouse survives invisibly unless cleared. */
+        next.preferredTenants = []; next.ownership = '';
+        /* `11` is a residential month count `commercialAgreementOptions` does not carry, so a held value
+           would render as a bare number and publish a contract term the form never offered. */
+        if ((prev.propertyType === 'commercial') !== (value === 'commercial')) {
+          next.agreementDuration = value === 'commercial' ? '' : INITIAL_FORM.agreementDuration;
+          next.lockIn = ''; next.noticePeriod = '';
+        }
         next.bathrooms = ''; next.balconies = ''; next.builtUp = ''; next.plotArea = ''; next.floorsInHouse = '';
-        next.washrooms = ''; next.shellType = ''; next.parkingSpaces = ''; next.powerBackup = false; next.pantry = false; next.camCharges = ''; next.suitableFor = [];
-        next.plotLength = ''; next.plotWidth = ''; next.openSides = ''; next.roadWidth = ''; next.cornerPlot = false; next.boundaryWall = false; next.plotZone = ''; next.naSanctioned = false; next.waterSource = ''; next.electricity = false; next.roadAccess = false; next.satbara = false;
+        if (value === 'commercial') { next.age = ''; next.furnishing = 'unfurnished'; }
+        next.washrooms = ''; next.shellType = ''; next.parkingSpaces = ''; next.pantry = false; next.camCharges = ''; next.suitableFor = []; next.fixtures = [];
+        next.gstOnRent = ''; next.fitOutMonths = ''; next.escalationPct = ''; next.tenancyStatus = ''; next.inPlaceRent = ''; next.leaseExpiry = '';
+        COMMERCIAL_SPEC_KEYS.forEach((key) => { next[key] = ''; });
+        next.plotLength = ''; next.plotWidth = ''; next.openSides = ''; next.roadWidth = ''; next.cornerPlot = false; next.boundaryWall = false; next.plotZone = ''; next.naStatus = ''; next.waterSource = ''; next.electricity = false; next.roadAccess = false; next.otherRights = ''; next.buyerEligibility = '';
+        /* Farm land has no square feet on its own unit list, so a plot's default would publish the
+           parcel three orders of magnitude small. Mirrors the consumer wizard. */
+        next.areaUnit = defaultAreaUnitFor(value);
         if (value !== 'commercial') next.commercialType = '';
+        // Land and commercial state their recurring cost elsewhere (CAM), so the box goes away.
+        if (value === 'commercial' || LAND_TYPES.includes(value)) { next.maintenance = ''; next.rentMaintMode = ''; }
         if (LAND_TYPES.includes(value)) {
-          next.floor = ''; next.totalFloors = ''; next.facing = ''; next.overlooking = ''; next.age = ''; next.furnishing = 'unfurnished';
+          // `facing` survives: it is the one of these a plot still has, and the desk now asks it.
+          next.floor = ''; next.totalFloors = ''; next.overlooking = ''; next.age = ''; next.furnishing = 'unfurnished';
         }
       }
       // Sale has no security deposit or preferred-tenant list — drop rent-era values.
-      if (field === 'deal' && value === 'buy') { next.deposit = ''; next.preferredTenants = []; }
+      if (field === 'deal' && value === 'buy') { next.deposit = ''; next.preferredTenants = []; next.rentMaintMode = ''; }
+      // Possession is asked on the sale branch only, so it must not survive the way back to rent.
+      if (field === 'deal' && value === 'rent') { next.possession = ''; next.transactionType = ''; }
+      // The specs and fixtures are profile-scoped, so a godown's dock count must not survive a
+      // switch to "Office" — it would publish under a label that never offered the question.
+      if (field === 'commercialType') {
+        next.fixtures = []; next.suitableFor = []; next.amenities = []; next.pantry = false;
+        COMMERCIAL_SPEC_KEYS.forEach((key) => { next[key] = ''; });
+      }
       return next;
     });
-    if (errors[field]) setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
+    setErrors((prev) => { if (prev[field] === undefined) return prev; const n = { ...prev }; delete n[field]; return n; });
   };
 
   function validateStep(s) {
@@ -121,8 +153,16 @@ export default function AdminPostOnBehalf() {
     } else if (s === 2) {
       if (!form.propertyType) err.propertyType = true;
       if (form.propertyType === 'commercial' && !form.commercialType) err.commercialType = true;
+      if (form.propertyType === 'commercial' && !form.shellType) err.shellType = true;
       if (!form.bhk && !NONRES_TYPES.includes(form.propertyType)) err.bhk = true;
       if (!form.carpetArea) err.carpetArea = true;
+      /* Held to the same bar as the owner's own wizard: a land listing that reaches a buyer without
+         these is one the ops desk has to chase the owner about later anyway. */
+      if (LAND_TYPES.includes(form.propertyType)) {
+        if (!form.naStatus) err.naStatus = true;
+        if (!form.otherRights) err.otherRights = true;
+        if (form.propertyType === 'farmland' && form.deal === 'buy' && !form.buyerEligibility) err.buyerEligibility = true;
+      }
     } else if (s === 3) {
       if (!form.locality) err.locality = true;
     } else if (s === 4) {
@@ -136,55 +176,128 @@ export default function AdminPostOnBehalf() {
   function prev() { setStep((s) => Math.max(s - 1, 1)); }
 
   async function handleSubmit() {
-    if (!validateStep(step)) return;
+    const firstInvalidStep = [1, 2, 3, 4].find((candidate) => !validateStep(candidate));
+    if (firstInvalidStep) { setStep(firstInvalidStep); return; }
     setSubmitting(true);
     try {
-      const land = NONRES_TYPES.includes(form.propertyType) && LAND_TYPES.includes(form.propertyType);
+      const land = LAND_TYPES.includes(form.propertyType);
       const isCommercial = form.propertyType === 'commercial';
       const residentialHome = !NONRES_TYPES.includes(form.propertyType);
-      const bhkNum = NONRES_TYPES.includes(form.propertyType) ? 0 : (Number(form.bhk) || 0);
+      const bhkNum = residentialHome ? (Number(form.bhk) || 0) : 0;
       const typeMap = { flat: 'Flat', independent: 'Independent House', villa: 'Villa', commercial: 'Commercial', openplot: 'Open Plot', farmland: 'Farm Land' };
-      const subtypeLabel = commercialSubtypes.find((s) => s.value === form.commercialType)?.label || '';
-      const typeLabel = (form.propertyType === 'commercial' && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
+      const subtypeLabel = commercialLabelOf(form.commercialType);
+      const typeLabel = (isCommercial && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
       const titlePrefix = bhkNum ? bhkNum + ' BHK ' : '';
       const title = titlePrefix + typeLabel + ' in ' + (form.locality || 'Pune');
+      /* The server takes `\d{1,9}(\.\d{1,2})?`, so a mid-typed "5." or a third decimal place is a 422 that
+         names no field at all — the constraint carries one static message. Repair rather than reject. */
+      const decimal = (v) => String(v ?? '')
+        .replace(/^\./, '0.').replace(/\.$/, '').replace(/^(\d+\.\d{2})\d+$/, '$1');
 
       const listing = {
         title, type: typeLabel,
         bhk: bhkNum ? bhkNum + ' BHK' : '', bhkNum, deal: form.deal,
         bath: residentialHome ? (Number(form.bathrooms) || 0) : 0,
         balconies: residentialHome ? (Number(form.balconies) || 0) : 0,
-        builtUpArea: Number(form.builtUp) || 0,
+        builtUpArea: residentialHome ? (Number(form.builtUp) || 0) : 0,
         plotArea: Number(form.plotArea) || 0,
         floorsInHouse: Number(form.floorsInHouse) || 0,
-        furniture: form.furniture || [],
-        ...(isCommercial && { shellType: form.shellType || '', washrooms: form.washrooms || '', parkingSpaces: Number(form.parkingSpaces) || 0, powerBackup: form.powerBackup, pantry: form.pantry, camCharges: parseAmount(form.camCharges), suitableFor: form.suitableFor || [] }),
-        ...(land && { plotLength: Number(form.plotLength) || 0, plotWidth: Number(form.plotWidth) || 0, openSides: form.openSides || '', roadWidth: Number(form.roadWidth) || 0, cornerPlot: form.cornerPlot, boundaryWall: form.boundaryWall, plotZone: form.plotZone || '', naSanctioned: form.naSanctioned, waterSource: form.waterSource || '', electricity: form.electricity, roadAccess: form.roadAccess, satbara: form.satbara }),
+        furniture: residentialHome ? form.furniture || [] : [],
+        ...(isCommercial && { parkingSpaces: Number(form.parkingSpaces) || 0 }),
         locality: form.locality || 'Pune',
         localitySlug: resolveLocalitySlug(form.locality || 'Pune'),
         area: Number(form.carpetArea) || 0, floor: form.floor || 'N/A',
         totalFloors: Number(form.totalFloors) || 0, facing: form.facing || '', overlooking: form.overlooking || '',
-        age: form.age || 'new', furnishing: form.furnishing,
-        price: parseAmount(form.price), priceNegotiable: form.priceNegotiable,
-        monthlyMaintenance: parseAmount(form.maintenance),
+        age: isCommercial ? '' : form.age || 'new', furnishing: residentialHome ? form.furnishing : undefined,
+        price: parseAmount(form.price), negotiable: !!form.priceNegotiable,
+        /* On a rental the figure is only owed when it is charged on top; "included in rent" is
+           already stated by the rent itself. Matches `submit.js`. */
+        maintenance: residentialHome && form.deal === 'rent' && form.rentMaintMode === 'extra'
+          ? parseAmount(form.maintenance)
+          : 0,
         owner: form.ownerName, ownerMobile: form.ownerMobile,
         ownerVerified: false, ownershipVerified: false,
         image: form.photos[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80',
-        gallery: form.photos, amenities: form.amenities || [], rera: form.reraId || '',
-        transactionType: form.deal === 'buy' ? (form.transactionType || '') : '',
-        possession: form.possession || 'ready',
+        gallery: form.photos,
+        amenities: isCommercial
+          ? (form.amenities || []).filter((amenity) => amenitiesFor('commercial', form.commercialType).includes(amenity))
+          : form.amenities || [],
+        reraId: form.reraId || '',
+        landUse: landUseFor(form.propertyType, form.plotZone),
+        /* Possession is a sale-only question here and on the consumer form, so a rental or a plot
+           states nothing rather than claiming "ready to move". `writePossession` omits the key. */
+        construction: form.deal === 'buy' && !land
+          ? (form.possession === 'available' ? 'ready' : form.possession || 'ready')
+          : undefined,
         ownership: form.deal === 'buy' ? (form.ownership || '') : '',
         loanAvailable: residentialHome ? form.loanAvailable : false,
-        available: (form.deal === 'rent' || form.possession === 'available') ? (form.availableFrom || '') : '',
-        tenants: (form.preferredTenants || []).join(','),
+        available: (form.deal === 'rent' || (!land && (form.possession === 'new' || form.possession === 'under'))) ? (form.availableFrom || '') : '',
+        /* A list, not a joined string: `ListingCreate.tenants` is a `List<String>`, so a string makes the
+           whole body unreadable and every desk submit 400s. `anyone` is the absence of a preference. */
+        tenants: residentialHome
+          ? ((form.preferredTenants || []).includes('anyone') ? [] : (form.preferredTenants || []))
+          : [],
         food: 'any',
-        lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration || '11',
+        lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration,
         description: form.description || '', society: form.society || '',
         address: form.address || '', landmark: form.landmark || '',
         deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0,
         /* The staff actor is server-set: a client that names the actor is a client asking to be
            believed about it. Owner identity goes as request arguments, not listing fields. */
         adminNotes: form.ownerNotes || '', status: 'pending',
+        /* `toListingCreate` forwards only this map, so an answer left at the listing's top level is dropped
+           on the wire. Deal-scoped: a sale has no GST-on-rent and a rental has no tenancy status. */
+        formDetails: {
+          landmark: form.landmark || '',
+          /* At the top level `society` survives only inside the composed address line, and `available` is
+             coarsened to a 15/30-day bucket. Both answers are the operator's, so both belong here. */
+          society: form.society || '',
+          availableFrom: form.availableFrom || '',
+          rentMaintMode: form.deal === 'rent' && residentialHome ? (form.rentMaintMode || '') : '',
+          transactionType: form.deal === 'buy' && !land ? (form.transactionType || '') : '',
+          ...(isCommercial && {
+            commercialType: form.commercialType || '',
+            shellType: form.shellType || '',
+            washrooms: form.washrooms || '',
+            camCharges: form.camCharges || '',
+            pantry: commercialProfileOf(form.commercialType) === 'workspace' && form.pantry,
+            suitableFor: (form.suitableFor || []).filter((value) => suitableForFor(form.commercialType).includes(value)),
+            fixtures: (form.fixtures || []).filter((value) => fixturesFor(form.commercialType).includes(value)),
+            gstOnRent: form.deal === 'rent' ? (form.gstOnRent || '') : '',
+            fitOutMonths: form.deal === 'rent' ? (form.fitOutMonths || '') : '',
+            escalationPct: form.deal === 'rent' ? decimal(form.escalationPct) : '',
+            tenancyStatus: form.deal === 'rent' ? '' : (form.tenancyStatus || ''),
+            inPlaceRent: form.deal !== 'rent' && form.tenancyStatus === 'leased' ? (form.inPlaceRent || '') : '',
+            leaseExpiry: form.deal !== 'rent' && form.tenancyStatus === 'leased' ? (form.leaseExpiry || '') : '',
+            ...Object.fromEntries(commercialSpecsFor(form.commercialType).map(({ key }) => [key, decimal(form[key])])),
+          }),
+          ...(land && {
+            plotLength: form.plotLength || '',
+            plotWidth: form.plotWidth || '',
+            openSides: form.openSides || '',
+            roadWidth: form.roadWidth || '',
+            plotZone: form.plotZone || '',
+            waterSource: form.waterSource || '',
+            cornerPlot: form.cornerPlot,
+            boundaryWall: form.boundaryWall,
+            naStatus: form.naStatus || '',
+            electricity: form.electricity,
+            roadAccess: form.roadAccess,
+            otherRights: form.otherRights || '',
+            buyerEligibility: form.deal === 'buy' && form.propertyType === 'farmland' ? (form.buyerEligibility || '') : '',
+          }),
+          ...(residentialHome && {
+            plotArea: form.plotArea || '',
+            floorsInHouse: form.floorsInHouse || '',
+            furniture: form.furniture || [],
+          }),
+          ownership: form.deal === 'buy' ? (form.ownership || '') : '',
+          loanAvailable: residentialHome && form.deal === 'buy' && form.loanAvailable,
+          agreementDuration: form.deal === 'rent' && !land ? (form.agreementDuration || '') : '',
+          lockIn: form.deal === 'rent' && !land ? (form.lockIn || '') : '',
+          noticePeriod: form.deal === 'rent' && !land ? (form.noticePeriod || '') : '',
+          preferredTenants: form.deal === 'rent' && residentialHome ? (form.preferredTenants || []) : [],
+        },
       };
 
       const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
@@ -194,7 +307,10 @@ export default function AdminPostOnBehalf() {
       setSuccess(true);
       clearDraft();
       toast('Listing created \u2014 owner will receive claim link', 'success');
-    } catch {
+    } catch (err) {
+      /* A 422 names its field and `writePossession` names an unmappable value, but the toast can say
+         neither — so log it, or staff can only report "it failed". */
+      console.error(err);
       toast('Failed to create listing \u2014 please try again', 'error');
     } finally {
       setSubmitting(false);

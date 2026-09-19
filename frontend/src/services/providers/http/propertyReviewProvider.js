@@ -58,8 +58,8 @@ export async function startPropertyReview(propertyId) {
  * Post a message; the server attributes the sender and answers with the whole case file, so a
  * decision taken between render and send shows up in the reply. Attachments go to the vault route.
  */
-export async function addPropertyReviewMessage(propertyId, body) {
-  return toCaseFile(await post(`${caseFilePath(propertyId)}/messages`, { body }));
+export async function addPropertyReviewMessage(propertyId, body, clarificationRequested = false) {
+  return toCaseFile(await post(`${caseFilePath(propertyId)}/messages`, { body, clarificationRequested }));
 }
 
 /**

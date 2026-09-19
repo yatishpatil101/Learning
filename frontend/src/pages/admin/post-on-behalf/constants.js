@@ -2,11 +2,13 @@ import { Building2, Camera, Check, IndianRupee, MapPin, User } from 'lucide-reac
 import {
   localities, facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   ownershipOptions, agreementOptions, lockinOptions, noticeOptions,
-  shellOptions, washroomOptions, suitableForTags, plotZoneOptions,
-  openSidesOptions, waterSourceOptions,
-  PROPERTY_TYPES, COMMERCIAL_SUBTYPES,
+  commercialOwnershipOptions, commercialAgreementOptions, commercialLockinOptions, commercialNoticeOptions,
+  shellOptions, washroomOptions, plotZoneOptions,
+  openSidesOptions, waterSourceOptions, naStatusOptions, otherRightsOptions, buyerEligibilityOptions,
+  PROPERTY_TYPES, commercialSubtypeOptions, commercialLabelOf,
+  fixturesFor, suitableForFor, commercialProfileOf, commercialSpecsFor, COMMERCIAL_SPEC_KEYS, fitOutOptions, tenancyStatusOptions,
   amenitiesFor as amenitiesCatalogFor, furnitureItems,
-  isLandType, isCommercialType, isHouseType,
+  isLandType, isHouseType, landUseFor, defaultAreaUnitFor, DEPOSIT_MONTHS,
 } from '../../consumer/list-property/constants.js';
 
 /* Shared canonical option data, imported from the consumer "Post a property" flow
@@ -14,12 +16,15 @@ import {
 export {
   localities, facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   ownershipOptions, agreementOptions, lockinOptions, noticeOptions,
+  commercialOwnershipOptions, commercialAgreementOptions, commercialLockinOptions, commercialNoticeOptions,
   plotZoneOptions, openSidesOptions, waterSourceOptions, washroomOptions,
-  isLandType, isCommercialType, isHouseType,
+  naStatusOptions, otherRightsOptions, buyerEligibilityOptions,
+  commercialSubtypeOptions, commercialLabelOf,
+  fixturesFor, suitableForFor, commercialProfileOf, commercialSpecsFor, COMMERCIAL_SPEC_KEYS, fitOutOptions,
+  isLandType, isHouseType, landUseFor, defaultAreaUnitFor, DEPOSIT_MONTHS,
 };
 
 export const typeOptions = PROPERTY_TYPES;
-export const commercialSubtypes = COMMERCIAL_SUBTYPES;
 export const NONRES_TYPES = ['commercial', 'openplot', 'farmland'];
 /* Raw-land types have no built structure. */
 export const LAND_TYPES = ['openplot', 'farmland'];
@@ -42,6 +47,8 @@ export const furnishingOptions = [
 
 /* Commercial shell type (consumer stores tuples; expose {value,label}). */
 export const shellTypeOptions = shellOptions.map(([value, label]) => ({ value, label }));
+export const tenancyOptions = tenancyStatusOptions.map(([value, label]) => ({ value, label }));
+export const gstOptions = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
 
 /* Sale / possession / tenant selectors mirror the consumer inline options
    value-for-value so listings created either way filter identically. */
@@ -49,17 +56,16 @@ export const transactionTypeOptions = [
   { value: 'new', label: 'New Property' }, { value: 'resale', label: 'Resale' },
 ];
 export const possessionOptions = [
-  { value: 'ready', label: 'Ready to Move' }, { value: 'available', label: 'Available From' },
+  { value: 'ready', label: 'Ready to Move' }, { value: 'new', label: 'New Launch' },
+  { value: 'under', label: 'Under Construction' },
 ];
 export const preferredTenantsOptions = [
   { value: 'family', label: 'Family' }, { value: 'bachelors', label: 'Bachelors' },
   { value: 'company', label: 'Company Lease' }, { value: 'anyone', label: 'Anyone' },
 ];
-export const suitableForOptions = suitableForTags;
 
-/* Amenities & furniture as plain label strings (persist straight into the listing,
-   matching the consumer catalog shape) but sourced type-aware from the canonical
-   catalog so values line up with the consumer amenity / furniture filters. */
+/* Plain label strings so they persist straight into the listing, but sourced type-aware from the
+   canonical catalog so values line up with the consumer amenity and furniture filters. */
 export const amenitiesFor = (type, commercialType) =>
   amenitiesCatalogFor(type, commercialType).map((a) => a.label);
 export const furnitureLabels = furnitureItems.map((f) => f.label);
@@ -82,12 +88,14 @@ export const INITIAL_FORM = {
   bathrooms: '', balconies: '', builtUp: '', plotArea: '', floorsInHouse: '',
   floor: '', totalFloors: '', facing: '', overlooking: '', age: '',
   furnishing: 'unfurnished', furniture: [],
-  washrooms: '', shellType: '', parkingSpaces: '', powerBackup: false, pantry: false, camCharges: '', suitableFor: [],
+  washrooms: '', shellType: '', parkingSpaces: '', pantry: false, camCharges: '', suitableFor: [], fixtures: [],
+  gstOnRent: '', fitOutMonths: '', escalationPct: '', tenancyStatus: '', inPlaceRent: '', leaseExpiry: '',
+  seatCount: '', frontage: '', floorLoad: '', clearHeight: '', sanctionedPower: '', dockCount: '',
   plotLength: '', plotWidth: '', openSides: '', roadWidth: '', cornerPlot: false,
-  boundaryWall: false, plotZone: '', naSanctioned: false, waterSource: '',
-  electricity: false, roadAccess: false, satbara: false,
+  boundaryWall: false, plotZone: '', naStatus: '', waterSource: '',
+  electricity: false, roadAccess: false, otherRights: '', buyerEligibility: '',
   locality: '', society: '', address: '', landmark: '',
-  price: '', deposit: '', maintenance: '', priceNegotiable: false,
+  price: '', deposit: '', maintenance: '', rentMaintMode: '', priceNegotiable: false,
   transactionType: '', possession: 'ready', ownership: '', reraId: '', loanAvailable: true,
   availableFrom: '', preferredTenants: [], agreementDuration: '11', lockIn: '0', noticePeriod: '1',
   photos: [], amenities: [], description: '',

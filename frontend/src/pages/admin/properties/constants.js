@@ -1,4 +1,4 @@
-import { fmtINR, fmtNum } from '../../../lib/format.js';
+import { fmtArea, fmtINR, fmtNum, isSqftUnit } from '../../../lib/format.js';
 
 export const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
@@ -26,9 +26,8 @@ export const EDIT_STATUS_OPTS = [
 
 export const PAGE_LIMIT = 15;
 
-/* Six columns, but only the first four are a stored stage. `under_review` and `live` are `status`
-   read sideways, so `derived: true` marks the two the board works out for itself — storing them
-   would write the same fact twice from two actions that can disagree. */
+/* Only the first four are a stored stage: `derived: true` marks the two the board works out from `status`,
+   because storing them would write the same fact twice from two actions that can disagree. */
 export const PIPELINE_STAGES = [
   { key: 'contacted', label: 'Contacted', color: 'bg-gray-500/15 text-gray-300 border-gray-500/30' },
   { key: 'info_collected', label: 'Info Collected', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
@@ -58,19 +57,24 @@ export const KPI_TINTS = {
 export const dealLabel = (d) => (d === 'rent' ? 'For Rent' : 'For Sale');
 export const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : s);
 export const perSqftLabel = (l) =>
-  l.area && l.deal !== 'rent'
+  // A plot priced by the acre divided by its acreage is a per-acre figure, so the row that captions
+  // it "/ sq.ft" has nothing honest to say about one.
+  l.area && l.deal !== 'rent' && isSqftUnit(l.areaUnit)
     ? fmtINR(Math.round(l.price / l.area)) + ' / sq.ft'
     : l.deal === 'rent'
     ? 'Monthly rent'
     : '\u2014';
 export const liveHref = (l) => `/property/${l.realId || l.id}`;
 
-/* Re-exported so the admin property modules keep importing it from here, but it now lives in
-   lib/format.js — AdminPropertyCard needs it for the re-check queue age and is a component, which
-   has no business reaching into a page's constants module. */
+/* Re-exported so the admin property modules keep importing it from here: AdminPropertyCard is a component
+   and has no business reaching into a page's constants module. */
 export { fmtAgo } from '../../../lib/format.js';
 
 export { exportCsv } from '../../../lib/csv.js';
+
+/* A row is worth showing only when the owner stated it: a grid of em-dashes hides the handful of facts
+   that decide the case. `0` and `false` are statements and survive; blank and null do not. */
+const stated = (v) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length);
 
 export function detailKvs(l) {
   const isLive = l.status === 'approved';
@@ -81,10 +85,46 @@ export function detailKvs(l) {
     ['Configuration', l.bhk || '\u2014'],
     ['Deal', dealLabel(l.deal)],
     ['Locality', l.locality],
-    ['Built-up area', (l.area || '\u2014') + ' sq.ft'],
     ['Price', fmtINR(l.price)],
     ['Rate', perSqftLabel(l)],
   ];
+  const push = (label, value, full) => {
+    if (stated(value)) kvs.push([label, value, full]);
+  };
+  const sqft = (v) => fmtNum(v) + ' sq.ft';
+
+  /* Three areas, three claims. The old single "Built-up area" row was labelled for one of them and
+     fed by the generic `area`, which is exactly the mislabelling a reviewer cannot catch. */
+  push('Carpet area', stated(l.carpetArea) ? sqft(l.carpetArea) : null);
+  push('Built-up area', stated(l.builtUpArea) ? sqft(l.builtUpArea) : null);
+  push('Super built-up area', stated(l.superBuiltUpArea) ? sqft(l.superBuiltUpArea) : null);
+  if (!stated(l.carpetArea) && !stated(l.builtUpArea) && !stated(l.superBuiltUpArea)) {
+    // The unqualified headline area, unlike the three above it, is whatever unit the owner chose.
+    push('Area', stated(l.area) ? `${fmtArea(l.area, l.areaUnit)} (unqualified)` : null);
+  }
+
+  push('Deposit', stated(l.deposit) ? fmtINR(l.deposit) : null);
+  push('Maintenance', stated(l.maintenance) ? fmtINR(l.maintenance) : null);
+  if (l.negotiable !== null && l.negotiable !== undefined) kvs.push(['Negotiable', l.negotiable ? 'Yes' : 'No']);
+
+  push('Floor', stated(l.floor) ? `${l.floor}${stated(l.totalFloors) ? ` of ${l.totalFloors}` : ''}` : null);
+  push('Bathrooms', stated(l.bath) ? fmtNum(l.bath) : null);
+  push('Balconies', stated(l.balconies) ? fmtNum(l.balconies) : null);
+  push('Parking', stated(l.parkingSpaces) ? fmtNum(l.parkingSpaces) : null);
+  push('Facing', l.facing);
+  push('Overlooking', l.overlooking);
+  push('Age', stated(l.ageYears) ? `${l.ageYears} yr` : null);
+  push('Furnishing', cap(l.furnishing));
+  push('Amenities', Array.isArray(l.amenities) ? l.amenities.join(', ') : l.amenities, true);
+
+  push('RERA ID', l.reraId || l.rera);
+  push('Ownership', cap(l.ownership));
+
+  push('Preferred tenants', Array.isArray(l.tenants) ? l.tenants.join(', ') : l.tenants);
+  if (l.pets !== null && l.pets !== undefined) kvs.push(['Pets', l.pets ? 'Allowed' : 'Not allowed']);
+  push('Available from', l.availableFrom);
+  push('Agreement duration', l.agreementDuration);
+
   if (isLive) {
     kvs.push(['Featured', l.featured ? 'Yes \u2605' : 'No']);
     kvs.push(['Views', fmtNum(l.views)]);
@@ -94,7 +134,7 @@ export function detailKvs(l) {
   kvs.push(['Owner mobile', l.ownerMobile || '\u2014']);
   kvs.push(['Submitted', l.createdAt]);
   kvs.push(['Documents on file', fmtNum(l.docsCount)]);
-  kvs.push(['Source', l.real ? 'Live user post' : 'Demo seed']);
+  push('Quality score', stated(l.qualityScore) ? `${l.qualityScore}/100` : null);
   if (l.flagReason) kvs.push(['Flag reason', l.flagReason, true]);
   return kvs;
 }

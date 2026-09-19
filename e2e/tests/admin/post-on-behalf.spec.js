@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';
+import { pickDate } from '../../helpers/datePicker.helper.js';
 
 /*
    Posting a listing on an owner's behalf, against the real API.
@@ -562,6 +563,9 @@ test('a property type switched away from takes its bedroom configuration with it
   await page.getByRole('option', { name: /Office Space/i }).click();
   await expect(page.getByLabel('BHK')).toHaveCount(0);
   await page.getByPlaceholder('e.g. 850').fill('1200');
+  // The shell is a commercial listing's furnishing, and step two will not advance without it.
+  await page.getByLabel('Shell type').click();
+  await page.getByRole('option', { name: 'Bare Shell' }).click();
 
   await page.getByRole('button', { name: /Next/i }).click();
   await page.getByText('Select locality').click();
@@ -654,3 +658,169 @@ test('a half-typed wizard survives a refresh, out of the operator’s own browse
   await page.getByRole('button', { name: /^Resume$/ }).click();
   await expect(page.getByPlaceholder('Full name of the property owner')).toHaveValue('Draft Owner');
 });
+
+/*
+ * The commercial answer set, end to end.
+ *
+ * ## The defect this was written for
+ *
+ * The desk's wizard never sent any of it. `toListingCreate` forwards exactly one map —
+ * `listing.formDetails` — and the wizard built `shellType`, `washrooms`, `camCharges`,
+ * `suitableFor` and every land flag as **top-level keys on the flat listing object**, which the
+ * mapper does not look at. So on a live build the operator answered a screenful of questions and
+ * the server received none of them. It was invisible from the console because the review step
+ * reads the *form*, not the response, and the success banner only needs an id.
+ *
+ * That is also why the assertions below are made from the **owner's own session** against
+ * `PropertyResponse.commercial`, and not from the wizard's review screen: a review step agreeing
+ * with the form it was rendered from is the exact thing that was already true while the wire was
+ * empty.
+ *
+ * ## Why a rent and a sale, in two tests
+ *
+ * The commercial questions are deal-scoped, and the two halves fail for opposite reasons. A rental
+ * collects GST, a fit-out period and an escalation; a sale collects the tenancy and, only when the
+ * tenancy is `leased`, the rent in place and the date it runs to. Filing a sale's tenancy against a
+ * rental — or a rental's GST against a sale — is the same class of bug as the deposit that survived
+ * a flip to sale, which already has a test two hundred lines up. So each test asserts its own half
+ * arrived **and** the other half did not, which is what makes a blanket "forward everything" fix
+ * fail rather than pass.
+ *
+ * ## The specs are profile-scoped, so the subtype is load-bearing
+ *
+ * `Warehouse / Godown` is chosen deliberately: it is the only profile that offers four physical
+ * specs, and its fixture list shares no member with an office's. A subtype that offered neither
+ * would let a wizard that ignores the profile pass.
+ */
+async function commercialThrough(page, { name, mobile, subtype }) {
+  await page.getByPlaceholder('Full name of the property owner').fill(name);
+  await page.getByPlaceholder('9876543210').fill(mobile);
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select type').click();
+  await page.getByRole('option', { name: /^Commercial$/ }).click();
+  await page.getByLabel('Commercial type').click();
+  await page.getByRole('option', { name: subtype }).click();
+  await page.getByPlaceholder('e.g. 850').fill('4200');
+  await page.getByLabel('Shell type').click();
+  await page.getByRole('option', { name: 'Bare Shell' }).click();
+}
+
+test('a commercial rental files its GST, fit-out and escalation — and no tenancy', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  await commercialThrough(page, { name: 'Godown Owner', mobile: ownerMobile, subtype: /Warehouse \/ Godown/ });
+
+  /* The four industrial specs, which only this profile offers. An office would render one box
+     labelled Seats and the fills below would have nowhere to go. */
+  await page.locator('#pob-floorLoad').fill('4');
+  await page.locator('#pob-clearHeight').fill('32');
+  await page.locator('#pob-sanctionedPower').fill('150');
+  await page.locator('#pob-dockCount').fill('6');
+  await page.getByLabel('Fixtures').click();
+  await page.getByRole('option', { name: 'Loading Bay / Dock' }).click();
+  await page.getByRole('option', { name: '3-Phase Power' }).click();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Chakan|Wakad|Baner/ }).first().click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  await page.locator('#pob-price').fill('180000');
+  await page.getByLabel('GST on rent').click();
+  await page.getByRole('option', { name: 'Yes' }).click();
+  await page.getByLabel('Fit-out period').click();
+  await page.getByRole('option', { name: '3 months' }).click();
+  await page.locator('#pob-escalation').fill('5');
+
+  /* A rental is not asked its tenancy, on screen as well as on the wire. Without this, the
+     `toBeNull` below could be satisfied by a control the operator simply never reached. */
+  await expect(page.getByText('Tenancy Status')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+
+  const stored = await onlyListing(ownerMobile);
+  const c = stored.commercial;
+  expect(c, 'the commercial answer set never reached the server').toBeTruthy();
+  expect(c.commercialType).toBe('warehouse');
+  expect(c.shellType).toBe('bareShell');
+  expect(c.gstOnRent).toBe('yes');
+  expect(c.fitOutMonths).toBe('3');
+  expect(c.escalationPct).toBe('5');
+  /* By value, not merely non-empty: four numbers keyed to four different questions is exactly the
+     shape a mapper can transpose without anything noticing. */
+  expect(c.floorLoad).toBe('4');
+  expect(c.clearHeight).toBe('32');
+  expect(c.sanctionedPower).toBe('150');
+  expect(c.dockCount).toBe('6');
+  expect(c.fixtures).toEqual(expect.arrayContaining(['Loading Bay / Dock', '3-Phase Power']));
+  /* And the office profile's spec is absent rather than defaulted — a godown does not seat anyone,
+     and a blank is the honest answer to a question this listing was never asked. */
+  expect(c.seatCount || '').toBe('');
+  /* The sale half, which this deal has no business carrying. */
+  expect(c.tenancyStatus || '').toBe('');
+  expect(c.inPlaceRent || '').toBe('');
+  expect(c.leaseExpiry || '').toBe('');
+});
+
+test('a pre-leased commercial sale files the rent in place — and no GST on rent', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  await page.getByRole('group', { name: /Listing deal type/i })
+    .getByRole('button', { name: /For Sale/i }).click();
+  await commercialThrough(page, { name: 'Leased Shop Owner', mobile: ownerMobile, subtype: /Shop \/ Showroom/ });
+
+  // The retail profile offers frontage, and nothing the godown above was asked.
+  await page.locator('#pob-frontage').fill('28');
+  await expect(page.locator('#pob-dockCount')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Baner/ }).first().click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  await page.locator('#pob-price').fill('9500000');
+  await page.getByLabel('Tenancy status').click();
+  await page.getByRole('option', { name: /Leased \/ Tenanted/ }).click();
+
+  /* The yield pair appears only once the answer is `leased`. Asserted as an appearance rather than
+     assumed, because a hidden-but-present field that still rides along in the body is the failure
+     mode the deposit test two hundred lines up exists for. */
+  await page.locator('#pob-inPlaceRent').fill('320000');
+  /* Not a `fill`: `DateField` is a button opening the app's own calendar, so the date is chosen the
+     way the operator chooses it. `min={todayIso()}` means the year has to be a future one. */
+  await pickDate(page, '[aria-label="Lease expiry date"]', '2029-03-31');
+  await expect(page.getByText('GST on Rent')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+
+  const stored = await onlyListing(ownerMobile);
+  expect(stored.deal).toBe('buy');
+  const c = stored.commercial;
+  expect(c, 'the commercial answer set never reached the server').toBeTruthy();
+  expect(c.commercialType).toBe('shop');
+  expect(c.frontage).toBe('28');
+  expect(c.tenancyStatus).toBe('leased');
+  /* Digits, with no grouping. The box displays `3,20,000`; a mapper that filed what it displayed
+     would send a string `ListingFormDetails` rejects as a decimal, and the listing would 422 —
+     which is the good outcome. The bad one is a server that stores it and a yield nobody can
+     compute, so the assertion is on the exact digits rather than on the write succeeding. */
+  expect(c.inPlaceRent).toBe('320000');
+  expect(c.leaseExpiry).toBe('2029-03-31');
+  /* The rent half, which a sale has no business carrying. Escalation included: it is the one of
+     the three that reads plausibly on a sale, and so the one most likely to be forwarded. */
+  expect(c.gstOnRent || '').toBe('');
+  expect(c.fitOutMonths || '').toBe('');
+  expect(c.escalationPct || '').toBe('');
+});
+

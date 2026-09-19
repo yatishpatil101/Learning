@@ -43,8 +43,8 @@ export async function startPropertyReview(propertyId) {
 }
 
 /** Post to the thread. Returns the updated case file, not just the new message. */
-export async function addPropertyReviewMessage(propertyId, body) {
-  return (await provider()).addPropertyReviewMessage(propertyId, body);
+export async function addPropertyReviewMessage(propertyId, body, clarificationRequested) {
+  return (await provider()).addPropertyReviewMessage(propertyId, body, clarificationRequested);
 }
 
 /** Mark the *other* side's messages read. Which side that is comes from the session. */

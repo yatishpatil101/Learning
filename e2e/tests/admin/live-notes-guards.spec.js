@@ -1,34 +1,5 @@
-/* The two note guards that are about *not writing* — against the live API.
- *
- * `admin/live-notes.spec.js` owns everything about a note that exists: that two different people
- * read the same row out of one table, the byline the server resolves from the token, the entity
- * binding, the communication log, the drawer's persistence and its empty state. None of it is
- * repeated here.
- *
- * These two came off `admin/notes.spec.js`, which kept them on an explicitly stated speed argument —
- * its own docblock called that «a **speed** argument, not a coverage one, and speed is exactly the
- * ground the mock-retirement policy stopped accepting» and then kept them anyway. Converting rather
- * than deleting, because neither claim is made by any live spec, and both get materially stronger
- * on the way across:
- *
- *  - `NoteCreateRequest.text` is `@NotBlank` server-side. So on the mock the "no note filed" case
- *    was a claim about `saveNoteIfAny`'s `trim()` and nothing else; here, a client that posted the
- *    empty string would be *refused*, `saveNoteIfAny` would hand back `{error}`, and the operator
- *    would be told their archive half-worked. The screen and the table disagree in a way only a
- *    live run can see.
- *  - The mock version asserted the absence of an error toast and stopped. Absence of an error is
- *    also what a page that did nothing looks like, so this reads the notes table back over a
- *    separate connection and pairs the empty answer with a **positive anchor**: a second listing
- *    archived *with* a note, through the same modal on the same click path, which must come back
- *    holding exactly one row. Without that, "no note was written" is satisfied by a broken reader.
- *
- * ## Fixtures
- *
- * Both listings are minted by this file under throwaway owners and rejected in teardown, rather
- * than archiving whatever card happens to be first on the console. Archiving is not idempotent and
- * the live database persists for the whole run, so a spec that archived a seeded listing would take
- * it off every screen that follows and read as someone else's failure.
- */
+/* The two note guards about *not writing*; a note that exists is `admin/notes.spec.js`'s. Absence of an error
+ * is also what a page that did nothing looks like, so the empty read is paired with a positive anchor. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 
@@ -43,9 +14,8 @@ const BASE_LISTING = {
   locality: 'Baner',
 };
 
-/* `listForModeration` fetches `size=100` and warns through `console.error` when the catalogue is
-   larger than that. On a database that accumulates listings across a run that is a statement about
-   its size, not about this screen. Anchored to the exact wording so nothing else is swallowed. */
+/* On a database that accumulates listings across a run, `listForModeration`'s size warning is a statement
+   about the catalogue rather than about this screen. Anchored exactly so nothing else is swallowed. */
 const CATALOGUE_TRUNCATED = /^\[property\] \d+ listings matched but only \d+ were fetched/;
 const realErrors = (errors) => errors.filter((e) => !CATALOGUE_TRUNCATED.test(e));
 
@@ -72,11 +42,8 @@ async function pendingListing(tag) {
 }
 
 /**
- * The notes on one listing, read outside the browser that filed them.
- *
- * `toWireType` in `providers/http/noteMapper.js` maps the client's `listing` onto the route's
- * `property`; this speaks the wire word directly because it sits below the mapper, which also makes
- * it an independent check on that translation.
+ * The notes on one listing, read outside the browser that filed them. Speaks the route's `property` directly
+ * because it sits below `noteMapper`, which makes it an independent check on that translation.
  */
 async function notesOn(id) {
   const headers = await authHeaders(ACTORS.admin);
@@ -126,9 +93,8 @@ test('archiving without a note files no note, and does not report a failure for 
   // is that nobody types anything.
   await archive.getByRole('button', { name: 'Archive', exact: true }).click();
 
-  /* Exact, because the failure copy is the success copy plus a clause — "Listing archived — but the
-     internal note could not be saved" contains "Listing archived", so a substring match would read
-     the error as a pass, which is the one outcome this test exists to catch. */
+  /* Exact, because the failure copy contains the success copy — a substring match would read "archived, but
+     the note could not be saved" as a pass, the one outcome this test exists to catch. */
   await expect(page.getByText('Listing archived', { exact: true })).toBeVisible();
   await expect(page.getByText(/could not be saved/)).toHaveCount(0);
 
@@ -176,11 +142,8 @@ test('the Add note button refuses whitespace, and takes real text', async ({ pag
   await notes.getByRole('textbox').fill('   ');
   await expect(add, 'three spaces are not a note').toBeDisabled();
 
-  /* The positive half. Without it "disabled" is satisfied by a button that is *always* disabled —
-     which is the more likely regression, since it is what a broken permission check produces, and
-     it would leave this desk unable to write a note at all while every assertion above still
-     passed. Nothing is submitted: the claim is about the control, and the note table is
-     `live-notes.spec.js`'s. */
+  /* The positive half: "disabled" is otherwise satisfied by a button that is *always* disabled, which is what
+     a broken permission check produces and would leave this desk unable to file anything. */
   await notes.getByRole('textbox').fill('   real text   ');
   await expect(add, 'a note with words in it must be fileable').toBeEnabled();
 });

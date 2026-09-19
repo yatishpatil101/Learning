@@ -51,7 +51,8 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
 
   test('property types and commercial subtypes match the canonical taxonomy', async () => {
     expect(adminC.typeOptions).toEqual(consumerC.PROPERTY_TYPES);
-    expect(adminC.commercialSubtypes).toEqual(consumerC.COMMERCIAL_SUBTYPES);
+    // `''` is "nothing selected yet", which yields the canonical five without any retired subtype.
+    expect(adminC.commercialSubtypeOptions('')).toEqual(consumerC.COMMERCIAL_SUBTYPES);
   });
 
   test('furnishing values are the canonical keys (unfurnished/semi/furnished)', async () => {
@@ -63,6 +64,13 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
       const expected = consumerC.amenitiesFor(type, 'office').map((a) => a.label);
       expect(adminC.amenitiesFor(type, 'office')).toEqual(expected);
     }
+  });
+
+  test('commercial profile options and authored answers match the consumer flow', async () => {
+    expect(adminC.suitableForFor('warehouse')).toEqual(consumerC.suitableForFor('warehouse'));
+    expect(adminC.fixturesFor('office')).toEqual(consumerC.fixturesFor('office'));
+    expect(adminC.commercialProfileOf('')).toBeNull();
+    expect(adminC.INITIAL_FORM).not.toHaveProperty('powerBackup');
   });
 
   /**
@@ -96,9 +104,8 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     await page.getByRole('button', { name: /Next/i }).click();
     await page.getByRole('button', { name: /Next/i }).click();
 
-    /* Wait on the write rather than on the confirmation heading. The heading renders from local
-       state and would show even if the request had failed, and the response is also where the id
-       comes from — the desk never puts it on screen. */
+    /* Wait on the write, not on the confirmation heading: the heading renders from local state and would show
+       even if the request had failed, and the response is also where the id comes from. */
     const [created] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes('/api/admin/properties') && r.request().method() === 'POST',
@@ -110,9 +117,8 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     postedIds.add(id);
     await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
 
-    /* Moderate before reading. `GET /properties/{id}` is the public detail route and answers 404
-       for anything not approved (PropertyController:119), so an unmoderated row would fail here as
-       a 404 rather than as a furnishing mismatch — the wrong diagnosis for the right test. */
+    /* Moderate before reading: `GET /properties/{id}` answers 404 for anything not approved, so an unmoderated
+       row would fail as a 404 rather than as a furnishing mismatch — the wrong diagnosis. */
     const approved = await fetch(`${API}/properties/${id}/status`, {
       method: 'PATCH',
       headers: await authHeaders(ACTORS.admin),

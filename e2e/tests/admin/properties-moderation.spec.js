@@ -158,18 +158,23 @@ test('flagging takes an approved listing off the site and keeps the reason', asy
   expect(ownerCopy.status).toBe('flagged');
   expect(ownerCopy.flagReason).toBeUndefined();
 
-  /* Clearing returns it to the site. The pair is tested together because a flag that cannot be
-     lifted is a delete with extra steps, and the console offers it as a reversible action.
+  /* Clearing returns it to the queue, not to the site. The pair is tested together because a flag
+     that cannot be lifted is a delete with extra steps, and the console offers it as a reversible
+     action.
 
      One path, two methods: `DELETE` is the lowering of the same flag `POST` raised. And note what
-     it lowers it *to* -- `approved`, unconditionally, not whatever the listing held before. So a
-     pending listing that is flagged and then cleared reaches the public site without ever passing
-     the verification queue. That is the server's behaviour and the mock's, and this asserts it
-     rather than the restore neither of them performs. */
+     it lowers it *to* -- `pending`, unconditionally, not whatever the listing held before and not
+     straight back onto the public site. Withdrawing a complaint says the complaint does not stand;
+     it does not say a moderator has since re-read the listing, and publishing on that basis would
+     put a listing live on the strength of a retraction. So the listing is still gone from the
+     public route after the flag is cleared, and appears in the pending queue instead. */
   const cleared = await fetch(`${API}/properties/${id}/flag`, { method: 'DELETE', headers: await admin() });
   // 204, where raising it was a 200 — the lowering has nothing to say and does not pretend to.
   expect(cleared.status).toBe(204);
-  expect(await publicView(id)).toBe(200);
+  expect(await publicView(id)).toBe(404);
+
+  const back = await fetch(`${API}/admin/properties?size=100&status=pending`, { headers: await admin() });
+  expect((await back.json()).content.find((p) => p.id === id), 'the cleared listing never reached the review queue').toBeTruthy();
 });
 
 test('archiving is reversible, and restoring sends the listing back for moderation', async () => {

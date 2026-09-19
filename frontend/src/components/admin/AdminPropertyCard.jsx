@@ -1,14 +1,13 @@
 import { Fragment } from 'react';
 import { Archive, Bell, CheckCircle, ClipboardCheck, Clock, Eye, Flag, MapPin, Pencil, RotateCcw, Star, XCircle } from 'lucide-react';
-import { fmtINR, fmtNum, fmtAgo, classNames } from '../../lib/format.js';
+import { fmtArea, fmtINR, fmtNum, fmtAgo, isSqftUnit, classNames } from '../../lib/format.js';
 import Badge from '../ui/Badge.jsx';
 import QualityScoreBadge from '../ui/QualityScoreBadge.jsx';
 
 const iconBtn = 'grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-gray-400 transition hover:bg-white/5 hover:text-white';
 
-/* How long a stays-live re-check may sit before the row escalates (Q14). A listing in this queue is
-   still live and still earning, so the only pressure to drain it is visual — there is no outage to
-   notice. The colour is the SLA. */
+/* How long a stays-live re-check may sit before the row escalates. The listing is still live and still
+   earning, so there is no outage to notice and the only pressure to drain the queue is the colour. */
 const RECHECK_WARN_H = 24;
 const RECHECK_BREACH_H = 72;
 
@@ -23,9 +22,8 @@ const recheckWaited = (at) => {
   return ago ? `waiting ${ago}` : 'waiting — no timestamp';
 };
 
-/* The re-check strip: which fields changed, and how long the queue has held them. Both halves are
-   load-bearing — the fields are what the moderator has to go and look at, and the age is the only
-   thing distinguishing a queue being worked from one nobody has opened. */
+/* Both halves are load-bearing: the fields are what the moderator has to go and look at, and the age is
+   the only thing distinguishing a queue being worked from one nobody has opened. */
 function RecheckStrip({ listing: l }) {
   const hours = recheckAgeHours(l.recheckRequestedAt);
   const breached = hours >= RECHECK_BREACH_H;
@@ -202,7 +200,7 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
               {[
                 l.bhk,
                 l.type,
-                l.area ? `${l.area.toLocaleString('en-IN')} sq.ft` : null,
+                fmtArea(l.area, l.areaUnit),
                 l.furnishing && FURN_LABEL[l.furnishing] ? FURN_LABEL[l.furnishing] : null,
               ].filter(Boolean).map((spec, i) => (
                 <Fragment key={i}>
@@ -265,7 +263,9 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
                     <>₹{(l.price || 0).toLocaleString('en-IN')}<span className="text-sm font-normal text-gray-400">/mo</span></>
                   ) : fmtINR(l.price)}
                 </div>
-                {l.area && !isRent ? (
+                {/* Only in sq.ft.: dividing a price by an acreage gives a per-acre figure under a
+                    per-sq.ft. caption, which is a wrong number rather than a rounded one. */}
+                {l.area && !isRent && isSqftUnit(l.areaUnit) ? (
                   <div className="text-[11px] text-gray-500 mt-0.5">
                     ₹{Math.round(l.price / l.area).toLocaleString('en-IN')} / sq.ft
                   </div>
@@ -308,7 +308,7 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
                 </button>
               ) : null}
               {l.status === 'flagged' && actions.onClearFlag ? (
-                <button onClick={() => actions.onClearFlag(l)} title="Clear flag & publish" className={classNames(iconBtn, 'border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/15')}>
+                <button onClick={() => actions.onClearFlag(l)} title="Clear flag & return to review" className={classNames(iconBtn, 'border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/15')}>
                   <CheckCircle className="h-4 w-4" />
                 </button>
               ) : null}
