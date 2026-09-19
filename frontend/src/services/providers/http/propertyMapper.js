@@ -54,11 +54,17 @@ function writePossession(listing) {
   const fromUi = CONSTRUCTION_TO_WIRE[listing.construction];
   if (fromUi) return fromUi;
   if (CONSTRUCTION_FROM_WIRE[listing.possession]) return listing.possession;
+  /* Refusing the write beats omitting the field: an omitted possession publishes a sale matching neither
+     facet, invisible where it decides anything, with nothing going red. A rejected post is recoverable. */
   if (listing.construction || listing.possession) {
-    console.warn(
-      `[propertyMapper] cannot map possession for write (construction="${listing.construction}", ` +
-      `possession="${listing.possession}"); omitting it so the request is not rejected.`,
+    const err = new Error(
+      `[propertyMapper] cannot map possession for write (construction="${listing.construction}", `
+      + `possession="${listing.possession}"). Update CONSTRUCTION_FROM_WIRE.`,
     );
+    /* The message names an internal table, and the submit path reports `err.message` to the owner
+       verbatim. Flagged so that caller can log this one but say something a person can act on. */
+    err.internal = true;
+    throw err;
   }
   return undefined;
 }
@@ -76,14 +82,24 @@ export function toViewModel(p) {
     photoCount: p.imageCount ?? (p.images?.length ?? 0),
     video: p.video ?? null,
     desc: p.description,
-    bhkNum: p.bhk ?? 0,
-    bhk: p.bhk ? `${p.bhk} BHK` : '',
+    bhkNum: p.bhk ?? null,
+    bhk: p.bhk == null ? '' : Number(p.bhk) === 0 ? '1 RK' : `${p.bhk} BHK`,
     rera: Boolean(p.reraId),
     reraId: p.reraId ?? '',
     // Unknown amounts must not become an owner's explicit zero when reopening an edit.
     deposit: p.deposit ?? null,
     maintenance: p.maintenance ?? null,
     negotiable: p.negotiable ?? null,
+    ownership: p.ownership ?? null,
+    loanAvailable: p.loanAvailable ?? null,
+    agreementDuration: p.agreementDuration ?? null,
+    lockin: p.lockIn ?? null,
+    notice: p.noticePeriod ?? null,
+    furniture: Array.isArray(p.furniture) ? p.furniture : null,
+    /* Spread flat because the detail page reads these keys flat and the names already match. A residential
+       listing spreads nothing, leaving every commercial key undefined — the "unstated" the page tests for. */
+    ...(p.commercial ?? {}),
+    ...(p.land ?? {}),
     address: p.address ?? '',
     pincode: p.pincode ?? '',
     electricityConsumerNo: p.electricityMeterNo ?? undefined,
@@ -124,6 +140,9 @@ export function toViewModel(p) {
     views: p.views ?? 0,
     enquiries: p.enquiries ?? 0,
     docsCount: p.docsCount ?? 0,
+    /* Null rather than 0: a listing the scorer has not reached has no score, and showing a reviewer
+       "0/100" for that is a verdict the server never gave. */
+    qualityScore: p.qualityScore ?? null,
     amenities: p.amenities ?? [],
     archived: p.archived ?? false,
     // Back-office fields are withheld server-side; absence means no visible concierge involvement.
@@ -153,7 +172,8 @@ export function toViewModel(p) {
     room: p.room ?? null,
     tenants: Array.isArray(p.tenants) ? p.tenants : [],
     availableFrom: p.availableFrom ?? null,
-    pets: p.pets ?? false,
+    // Null stays null: the detail page renders it as a question, and `?? false` said "not allowed".
+    pets: p.pets ?? null,
     societyVerified: p.societyVerified ?? false,
     conveyanceDone: p.conveyanceDone ?? false,
     shareType: p.room ? 'flatmates' : null,
@@ -210,17 +230,21 @@ export function toEditForm(vm = {}) {
   const commercialType = COMMERCIAL_SUBTYPES.find((subtype) => subtype.matches.some((part) => type.includes(part)))?.key ?? '';
   const typeKey = canonicalTypeKey(type) || Object.keys(WIZARD_TYPES).find((key) => matchTypeKey(key, type));
   const stored = pickListingFormDetails(vm.formDetails);
+  const land = typeKey === 'plot' || typeKey === 'farmland';
   // Only a listing saved before the boxes existed has an address left to recover from the line.
   const recovered = ADDRESS_PARTS.some((key) => String(stored[key] ?? '').trim())
     ? null
-    : splitStoredAddress(vm.address, { land: typeKey === 'plot' || typeKey === 'farmland' });
+    : splitStoredAddress(vm.address, { land });
   return {
     deal: vm.deal ?? '',
     propertyType: WIZARD_TYPES[typeKey] ?? (Object.values(WIZARD_TYPES).includes(type) ? type : commercialType ? 'commercial' : ''),
     commercialType,
-    bhk: vm.bhkNum ? String(vm.bhkNum) : '',
-    carpetArea: formString(vm.carpetArea ?? vm.area),
+    bhk: vm.bhkNum == null ? '' : String(vm.bhkNum),
+    /* Land posts its parcel as `area` alone — `carpetArea` is a square-foot carpet figure a plot
+       does not have — so the type picks the source rather than leaning on the legacy fallback. */
+    carpetArea: formString(land ? vm.area : (vm.carpetArea ?? vm.area)),
     builtUp: formString(vm.builtUpArea),
+    superBuiltUp: formString(vm.superBuiltUpArea),
     areaUnit: vm.areaUnit ?? '',
     furnishing: vm.furnishing ?? '',
     locality: vm.locality ?? '',
@@ -237,7 +261,7 @@ export function toEditForm(vm = {}) {
     totalFloors: formString(vm.totalFloors),
     facing: vm.facing ?? '',
     overlooking: vm.overlooking ?? '',
-    age: (vm.construction === 'new' || vm.construction === 'under') ? 'under-construction' : yearsToAgeBand(vm.ageYears),
+    age: yearsToAgeBand(vm.ageYears),
     bathrooms: formString(vm.bath),
     parkingSpaces: formString(vm.parkingSpaces),
     balconies: formString(vm.balconies),
@@ -250,15 +274,20 @@ export function toEditForm(vm = {}) {
     existingAddress: vm.address ?? '',
     flatNumber: '', tower: '', society: '', street: '', landmark: '',
     ...recovered,
-    ownership: '', agreementDuration: '', lockIn: '', noticePeriod: '', foodPref: '', petsPolicy: vm.pets === true ? 'yes' : '',
+    ownership: '', agreementDuration: '', lockIn: '', noticePeriod: '', foodPref: '',
+    // Three states: the owner's yes, the owner's no, and a question they have not answered.
+    petsPolicy: vm.pets === true ? 'yes' : vm.pets === false ? 'no' : '',
     // Search availability is a bucket; handover timing is not construction status.
-    availableFrom: '', possession: '',
+    availableFrom: '', construction: vm.construction ?? '',
     plotArea: '', floorsInHouse: '', washrooms: '', shellType: '', camCharges: '',
+    gstOnRent: '', fitOutMonths: '', escalationPct: '', tenancyStatus: '', inPlaceRent: '', leaseExpiry: '',
+    seatCount: '', frontage: '', floorLoad: '', clearHeight: '', sanctionedPower: '', dockCount: '',
     plotLength: '', plotWidth: '', openSides: '', roadWidth: '', plotZone: '', waterSource: '',
+    naStatus: '', otherRights: '', buyerEligibility: '',
     loanAvailable: undefined, powerBackup: undefined, pantry: undefined, cornerPlot: undefined,
     boundaryWall: undefined, naSanctioned: undefined, electricity: undefined, roadAccess: undefined, satbara: undefined,
     furniture: [], fixtures: [], suitableFor: [],
-    preferredTenants: (vm.tenants ?? []).filter((value) => ['family', 'company', 'bachelors', 'anyone'].includes(value)),
+    preferredTenants: (vm.tenants ?? []).filter((value) => ['family', 'company', 'bachelors', 'bachelor-male', 'bachelor-female', 'anyone'].includes(value)),
     // A saved answer always outranks a part recovered from the composed line.
     ...stored,
   };
@@ -285,6 +314,27 @@ export function yearsToAgeBand(years) {
   return 'new';
 }
 
+/* The wizard collects a date; the search filters on cumulative buckets. A date beyond the widest bucket is
+   left unstated rather than widened, or the filter returns a flat nobody can move into for a year. */
+export function dateToMoveInBucket(date) {
+  if (!date) return undefined;
+  const when = new Date(date);
+  if (Number.isNaN(when.getTime())) return undefined;
+  const days = Math.ceil((when.setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return 'now';
+  if (days <= 15) return '15';
+  if (days <= 30) return '30';
+  return undefined;
+}
+
+/* Silence is not "no". The wizard asks, so an owner who skipped the question has not answered it,
+   and publishing "not allowed" on their behalf costs them every enquiry from a tenant with a dog. */
+export function petsFromPolicy(policy) {
+  if (policy === 'yes') return true;
+  if (policy === 'no') return false;
+  return undefined;
+}
+
 // Trust-critical fields (status, owner and priceUnit) are deliberately server-owned.
 export function toListingCreate(listing = {}) {
   const composed = ADDRESS_PARTS.map((key) => String(listing[key] ?? '').trim()).filter(Boolean).join(', ');
@@ -298,8 +348,12 @@ export function toListingCreate(listing = {}) {
     bhk: listing.bhkNum ?? undefined,
     area: listing.area,
     areaUnit: listing.areaUnit,
+    landUse: listing.landUse,
     carpetArea: positiveArea(listing.carpetArea),
     builtUpArea: positiveArea(listing.builtUpArea ?? listing.builtUp),
+    superBuiltUpArea: positiveArea(listing.superBuiltUpArea ?? listing.superBuiltUp),
+    availableFrom: dateToMoveInBucket(listing.available),
+    pets: typeof listing.pets === 'boolean' ? listing.pets : petsFromPolicy(listing.petsPolicy),
     furnishing: translateFurnishing(FURNISHING_TO_WIRE, listing.furnishing, 'for write'),
     deposit: listing.deposit,
     maintenance: listing.maintenance,
@@ -308,8 +362,12 @@ export function toListingCreate(listing = {}) {
     lng: listing.lng,
     reraId: listing.reraId,
     possession: writePossession(listing),
+    tenants: listing.tenants,
     amenities: listing.amenities,
     images: listing.gallery ?? listing.images,
+    /* `??`, not `||`: the wizard sends '' to mean "I removed the tag", and the server reads blank
+       as a clear. Collapsing it to undefined would strip the key and leave the old plan standing. */
+    floorPlan: listing.floorPlan ?? undefined,
     description: listing.desc ?? listing.description,
     address: listing.address || composed || undefined,
     pincode: listing.pincode,
@@ -334,7 +392,20 @@ export function toListingCreate(listing = {}) {
 
 export function toListingUpdate(patch = {}) {
   // PATCH must not invent a city or compose a partial address from whichever parts happen to arrive.
-  return Object.fromEntries(Object.entries(toListingCreate(patch)).filter(([key, value]) =>
+  return Object.fromEntries(Object.entries({
+    ...toListingCreate(patch),
+    clearMaintenance: patch.clearMaintenance === true ? true : undefined,
+    /* And again for zoning: a plot re-typed to a flat has none to send, and the column admits no
+       blank, so without a word for it the old zoning goes on answering the Land-use filter. */
+    clearLandUse: patch.clearLandUse === true ? true : undefined,
+    /* A date the owner removed, or moved past the widest bucket, must withdraw the stored claim —
+       dropping the key would leave "moving in within 15 days" standing on a stale listing. */
+    ...('available' in patch && dateToMoveInBucket(patch.available) === undefined
+      ? { availableFrom: '' } : {}),
+    /* Same reasoning for the pet policy: an absent `pets` means "leave it alone", so an owner who
+       cleared their answer needs a word for it or the old claim stands. */
+    ...('pets' in patch && typeof patch.pets !== 'boolean' ? { clearPets: true } : {}),
+  }).filter(([key, value]) =>
     value !== undefined && (key !== 'city' || patch.city !== undefined)
       && (key !== 'address' || patch.address !== undefined)));
 }

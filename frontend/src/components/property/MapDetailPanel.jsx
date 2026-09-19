@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../Icon.jsx';
 import PropertyImage from '../ui/PropertyImage.jsx';
-import { fmtINR, fmtNum } from '../../lib/format.js';
+import { fmtArea, fmtINR, fmtNum } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
 import { useSaved } from '../../context/SavedContext.jsx';
@@ -25,7 +25,7 @@ const factsOf = (p) => {
   const isShare = p.shareType === 'flatmates';
   const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
   const baths = Number(p.bath) || 0;
-  const area = p.area ? p.area.toLocaleString('en-IN') + ' sq.ft' : '';
+  const area = fmtArea(p.area, p.areaUnit);
   const furn = FURN_LBL[p.furnishing];
   const possession = POSSESSION[p.construction];
   const out = [];

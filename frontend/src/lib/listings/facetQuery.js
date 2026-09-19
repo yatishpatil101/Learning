@@ -1,46 +1,37 @@
-/* Translates the page's filter axes into `ListingFacets` so the database answers, rather than
-   narrowing a 100-row page in the browser and reporting it as a fact about the catalogue. Three
-   rules, each from a real defect: a hidden filter is never sent, a thumb at its default ceiling
-   means "and above", and an unstated value is excluded from a range — which is what SQL does. */
+/* Translates the page's filter axes into `ListingFacets` so the database answers, rather than narrowing a
+   100-row page in the browser and reporting that as a fact about the catalogue. */
 import { sectionVisible } from './filterRelevance.js';
 import { RANGE } from './filterState.js';
 
-/* UI possession shorthand → the contract vocabulary the `construction` facet matches against.
-   Duplicated deliberately rather than imported from the http mapper: this module is provider-
-   agnostic, and the mapper's copy is about a single listing's stored value. */
+/* UI possession shorthand → the vocabulary the `construction` facet matches. Duplicated rather than imported
+   from the http mapper: this module is provider-agnostic. */
 const CONSTRUCTION_TO_WIRE = {
   ready: 'ready-to-move',
   new: 'new-launch',
   under: 'under-construction',
 };
 
-/* UI furnishing key → the contract vocabulary the `furnishings` facet matches. They differ on
-   exactly one member, which is why the gap hid so long: two of three chips worked, so the axis
-   looked wired while "Semi-Furnished" matched nothing and read as an empty catalogue. Duplicated
-   from the http mapper because this module is provider-agnostic. */
+/* UI furnishing key → the vocabulary the `furnishings` facet matches; they differ on exactly one member.
+   Duplicated from the http mapper because this module is provider-agnostic. */
 const FURNISHING_TO_WIRE = {
   unfurnished: 'unfurnished',
   semi: 'semi-furnished',
   furnished: 'furnished',
 };
 
-/* The "Availability" radio is a coarser cut of the same column as the "Construction Status"
-   checkboxes: `ready` is one status, `uc` ("Under Construction") is the other two together.
-   Expressed as a set so the two controls can be intersected below rather than fighting. */
+/* "Availability" is a coarser cut of the same column as "Construction Status": `uc` is the other two
+   statuses together. Expressed as a set so the two controls can be intersected below. */
 const AVAIL_TO_CONSTRUCTION = {
   ready: ['ready'],
   uc: ['new', 'under'],
 };
 
-/* The `flatmates` key resolves against `share_type` while every other chip requires
-   `share_type IS NULL`, so the two narrow against disjoint sets. Completeness is not claimed for
-   shared rooms — flatmate *requests* are people, not listings; the cross-sell card discloses that
-   gap rather than the search silently widening. */
+/* `flatmates` resolves against `share_type` while every other chip requires `share_type IS NULL`, so the two
+   narrow against disjoint sets. The cross-sell card discloses that gap rather than widening the search. */
 const list = (set) => (set && set.size ? [...set] : undefined);
 
-/* A range as `[min, max]`, with the ceiling read as "and above" and a range still at its defaults
-   read as "unfiltered". Returns `[undefined, undefined]` when the user has not touched it, which
-   the query serialiser drops. */
+/* The ceiling reads as "and above" and a range still at its defaults reads as unfiltered, returning
+   `[undefined, undefined]` — which the query serialiser drops. */
 function bounds(range, defaults) {
   if (!range) return [undefined, undefined];
   const [lo, hi] = range;
@@ -85,7 +76,7 @@ export function toFacetQuery(df, opts = {}) {
     types: types && types.length ? types : undefined,
     // Only meaningful once the Commercial chip is on — that is what reveals the sub-filter.
     commercialUses: df.types?.has('commercial') ? list(df.commercialTypes) : undefined,
-    bhks: rel('bhk') ? list(df.bhk) : undefined,
+    bhks: rel('bhk') ? list(df.bhk)?.map((bhk) => isBuy && bhk === '4' ? '4plus' : bhk) : undefined,
     furnishings: rel('furnishing') ? list(df.furnishing)?.map((f) => FURNISHING_TO_WIRE[f]).filter(Boolean) : undefined,
     localities: dropLocalities ? undefined : list(df.localities),
     societies: list(df.societies),
@@ -117,10 +108,8 @@ export function toFacetQuery(df, opts = {}) {
   };
 }
 
-/* Availability and Construction Status narrow the same column, so both set means their
-   intersection — `undefined` when neither is, an empty list when they contradict, which is a
-   genuinely empty result rather than no filter. Unstated possession is excluded from "Under
-   Construction": a plot that never said is not under construction, and SQL would not count it. */
+/* Both controls narrow the same column, so both set means their intersection — an empty list when they
+   contradict, which is a genuinely empty result. Unstated possession is excluded, as SQL would exclude it. */
 function constructionFacet(df, rel) {
   const fromAvail = df.avail && rel('availability') ? AVAIL_TO_CONSTRUCTION[df.avail] : null;
   const fromChecks = df.constr?.size && rel('construction') ? [...df.constr] : null;
@@ -131,11 +120,8 @@ function constructionFacet(df, rel) {
   return chosen.map((k) => CONSTRUCTION_TO_WIRE[k]).filter(Boolean);
 }
 
-/* A centre and a radius are one question, so all three params travel together or none do — the
-   server ignores any one of them alone rather than inventing a default.
-
-   `nearMode: 'min'` is the walk/drive-time slider, whose value is minutes; 0.4 km per minute is the
-   same conversion the browser used, kept here so the two modes draw the same circle. */
+/* A centre and a radius are one question, so all three params travel together or none do. 0.4 km per minute
+   is the same conversion the browser used, kept here so both modes draw the same circle. */
 function nearParams(df) {
   if (!df.near) return {};
   const [lat, lng] = String(df.near).split(',').map(Number);

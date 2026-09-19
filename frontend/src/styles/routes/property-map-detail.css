@@ -1,4 +1,4 @@
-/* dz-mdp map detail drawer (Tier 1 - route CSS, imported from components/property/MapDetailPanel.jsx). Moved from index.css. Non-.dz-mdp rules (.price-marker.is-active, .dz-back-search) stay in index.css. */
+/* dz-mdp map detail drawer (Tier 1 - route CSS, imported from components/property/MapDetailPanel.jsx). Moved from index.css. Non-.dz-mdp rules (.price-marker.is-active) stay in index.css. */
 /* ===== Map detail drawer (stay-on-map master–detail) ===== */
 .dz-mdp {
   position: fixed;

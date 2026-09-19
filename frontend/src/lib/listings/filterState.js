@@ -1,7 +1,5 @@
-/* Listings filter state — single source of truth for the filter shape, its
-   defaults, the Set<->array serialisation used by return-to-search snapshots,
-   and the two-way URL <-> filter mapping that makes a search shareable,
-   refresh-safe and back-button-safe. */
+/* Single source of truth for the filter shape, the Set<->array serialisation used by return-to-search
+   snapshots, and the two-way URL mapping that makes a search shareable and back-button-safe. */
 import { canonicalTypeKey, BUY_TYPES, RENT_TYPES } from '../../data/propertyTypes.js';
 import { nearToParams } from '../nearParams.js';
 
@@ -50,9 +48,8 @@ export const SET_KEYS = ['types', 'commercialTypes', 'bhk', 'furnishing', 'local
 export const serializeF = (f) => { const o = { ...f }; SET_KEYS.forEach((k) => { o[k] = [...f[k]]; }); return o; };
 export const deserializeF = (o) => { const f = { ...o }; SET_KEYS.forEach((k) => { f[k] = new Set(o[k] || []); }); return f; };
 
-/* Every URL param this module owns. The state->URL sync deletes all of these
-   (plus the legacy aliases) before writing the current filters, so clearing a
-   filter reliably drops it from the address bar. */
+/* Every URL param this module owns. The state->URL sync deletes all of these before writing the
+   current filters, so clearing a filter reliably drops it from the address bar. */
 export const FILTER_PARAM_KEYS = [
   'loc', 'soc', 'ptype', 'ctype', 'bhk', 'furn', 'amen', 'v', 'room',
   'tenants', 'landuse', 'constr', 'avail', 'availfrom', 'pets', 'budget',
@@ -63,7 +60,7 @@ export const FILTER_PARAM_KEYS = [
 const LEGACY_ALIASES = ['type', 'locality', 'sharing'];
 
 const VERIF_KEYS = ['owner', 'ownership', 'rera', 'society', 'conveyance'];
-const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4', '5'] };
+const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4'] };
 
 const joinSet = (s) => [...s].join(',');
 const splitCsv = (v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
@@ -80,7 +77,7 @@ function normBhk(token, deal) {
   else {
     const n = Number(key);
     if (deal === 'rent' && n > 3) key = '3plus';
-    else if (deal === 'buy' && n >= 5) key = '5';
+    else if (deal === 'buy' && n >= 4) key = '4';
     else key = String(n);
   }
   return keys.includes(key) ? key : null;

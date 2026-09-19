@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import PropertyImage from '../ui/PropertyImage.jsx';
 import '../../styles/routes/property-map.css';
-import { fmtINR } from '../../lib/format.js';
+import { fmtArea, fmtINR } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { propLatLng } from '../../pages/consumer/listings/geo.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
@@ -27,7 +27,7 @@ const popupTitle = (p) => {
 // Compact key-facts for the tile grid — mirrors the reference tile's attribute
 // grid, adapted to what each listing kind actually has (no invented fields).
 const buildFacts = (p, isShare, isPlot, baths) => {
-  const area = p.area ? p.area.toLocaleString('en-IN') + ' sq.ft' : '';
+  const area = fmtArea(p.area, p.areaUnit);
   const furn = FURN_LBL[p.furnishing];
   const possession = POSSESSION[p.construction];
   const facts = [];

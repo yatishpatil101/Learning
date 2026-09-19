@@ -6,7 +6,7 @@ import '../../styles/routes/compare.css';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
-import { fmtINR } from '../../lib/format.js';
+import { fmtArea, fmtINR, isSqftUnit } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
 
@@ -48,7 +48,11 @@ function metric(p, t) {
     type: p.type,
     bhk: p.bhkNum ? p.bhkNum + ' BHK' : p.type === 'Plot' ? 'Plot' : '—',
     area: p.area || 0,
-    psf: p.area ? Math.round(p.price / p.area) : 0,
+    areaUnit: p.areaUnit || 'sqft',
+    areaLabel: fmtArea(p.area, p.areaUnit),
+    /* Only when the area is in sq.ft.: dividing a price by an acreage gives a per-acre figure, and
+       the row that shows it is captioned per sq.ft. A plot compares on its own unit's area row. */
+    psf: p.area && isSqftUnit(p.areaUnit) ? Math.round(p.price / p.area) : 0,
     furnish: FURNISH_MAP[p.furnishing] ? t('compare.' + FURNISH_MAP[p.furnishing]) : (p.furnishing || '—'),
     possession: POSSESSION[p.construction] ? t('compare.' + POSSESSION[p.construction]) : '—',
     rera: p.rera,
@@ -63,7 +67,7 @@ const ROWS = [
   { label: 'Property Type', tk: 'rowType', icon: 'building-2', get: (m) => m.type },
   { label: 'Listing', tk: 'rowListing', icon: 'tag', get: (m) => m.deal },
   { label: 'Configuration', tk: 'rowConfig', icon: 'bed-double', get: (m) => m.bhk },
-  { label: 'Area (sq.ft.)', tk: 'rowArea', icon: 'maximize', best: 'max', get: (m) => (m.area ? m.area.toLocaleString('en-IN') + ' sq.ft.' : '—'), cmp: (m) => m.area },
+  { label: 'Area', tk: 'rowArea', icon: 'maximize', best: 'max', get: (m) => m.areaLabel || '—', cmp: (m) => m.area, sameUnit: true },
   { label: 'Price / sq.ft.', tk: 'rowPsf', icon: 'ruler', best: 'min', get: (m) => (m.psf ? '₹' + m.psf.toLocaleString('en-IN') : '—'), cmp: (m) => m.psf },
   { label: 'Furnishing', tk: 'rowFurnishing', icon: 'sofa', get: (m) => m.furnish },
   { label: 'Possession', tk: 'rowPossession', icon: 'calendar', get: (m) => m.possession },
@@ -120,6 +124,9 @@ export default function Compare() {
 
   const bestIds = (row) => {
     if (!row.best || !row.cmp || liveItems.length < 2) return [];
+    // 2 acres is not smaller than 900 sq.ft. Without a shared unit the figures are not comparable,
+    // so the row shows them and names no winner.
+    if (row.sameUnit && new Set(liveItems.map((m) => m.areaUnit)).size > 1) return [];
     const vals = liveItems.map(row.cmp).filter((v) => v > 0);
     if (vals.length < 2) return [];
     const target = row.best === 'min' ? Math.min(...vals) : Math.max(...vals);
