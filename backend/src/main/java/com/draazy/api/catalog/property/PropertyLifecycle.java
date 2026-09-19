@@ -38,24 +38,31 @@ public class PropertyLifecycle {
         }
     }
 
+    /**
+     * Every locality-keyed read skips a null slug, so a listing published without one is unreachable. Called
+     * by both approve routes before either writes, so a rollback cannot cost a reviewer their verdict.
+     */
+    public void requireFiled(Property property) {
+        if (property.getLocalitySlug() == null || property.getLocalitySlug().isBlank()) {
+            throw new ConflictException("This listing has no locality, so approving it would"
+                    + " publish it out of locality search, its locality page, saved-search alerts"
+                    + " and the society join. Assign one from the locality queue first"
+                    + " (the owner typed '" + property.getLocality() + "').");
+        }
+    }
+
     public void verify(AuthPrincipal actor, Property property) {
         requireChecker(actor, property);
         requireActive(property);
         property.recordLifecycleVerification();
     }
 
-    public void publish(AuthPrincipal actor, Property property, boolean requireVerification) {
+    /** Publication always demands a verification; there is no staff bypass. */
+    public void publish(AuthPrincipal actor, Property property) {
         requireChecker(actor, property);
-        if (requireVerification) {
-            requireActive(property);
-        } else if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
-                || PropertyStatus.RENTED.equals(property.getStatus())) {
-            throw new ConflictException("Restore or reopen this listing before publishing it");
-        }
-        if (property.getLocalitySlug() == null || property.getLocalitySlug().isBlank()) {
-            throw new ConflictException("Assign a locality before publishing this listing");
-        }
-        if (requireVerification && !PropertyStatus.APPROVED.equals(property.getStatus())
+        requireActive(property);
+        requireFiled(property);
+        if (!PropertyStatus.APPROVED.equals(property.getStatus())
                 && property.getLifecycleVerifiedAt() == null) {
             throw new ConflictException("Verify this listing before publishing it");
         }
@@ -72,7 +79,7 @@ public class PropertyLifecycle {
             throw new BadRequestException("Invalid lifecycleStage for " + property.getLifecycleTrack() + " track");
         }
         if ("live".equals(stage)) {
-            publish(actor, property, true);
+            publish(actor, property);
         } else if ("verified".equals(stage)) {
             verify(actor, property);
         } else {
@@ -100,6 +107,13 @@ public class PropertyLifecycle {
             }
             property.revertToPending();
             property.recordLifecycleStage("clarification");
+        } else if (owner && !property.isArchived()
+                && "owner".equals(property.getLifecycleTrack())
+                && PropertyStatus.REJECTED.equals(property.getStatus())) {
+            // The rejection told the owner to reply here to resubmit, and this is the only route out of
+            // REJECTED that needs no moderator. Owner-track only: "in_review" is not in the staff vocabulary.
+            property.revertToPending();
+            property.recordLifecycleStage("in_review");
         } else if (owner && "clarification".equals(property.getLifecycleStage())
                 && PropertyStatus.PENDING.equals(property.getStatus()) && !property.isArchived()) {
             property.recordLifecycleStage("in_review");

@@ -25,12 +25,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * Behaviour proof for the moderation slice: what the guards let through must also be
- * <em>accountable</em>, <em>self-limiting</em> and <em>bounded</em>.
- *
- * <p>The three properties tested here are the ones a role guard alone does not give you. A guard
- * says who may act; it says nothing about whether the action was recorded, whether the actor was
- * allowed to act on <em>that particular row</em>, or whether one request can drain the database.
+ * The three properties a role guard alone does not give you: a guard says who may act, not whether the action was
+ * recorded, whether the actor could act on <em>that row</em>, or whether one request can drain the database.
  */
 @DisplayName("Moderation — accountability, self-dealing and blast radius")
 class ModerationBehaviourTest extends AbstractApiTest {
@@ -41,12 +37,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     PropertyRepository properties;
 
     /**
-     * Audit writes run in {@code REQUIRES_NEW} — deliberately, so an attempted privileged action is
-     * recorded even when the surrounding business transaction rolls back. The consequence for tests
-     * is easy to miss and would have made this class quietly order-dependent: the rows <em>escape
-     * the test's own rollback</em> and persist in the database afterwards. So every assertion below
-     * is scoped to a specific entity id rather than to an action name, and the rows are cleaned up
-     * explicitly here.
+     * Audit writes run {@code REQUIRES_NEW} so they survive a rolled-back business transaction — and so they
+     * escape this test's rollback too. Hence assertions scoped to an entity id, and explicit cleanup.
      */
     private final List<String> createdActors = new ArrayList<>();
 
@@ -71,11 +63,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
         p.setPriceUnit("per-month");
         p.setArea(new BigDecimal("950"));
         p.setStatus(PropertyStatus.PENDING);
-        // Filed under a curated area, as a listing whose free text resolved would be. Saving through
-        // the repository skips LocalityResolver, so without this every fixture here is an *unfiled*
-        // listing — and approval now refuses those (register item 24). Approving one is not what any
-        // test in this class is about, and a fixture that trips a guard it never mentions is a
-        // fixture that will be "fixed" by weakening the guard.
+        // Filed under a curated area, since saving through the repository skips LocalityResolver and approval
+        // refuses an unfiled listing — a fixture tripping a guard it never mentions gets "fixed" by weakening it.
         p.setLocalitySlug("baner");
         return properties.saveAndFlush(p);
     }
@@ -90,10 +79,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     // ---------------------------------------------------------------- accountability
 
     /**
-     * {@code AuditService} shipped in slice 1 and had <strong>zero callers</strong> until this slice,
-     * so {@code GET /admin/audit-log} would have returned an empty page forever. The endpoint existing
-     * is not the feature; the writes are. This asserts the write happens and that the actor recorded
-     * is the token's subject rather than anything the client sent.
+     * The endpoint existing is not the feature, the writes are: asserts the audit row happens and that the actor
+     * recorded is the token's subject rather than anything the client sent.
      */
     @Test
     @DisplayName("approving a listing writes an audit row naming the server-resolved actor")
@@ -126,11 +113,107 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * Approving or rejecting a listing tells its owner (tech-debt D92) — until this writer nothing
-     * did, so an owner learned their listing's fate only by revisiting the dashboard. Both terminal
-     * verdicts are announced and the rejection reason travels with it; the moderator is told nothing
-     * about their own decision. Notifications share the business transaction, so unlike the audit
-     * rows above they roll back with the test and need no cleanup.
+     * The queue approves as submitted and never opens the case file, so the record has to say which route
+     * decided. The checklist stays unticked on purpose — that is the whole difference between the two.
+     */
+    @Test
+    @DisplayName("a queue approval closes the case file it never opened, without forging the checklist")
+    void queueApprovalDecidesTheCaseFile() throws Exception {
+        User owner = user("9800000141", "owner", "Owner");
+        User staff = user("9800000142", "staff", "Ops");
+        Property listing = listing(owner);
+
+        // Open the case file the way the verification tab does, then decide from the queue instead.
+        mvc.perform(post("/properties/{id}/verification/start", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk());
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\",\"reason\":\"looks fine as submitted\"}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> review = jdbc.queryForMap(
+                "select * from property_reviews where property_id = ?", listing.getId());
+        assertThat(review.get("status")).isEqualTo(PropertyStatus.APPROVED);
+        assertThat(review.get("reviewer")).isEqualTo(staff.getId().toString());
+        assertThat(review.get("decided_at")).isNotNull();
+        assertThat((String) review.get("notes")).contains("without the document checklist")
+                .contains("looks fine as submitted");
+        assertThat(jdbc.queryForObject(
+                "select count(*) from property_review_checklist i join property_reviews r"
+                        + " on i.review_id = r.id where r.property_id = ? and i.pass",
+                Integer.class, listing.getId()))
+                .as("a queue approval must not tick evidence nobody looked at")
+                .isZero();
+    }
+
+    /**
+     * A listing nobody opened a case file for has no contradiction to resolve. Creating one per row would file a
+     * six-line unticked checklist for every listing in a bulk approve, saying only that nothing happened.
+     */
+    @Test
+    @DisplayName("a queue approval does not open a case file just to close it")
+    void queueApprovalInventsNoCaseFile() throws Exception {
+        User owner = user("9800000143", "owner", "Owner");
+        User staff = user("9800000144", "staff", "Ops");
+        Property listing = listing(owner);
+
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("select count(*) from property_reviews where property_id = ?",
+                Integer.class, listing.getId())).isZero();
+    }
+
+    /**
+     * Clearing a re-check is a {@code PATCH .../status} like any other, so the rule above would overwrite the
+     * reviewer who read the documents. A standing verdict the new status agrees with is left alone.
+     */
+    @Test
+    @DisplayName("re-approving an edited listing does not overwrite the reviewer who did the work")
+    void reApprovalLeavesARealVerdictAlone() throws Exception {
+        User owner = user("9800000145", "owner", "Owner");
+        User desk = user("9800000146", "staff", "Desk");
+        User other = user("9800000147", "staff", "Other");
+        Property listing = listing(owner);
+
+        mvc.perform(post("/properties/{id}/verification/start", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                .andExpect(status().isOk());
+        // Ticked through the endpoint, not with an UPDATE: the rows are already in this transaction's
+        // persistence context, so raw SQL would leave them cached as false and the approval would 409.
+        for (String item : List.of("Index II", "Electricity bill", "Aadhaar card")) {
+            mvc.perform(patch("/properties/{id}/verification/checklist", listing.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"item\":\"" + item + "\",\"pass\":true}"))
+                    .andExpect(status().isOk());
+        }
+        mvc.perform(post("/properties/{id}/verification/decision", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"approve\",\"note\":\"deed and tax receipt seen\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\",\"reason\":\"Owner edits reviewed\"}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> review = jdbc.queryForMap(
+                "select * from property_reviews where property_id = ?", listing.getId());
+        assertThat(review.get("reviewer")).isEqualTo(desk.getId().toString());
+        assertThat(review.get("notes")).isEqualTo("deed and tax receipt seen");
+    }
+
+    /**
+     * Both terminal verdicts are announced to the owner and the rejection reason travels with it; the moderator
+     * hears nothing. Notifications share the business transaction, so they roll back and need no cleanup.
      */
     @Test
     @DisplayName("a moderation verdict notifies the listing's owner, approve and reject")
@@ -165,10 +248,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * A moderator's note is operator-supplied free text landing in a jsonb column. Hand-built JSON
-     * was the obvious shortcut here and would have let a quote in a note forge fields inside the one
-     * table that exists to be trusted — so this asserts the note survives a quote intact and that the
-     * surrounding document is still parseable with its other keys unharmed.
+     * A moderator's note is operator free text landing in jsonb, so hand-built JSON would let a quote forge
+     * fields in the one table that exists to be trusted.
      */
     @Test
     @DisplayName("a quote in a moderator's note cannot corrupt or forge the audit metadata")
@@ -197,9 +278,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     // ---------------------------------------------------------------- self-dealing
 
     /**
-     * Roles are additive: a staff member is also a user who can list a flat. Without an explicit
-     * check, the cheapest abuse of the role is to approve and feature your own listing — and the
-     * audit row it produces looks entirely ordinary, so nothing downstream would catch it.
+     * Roles are additive, so a staff member is also a user who can list a flat. The cheapest abuse is approving
+     * and featuring your own listing — and its audit row looks entirely ordinary.
      */
     @Test
     @DisplayName("staff cannot moderate their own listing")
@@ -221,9 +301,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * The one moderation action that can destroy the ability to undo itself: only admins can restore
-     * a user, so an admin archiving itself on a single-admin platform locks the back office
-     * permanently, with no in-product recovery.
+     * The one moderation action that destroys the ability to undo itself: only admins can restore a user, so a
+     * self-archiving admin locks the back office permanently on a single-admin platform.
      */
     @Test
     @DisplayName("an admin cannot archive their own account")
@@ -242,11 +321,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     // ---------------------------------------------------------------- PII blast radius
 
     /**
-     * The list/detail asymmetry (D9.2). Ops genuinely need a phone number to act on a case, so
-     * refusing it entirely would push the work off-platform — but a paged list hands over a page of
-     * numbers per click, which is a bulk-export surface wearing the clothes of a search screen.
-     * Requiring one deliberate, individually-logged read per person makes exfiltration cost linear in
-     * the number of people exfiltrated and leaves a trail naming each one.
+     * Ops need a phone number to act on a case, but a paged list is a bulk-export surface dressed as a search
+     * screen. One deliberate, logged read per person makes exfiltration linear and leaves a trail.
      */
     @Test
     @DisplayName("the user list masks mobiles; the detail read reveals and is audited")
@@ -275,9 +351,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     // ---------------------------------------------------------------- blast radius
 
     /**
-     * Both back-office lists are new growth surfaces — every signed-in user can add to the report
-     * queue and only ops can take anything out of it. An uncapped {@code size} on either is a
-     * one-request database dump; an unhandled {@code sort} on a server-ordered query is a 500.
+     * Every signed-in user can add to the report queue and only ops can take anything out. An uncapped
+     * {@code size} is a one-request database dump; an unhandled {@code sort} on a server-ordered query is a 500.
      */
     @Test
     @DisplayName("back-office lists cap page size and ignore a client sort")
@@ -296,12 +371,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * The user search is anchored on purpose: there is no {@code pg_trgm}, so V18's
-     * {@code text_pattern_ops} indexes serve prefix matches and nothing else. The caller supplies the
-     * term and the server appends the {@code %} — so an unescaped {@code %} or {@code _} in the term
-     * would smuggle the caller's own wildcards past the anchor, turning a staff-callable endpoint
-     * into an unindexed scan of every user on the platform. A page cap does not help: the scan
-     * happens before the limit does.
+     * Anchored on purpose: without {@code pg_trgm} the {@code text_pattern_ops} indexes serve prefixes only, and
+     * an unescaped {@code %} in the caller's term smuggles a wildcard past the anchor into a full-table scan.
      */
     @Test
     @DisplayName("a wildcard in the search term is matched literally, not interpreted")
@@ -331,10 +402,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     // ---------------------------------------------------------------- the abuse queue
 
     /**
-     * The queue is the platform's most abusable write: anyone signed in may file. Without the guard,
-     * one user can bury a rival by filing the same complaint repeatedly, and ops see a queue whose
-     * volume is indistinguishable from genuine consensus. The service checks first and V18's partial
-     * UNIQUE index catches the concurrent pair the check cannot.
+     * Anyone signed in may file, so without the guard one user buries a rival by repeating a complaint and ops
+     * read volume as consensus. The service checks first; a partial UNIQUE index catches the concurrent pair.
      */
     @Test
     @DisplayName("a second live report on the same target by the same reporter is refused")
@@ -352,9 +421,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * The reason vocabulary is per-target-type, not a flat union (D9.3). {@code brokerage} is a
-     * meaningful complaint about a person and meaningless about a listing; a flat CHECK over the
-     * union would accept every nonsensical pairing while appearing to validate.
+     * The reason vocabulary is per-target-type: {@code brokerage} means something about a person and nothing
+     * about a listing, so a flat CHECK over the union would accept every nonsensical pairing.
      */
     @Test
     @DisplayName("a reason valid for one target type is refused for another")
@@ -373,10 +441,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
-     * Triage was added to the contract in spec fix S30 because the queue had no verb capable of
-     * moving a report out of {@code open} — a four-state status nothing could set. A decided report
-     * is never reopened: reopening would let a moderator quietly relitigate a colleague's decision
-     * with no new evidence and no new row.
+     * Triage is the only verb that moves a report out of {@code open}. A decided report is never reopened:
+     * that would let a moderator relitigate a colleague's decision with no new evidence and no new row.
      */
     @Test
     @DisplayName("a decided report cannot be reopened")

@@ -8,6 +8,7 @@ import com.draazy.api.documents.vault.DocumentRepository;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
@@ -32,10 +33,11 @@ public class PropertyVerificationService {
     private final AuditService audit;
     private final PropertyLifecycle lifecycle;
     private final DocumentRepository documents;
+    private final Notifier notifier;
 
     public PropertyVerificationService(PropertyReviewRepository reviews, PropertyRepository properties,
             VerificationCases cases, AccountPermissions permissions, AuditService audit,
-            PropertyLifecycle lifecycle, DocumentRepository documents) {
+            PropertyLifecycle lifecycle, DocumentRepository documents, Notifier notifier) {
         this.reviews = reviews;
         this.properties = properties;
         this.cases = cases;
@@ -43,6 +45,7 @@ public class PropertyVerificationService {
         this.audit = audit;
         this.lifecycle = lifecycle;
         this.documents = documents;
+        this.notifier = notifier;
     }
 
     /** {@code GET /properties/{id}/verification} — the case file, thread included. */
@@ -91,8 +94,15 @@ public class PropertyVerificationService {
         }
         Property property = participantPropertyForWrite(actor, propertyId);
         boolean checker = mayReadNotes(actor) && !actor.userId().equals(property.getOwner().getId());
+        // The rejection tells the owner to reply here to resubmit, so this must reopen the case as well as
+        // post to it. The predicate matches `PropertyLifecycle.message` exactly, or the two halves diverge.
+        boolean resubmitting = !checker && PropertyStatus.REJECTED.equals(property.getStatus())
+                && !property.isArchived() && "owner".equals(property.getLifecycleTrack());
         lifecycle.message(actor, property, clarificationRequested);
         PropertyReview review = cases.ensure(property.getId(), property.getDeal());
+        if (resubmitting) {
+            review.reopen();
+        }
         review.addMessage(actor.userId(), body.trim(), clarificationRequested);
         // Flush before mapping: id and createdAt are assigned at insert time, so a response built
         // from the freshly added instance would carry nulls for the two fields the client needs.
@@ -115,29 +125,48 @@ public class PropertyVerificationService {
     }
 
     /**
-     * {@code POST /properties/{id}/verification/decision} — staff/admin only, the checker half. Writes
-     * to three places, each answering what the other two cannot; see the flow doc.
+     * {@code POST /properties/{id}/verification/decision} — staff/admin only, the checker half. An approval
+     * also publishes, in this transaction: a verdict the catalogue does not carry is not a verdict.
      */
     @Transactional
     public PropertyReviewResponse decide(AuthPrincipal actor, String propertyId, String decision,
             String note) {
+        return decide(actor, propertyId, decision, note, true);
+    }
+
+    private PropertyReviewResponse decide(AuthPrincipal actor, String propertyId, String decision,
+            String note, boolean publish) {
         boolean approve = "approve".equals(decision);
         if (!approve && !"reject".equals(decision)) {
             throw new BadRequestException("decision must be approve or reject");
+        }
+        if (!approve && (note == null || note.isBlank())) {
+            throw new BadRequestException("note is required when rejecting");
         }
         Property property = loadForWrite(propertyId);
         lifecycle.requireChecker(actor, property);
         lifecycle.requireActive(property);
         PropertyReview review = requireCase(property);
+        if (approve) {
+            ApprovalGate.require(review);
+            if (publish) {
+                // Checked before the verdict is written, not left to `publish` below: the rollback would
+                // take the verdict with it and cost the reviewer the whole checklist.
+                lifecycle.requireFiled(property);
+            }
+        }
 
         String status = approve ? PropertyStatus.APPROVED : PropertyStatus.REJECTED;
         review.decide(status, actor.userId().toString(), note);
-        review.addMessage(actor.userId(), decisionMessage(approve, note));
+        review.addMessage(actor.userId(), decisionMessage(approve, publish, note));
         // The explicit save is load-bearing: the new message is a transient child of a managed
         // collection, so dirty checking alone would leave getId() null for toResponse below.
         reviews.saveAndFlush(review);
         if (approve) {
             lifecycle.verify(actor, property);
+            if (publish) {
+                lifecycle.publish(actor, property);
+            }
         } else {
             property.setStatus(PropertyStatus.REJECTED);
         }
@@ -147,7 +176,28 @@ public class PropertyVerificationService {
         audit.record(actor, "property.verification.decision", "property", propertyId,
                 "decision", decision, "note", note,
                 "owner", String.valueOf(property.getOwner().getId()));
+        announce(property, approve, publish, note);
         return toResponse(review, property, mayReadNotes(actor));
+    }
+
+    /**
+     * Tell the owner on both verdicts. {@code published} is a separate question from {@code approve}: a
+     * verification that deliberately did not publish must not promise a link that 404s.
+     */
+    private void announce(Property property, boolean approve, boolean published, String note) {
+        if (approve && published) {
+            notifier.notify(property.getOwner().getId(), "listing.approved",
+                    "Your listing is approved", "It is now live and visible to buyers.",
+                    "/property/" + property.getId());
+        } else if (approve) {
+            notifier.notify(property.getOwner().getId(), "listing.approved",
+                    "Your listing is verified", "Verification is recorded. It goes on the site next.",
+                    "/dashboard");
+        } else {
+            notifier.notify(property.getOwner().getId(), "listing.rejected",
+                    "Your listing needs changes",
+                    "A reviewer could not approve it: " + note.trim(), "/dashboard");
+        }
     }
 
     /**
@@ -172,14 +222,16 @@ public class PropertyVerificationService {
     }
 
     /**
-     * The sentence a decision posts into the owner&lt;-&gt;ops thread. Composed and persisted here, in
-     * stored English, so the thread is the complete record of the decision — see the flow doc.
+     * The sentence a decision posts into the owner&lt;-&gt;ops thread, in stored English so the thread is the
+     * whole record. It must not claim more than happened: a verification that did not publish says so.
      */
-    private static String decisionMessage(boolean approve, String note) {
+    private static String decisionMessage(boolean approve, boolean published, String note) {
         String explanation = note == null ? "" : note.trim();
         if (approve) {
-            return "\u2705 Your property has been verified."
-                    + (explanation.isEmpty() ? " Publication is a separate step." : " " + explanation);
+            return (published
+                    ? "\u2705 Your property has been verified and is now live."
+                    : "\u2705 Your property has been verified.")
+                    + (explanation.isEmpty() ? "" : " " + explanation);
         }
         return "\u26D4 Your property could not be approved.\nReason: "
                 + (explanation.isEmpty() ? "It did not meet our verification requirements." : explanation)
@@ -252,7 +304,7 @@ public class PropertyVerificationService {
             lifecycle.requireChecker(actor, property);
             lifecycle.requireActive(property);
             cases.ensure(property.getId(), property.getDeal());
-            PropertyReviewResponse response = decide(actor, propertyId, "approve", reason);
+            PropertyReviewResponse response = decide(actor, propertyId, "approve", reason, false);
             audit.record(actor, "property.lifecycle", "property", propertyId, "stage", stage, "reason", reason);
             return response;
         }

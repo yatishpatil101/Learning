@@ -145,7 +145,8 @@ public class PropertyVerificationController {
     }
 
     /** Body of {@code verificationDecision} (schema {@code DecisionRequest}). */
-    public record DecisionRequest(@NotBlank String decision, String note) {
+    @RejectionNeedsReason
+    public record DecisionRequest(@NotBlank String decision, @Size(max = 2000) String note) {
     }
 
     /**

@@ -420,6 +420,8 @@ public final class Routes {
         }
 
         public static final String BASE = "/me/photos";
+
+        public static final long MAX_FILE_BYTES = 1_000_000L;
     }
 
     /** The "request more photos" demand signal — a buyer's side. */

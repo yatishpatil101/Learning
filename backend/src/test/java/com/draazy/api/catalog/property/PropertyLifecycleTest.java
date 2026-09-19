@@ -41,14 +41,14 @@ class PropertyLifecycleTest {
 
     @Test void archiveAndRestoreRequireFreshVerification() {
         lifecycle.verify(staff, property);
-        lifecycle.publish(staff, property, true);
+        lifecycle.publish(staff, property);
         property.archive("Removed");
         assertThat(property.getLifecycleStage()).isNull();
-        assertThatThrownBy(() -> lifecycle.publish(staff, property, false)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
         property.restore();
         property.revertToPending();
         assertThat(property.getLifecycleStage()).isEqualTo("submitted");
-        assertThatThrownBy(() -> lifecycle.publish(staff, property, true)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
     }
 
     @Test void staffTrackCanBeVerifiedWithoutInventingAnOwnerStage() {
@@ -59,7 +59,7 @@ class PropertyLifecycleTest {
         assertThat(property.getLifecycleStage()).isEqualTo("photos_docs");
         assertThat(property.getStatus()).isEqualTo("pending");
         assertThatThrownBy(() -> lifecycle.correct(staff, property, "verified")).isInstanceOf(BadRequestException.class);
-        lifecycle.publish(staff, property, true);
+        lifecycle.publish(staff, property);
         property.recordLifecycleMedia();
         assertThat(property.getLifecycleStage()).isEqualTo("live");
     }
@@ -68,13 +68,13 @@ class PropertyLifecycleTest {
         lifecycle.verify(staff, property);
         property.revertToPending();
         assertThat(property.getLifecycleVerifiedAt()).isNull();
-        assertThatThrownBy(() -> lifecycle.publish(staff, property, true)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
     }
 
     @Test void revokedWriteGrantCannotVerifyPublishOrCorrect() {
         when(permissions.granted(staff, "properties:write")).thenReturn(false);
         assertThatThrownBy(() -> lifecycle.verify(staff, property)).isInstanceOf(ForbiddenException.class);
-        assertThatThrownBy(() -> lifecycle.publish(staff, property, false)).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> lifecycle.correct(staff, property, "in_review")).isInstanceOf(ForbiddenException.class);
     }
 

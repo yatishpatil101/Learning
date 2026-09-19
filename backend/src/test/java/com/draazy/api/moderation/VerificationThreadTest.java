@@ -75,6 +75,25 @@ class VerificationThreadTest extends AbstractApiTest {
         return "/properties/" + p.getId() + "/verification" + suffix;
     }
 
+    /**
+     * Everything an approval needs beyond the reviewer's intent: a locality to be filed under, and every checklist
+     * line ticked. Both are refused with a 409, so a fixture that skips this asserts against an unintended conflict.
+     */
+    private void readyForApproval(Property p, User ops) throws Exception {
+        p.setLocalitySlug(jdbc.queryForObject("select slug from localities limit 1", String.class));
+        properties.saveAndFlush(p);
+        String caseFile = mvc.perform(get(path(p, ""))
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> items = com.jayway.jsonpath.JsonPath.read(caseFile, "$.checklist[*].item");
+        for (String item : items) {
+            mvc.perform(patch(path(p, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"item\":\"" + item + "\",\"pass\":true}"))
+                    .andExpect(status().isOk());
+        }
+    }
+
     @Test
     @DisplayName("a stranger gets 404, not 403 — a 403 would confirm the listing exists")
     void aStrangerCannotSeeThatTheCaseExists() throws Exception {
@@ -177,7 +196,7 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     @Test
-        @DisplayName("verification approves the case but keeps the listing pending until publication")
+        @DisplayName("verification approves the case and publishes the listing in the same act")
     void aDecisionMovesBothHalves() throws Exception {
         User owner = user("9820000506", Roles.Wire.OWNER);
         User ops = user("9820000507", Roles.Wire.STAFF);
@@ -186,6 +205,7 @@ class VerificationThreadTest extends AbstractApiTest {
 
         mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated());
+        readyForApproval(listing, ops);
         mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\",\"note\":\"docs check out\"}"))
@@ -193,10 +213,12 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(PropertyStatus.APPROVED));
 
         properties.flush();
+        // Both halves move together now: there is no state in which the case file says approved and
+        // the listing is still invisible, because that gap had nobody's name on it.
         assertThat(jdbc.queryForObject("select status from properties where id = ?",
-                String.class, listingId)).isEqualTo(PropertyStatus.PENDING);
+                String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
         assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id = ?",
-                String.class, listingId)).isEqualTo("verified");
+                String.class, listingId)).isEqualTo("live");
         assertThat(jdbc.queryForObject("select status from property_reviews where property_id = ?",
                 String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
     }
@@ -211,6 +233,7 @@ class VerificationThreadTest extends AbstractApiTest {
 
         mvc.perform(post(path(approved, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated());
+        readyForApproval(approved, ops);
         mvc.perform(post(path(approved, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\",\"note\":\"Index II matched.\"}"))
@@ -221,21 +244,25 @@ class VerificationThreadTest extends AbstractApiTest {
                 // Non-null only because decide() flushes: id and createdAt are assigned at insert.
                 .andExpect(jsonPath("$.messages[0].id").isNotEmpty())
                 .andExpect(jsonPath("$.messages[0].body")
-                        .value("\u2705 Your property has been verified. Index II matched."));
+                        .value("\u2705 Your property has been verified and is now live."
+                                + " Index II matched."));
 
-        // Rejection is read back by the *owner*: the sentence is a persisted row, not painted on
-        // the deciding console's screen. A blank note still owes them a reason and instruction.
+        // Rejection is read back by the *owner*, so the sentence is a persisted row rather than console paint.
+        // A reason is mandatory — a rejection with nothing to act on is a dead end.
         mvc.perform(post(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated());
         mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"reject\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"reject\",\"note\":\"The Index II is illegible.\"}"))
                 .andExpect(status().isOk());
         mvc.perform(get(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.messages[0].body").value(
-                        "\u26D4 Your property could not be approved.\nReason: It did not meet our"
-                                + " verification requirements.\nPlease address this and reply here"
-                                + " to resubmit."));
+                        "\u26D4 Your property could not be approved.\nReason: The Index II is"
+                                + " illegible.\nPlease address this and reply here to resubmit."));
     }
 
     /**
@@ -261,6 +288,7 @@ class VerificationThreadTest extends AbstractApiTest {
 
             mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                     .andExpect(status().isCreated());
+            readyForApproval(listing, ops);
             mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"decision\":\"" + decision + "\",\"note\":\"re-checked\"}"))

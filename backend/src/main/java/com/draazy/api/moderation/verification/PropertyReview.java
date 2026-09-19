@@ -112,4 +112,14 @@ public class PropertyReview extends AuditedEntity {
         }
     }
 
+    /**
+     * Put a decided case back on the desk. Reviewer and notes stay, being the record under answer; the
+     * checklist does not, since its ticks describe documents the resubmission has just replaced.
+     */
+    public void reopen() {
+        this.status = "pending";
+        this.decidedAt = null;
+        this.checklist.forEach(line -> line.setPass(false));
+    }
+
 }

@@ -69,22 +69,42 @@ class ReviewLifecycleTest extends AbstractApiTest {
                 .andExpect(status().isForbidden());
     }
 
-    @Test void verifyDoesNotPublishAndPublicationRequiresLocality() throws Exception {
+    /**
+     * Tick every line the case file opened with: the approval gate refuses a decision while any line is open, so
+     * a fixture that skips this asserts against a 409 it never meant to provoke.
+     */
+    private void tickChecklist(Property p, User staff) throws Exception {
+        String caseFile = mvc.perform(get("/properties/" + p.getId() + "/verification")
+                .header("Authorization", bearer(staff))).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> items = com.jayway.jsonpath.JsonPath.read(caseFile, "$.checklist[*].item");
+        for (String item : items) {
+            mvc.perform(patch("/properties/" + p.getId() + "/verification/checklist")
+                    .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"item\":\"" + item + "\",\"pass\":true}"))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    /**
+     * Publication is one act, but it still needs a locality: an approved listing with no slug is unreachable
+     * from every search surface, so the approval would file a listing nobody can find and call it live.
+     */
+    @Test void approvingAnUnfiledListingIsRefusedUntilItsLocalityExists() throws Exception {
         User owner = user("9800011904", "owner");
         User staff = user("9800011905", "staff");
         Property p = listing(owner);
         mvc.perform(post("/properties/" + p.getId() + "/verification")
                 .header("Authorization", bearer(owner))).andExpect(status().isCreated());
+        tickChecklist(p, staff);
         mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("verified"));
+                .andExpect(status().isConflict());
         properties.flush();
         assertThat(jdbc.queryForObject("select status from properties where id=?", String.class,
                 p.getId())).isEqualTo("pending");
         mvc.perform(get("/properties/" + p.getId())).andExpect(status().isNotFound());
-        mvc.perform(post("/properties/" + p.getId() + "/publish")
-                .header("Authorization", bearer(staff))).andExpect(status().isConflict());
     }
 
     private void fileLocality(Property property) {
@@ -92,25 +112,28 @@ class ReviewLifecycleTest extends AbstractApiTest {
         properties.saveAndFlush(property);
     }
 
-    @Test void explicitVerifyThenPublishMakesTheListingReachable() throws Exception {
+    /**
+     * The single publication route: approving at the verification desk both records the verification and puts the
+     * listing on the site, because a two-step approval is how one sat verified-but-invisible with nobody's name on it.
+     */
+    @Test void approvingAtTheDeskVerifiesAndPublishesInOneStep() throws Exception {
         User owner = user("9800011906", "owner");
         User staff = user("9800011907", "staff");
         Property p = listing(owner);
         fileLocality(p);
-        mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
+        mvc.perform(post("/properties/" + p.getId() + "/verification")
+                .header("Authorization", bearer(owner))).andExpect(status().isCreated());
+        tickChecklist(p, staff);
+        mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lifecycleStage\":\"verified\",\"reason\":\"Documents checked\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("verified"));
-        mvc.perform(post("/properties/" + p.getId() + "/verification/start")
-                .header("Authorization", bearer(staff)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("verified"));
-        mvc.perform(post("/properties/" + p.getId() + "/publish")
-                .header("Authorization", bearer(staff))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("approved"))
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.lifecycleStage").value("live"));
         mvc.perform(get("/properties/" + p.getId())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.lifecycleTrack").value("owner"));
         properties.flush();
+        assertThat(jdbc.queryForObject("select status from properties where id=?", String.class,
+                p.getId())).isEqualTo("approved");
         assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id=?", String.class,
                 p.getId())).isEqualTo("live");
     }
@@ -144,8 +167,10 @@ class ReviewLifecycleTest extends AbstractApiTest {
     @Test void staffOwnerCannotVerifyOrPublishTheirOwnListing() throws Exception {
         User staffOwner = user("9800011912", "staff");
         Property p = listing(staffOwner);
-        mvc.perform(post("/properties/" + p.getId() + "/publish")
-                .header("Authorization", bearer(staffOwner))).andExpect(status().isForbidden());
+        mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
+                .header("Authorization", bearer(staffOwner)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isForbidden());
         mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
                 .header("Authorization", bearer(staffOwner)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"lifecycleStage\":\"verified\",\"reason\":\"Self-check\"}"))
@@ -186,8 +211,10 @@ class ReviewLifecycleTest extends AbstractApiTest {
         p.setStatus("approved");
         p.requestRecheck(List.of("price"));
         properties.saveAndFlush(p);
+        fileLocality(p);
         mvc.perform(post("/properties/" + p.getId() + "/verification")
                 .header("Authorization", bearer(staff))).andExpect(status().isCreated());
+        tickChecklist(p, staff);
         mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\"}"))

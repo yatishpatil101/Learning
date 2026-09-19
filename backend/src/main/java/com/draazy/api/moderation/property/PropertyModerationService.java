@@ -11,6 +11,7 @@ import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.moderation.verification.VerificationCases;
 import com.draazy.api.security.AuthPrincipal;
 import java.util.Set;
 import java.util.UUID;
@@ -32,13 +33,15 @@ public class PropertyModerationService {
     private final AuditService audit;
     private final Notifier notifier;
     private final PropertyLifecycle lifecycle;
+    private final VerificationCases cases;
 
     public PropertyModerationService(PropertyRepository properties, AuditService audit,
-            Notifier notifier, PropertyLifecycle lifecycle) {
+            Notifier notifier, PropertyLifecycle lifecycle, VerificationCases cases) {
         this.properties = properties;
         this.audit = audit;
         this.notifier = notifier;
         this.lifecycle = lifecycle;
+        this.cases = cases;
     }
 
     /**
@@ -53,11 +56,22 @@ public class PropertyModerationService {
         }
         Property property = load(id);
         denySelfDealing(actor, property);
-        denyApprovingUnfiled(property, status);
+        if (PropertyStatus.APPROVED.equals(status)) {
+            // Before anything is written, so a refusal costs the moderator nothing to retry.
+            lifecycle.requireFiled(property);
+        }
 
         String from = property.getStatus();
         if (PropertyStatus.APPROVED.equals(status)) {
-            lifecycle.publish(actor, property, false);
+            /* Re-listing a home whose deal fell through is an approval, so return the row to the queue first
+               and let the verification below be real. An archived listing has its own restore verb. */
+            if (!property.isArchived() && (PropertyStatus.SOLD.equals(from) || PropertyStatus.RENTED.equals(from))) {
+                property.revertToPending();
+            }
+            // Approving from the queue *is* the verification. Recording it before publishing lets
+            // publication keep demanding one without making one-click approve a two-step dance.
+            lifecycle.verify(actor, property);
+            lifecycle.publish(actor, property);
         } else {
             lifecycle.requireChecker(actor, property);
             if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
@@ -69,6 +83,11 @@ public class PropertyModerationService {
         // A moderator has now looked at this listing, which is what a pending stays-live re-check
         // was asking for; the re-check is a request for a decision, and this is where they are made.
         property.clearRecheck();
+        /* This route decides without opening the case file, so left alone the file goes on reading
+           `pending` and unattributed beside a listing that is now live or rejected. */
+        if (!PropertyStatus.PENDING.equals(status)) {
+            cases.recordExternalDecision(property.getId(), status, actor.userId().toString(), reason);
+        }
         audit.record(actor, "property.status", "property", id, "from", from, "to", status,
                 "reason", reason, "owner", String.valueOf(property.getOwner().getId()));
 
@@ -121,16 +140,27 @@ public class PropertyModerationService {
     }
 
     /**
-     * {@code DELETE /properties/{id}/flag} — clear it, returning the listing to {@code approved}.
-     * Only staff reach this, so clearing a flag <em>is</em> the human review.
+     * {@code DELETE /properties/{id}/flag} — withdraw the flag and return the listing to the review queue.
+     * Clearing a flag says the complaint does not stand, not that the listing is verified.
      */
     @Transactional
     public void clearFlag(AuthPrincipal actor, String id) {
         Property property = load(id);
-        denySelfDealing(actor, property);
+        lifecycle.requireChecker(actor, property);
+
+        /* A concluded or archived listing must not be returned to the queue with nothing to decide.
+           The flag still goes: the complaint does not stand against it either. */
+        if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
+                || PropertyStatus.RENTED.equals(property.getStatus())) {
+            property.setFlagReason(null);
+            audit.record(actor, "property.flag.clear", "property", id, "from", property.getStatus(),
+                    "owner", String.valueOf(property.getOwner().getId()));
+            return;
+        }
 
         String from = property.getStatus();
-        lifecycle.publish(actor, property, false);
+        property.setFlagReason(null);
+        property.revertToPending();
         audit.record(actor, "property.flag.clear", "property", id, "from", from,
                 "owner", String.valueOf(property.getOwner().getId()));
     }
@@ -146,19 +176,6 @@ public class PropertyModerationService {
     }
 
     /**
-     * Refuse to publish a listing the catalogue cannot file: every locality-keyed read skips a null
-     * slug, so it would be live by the console's measure and unreachable by a buyer's. Curate first.
-     */
-    private static void denyApprovingUnfiled(Property property, String status) {
-        if (PropertyStatus.APPROVED.equals(status) && property.getLocalitySlug() == null) {
-            throw new ConflictException("This listing has no locality, so approving it would"
-                    + " publish it out of locality search, its locality page, saved-search alerts"
-                    + " and the society join. Assign one from the locality queue first"
-                    + " (the owner typed '" + property.getLocality() + "').");
-        }
-    }
-
-    /**
      * Resolve the path token to a listing, accepting a <strong>slug or a UUID</strong> as the public
      * read does. No visibility filter: pending, rejected, flagged and archived rows are the job.
      */
@@ -167,15 +184,5 @@ public class PropertyModerationService {
             .map(Property::getId).orElseThrow(() -> NotFoundException.of("Property")));
         return properties.findForVerificationDecision(id)
             .orElseThrow(() -> NotFoundException.of("Property"));
-    }
-
-    @Transactional
-    public Property publish(AuthPrincipal actor, String id) {
-        Property property = load(id);
-        lifecycle.publish(actor, property, true);
-        audit.record(actor, "property.publish", "property", property.getId().toString());
-        notifier.notify(property.getOwner().getId(), "listing.approved", "Your listing is live",
-            "It is now visible to buyers.", "/property/" + property.getId());
-        return property;
     }
 }
