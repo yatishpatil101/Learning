@@ -1,0 +1,9 @@
+# Regenerable MahaRERA artefacts: 21 MB of JSON plus the workbook built from it.
+# `node tools/maharera/fetch-map.mjs` and `to-excel.mjs` reproduce all of it.
+map-rows.json
+map-meta.json
+list-rows.jsonl
+list-progress.json
+crawl.log
+*.xlsx
+*.bak.json

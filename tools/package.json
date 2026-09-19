@@ -1,0 +1,9 @@
+{
+  "name": "draazy-tools",
+  "private": true,
+  "type": "module",
+  "description": "Offline data tooling. Kept out of frontend/ so nothing here can reach the app bundle.",
+  "devDependencies": {
+    "exceljs": "^4.4.0"
+  }
+}
