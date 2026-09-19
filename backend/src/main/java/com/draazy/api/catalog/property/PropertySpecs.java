@@ -294,9 +294,14 @@ final class PropertySpecs {
         for (String amenity : amenities) {
             where.add(jsonContains(root.get("amenities"), amenity, cb));
         }
-        // Tenants ORs across the selected types, and a listing that stated no policy matches none of
-        // them: answering "family" with an owner who said nothing would be a fabrication.
-        anyJson(f.tenants(), root.get("tenants"), cb, where);
+        // Tenants OR across selected types. Gendered bachelor searches include the legacy broad
+        // `bachelors` declaration, which cannot answer a gender-specific search more precisely.
+        List<String> tenantFilters = new ArrayList<>(clean(f.tenants()));
+        if (tenantFilters.contains("bachelor-male") || tenantFilters.contains("bachelor-female")) {
+            tenantFilters.add("bachelors");
+        }
+        anyJsonOrNoPreference(tenantFilters.isEmpty() ? f.tenants() : tenantFilters,
+            root.get("tenants"), cb, where);
 
         // --- trust flags: only ever narrow. `false` means "I did not ask", not "show me the
         // unverified ones" — there is no surface that searches for absent trust. ---
@@ -404,6 +409,21 @@ final class PropertySpecs {
         }
         List<Predicate> any = new ArrayList<>();
         tokens.forEach(t -> any.add(jsonContains(column, t, cb)));
+        where.add(cb.or(any.toArray(Predicate[]::new)));
+    }
+
+    private static void anyJsonOrNoPreference(List<String> values, Expression<?> column,
+            CriteriaBuilder cb, List<Predicate> where) {
+        List<String> tokens = clean(values);
+        if (tokens.isEmpty()) {
+            unmatchableIfAsked(values, cb, where);
+            return;
+        }
+        List<Predicate> any = new ArrayList<>();
+        tokens.forEach(t -> any.add(jsonContains(column, t, cb)));
+        any.add(jsonContains(column, "anyone", cb));
+        any.add(cb.isNull(column));
+        any.add(cb.equal(cb.function("jsonb_array_length", Integer.class, column), 0));
         where.add(cb.or(any.toArray(Predicate[]::new)));
     }
 

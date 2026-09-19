@@ -213,12 +213,12 @@ public class Property extends SoftDeleteEntity {
     private String availableFrom;
 
     /**
-     * Pets allowed (V95). Not nullable: to a tenant with a dog "unstated" and "no" are the same
-     * answer, so a third state would complicate every predicate and change nobody's decision.
+     * Pets allowed; null when the owner did not answer. "No" and "unstated" are different facts, and
+     * the pet-friendly filter matches true only, so null is never advertised either way.
      */
-    @Column(name = "pets", nullable = false)
+    @Column(name = "pets")
     @Setter
-    private boolean pets = false;
+    private Boolean pets;
 
     /**
      * Listing completeness, 0–100, generated and read-only (V94): it orders search results, and an
