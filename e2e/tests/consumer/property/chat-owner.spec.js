@@ -161,7 +161,12 @@ test.describe('Chat with the owner from a listing', () => {
     await signedInAs(page, buyer.mobile);
     await openListing(page, id);
 
+    /* Two presses, not one: the CTA only opens `ContactOwnerModal`, and the chat button inside
+       that sheet is what stages the thread. */
     await contactBtn(page).click();
+    const sheetChat = page.locator('.dz-modal').getByRole('button', { name: /Chat with Owner/i });
+    await expect(sheetChat).toBeVisible({ timeout: 20000 });
+    await sheetChat.click();
     await expect(page).toHaveURL(new RegExp(`/messages\\?openProp=${id}`));
 
     /* The thread pane opened on the right row. `?openProp=` is matched client-side against the

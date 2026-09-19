@@ -124,19 +124,35 @@ test.describe('reviewsEnabled flag', () => {
 
 
 test.describe('videoListings flag', () => {
+  // `.main-image-wrapper` is also the floor-plan frame (FloorPlan.jsx), so scope to the first.
+  const hero = (page) => page.locator('.main-image-wrapper > img').first();
+
   test('virtual tour button visible when enabled', async ({ page, flags }) => {
     await flags.enable('videoListings');
     await page.goto(`/property/${BUY}`);
-    await expect(page.locator('.main-image-wrapper > img')).toBeVisible();
+    await expect(hero(page)).toBeVisible();
     await expect(page.getByText('Virtual Tour')).toBeVisible();
   });
 
   test('virtual tour button hidden when disabled', async ({ page, flags }) => {
     await flags.disable('videoListings');
     await page.goto(`/property/${BUY}`);
-    await expect(page.locator('.main-image-wrapper > img')).toBeVisible();
+    await expect(hero(page)).toBeVisible();
     await expect(page.getByText('Virtual Tour')).toHaveCount(0);
     await expect(page.locator('video')).toHaveCount(0);
+  });
+
+  /* On a phone the hero is full-bleed and swipe-driven, so a labelled pill parked over it costs a photo and
+     sits in the swipe path. The flag still decides whether the tour EXISTS; this is only where it is offered. */
+  test('the tour pill is offered from sm+ only, not over the phone hero', async ({ page, flags }) => {
+    await flags.enable('videoListings');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/property/${BUY}`);
+    await expect(hero(page)).toBeVisible();
+    await expect(page.getByText('Virtual Tour')).toBeHidden();
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(page.getByText('Virtual Tour')).toBeVisible();
   });
 });
 

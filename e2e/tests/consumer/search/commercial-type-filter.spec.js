@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test';
 
 /* Commercial Type sub-filter on the Listings page (now a dropdown):
    - appears ONLY when the "Commercial" property type is selected
-   - offers the same options as the "Post a property" flow
+   - offers every subtype that can be SEARCHED, which is deliberately one more than the
+     "Post a property" flow offers: `coworking` was retired from authoring (a lump monthly
+     rent cannot state a per-seat price honestly) but listings published under it are still
+     live, so a filter that dropped it would hide them from the only chip that finds them
    - actually filters results to the chosen commercial subtype
    - renders a removable active-filter chip
    - is available on both the Buy and Rent tabs

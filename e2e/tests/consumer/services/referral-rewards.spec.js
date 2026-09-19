@@ -95,14 +95,21 @@ async function exhaustedBuyer(page) {
   return { mobile, accessToken, untouched: listings[FREE_LIMIT] };
 }
 
-/* The button is rendered in two places at two viewports and this file has no opinion about which one
-   answered, so it is reached by role and `.first()` — the same anchor `live-contact-badge-not-gate`
-   uses. `getByTestId` would not help: the testid is on the countdown, not the button. */
+/* The button is rendered in two places — the desktop sidebar card and the contact sheet — and this
+   file has no opinion about which one answered, so it is reached by role and `.first()`, the same
+   anchor `live-contact-badge-not-gate` uses. `getByTestId` would not help: the testid is on the
+   countdown, not the button. */
 const requestBtn = (page) => page.getByRole('button', { name: /Request number/i }).first();
 
 async function openListing(page, ref) {
   await page.goto(`/property/${ref}`, { waitUntil: 'networkidle' });
   await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
+  /* This file runs under `chromium` and `mobile` both. Below `lg` the sidebar card is `display:none`,
+     so the sticky CTA's contact sheet is the only surface carrying the button. An unset viewport is
+     a maximised window, i.e. the desktop branch. */
+  if ((page.viewportSize()?.width ?? 1024) < 1024) {
+    await page.locator('.dz-sticky-cta').getByRole('button', { name: /contact owner/i }).click({ timeout: 20000 });
+  }
   await requestBtn(page).waitFor({ timeout: 20000 });
 }
 
@@ -157,7 +164,12 @@ test.describe('the free-contact wall, on screen', () => {
 
     await signedInAs(page, mobile);
     await openListing(page, second.ref);
-    await expect(page.getByTestId('contacts-left')).toContainText(String(contacts.remaining));
+    /* `:visible`, not `.first()`: the sheet and the sidebar card both render this countdown and only
+       one of them is on screen per viewport — and `toContainText` reads `textContent` right through
+       a `display:none` parent, so an unscoped locator passes on a number nobody can see. */
+    const countdown = page.locator('[data-testid="contacts-left"]:visible');
+    await expect(countdown).toHaveCount(1);
+    await expect(countdown).toContainText(String(contacts.remaining));
   });
 });
 

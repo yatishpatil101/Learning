@@ -46,37 +46,42 @@ async function gotoForm(page) {
   return mobile;
 }
 
-async function toStep2(page, type = 'Flat / Apartment') {
+async function toPricing(page, type = 'Flat / Apartment') {
   await gotoForm(page);
   await page.locator('input[data-err="carpetArea"]').fill('1000');
   await pickType(page, type);
+  // Towered types owe a floor before the step will advance; land and houses are never asked.
+  for (const dataErr of ['floor', 'totalFloors']) {
+    const select = page.locator(`[data-err="${dataErr}"] .dz-dropdown__trigger`);
+    if (!await select.count()) continue;
+    await select.click();
+    await menuOpen(page);
+    await page.getByRole('option', { name: dataErr === 'floor' ? '9' : '14', exact: true }).click();
+  }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-}
 
-async function toStep3(page, type = 'Flat / Apartment') {
-  await toStep2(page, type);
+  // The address step stands between the details and the money. Land is never asked for a unit.
   await pickOption(page, 'locality', 'Baner');
-  const flat = page.locator('input[data-err="flatNumber"]');
-  if (await flat.count()) await flat.fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Skyline Heights');
+  for (const [dataErr, value] of [['flatNumber', 'B-1204'], ['society', 'Skyline Heights']]) {
+    const box = page.locator(`input[data-err="${dataErr}"]`);
+    if (await box.count()) await box.fill(value);
+  }
   await page.locator('input[data-err="pincode"]').fill('411045');
-  await page.locator('input[data-err="price"]').fill('12500000');
-  const ownership = page.locator('[data-err="ownership"]');
-  if (await ownership.count()) await pickOption(page, 'ownership', 'Freehold');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 15000 });
+  await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
 }
 
 test('P1: ₹/sq.ft caption appears under Expected Price for a sale once price + area are set', async ({ page }) => {
-  await toStep2(page, 'Flat / Apartment');
+  await toPricing(page, 'Flat / Apartment');
   await page.locator('input[data-err="price"]').fill('12500000');
   // 1,25,00,000 / 1000 = 12,500 per sq.ft
   await expect(page.getByText(/₹\s*12,500\s*\/\s*sq\.ft/)).toBeVisible();
 });
 
 test('P2: MahaRERA field is shown for a flat sale and accepts an ID', async ({ page }) => {
-  await toStep3(page, 'Flat / Apartment');
+  // On the pricing step, beside the possession answer that decides whether the number is owed.
+  await toPricing(page, 'Flat / Apartment');
   const rera = page.getByPlaceholder('e.g. P52100012345');
   await expect(rera).toBeVisible();
   await rera.fill('p52100012345');
@@ -85,7 +90,7 @@ test('P2: MahaRERA field is shown for a flat sale and accepts an ID', async ({ p
 });
 
 test('P2: MahaRERA field is hidden for Farm Land sale', async ({ page }) => {
-  await toStep3(page, 'Farm Land');
+  await toPricing(page, 'Farm Land');
   await expect(page.getByPlaceholder('e.g. P52100012345')).toHaveCount(0);
 });
 
@@ -98,16 +103,21 @@ test('P2: MahaRERA field is hidden for a rent listing', async ({ page }) => {
   await expect(rent).toHaveClass(/selected/);
   await page.locator('input[data-err="carpetArea"]').fill('1000');
   await pickType(page, 'Flat / Apartment');
+  for (const [dataErr, value] of [['floor', '9'], ['totalFloors', '14']]) {
+    await page.locator(`[data-err="${dataErr}"] .dz-dropdown__trigger`).click();
+    await menuOpen(page);
+    await page.getByRole('option', { name: value, exact: true }).click();
+  }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
   await pickOption(page, 'locality', 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
   await page.locator('input[data-err="monthlyRent"]').fill('25000');
   await page.locator('input[data-err="deposit"]').fill('75000');
-  await pickDate(page, '[data-err="availableFrom"]', '2026-08-01');
-  await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 15000 });
+  await pickDate(page, '[data-err="availableFrom"]', '2027-08-01');
   await expect(page.getByPlaceholder('e.g. P52100012345')).toHaveCount(0);
 });

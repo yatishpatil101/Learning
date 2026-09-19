@@ -49,10 +49,8 @@ export default defineConfig({
       testIgnore: [MOBILE, ...NO_BACKEND],
     },
     {
-      /* Specs that assert something genuinely viewport-dependent: `Footer.jsx` renders each column
-         as an accordion closed below `sm`, and the detail breadcrumb is `hidden sm:flex`, so a
-         desktop-only run passes against markup that is broken on a phone. `tests/mobile/**` needs
-         no entry — the folder itself is the routing rule. */
+      /* Specs that assert something genuinely viewport-dependent, e.g. a footer that is an accordion below
+         `sm`. `tests/mobile/**` needs no entry — the folder itself is the routing rule. */
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testMatch: [
@@ -62,19 +60,17 @@ export default defineConfig({
            most likely to clip its own confirm button — a desktop run passes with it off-screen. */
         '**/consumer/flatmates/owner-split.spec.js',
         '**/consumer/flatmates/live-posting.spec.js',
-        /* The contact box is rendered twice on the detail page and which copy answers `Request
-           number` is layout, so a desktop-only run proves nothing about the press a phone user
-           makes — and the exhausted upsell is a modal, the control most likely to break narrow. */
-        '**/consumer/services/live-referral-rewards.spec.js',
+        /* The contact box is rendered twice on the detail page and which copy answers `Request number` is
+           layout, so a desktop run proves nothing; the exhausted upsell is a modal, likeliest to break narrow. */
+        '**/consumer/services/referral-rewards.spec.js',
         '**/platform/help/live-centre.spec.js',
         '**/platform/help/live-i18n-urls.spec.js',
         '**/platform/live-i18n.spec.js',
       ],
     },
     {
-      /* Low-end Android baseline (360x640) — the realistic median device in India, and the width
-         where bottom chrome, tap targets and labels break first. `tests/mobile/**` only: this
-         project stresses the chrome at a cramped width, not the whole feature suite a third time. */
+      /* Low-end Android baseline: the realistic median device in India, and the width where bottom chrome and
+         tap targets break first. `tests/mobile/**` only — this stresses the chrome, not the whole suite again. */
       name: 'mobile-small',
       use: {
         ...devices['Pixel 7'],

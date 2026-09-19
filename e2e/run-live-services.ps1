@@ -8,7 +8,7 @@
 # sees them. Passing the arguments through an array avoids the escaping entirely.
 #
 # Usage:
-#   .\run-live-services.ps1 tests/consumer/services/live-referral-rewards.spec.js
+#   .\run-live-services.ps1 tests/consumer/services/referral-rewards.spec.js
 #   .\run-live-services.ps1 tests/consumer/services -Grep 'quota'
 #
 # Pure ASCII on purpose: PowerShell 5.1 parses a BOM-less UTF-8 .ps1 as cp1252.

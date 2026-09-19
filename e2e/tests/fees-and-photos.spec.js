@@ -82,7 +82,7 @@ test.describe('Fees — the rent-agreement sidebar prices from the server (live)
 test.describe('Photos — the listing wizard uploads to the server (live)', () => {
   test('stores the file through /me/photos and renders the URL the server returned', async ({ page }) => {
     /* A fresh account, not `OWNER`: the seeded owner is over its free-tier allowance, and the
-       paywall replaces the wizard this test needs to reach step 3 of. */
+       paywall replaces the wizard this test needs to reach the photo step of. */
     await signedInAsNew(page);
 
     /* Step 1 is seeded through the draft the wizard restores from, because those answers are radio
@@ -90,6 +90,8 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:list-property', JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
+      // A tower's floors are answered on step 1, so a draft without them never gets past it.
+      floor: '9', totalFloors: '14',
         // `availableFrom` is a `DateField` — a button opening a calendar, not a text input — so it
         // has to arrive through the draft.
         availableFrom: '2026-09-01',
@@ -107,20 +109,25 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     await page.getByRole('combobox', { name: /Search a locality/i }).fill('Baner');
     await page.getByRole('button', { name: 'Search location' }).click();
 
-    const step2 = {
-      flatNumber: 'A-701',
-      society: 'Live Spec Residency',
-      pincode: '411045',
-      monthlyRent: '32000',
-      deposit: '100000',
-    };
-    for (const [field, value] of Object.entries(step2)) {
+    const address = { flatNumber: 'A-701', society: 'Live Spec Residency', pincode: '411045' };
+    const money = { monthlyRent: '32000', deposit: '100000' };
+    for (const [field, value] of Object.entries(address)) {
+      await page.locator(`input[data-err="${field}"]`).fill(value);
+    }
+    for (const [field, value] of Object.entries(address)) {
+      expect(await page.locator(`input[data-err="${field}"]`).inputValue(),
+        `address field ${field} was overwritten`).toBe(value);
+    }
+
+    await next.click();
+
+    for (const [field, value] of Object.entries(money)) {
       await page.locator(`input[data-err="${field}"]`).fill(value);
     }
     // The money fields render themselves grouped (`32,000`), so compare on digits alone.
-    for (const [field, value] of Object.entries(step2)) {
+    for (const [field, value] of Object.entries(money)) {
       const actual = await page.locator(`input[data-err="${field}"]`).inputValue();
-      expect(actual.replace(/,/g, ''), `step 2 field ${field} was overwritten`).toBe(value);
+      expect(actual.replace(/,/g, ''), `pricing field ${field} was overwritten`).toBe(value);
     }
 
     await next.click();

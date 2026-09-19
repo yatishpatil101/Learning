@@ -13,9 +13,10 @@
  */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 /* Reverse-geocode auto-fill, forward society search, and pin-first ordering on
-   List Property → Location & pricing. The Google Places library + Geocoder are
+   List Property → Location. The Google Places library + Geocoder are
    stubbed (after the SDK loads) so the tests are deterministic and don't depend
    on live geocoding responses. */
 
@@ -103,6 +104,7 @@ async function gotoStep2(page) {
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
@@ -201,6 +203,9 @@ test('a search updates address fields restored from a saved draft (not just fres
   await page.addInitScript(() => {
     localStorage.setItem('dzDraft:list-property', JSON.stringify({
       carpetArea: '1050', propertyType: 'flat',
+      // A tower's floors are answered on step 1, and a draft that predates the question
+      // would strand its owner there — which is not the bug this test is about.
+      floor: '9', totalFloors: '14',
       locality: 'Hinjawadi', society: 'Aspiria', pincode: '411057', street: 'Nirmitee Road',
     }));
   });

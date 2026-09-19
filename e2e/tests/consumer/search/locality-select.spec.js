@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
 import { signedInAs } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
-/* Google-Places-powered Locality picker on List Property → Location & pricing.
+/* Google-Places-powered Locality picker on List Property → Location.
    Verifies: (1) typing shows LIVE Pune locality suggestions (any locality, not just
    the hardcoded shortlist) and picking one sets the value + recenters the map from
    the place's own coords; (2) when Google is unavailable the control silently
@@ -93,6 +94,7 @@ async function gotoStep2(page) {
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 }

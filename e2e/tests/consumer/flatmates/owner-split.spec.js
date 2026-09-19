@@ -32,13 +32,13 @@ const created = [];
  * Approved, not pending: `FlatSplitService` takes the rooms' tier from the parent's status, so a
  * pending parent would make the badge test assert an absent badge for the wrong reason.
  */
-async function ownerWithFlat({ deal = 'rent', bhk = 3, price = 36000, approve = true } = {}) {
+async function ownerWithFlat({ deal = 'rent', bhk = 3, price = 36000, approve = true, propertyType = 'Flat' } = {}) {
   const mobile = uniqueMobile();
   const { accessToken } = await apiLogin(mobile);
 
   const listing = await api('POST', '/me/listings', auth(accessToken), {
     deal,
-    propertyType: 'Flat',
+    propertyType,
     price,
     city: 'Pune',
     bhk,
@@ -97,9 +97,8 @@ async function openMyProperties(page, title) {
   await expect(page.getByText(title, { exact: false }).first()).toBeVisible({ timeout: 20_000 });
 }
 
-/* On a phone the section list is a fixed `z-[1500]` bottom sheet, and a card behind it already
-   reports `visible` while it is still on screen — so a click lands on the sheet and Playwright
-   blames "subtree intercepts pointer events". Desktop never renders it, so this waits on nothing. */
+/* On a phone the section list is a fixed `z-[1500]` sheet and a card behind it already reports `visible`, so
+   a click lands on the sheet. Desktop never renders it, so this waits on nothing. */
 const openOverflow = async (page) => {
   await expect(page.getByRole('dialog', { name: /Choose dashboard section/i }))
     .toHaveCount(0, { timeout: 15_000 });
@@ -151,6 +150,17 @@ test('a sale listing is never offered the split', async ({ page }) => {
   await expect(page.getByText('Let room by room')).toHaveCount(0);
 });
 
+test('a commercial rental is never offered the split', async ({ page }) => {
+  const shop = await ownerWithFlat({ propertyType: 'Shop / Showroom' });
+  await signedInAs(page, shop.mobile);
+  await openMyProperties(page, 'Zztest owner split');
+
+  /* A room is a bedroom in somebody's home. `deal === 'rent'` alone offered the action to a shop,
+     a godown and a plot, all of which have nothing to split. */
+  await openOverflow(page);
+  await expect(page.getByText('Let room by room')).toHaveCount(0);
+});
+
 test('a pending rental keeps room management and withdrawal visible', async ({ page }) => {
   const flat = await ownerWithFlat({ approve: false });
   await signedInAs(page, flat.mobile);
@@ -172,9 +182,8 @@ test('splitting from the dashboard writes rooms the server can see, and the card
   // While the flat is empty it can still honestly be let whole, so the whole-flat listing stays.
   await expect(page.getByText('Whole-flat listing still live').first()).toBeVisible();
 
-  /* The claim the mock could not make: the rooms exist on the server, attached to this property,
-     priced per room. Read on a connection the page is not holding — a card rendering from its own
-     optimistic state would satisfy the assertions above and fail this one. */
+  /* Read on a connection the page is not holding: a card rendering from its own optimistic state would
+     satisfy the assertions above and fail this one. */
   const mine = await api('GET', '/me/flatmate-rooms?size=100', auth(flat.accessToken));
   expect(mine.status, mine.text).toBe(200);
   const rows = (mine.json.content || mine.json.items || [])
@@ -194,10 +203,8 @@ test('the split modal is legible and behaves like a dialog', async ({ page }) =>
   const modal = page.getByRole('dialog', { name: 'Let this flat room by room' });
   await expect(modal).toBeVisible();
 
-  /* The bug this test exists for: `.field` was styled only under `.sf-page`, and this modal opens
-     from the dashboard. Tailwind's preflight sets `color: inherit` on inputs, so the rent the owner
-     typed was white text on the UA's white box — present in the DOM and invisible on screen.
-     `toHaveValue()` passes against exactly that, so read what the browser would actually paint. */
+  /* `.field` is styled only under `.sf-page`, and this modal opens from the dashboard — so preflight's
+     `color: inherit` painted the typed rent white on white, which `toHaveValue()` passes against. */
   const rent = modal.locator('input[inputmode="numeric"]').first();
   await rent.fill('15000');
   await expect(rent).toHaveValue('15,000');
@@ -210,9 +217,8 @@ test('the split modal is legible and behaves like a dialog', async ({ page }) =>
   expect(paint.background, 'an unstyled field falls back to the UA white box')
     .not.toBe('rgb(255, 255, 255)');
 
-  /* "How many people" is a `.seg` control, and `.seg` is emitted after Tailwind's utilities: it
-     owns the height and centres nothing on a fine pointer, so the digits used to hug the left edge
-     of their boxes. Measured rather than eyeballed — a class assertion would not catch the reorder. */
+  /* `.seg` is emitted after Tailwind's utilities and owns the height while centring nothing on a fine
+     pointer. Measured rather than eyeballed — a class assertion would not catch the reorder. */
   const digit = modal.getByRole('button', { name: '3', exact: true }).first();
   const offset = await digit.evaluate((el) => {
     const range = document.createRange();
@@ -267,9 +273,8 @@ test('rooms split from an approved flat carry the owner badge on the public boar
     .find((r) => String(r.propertyId) === String(flat.listingId));
   expect(room, 'the split must have produced a room').toBeTruthy();
 
-  /* The badge is the whole point of splitting a listing rather than posting a room: the flat was
-     already proven, so the rooms in it are too. Decided by the server from the parent's status —
-     `verificationTier` is not a field any client sends. */
+  /* The badge is the whole point of splitting rather than posting a room: the flat was already proven.
+     Decided by the server from the parent's status — `verificationTier` is not a field any client sends. */
   expect(room.verificationTier).toBe('owner');
   expect(room.verified).toBe(true);
 

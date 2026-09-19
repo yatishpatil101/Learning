@@ -24,10 +24,8 @@ async function seedConsent(page) {
 
 test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   test('the catalogue and the fee schedule really do disagree, so the rest of this file means something', async () => {
-    /* A positive control for the two assertions below. "The page shows ₹2,499 and not ₹999" only
-       proves the catalogue was read if the two numbers are actually different on this backend. If a
-       future seed change made them equal, the price tests would keep passing while asserting
-       nothing — this test fails first and says why. */
+    /* A positive control: "the page shows ₹2,499 and not ₹999" only proves the catalogue was read if the two
+       numbers actually differ on this backend. A seed change making them equal fails here first. */
     const plans = await (await fetch(`${API}/plans`)).json();
     const ownerPlus = plans.find((p) => p.name === 'Owner Plus');
     expect(ownerPlus, 'the seeded catalogue must carry an "Owner Plus" plan').toBeTruthy();
@@ -40,9 +38,8 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
       'catalogue price and fallback fee are equal — the price assertions below are now vacuous',
     ).not.toBe(pricing.ownerPlanYearly);
 
-    /* And the same for Owner Pro, whose fee-schedule number happens to be Owner Plus's catalogue
-       price. That coincidence is what made the FAQ defect below read as plausible copy rather than
-       as an obvious typo, so it is worth pinning rather than leaving to chance. */
+    /* Owner Pro's fee-schedule number happens to be Owner Plus's catalogue price — the coincidence that made
+       the FAQ defect below read as plausible copy rather than an obvious typo. */
     const ownerPro = plans.find((p) => p.name === 'Owner Pro');
     expect(ownerPro?.price).toBe(4999);
     expect(pricing.ownerProYearly).toBe(2499);
@@ -74,8 +71,7 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
     await expect(page.getByRole('link', { name: 'Upgrade to Owner Plus' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Go Pro' }).first()).toBeVisible();
 
-    /* The load-bearing assertion. `priced()` runs after `listPlans()` resolves, so poll rather than
-       assert once — the first paint legitimately shows the fallback. What must not survive is the
+    /* Polled, not asserted once: the first paint legitimately shows the fallback. What must not survive is the
        fallback still being on screen once the catalogue has landed. */
     await expect.poll(
       async () => page.getByText(OWNER_PLUS_CHARGED, { exact: false }).count(),
@@ -87,9 +83,8 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   });
 
   test('the FAQ quotes the same owner-plan prices as the cards above it', async ({ page }) => {
-    /* The FAQ and the cards must quote the same table. Pricing the FAQ off the fee schedule while
-       the cards read the catalogue quoted Owner Pro at Owner Plus's real price — wrong in the worst
-       available way, since it is a real number on that same page. */
+    /* The FAQ and the cards must quote the same table: pricing the FAQ off the fee schedule quoted Owner Pro
+       at Owner Plus's real price — wrong in the worst way, since it is a real number on that same page. */
     await page.context().clearCookies();
     await seedConsent(page);
     await page.goto('/plans');
@@ -112,9 +107,8 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   });
 
   test('a plan CTA hands off to checkout, and the Pay button quotes the same price the card did', async ({ page }) => {
-    /* A fresh account rather than a seeded actor: this walks up to (but never presses) Pay, and a
-       seeded actor's subscription state is a published invariant other specs rely on. A brand-new
-       user is also the only way to be sure the re-purchase guard is not what renders. */
+    /* A fresh account, because a seeded actor's subscription state is an invariant other specs rely on — and
+       it is the only way to be sure the re-purchase guard is not what renders. */
     await signedInAsNew(page);
     await seedConsent(page);
     await page.goto('/plans');
@@ -139,9 +133,8 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   test('a signed-in user with no subscription is on the free tier, and the server says so with a document not a 404', async ({ page }) => {
     const mobile = await signedInAsNew(page);
 
-    /* The wire half first: `getSubscription` answers 200 with an empty document for someone who never
-       subscribed, so the free tier renders from an object rather than a caught error. A 404 would
-       render the same free tier via the catch path, so the UI assertion cannot tell them apart. */
+    /* The wire half first: a 404 would render the same free tier through the catch path, so the UI assertion
+       alone cannot tell an empty document from an error. */
     const res = await fetch(`${API}/me/subscription`, { headers: await authHeaders(mobile) });
     expect(res.status).toBe(200);
     const sub = await res.json();
@@ -164,5 +157,27 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
 
     await expect(page).toHaveURL(/\/plans$/);
     await expect(page.getByRole('heading', { name: 'Plans & Pricing' })).toBeVisible({ timeout: 20000 });
+  });
+
+  test('a second checkout while an order is still unpaid names that order, instead of inviting a retry that cannot work', async ({ page }) => {
+    /* The server caps a user at one open unpaid order and answers 409, so a generic "please try again" tells
+       the customer to retry from the one state where retrying cannot work. */
+    await signedInAsNew(page);
+    await seedConsent(page);
+
+    await page.goto('/checkout?plan=owner2');
+    await page.getByRole('button', { name: /^Pay ₹/ }).first().click();
+    // The mock gateway hands back a `mock_session_*`, which the checkout lib short-circuits, so the
+    // page settles on the pending screen without a real hosted checkout being opened.
+    await expect(page.getByRole('heading', { name: 'Payment pending' })).toBeVisible({ timeout: 20000 });
+
+    await page.goto('/checkout?plan=owner5');
+    await page.getByRole('button', { name: /^Pay ₹/ }).first().click();
+
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('You already have an order waiting for payment', { timeout: 20000 });
+    // The regression itself: the generic copy is what shipped, and it reads as though one more tap
+    // would work. Asserting the new message alone would still pass if both were rendered.
+    await expect(alert).not.toContainText('please try again');
   });
 });

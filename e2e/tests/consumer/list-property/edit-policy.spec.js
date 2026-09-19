@@ -37,6 +37,14 @@ const BASE_LISTING = {
   // A real entry in `GET /localities`, so the resolver files the listing rather than leaving
   // `locality_slug` null and dropping it into the curation queue `live-locality-queue` owns.
   locality: 'Baner',
+  /* Price now sits a step past the address, so an edit has to cross the address step to reach it.
+     A listing with no address at all is a shape the wizard cannot produce, and demanding one back
+     from this fixture would be testing address validation instead of edit policy. Coordinates are
+     still deliberately absent: `LocalityResolver` treats a null pin as a listing awaiting curation,
+     so this is also the one fixture that proves the map gate does not strand such an owner. */
+  address: 'D-704, Zztest Policy Heights, Baner Road',
+  pincode: '411045',
+  formDetails: { flatNumber: 'D-704', society: 'Zztest Policy Heights', street: 'Baner Road' },
 };
 
 const formLocator = (page) => page.locator('[data-err="propertyType"]');
@@ -148,9 +156,12 @@ test('P1 — a price edit is re-checked but the banner promises the listing stay
   // banner said "comes off search" for both, which is a broken promise in one direction and a
   // deterrent against honest price cuts in the other.
   //
-  // Price lives on step 2; the banner renders above the wizard on every step, so advancing does not
-  // change what is being asserted. Step 1 is already valid from the loaded listing.
+  // Price lives on the third step; the banner renders above the wizard on every step, so advancing
+  // does not change what is being asserted. The details and address are already valid from the
+  // loaded listing.
   await page.getByRole('button', { name: /Next Step/i }).click();
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  await expect(page.getByRole('heading', { name: 'Price & terms', exact: true })).toBeVisible({ timeout: 20000 });
   const price = page.locator('input[data-err="price"]');
   await expect(price).toBeVisible({ timeout: 20000 });
   await price.fill('4500000');
