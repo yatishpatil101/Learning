@@ -23,7 +23,7 @@ class SpecCoverageTest {
 
     /** A floor, not a target: the running sum of what each slice added, so a slice that silently
      *  unmaps an operation fails the build. See {@code docs/system/api-standards.md} §1.1. */
-    private static final int IMPLEMENTED_FLOOR = 259;
+    private static final int IMPLEMENTED_FLOOR = 258;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

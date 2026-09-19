@@ -5,6 +5,7 @@ import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.society.SocietyRepository;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,18 @@ public class ListingEditRules {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     }
 
+    /** Did this PATCH relabel the commercial subtype? Absent formDetails is "unchanged", not "cleared". */
+    private static boolean commercialTypeChanged(Property property, ListingUpdate update) {
+        if (update.formDetails() == null) return false;
+        Object incoming = update.formDetails().get("commercialType");
+        Object stored = property.getFormDetails() == null
+                ? null
+                : property.getFormDetails().get("commercialType");
+        /* Symmetric with the write, which replaces the map rather than merging: a PATCH that merely
+           omits the key deletes an approved subtype, which is the same moderation event as relabelling. */
+        return !Objects.equals(incoming, stored);
+    }
+
     /**
      * Apply a PATCH body and report the re-review it earned; only non-null fields are applied.
      * The two foundation blocks are kept first and contiguous — see the class Javadoc's rationale.
@@ -56,6 +69,22 @@ public class ListingEditRules {
         }
         if (in.propertyType() != null && !in.propertyType().equals(p.getPropertyType())) {
             p.setPropertyType(in.propertyType());
+            remoderationRequired = true;
+        }
+        /* The commercial subtype rides in formDetails, applied untracked below. It belongs here: a
+         * factory approved as an office was approved against different fire and zoning evidence. */
+        if (commercialTypeChanged(p, in)) {
+            remoderationRequired = true;
+        }
+        // Same argument for zoning: an agricultural plot approved against a 7/12 extract must not be
+        // relabelled residential and go on answering a filter it was never checked for.
+        if (Boolean.TRUE.equals(in.clearLandUse())) {
+            if (p.getLandUse() != null) {
+                p.setLandUse(null);
+                remoderationRequired = true;
+            }
+        } else if (in.landUse() != null && !in.landUse().equals(p.getLandUse())) {
+            p.setLandUse(in.landUse());
             remoderationRequired = true;
         }
         if (in.locality() != null && !in.locality().equals(p.getLocality())) {
@@ -98,19 +127,57 @@ public class ListingEditRules {
             recheckOnly = true;
             rechecked.add("address");
         }
+        /* Photos, prose and amenities are the evidence a reviewer approved against, so swapping them re-sells
+         * that approval. Stays-live because it is the same flat, and going dark would cost a day per photo. */
+        if (in.images() != null && !in.images().equals(p.getImages())) {
+            p.setImages(List.copyOf(in.images()));
+            recheckOnly = true;
+            rechecked.add("images");
+        }
+        if (in.description() != null && !in.description().equals(p.getDescription())) {
+            p.setDescription(in.description());
+            recheckOnly = true;
+            rechecked.add("description");
+        }
+        if (in.amenities() != null && !in.amenities().equals(p.getAmenities())) {
+            p.setAmenities(List.copyOf(in.amenities()));
+            recheckOnly = true;
+            rechecked.add("amenities");
+        }
 
         // Non-foundation fields: applied without triggering re-moderation.
         if (in.formDetails() != null) p.setFormDetails(Map.copyOf(in.formDetails()));
         if (in.pincode() != null) p.setPincode(in.pincode());
         if (in.carpetArea() != null) p.setCarpetArea(in.carpetArea());
         if (in.builtUpArea() != null) p.setBuiltUpArea(in.builtUpArea());
+        if (in.superBuiltUpArea() != null) p.setSuperBuiltUpArea(in.superBuiltUpArea());
+        /* Non-foundation only because the membership rule holds: a PATCH carrying `floorPlan` alone has
+         * no `images` key, so without it an approved listing could render an unreviewed image. */
+        if (in.floorPlan() != null) {
+            String plan = in.floorPlan().isBlank() ? null : in.floorPlan();
+            if (plan != null && (p.getImages() == null || !p.getImages().contains(plan))) {
+                throw new ValidationException("A floor plan must be one of the listing's photos.");
+            }
+            p.setFloorPlan(plan);
+        }
+        // Blank is how an owner withdraws a move-in claim; the column admits only the three buckets.
+        if (in.availableFrom() != null) {
+            p.setAvailableFrom(in.availableFrom().isBlank() ? null : in.availableFrom());
+        }
+        if (Boolean.TRUE.equals(in.clearPets())) {
+            p.setPets(null);
+        } else if (in.pets() != null) {
+            p.setPets(in.pets());
+        }
         if (in.title() != null) {
             p.setTitle(in.title());
         }
         if (in.deposit() != null) {
             p.setDeposit(in.deposit());
         }
-        if (in.maintenance() != null) {
+        if (Boolean.TRUE.equals(in.clearMaintenance())) {
+            p.setMaintenance(null);
+        } else if (in.maintenance() != null) {
             p.setMaintenance(in.maintenance());
         }
         if (in.negotiable() != null) {
@@ -134,14 +201,8 @@ public class ListingEditRules {
         if (in.reraId() != null) {
             p.setReraId(in.reraId());
         }
-        if (in.amenities() != null) {
-            p.setAmenities(in.amenities());
-        }
-        if (in.images() != null) {
-            p.setImages(in.images());
-        }
-        if (in.description() != null) {
-            p.setDescription(in.description());
+        if (in.tenants() != null) {
+            p.setTenants(List.copyOf(in.tenants()));
         }
         if (in.floor() != null) {
             p.setFloor(in.floor());

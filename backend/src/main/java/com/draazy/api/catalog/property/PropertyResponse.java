@@ -59,12 +59,22 @@ public record PropertyResponse(
         String room,
         List<String> tenants,
         String availableFrom,
-        boolean pets,
+        Boolean pets,
         // ---- detail ----
         String description,
         Long deposit,
         Long maintenance,
         Boolean negotiable,
+        String ownership,
+        Boolean loanAvailable,
+        String agreementDuration,
+        /**
+         * Lock-in and notice, in months. Promoted out of {@code formDetails} because that map is
+         * owner/staff only, so a public viewer saw a client-side default in their place.
+         */
+        String lockIn,
+        String noticePeriod,
+        List<String> furniture,
         String reraId,
         BigDecimal carpetArea,
         BigDecimal builtUpArea,
@@ -73,8 +83,8 @@ public record PropertyResponse(
         Integer totalFloors,
         String facing,
         String overlooking,
-        // Owner-declared counts (V114). Absent means unstated, so the page shows nothing rather
-        // than deriving a confident wrong number from `bhk`.
+        // Owner-declared counts. Absent means unstated, so the page shows nothing rather than
+        // deriving a confident wrong number from `bhk`.
         Integer bathrooms,
         Integer parking,
         Integer balconies,
@@ -130,6 +140,18 @@ public record PropertyResponse(
         Owner owner,
 
         /**
+         * Everything a commercial listing answers that a home does not. Null rather than an all-empty
+         * record so {@code NON_NULL} removes the key and a home's response never carries the concept.
+         */
+        Commercial commercial,
+
+        /**
+         * Everything a plot or farm answers that a building does not. Null rather than an all-empty
+         * record so {@code NON_NULL} removes the key and a flat's response never carries the concept.
+         */
+        Land land,
+
+        /**
          * The post-on-behalf onboarding funnel, or null for every audience but the back office —
          * null rather than {@code {}} so {@code NON_NULL} removes the key and conceals the concept.
          */
@@ -155,5 +177,54 @@ public record PropertyResponse(
      * never placed here on this slice.
      */
     public record Owner(String id, String name, String mobile, boolean verified) {
+    }
+
+    /**
+     * The commercial answer set, lifted verbatim out of {@code formDetails}. Values stay Strings because
+     * that is how {@code ListingFormDetails} validates them; parsing here would invent a second vocabulary.
+     */
+    public record Commercial(
+            String commercialType,
+            String shellType,
+            String washrooms,
+            String camCharges,
+            Boolean powerBackup,
+            Boolean pantry,
+            List<String> suitableFor,
+            List<String> fixtures,
+            String gstOnRent,
+            String fitOutMonths,
+            String escalationPct,
+            String tenancyStatus,
+            String inPlaceRent,
+            String leaseExpiry,
+            String seatCount,
+            String frontage,
+            String floorLoad,
+            String clearHeight,
+            String sanctionedPower,
+            String dockCount) {
+    }
+
+    /**
+     * The land answer set, lifted verbatim out of {@code formDetails} on the same grounds as
+     * {@link Commercial} — a buyer chooses a plot on its zoning, frontage and access.
+     */
+    public record Land(
+            String plotZone,
+            String waterSource,
+            String naStatus,
+            String otherRights,
+            String buyerEligibility,
+            String openSides,
+            String roadWidth,
+            String plotLength,
+            String plotWidth,
+            Boolean cornerPlot,
+            Boolean boundaryWall,
+            Boolean naSanctioned,
+            Boolean electricity,
+            Boolean roadAccess,
+            Boolean satbara) {
     }
 }

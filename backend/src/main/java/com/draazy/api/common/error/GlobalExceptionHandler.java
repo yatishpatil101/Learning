@@ -17,6 +17,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -106,11 +107,13 @@ public class GlobalExceptionHandler {
      * A missing or untypeable query/path parameter → 400, naming the parameter and nothing else.
      * The name is published contract; the exception's own message leaks the target Java type.
      */
-    @ExceptionHandler({MissingServletRequestParameterException.class,
+    @ExceptionHandler({MissingServletRequestParameterException.class, MissingServletRequestPartException.class,
             MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleBadParameter(Exception ex) {
         String name = ex instanceof MissingServletRequestParameterException missing
                 ? missing.getParameterName()
+                : ex instanceof MissingServletRequestPartException missing
+                        ? missing.getRequestPartName()
                 : ((MethodArgumentTypeMismatchException) ex).getName();
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(ErrorCodes.BAD_REQUEST,

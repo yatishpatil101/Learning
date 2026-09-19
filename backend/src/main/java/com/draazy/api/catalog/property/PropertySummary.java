@@ -39,7 +39,7 @@ public record PropertySummary(
         String room,
         List<String> tenants,
         String availableFrom,
-        boolean pets,
+        Boolean pets,
         /**
          * Legal facts about a named society, not opinions about a listing. Narrow-only filters
          * server-side, so a false is safe and a fabricated true is not.

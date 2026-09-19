@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,6 +92,25 @@ class ListingGalleryPolicyTest {
                         .content("{\"title\":\"Updated title\"}"))
                 .andExpect(status().isOk());
         verify(listings).update(eq(OWNER), eq("existing"), argThat(body -> body.images() == null));
+    }
+
+    /**
+     * A null element is the one shape {@code @Size} and {@code @Pattern} both wave through, and {@code List.copyOf}
+     * throws on it. Without the element-level {@code @NotNull} that is a 500 on a fixable body.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"images", "amenities", "tenants"})
+    void aNullListElementIsRefusedRatherThanThrownOn(String field) throws Exception {
+        String body = "{\"title\":\"Home\",\"deal\":\"rent\",\"propertyType\":\"Flat\",\"price\":25000,"
+                + "\"locality\":\"Baner\",\"city\":\"Pune\",\"" + field + "\":[null]}";
+        mvc.perform(post("/me/listings").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fields[0].field").value(Matchers.startsWith(field)));
+        mvc.perform(patch("/me/listings/existing").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"" + field + "\":[null]}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fields[0].field").value(Matchers.startsWith(field)));
+        verifyNoInteractions(listings);
     }
 
     @Test

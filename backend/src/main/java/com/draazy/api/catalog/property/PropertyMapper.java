@@ -7,6 +7,7 @@ import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.identity.user.User;
+import java.util.List;
 import java.util.UUID;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Context;
@@ -35,6 +36,11 @@ public interface PropertyMapper {
     /** The cover, derived at map time so a listing's own photos are its card image. */
     String COVER = "java(coverImage(property))";
 
+    /** Every answer {@link PropertyResponse.Land} promotes; any one of them makes the block real. */
+    List<String> LAND_KEYS = List.of("plotZone", "waterSource", "naStatus", "otherRights",
+            "buyerEligibility", "openSides", "roadWidth", "plotLength", "plotWidth", "cornerPlot",
+            "boundaryWall", "naSanctioned", "electricity", "roadAccess", "satbara");
+
     /** Card projection for search/lists — fully mechanical, no owner contact by construction. */
     @Mapping(target = "imageCount",
             expression = "java(property.getImages() == null ? 0 : property.getImages().size())")
@@ -61,6 +67,14 @@ public interface PropertyMapper {
     @Mapping(target = "formDetails",
             expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
                     + " ? property.getFormDetails() : null)")
+    @Mapping(target = "ownership", expression = "java(formDetailText(property, \"ownership\"))")
+    @Mapping(target = "loanAvailable", expression = "java(formDetailBoolean(property, \"loanAvailable\"))")
+    @Mapping(target = "agreementDuration", expression = "java(formDetailText(property, \"agreementDuration\"))")
+    @Mapping(target = "lockIn", expression = "java(formDetailText(property, \"lockIn\"))")
+    @Mapping(target = "noticePeriod", expression = "java(formDetailText(property, \"noticePeriod\"))")
+    @Mapping(target = "furniture", expression = "java(formDetailStrings(property, \"furniture\"))")
+    @Mapping(target = "commercial", expression = "java(toCommercial(property))")
+    @Mapping(target = "land", expression = "java(toLand(property))")
     PropertyResponse toResponse(Property property, @Context ContactVisibility visibility,
             @Context BackOfficeVisibility backOffice, @Context OutreachCounts outreach,
             @Context PrivateFieldVisibility privateFields);
@@ -76,18 +90,26 @@ public interface PropertyMapper {
     @Mapping(target = "maintenance", source = "maintenance")
     @Mapping(target = "negotiable", source = "negotiable")
     @Mapping(target = "area", source = "area")
-        @Mapping(target = "carpetArea", source = "carpetArea")
-        @Mapping(target = "builtUpArea", source = "builtUpArea")
-        @Mapping(target = "pincode", source = "pincode")
-        @Mapping(target = "formDetails", source = "formDetails")
+    @Mapping(target = "carpetArea", source = "carpetArea")
+    @Mapping(target = "builtUpArea", source = "builtUpArea")
+    @Mapping(target = "superBuiltUpArea", source = "superBuiltUpArea")
+    @Mapping(target = "availableFrom", source = "availableFrom")
+    @Mapping(target = "pets", source = "pets")
+    @Mapping(target = "pincode", source = "pincode")
+    @Mapping(target = "formDetails", source = "formDetails")
     @Mapping(target = "areaUnit", source = "areaUnit")
+    @Mapping(target = "landUse", source = "landUse")
     @Mapping(target = "furnishing", source = "furnishing")
     @Mapping(target = "lat", source = "lat")
     @Mapping(target = "lng", source = "lng")
     @Mapping(target = "reraId", source = "reraId")
     @Mapping(target = "possession", source = "possession")
+    @Mapping(target = "tenants", source = "tenants")
     @Mapping(target = "amenities", source = "amenities")
     @Mapping(target = "images", source = "images")
+    // Blank is the wizard's "no photo tagged"; the column's word for that is NULL, not "".
+    @Mapping(target = "floorPlan",
+            expression = "java(in.floorPlan() == null || in.floorPlan().isBlank() ? null : in.floorPlan())")
     @Mapping(target = "description", source = "description")
     @Mapping(target = "address", source = "address")
     @Mapping(target = "floor", source = "floor")
@@ -122,6 +144,89 @@ public interface PropertyMapper {
     /** Opaque-id convention: the wire exposes the UUID as a string. Shared by every id field here. */
     default String map(UUID value) {
         return value == null ? null : value.toString();
+    }
+
+    default String formDetailText(Property property, String key) {
+        Object value = formDetail(property, key);
+        return value instanceof String text ? text : null;
+    }
+
+    default Boolean formDetailBoolean(Property property, String key) {
+        Object value = formDetail(property, key);
+        return value instanceof Boolean flag ? flag : null;
+    }
+
+    default List<String> formDetailStrings(Property property, String key) {
+        Object value = formDetail(property, key);
+        if (!(value instanceof List<?> values) || !values.stream().allMatch(String.class::isInstance)) {
+            return null;
+        }
+        return values.stream().map(String.class::cast).toList();
+    }
+
+    private Object formDetail(Property property, String key) {
+        return property.getFormDetails() == null ? null : property.getFormDetails().get(key);
+    }
+
+    private static boolean answered(Object value) {
+        return value instanceof Boolean flag ? flag : value instanceof String text && !text.isBlank();
+    }
+
+    /**
+     * The commercial answers, or null when the listing holds none. Presence decides rather than the
+     * declared type, which is a free-text label a legacy row may carry any spelling of.
+     */
+    default PropertyResponse.Commercial toCommercial(Property property) {
+        if (formDetail(property, "commercialType") == null) {
+            return null;
+        }
+        return new PropertyResponse.Commercial(
+                formDetailText(property, "commercialType"),
+                formDetailText(property, "shellType"),
+                formDetailText(property, "washrooms"),
+                formDetailText(property, "camCharges"),
+                formDetailBoolean(property, "powerBackup"),
+                formDetailBoolean(property, "pantry"),
+                formDetailStrings(property, "suitableFor"),
+                formDetailStrings(property, "fixtures"),
+                formDetailText(property, "gstOnRent"),
+                formDetailText(property, "fitOutMonths"),
+                formDetailText(property, "escalationPct"),
+                formDetailText(property, "tenancyStatus"),
+                formDetailText(property, "inPlaceRent"),
+                formDetailText(property, "leaseExpiry"),
+                formDetailText(property, "seatCount"),
+                formDetailText(property, "frontage"),
+                formDetailText(property, "floorLoad"),
+                formDetailText(property, "clearHeight"),
+                formDetailText(property, "sanctionedPower"),
+                formDetailText(property, "dockCount"));
+    }
+
+    /**
+     * The land answers, or null when none was <em>answered</em>. Unlike the commercial keys these are not
+     * stripped from a residential post, so keying off presence would hang an empty plot panel on every flat.
+     */
+    default PropertyResponse.Land toLand(Property property) {
+        if (LAND_KEYS.stream().noneMatch(key -> answered(formDetail(property, key)))) {
+            return null;
+        }
+        return new PropertyResponse.Land(
+                formDetailText(property, "plotZone"),
+                formDetailText(property, "waterSource"),
+                formDetailText(property, "naStatus"),
+                formDetailText(property, "otherRights"),
+                formDetailText(property, "buyerEligibility"),
+                formDetailText(property, "openSides"),
+                formDetailText(property, "roadWidth"),
+                formDetailText(property, "plotLength"),
+                formDetailText(property, "plotWidth"),
+                formDetailBoolean(property, "cornerPlot"),
+                formDetailBoolean(property, "boundaryWall"),
+                formDetailBoolean(property, "naSanctioned"),
+                formDetailBoolean(property, "electricity"),
+                formDetailBoolean(property, "roadAccess"),
+                formDetailBoolean(property, "satbara"));
     }
 
     /**

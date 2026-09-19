@@ -3,6 +3,7 @@ package com.draazy.api.catalog.photo;
 import com.draazy.api.common.error.PayloadTooLargeException;
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
 import com.draazy.api.common.validation.MediaSignatures;
+import com.draazy.api.common.web.Routes;
 import java.util.Set;
 
 /**
@@ -15,7 +16,7 @@ public final class PhotoUploads {
     }
 
     /** Exclusive decimal limit: compression belongs to the browser, not the upload server. */
-    public static final long MAX_BYTES = 1_000_000L;
+    public static final long MAX_BYTES = Routes.MePhotos.MAX_FILE_BYTES;
 
     private static final Set<String> ALLOWED =
             Set.of(MediaSignatures.JPEG, MediaSignatures.PNG, MediaSignatures.HEIC);

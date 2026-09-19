@@ -183,6 +183,9 @@ public class ManagedPropertyService {
                 m.getTitle(), m.getDeal(), m.getPropertyType(), m.getBhk(), m.getPrice(),
                 null, null, null, m.getArea(), m.getAreaUnit(), m.getFurnishing(),
                 m.getLocality(), CITY, null, null, null, null, null, null, null,
+                // floorPlan: nothing to tag — see photoHashes below, a managed record holds no
+                // photographs, and the plan is one of them.
+                null, null,
                 // address / floor / societyId / electricityMeterNo: a managed record is a private
                 // file on a property already held, so there is no duplicate to detect.
                 null, null, null, null,
@@ -192,8 +195,9 @@ public class ManagedPropertyService {
                 // photoHashes: a managed record holds no photographs, and there is no browser in
                 // this call path to hash what the owner picked.
                 null,
-                // Postcode, exact areas and supplemental wizard answers were not collected here.
-                null, null, null, null);
+                // Postcode, exact areas, move-in bucket, pet policy and supplemental wizard answers
+                // were not collected here, and a managed record is never a plot.
+                null, null, null, null, null, null, null, null);
         // Publish is the boundary between a freely captured record and the stricter marketplace
         // contract, so re-run the listing's bean-validation here — ListingService.create does not.
         Set<ConstraintViolation<ListingCreate>> violations = validator.validate(listing);

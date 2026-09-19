@@ -3394,22 +3394,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PropertyReview' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /properties/{id}/publish:
-    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
-    post:
-      tags: [Moderation]
-      summary: Publish a verified property
-      description: Requires verification, a curated locality, and a different checker. Archived, flagged, rejected and terminal listings must first use their resolution workflow. Legacy status approved remains a combined review-and-publish operation.
-      operationId: publishVerifiedProperty
-      x-roles: [staff, admin]
-      responses:
-        '200':
-          description: Published with status approved and lifecycleStage live
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PropertySummary' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { description: Verification, locality or listing status prevents publication }
   /properties/{id}/lifecycle:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     patch:
@@ -10479,6 +10463,26 @@ components:
       type: string
       description: Transaction intent.
       enum: [buy, rent]
+    PropertyTypeLabel:
+      type: string
+      description: >
+        Free-text display label for the property type — but one that is *parsed* on the way out.
+        `property_type_key` and `commercial_use_key` are generated columns built from `LIKE`
+        patterns against this string, and every type and subtype filter reads those keys. A label
+        the patterns do not recognise fails silently: the listing is stored and published, and is
+        simply absent from the filter an enquiry arrives through. So this is not an enum — it must
+        merely *contain* a recognised token, which is exactly what the generated column asks of it.
+
+
+        Tokens (case-insensitive, substring): office, shop, showroom, retail, commercial,
+        warehouse, godown, industrial, co-working/coworking, independent house, row house,
+        villa / house, flat, studio, penthouse, apartment, villa, farm land/farmland, plot.
+        Prefer the labels the wizards compose (`Flat`, `Warehouse / Godown`, …); the looser
+        aliases are admitted because live rows carry them and classify correctly.
+      pattern: >-
+        (?i).*(office|shop|showroom|retail|commercial|warehouse|godown|industrial|co-working|coworking|independent
+        house|row house|villa / house|flat|studio|penthouse|apartment|villa|farm ?land|plot).*
+      example: Flat
     Furnishing:
       type: string
       enum: [unfurnished, semi-furnished, furnished]
@@ -11057,7 +11061,7 @@ components:
         slug: { type: string }
         title: { type: string }
         deal: { $ref: '#/components/schemas/DealIntent' }
-        propertyType: { type: string, example: apartment }
+        propertyType: { $ref: '#/components/schemas/PropertyTypeLabel' }
         bhk: { type: number, example: 3 }
         price: { $ref: '#/components/schemas/Money' }
         priceUnit: { type: string, enum: [total, per-month], example: per-month }
@@ -11088,7 +11092,7 @@ components:
           nullable: true
         tenants:
           type: array
-          items: { type: string, enum: [family, bachelor-male, bachelor-female, company] }
+          items: { type: string, enum: [family, bachelors, bachelor-male, bachelor-female, company, anyone] }
         availableFrom:
           type: string
           enum: [now, '15', '30']
@@ -11239,6 +11243,17 @@ components:
             deposit: { $ref: '#/components/schemas/Money' }
             maintenance: { $ref: '#/components/schemas/Money' }
             negotiable: { type: boolean }
+            ownership: { type: string, description: Owner-declared ownership type. }
+            loanAvailable: { type: boolean, description: Whether the owner says a home loan is available. }
+            agreementDuration: { type: string, description: Owner-declared rental agreement duration. }
+            # Promoted out of `formDetails`, which is owner/staff only — so a public viewer used to
+            # be shown a client-side default ("None", "1 month") in place of the listing's own terms.
+            lockIn: { type: string, description: 'Lock-in period in months, as the owner stated it.' }
+            noticePeriod: { type: string, description: 'Notice period in months, as the owner stated it.' }
+            furniture:
+              type: array
+              description: Furniture and appliances explicitly selected by the owner.
+              items: { type: string }
             reraId: { type: string }
             carpetArea: { type: number }
             builtUpArea: { type: number }
@@ -11298,9 +11313,12 @@ components:
                 Filtering on it is cumulative — see the `availableFrom` query parameter.
             pets:
               type: boolean
+              nullable: true
               description: >
-                Pets allowed. Not nullable: to a tenant with a dog, "unstated" and "no" are the same
-                answer, because neither is worth the risk of moving in and being told to leave.
+                Pets allowed, as the owner answered it. Null is unstated and must render as a
+                question to put to the owner, never as "not allowed" — the wizard asks, so silence
+                is not an answer, and inventing one costs an owner the enquiries they would take.
+                The pet-friendly filter matches true only.
             amenities:
               type: array
               items: { type: string }
@@ -11372,6 +11390,132 @@ components:
                     for a caller holding `properties:read` — two different entitlements that happen
                     to render the same, which is why this is one field and not two.
                 verified: { type: boolean }
+            commercial:
+              type: object
+              nullable: true
+              description: >
+                Everything a commercial listing answers that a home does not, lifted verbatim out of
+                `formDetails` so a public viewer can see it — that map is owner/staff only.
+
+
+                **Absent for every property type but commercial**, and absent rather than an
+                all-empty object: a residential detail response should not carry the concept at all.
+                Before this existed the detail page had no owner answers to render and fell through
+                to a tier-keyed guess, publishing "Warm Shell · Power Backup · Washrooms" on every
+                commercial rental regardless of what was entered. A consumer of this object must
+                render only what it states and say nothing where it is empty.
+
+
+                Values are strings because that is how the wizard stores them and how
+                `ListingFormDetails` validates them; parsing here would invent a second vocabulary
+                for the same answers. Empty string means the owner left it blank.
+
+
+                The physical specs are scoped by use-profile in the wizard — `seatCount` for a
+                workspace, `frontage` for retail, `floorLoad`/`clearHeight`/`sanctionedPower`/
+                `dockCount` for industrial — so only the chosen profile's fields are ever non-empty.
+              properties:
+                commercialType:
+                  type: string
+                  enum: ['', office, shop, retail, warehouse, industrial, coworking]
+                  description: >-
+                    Use profile. `coworking` is retired from the wizard and accepted only so live
+                    listings published under it remain readable and re-savable.
+                shellType:
+                  type: string
+                  enum: ['', bareShell, warmShell, furnished]
+                  description: Fit-out level. Sets the price and is the first filter an enquiry applies.
+                washrooms: { type: string, enum: ['', '1', '2', '3', '4+'] }
+                camCharges:
+                  type: string
+                  description: >-
+                    Common-area maintenance in rupees per sq.ft. per month. The single maintenance
+                    figure for a commercial listing — `monthlyMaintenance` and the rent-side
+                    maintenance mode are residential-only and describe the same cost.
+                powerBackup: { type: boolean }
+                pantry: { type: boolean }
+                suitableFor:
+                  type: array
+                  description: Businesses the owner will let to. Distinct from the residential `tenants`.
+                  items: { type: string }
+                fixtures:
+                  type: array
+                  description: Fit-out items present, as the owner selected them.
+                  items: { type: string }
+                gstOnRent:
+                  type: string
+                  enum: ['', 'yes', 'no']
+                  description: Whether GST applies on the rent. Rent listings only.
+                fitOutMonths:
+                  type: string
+                  description: Rent-free / fit-out period in months. Rent listings only.
+                escalationPct:
+                  type: string
+                  description: Annual rent escalation, in percent. Rent listings only.
+                tenancyStatus:
+                  type: string
+                  enum: ['', vacant, leased]
+                  description: Whether the asset is vacant or sold with a tenant in place. Buy listings only.
+                inPlaceRent:
+                  type: string
+                  description: Monthly rent the sitting tenant pays. Buy listings, leased only.
+                leaseExpiry:
+                  type: string
+                  description: 'Date the sitting tenant''s lease ends, `YYYY-MM-DD`. Buy listings, leased only.'
+                seatCount: { type: string, description: Workstations. Workspace profiles only. }
+                frontage: { type: string, description: Shopfront width in feet. Retail profiles only. }
+                floorLoad: { type: string, description: Permissible floor load in tonnes per sq.m. Industrial only. }
+                clearHeight: { type: string, description: Clear internal height in feet. Industrial only. }
+                sanctionedPower: { type: string, description: Sanctioned electrical load in KVA. Industrial only. }
+                dockCount: { type: string, description: Loading docks. Industrial only. }
+            land:
+              type: object
+              nullable: true
+              description: >
+                Everything an open plot or farm land answers that a building does not, lifted
+                verbatim out of `formDetails` so a public viewer can see it — that map is
+                owner/staff only, so a buyer used to be shown none of the facts they decide on.
+
+
+                **Absent for every property type but land**, and absent rather than an all-empty
+                object. Open plots and farm land are asked different questions — `openSides` and
+                `plotZone` for a plot; `waterSource`, `electricity` and `roadAccess` for a farm —
+                so only the chosen branch's fields are ever set. `naStatus`, `otherRights` and the
+                measurements are asked of both. Render only what is stated; say nothing where it
+                is empty.
+
+
+                Measurements are strings because that is how the wizard stores them and how
+                `ListingFormDetails` validates them. For the zoning a buyer *filters* on, read the
+                top-level `landUse` — `plotZone` is the owner's label for the same fact.
+              properties:
+                plotZone:
+                  type: string
+                  enum: ['', Residential (R1), Residential (R2), Commercial (C-1), Industrial (I-1), Public / Semi-public, Mixed-Use, Agriculture Zone, Green Zone / No-Development Zone, Residential, Commercial, Industrial, Agricultural]
+                  description: Sanctioned zoning as the owner stated it. Open plots only; farm land is agricultural by definition. The four bare labels are retired from the wizard and kept for listings published under them.
+                waterSource: { type: string, description: 'Borewell, canal, municipal and so on. Farm land only.' }
+                openSides: { type: string, description: Sides of the plot that are open. Open plots only. }
+                roadWidth: { type: string, description: Width of the approach road in feet. }
+                plotLength: { type: string, description: Plot length in feet. }
+                plotWidth: { type: string, description: Plot width in feet. }
+                cornerPlot: { type: boolean }
+                boundaryWall: { type: boolean }
+                naStatus:
+                  type: string
+                  enum: ['', agricultural, deemed, sanctioned]
+                  description: Non-agricultural conversion as the owner stated it. `sanctioned` requires an NA Order upload.
+                otherRights:
+                  type: string
+                  enum: ['', clear, mortgage, tenancy, minor, dispute, unknown]
+                  description: What the 7/12's Other Rights column records. Anything but `clear` is an encumbrance a buyer must check.
+                buyerEligibility:
+                  type: string
+                  enum: ['', agriculturist, permission, converted, unknown]
+                  description: Who may lawfully buy the parcel under s.63 of the Bombay Tenancy Act. Farm land for sale only.
+                electricity: { type: boolean, description: Electricity connection on site. Farm land only. }
+                roadAccess: { type: boolean, description: Motorable road access. Farm land only. }
+                naSanctioned: { type: boolean, description: Retired in favour of `naStatus`. Present only on listings published before the change. }
+                satbara: { type: boolean, description: Retired in favour of `otherRights`. Present only on listings published before the change. }
             adminPipeline:
               type: object
               nullable: true
@@ -12376,8 +12520,15 @@ components:
         society: { type: string, maxLength: 60 }
         street: { type: string, maxLength: 60 }
         landmark: { type: string, maxLength: 60 }
-        commercialType: { type: string, maxLength: 80 }
-        ownership: { type: string, maxLength: 80 }
+        commercialType:
+          type: string
+          enum: ['', office, shop, retail, warehouse, industrial, coworking]
+          description: >-
+            `coworking` is retired from the wizard but stays legal: listings published under it are
+            still live, and a re-save that rejected it would force the owner to relabel.
+        ownership:
+          type: string
+          enum: ['', Freehold, Leasehold, Co-operative Society, Power of Attorney, MIDC / Industrial Lease]
         loanAvailable: { type: boolean }
         agreementDuration: { type: string, maxLength: 80 }
         lockIn: { type: string, maxLength: 80 }
@@ -12388,46 +12539,151 @@ components:
         possession: { type: string, maxLength: 80, description: 'Wizard handover choice, distinct from construction status.' }
         rentMaintMode: { type: string, maxLength: 80 }
         furniture: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
-        fixtures: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
-        suitableFor: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
+        fixtures:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            enum:
+              - Server / UPS Room
+              - Meeting Cabins
+              - Reception Area
+              - Conference Room
+              - False Ceiling
+              - Central AC
+              - Main-Road Frontage
+              - Display Windows
+              - Rolling Shutter
+              - Signage Space
+              - Mezzanine Floor
+              - Customer Washroom
+              - Loading Bay / Dock
+              - High Ceiling
+              - 3-Phase Power
+              - Wide Truck Access
+              - Crane / Gantry Support
+              - Covered Yard
+        suitableFor:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            enum: [Office, Retail, Restaurant, Clinic, Showroom, Warehouse, Bank / ATM, Gym / Studio]
         preferredTenants: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
         plotArea: { type: string, maxLength: 80 }
         floorsInHouse: { type: string, maxLength: 80 }
-        washrooms: { type: string, maxLength: 80 }
-        shellType: { type: string, maxLength: 80 }
+        washrooms:
+          type: string
+          enum: ['', '0', '1', '2', '3', '4+']
+        shellType:
+          type: string
+          enum: ['', bareShell, warmShell, furnished]
         powerBackup: { type: boolean }
         pantry: { type: boolean }
-        camCharges: { type: string, maxLength: 80 }
+        camCharges: { type: string, maxLength: 80, description: 'Common-area maintenance, rupees per sq.ft per month. The only maintenance a commercial listing states.' }
+        gstOnRent:
+          type: string
+          enum: ['', yes, 'no']
+        fitOutMonths:
+          type: string
+          enum: ['', '0', '1', '2', '3', '6']
+        escalationPct: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        tenancyStatus:
+          type: string
+          enum: ['', vacant, leased]
+        inPlaceRent: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        leaseExpiry: { type: string, maxLength: 10, description: 'ISO calendar date or empty.' }
+        seatCount: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        frontage: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        floorLoad: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        clearHeight: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        sanctionedPower: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
+        dockCount: { type: string, pattern: '^$|^\d{1,9}(\.\d{1,2})?$' }
         plotLength: { type: string, maxLength: 80 }
         plotWidth: { type: string, maxLength: 80 }
         openSides: { type: string, maxLength: 80 }
         roadWidth: { type: string, maxLength: 80 }
         cornerPlot: { type: boolean }
         boundaryWall: { type: boolean }
-        plotZone: { type: string, maxLength: 80 }
-        naSanctioned: { type: boolean }
+        plotZone:
+          type: string
+          enum: ['', Residential (R1), Residential (R2), Commercial (C-1), Industrial (I-1), Public / Semi-public, Mixed-Use, Agriculture Zone, Green Zone / No-Development Zone, Residential, Commercial, Industrial, Agricultural]
+          description: >-
+            Sanctioned zoning, in the owner's vocabulary — the label a Zone Certificate carries.
+            Translated on the way in into the top-level `landUse`, which is what the Land-use filter
+            reads — so a label outside this list maps to nothing and publishes a plot that its own
+            filter cannot find. The four bare labels are retired from the wizard and accepted only
+            so plots published under them can be re-saved.
+        naStatus:
+          type: string
+          enum: ['', agricultural, deemed, sanctioned]
+          description: >-
+            Whether the parcel has been converted to non-agricultural use. `deemed` is the
+            conversion s.42B/42C of the Maharashtra Land Revenue Code grants without an order;
+            `sanctioned` is an order the owner holds, and claiming it requires an NA Order upload.
+        otherRights:
+          type: string
+          enum: ['', clear, mortgage, tenancy, minor, dispute, unknown]
+          description: >-
+            What the 7/12 extract's Other Rights column records. Anything but `clear` is an
+            encumbrance that survives the sale, so the buyer must be told before they pay a token.
+        buyerEligibility:
+          type: string
+          enum: ['', agriculturist, permission, converted, unknown]
+          description: >-
+            Who may lawfully buy the parcel. s.63 of the Bombay Tenancy and Agricultural Lands Act
+            bars a non-agriculturist from buying agricultural land without Collector permission.
+            Farm land for sale only.
+        naSanctioned: { type: boolean, description: Retired in favour of `naStatus`. }
         waterSource: { type: string, maxLength: 80 }
         electricity: { type: boolean }
         roadAccess: { type: boolean }
-        satbara: { type: boolean }
-    ListingCreate:
+        satbara: { type: boolean, description: Retired in favour of `otherRights`. }
+    ListingFields:
       type: object
-      required: [title, deal, propertyType, price, locality, city]
       properties:
         pincode: { type: string, pattern: '^$|^[1-9][0-9]{5}$' }
         carpetArea: { type: number, exclusiveMinimum: 0 }
         builtUpArea: { type: number, exclusiveMinimum: 0 }
+        superBuiltUpArea: { type: number, exclusiveMinimum: 0 }
+        availableFrom:
+          type: string
+          enum: ['', now, '15', '30']
+          description: >-
+            Move-in bucket the search filters on. Empty withdraws a previously stated one; absent on
+            an update leaves it alone. A bare date is not accepted — it goes stale and cannot be
+            filtered cumulatively.
+        pets:
+          type: boolean
+          nullable: true
+          description: >-
+            Owner-declared pet policy. Absent on an update leaves it alone; `clearPets` returns it
+            to unstated.
         formDetails: { $ref: '#/components/schemas/ListingFormDetails' }
         title: { type: string }
         deal: { $ref: '#/components/schemas/DealIntent' }
-        propertyType: { type: string }
+        propertyType: { $ref: '#/components/schemas/PropertyTypeLabel' }
         bhk: { type: number }
         price: { $ref: '#/components/schemas/Money' }
         deposit: { $ref: '#/components/schemas/Money' }
         maintenance: { $ref: '#/components/schemas/Money' }
         negotiable: { type: boolean }
         area: { type: number }
-        areaUnit: { type: string, default: sqft }
+        areaUnit:
+          type: string
+          default: sqft
+          enum: [sqft, sqyd, guntha, acre, hectare]
+          description: >-
+            Unit the stated area is measured in. Rendered verbatim beside the number, so it is an
+            allowlist rather than free text. Absent means sq.ft.
+        landUse:
+          type: string
+          enum: [residential, commercial, industrial, agricultural, mixed]
+          description: >-
+            Permitted zoning, for an open plot or farm land only. The wizard derives it from the
+            owner's `plotZone` answer — farm land is never asked and is agricultural by definition.
+            Absent leaves it unstated, which is correct for anything with a building on it: a flat
+            has no land use of its own. Blank is not accepted; the column does not permit it.
         furnishing: { $ref: '#/components/schemas/Furnishing' }
         locality: { type: string }
         city: { type: string }
@@ -12435,8 +12691,18 @@ components:
         lng: { type: number, format: double }
         reraId: { type: string }
         possession: { $ref: '#/components/schemas/PropertyPossession' }
+        tenants:
+          type: array
+          maxItems: 5
+          items: { type: string, enum: [family, bachelors, bachelor-male, bachelor-female, company, anyone] }
         amenities: { type: array, items: { type: string } }
         images: { type: array, maxItems: 10, items: { type: string, format: uri } }
+        floorPlan:
+          type: string
+          maxLength: 512
+          description: >-
+            The gallery photo the owner tagged as the floor plan. Not required to appear in `images`.
+            On PATCH, omit to leave the stored plan alone; send an empty string to withdraw it.
         description: { type: string }
         # The duplicate-detection inputs. None is required — a bulk meter has no number, a plot no
         # floor, a standalone building no society — so the rule reads what is present, else silent.
@@ -12482,11 +12748,30 @@ components:
           maxItems: 20
           items: { type: string }
           description: Perceptual hashes of selected listing photos, used only by the server-side duplicate probe.
+    ListingCreate:
+      allOf:
+        - $ref: '#/components/schemas/ListingFields'
+        - type: object
+          required: [title, deal, propertyType, price, locality, city]
     ListingUpdate:
       allOf:
-        - $ref: '#/components/schemas/ListingCreate'
+        - $ref: '#/components/schemas/ListingFields'
         - type: object
           description: All fields optional on update (PATCH semantics).
+          properties:
+            clearMaintenance:
+              type: boolean
+              description: Removes a previously stated maintenance amount when true.
+            clearPets:
+              type: boolean
+              description: >-
+                Returns the pet policy to unstated when true. Needed because an absent `pets` means
+                "leave it alone", so there is otherwise no way to take a claim back.
+            clearLandUse:
+              type: boolean
+              description: >-
+                Drops the stated zoning when true, for a plot re-typed to something that has none.
+                The column admits no blank, so there is no value to send instead.
     ListingDuplicateCheck:
       type: object
       description: >-
