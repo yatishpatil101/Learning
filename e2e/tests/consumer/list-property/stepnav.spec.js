@@ -2,6 +2,7 @@
    quietly assert the opposite of what `live-no-gate` proves. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
@@ -19,19 +20,32 @@ async function advanceToStep2(page) {
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
 
-test('StepNav shows the three labelled phases', async ({ page }) => {
+test('StepNav shows the four labelled phases of a whole-place post', async ({ page }) => {
   await gotoFlow(page);
   const items = page.locator('.lp-steps__item');
-  await expect(items).toHaveCount(3);
+  await expect(items).toHaveCount(4);
   await expect(items.nth(0)).toContainText('Details');
   await expect(items.nth(1)).toContainText('Location');
-  await expect(items.nth(2)).toContainText('Photos');
+  await expect(items.nth(2)).toContainText('Price');
+  await expect(items.nth(3)).toContainText('Photos');
   // On step 1, Details is the active (current) step.
   await expect(page.locator('.lp-steps__item.is-active')).toContainText('Details');
+});
+
+/* A flatmate host answers location and room price on one short screen, so the rail must show the
+   three phases that track actually has rather than a fourth the host will never reach. */
+test('a flatmate post keeps its three phases', async ({ page }) => {
+  await gotoFlow(page);
+  await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
+  await page.locator('.radio-pill', { hasText: 'Find a flatmate' }).first().click();
+  const items = page.locator('.lp-steps__item');
+  await expect(items).toHaveCount(3);
+  await expect(items.nth(1)).toContainText('Location & Price');
 });
 
 test('completed steps are clickable and navigate back', async ({ page, consoleErrors }) => {

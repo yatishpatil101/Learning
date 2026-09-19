@@ -9,15 +9,17 @@ import { myListing } from '../../../services/propertyService.js';
 import { listDocuments } from '../../../services/documentService.js';
 import { ADDRESS_PARTS, hasStoredAddress } from '../../../lib/listingFormDetails.js';
 import { createRoom } from '../../../services/flatmateService.js';
+import { canSplitIntoRooms } from '../../../lib/data/flatSplit.js';
 import { loadListingQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
 import {
-  isResidentialType, isLandType, isCommercialType, isHouseType,
+  docsFor, isResidentialType, isLandType, isCommercialType, isHouseType, COMMERCIAL_SPEC_KEYS,
+  leaseKindOf, LEASE_DEFAULTS, defaultAreaUnitFor, FLOOR_PLAN_CATEGORY, photoCategoriesFor,
 } from './constants.js';
 import { initialForm } from './initialForm.js';
 import { classifyChanges } from './editPolicy.js';
-import { scrollToError, validateStep1, validateStep2, validateStep3, validateFlatmateStep1, validateFlatmateStep2 } from './validation.js';
+import { scrollToError, validateStep1, validateLocationStep, validatePricingStep, validateStep3, validateFlatmateStep1, validateFlatmateStep2 } from './validation.js';
 import { triggerConfetti } from './confetti.js';
 import { persistListing } from './submit.js';
 import { hasAgreementEvidence } from '../flatmates/helpers.js';
@@ -25,6 +27,7 @@ import { hashPhotos } from '../../../lib/data/imageHash.js';
 import { computeProgress } from './progress.js';
 import useListingMedia from './useListingMedia';
 import useListingLocation from './useListingLocation';
+import { FLATMATE_STEPS, WHOLE_STEPS } from './StepNav.jsx';
 import { MAX_PHOTOS } from '../../../lib/uploads/policy.js';
 
 export default function useListProperty() {
@@ -36,11 +39,9 @@ export default function useListProperty() {
   const editId = searchParams.get('edit');
   // Preserve the sitting tenant's intent when entering from Flatmates.
   const flatmateMode = searchParams.get('flatmate') === '1';
-  /* Where an edit opens. Named rather than numbered so the link survives a step being inserted,
-     and honoured only for an edit: on a new post there is nothing to skip past. Landing late is
-     safe because `submitProperty` re-validates steps 1 and 2 for every edit and sends the owner
-     back to the first one that fails — arriving at step 3 skips the walk, not the checks. */
-  const entryStep = { details: 1, location: 2, photos: 3 }[searchParams.get('step')] || 1;
+  /* Named rather than numbered so the link survives a step being inserted, and honoured only for an edit.
+     Landing late is safe: `submitProperty` re-validates every step and sends the owner back to the first fail. */
+  const entryStep = { details: 1, location: 2, pricing: 3, photos: 4 }[searchParams.get('step')] || 1;
 
   const [currentStep, setCurrentStep] = useState(1);
   const [rentMode, setRentMode] = useState(() => (flatmateMode && !editId ? 'flatmate' : 'whole'));
@@ -69,8 +70,6 @@ export default function useListProperty() {
     });
     return () => { live = false; };
   }, [editId, authLoading, user]);
-  const activeListingCount = useCallback(() => quota.used, [quota.used]);
-  const planListingLimit = useCallback(() => quota.allowance, [quota.allowance]);
 
   const [form, setForm] = useState(initialForm);
   // Async geocodes must read the latest form rather than an older render closure.
@@ -88,7 +87,8 @@ export default function useListProperty() {
       : next;
   }), []);
   const location = useListingLocation({ setForm: setLocationForm, formRef, errors, setErrors });
-  const { set, locationSet, setLocationSet } = location;
+  const { set } = location;
+  const locationSet = !!form.pinPlaced;
   // Manual address entry is explicit replacement, unlike geocode auto-fill.
   const setField = (field, value) => {
     if (hasStoredAddress(form) && (ADDRESS_PARTS.includes(field) || field === 'societyId')) {
@@ -148,7 +148,6 @@ export default function useListProperty() {
     setForm(initialForm);
     setPhotos([]);
     setDocuments({});
-    setLocationSet(false);
     setEditApproved(false);
     setCurrentStep(entryStep);
     setErrors({});
@@ -166,13 +165,31 @@ export default function useListProperty() {
         // The service returns newest first; metadata has no upload bytes to send again.
         const slots = vault.reduce((result, doc) => Object.hasOwn(result, doc.category)
           ? result : { ...result, [doc.category]: { id: doc.id, name: doc.name, size: doc.size, mime: doc.mime, uploadedAt: doc.uploadedAt } }, {});
-        const snapshot = { ...initialForm, ...listing.form };
+        /* A listing that already carries coordinates was placed when it was posted. Read the saved
+           listing, not the merged snapshot: `initialForm`'s default coordinates are finite too. */
+        const placed = [listing.form.propLat, listing.form.propLng].every((value) => (typeof value === 'number'
+          || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value)));
+        /* An unplaced listing must not spread its empty coordinates over the map default: the
+           marker takes whatever it is handed, and a null latitude tears the whole page down. */
+        const snapshot = {
+          ...initialForm,
+          ...listing.form,
+          /* Listings posted against the old boolean carry `naSanctioned`; without this the owner
+             opens the edit on an unanswered picker and re-saving would erase their own answer. */
+          naStatus: listing.form.naStatus || (listing.form.naSanctioned ? 'sanctioned' : ''),
+          pinPlaced: placed,
+          ...(placed ? {} : { propLat: initialForm.propLat, propLng: initialForm.propLng }),
+        };
         const imgs = (listing.images || listing.gallery || []).filter(Boolean);
         setForm(snapshot);
         setEditListing({ ...listing, form: snapshot });
-        setPhotos(imgs.map((url) => ({ url, category: 'Other' })));
+        /* Categories are not stored, so photos come back as 'Other' — except the tagged plan, which `submit.js`
+           reads: without restoring it, any save at all would withdraw the owner's floor plan unasked. */
+        setPhotos(imgs.map((url) => ({
+          url,
+          category: url === listing.floorPlan ? FLOOR_PLAN_CATEGORY : 'Other',
+        })));
         setDocuments(slots);
-        setLocationSet([snapshot.propLat, snapshot.propLng].every((value) => value !== '' && value != null && Number.isFinite(Number(value))));
         setEditApproved(/approved|verified|live/i.test(String(listing.status || '')));
         setEditLoad({ key: editKey, status: 'ready' });
       } catch {
@@ -181,7 +198,7 @@ export default function useListProperty() {
     };
     if (!authLoading && ownerMobile) void load();
     return () => { editRequest.current = null; };
-  }, [editId, ownerId, ownerMobile, editKey, authLoading, editAttempt, entryStep, setPhotos, setDocuments, setLocationSet]);
+  }, [editId, ownerId, ownerMobile, editKey, authLoading, editAttempt, entryStep, setPhotos, setDocuments]);
 
   const editChanges = useMemo(() => {
     if (!editId || !editReady || !editListing) return null;
@@ -214,17 +231,37 @@ export default function useListProperty() {
   // Prevent another property's type-specific answers from silently being saved.
   const TYPE_SPECIFIC_KEYS = [
     'commercialType',
-    'washrooms', 'shellType', 'parkingSpaces', 'powerBackup', 'pantry', 'camCharges', 'suitableFor',
+    'washrooms', 'shellType', 'parkingSpaces', 'powerBackup', 'pantry', 'camCharges', 'suitableFor', 'fixtures',
+    'gstOnRent', 'fitOutMonths', 'escalationPct', 'tenancyStatus', 'inPlaceRent', 'leaseExpiry',
+    ...COMMERCIAL_SPEC_KEYS,
     'areaUnit', 'plotLength', 'plotWidth', 'openSides', 'roadWidth', 'cornerPlot', 'boundaryWall',
-    'plotZone', 'naSanctioned', 'waterSource', 'electricity', 'roadAccess', 'satbara',
+    'plotZone', 'naStatus', 'waterSource', 'electricity', 'roadAccess', 'otherRights', 'buyerEligibility',
     'plotArea', 'floorsInHouse', 'furniture', 'monthlyRent',
+    // Commercial never asks for it, so a residential answer left behind would publish unseen.
+    'age',
   ];
   const changePropertyType = useCallback((v) => {
     setForm((prev) => {
       const next = { ...prev, propertyType: v };
       TYPE_SPECIFIC_KEYS.forEach((k) => { next[k] = initialForm[k]; });
-      return isLandType(v) ? { ...next, overlooking: '' } : next;
+      /* `initialForm.areaUnit` is the plot default and is not on the farm unit list, so the blanket reset
+         above has to be corrected per type or the farm form opens on a unit it cannot render. */
+      next.areaUnit = defaultAreaUnitFor(v);
+      const kind = leaseKindOf(v);
+      if (leaseKindOf(prev.propertyType) !== kind) Object.assign(next, LEASE_DEFAULTS[kind]);
+      /* The land form renders neither control, and the stale possession is worse than cosmetic: an
+         "under construction" left behind is what the validator's land exclusion exists to survive. */
+      return isLandType(v) ? { ...next, overlooking: '', construction: '' } : next;
     });
+    /* Land offers no Floor Plan category, and the tag is a write rather than a label: left behind on a re-type
+       it publishes a plan onto a parcel whose page has no section to show it. Only this tag is dropped. */
+    if (!photoCategoriesFor(v, '').includes(FLOOR_PLAN_CATEGORY)) {
+      setPhotos((prev) => prev.map((p) => (
+        p.category === FLOOR_PLAN_CATEGORY ? { ...p, category: 'Other' } : p
+      )));
+    }
+    setDocuments((prev) => Object.fromEntries(Object.entries(prev)
+      .filter(([key]) => docsFor(form.deal, v, '').some((doc) => doc.key === key))));
     if (!isResidentialType(v)) setRentMode('whole');
     setErrors((prev) => {
       const n = { ...prev };
@@ -232,7 +269,35 @@ export default function useListProperty() {
       return n;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [form.deal]);
+
+  /* The subtype picks a use-profile, which decides which fixtures, amenities, specs and photo categories
+     exist at all — Office to Warehouse otherwise keeps a Server Room the warehouse form cannot unpick. */
+  const changeCommercialType = useCallback((v) => {
+    setForm((prev) => ({
+      ...prev,
+      commercialType: v,
+      fixtures: [],
+      suitableFor: [],
+      amenities: [],
+      pantry: false,
+      ...Object.fromEntries(COMMERCIAL_SPEC_KEYS.map((k) => [k, initialForm[k]])),
+    }));
+    /* Reset to 'Other', which every commercial profile offers, so no photo wears a label the new form cannot
+       show. Floor Plan is exempt: it carries a claim, and dropping it would quietly unpublish the plan. */
+    setPhotos((prev) => prev.map((p) => (
+      p.category && p.category !== FLOOR_PLAN_CATEGORY ? { ...p, category: 'Other' } : p
+    )));
+    setDocuments((prev) => Object.fromEntries(Object.entries(prev)
+      .filter(([key]) => docsFor(form.deal, form.propertyType, v).some((doc) => doc.key === key))));
+    setErrors((prev) => {
+      const n = { ...prev };
+      delete n.commercialType;
+      COMMERCIAL_SPEC_KEYS.forEach((k) => delete n[k]);
+      return n;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.deal, form.propertyType]);
 
   const isResidential = () => isResidentialType(form.propertyType);
   const isLand = () => isLandType(form.propertyType);
@@ -248,16 +313,21 @@ export default function useListProperty() {
     if (rent > 0) set('deposit', String(rent * months));
   };
 
+  // A room host answers location and pricing on one short screen; a whole property does not.
+  const lastStep = (isFlatmateMode ? FLATMATE_STEPS : WHOLE_STEPS).length;
   const nextStep = () => {
     if (!editReady) return;
     const err = isFlatmateMode
       ? (currentStep === 1 ? validateFlatmateStep1(form) : validateFlatmateStep2(form))
-      : (currentStep === 1 ? validateStep1(form, editListing?.form) : currentStep === 2 ? validateStep2(form, editListing?.form) : {});
-    // Require an intentional location so the listing cannot inherit the map's default pin.
-    if (currentStep === 2 && !locationSet) err.location = true;
+      : (currentStep === 1 ? validateStep1(form, editListing?.form)
+        : currentStep === 2 ? validateLocationStep(form, editListing?.form)
+          : currentStep === 3 ? validatePricingStep(form, editListing?.form) : {});
+    /* Require an intentional location so a new listing cannot inherit the map's default pin. An edit is exempt:
+       a listing published before the pin existed would otherwise be barred from its own price correction. */
+    if (currentStep === 2 && !locationSet && !editListing) err.location = true;
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setErrors({});
-    if (currentStep < 3) {
+    if (currentStep < lastStep) {
       setCurrentStep(currentStep + 1);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       // A validation failure must not produce the successful-advance haptic.
@@ -311,8 +381,8 @@ export default function useListProperty() {
       toast(`Listed, but we could not upload ${res.documentsFailed.join(', ')}. Add it again from Dashboard ▸ Documents.`, 'error');
     }
     triggerConfetti();
-    // Offer room-by-room letting only after a new rental post.
-    const splittable = !editId && res?.listing?.deal === 'rent';
+    // Offer room-by-room letting only after a new post the dashboard would offer it on too.
+    const splittable = !editId && canSplitIntoRooms(res?.listing);
     if (splittable) setPostedListing(res.listing);
     setShowSuccess(true);
     // Don't yank the screen away mid-decision while that offer is on it.
@@ -324,25 +394,25 @@ export default function useListProperty() {
   const submitProperty = () => {
     if (!editReady || posting || media.isMediaProcessing()) return;
     const step1Errors = editId ? validateStep1(form, editListing.form) : {};
-    const step2Errors = editId ? validateStep2(form, editListing.form) : {};
+    const locationErrors = editId ? validateLocationStep(form, editListing.form) : {};
+    const pricingErrors = editId ? validatePricingStep(form, editListing.form) : {};
     const err = {
       ...step1Errors,
-      ...step2Errors,
-      ...validateStep3(form, documents, photos),
+      ...locationErrors,
+      ...pricingErrors,
+      ...validateStep3(form, documents, photos, editId ? editListing : null),
     };
-    if (photos.length > MAX_PHOTOS) err.photos = 'Keep at most 10 photos. Remove the extra photos before saving.';
     if (Object.keys(err).length) {
       if (Object.keys(step1Errors).length) setCurrentStep(1);
-      else if (Object.keys(step2Errors).length) setCurrentStep(2);
+      else if (Object.keys(locationErrors).length) setCurrentStep(2);
+      else if (Object.keys(pricingErrors).length) setCurrentStep(3);
       setErrors(err);
       scrollToError(err);
       return;
     }
 
-    /* Over the ceiling. Reachable now that the flatmate entry point is exempt from the paywall —
-       an owner who lands there and switches to whole-flat keeps a wizard the paywall would
-       otherwise have replaced. Say why, because a submit button that silently does nothing reads
-       as a broken page; the server refuses this same post with the same arithmetic. */
+    /* Say why: a submit button that silently does nothing reads as a broken page. Reachable because the
+       flatmate entry point is exempt from the paywall; the server refuses the same post identically. */
     if (!editId && !canPost) {
       toast(`You already have ${quota.used} of ${quota.allowance} listings live. Take one down to post another — letting a room stays free.`, 'error');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -366,8 +436,9 @@ export default function useListProperty() {
     if (!form.society.trim()) err.society = true;
     if (!(Number(form.rentShare) > 0)) err.rentShare = true;
     if (!form.availableFrom) err.availableFrom = true;
+    // A room is one space: its own photo floor stays at one, so `true` keeps the generic message.
     if (!photos.length) err.photos = true;
-    if (photos.length > MAX_PHOTOS) err.photos = 'Keep at most 10 photos. Remove the extra photos before saving.';
+    if (photos.length > MAX_PHOTOS) err.photos = 'max';
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setPosting(true);
     try {
@@ -434,6 +505,7 @@ export default function useListProperty() {
     ...media,
     ...location,
     set: setField,
+    locationSet,
     t, navigate, editId, flatmateMode,
     editReady, editLoading, editLoadError, retryEditLoad,
     legacyAddress: editReady && hasStoredAddress(editListing?.form) ? editListing.form.existingAddress : '',
@@ -442,12 +514,12 @@ export default function useListProperty() {
     postedListing,
     editApproved, editChanges, showIdentityGuard, setShowIdentityGuard,
     showDupGuard, setShowDupGuard, dupExistingId, canPost,
-    form, setForm, progressState,
-    toggleInArray, toggleTenant, changePropertyType,
+    form, progressState,
+    toggleInArray, toggleTenant, changePropertyType, changeCommercialType,
     isResidential, isLand, isCommercial, isHouse,
     money, setDepositMonths,
     nextStep, prevStep, openResetConfirm, confirmReset, submitProperty, submitFlatmate,
     posting,
-    activeListingCount, listingLimit: planListingLimit,
+    activeListingCount: quota.used, listingLimit: quota.allowance,
   };
 }

@@ -1,10 +1,7 @@
-/* Loaded with the /list-property route chunk instead of the global stylesheet: 6.1 KB gzip that a
-   visitor browsing for a home never needs. Safe to move because no selector here is re-declared
-   later in index.css, so arriving after it in the cascade cannot change which rule wins. */
+/* Loaded with the /list-property route chunk, not the global stylesheet: 6.1 KB gzip a visitor browsing for a
+   home never needs. Safe because no selector here is re-declared in index.css, so cascade order cannot shift. */
 
-/* ============================================================================
-   List Property wizard (ported from list-property.html <style>)
-   ============================================================================ */
+/* List Property wizard */
 .progress-track {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -42,12 +39,12 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ---- Listing wizard step nav (segmented, gamified, on-brand) ----
-   Three discrete phase segments that complement (not duplicate) the
-   continuous % momentum meter. Completed segments are clickable. */
+/* Discrete phase segments that complement, rather than duplicate, the continuous momentum meter.
+   The track count follows the items: a whole-place post has four phases, a flatmate post three. */
 .lp-steps {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 0.625rem;
 }
 
@@ -188,6 +185,15 @@
 
   .lp-steps__item {
     padding: 0.625rem;
+    text-align: center;
+  }
+
+  /* Four tiles across a 360px screen leave the label about 18px, so every phase ellipsizes to the same
+     anonymous tile. Below sm the badge sits above the label, which wraps rather than truncates. */
+  .lp-steps__row {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .lp-steps__num {
@@ -200,7 +206,8 @@
   }
 
   .lp-steps__label {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
+    white-space: normal;
   }
 
   /* On phones the active state reads from the teal highlight + rail, so drop
@@ -301,9 +308,8 @@ input.form-input {
   box-shadow: 0 0 15px rgba(20, 184, 166, 0.1);
 }
 
-/* Invalid choice group (pills): each pill takes the same red border + glow as an
-   invalid input (.dz-invalid), so a required pill-group reads exactly like the
-   red-outlined text fields (e.g. Locality) on the same form. */
+/* Each pill takes the same red border and glow as an invalid input, so a required pill-group
+   reads exactly like the red-outlined text fields on the same form. */
 .dz-invalid-group .radio-pill {
   border-color: #f87171;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, .22);

@@ -1,6 +1,7 @@
 import { Sparkles, TrendingUp, Flame, Rocket, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MILESTONES } from './progress.js';
+import { STRONG_PHOTO_COUNT } from './constants.js';
 
 const TIER_ICON = {
   warmup: Sparkles,
@@ -20,10 +21,16 @@ const TIER_CHEER = {
   ready: 'listProperty.meter.cheer.ready',
 };
 
-/* Sticky "Momentum meter" — the gamified signature of the flow.
-   Shows live completion %, an encouraging tier label, and milestone nodes
-   (20/40/60/80/100) that light up as the owner crosses each threshold. */
-const ProgressMeter = ({ pct, tierKey, label, done, total }) => {
+const NUDGE_TEXT = {
+  photos: 'listProperty.meter.nudge.photos',
+  evidence: 'listProperty.meter.nudge.evidence',
+  description: 'listProperty.meter.nudge.description',
+  amenities: 'listProperty.meter.nudge.amenities',
+  documents: 'listProperty.meter.nudge.documents',
+};
+
+/* Milestone nodes light up as the owner crosses each threshold. It never gates publishing; `canPost` does. */
+const ProgressMeter = ({ pct, tierKey, label, done, total, nudge }) => {
   const { t } = useTranslation();
   const Icon = TIER_ICON[tierKey] || Sparkles;
   return (
@@ -35,16 +42,18 @@ const ProgressMeter = ({ pct, tierKey, label, done, total }) => {
           </span>
           <div className="min-w-0">
             <p className="text-white font-semibold text-sm sm:text-base leading-tight">{label}</p>
-            {/* Early on the percentage is mostly prefilled defaults, so say so rather than
-               letting the owner wonder what they already answered. */}
-            <p className="lp-meter__cheer text-gray-400 text-xs sm:text-sm truncate">
-              {t(TIER_CHEER[tierKey] || TIER_CHEER.warmup, { done, total, remaining: total - done })}
+            {/* One nudge, and only while it is still true — the tier cheer takes over once the
+               highest-impact answers are in, so nothing keeps asking for what is already there. */}
+            <p className="lp-meter__cheer text-gray-400 text-xs sm:text-sm truncate" data-nudge={nudge || ''} role="status" aria-live="polite" aria-atomic="true">
+              {nudge
+                ? t(NUDGE_TEXT[nudge], { count: STRONG_PHOTO_COUNT })
+                : t(TIER_CHEER[tierKey] || TIER_CHEER.warmup, { done, total, remaining: total - done })}
             </p>
           </div>
         </div>
         <div className="text-right flex-shrink-0">
           <span key={pct} className="lp-meter__pct">{pct}<span className="lp-meter__pct-sign">%</span></span>
-          <p className="text-gray-500 text-[11px] leading-none">{t('listProperty.meter.complete')}</p>
+          <p className="text-gray-500 text-[11px] leading-none">{t('listProperty.meter.strength')}</p>
         </div>
       </div>
 

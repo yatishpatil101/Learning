@@ -2,6 +2,7 @@
 // assert the opposite of what the sibling `no-gate` spec proves.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
@@ -35,7 +36,8 @@ test('Property Type and BHK share one compact row (dropdown is not full-width)',
 test('BHK pills read as numbers, consistent with Bathrooms/Balconies', async ({ page }) => {
   await gotoFlow(page);
   const labels = await page.locator('[data-err="bhk"] .radio-pill').allInnerTexts();
-  expect(labels.map((t) => t.trim())).toEqual(['1', '2', '3', '4+']);
+  // 1 RK is the one pill that cannot be a number: it is a room count of zero bedrooms.
+  expect(labels.map((t) => t.trim())).toEqual(['1 RK', '1', '2', '3', '4+']);
 });
 
 async function gotoAddressStep(page) {
@@ -45,6 +47,7 @@ async function gotoAddressStep(page) {
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
@@ -70,9 +73,8 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
   await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(chosen);
 });
 
-/* Unit and wing are halves of one address line. Asserting geometry rather than structure because
-   the two widths reach the same result by different means — a nested 2-column grid below `sm`,
-   `display: contents` above it — and only the rendered row is the promise to the owner. */
+/* Unit and wing are halves of one address line. Geometry rather than structure, because the two widths reach
+   the same result by different means and only the rendered row is the promise to the owner. */
 for (const [name, width] of [['mobile', 390], ['desktop', 1280]]) {
   test(`Flat/Unit No and Wing/Block share one line on ${name}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -124,23 +126,26 @@ test('standalone land dropdowns (Water Source, Zoning) are width-capped, not ful
   expect(await soloRatio(page, 'Zoning')).toBeLessThan(0.7);
 });
 
-test('Commercial "Suitable For" pairs with Maintenance/CAM and is width-capped', async ({ page }) => {
+test('Commercial "Suitable For" pairs with the profile\'s own measurement and is width-capped', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
 
   await gotoFlow(page);
   await pickType(page, 'Commercial');
+  await page.locator('[data-err="commercialType"]').click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.locator('.dz-dropdown__option', { hasText: 'Shop / Showroom' }).first().click();
 
-  // Suitable For and Maintenance / CAM share one grid row — no lone stretched
-  // control, no empty half beside either field.
+  /* Suitable For and the retail profile's Frontage share one grid row: no lone stretched control, no empty
+     half beside either field, now that Maintenance / CAM lives on the Price step as a recurring cost. */
   const paired = await page.evaluate(() => {
     const labels = [...document.querySelectorAll('.lp-step label')];
     const suitable = labels.find((l) => l.textContent.trim().startsWith('Suitable For'));
-    const cam = labels.find((l) => l.textContent.trim().startsWith('Maintenance / CAM'));
     const grid = suitable && suitable.closest('.grid');
-    return !!(grid && cam && grid.contains(cam));
+    return !!(grid && grid.querySelector('[data-err="frontage"]'));
   });
   expect(paired).toBe(true);
 
+  await expect(page.getByText('Maintenance / CAM')).toHaveCount(0);
   expect(await soloRatio(page, 'Suitable For')).toBeLessThan(0.7);
-  expect(await soloRatio(page, 'Maintenance / CAM')).toBeLessThan(0.7);
+  expect(await soloRatio(page, 'Frontage')).toBeLessThan(0.7);
 });

@@ -5,11 +5,12 @@ import '../../styles/routes/list-property.css';
 import useListProperty from './list-property/useListProperty';
 import ListPropertyModals from './list-property/ListPropertyModals';
 import ProgressMeter from './list-property/ProgressMeter.jsx';
-import StepNav from './list-property/StepNav.jsx';
+import StepNav, { WHOLE_STEPS, FLATMATE_STEPS } from './list-property/StepNav.jsx';
 import EditPolicyBanner from './list-property/EditPolicyBanner.jsx';
 import ListingPaywall from './list-property/ListingPaywall.jsx';
 import PropertyDetailsStep from './list-property/PropertyDetailsStep.jsx';
-import LocationPricingStep from './list-property/LocationPricingStep.jsx';
+import LocationStep from './list-property/LocationStep.jsx';
+import PricingStep from './list-property/PricingStep.jsx';
 import PhotosDocumentsStep from './list-property/PhotosDocumentsStep.jsx';
 import FlatmateFlow from './list-property/FlatmateFlow.jsx';
 import PostSuccessVerifyNudge from './list-property/PostSuccessVerifyNudge.jsx';
@@ -22,10 +23,10 @@ const ListPropertyForm = () => {
     postedListing, editReady, editLoading, editLoadError, retryEditLoad, legacyAddress,
     progressState, canPost,
     activeListingCount, listingLimit, currentStep, setCurrentStep,
-    form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
-    isResidential, isLand, isCommercial, isHouse, isPg,
+    form, set, changePropertyType, changeCommercialType, rentMode, setRentMode, errors,
+    isResidential, isLand, isCommercial, isHouse,
     toggleInArray, toggleTenant, nextStep, prevStep, money, setDepositMonths, openResetConfirm,
-    mapSearch, onMapSearchChange, doMapSearch, runMapSearch, mapSearchStatus, onAreaSelect,
+    mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, onAreaSelect,
     geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
     isMediaBusy, mediaStatus,
@@ -99,7 +100,7 @@ const ListPropertyForm = () => {
           <p className="hidden sm:block text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
         </div>
 
-        <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} done={progressState.done} total={progressState.total} />
+        <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} done={progressState.done} total={progressState.total} nudge={progressState.nudge} />
 
         {editId && <EditPolicyBanner approved={editApproved} changes={editChanges} />}
 
@@ -115,9 +116,9 @@ const ListPropertyForm = () => {
             flow. Whole-flat posting stays refused either way — `ListingQuota` enforces it on
             `POST /me/listings`, and `submitProperty` says so before they get there. */}
         {(!editId && !canPost && !flatmateMode) ? (
-          <ListingPaywall count={activeListingCount()} limit={listingLimit()} />
+          <ListingPaywall count={activeListingCount} limit={listingLimit} />
         ) : (<>
-            <StepNav current={currentStep} onJump={(n) => { setCurrentStep(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+            <StepNav current={currentStep} steps={isFlatmateMode ? FLATMATE_STEPS : WHOLE_STEPS} onJump={(n) => { setCurrentStep(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
 
             {/* Narrow mobile gutters leave room for paired fields. The testid lets a test wait for
                 the branch actually taken — see listing-quota.spec.js. */}
@@ -129,6 +130,7 @@ const ListPropertyForm = () => {
                   form={form}
                   set={set}
                   onPropertyType={changePropertyType}
+                  onCommercialType={changeCommercialType}
                   rentMode={rentMode}
                   setRentMode={setRentMode}
                   isFlatmateMode={isFlatmateMode}
@@ -137,7 +139,6 @@ const ListPropertyForm = () => {
                   isLand={isLand}
                   isCommercial={isCommercial}
                   isHouse={isHouse}
-                  isPg={isPg}
                   toggleInArray={toggleInArray}
                   nextStep={nextStep}
                   money={money}
@@ -146,18 +147,15 @@ const ListPropertyForm = () => {
               )}
 
               {(currentStep === 2 && !isFlatmateMode) && (
-                <LocationPricingStep
+                <LocationStep
                   form={form}
                   legacyAddress={legacyAddress}
                   set={set}
-                  setForm={setForm}
                   errors={errors}
                   isLand={isLand}
                   isCommercial={isCommercial}
-                  money={money}
                   mapSearch={mapSearch}
                   onMapSearchChange={onMapSearchChange}
-                  doMapSearch={doMapSearch}
                   runMapSearch={runMapSearch}
                   mapSearchStatus={mapSearchStatus}
                   onAreaSelect={onAreaSelect}
@@ -166,6 +164,20 @@ const ListPropertyForm = () => {
                   onLocalityChange={onLocalityChange}
                   onPinMove={onPinMove}
                   locationSet={locationSet}
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onReset={openResetConfirm}
+                />
+              )}
+
+              {(currentStep === 3 && !isFlatmateMode) && (
+                <PricingStep
+                  form={form}
+                  set={set}
+                  errors={errors}
+                  isLand={isLand}
+                  isCommercial={isCommercial}
+                  money={money}
                   setDepositMonths={setDepositMonths}
                   toggleTenant={toggleTenant}
                   prevStep={prevStep}
@@ -174,7 +186,7 @@ const ListPropertyForm = () => {
                 />
               )}
 
-              {(currentStep === 3 && !isFlatmateMode) && (
+              {(currentStep === 4 && !isFlatmateMode) && (
                 <PhotosDocumentsStep
                   form={form}
                   set={set}
@@ -214,7 +226,6 @@ const ListPropertyForm = () => {
                   onReset={openResetConfirm}
                   mapSearch={mapSearch}
                   onMapSearchChange={onMapSearchChange}
-                  doMapSearch={doMapSearch}
                   runMapSearch={runMapSearch}
                   mapSearchStatus={mapSearchStatus}
                   onAreaSelect={onAreaSelect}

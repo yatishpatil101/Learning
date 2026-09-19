@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { API, signedInAs } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 // Society "select or create" typeahead on the list-property Location step: a listing must bind to
 // a real society entity, and an unknown name must mint a community society.
@@ -25,8 +26,9 @@ async function toStep2Flat(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' }).first().click();
   await page.locator('input[data-err="carpetArea"]').fill('1200');
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.getByText('Location & pricing').waitFor({ timeout: 10000 });
+  await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
 }
 
 test('typing a known name lists the verified society and binds it on pick', async ({ page }) => {

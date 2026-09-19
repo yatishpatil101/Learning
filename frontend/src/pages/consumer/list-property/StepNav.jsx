@@ -1,30 +1,28 @@
-import { Home, MapPin, Images, Check } from 'lucide-react';
+import { Home, MapPin, IndianRupee, Images, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-/* Steps for the whole-place listing flow. Icons make each phase scannable
-   at a glance and keep the row on-brand with the gamified momentum meter. */
-const STEPS = [
+/* Locating a property and pricing it are two different jobs, so the whole-place flow asks them on their
+   own screens; a room host answers both on one short screen and keeps a three-phase rail. */
+export const WHOLE_STEPS = [
+  { icon: Home, labelKey: 'listProperty.stepNav.details' },
+  { icon: MapPin, labelKey: 'listProperty.stepNav.location' },
+  { icon: IndianRupee, labelKey: 'listProperty.stepNav.pricing' },
+  { icon: Images, labelKey: 'listProperty.stepNav.photosDocs' },
+];
+
+export const FLATMATE_STEPS = [
   { icon: Home, labelKey: 'listProperty.stepNav.details' },
   { icon: MapPin, labelKey: 'listProperty.stepNav.locationPrice' },
   { icon: Images, labelKey: 'listProperty.stepNav.photosDocs' },
 ];
 
-/**
- * StepNav — a segmented, gamified step indicator for the listing wizard.
- *
- * Unlike the continuous % momentum meter above it, this shows the THREE
- * discrete phases as labelled segments with their own status, so the two
- * read as complementary (granular progress vs. where-am-I) rather than as
- * two duplicate progress rails. Completed steps are clickable to jump back.
- *
- * @param {number} current - 1-based active step.
- * @param {(step: number) => void} onJump - Navigate to an earlier step.
- */
-export default function StepNav({ current, onJump }) {
+/* Discrete labelled phases, complementary to the continuous momentum meter above rather than a second
+   copy of it. Completed steps are clickable to jump back. */
+export default function StepNav({ current, steps, onJump }) {
   const { t } = useTranslation();
   return (
     <div className="lp-steps mb-8" role="list" aria-label={t('listProperty.stepNav.ariaLabel')}>
-      {STEPS.map((s, idx) => {
+      {steps.map((s, idx) => {
         const stepNum = idx + 1;
         const state = current === stepNum ? 'active' : current > stepNum ? 'done' : 'todo';
         const done = state === 'done';

@@ -6,9 +6,8 @@ import { useSocietySearch } from '../../../lib/useSocietySearch.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
-/* "Select or create" typeahead: every listing binds to a real society entity rather than a raw
-   string, and an unmatched name mints a community society inline, so the listing funnel doubles as
-   society acquisition. `mintOrigin: 'listing'` tells the ops queue this came from a seller. */
+/* Every listing binds to a real society entity rather than a raw string, and an unmatched name mints one
+   inline, so the listing funnel doubles as society acquisition. `mintOrigin` tells ops it came from a seller. */
 const norm = (s) => String(s || '').trim().toLowerCase();
 
 export default function SocietySelect({
@@ -37,7 +36,7 @@ export default function SocietySelect({
 
   // Dedup is only as good as the catalogue searched, so the create row waits on the server: a
   // society somebody else added is invisible to a local catalogue, and "Add" would mint a duplicate.
-  const { rows: results, loading } = useSocietySearch(query, localityLabel);
+  const { rows: results, loading } = useSocietySearch(query, localityLabel, open);
   const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
   // `!exact` is only trustworthy once a search has answered: until then every name looks unknown
@@ -86,10 +85,8 @@ export default function SocietySelect({
         mintOrigin: 'listing',
       });
     } catch {
-      /* Say so rather than close the menu on a society that does not exist. The old synchronous
-         write could only fail by returning null, which this silently swallowed — acceptable when
-         the only failure was an unsluggable name, and not acceptable now that the failure is a
-         network the owner can retry. */
+      /* Say so rather than close the menu on a society that does not exist: the failure is now a network
+         the owner can retry, not the unsluggable name the old synchronous write could only fail on. */
       setMinting(false);
       setMintFailed(true);
       return;
