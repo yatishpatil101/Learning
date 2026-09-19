@@ -7,9 +7,8 @@ export const AMEN_LABEL = {
   power: 'Power Backup', garden: 'Landscaped Garden', club: 'Clubhouse', play: "Kids' Play Area",
 };
 
-/* A bucket, not a date: the server stores `now` | `15` | `30`, because a date on a listing nobody
-   edits is wrong within a fortnight. The wire value is a token to translate, never something to
-   hand a date formatter, and `null` is the API's "unstated", which stays unsaid. */
+/* A bucket, not a date, because a date on a listing nobody edits is wrong within a fortnight. The wire
+   value is a token to translate; `null` is the API's "unstated" and stays unsaid. */
 const AVAILABLE_FROM_KEY = { now: 'immediately', 15: 'within15Days', 30: 'within30Days' };
 // Bounded, because a flatmate `availableFrom` — a real LocalDate — would otherwise mint one
 // permanent entry per distinct date.
@@ -27,9 +26,8 @@ export function availableLabel(tr, value) {
   return tr('property.' + AVAILABLE_FROM_KEY[value]);
 }
 
-/* Classifies a listing into a broad category so the detail page can show only the
-   fields that make sense: apartments/villas get BHK + floor + furnishing, land/plots
-   get plot zone + title, commercial gets no bedroom/bathroom fields. */
+/* Classifies a listing so the detail page shows only the fields that make sense: land gets zone and title,
+   commercial gets no bedroom or bathroom rows. */
 const LAND_MATCHES = ['plot', 'land', 'farm'];
 const COMMERCIAL_MATCHES = ['office', 'shop', 'showroom', 'retail', 'mall', 'warehouse', 'godown', 'industrial', 'factory', 'co-working', 'coworking', 'commercial'];
 export function propertyKind(p) {
@@ -39,35 +37,8 @@ export function propertyKind(p) {
   return 'residential';
 }
 
-/* Maps a listing to a schematic floor plan matching its type + BHK, so listings without an explicit
-   `floorPlan` get a plan that fits rather than one shared stock image. Null for land, which never
-   renders a floor-plan section. */
-const COMMERCIAL_PLAN = {
-  office: 'office', shop: 'shop', showroom: 'shop', retail: 'retail', mall: 'retail',
-  warehouse: 'warehouse', godown: 'warehouse', industrial: 'industrial', factory: 'industrial',
-  'co-working': 'coworking', coworking: 'coworking',
-};
-export function floorPlanFor(p) {
-  const kind = propertyKind(p);
-  if (kind === 'land') return null;
-  const t = String(p?.type || '').toLowerCase();
-  if (kind === 'commercial') {
-    const match = Object.keys(COMMERCIAL_PLAN).find((k) => t.includes(k));
-    return `/floorplans/${match ? COMMERCIAL_PLAN[match] : 'office'}.svg`;
-  }
-  const beds = Number(p?.bhkNum) || 0;
-  if (t.includes('studio') || beds === 0) return '/floorplans/studio.svg';
-  let variant = 'flat';
-  if (t.includes('villa')) variant = 'villa';
-  else if (t.includes('penthouse')) variant = 'penthouse';
-  else if (t.includes('row')) variant = 'rowhouse';
-  if (variant === 'flat') return `/floorplans/${Math.min(4, Math.max(1, beds))}bhk.svg`;
-  return `/floorplans/${variant}-${Math.min(4, Math.max(2, beds))}.svg`;
-}
-
-/* Per-listing Key-Details values, as stated by the owner. No id-derived fallback: always showing a
-   value and always *knowing* one are different things, and a fallback makes an unstated attribute
-   indistinguishable from a stated one. Unstated returns '' and the tile reads "Not specified". */
+/* No id-derived fallback: it makes an unstated attribute indistinguishable from a stated one. Unstated
+   returns '' and the tile reads "Not specified". */
 import { ageOptions } from '../list-property/constants.js';
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'];
@@ -79,9 +50,8 @@ const SHORT_AGE = {
   '1-5': '1–5 yrs', '5-10': '5–10 yrs', '10-15': '10–15 yrs', '15+': '15+ yrs',
 };
 
-/* All three return '' when nothing was stated, and PropertyTabs renders an empty tile as "Not
-   specified". Deriving a floor, facing or age from the listing id would print a guess as surveyed
-   fact — and facing is Vastu-weighted in this market, so it moves offers. */
+/* All three return '' when nothing was stated. Deriving a floor, facing or age from the listing id would
+   print a guess as surveyed fact, and facing is Vastu-weighted in this market, so it moves offers. */
 export function deriveFloor(p) {
   const raw = p.form?.floor || (p.floor ? String(p.floor) : '');
   if (!raw) return '';

@@ -28,6 +28,25 @@ test('intentional gallery changes still cross the sparse edit seam', () => {
   });
 });
 
+/* The plan is a tag on a photo rather than a form answer, so it reaches the patch through none of the
+   `FIELD_INPUTS` machinery and needs its own clause — without one the edit path drops it silently. */
+test('re-tagging the floor plan crosses the sparse edit seam', () => {
+  const original = { form: {}, gallery: ['a', 'b'], floorPlan: 'a' };
+  assert.deepEqual(editPayload({ gallery: ['a', 'b'], floorPlan: 'b' }, {}, original), { floorPlan: 'b' });
+  assert.deepEqual(editPayload({ gallery: ['a', 'b'], floorPlan: 'a' }, {}, original), {});
+});
+
+test('untagging withdraws the plan, but only one the owner could see', () => {
+  assert.deepEqual(editPayload({ gallery: ['a', 'b'], floorPlan: '' }, {},
+    { form: {}, gallery: ['a', 'b'], floorPlan: 'a' }), { floorPlan: '' });
+/* A stored plan that is not one of the photos has no thumbnail to carry the tag, so the blank means "never
+   offered", not "removed": reading it as a withdrawal unpublishes the plan on any unrelated edit. */
+  assert.deepEqual(editPayload({ gallery: ['a', 'b'], floorPlan: '' }, {},
+    { form: {}, gallery: ['a', 'b'], floorPlan: '/floorplans/office.svg' }), {});
+  assert.deepEqual(editPayload({ gallery: ['a', 'b'], floorPlan: 'b' }, {},
+    { form: {}, gallery: ['a', 'b'], floorPlan: '/floorplans/office.svg' }), { floorPlan: 'b' });
+});
+
 test('clearing a saved built-up area is refused rather than silently ignored', () => {
   assert.throws(() => editPayload({}, { builtUp: '' }, { form: { builtUp: '1000' } }), /cannot be cleared/);
 });
@@ -64,7 +83,7 @@ test('supplemental edits retain other saved answers without writing missing defa
 });
 const details = {
   flatNumber: 'C-901', tower: 'North', society: 'Edit Homes', street: 'Baner Road',
-  landmark: 'Near library', ownership: 'freehold', loanAvailable: false,
+  landmark: 'Near library', ownership: 'Freehold', loanAvailable: false,
   agreementDuration: '24', lockIn: '0', noticePeriod: '2', availableFrom: '2027-01-20',
   preferredTenants: ['family', 'bachelors'], petsPolicy: 'no', foodPref: 'veg',
   rentMaintMode: 'extra', possession: 'available', fixtures: [],
@@ -148,18 +167,18 @@ test('rewriting a recovered address stores every part, not just the box that cha
 });
 
 test('land is asked for a project name only when its saved line could not be decomposed', async () => {
-  const { validateStep2 } = await import('../src/pages/consumer/list-property/validation.js');
+  const { validateLocationStep } = await import('../src/pages/consumer/list-property/validation.js');
   const land = { propertyType: 'openplot', deal: 'buy', commercialType: '', locality: 'Baner',
     pincode: '', price: '5000000', possession: 'available', availableFrom: '2027-01-20',
     ownership: 'freehold', flatNumber: '', tower: '', society: '', street: '', societyId: '' };
 
   const undecomposed = { ...land, existingAddress: 'Plot 4, East Block,\nSurvey 42/7' };
-  assert.equal(validateStep2({ ...undecomposed, street: 'New Road' }, undecomposed).society, true);
+  assert.equal(validateLocationStep({ ...undecomposed, street: 'New Road' }, undecomposed).society, true);
   // Boxes that already decompose the line are the owner's own answers; a blank one was never asked for.
   const decomposed = { ...land, existingAddress: 'Survey Road', street: 'Survey Road' };
-  assert.equal(validateStep2({ ...decomposed, street: 'New Road' }, decomposed).society, undefined);
+  assert.equal(validateLocationStep({ ...decomposed, street: 'New Road' }, decomposed).society, undefined);
   // An untouched address is never re-demanded, however the line was stored.
-  assert.deepEqual(validateStep2(undecomposed, undecomposed), {});
+  assert.deepEqual(validateLocationStep(undecomposed, undecomposed), {});
 });
 
 test('a missing age is not silently declared a new building', () => {
@@ -194,13 +213,17 @@ test('legacy missing answers stay blank and search availability is not a calenda
   const form = toEditForm(vm);
   assert.equal(form.existingAddress, vm.address);
   for (const key of ['flatNumber', 'tower', 'society', 'street', 'ownership', 'agreementDuration',
-    'lockIn', 'noticePeriod', 'foodPref', 'petsPolicy', 'availableFrom', 'possession',
+    'lockIn', 'noticePeriod', 'foodPref', 'petsPolicy', 'availableFrom',
     'deposit', 'monthlyMaintenance', 'rentMaintMode', 'furnishing', 'age']) {
     assert.equal(form[key], '', key);
   }
+  // Possession is asked and answered through `construction`; the wizard has no separate box for it.
+  assert.equal(form.construction, 'ready');
+  assert.equal(toEditForm(toViewModel({})).construction, '');
   assert.equal(toEditForm({ area: 950, carpetArea: null }).carpetArea, '950');
-  assert.equal(toEditForm({ construction: 'under' }).age, 'under-construction');
-  assert.equal(toEditForm({ construction: 'under' }).possession, '');
+  // An unbuilt flat has no age. That fact is possession's to state, and the age band stays blank
+  // rather than carrying an 'under-construction' value the age control cannot show.
+  assert.equal(toEditForm({ construction: 'under' }).age, '');
   for (const maintenance of [null, 0, 2500]) {
     const legacy = toEditForm(toViewModel({ deal: 'rent', maintenance }));
     assert.equal(legacy.rentMaintMode, maintenance > 0 ? 'extra' : '');

@@ -34,9 +34,8 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     e.preventDefault();
     if (!isIn) { sendToSignIn('save'); return; }
     savedList.toggle(p.id, p.uuid);
-    /* Saving is the one action on a results card that changes nothing but a small heart's colour,
-       easy to miss mid-scroll with a thumb over it — the tick is the confirmation the visual cannot
-       give. Fired on the tap, not the response: haptics a round trip late read as lag. */
+    /* Saving changes nothing but a small heart's colour, easy to miss with a thumb over it. Fired on the
+       tap, not the response: haptics a round trip late read as lag. */
     haptic('tick');
   };
   const handleCompare = (e) => {
@@ -68,7 +67,8 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const postedByDraazy = !!p.postedByAdmin;
   const posterLabel = postedByDraazy ? 'Draazy' : t('listings.owner');
   const posterIcon = postedByDraazy ? 'shield-check' : 'user';
-  let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : p.bhkNum ? `${p.bhkNum} BHK ${p.type}` : p.type;
+  const bhkLabel = p.bhkNum == null ? '' : p.bhkNum === 0 ? '1 RK' : `${p.bhkNum} BHK`;
+  let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : bhkLabel ? `${bhkLabel} ${p.type}` : p.type;
   if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
   const chips = [];
   if (isRent) {
@@ -132,7 +132,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
               </div>
               <p className="flex items-center gap-1 text-sm text-gray-400 mt-1"><Icon name="map-pin" className="w-3.5 h-3.5 text-teal-400" /> {loc}, {cityLabelFor(p)}</p>
               <div className="flex items-center gap-4 mt-3 text-sm text-gray-300 flex-wrap">
-                {p.bhkNum ? <span className="flex items-center gap-1.5"><Icon name="bed-double" className="w-4 h-4 text-gray-500" /> {p.bhkNum} {t('listings.beds')}</span> : null}
+                {bhkLabel ? <span className="flex items-center gap-1.5"><Icon name="bed-double" className="w-4 h-4 text-gray-500" /> {bhkLabel}</span> : null}
                 {baths ? <span className="flex items-center gap-1.5"><Icon name="bath" className="w-4 h-4 text-gray-500" /> {baths} {t('listings.baths')}</span> : null}
                 <span className="flex items-center gap-1.5"><Icon name="maximize-2" className="w-4 h-4 text-gray-500" /> {(p.area || 0).toLocaleString('en-IN')} {t('listings.sqftDot')}</span>
                 {furn ? <span className="flex items-center gap-1.5"><Icon name="sofa" className="w-4 h-4 text-gray-500" /> {furn}</span> : null}
@@ -226,7 +226,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
             p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null
           ) : (
             <>
-              {p.bhkNum ? <span className="flex items-center gap-1"><Icon name="bed-double" className="w-3.5 h-3.5" /> {p.bhkNum} BHK</span> : null}
+              {bhkLabel ? <span className="flex items-center gap-1"><Icon name="bed-double" className="w-3.5 h-3.5" /> {bhkLabel}</span> : null}
               {baths ? <span className="flex items-center gap-1"><Icon name="bath" className="w-3.5 h-3.5" /> {baths} {t('listings.bath')}</span> : null}
               {p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null}
               {isRent && p.furnishing ? <span className="flex items-center gap-1"><Icon name="sofa" className="w-3.5 h-3.5" /> {FURN_LBL[p.furnishing] || p.furnishing}</span> : null}

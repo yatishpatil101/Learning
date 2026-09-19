@@ -8,14 +8,8 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
   const { t } = useTranslation();
   const count = gallery.length;
   const go = (dir) => setActive((i) => (i + dir + count) % count);
-  /* Mobile only: the photo-request ask is the LAST SLIDE of the carousel rather than a
-     control parked underneath it. A buyer who has swiped to the end of the photos is
-     exactly the buyer who wants more of them, so the ask lands at the moment of interest
-     instead of competing for space with the dot rail. Desktop is untouched — it still has
-     the dashed thumbnail tile at the end of the strip, which is the same idea with room
-     to spare. Kept as local state, not folded into `active`, because `active` also indexes
-     the lightbox and the desktop thumbnails: a count-th value would read `gallery[count]`
-     as undefined there. */
+  /* The photo-request ask is the last SLIDE on mobile: a buyer who swiped to the end is the one who wants
+     more photos. Separate from `active`, which also indexes the lightbox and would read `gallery[count]`. */
   const [ask, setAsk] = useState(false);
   // Swipe navigation for touch devices (mobile): a horizontal drag flips slides.
   const touchX = useRef(null);
@@ -50,15 +44,11 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
             <button type="button" onClick={() => go(1)} aria-label={t('property.nextPhoto')} className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full glass-strong text-white items-center justify-center hover:bg-white/15 transition-smooth"><Icon name="chevron-right" className="w-5 h-5" /></button>
           </>
         ) : null}
-        {/* Same 44px floor as its neighbour opposite, and for the same reason: `py-2`
-            alone leaves this 38px tall over a swipeable photo, so a near-miss pages the
-            carousel instead of opening the tour. It kept its label where the fullscreen
-            button drops one, so only the height was ever short. This went unmeasured for
-            as long as it did because the sweep ran with `videoListings` off and the
-            button never rendered — an assertion that cannot see a control cannot fail
-            on it. */}
+        {/* Hidden below sm: on a phone the hero is full-bleed and swipeable, and this
+            labelled pill covers the photo while sitting directly in the swipe path. The
+            tour stays reachable from sm+ where there is room beside the photo. */}
         {flagEnabled('videoListings') && (
-        <button type="button" onClick={() => setTourOpen(true)} className="absolute top-4 left-4 flex items-center gap-2 min-h-[44px] sm:min-h-0 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
+        <button type="button" onClick={() => setTourOpen(true)} className="absolute top-4 left-4 hidden sm:flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
           <Icon name="video" className="w-4 h-4 text-brand-teal-3" /> {t('property.virtualTour')}
         </button>
         )}
@@ -143,22 +133,8 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
             aria-selected={!ask && i === active}
             aria-label={t('property.goToPhoto', { n: i + 1 })}
             onClick={() => showPhoto(i)}
-            /* min-w-[24px], not padding alone: `px-2` (8px a side) around a `w-1.5`
-               (6px) dot measures 22px, two short of the 24px WCAG 2.5.8 floor this
-               rail is documented to meet — while the *active* dot is `w-5` and
-               measures 36px. Padding cannot fix both at once because the dot width
-               changes with state. A min-width pins the floor for every state and
-               leaves the active pill alone.
-
-               data-tap-exempt because 24px is the deliberate figure here, not an
-               oversight, and the mobile sweep otherwise holds this app to 44. The
-               2.5.8 spacing exception is what carries it: neighbouring dots are
-               24px wide and flush, so adjacent centres are 24px apart and the 24px
-               circle centred on each target touches no other. Swiping the photo
-               itself is the primary way through the gallery; the rail is an
-               indicator that happens to be tappable. Widening it to 44 would push
-               adjacent centres to 44px and the row would stop reading as one
-               indicator — a look-and-feel call, not a mechanical fix. */
+            /* min-width, not padding: the dot width changes with state, so only a floor pins every state at
+               the 24px WCAG 2.5.8 target. Exempt from the 44px sweep — 2.5.8 spacing carries it deliberately. */
             data-tap-exempt
             className="shrink-0 inline-flex min-w-[24px] items-center justify-center h-11 px-2"
           >
