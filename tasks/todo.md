@@ -21,6 +21,426 @@ Where things live:
 
 ## In flight
 
+### Property detail — mobile density pass
+
+Mobile-only (`<640px`). Desktop is untouched **by construction**: every rule lands inside
+`@media (max-width: 639.98px)`, and the JSX diff is class hooks plus one `sm:` guard — no DOM
+moves, so the ~20 `consumer/property/live-*` specs keep their selectors.
+
+Above-the-fold contract, in mobile paint order: hero (price overlaid, already there) → trust
+strip → title → locality → the two decision figures (price/sq.ft, deposit-or-EMI) → zero-brokerage
+→ posted/freshness. Demoted below the collapse cards via CSS `order`, same technique as the
+2026-08-01 home featured-first pass: views, shortlisted, quality score, live-activity — social
+proof, not decision facts.
+
+Enclosure depth on mobile is capped at one. The stat grid, the two `MobileCollapse` interiors and
+the `.detail-card`/`.amenity-card`/`.highlight-pill` grids lose their per-item surface and become
+hairline-separated ledgers. `.tag-strip` already reads as one tile with flat chips inside — left alone.
+
+`HScroll` scrolled on both axes (`overflow-x: auto` forces `overflow-y: auto`; `.dz-detail-tab`'s
+`margin-bottom: -1px` supplies the range). Locked under `@media (pointer: coarse) and
+(max-width: 639.98px)`, with a `data-axis-free` opt-out. All three conditions are load-bearing:
+coarse so the active tab's underline cannot clip for a mouse user; the width so the rails carrying
+an `sm:`/`md:overflow-visible` escape hatch are not clipped on a tablet; the opt-out for `Tabs.jsx`,
+which deliberately stops being a scroll container below `sm` and would be dragged back into one,
+because `overflow-x: visible` beside `overflow-y: hidden` computes to `auto`. `touch-action: pan-x`
+was rejected — it makes the browser discard vertical gestures starting on the rail instead of
+passing them to the page.
+
+Reviewed by `react-reviewer` then `code-reviewer`; `code-simplifier` after. Fixed from that pass:
+the unscoped `pointer: coarse` rule above; a `[data-tip]:focus-visible` override broad enough to
+square the `rounded-full` tag chips it was written to protect; a `scrollHeight` assertion that
+could not be sound (an `overflow: hidden` box is still a scroll container and still reports its
+overflow region — the claim is `overflowY === 'hidden'`); a fold assertion that depended on the
+seed's photo count rather than on the neighbour `order` actually moves it past; the Assured
+report button, ~34px and invisible to the tap sweep because it sits in a collapsed panel.
+
+Deferred, deliberately:
+
+- **The block stays in `index.css` (Tier 2), against the route-CSS rule in
+  `docs/system/design-system.md`.** There is no `styles/routes/property.css`, and ~400 lines of
+  property CSS — `.detail-card`, `.tag-strip`, `.dz-detail-tab`, the lightbox — are already here.
+  A new route file holding only the 90 new lines would split the cascade for the same selectors
+  across two files and make the override order a thing to reason about. The extraction is worth
+  doing whole or not at all.
+- **The `-1px` underline overhang is the root cause and survives.** Putting the hairline on the
+  container instead would fix the wobble at source with a one-selector blast radius, but it is a
+  desktop-visible change and this pass is mobile-only.
+- **A focusable rail item with no vertical padding can clip its `focus-visible:ring-2` on a
+  phone** (`dashboard/OverviewPanel.jsx`). Pre-existing shape, newly reachable.
+- **`live-tap-targets.spec.js` does not sweep `div[tabindex="0"][data-tip]` tiles.** Widening `SEL`
+  is the right fix and has unknown fallout across every route in `ROUTES`; its own change.
+
+Verification note (2026-09-18): `live-detail-sale.spec.js`'s earlier desktop red was an
+`ECONNREFUSED` artifact from running the suite through the local backend on port 8080; Playwright's
+default `API_PORT` is 8081. The new density spec scopes the section rail as
+`[role="tablist"]:has(.dz-detail-tab)`, since a second panel tablist makes the generic role locator
+strict-mode ambiguous. The full mobile run had 426 passes and 10 failures; four distinct failures
+reproduced with this task's five source files reset to `HEAD`, while the fifth was a filter-FAB
+timeout that did not reproduce in that control run. The final density spec passed at both mobile
+viewports (8/8), and independent HScroll-consumer spot checks (dashboard, services, notifications)
+passed 15/15. The desktop property suite reached 103/106; its three unrelated reds are commercial
+fit-out copy and two sign-in-gate navigation timeouts. The 390px before/after capture is in
+`e2e/shots/`: fold, complete page, header, and each section exposed by the detail tab strip.
+
+### Commercial listings — field set and required/optional rules
+
+Code, gates and Playwright are green on the services lane.
+
+Shipped: commercial answers (`shellType`, `washrooms`, `camCharges`, `suitableFor`, `fixtures`,
+`powerBackup`, `pantry`) plus `lockIn`/`noticePeriod` now reach the wire through
+`PropertyResponse.Commercial` and `toViewModel`, so the detail page renders the owner's own fit-out
+instead of falling through to the `COMMERCIAL_INVENTORY.semi` tier (that table is deleted).
+Maintenance collapsed to CAM per sq.ft. Carpet area is the only area a commercial listing states.
+Profile-scoped fields added (GST, fit-out months, escalation, tenancy/in-place rent/lease expiry,
+seat count, frontage, floor load, clear height, sanctioned power, dock count). `shellType` is
+required; `isTowered()` no longer forces floor/totalFloors on a standalone asset; industrial is
+exempt from flat number and project. Server enums mirror `constants.js`; `commercialType` is an
+edit-rules re-moderation trigger. Co-working is withdrawn from the wizard but still accepted on
+read/write so live listings stay editable.
+
+Verified live: `required-fields.spec.js` 14/14 (seven of them commercial, including a rent listing
+read back off its own detail page and a leased sale read back off `/me/listings`), and
+`types.spec.js` 17/17 after its shared commercial walk learned to answer the now-required fit-out
+and its address fill became presence-driven rather than keyed to a list of type labels. The three
+`e2e/COVERAGE.md` rows are `✅`.
+
+Review passes: `code-reviewer` found that the industrial exemption was only half-shipped — the step
+advanced without a unit number or a project, while the labels still carried the required asterisk,
+so the wizard said one thing and did another. Fixed with two asterisk-free label keys and a
+`commercialProfileOf` branch in `LocationStep.jsx`. `security-reviewer` found three worth taking:
+`propertyType` is now `@Size(max = 80)` on both DTOs so the label regex cannot be fed an unbounded
+body, `camCharges` joined `DECIMALS` (it is a money rate that reaches the public page and was
+accepting any 80-char text), and `commercialTypeChanged` dropped its `incoming != null` guard —
+`formDetails` is written by replacement, not merge, so a PATCH that merely omits the key was
+deleting an approved subtype with no re-review. `code-simplifier` trimmed comments to the claim the
+code cannot carry, cut `TYPE_CONFIG.commercial.subtypes` (no readers, and it pointed at the
+co-working-free list while the picker went through `commercialSubtypeOptions`), and had
+`LocationStep.jsx` import the validator's own `isIndustrial` so the asterisk cannot drift from the
+rule it advertises.
+
+The sub-type, not the word "Commercial", now decides which questions exist. `commercialProfileOf`
+returned `'workspace'` unconditionally, so office fixtures, office photo categories and the office
+amenity list were on screen before any sub-type was picked, and a warehouse owner was offered
+Clinic and Gym/Studio; it returns `null` until a sub-type exists and every profile-scoped block is
+gated on that. `suitableForFor` partitions the server's existing eight enum values by profile —
+inventing a label would be a 422. `changeCommercialType` resets fixtures, `suitableFor`, amenities,
+`pantry` and the profile-scoped specs and re-tags staged photos to `Other`; nothing reset before, so
+Office → Warehouse published a Server Room the form could no longer unpick. `age` joins
+`TYPE_SPECIFIC_KEYS` and leaves the commercial branch (`shellType` is the fit-out date being
+priced). The `powerBackup` toggle is deleted — Power Backup is already an amenity in all three
+profile lists — with every read path kept so legacy rows round-trip. Parking is pills on both
+branches, and the deposit shortcut offers 3 / 4 months for commercial.
+
+Two of the brief's premises were false and are recorded here rather than acted on: all five
+"unrendered" commercial fields do reach a consumer surface in live mode (`RentDetails.jsx`,
+`PriceInsights.jsx:95`, `useProperty.js:133,210`), so the progress meter keeps scoring them and
+`fixtures` was added to match residential `furniture`; and `fixtures` was already in
+`TYPE_SPECIFIC_KEYS` — `age` was the key actually missing.
+
+**Open:**
+- **Not ours, but real:** `layout.spec.js` › `Flat/Unit No and Wing/Block share one line on desktop`
+  fails (84px apart; mobile passes). Locality was folded into the same `sm:grid-cols-2` grid, so the
+  pair that `sm:contents` was meant to keep adjacent now straddles a row boundary. The test body and
+  the markup are both byte-identical to HEAD, and this branch's hunks in that spec are nowhere near
+  it. Either give the unit/wing wrapper its own row or take locality back out of the grid.
+- **Not ours, but real:** two residential walks click **Submit Property** and nothing happens — no
+  toast, no dialog, no request, the button still reading "Submit Property" on step 4 with the photo
+  labels correctly applied. `required-fields.spec.js` › `possession is an unanswered required
+  choice` and `rent-maintenance.spec.js` › `Rent "Charged Extra" maintenance amount is saved`, both
+  reproducible in isolation. A silent no-op submit is `submitProperty`'s own
+  `if (!editReady || posting || media.isMediaProcessing()) return` — the media queue is still busy
+  from the document/photo upload one line above. The helper waits on `aria-busy` for photos but the
+  `.doc-upload` set has no settle wait at all. Either extend the wait to documents or make the
+  guard say why it refused.
+
+Maintenance / CAM moved from step 1 to the Price step, taking the slot its residential counterpart
+(`monthlyMaintenance` on sale, `maintenanceCharges` on rent) occupies — one recurring cost asked on
+one screen whatever the vocabulary names it, and one `CamCharges` component so the two branches
+cannot drift. **Suitable For** takes the left column on step 1 and the profile's own measurement
+fills the half CAM vacated. The deposit shortcut drops to 3 / 4 months. **Let room by room** is
+now residential-only: `canSplitIntoRooms` asked `deal === 'rent'` and nothing about the property,
+and the post-success nudge duplicated that half-answer inline, so a shop, a godown and an open plot
+were all offered it on the dashboard card and after publishing. Both sites route through the one
+predicate now. `SEARCH_TYPES.flat` gained the `apartment` token in the same change — `ALIASES`
+already declared `apartment → flat` and the server's `property_type_key` column classifies
+`LIKE '%apartment%'` as a flat, but `matchTypeKey` did not, so a listing stored as "Apartment" was
+absent from its own Flat chip and would have been refused the split.
+
+The desk collects the same commercial answers as the consumer wizard — the question at the bottom of
+this entry is answered "yes". `AdminPostOnBehalf.jsx` and `post-on-behalf/WizardSteps.jsx` gained the
+12 profile-scoped fields, the lease vocabularies (`agreementDuration`/`lockIn`/`noticePeriod`, reset
+on a commercial crossing), profile-gated `suitableFor`, and a rent-branch maintenance
+included/extra — the desk's own Power Backup checkbox went with the consumer one. Two real defects
+fell out: `tenants` was submitted comma-joined where the DTO declares `List<String>`, which 400s the
+whole document before any validator runs, and `transactionType` was collected by **both** wizards and
+stored by **neither**, because the key was absent from `DETAIL_KEYS` — the client was censoring its
+own answer, silently, with no 422 and no log.
+
+That last one is the durable finding. `formDetails` is free-form JSONB in the spec, so its allowlist
+is hand-written twice and the 16 `ListingFormDetailsTest` cases were all green while the key was
+being dropped: every one asks "does the server handle this key correctly", none asks "do the two
+tables hold the same keys", and a per-member test can never see a missing member. `check:enums` now
+scans the Java `Set.of` blocks and asserts set equality against the exported `DETAIL_KEYS`, with a
+`> 40` blindness guard so a refactor that defeats the scanner goes red rather than vacuously green;
+mutation-checked by deleting `rentMaintMode` from the Java table. Row added to `e2e/COVERAGE.md`.
+
+Review passes: `security-reviewer` found no CRITICAL or HIGH and three worth taking — `decimal()`
+now repairs a leading dot (`toDecimal` emits `.5`, which the server regex refuses with a 422 naming
+no field), both uncapped money inputs are bounded at the server's nine digits (`inPlaceRent` by
+slicing digits in `onChange`, since `money()` renders separators and a `maxLength` would truncate at
+about six), and the catch comment no longer claims a `formDetails` 422 names its field. Left alone
+and worth a ruling: the desk autosaves the whole form, `ownerName`/`ownerMobile`/`ownerNotes`
+included, to `localStorage` on every keystroke and clears it only on a successful submit — age it out
+on `savedAt` and drop `ownerNotes`. `code-simplifier` merged duplicated `format.js` imports, cut
+three redundantly-recomputed predicates and a dead `isCommercialType` re-export; its fourth finding
+(dropping the unused `useAuth`) was declined as not zero-diff — it removes an `AuthContext`
+subscription. `post-on-behalf.spec.js` 18/18 after all of it.
+
+Sub-type scoping then reached the desk, and doing it surfaced the durable finding of this pass: a
+transition-time reset is not a boundary. `resumeDraft` restores a saved form verbatim, so every
+`set()` cascade the desk relies on is bypassed by the one path most likely to carry stale keys —
+a draft authored before the rules changed. Both wizards now filter at the **serialization**
+boundary, keyed on property kind and commercial profile, in addition to resetting on transition:
+`submit.js` strips the residential detail keys from a commercial document and the commercial ones
+otherwise, gates `furnishing`/`pets`/`food`/`tenants`/`furniture` on `isResidentialType`, and
+re-checks the staged documents against `docsFor` immediately before the upload loop — without that
+last one a Shop Act licence staged under Retail was uploaded to a warehouse's vault, silently, with
+no confirmation. `editPayload.js` replaces `formDetails` outright when `propertyType` changed rather
+than merging onto the original, so a kind change cannot leave the previous kind's answers behind.
+`AdminPostOnBehalf.jsx` carries the same boundary plus two explicit legacy migrations — a
+`powerBackup: true` draft becomes the `Power Backup` amenity instead of being dropped, and
+`possession: 'available'` (a retired label `writePossession` throws on) maps to `ready` — and
+`handleSubmit` now revalidates steps 1–4 rather than the current one, which is what closed the
+resumed-draft bypass. Desk UI followed the consumer: profile-gated `Suitable For`/`Fixtures`,
+Age/Furnishing hidden for non-home, parking pills, and `pantry` only on the workspace profile.
+`DEPOSIT_MONTHS` moved into the consumer canon and is re-exported to the desk, which had been
+answering the same question with a different table — 6 / 12 months on a commercial rent against the
+consumer's 3 / 4, and a flat 1 / 2 / 3 for everything else, so a plot was offered a month's rent
+where the consumer offers half a year. One three-way table now, because two market norms quoted to
+the same owner for the same property is the drift the shared-constants barrel exists to prevent. Regression test added to `post-property-sync.spec.js`
+asserting the two constants modules agree on profile options and that `INITIAL_FORM` no longer
+carries `powerBackup`; `e2e/COVERAGE.md` row flipped to `✅`. Review loop ran to `APPROVE` with no
+Critical or High.
+
+
+### Open Plot and Farm Land — right fields per flow
+
+Code and gates green; `land-listing.spec.js` 4/4 on the services lane.
+
+The chosen area unit now renders wherever the area does. `fmtArea(area, unit)` and `isSqftUnit(unit)`
+live in `lib/format.js` and are read by the detail page, `MapDetailPanel`, `PropertyMap`, `Compare`
+and the admin listing facts; a 2-acre farm no longer reads "2 sq.ft." Every ₹-per-unit caption is
+gated on `isSqftUnit` — dividing a price by an acreage and captioning it "per sq.ft." is a wrong
+number, not a rounding one — and `Compare` names no winner on the area row when the items do not
+share a unit. The `listings/format.js` sq.ft.-only helper was renamed `fmtAreaSqft` so an
+auto-import cannot put it where the unit-aware one belongs.
+
+The twelve land answers were promoted onto the public wire the way `lockIn`/`noticePeriod` were for
+commercial — `PropertyResponse.Land` + `PropertyMapper.toLand` + a `...(p.land ?? {})` spread in
+`propertyMapper.js` — so the buyer sees the zoning, dimensions, road width, open sides, water source
+and the six yes/no facts they actually decide on. `useProperty.js` no longer reads `p.form`, which is
+a mock-only field the live mapper never emitted; the land Key Details, the zone chip and the
+overview blurb all read the promoted fields, and unanswered rows are filtered out rather than shown
+as dashes.
+
+`properties.land_use` is written for the first time. The column, its CHECK and the whole filter chain
+(HeroSearch → filtersPanel → facetQuery → `PropertySpecs:263`) already existed; nothing ever set it,
+so no wizard-posted plot could match the Land-use filter. `landUse` is now on `ListingCreate` and
+`ListingUpdate`, validated against `catalog/property/LandUse`, mapped from `plotZone` by
+`landUseFor()` on both the consumer wizard and the desk, and defaulted to `agricultural` for farm
+land (which is never asked its zone). `plotZone` joined the `ENUMS` table in `ListingFormDetails` —
+it was accepting any 80-char string into a column whose only consumer is a five-value CHECK.
+`ListingUpdate` also gained `clearLandUse`, because an omitted key means "leave it alone" and the
+column admits no blank, so without a word for it a plot re-typed to a flat keeps its zoning and goes
+on answering the one filter the column exists for.
+
+Facing is asked for land (overlooking and age stay hidden) — the detail page always had a Facing row
+for a plot and it was a permanent dash, and facing is a real price driver for a Pune plot.
+`progress.js` scores it on every type now. Land rentals got their own lease vocabulary: 1/3/5/9/10
+years and "long lease", a 0–36-month lock-in, 1/3/6-month notice and 6/12-month deposit shortcuts,
+because a land lease is not an 11-month tenancy. `PricingStep` reads all three vocabularies from one
+`LEASE_TERMS` table rather than branching on `commercial` alone.
+
+The new spec drives the API rather than the wizard and covers plot and farm in both deals: the unit
+label renders, no `/ sq.ft` caption appears on a non-sq.ft. listing, the promoted facts are on the
+page, and the posted plot comes back from `/listings?landuse=…`. Row added to `e2e/COVERAGE.md`.
+
+OPEN — nothing server-side ties `plotZone` to `landUse`. The translation is the client's
+(`landUseFor`), so a hand-rolled request can state `plotZone: "Agricultural"` alongside
+`landUse: "residential"` and both pass their own validators. `check:enums` section 6 now pins the
+drift half of this — every zone the wizard offers translates into a value the contract accepts, and
+every option the Land-use filter shows is reachable from some zone — but the contradiction itself is
+only refusable server-side, and `@CoherentDimensions` is about arithmetic between numbers, not about
+a `formDetails` string agreeing with a column. Either the server derives `landUse` from `plotZone`
+and stops accepting it from the client, or the rule grows a non-numeric arm. Not decided.
+
+### Open Plot and Farm Land — the Maharashtra answers a buyer cannot proceed without
+
+Land was the one flow where every land-specific field was optional and the defaults were wrong.
+Three title questions are now required on step 1: `naStatus` (agricultural / deemed / sanctioned),
+`otherRights` (the 7/12 other-rights column — clear, mortgage, tenancy, minor, dispute, unknown) and,
+for farm land offered for sale only, `buyerEligibility`. The retired booleans `naSanctioned` and
+`satbara` are read on edit-load and on the detail page purely as a legacy fallback, never written.
+Farm land defaults to `guntha` and a plot to `sq.ft.`, with the area range keyed to the chosen unit;
+`progress.js` no longer scores `areaUnit`, because a pre-filled default was counting as answered.
+Claiming NA now requires the NA Order document on step 3 and auto-opens the records panel that holds
+it. Farm-for-sale carries the four sale restrictions (agriculturist, tribal, ceiling, fragmentation)
+and farm-for-rent carries the Kul tenancy-risk disclosure. `plotZone` gained the eight Zone
+Certificate labels, with the four bare ones kept for listings already published against them. Both
+wizards enforce the same three requirements — consumer and the ops desk.
+
+The three keys needed **five** edits to reach the page, not the one the write allowlist suggests:
+`ListingFormDetails` (write), `draazy-api.yaml` twice, `listingFormDetails.js` — and then
+`PropertyResponse.Land` + `PropertyMapper.LAND_KEYS` + `toLand`, a separate **read** projection that
+the hand-written OpenAPI already described, which is why the gap was invisible until a detail-page
+assertion went looking for a row that was saved and rendered nowhere.
+
+Verified live: `land-requirements.spec.js` 8/8 and `land-listing.spec.js` 6/6 on the
+services lane. Row added to `e2e/COVERAGE.md`.
+
+Neighbouring specs were swept afterwards. `types.spec.js` owed two repairs, both ours: its shared
+`toLocation` walk answers the three new gates presence-driven (a helper that cannot leave step 1
+fails every test downstream of it, in a file none of them own), and its farm-land document test
+asserted the NA Order slot was *absent* — the opposite of what this task deliberately made true.
+The NA Order slot sits inside the collapsed records panel, so that assertion has to follow the
+`<details>` click, not precede it. Land tests there are 5/5. The rest of that file's failures
+belong to the document-picker slice below.
+
+### Open Plot and Farm Land — the minimum a parcel is genuinely able to state
+
+The land wizard was already the shortest in the product, so the remaining effort was not length: it
+was one hard block, two questions asked in a built property's vocabulary, and stale values surviving
+a type switch.
+
+- **Project / layout name is no longer demanded of land.** `validateLocationStep` required
+  `flatNumber` + `society` whenever the stored address could not be decomposed — a farm on a gat
+  number cannot answer it and a plot resold out of a 1990s layout usually cannot either. Commercial
+  already had exactly this relief through `isIndustrial`; land now shares the same guard, so the
+  unit/project pair is asked only where a unit and a project exist. `progress.js` stops scoring
+  `society` for land, and the `legacyLandAddress` string in all three locales dropped its now-false
+  "including the project/layout name" clause.
+- **A farm is not asked for length × width in feet.** The pair implies a rectangle an irregular
+  parcel does not have, and it sat beside an area the owner gave in guntha or acre. Suppressed in
+  `PropertyDetailsWhole.jsx` and in `progress.js` for `isFarm` only; `roadWidth` stays, because
+  width of access prices both types.
+- **`construction` is cleared on a switch into a land type.** It was not in `TYPE_SPECIFIC_KEYS`
+  (every non-land type asks it), so a flat's possession answer survived into a plot and published a
+  claim the land form renders no control for. `age` was already cleared by that list and `facing` is
+  a real land field, so only this one leaked. This is the leak `isPreCompletion`'s land exclusion
+  exists to *survive* rather than to fix — the exclusion stays.
+- **The strength meter no longer docks a land sale for a missing MahaRERA number.** MahaRERA
+  registers the layout, not the individual NA plot an owner resells, and the field is optional for
+  land in the wizard — scoring it made an honest listing look incomplete.
+- **`toEditForm` names land area explicitly.** `carpetArea: land ? vm.area : (vm.carpetArea ?? vm.area)`.
+  A plot has no carpet figure, and its parcel is posted only as `area` in its own unit, so the
+  round-trip no longer rests on a fallback that exists for legacy rows.
+
+Two of the brief's items needed no change and are recorded here so they are not re-opened:
+`progress.js` has no `areaUnit` row (removed earlier in this file), and `PricingStep.jsx` gates the
+collapsed "Standard terms" summary on `leaseKind === 'residential'`, so a land rental already shows
+agreement / lock-in / notice as three controls.
+
+New spec `consumer/list-property/land-minimum.spec.js` drives all four claims through the
+wizard rather than the API, because the claim is about what the form *lets an owner submit*; the
+wire shape of a published parcel stays with `consumer/property/land-listing`. Row added to
+`e2e/COVERAGE.md`, and the suite-size table there was re-derived from the tree — every row had
+drifted (285 → 303 files), which the file's own note says is not maintained by hand.
+
+Verified live: `land-minimum` 7/7, and the six neighbouring list-property specs 61/63. One of
+the two failures was ours by inheritance and is fixed; the other is the pre-existing commercial
+drift already recorded below.
+
+`required-fields.spec.js:206` — `switching a pre-completion flat to land does not strand the owner
+on the pricing step` timed out on `.gm-style`, which reads as a map flake and was not: the a11y
+snapshot showed the page still on **Property details** with `NA Status *` and `Other Rights (7/12) *`
+alerts. The land-requirements slice made both mandatory and swept `types.spec.js` but not this file,
+so the walk could not leave step 1 and the location step never mounted. The test also opened with a
+comment asserting that a type change does *not* clear `construction` — true when it was written and
+false as of this task. Both repaired: the two answers are supplied after the switch, and the comment
+now states that the wizard clears the value while the validator's land exclusion remains the backstop
+for a listing saved before the reset.
+
+Review raised four things left deliberately undone, recorded so they are not mistaken for oversights:
+
+- **A land owner replacing an undecomposable legacy line can now shorten it.** The old rule demanded
+  `society` in exactly that case (`(!land || undecomposed)`), which *is* the project/layout block the
+  brief asked to remove — so its cost comes with it: fill only `street` and `forTheWire` composes
+  `"Sus Road"` over the line the server held. Accepted, not hidden: the banner now says plainly that
+  filling the boxes replaces the address, and locality and pincode are stored apart from it. Revisit
+  only with a rule that does not ask for a name the owner does not have.
+- **Other keys still leak into a land form on a type switch** — `amenities` (a plot can publish "Lift,
+  Gym" it cannot see, while the sibling `changeCommercialType` resets it), `floor`, `totalFloors`,
+  `builtUp`, `superBuiltUp`, and photo categories the land picker cannot offer. Real, but the brief
+  named `construction` and `age`; clearing the rest changes what several other types publish and
+  wants its own spec.
+- **`toEditForm` has no land guard on `construction`**, so an *edit* load can still re-hydrate a
+  possession token onto a parcel. Unproven that any stored land row carries one.
+- **A farm published before this change keeps `plotLength`/`plotWidth`** with no control left to
+  clear them, and the detail page still renders the dimensions.
+
+### The wizard's document slots drifted away from three specs — ONE FIXED, TWO OPEN
+`badgeDocsFor` now opens with `Electricity Bill`, carrying `originalPdf: true`, so that slot accepts
+only the original MSEDCL PDF. Any spec that reaches for `.doc-upload input` with `.first()` and
+hands it an image is refused at the picker, stages nothing, and never posts. `Ownership Proof` is
+no longer a wizard slot at all — it survives only as a dashboard-vault and rent-agreement category.
+
+- `property-integration.spec.js:233` (D219) — FIXED here: the upload is now addressed to
+  `[data-err="Property Tax Receipt"]`, the other half of the same badge, which accepts a photo, and
+  the assertion names that category. Re-run green.
+- `upload-policy.spec.js:299` — OPEN. Expects a `.dz-field-error` naming a signed PDF; the
+  guidance keys (`PDF_GUIDANCE_KEY`, `DOCUMENT_GUIDANCE_KEY`) were removed from
+  `PropertyDocumentUploads.jsx` in the uncommitted document-card rework. Belongs to that slice.
+- `fees-and-photos.spec.js:180` — OPEN and unrelated to documents: the `/pricing` FAQ answer
+  hardcodes "Owner Plus is ₹2,499 per year and Owner Pro is ₹4,999 per year" while the test seeds
+  ₹999 and asserts the page quotes the database. Product copy drift, owned by the pricing slice.
+
+### `seam-write.spec.js` never sees an uploaded photo — PRE-EXISTING
+
+All six tests fail at `postAFlat` (`seam-write.spec.js:109`) waiting for `[data-err="photos"] img`;
+the wizard walk through steps 1-2 succeeds, so this is the uncommitted photo-upload slice
+(`PhotoUploader.jsx`, `useListingMedia.js`, `photoProvider.js`, backend `MePhotosController`), not
+the coordinate slice. `custom-features.spec.js` — which walks the same two steps and stops before
+the uploader — passes.
+
+### Editing a listing with no coordinates crashes step 2 — PRE-EXISTING
+
+`edit-policy.spec.js:140` ("a price edit is re-checked but the banner promises the listing
+stays live") dies on the wizard's error boundary: `<gmp-advanced-marker>: Cannot set property
+"position" … in property lat:`. `toEditForm` writes `propLat: vm.lat ?? ''`
+(`services/providers/http/propertyMapper.js:247`), the API-seeded listing behind
+`ownerWithLiveListing` carries no coordinates, and `LocationPicker` is handed `''` unconditionally
+(`LocationPricingStep.jsx:66`). Attributed by shelving the three coordinate-persistence files and
+re-running: it fails either way — with them it crashes before the price input mounts, without them
+the input mounts and is detached mid-`fill`. The fix belongs with the map component (refuse to
+place a marker until both coordinates are finite), not with the draft slice.
+
+### `edit-prefill.spec.js` seeds a document category the wizard no longer offers — PRE-EXISTING
+
+Six tests fail on `[data-err="Ownership Proof"] .doc-name` not existing. The uncommitted
+document-picker slice renamed the rent badge documents to `Electricity Bill` / `Property Tax
+Receipt` (`list-property/constants.js:79-81`); `Ownership Proof` is gone from `docsFor`, so the
+slot the spec seeds into is never rendered. Same slice and same shape as the `types.spec.js:254`
+row below. Nothing in the coordinate-persistence slice touches documents.
+
+### `types.spec.js:254` expects a removed land-document label — PRE-EXISTING
+
+The focused chromium suite passed the new society debounce assertion but failed `Land offers the
+7/12 Extract as its ownership proof, not Index II`: the existing uncommitted test edit expects
+`Registered Sale Deed`, while the rendered optional-documents panel does not contain it. This
+slice did not change the document picker. Restore the correct UI label or its assertion before
+counting the whole suite green.
+
+### `upload-policy.spec.js` signed-PDF refusal returns no error — PRE-EXISTING
+
+`rejects signed, malformed and still-oversized PDFs with actionable errors` reads `.error` as
+`undefined` for the `/Sig`-bearing fixture, so `prepareUpload` is resolving where it should refuse.
+Attributed by stashing the photo-compression slice (`image.worker.js` + this spec) and re-running
+the single test on the unmodified tree: identical failure, three repeats each. Nothing in that
+slice touches `pdf.worker.js` or `prepareUpload.js`. Observed on a frontend-only lane (backend
+down), which is not the spec's normal lane, so confirm against a live run before chasing it —
+`live-seam-write` asserts the byte-for-byte half of the same guarantee and is the better witness.
+
 ### `improvements.spec.js:43` "Re-send" contains "Send" — PRE-EXISTING
 
 `sign-up offers exactly one primary action at a time` ends by asserting
@@ -51,6 +471,25 @@ Receipt / Index II) and did not update the spec, which still seeds and asserts `
 Confirmed unrelated to the listing-docs copy slice. Fix is to re-point `expectDocument` and its
 seeds at a category `docsFor` still renders.
 
+### `edit-prefill.spec.js:491` posts no commercial keys on a residential listing — NOT MINE
+
+`create through the rental wizard persists exact answers and decimal areas for a fresh edit reload`
+fails at `expect(body.formDetails).toEqual(details)` with nineteen keys missing — every commercial
+one (`camCharges`, `clearHeight`, `commercialType`, `dockCount`, `escalationPct`, `fitOutMonths`,
+`fixtures`, `floorLoad`, `frontage`, `gstOnRent`, `inPlaceRent`, `leaseExpiry`, `pantry`) that the
+spec expects present-and-empty on a **Flat**. The cause is the commercial slice's uncommitted
+`formDetailsForPropertyType` in `list-property/submit.js`, which now scopes `formDetails` by
+property type and strips `COMMERCIAL_DETAIL_KEYS` from a residential post — exactly and only the
+observed diff. Neither the function nor `COMMERCIAL_DETAIL_KEYS` exists at HEAD, and the land slice's
+sole line in that file (`landUse:`) sits in hunk `@@ -226,0 +258 @@`, nineteen lines-worth away from
+the scoping block at `@@ -28,0 +29,19 @@`. The spec should stop asserting empty commercial answers
+on a residential listing; that call belongs to the commercial slice.
+
+The other two `edit-prefill` failures in the same run (`:231` sale reload, `:307` legacy address)
+are **flaky, not real** — both are 15s `locator` timeouts on a wizard that had rendered, and all
+three re-runs pass in isolation (`-Grep 'saved proof without verification|postcode, date or
+ownership'` → 3 passed).
+
 ### `npm run check:listing` is red on three backend checks — PRE-EXISTING
 
 `ListingService.update` no longer reverts to pending on an off-search foundation change, no longer
@@ -58,6 +497,83 @@ queues a re-check unconditionally for stays-live fields, and `updateAsModerator`
 both. The checker refuses to be relaxed (D76/Q14): the owner-facing edit banner and the server
 disagree about what a re-review costs. Confirmed unrelated to the listing-docs copy slice, which
 touches no backend file.
+
+### `ListingSearchTest.emptyTenantsMatchesNoFilter` is red — NOT MINE, needs a ruling
+
+An uncommitted working-tree edit to `PropertySpecs.java` swapped the tenants facet from `anyJson` to
+a new `anyJsonOrNoPreference`, which deliberately admits listings that stated **no** tenant
+preference (`null` / empty array / `"anyone"`). `ListingSearchTest` is the only written contract for
+that facet and it argues the opposite in a comment: *"admitting it would put an owner who never
+answered in front of a seeker who asked a specific question."* No test defends the new inclusive
+behaviour. The same commit's `petsAllowed` comment takes the exclusive stance for pets — *"to a
+tenant with a dog 'unstated' and 'no' are the same"* — so the two facets now disagree with each
+other. Left untouched: it is in-flight V95 facet work from another slice and picking a side silently
+would either strand that work or ship an unasserted product change. **Decide which facet rule is
+right, then fix whichever side is wrong.** The gendered-bachelor broadening in the same hunk
+(`bachelor-male`/`bachelor-female` also matching the legacy `bachelors`) is unrelated and looks sound.
+
+### `post-property-sync.spec.js:79` approves its own on-behalf listing — NOT MINE
+
+`PATCH /properties/{id}/status` answers 403 "You cannot approve or review your own listing". The
+cause is the uncommitted `PropertyLifecycle.requireChecker`, which now refuses a checker who is
+either the owner **or** `postedByStaff`. The test posts through the desk as `ACTORS.admin` and then
+approves as the same admin, so the second clause fires — correctly, by the new guard's own intent.
+Not an authorization regression: a PATCH against a nonexistent id still returns 404, so
+`@PreAuthorize(PROPERTIES_WRITE)` passes and the refusal is the business rule. The other four tests
+in the file pass, including the taxonomy drift guard this slice edited. Fix is for the moderation
+slice to decide: either approve as a second staff actor here, or exempt on-behalf listings from the
+`postedByStaff` clause — the desk filing a listing is not the same conflict of interest as a
+staffer approving a home they own. **Do not re-point the spec while that guard is in flight.**
+
+### Approval no longer demands current ownership evidence — DECISION, overrule if wrong
+
+Cluster 1's `ApprovalGate` was written to require both a fully ticked checklist **and** unexpired
+ownership evidence. The second half was removed: `OwnershipGate` already grants the ownership badge
+against exactly that evidence set, and a badge every approved listing necessarily carries
+distinguishes nothing. A listing can be genuine, checked and publishable while its registry extract
+is still being chased — the badge is how the site says so. Requiring registry extracts before any
+sale approval would be an operational product change nobody asked for. Rationale is in the class
+javadoc; say so if you want the stricter rule instead.
+
+### `images` has no minimum on create or update — DECISION
+
+`ListingGalleryPolicyTest` pins `0` as a legal gallery size (`@ValueSource(ints = {0, 10})`), and on
+PATCH an empty list is the only way an owner can clear a gallery — a floor would turn that into a
+422 with no other way to say it. "Not enough photographs to sell this" is judged by the reviewer's
+checklist, which is where a human is already looking at the listing.
+
+### The two approve routes stay separate, but the record now says which ran — DECISION
+
+A listing can be approved from the verification desk (`POST .../verification/decision`, refused by
+`ApprovalGate` until every checklist line is ticked) or from the moderation queue
+(`PATCH .../status`, which the console uses for both single-row and bulk approve and which
+deliberately never opens the case file — opening one seeds a fresh unticked checklist, so the gated
+route would 409 on every row of a bulk).
+
+Collapsing them was considered and rejected: they are genuinely different acts, and forcing forty
+checklists through a table is not a thing anyone would do. What was wrong was not the split but the
+silence — the case file went on reading `pending`, unattributed, beside a listing that was live, so
+the ops queue showed work outstanding on a decision already taken and the audit said nobody had
+approved a listing directly beside a row naming who did. `setStatus` now closes an **existing**
+case file with the actor and a note saying the checklist was skipped.
+
+Two deliberate omissions, both pinned by `ModerationBehaviourTest`: no case file is **created**
+(absence states nothing false; creating one per bulk row files six work items whose content is that
+six pieces of work did not happen), and the checklist is **not ticked** (unticked lines are the
+honest record of what this route skipped — ticking them forges the evidence the gate demands).
+
+### An owner's resubmission needs no cooldown — DECISION, declining a review finding
+
+Flagged as unbounded: an owner's reply to a rejection moves the listing REJECTED → PENDING, with no
+counter. It is bounded, just not locally. The reopen predicate requires `REJECTED`, and the
+resubmission itself sets `PENDING` — so a second reopen needs an intervening **moderator
+rejection**. The loop runs at the desk's pace, not the owner's. Message volume on the same endpoint
+is capped per caller by `WriteRateLimitFilter` like every other write.
+
+What is left is narrow and not what was flagged: every message bumps `lastMessageAt`, which is what
+the ops queue sorts on, so a talkative owner floats up the queue. That is a queue-ordering product
+question (should a case sort on its last message, or its oldest unanswered one?), not a guard, and
+adding an attempt counter would not touch it.
 
 ### Person identity verification — PARTIAL, browser-tested with open defects
 
@@ -834,7 +1350,7 @@ the handoff really described was unverified work, and this pass verified it.
 that was ever counted as admin conversion debt is now either converted or carries a written reason
 to stay mock-side; the checkbox above is ticked on that basis. The first pass that sized this wave
 over-counted it badly — `notes`, for one, is a mock spec **as well as** a live one by design,
-because it catches the same validation rules in a seconds-fast suite while `live-notes` proves the
+because it catches the same validation rules in a seconds-fast suite while `notes` proves the
 seam reaches Postgres and survives a second account.
 
 - ✅ **`analytics` (21 tests) → `admin/live-analytics-page.spec.js`.** Its header claimed Geography
@@ -906,10 +1422,10 @@ seam reaches Postgres and survives a second account.
   moderator opens (`live-enquiries`); the **Unconfirmed (stale)** sub-filter narrowing the queue on
   the server rather than in the page (`live-properties-console`); the follow-up board's one-click
   chaser choosing its template from the tier the *server* reports (`live-outreach-console`); and the
-  edit modal's two exits (`live-properties-moderation`). `admin/listing-freshness.spec.js` is
+  edit modal's two exits (`properties-moderation`). `admin/listing-freshness.spec.js` is
   deleted; the `enquiries` and `properties` twins are retired in place with pointers. Two audit
   items dissolved on inspection rather than converting: **`?review=<id>`** was already covered live
-  by `live-notes` with a real uuid, and the edit modal's *prefill* by the existing BHK-correction
+  by `notes` with a real uuid, and the edit modal's *prefill* by the existing BHK-correction
   test — so the only genuinely uncovered leg was **Cancel**, which the mock could never have proved
   (its provider is `Object.assign` over `localStorage`, so the store that would report the unwanted
   write is the same object the test reads its "before" from; a modal that saved on Cancel would have
@@ -1048,7 +1564,7 @@ of that and both *reduce* the queue, so they are stated before the lists:
   named Rahul↔Meera row, but the live test mints a unique buyer thread against Meera's seeded
   Baner listing so message writes never poison shared fixture state. It owns quick/typed sends,
   readback after reload, contact visibility, the report modal, and the dashboard hand-off.
-  Staged chat coverage remains in `consumer/property/live-chat-owner`; auto-replies are mock
+  Staged chat coverage remains in `consumer/property/chat-owner`; auto-replies are mock
   theatre, and the location card is not live-reachable because the HTTP mapper has no location.
 - [x] `tenant-profile` (6) — **converted** to `live-tenant-profile` (3 ✅). The server-backed
   profile save/reload, blank-name no-write guard, and score checklist replaced browser-store
@@ -1559,6 +2075,69 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+**Two gates are red before this branch touches them.** Both confirmed pre-existing by re-running
+against `HEAD`; neither is caused by the `live-` rename or the comment sweep.
+
+- `e2e/scripts/check-coverage-citations.mjs` reports 2 CITED BUT MISSING rows. `COVERAGE.md` cites
+  `consumer/account/live-rent-payment-seam` and `mobile/live-wizard-sticky` (L424, L518), whose
+  specs were deleted in `f1d549af` and `23aa4651`. The rows overstate coverage: either restore the
+  specs or drop the rows — a product call, so left alone.
+- `frontend/scripts/check-listing-foundation.mjs` fails 6 of 78 with `missing: landUse`, identically
+  at HEAD. Its `if \(in\.(\w+)\(\)[^{]*\{([^{}]*)\}` cannot parse a block holding a nested `if`, and
+  `ListingEditRules.java` `clearLandUse` is exactly that shape. Fix the parser; do not relax it, or
+  it stops seeing genuinely missing keys.
+
+**The owner card moved into the phone contact sheet, and these were left behind it.** Raised by the
+review pass on that change, deliberately outside its diff.
+
+- `ContactOwnerModal` has `aria-modal="true"` with no focus trap, no initial focus and no focus
+  restore. Pre-existing, but the sheet went from 2 interactive controls to 5 and is now the only
+  owner surface a phone has.
+- The `revealed` branch builds `tel:` / `wa.me` from a server-masked string: for an approved
+  non-owner the wire carries `98XXXXX210`, and `digits()` turns that into a 6-digit dial.
+  Truncated, not a leak. Gate the digit-bearing links on `/^\d{10}$/`, and fix `ContactBox` in the
+  same change or the two predicates drift.
+- `identityVerified` / `anyVerified` / `verifiedLabel` and the badge JSX are byte-identical in
+  `ContactOwnerModal.jsx` and `OwnerCard.jsx`. A pure `(p, t) => {...}` extraction, but it needs a
+  new shared module.
+- `OwnerCard.jsx` is desktop-only now, so its inner `hidden lg:flex` wrappers and its
+  `min-h-[44px] sm:min-h-0` / `text-[13px] sm:text-xs` phone branches are unreachable.
+- `hidden lg:block` hides the card, it does not unmount it, so `ContactBox` still mounts on a phone
+  and fires a second `useContactGate(propId)` request into `display:none` DOM.
+- `PropertyHeader`s `.dz-stat-facts` wrapper keeps its `border-top` when every child is hidden (a
+  buy listing with a non-sq.ft area), leaving a stray hairline above the social block.
+- `e2e/helpers/app.js` `openProperty()` waits on the `Request number` button, which no longer
+  renders on a phone. It has zero callers - delete it next time that file is touched.
+- `queuePendingChat` is not awaited before the sign-in redirect, so it races `drainPendingChats` on
+  the way back. The queue usually wins because the redirect is a navigation, which is exactly why
+  this will surface as a rare lost first message rather than a reproducible bug.
+- The sticky CTA opens the sheet unconditionally, including when the gate state is `owner` - so an
+  owner viewing their own listing is offered a chat with themselves. `isOwner` is already computed
+  at `useProperty.js:106`; the CTA should read it rather than a new predicate.
+- `p.ownerId` is optional on the wire, so the sheet's Profile link renders only for seeds that carry
+  one. The e2e assertion on it passes by seed accident, not by contract - either make the field
+  required in the DTO or assert the link conditionally on the same value the component reads.
+- `MobileCollapse`s `headerClassName` prop is dead: the last caller stopped passing it when the
+  trust tiles were shrunk. Accepted-and-never-read is the write-only-prop shape this codebase has
+  already grown twice, so delete the prop with its call sites rather than leaving it to be re-used.
+
+**The price block was cut to one figure per deal type, and these were left beside it.** Raised by
+the review pass on that change.
+
+- "Zero brokerage — deal direct" is pushed for every listing, but `postedByType` admits
+  `agent` and `builder` (`draazy-api.yaml:11159`). The claim was equally unguarded as the old
+  standalone pill, so this is not a regression — but it now sits in `.tag-strip`, and the tooltip
+  behind it makes the sharper claim "no agent fee — typically one to two months of rent, or 1–2%
+  of a sale price". Either gate the tag on `postedByType === 'owner'` or decide deliberately that
+  the platform charges nothing regardless of who posted, and say so in the tooltip.
+- `PriceInsights` renders for land sales (`PropertyTabs.jsx:138` gates on `!isRent` only) and
+  hardcodes "/sq.ft." in three places, so a farm quoted in guntha gets a per-guntha figure under a
+  per-sq.ft caption — the exact error `showPerUnit` now exists to stop in the header. Its EMI is
+  not `isLand`-gated either, while the header line just removed was.
+- No seed carries a non-sqft `area_unit`, so the branch where a buy renders **no** facts tile at
+  all is unreachable from the live lane. The `:empty` border rule that covers it is asserted by
+  nothing. A single guntha farm seed would close this and the two items above at once.
+
 **Cashfree sandbox is wired for the next deploy, and that deploy is the first thing that proves
 it** (closes tech-debt D4). The credentials were verified live against
 `POST /pg/eligibility/payment_methods` — all 16 methods eligible — so the account needed no work;
@@ -1924,6 +2503,108 @@ apart from `doc-viewer-scheme.spec.js`, which a targeted re-run showed to be a f
 three of its tests fluctuate between runs). **None of it was a regression**, including the
 `tenant-profile.spec.js:73` failure previously reported here as one: it fails at `cd1018c` too.
 
+---
+
+## Owner-supplied floor plans (buy + rent, residential + commercial)
+
+**The control the request asked for already existed.** Every residential and all three commercial
+photo profiles have offered a `Floor Plan` category the whole time, and the category picker is
+deal-agnostic, so Buy and Rent both had it. What was missing sat downstream of the tag:
+
+- **Nothing wrote it.** `submit.js` dropped photo categories on the way to the wire, so
+  `properties.floor_plan` had no writer outside the SQL seed. The tag was decoration.
+- **The detail page invented one.** `FloorPlan.jsx` fell through `p.floorPlan || floorPlanFor(p) ||
+  FLOOR_PLAN_IMG` — a schematic picked from property type and BHK, then a stock image — and
+  presented it under the authoritative heading "Floor Plan". Same defect class as the area
+  breakdown (`area * 0.84` / `area * 0.70` rendered under three labels).
+
+So the work was making the existing mark load-bearing, and stopping the page making a claim the
+owner never made. `floorPlanFor`/`COMMERCIAL_PLAN` are deleted; a missing plan now says so.
+
+**Expect a visible change in screenshot diffs.** Only the ~16 seeded rows genuinely store a plan, so
+most listings now show the "not shared" line where they previously showed a schematic. That is the
+correction, not a regression.
+
+**Land is deliberately untouched.** `PLOT_PHOTO_CATS`/`FARM_PHOTO_CATS` use `Layout Plan`, and
+`PropertyTabs` gates the whole section off for land (`{!isLand ? <FloorPlan p={p} /> : null}`).
+
+### Found by review, after the first pass was already green
+
+The seam tests and the new e2e spec both passed while the wizard's **edit** path was still broken —
+worth recording, because the spec looked like coverage and was not:
+
+- **The edit path never sent the field.** `editPayload` builds its patch from a `FIELD_INPUTS`
+  whitelist, and the tag lives in `photos` rather than in `form`, so it can never be an entry there.
+  Tag, re-tag and untag were all silently dropped on edit while working on create. The e2e spec
+  missed it because its third test PATCHes with raw `fetch`, proving the server honours a blank
+  without ever exercising the code that was supposed to produce one.
+- **Blank does not always mean "withdrawn".** `ListingCreate` documents a stored plan that is not a
+  gallery photo as supported, and the seeded commercial rows are in exactly that state. No thumbnail
+  can carry the tag, so prefill restores none and the payload comes out blank — meaning "never
+  offered", not "removed". Fixing the first bug without this one would have made any unrelated edit
+  silently unpublish those plans. `planWasTaggable` separates the two.
+- **The tag survived a re-type onto land**, which has no such category — harmless while the tag was
+  cosmetic, a write now. `changePropertyType` drops it; the other categories stay, being cosmetic on
+  a type the owner may only be passing through.
+- **A plan could become the search-card cover.** `cover = gallery[0]` and owners often upload the
+  plan first, so the card showed a schematic. Cover now skips the tagged plan unless it is the only
+  photo.
+- **An approved listing could be pointed at an unreviewed image.** Photos, prose and amenities are
+  re-checked when they change, because swapping the evidence re-sells an approval against a property
+  nobody looked at. The plan travelled in its own key, so `PATCH {"floorPlan": "…"}` with no
+  `images` tripped no rule and rendered arbitrary content at full width on a live page. The comment
+  claiming a new plan "arrives with a changed gallery" described the wizard, not the endpoint. The
+  plan must now be one of the listing's own photos (422 otherwise), which routes every genuinely new
+  picture back through `images`, where it is already re-checked; re-tagging a photo the reviewer has
+  seen stays exempt, which was the true part of the original reasoning. Rejecting rather than
+  raising a new re-check key deliberately: `recheckOnly` inside an `if (in.floorPlan())` block makes
+  `floorPlan` a foundation field, which obliges a matching entry in `FOUNDATION_STAYS_LIVE_KEYS`,
+  in `classifyChanges` — which receives no plan argument at all — and in `ListingFoundationTest`.
+
+Locked in by four cases in `frontend/scripts/listing-edit-prefill.test.mjs` — the seam that was
+broken, tested directly, rather than a wizard walk that would be slower and prove less — and a
+fourth e2e case for the evidence rule.
+
+### Not fixed, deliberately
+
+- **The lightbox is gated on `zoom` alone, not `zoom && planImg`.** It cannot open without an image,
+  but could stay open across a back-navigation to a plan-less listing, rendering `<img src={null}>`.
+  Left alone: it is still dismissable by button and backdrop, and the suggested guard would strand
+  the `overflow: hidden` lock unless the effect were changed too — a trap strictly worse than the
+  broken image it prevents.
+- **Nothing constrains Floor Plan to one photo**; `find` takes the first with no feedback. Either
+  the picker should enforce singularity or the rule should be visible. Low, and a product call.
+
+### Verification
+
+Backend `BUILD SUCCESS` (`-DbuildDirName=target-fp`, Zulu 25) with `PropertyMapperImpl` emitting the
+blank→null expression; `ListingFoundationTest` + `SpecCoverageTest` 13 passed. Frontend `npm run
+build`, `check:i18n` (4549 keys × hi/mr) and eslint on every changed file at the 0-error baseline.
+`floor-plan.spec.js` 4 passed; the six neighbouring detail specs 26 passed, 1 failed.
+
+**Four pre-existing failures, none ours, each exonerated by evidence rather than by assertion:**
+
+- `live-detail-sale.spec.js:86` (commercial fit-out) — the parallel commercial-fixtures workstream
+  removed `commercialFitOut()` from `RentDetails.jsx`, a file this work never opened. Already
+  recorded above as blocked on that workstream landing.
+- `listing-edit-prefill.test.mjs:171` ("land is asked for a project name…") — belongs to the same
+  workstream's 152-line `validation.js` change; `git diff -U0` puts every hunk of it outside this
+  work's single hunk at `+31,21`.
+- `npm run check:listing` — reports `landUse` missing from the server's stays-live set. That block
+  was added uncommitted by another workstream with a nested `if`, which the checker's
+  `if \(in\.(\w+)\(\)[^{]*\{([^{}]*)\}` regex cannot parse. `floorPlan` appears in neither the
+  expected nor the actual set, which is the positive confirmation that this work added no drift.
+- `edit-prefill.spec.js:491` — times out clicking a photo-category option that resolves and is then
+  detached. The control lives in `PhotoUploader.jsx` and `styles/index.css`, both being rewritten by
+  the density pass (the latter written at 12:11, between the two runs that reproduced it). No code
+  changed here executes on that path: the payload builders run at submit, and the category reset
+  fires only for types with no Floor Plan category, which a flat is not.
+
+**A stale lane cost a cycle again.** Two of the three original e2e tests failed against a JVM built
+five hours before the column had a writer, which reads exactly like a product bug.
+`run-e2e-backend.ps1` already warns about this in its docblock. Restart the lane before believing a
+live failure — and after any backend change, which the evidence rule above needed.
+
 Almost all of them were one class — a spec whose localStorage seed predates a seam migration,
 asserting against a screen that no longer reads the key it seeds. The repair is the same each time:
 boot the app, wait for `appReady`, then write into the store the app has just seeded (an
@@ -2057,6 +2738,40 @@ build or `graphify` during an e2e run.
 - `mobile/landscape.spec.js:101`
 - `mobile/phase3.spec.js:157` — both mobile projects
 - `mobile/topbar-scroll.spec.js:61` — both mobile projects
+
+**Blocked on the commercial-fixtures workstream landing.** Found while closing out the property
+density pass; none of it is in that diff.
+
+- `live-detail-sale.spec.js:86` ("owner-declared, sub-type-specific fit-out fixtures") was passing
+  for the wrong reason. The seed writes the sub-type fit-out into `amenities`, so `form_details`
+  carried no `fixtures` at all and `declared` was always empty: the heading only rendered because
+  of `RentDetails`' furnished→shell fallback, and `loading bay / dock` matched off the **amenities**
+  block, a different section. Removing the fallback exposed this, it did not cause it.
+- The fix is to move those three `UPDATE`s into `form_details->'fixtures'`. It cannot be verified
+  yet: `fixtures` is not on `PropertyResponse` at HEAD, so the field is unreachable over the wire
+  until the in-flight backend change lands. Attempted and reverted — landing it early would swap
+  one failing assertion for two.
+- `floor-plan.spec.js:98` and `:131` fail for the same shape. The spec is untracked, it
+  publishes `{ floorPlan }`, and `floorPlan` is absent from `ListingCreate` at HEAD. The third test
+  in the file passes only because it publishes `{}` and asserts absence. **Rebuild the services
+  lane before reading these as product bugs** — on 2026-09-18 it was answering from classes built
+  five hours before the field existed.
+- Check compiled-vs-source timestamps in `backend/target-sv2/classes` when a live lane fails in a
+  way that looks like a missing field. A stale lane and a real regression read identically.
+
+**A shared handler's blast radius is every surface that calls it.** `useProperty.handleContact` is
+used by the phone sticky CTA *and* the desktop `OwnerCard`/`ContactBox`. Replacing its sign-in
+branch with `setContactOpen(true)` to improve the phone sheet silently moved the gate one click
+deeper on desktop and turned three `signin-gates` tests red. The same shape lives in
+`MapDetailPanel.jsx` with a comment saying it mirrors this one — grep both before editing either.
+
+**PENDING AGENT REVIEW** — the property density diff (`useProperty.js`, `PropertyHeader.jsx`,
+`index.css`, `mobile/property-contact.spec.js`) was reviewed by hand on 2026-09-19 because
+`code-reviewer`, `security-reviewer` and `code-simplifier` were all rate-limited. Manual pass found
+no dangling `emi` reference or orphaned locale key, no drift left between `handleContact` and
+`MapDetailPanel`, `.dz-stat-facts:empty` reachable and correctly scoped to the phone block, and no
+new auth surface (`safeInAppPath` still owns the `next` validation). Re-run the agents when they
+are available; the one thing a human pass is weakest on is the CSS cascade.
 
 **Decided elsewhere** — geo policy → ledger 35 · locality queue → 24 · own-listing dedup → 23 ·
 saved-search count → 33 · society follows → 34 · internal notes → 29 · referral reward → 31b ·

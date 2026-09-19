@@ -1176,7 +1176,7 @@ Current verdict: **PASS**, with these deliberate divergences.
 | Field(s) | Status | Why it's tolerable |
 |---|---|---|
 | `desc`, `owner`, `ownerId`, `ownerMobile` | detail-only on the wire | verified unread by `Card.jsx`; matches the contact-gate intent |
-| `floorPlan` | absent | read as `p.floorPlan \|\| floorPlanFor(p) \|\| DEFAULT` — synthesised |
+| `floorPlan` | present | the gallery photo the owner tagged "Floor Plan" in the wizard; absent means no plan is shown |
 | `priceStr`, `commercialType`, `shellType`, `washrooms`, `powerBackup`, `fixtures`, `form` | absent | commercial/land enrichment, every read guarded by `?.`/`\|\|`/`Array.isArray` — thins the detail page, doesn't break it |
 
 ### ✅ `construction` / `possession` — resolved (V10)

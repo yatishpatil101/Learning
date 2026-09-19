@@ -6,6 +6,21 @@
 
 ---
 
+## Crawling external sources
+
+- **A 200 carrying "No Records Found" is a failure that every status check passes.** The MahaRERA
+  list answers an overloaded moment with a short friendly shell (~49 KB against ~114 KB) instead of
+  a 5xx, so the parser sees a legitimately empty page. Detect it on the body, never on the status.
+- **Never record a unit of work as done when it produced nothing.** Marking empty pages done meant
+  resume skipped them, losing ~19 pages permanently and invisibly. Mark done only on success, and
+  stamp every row with the page that produced it so a gap is provable after the fact.
+- **A guard that stops loudly still needs the right diagnosis.** The abort blamed "markup changed"
+  when the cause was transient throttling; re-fetching that page returned all ten rows. Reproduce
+  the condition a guard claims to have found before acting on its message.
+- **Require only the join key when parsing a record; let every other field be null.** Also demanding
+  a name silently discarded a filing the portal names "NA", leaving one page short for a reason no
+  later reader could reconstruct.
+
 ## Upload policy
 
 - **browser-image-compression treats `maxIteration: 0` as ten retries.** Use one bounded retry
@@ -112,6 +127,18 @@
   Do not substitute a replay-based proof: inside one test transaction the burnt OTP row is read
   back from the same connection, so the second request answers 401 either way.
 
+- **A test that must be changed to match new code deserves the same scrutiny as the code.** Four
+  specs here encoded contracts that had genuinely been retired (clearing a flag publishes; a browser
+  `confirm` is what guards an approval), and a fifth — a listing sold and then re-approved — turned
+  out to be the only thing that caught a real regression the change had introduced. **Before editing
+  a red assertion, say out loud which of the two it is.** The ratio is the point: one in five was the
+  product's fault, and it was invisible until the sentence "the test is out of date" was tested.
+- **A gate that now refuses what it used to allow has callers the old permissiveness was carrying.**
+  Routing `PATCH /status → approved` through the new publication gate was right, but that gate admits
+  only `pending`/`approved` — so re-listing a home whose sale fell through, which staff do through
+  exactly this route, started answering 409. Enumerate what the *old* looseness was silently serving
+  before tightening it.
+
 ## Playwright
 
 - **`page.route(..., { times: 1 })` is spent before the component sees it, under StrictMode.**
@@ -147,6 +174,16 @@
   is silently overwritten by the seeded one. Seed a session with `page.evaluate` after load, then
   `reload()`.
 - **`locator.count()` does not retry.** `await expect(x.first()).toBeVisible()` first, then count.
+- **A `waitForRequest` predicate must identify the caller, not just the question.** A queue test
+  matched `/admin/properties?` + `status=pending` and read `archived` off the winner — but the admin
+  topbar's notification bell asks the same question on the same page, and deliberately sends no
+  `archived`. So the assertion read `null` and reported that the console had dropped a filter the
+  console had in fact sent, on a request that was never the subject. Add whatever distinguishes the
+  two callers (here `size`): the bell asks for five rows, a queue asks for a full page.
+- **A failure that survives running the spec alone is not contamination, whatever the batch said.**
+  Re-running the five suspect specs on their own turned 12 failures into 8: the two SLA assertions
+  and one animation flake really were neighbours' traffic, and the other 8 were foreign regressions
+  that batching had disguised as batching. Isolate before attributing in *either* direction.
 - **`if (await x.count()) await x.click()` is a skipped test with a straight face.** It converts a
   loud failure into a silent change of scenario. The tell is no `else` and no comment.
 - **A conditional `test.skip` whose message sounds like a diagnosis is the most expensive kind of
@@ -291,6 +328,29 @@
 - **Two identifiers on one view model is a defect waiting for a route that binds a type.** `id` is the
   routing token (`slug || id`); `uuid` addresses the row. A convention followed five times and missed
   once is a habit, not a convention — and the mapper predicted the exact mistake in prose.
+- **An allowlist duplicated in two languages fails in the safe direction and stays invisible.** `Sale
+  Type` was on both wizards, in both initial-form objects, and on the Review screen — and absent from
+  `DETAIL_KEYS` and the Java `TEXT` table, so `pickListingFormDetails` dropped it before the request
+  was built. No 422, no log, no red test: the client censors itself. Neither wizard was wrong and
+  neither was the server; the gap lived only in the pair. When a screen collects an answer, grep for
+  the key in **both** tables, not just the one nearer the code you are editing.
+- **A field that must be scoped on the way out must also be cleared on the way back.** Possession is
+  asked on the sale branch only, but the `deal` cascade cleared only the deposit and the tenant list,
+  so a rental carried `possession: 'ready'` into the payload from a form that never showed the
+  control. A cascade that handles one direction is half a cascade — enumerate what each branch hides,
+  not what it shows.
+- **A duplicated allowlist needs a check that compares the two copies, not one that tests each.** The
+  Java validator had 16 green tests while `transactionType` was being dropped client-side, because
+  every one of them asks "does the server handle this key correctly" and none asks "do the two tables
+  hold the same keys". A per-member test can never see a missing member. `check:enums` now scans the
+  Java `Set.of` blocks and asserts set equality against the exported JS set — mutation-checked by
+  deleting a key, because a comparison that reads nothing passes as quietly as the drift it guards.
+- **`400 "Request body could not be read"` is a Jackson parse failure and names no field.** A
+  comma-joined string where the DTO declares `List<String>` fails the whole document before any
+  validator runs, so every submit from that screen 400s — including the shapes nobody changed.
+  Reproduce with the plainest listing the form can make: if residential fails too, the defect is on
+  the shared write path, not in the feature under test. The tests that stayed green posted through
+  the API helper with their own object and never crossed the mapper.
 - **A rule enforced by a helper is invisible to every tool that looks at types.** `@PathVariable UUID`
   is greppable; `Ids.parseUuid(...).orElseThrow(...)` three files away is not. Put the constraint in
   the contract (`format: uuid`), where both ends can see it.
@@ -364,6 +424,22 @@
   Check the class before trusting one — or validate in the service, where it cannot be decorative.
 
 ## Security and privacy
+
+- **A scanner that strips punctuation to defeat obfuscation will invent the thing it scans for.**
+  The contact-detail guard stripped commas and slashes so that `98,765/43210` could not smuggle a
+  mobile through — which also compacted the entirely innocent `₹65,00,000 / 750 sq.ft` into
+  `6500000750`, a ten-digit run starting with 6, and refused an ordinary Pune listing as if the
+  owner had printed their phone number in the title. **Separate the characters that join one number
+  from the characters that separate two.** Space, dot, dash and bracket sit inside a number;
+  comma, slash, pipe and colon sit between numbers, and stripping those is how a price becomes a
+  phone number. The false positive is the worse failure of the two: the owner cannot act on a
+  message naming something they did not write.
+- **Java's `\s` is ASCII-only unless you ask otherwise, and the character that actually arrives is
+  U+00A0.** Every paste out of WhatsApp Web, Word or a PDF carries non-breaking spaces, so
+  `9876<NBSP>543210` walked past a guard written against `\s`. Reach for `\p{Z}` and `\p{Pd}` rather
+  than enumerating code points, `Normalizer.Form.NFKC` before matching, and `Character.digit(cp, 10)`
+  for the Devanagari and fullwidth digits NFKC does *not* fold — on a site with Hindi and Marathi
+  locales those are not an exotic attack, they are how somebody types.
 
 - **A kill switch enforced only in the browser is not a kill switch.** `settings.flags.signupsEnabled`
   hid the Sign Up link and guarded the `/signup` route, and nothing in `backend/src/main` read it —
@@ -538,6 +614,20 @@
   drift lists; asking a subagent to *edit* races on shared files.
 - **The first failure masks the rest.** "I fixed the error" is never "the test passes". A spec that has
   never run in a given configuration has several faults, not one.
+- **Never set up a fixture with raw SQL for rows the same transaction has already loaded.** A test
+  that started a case file over MockMvc and then ticked its checklist with a `jdbc.update` got a
+  409 from the very gate it was arranging to pass: the entities were already in the persistence
+  context reading `false`, so the UPDATE went to a database nobody re-read. The symptom looks like
+  a product bug (`expected 200 but was 409`) rather than a fixture one. Arrange through the same
+  endpoint the product uses — here `PATCH /verification/checklist` — or the fixture is arranging a
+  state the code under test cannot see.
+- **`graphify update` leaves the graph correct and the report stale, and silently drops the curated
+  community names.** It re-clusters (825 labelled communities became 1038), so the saved LLM names
+  no longer match and every one falls back to its hub symbol; it also does not regenerate
+  `GRAPH_REPORT.md`, which then reports a node count and a commit from before the run. Follow it
+  with `.\scripts\graphify.ps1 report`, and know that restoring names costs an LLM pass
+  (`graphify label`) that `--code-only` deliberately avoids. Deleted files leave orphan annotation
+  nodes with an empty `source_file` — harmless, since nothing points at the dead path.
 - **When failures are broad, check the environment before reading a single assertion.** A ten-line
   spec hooking `page.on('pageerror')` diagnoses "everything is red" faster than reading failures.
 - **Ask the database about data; grep source for source.** One `psql` join answered in seven rows what
@@ -551,6 +641,27 @@
 
 ## Architecture and product judgement
 
+- **Two routes to the same verdict is fine; two routes that leave the same record saying different
+  things is not.** A listing could be approved from the verification desk (checklist gated) or from
+  the moderation queue (never opens the case file, so bulk approve works at all). Both are
+  defensible acts, but the queue route left `property_reviews` reading `pending`, unattributed,
+  beside a live listing — the ops desk saw outstanding work on a decision already taken, and the
+  audit said nobody approved a listing right beside a row naming who did. The fix is not to merge
+  the routes or to gate the fast one; it is to make the quiet one **write down that it ran, and what
+  it skipped**. Before collapsing two paths, ask whether they disagree about the *act* or only about
+  the *bookkeeping*.
+- **When closing a record a shortcut never opened, do not tidy the evidence.** Ticking the skipped
+  checklist would have made the row look like a full document review — forging exactly the evidence
+  the gate exists to demand. Unticked lines beside a closed case are the honest statement. Likewise,
+  do not *create* the record where none exists: absence asserts nothing false, and a bulk action
+  that opens forty case files files forty work items whose entire content is that the work did not
+  happen.
+- **A guard that throws after the verdict is written is a guard in the wrong place.** Publication
+  refused a blank locality from inside `publish`, which runs after `review.decide` — so the rollback
+  took the verdict with it and a reviewer who had just worked a whole checklist lost it to a
+  curation task that is not theirs. Atomicity was right; the ordering was not. **Hoist the
+  preconditions the actor cannot fix to before the first write**, and let both callers share the one
+  message that names what to do about it.
 - **Verification is a badge that earns visibility, never a precondition to act** (ADR-019).
 - **A visibility blacklist is a leak waiting for the next state.** Moderation must be a whitelist, and
   hiding a row from a list while leaving it reachable by id is an unlisted page, not moderation.
@@ -604,6 +715,12 @@
   `varchar`, so `'9' > '97' > '89'` and a DB at V97 can report `9`. Always
   `max(version::int) where version ~ '^[0-9]+$'`. Reading the fake answer as "the dev DB is at V9"
   nearly triggered a pointless migration investigation.
+- **An e2e lane serves the code it compiled at start-up, so a `422` can be two-hour-old bytecode.**
+  A rejection whose every value is legal under the current validator is the tell. Compare the source
+  file's `LastWriteTime` against its class in `target-<lane>\classes`, and the listening PID's
+  `StartTime` (`Get-NetTCPConnection -LocalPort <port> -State Listen`), before reading the failure
+  as a product bug. `Stop-Process -Force` then re-run the lane script and poll `/api/actuator/health`.
+
 - **The three DBs drift and the dev one is the stale one.** `draazy` (dev) sat at **V76** while
   `draazy_e2e` was at **V97** — 21 migrations of columns (`room`, `sharing`, `tenants`, `land_use`,
   `pets`, `available_from`, `quality_score`, `last_confirmed_at`) exist in one and not the other.

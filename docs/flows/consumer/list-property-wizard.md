@@ -105,8 +105,10 @@ advance on any error (scrolling to the first error via `scrollToError`).
   `TYPE_SPECIFIC_KEYS`) so one type's answers never leak into another.
 
 **Step 2 - Location & pricing (`validateStep2`):**
-- `locality` required; must be **placed on the map** (`locationSet` via locality pick, search or pin
-  drag) or `err.location` is raised - a listing is never geo-pinned to the default.
+- `locality` required; must be **placed on the map** (`form.pinPlaced`, set by a locality pick,
+  search or pin drag) or `err.location` is raised - a listing is never geo-pinned to the default.
+  Placement is a form field rather than component state so the autosaved draft carries it: the
+  coordinates cannot stand in for it, since `initialForm`'s default is Baner's canonical centre.
 - `flatNumber` required unless land; `society` required unless land; `pincode` must match
   `^[1-9]\d{5}$` (six digits, not starting 0).
 - **Rent:** `monthlyRent` positive, `deposit` present, `availableFrom` present. Deposit helper
@@ -119,12 +121,19 @@ advance on any error (scrolling to the first error via `scrollToError`).
   silently deleted on edit. Video uploading is hidden and no longer contributes to completion;
   video backend and existing playback remain unchanged.
 - Each uploaded photo/document is strictly below 1,000,000 bytes. Originals may be up to
-  25,000,000 bytes; advertised image dimensions are capped at 48 megapixels before decoding.
+  25,000,000 bytes; advertised image dimensions are capped at 48 megapixels before decoding. Neither
+  bound is quoted in the wizard's guidance: they are decode-memory guards, and only the file that
+  actually hits one is told about it.
 - Compatible small images are decoded for validation but retain their original bytes. Oversized
-  images use browser-image-compression in a worker, with a 2,560-pixel longest edge and JPEG quality
-  0.95 (one bounded retry to 0.9025). HEIC uses the CSP-safe heic-to decoder and becomes JPEG even
-  below the cap, because browsers cannot consistently display HEIC. Files still too large are
-  rejected instead of progressively degrading quality. Unchanged originals may retain metadata.
+  images are re-encoded to JPEG in a worker from a 2,560-pixel longest edge, stepping down a quality
+  ladder and only then down in resolution — by the ratio the last measured round implies, always
+  resampled from the full frame. **Within those two bounds no photo is refused for its size:** its
+  ladder runs to quality 0.35 and a 320-pixel edge, which is tens of kilobytes. A *document* stops
+  at quality 0.62 and 1,600 pixels and is refused below that, because a scan degraded past reading
+  is worse for the moderator who has to check it than one the owner is asked to retake. The first
+  rung is 0.92 (the single attempt it replaced used 0.95, so an oversized photo that always fit is
+  now marginally lossier). HEIC uses the CSP-safe heic-to decoder and becomes JPEG even below the
+  cap, because browsers cannot consistently display HEIC. Unchanged originals may retain metadata.
 - Documents are optional. Their allowed inputs additionally include PDF. pdf-lib validates
   unsigned, unencrypted PDFs (1–100 pages), then optimizes object streams only when oversized.
   It does not flatten pages, rasterize text or guarantee every scanned PDF will fit. Signed PDFs,
@@ -327,7 +336,7 @@ live listing + identity edit-> identity guard + quota interaction
   success screen for a listing that does not exist.
 - **Identity change on edit:** `showIdentityGuard` modal before finalizing (quota implication).
 - **Per-step validation:** each `nextStep` blocks advance and scroll-focuses the first error; Step 2
-  additionally requires a map placement (`locationSet`).
+  additionally requires a map placement (`form.pinPlaced`).
 - **localStorage quota:** `persistListing` swallows quota errors so the success flow still completes;
   oversized documents are stored as `tooLarge` (metadata only, `dataUrl: null`).
 - **Rent skips doc storage:** only sale listings persist uploaded documents (mirrors the HTML

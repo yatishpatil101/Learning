@@ -129,7 +129,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   `/staff-login`, the only screen still authenticating against `lib/mockApi.js`, to the live
   `/auth/login` mobile-OTP flow — role and team now come from the server, and the demo quick-access
   block survives only behind `{!authIsLive && …}` until Phase 5 removes it. New live evidence:
-  `live-fees-and-photos.spec.js` (published fee + GST, the estimate wording the NULL statutory pair
+  `fees-and-photos.spec.js` (published fee + GST, the estimate wording the NULL statutory pair
   demands, and a photo whose URL the server minted rather than a `FileReader`) and
   `live-drafting-desk.spec.js`, un-`fixme`d and green. Two things the plan did not predict, both
   recorded where they bite: the drafting-desk fixture had to move to the free `valuation` desk
@@ -176,7 +176,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   statutory pair rather than coercing it to `0`, and `useRentAgreement.js` answers a NULL by deriving
   locally and listing the field in `cost.computed`. That `computed` array is load-bearing — it is why
   the sidebar says "estimated total" instead of quoting a figure as the price, and it is what
-  `live-fees-and-photos.spec.js` asserts on.
+  `fees-and-photos.spec.js` asserts on.
 
   **Follow-up raised by the `settings` seam: three consumer kill switches wrote to one place and
   read from another.** `AdminSettings` PUTs `flags` and `geo` to the API, but the consumers of those
