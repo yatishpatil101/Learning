@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
@@ -7,7 +8,9 @@ import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
+import { useEntitlements, contactsLeft } from './useEntitlements.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
@@ -15,6 +18,7 @@ import { track, captureLead } from '../../../lib/pmf.js';
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
   const sendToSignIn = useSignInGate();
+  const navigate = useNavigate();
   const [msg, setMsg] = useState('');
   const [verify, setVerify] = useState(false); // opt-in badge modal for verified-only owners
   const [quotaOpen, setQuotaOpen] = useState(false); // free contacts spent → refer or upgrade
@@ -23,9 +27,19 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const ownerMobile = String(p.ownerMobile || '');
   const propId = String(p.id || '');
   const { gate, loading } = useContactGate(propId);
+  // `isIn` gates the fetch: signed out there is no quota to report, and no token to ask with.
+  const { entitlements } = useEntitlements(isIn);
+  const left = contactsLeft(entitlements);
   const status = gate.status;
   const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
+  /* `ownerVerified` is a reviewed identity case, `ownershipVerified` is this flat's paperwork —
+     independent, and a listing can carry either alone, so they never collapse into one sentence. */
+  const identityVerified = !!p.ownerVerified;
+  const anyVerified = identityVerified || !!p.ownershipVerified;
+  const verifiedLabel = [identityVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : '']
+    .filter(Boolean)
+    .join(' · ');
   // B1: seeker nudge at value moment — only when owner is verified and seeker is not yet.
   const { verified: seekerVerified } = useVerification();
 
@@ -67,9 +81,8 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
         return;
       }
       if (err?.status === 401) {
-        /* `back` is the listing as it was when the request left, not wherever the visitor has
-           navigated to while waiting for a 401 — `signInPath` otherwise reads `window.location`
-           at call time and would return them to the wrong page. */
+        /* `back` is the listing as it was when the request left: `signInPath` otherwise reads
+           `window.location` at call time and would return them to wherever they navigated meanwhile. */
         if (sendToSignIn('contact', back)) onClose();
         return;
       }
@@ -83,6 +96,20 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
 
   // Messaging is badge-not-gate: any signed-in user may reach the owner, and sending starts a real
   // chat request the owner can accept in Messages.
+  const startChat = () => {
+    if (!isIn) {
+      if (sendToSignIn('contact')) onClose();
+      return;
+    }
+    track('contact_click', { action: 'start_chat', id: propId });
+    captureLead({ context: 'start_chat', property: propId, owner: String(p.owner || '') });
+    /* `active` asks whether the gate is open, not whether the number is `revealed` — an owner who
+       hides theirs still accepts messages, and this button renders in every gate state. */
+    queuePendingChat(p, { active: status === 'owner' || status === 'approved' });
+    onClose();
+    navigate(messagesLinkForProp(p));
+  };
+
   const sendEnquiry = () => {
     if (!isIn) {
       if (sendToSignIn('contact')) onClose();
@@ -112,10 +139,23 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
         <div className="flex items-center gap-3 mb-4">
           <div className="w-11 h-11 rounded-full bg-gradient-to-br from-brand-teal-1 to-brand-indigo-4 flex items-center justify-center text-white font-bold">{(p.owner || 'A')[0]}</div>
           <div>
-            <div className="flex items-center gap-1.5"><span className="font-semibold text-white">{p.owner}</span><Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" /></div>
-            <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {t('property.verifiedOwner')}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-white">{p.owner}</span>
+              {anyVerified && <Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" />}
+            </div>
+            {anyVerified ? (
+              <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {verifiedLabel}</span>
+            ) : (
+              <span className="text-xs text-gray-400">{t('listings.owner')}</span>
+            )}
           </div>
         </div>
+        {/* A claim about how fast a *person* replies, so it hangs on the person's badge alone. */}
+        {identityVerified && (
+          <div className="-mt-2 mb-4 flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+            <Icon name="zap" className="w-3.5 h-3.5" /> {t('property.verifiedRespondsFaster')}
+          </div>
+        )}
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 mb-4">
           {revealed ? (
             <>
@@ -148,13 +188,34 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
                     </span>
                   )}
                   {status !== 'pending' && status !== 'declined' && (
-                    <button type="button" onClick={request} disabled={busy || loading} className="btn-teal inline-flex items-center gap-1.5 py-2 px-3.5 text-xs rounded-[10px] disabled:opacity-60">
-                      <Icon name="lock-keyhole" className="w-3.5 h-3.5" /> {t('property.requestNumber')}
-                    </button>
+                    <>
+                      <button type="button" onClick={request} disabled={busy || loading} className="btn-teal inline-flex items-center gap-1.5 py-2 px-3.5 text-xs rounded-[10px] disabled:opacity-60">
+                        <Icon name="lock-keyhole" className="w-3.5 h-3.5" /> {t('property.requestNumber')}
+                      </button>
+                      {/* Below `lg` this sheet is the only contact surface, so the free-contact
+                          countdown has to be here or a phone buyer meets the wall as a bare 422. */}
+                      {isIn && Number.isFinite(left) && (
+                        <p className="text-[11px] mt-1.5" data-testid="contacts-left">
+                          {left > 0 ? (
+                            <span className="text-slate-500">{t('property.contactsLeft', { count: left })}</span>
+                          ) : (
+                            <span className="text-amber-300">{t(flagEnabled('referralRewards') ? 'property.contactsLeftNoneReferHint' : 'property.contactsLeftNone')}</span>
+                          )}
+                        </p>
+                      )}
+                    </>
                   )}
                 </>
               )}
             </>
+          )}
+        </div>
+        <div className="flex gap-2 mb-4">
+          {flagEnabled('inAppMessaging') && (
+            <button type="button" onClick={startChat} disabled={loading} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-lg btn-teal text-[13px] font-semibold px-3 shadow-none disabled:opacity-60"><Icon name="message-circle" className="w-3.5 h-3.5" /> {t('property.chatWithOwner')}</button>
+          )}
+          {p.ownerId && (
+            <Link to={`/owner/${p.ownerId}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-lg border border-white/10 text-slate-300 text-[13px] font-medium hover:bg-white/5 transition-smooth"><Icon name="user" className="w-3.5 h-3.5" /> {t('property.profile')}</Link>
           )}
         </div>
         <label className="block text-sm font-medium text-slate-300 mb-2">{t('property.sendQuickMessage')} <span className="text-slate-500 font-normal">({t('property.optional')})</span></label>
@@ -176,6 +237,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
         <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={3} enterKeyHint="send" className="w-full px-4 py-3 rounded-xl text-white text-sm resize-none border border-white/10 bg-white/[0.03] focus:border-brand-teal-2 outline-none mb-3" placeholder={t('property.messagePlaceholder')} />
         <button onClick={sendEnquiry} className="btn-teal w-full flex items-center justify-center gap-2 py-2.5 px-4"><Icon name="send" className="w-4 h-4" /> {t('property.sendEnquiry')}</button>
         <p className="text-[11px] text-slate-500 mt-3 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.numberStaysPrivate')}</p>
+        <Link to="/tenant-profile" className="mt-3 flex items-center justify-center gap-1.5 min-h-[44px] text-[13px] text-emerald-300 hover:text-emerald-200"><Icon name="user-check" className="w-3.5 h-3.5" /> {t('property.verifiedTenantBadge')}</Link>
       </div>
       {verify && (
         <VerifyIdentityRedirect

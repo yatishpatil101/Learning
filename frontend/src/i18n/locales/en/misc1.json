@@ -1,7 +1,7 @@
 {
   "misc1": {
     "uploads": {
-      "photoGuidance": "HEIF/HEIC, JPEG/JPG or PNG. Up to 10 photos, each stored under 1 MB. Originals up to 25 MB; larger images are optimized automatically.",
+      "photoGuidance": "HEIF/HEIC, JPEG/JPG or PNG. Up to 10 photos. Pick them straight off your phone or camera — large photos are optimized automatically and stored under 1 MB.",
       "cameraGuidance": "For smaller originals, use High Efficiency (HEIF/HEIC) on a supported iPhone or Android camera. File sizes vary; HEIC is converted to JPEG for browser compatibility.",
       "documentGuidance": "PDF, HEIF/HEIC, JPEG/JPG or PNG. Each document must fit under 1 MB after optimization (originals up to 25 MB; PDFs up to 100 pages). PDFs retain their text and pages; files that cannot fit are refused.",
       "pdfGuidance": "Digitally signed PDFs under 1 MB are stored exactly as issued. Larger signed PDFs cannot be uploaded: rewriting them would invalidate the signature. Keep the original; for a large electricity bill, use a current property-tax receipt instead. Documents are optional for publishing."

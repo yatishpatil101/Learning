@@ -1210,6 +1210,14 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .hscroll-fade--right { right: 0; }
 
+/* `overflow-x: auto` forces the other axis to `auto`, so a rail overhanging by a pixel drags vertically under a
+   thumb. Not `touch-action: pan-x` — that discards vertical gestures instead of passing them up the page. */
+@media (pointer: coarse) and (max-width: 639.98px) {
+  .hscroll-row:not([data-axis-free]) {
+    overflow-y: hidden;
+  }
+}
+
 /* ── Pill active ── */
 .pill-active {
   background: var(--brand-gradient);
@@ -2108,6 +2116,102 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border-color: rgba(20, 184, 166, 0.25);
 }
 
+/* Phone density pass: at 390px a tile's border, radius and padding cost more of the line than the value in
+   it, so every group flattens to one hairline ledger. Declared after @tailwind utilities so it wins. */
+@media (max-width: 639.98px) {
+  /* Views, shortlists and quality score are social proof rather than facts a buyer decides on, so they sit
+     past the fold. Ordered, not moved: the DOM stays the desktop one and every selector keeps working. */
+  .dz-ph-main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dz-stat-social,
+  .dz-ph-main>.dz-ph-activity { order: 1; }
+
+  /* A flex item stretches, which would blow the two rounded pills out to the full column. */
+  .dz-ph-main>.dz-ph-pill { align-self: flex-start; }
+
+  .dz-stat-grid {
+    display: contents;
+    border: 0;
+  }
+
+  .dz-stat-facts,
+  .dz-stat-social {
+    display: block;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  /* A buy priced per guntha renders no facts tile at all, and the empty wrapper would still paint its rule
+     — a hairline with nothing under it directly beneath the freshness pill. */
+  .dz-stat-facts:empty { border-top: 0; }
+
+  .dz-stat-facts>*,
+  .dz-stat-social>* {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 0;
+    background: none;
+  }
+
+  .dz-stat-facts>*>:first-child,
+  .dz-stat-social>*>:first-child { margin-bottom: 0; }
+
+  .dz-stat-facts>*>:last-child,
+  .dz-stat-social>*>:last-child { flex-shrink: 0; }
+
+  .dz-property :is(.detail-card, .amenity-card, .highlight-pill) {
+    padding: 0.75rem 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 0;
+    background: none;
+  }
+
+  /* The glyph still earns its place as a scanning anchor; its 32px chip does not. */
+  .dz-property :is(.detail-card, .amenity-card, .highlight-pill)>span:first-child {
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0;
+    background: none;
+  }
+
+  /* A `.detail-card` that `Tip` adopted is tap-activatable, and the flatten above removed the border that
+     carried that hint. Restored on the label alone, so the row stays a ledger line. */
+  .dz-property .detail-card[data-tip] p:first-child {
+    display: inline-block;
+    text-decoration: underline dotted rgba(94, 234, 212, 0.55);
+    text-underline-offset: 3px;
+  }
+
+  /* The ring inherits the unflattened tile's radius and would draw a rounded box around a square row.
+     Confined to these three classes: `Tip` also wraps `rounded-full` chips, where a square ring is wrong. */
+  .dz-property :is(.detail-card, .amenity-card, .highlight-pill)[data-tip]:focus-visible { border-radius: 0; }
+
+  /* `:not(button)` — the report/re-verify row is the one control here, and stripping its box would leave a
+     tap target with no affordance. Its height comes from `min-h-[44px]`, not from the box. */
+  .dz-assured-list>*:not(button),
+  .dz-share-split>* {
+    padding: 0.35rem 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (min-width: 640px) {
+  .dz-stat-facts,
+  .dz-stat-social { display: contents; }
+}
+
 /* Property lightbox & virtual tour modal (ported from property.html) */
 .dz-lightbox {
   position: fixed;
@@ -2401,9 +2505,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Step actions stay in flow at the end of the step on every breakpoint, so nothing floats over
-   the fields and the row reads as the form's end. The button stays compact and right-aligned —
-   within a right thumb's arc — while keeping the 44px touch height. */
+/* Step actions stay in flow at the end of the step on every breakpoint, so nothing floats over the fields.
+   Compact and right-aligned — within a right thumb's arc — while keeping the 44px touch height. */
 @media (max-width: 1023.98px) {
   .lp-step-actions {
     position: static;
@@ -2465,9 +2568,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 .star-pick i:hover,
 .star-pick button:hover { transform: scale(1.2); }
 
-/* Tailwind's preflight sets `color: inherit` on form elements, so a `.field` with no colour
-   utility renders white text on the UA's white box — invisible. Emitted from @layer components
-   (i.e. before utilities) so the ~35 fields that bring their own bg/text utilities still win. */
+/* Tailwind's preflight sets `color: inherit` on form elements, so a `.field` with no colour utility renders
+   white on white. Emitted from @layer components so the ~35 fields bringing their own utilities still win. */
 @layer components {
   .field {
     background: rgba(255, 255, 255, .04);
@@ -3202,7 +3304,7 @@ html.dz-reduce-motion .list-reveal {
   ::view-transition-new(root) { animation: none; }
 }
 
-/* dz-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active and .dz-back-search rules below intentionally stay here (not .dz-mdp-scoped). */
+/* dz-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active rule below intentionally stays here (not .dz-mdp-scoped). */
 /* Active marker highlight on the map */
 .price-marker.is-active {
   background: #fff;
@@ -3214,42 +3316,6 @@ html.dz-reduce-motion .list-reveal {
 }
 
 .price-marker.is-active::after { border-top-color: #fff; }
-
-/* Back-to-search button on the property page */
-.dz-back-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 16px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(13, 148, 136, 0.12);
-  border: 1px solid rgba(13, 148, 136, 0.3);
-  color: #5eead4;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease;
-}
-
-.dz-back-search:hover {
-  background: rgba(13, 148, 136, 0.2);
-  transform: translateX(-2px);
-}
-
-/* This is the escape hatch from a property page back to results a visitor spent time filtering,
-   so a missed tap is expensive in a way its quiet styling does not advertise. */
-@media (pointer: coarse) {
-  .dz-back-search {
-    padding: 11px 16px;
-    min-height: 44px;
-  }
-}
-
-.dz-back-search svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* Mobile space optimization: headings scale down 20%, scoped to heading elements so numeric
    price/stat spans reusing the same text-* utilities keep their emphasis. */

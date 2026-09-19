@@ -180,4 +180,26 @@ test.describe('Mobile property contact', () => {
     await openContactSheet(page, flags);
     expect(errors).toEqual([]);
   });
+
+  /* The owner card is `lg:` only, so on a phone this sheet is the sole surface carrying the number
+     reveal, the owner's profile and the tenant badge. The absence is asserted *after* the sheet has
+     shown the button and been closed again: on the same page load the gate is provably resolved, so
+     a count of zero cannot be the merely-not-fetched-yet reading it would be on arrival. */
+  test('the owner card lives in the sheet and nowhere else on the page', async ({ page, login, flags }) => {
+    await withConsent(page);
+    await login.asBuyer();
+
+    const panel = await openContactSheet(page, flags);
+    await expect(panel.getByRole('button', { name: /request number/i })).toBeVisible();
+    await expect(panel.getByTestId('contacts-left'), 'the free-contact countdown comes with it').toBeVisible();
+    await expect(panel.getByRole('link', { name: /profile/i })).toBeVisible();
+    await expect(panel.getByRole('link', { name: /verified tenant/i })).toBeVisible();
+
+    await page.locator('.dz-modal-x').first().click();
+    await expect(panel).toHaveCount(0);
+    /* `:visible`, not a count: the sidebar card is `hidden lg:block`, so below `lg` it is still in
+       the DOM and only `display: none`. A bare count would fail against a card nobody can see. */
+    await expect(page.locator('.dz-owner-rail:visible'), 'no inline owner card on a phone').toHaveCount(0);
+    await expect(page.locator('[data-testid="contacts-left"]:visible')).toHaveCount(0);
+  });
 });

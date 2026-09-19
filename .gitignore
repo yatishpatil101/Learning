@@ -104,3 +104,10 @@ tasks/scratch/
 # pinned SHA-256 digests, and runs automatically from prebuild and predev.
 frontend/public/tessdata/
 frontend/public/models/
+
+# Design-review captures. `node e2e/property-shots.mjs` reproduces the whole set against a running
+# lane, so the PNGs are a measurement rather than source: 15 MB of them for one pass, and a diff
+# that no reviewer can read. This repository is public and history is permanent, so a screenshot
+# committed by accident cannot be taken back out by deleting it later.
+e2e/shots/
+e2e/scratch-shot.mjs

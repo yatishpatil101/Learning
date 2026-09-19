@@ -1,7 +1,6 @@
 import { Link } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
-import { digits } from '../../lib/contact.js';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
@@ -14,10 +13,8 @@ import PropertyModals from './property/PropertyModals.jsx';
 
 export default function Property() {
   const ctx = useProperty();
-  /* Which of the two slots shows the price. Decided here, above the early returns,
-     so the hook order is stable and so exactly one price element is ever rendered
-     — see the notes in Gallery.jsx and PropertyHeader.jsx. Same breakpoint the
-     rest of the app uses to switch to phone presentation. */
+  /* Decided above the early returns so the hook order is stable, and centrally so that exactly one price
+     element is ever rendered across the hero and the header. */
   const priceOnHero = useSheetViewport();
   const { tr } = ctx;
   // A skeleton in the page's own shape rather than a centred spinner: it holds the
@@ -33,9 +30,8 @@ export default function Property() {
       </div>
     );
   }
-  /* The deal is done and this reader is not the owner. Same two sentences the DealPanel shows a
-     buyer on a still-live listing whose deal closed, so the answer does not depend on which of the
-     two routes into "closed" the listing took. See the gate note in `useProperty.js`. */
+  /* Same two sentences DealPanel shows on a still-live listing whose deal closed, so the answer does not
+     depend on which of the two routes into "closed" the listing took. */
   if (ctx.dealClosed) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-32 text-center">
@@ -47,13 +43,13 @@ export default function Property() {
   }
 
   const {
-    rootRef, goBackToSearch, backToMap, returnTo, isRent, p, title, gallery, active, setActive,
+    rootRef, returnTo, isRent, p, title, gallery, active, setActive,
     flagEnabled, setLightbox, setTourOpen, requestPhotos, tabs, current, selectTab,
-    contactApproved, ownerMob, handleContact, canChat, ownerPreview, staffPreview,
+    contactApproved, handleContact, canChat, ownerPreview, staffPreview,
   } = ctx;
 
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} className="dz-property">
       {/* selfPadded route — reserves the fixed navbar itself, from the token. The gaps
           make ≥768px resolve to the 112px (pt-28) it hardcoded before; phones inherit
           the shorter bar. */}
@@ -67,13 +63,8 @@ export default function Property() {
             </div>
           )}
 
-          <button type="button" onClick={goBackToSearch} className="dz-back-search">
-            <Icon name={backToMap ? 'map-pin' : 'arrow-left'} className="w-4 h-4" />
-            {backToMap ? tr('property.backToMap') : tr('property.backToResults')}
-          </button>
-
-          {/* Breadcrumb — hidden on mobile (the "Back to results" pill above already
-              covers up-navigation); kept from sm+ for orientation and SEO. */}
+          {/* Breadcrumb — hidden on mobile (the navbar's back tile covers up-navigation
+              there); kept from sm+ for orientation and SEO. */}
           <nav className="hidden sm:flex items-center gap-2 text-sm mb-4 sm:mb-6 flex-wrap" aria-label="Breadcrumb">
             <Link to="/" className="text-slate-500 hover:text-brand-teal-3 flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('property.home')}</Link>
             <Icon name="chevron-right" className="w-3.5 h-3.5 text-slate-600" />
@@ -84,10 +75,8 @@ export default function Property() {
             <span className="text-slate-300 truncate">{title}</span>
           </nav>
 
-          {/* GALLERY */}
           <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} priceStr={priceOnHero ? ctx.priceStr : null} />
 
-          {/* HEADER */}
           <PropertyHeader ctx={ctx} priceOnHero={priceOnHero} />
 
           {/* SECTION TABS — collapse the long scroll into grouped tabs.
@@ -124,9 +113,8 @@ export default function Property() {
                   <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
                 </Link>
               ) : (
-                /* Deliberately no wa.me deep link and no number on this surface: it
-                   routes through the same gate every other contact entry point uses,
-                   so a new always-visible CTA cannot become a way around D5. */
+                /* Deliberately no wa.me deep link and no number on this surface: it routes through the same
+                   gate as every other contact entry point, so an always-visible CTA is not a way around it. */
                 <button type="button" onClick={handleContact} className="btn-teal flex items-center gap-1.5 text-sm font-semibold py-2 px-4 shadow-none">
                   <Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}
                 </button>
@@ -139,21 +127,10 @@ export default function Property() {
         </div>
       </div>
 
-      {/* Sticky mobile CTA bar */}
       <div className="dz-sticky-cta lg:hidden">
-        {contactApproved ? (
-          flagEnabled('inAppMessaging') ? (
-            <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
-              <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
-            </Link>
-          ) : (
-            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on Draazy.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-[1.125rem]">
-              <Icon name="message-circle" className="w-4 h-4" /> {tr('property.whatsapp')}
-            </a>
-          )
-        ) : (
-          <button onClick={handleContact} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}</button>
-        )}
+        {/* Never branches on approval: the sidebar owner card is `lg:` only, so this sheet is a
+            phone's only surface for the number, WhatsApp and chat in every gate state. */}
+        <button onClick={handleContact} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}</button>
         {/* Matches the sibling primary exactly: no py-* (the 1px border already sits inside
             the 44px box) and the button system's 1.125rem inline padding, so `flex-1`
             hands both halves the same width. */}

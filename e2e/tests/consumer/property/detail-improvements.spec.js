@@ -6,8 +6,10 @@ import { trackErrors } from '../../../helpers/console.js';
       neutral "no verified benchmark" note when we don't have the data).
    #2 Flatmate-split card on every multi-BHK residential rental (not a hardcoded few).
    #3 Share button confirms with a toast.
-   #4 "EMI starts at" hidden for land buys.
-   #5 "enquiries this week" is a weekly slice, not the lifetime total. */
+   #4 Home-loan framing hidden for land buys.
+   #5 "enquiries this week" is a weekly slice, not the lifetime total.
+   #6 Up-navigation is stated once per viewport: the breadcrumb from `sm` up, the navbar's
+      back tile below `lg`, and no in-page pill duplicating either. */
 
 /* Ids are the seeded slugs, and the locality of each is load-bearing rather than incidental.
    `frontend/src/data/localityIntel.js` benchmarks exactly ten localities, and the page prints a
@@ -123,13 +125,17 @@ test('Share button confirms with a toast', async ({ page, context }) => {
   await expect(page.getByRole('alert').filter({ hasText: /link copied/i })).toBeVisible({ timeout: 5000 });
 });
 
-/* ---- Fix #4: EMI-starts-at hidden for land ---- */
+/* ---- Fix #4: home-loan framing hidden for land ---- */
 
-test('"EMI starts at" is hidden on a land buy but shown on a flat buy', async ({ page }) => {
+/* The header's quoted "EMI starts at" line this test was written against is gone -- it named a
+   monthly figure from an assumed down payment and tenure the reader never saw. The rule it
+   protected is not gone, so the assertion follows it to the calculator link, which is now the
+   only home-loan surface the header offers and carries the same !isLand guard. */
+test('home-loan framing is hidden on a land buy but offered on a flat buy', async ({ page }) => {
   const land = await gotoProp(page, SALE_LAND);
-  expect(land).not.toContain('emi starts at');
+  expect(land).not.toContain('calculate emi');
   const flat = await gotoProp(page, SALE_FLAT_KNOWN);
-  expect(flat).toContain('emi starts at');
+  expect(flat).toContain('calculate emi');
 });
 
 /* ---- Fix #5: weekly enquiries slice ---- */
@@ -143,4 +149,18 @@ test('Live-activity shows a weekly enquiries slice below the lifetime total', as
   const total = parseInt((await page.locator('text=Shortlisted').first().locator('..').innerText()).replace(/\D/g, ''), 10);
   expect(week).toBeGreaterThanOrEqual(1);
   expect(week).toBeLessThan(total);
+});
+
+/* ---- Fix #6: one way back, not two ---- */
+
+/* A teal "Back to results" pill sat above the breadcrumb and did the same job it does, on a page
+   that below `lg` is also under a navbar back tile. The breadcrumb is asserted to still reach the
+   results the visitor filtered before the pill's absence is counted: on a page that never rendered,
+   the absence is satisfied by itself. The navbar tile is `lg:hidden`, so at desktop width the
+   breadcrumb is the only affordance left and has to carry the whole claim. */
+test('up-navigation is the breadcrumb, and nothing repeats it', async ({ page }) => {
+  await page.goto(`/property/${SALE_FLAT_KNOWN}`, { waitUntil: 'domcontentloaded' });
+  const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+  await expect(crumbs.getByRole('link', { name: 'Buy' })).toHaveAttribute('href', /deal=buy|\/listings/);
+  await expect(page.getByRole('button', { name: /back to (results|map)/i })).toHaveCount(0);
 });

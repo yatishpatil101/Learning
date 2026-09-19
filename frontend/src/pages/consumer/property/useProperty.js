@@ -5,17 +5,19 @@ import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { recordSignal } from '../../../services/demandService.js';
 import { getProperty } from '../../../services/propertyService.js';
 import { track } from '../../../lib/pmf.js';
-import { fmtINR, fmtNum } from '../../../lib/format.js';
+import { fmtArea, fmtINR, fmtNum, isSqftUnit } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useContactGate } from './useContactGate.js';
 import { requestPhotos as askForPhotos } from '../../../services/photoRequestService.js';
-import { messagesLinkForProp } from '../../../lib/chatFormat.js';
-import { queuePendingChat } from '../../../services/conversationService.js';
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
+import { messagesLinkForProp } from '../../../lib/chatFormat.js';
+import { queuePendingChat } from '../../../services/conversationService.js';
 import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveOverlooking, deriveAge, propertyKind } from './derivations.js';
+import { commercialSpecsFor } from '../list-property/constants.js';
+import { LANDUSE_LBL } from '../../../data/propertyTypes.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
 
@@ -38,9 +40,8 @@ export default function useProperty() {
   const { gate: contactGate } = useContactGate(id);
   const rootRef = useScrollReveal([p]);
   const lbTouchX = useRef(null);
-  /* Re-entrancy guard for the "more photos" ask, declared up here rather than beside its handler
-     because everything below line 86 is past an early return — a hook there changes call order
-     between the found and not-found renders. */
+/* Declared up here rather than beside its handler because everything below line 86 is past an early return —
+   a hook there changes call order between the found and not-found renders. */
   const photoAskBusy = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -95,8 +96,8 @@ export default function useProperty() {
   const contactApproved = contactGate.status === 'approved' || contactGate.status === 'owner';
   const canChat = flagEnabled('inAppMessaging');
 
-  // L1 contact (badge-not-gate): any signed-in user may queue a chat request, which the owner
-  // accepts in Messages. Number reveal lives in OwnerCard; without messaging, fall back to enquiry.
+  /* The sign-in branch belongs here, not inside ContactOwnerModal: gating inside the sheet strands the
+     `reason`/`next` pair a click deeper, and a visitor who just closes the sheet has been told nothing. */
   const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const handleContact = () => {
     if (!isIn) { sendToSignIn('contact'); return; }
@@ -109,10 +110,8 @@ export default function useProperty() {
   const isAdmin = user?.role === 'admin' || user?.role === 'staff';
   const isApproved = p.status === 'approved';
   if (!isApproved && !isOwner && !isAdmin) {
-    /* `rented` / `sold` are terminal, so "hasn't been verified yet — check back later" is false
-       twice over and contradicts the search card, which already reads them as a closed deal. The
-       URL stays reachable from a saved property or a shared link, which is exactly when the honest
-       answer is needed — as an interstitial, since the contact and visit CTAs have nothing to offer. */
+/* `rented` / `sold` are terminal, so "not verified yet — check back later" is false and contradicts the search
+   card. An interstitial, since the URL stays reachable from a saved link but the CTAs have nothing to offer. */
     const done = p.status === 'rented' || p.status === 'sold';
     if (!done) return { underReview: true, tr };
     return {
@@ -125,18 +124,25 @@ export default function useProperty() {
   const isRent = p.deal === 'rent';
   const kind = propertyKind(p);
   const isLand = kind === 'land';
+  /* Fallback, not a synonym: `landUse` is the column the Land-use filter reads, and it covers farm
+     land — which the wizard never asks about, because it is agricultural by definition. */
+  const plotZone = p.plotZone || LANDUSE_LBL[p.landUse] || '';
   /* The owner's answer or nothing: a derived bathroom count would sit beside the price and carpet
      area with no hedge, and a confident wrong number stops a reader asking. */
   const baths = p.bath ?? null;
   const furnishLabel = ['unfurnished', 'semi', 'furnished'].includes(p.furnishing) ? tr(`property.furnishing.${p.furnishing}`) : '—';
   const parkingLabel = p.parkingSpaces ? String(p.parkingSpaces) : '—';
-  const emi = Math.round((p.price * 0.0072) / 100) * 100;
-  const possessionLabel = p.construction === 'new' ? tr('property.underConstruction') : tr('property.readyToMove');
+  const possessionLabel = {
+    ready: tr('property.readyToMove'),
+    new: tr('property.newLaunch'),
+    under: tr('property.underConstruction'),
+  }[p.construction] || '—';
   /* A listing can reach this page with no `type` (older seeds, partial imports), and an unguarded
      `p.type.toLowerCase()` white-screens it. */
   const typeLabel = p.type || tr('property.typeFallback');
   const typeLower = String(typeLabel).toLowerCase();
-  const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${typeLabel} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
+  const bhkLabel = p.bhkNum == null ? '' : p.bhkNum === 0 ? '1 RK ' : p.bhkNum + ' BHK ';
+  const title = `${bhkLabel}${typeLabel} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
   const priceStr = isRent ? `₹${(p.price || 0).toLocaleString('en-IN')}/month` : fmtINR(p.price);
 
   // Derived from this listing's own views/enquiries so the figures vary per listing and stay
@@ -148,24 +154,51 @@ export default function useProperty() {
   const enquiriesThisWeek = p.enquiries ? Math.max(1, Math.round(p.enquiries / 6)) : 0;
 
   // Type-aware Key Details: land/commercial don't have bedrooms/furnishing/floor.
-  const perUnitLabel = isRent ? tr('property.rentPerSqft') : tr('property.pricePerSqft');
+  const areaLabel = fmtArea(p.area, p.areaUnit) || '—';
+  const perUnitLabel = tr('property.pricePerSqft');
   const perUnitVal = '₹' + (p.area ? fmtNum(Math.round(p.price / p.area)) : '0');
+/* Buy only, and only with a real area: a tenant compares the monthly figure, never a rate per foot, and a
+   plot priced per acre would be quoted per acre under a ₹/sq.ft label. Without the area test it reads "₹0". */
+  const showPerUnit = !isRent && isSqftUnit(p.areaUnit) && p.area > 0;
   let details;
   // On land the row is labelled Possession, and `possessionLabel` is the better answer whenever the
   // move-in bucket has none — including an unrecognised token, hence testing the label not the value.
   const landPossession = availableLabel(tr, p.availableFrom);
   if (isLand) {
+    /* `naSanctioned` is the retired boolean, read only when the three-state is unanswered so a
+       listing published under it keeps saying what its owner said. */
+    const naStatus = p.naStatus || (p.naSanctioned ? 'sanctioned' : '');
+    /* Answered rows only: a dash beside a measurement reads as a specification rather than an
+       unasked question, and the toggles default to off, so off is silence. */
+    const landSpecs = [
+      ['ruler', tr('property.spec.plotDimensions'), p.plotLength && p.plotWidth ? `${p.plotLength} × ${p.plotWidth} ft` : ''],
+      ['milestone', tr('property.spec.roadWidth'), p.roadWidth ? `${p.roadWidth} ft` : ''],
+      ['expand', tr('property.spec.openSides'), p.openSides || ''],
+      ['droplets', tr('property.spec.waterSource'), p.waterSource || ''],
+      ['file-check', tr('property.spec.naStatus'), naStatus ? tr('property.naStatus.' + naStatus) : ''],
+      ['scale', tr('property.spec.otherRights'), p.otherRights ? tr('property.otherRights.' + p.otherRights) : ''],
+      ['user-check', tr('property.spec.buyerEligibility'), p.buyerEligibility ? tr('property.buyerEligibility.' + p.buyerEligibility) : ''],
+      ...['cornerPlot', 'boundaryWall', 'electricity', 'roadAccess', 'satbara']
+        .map((key) => ['circle-check', tr('property.spec.' + key), p[key] ? tr('property.yes') : '']),
+    ].filter(([, , value]) => value);
     details = [
-      ['maximize', tr('property.plotArea'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.plotArea'],
-      ['layout-grid', tr('property.plotZone'), p.form?.plotZone || typeLabel, 'keydetail.plotZone'],
+      ['maximize', tr('property.plotArea'), areaLabel, 'keydetail.plotArea'],
+      ['layout-grid', tr('property.plotZone'), plotZone || typeLabel, 'keydetail.plotZone'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
       ['calendar-check', tr('property.possession'), landPossession === '\u2014' ? possessionLabel : landPossession, 'keydetail.available'],
-      ['indian-rupee', perUnitLabel, perUnitVal, isRent ? 'keydetail.perUnitRent' : 'keydetail.perUnitBuy'],
+      ...(showPerUnit ? [['indian-rupee', perUnitLabel, perUnitVal, 'keydetail.perUnitBuy']] : []),
       ['file-check', tr('property.titleLabel'), p.ownershipVerified ? tr('property.clearTitle') : tr('property.underVerification'), 'keydetail.title'],
+      ...landSpecs,
     ];
   } else if (kind === 'commercial') {
+    /* Answered rows only: an unstated floor load is a question for the owner, not a dash that
+       reads like a specification. */
+    const specs = commercialSpecsFor(p.commercialType)
+      .filter(({ key }) => String(p[key] ?? '').trim())
+      .map(({ key, unit }) => ['ruler', tr('property.spec.' + key),
+        unit ? `${p[key]} ${unit}` : String(p[key])]);
     details = [
-      ['maximize', tr('property.area'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.area'],
+      ['maximize', tr('property.area'), areaLabel, 'keydetail.area'],
       ['sofa', tr('property.furnishingLabel'), furnishLabel, 'keydetail.furnishing'],
       ['building', tr('property.floor'), deriveFloor(p), 'keydetail.floor'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
@@ -174,12 +207,13 @@ export default function useProperty() {
       isRent
         ? ['calendar-check', tr('property.available'), availableLabel(tr, p.availableFrom), 'keydetail.available']
         : ['calendar-days', tr('property.age'), deriveAge(p), 'keydetail.age'],
+      ...specs,
     ];
   } else {
     details = [
-      ['bed-double', tr('property.bedrooms'), p.bhkNum ? p.bhkNum + ' BHK' : '—', 'keydetail.bedrooms'],
+      ['bed-double', tr('property.bedrooms'), p.bhkNum == null ? '—' : p.bhkNum === 0 ? '1 RK' : p.bhkNum + ' BHK', 'keydetail.bedrooms'],
       ['bath', tr('property.bathrooms'), baths ?? '—', 'keydetail.bathrooms'],
-      ['maximize', tr('property.area'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.area'],
+      ['maximize', tr('property.area'), areaLabel, 'keydetail.area'],
       ['sofa', tr('property.furnishingLabel'), furnishLabel, 'keydetail.furnishing'],
       ['building', tr('property.floor'), deriveFloor(p), 'keydetail.floor'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
@@ -202,7 +236,7 @@ export default function useProperty() {
   }
   if (p.rera) highlights.push(['badge-check', tr('property.reraApproved')]);
   if (isLand) {
-    if (p.form?.plotZone) highlights.push(['layout-grid', tr('property.zoneLabel', { zone: p.form.plotZone })]);
+    if (plotZone) highlights.push(['layout-grid', tr('property.zoneLabel', { zone: plotZone })]);
     if (p.ownershipVerified) highlights.push(['file-check', tr('property.clearTitleHl')]);
   } else {
     // Guarded because `deriveFacing` returns '' when no direction was stated: an unguarded push
@@ -221,7 +255,7 @@ export default function useProperty() {
     ? tr('property.overviewLand', {
         type: typeLower,
         locality: p.locality,
-        zone: p.form?.plotZone ? tr('property.overviewLandZone', { zone: String(p.form.plotZone).toLowerCase() }) : '',
+        zone: plotZone ? tr('property.overviewLandZone', { zone: String(plotZone).toLowerCase() }) : '',
       })
     : kind === 'commercial'
       ? tr('property.overviewCommercial', { type: typeLower, locality: p.locality, amenities: amenPhrase })
@@ -238,21 +272,20 @@ export default function useProperty() {
   };
 
   const tags = [];
-  /* Two tiers, deliberately: the first badge states a fact about the property and
-     stays neutral; every verification claim shares one emerald so the trust block
-     reads as a set rather than four unrelated colours. Each carries an icon — a
-     mixed row of some-with, some-without is what made these look scattered. */
+/* Two tiers: the neutral badges that open and close the row state facts, while every verification claim
+   between them shares one emerald so the trust block reads as a set rather than four unrelated colours. */
   // Sale: possession status. Rent: furnishing (possession is a buy concept, meaningless for rentals).
   if (!isRent) tags.push([possessionLabel, '', p.construction === 'new' ? 'hard-hat' : 'key', p.construction === 'new' ? 'tag.underConstruction' : 'tag.readyToMove']);
   else if (!isLand && furnishLabel !== '—') tags.push([furnishLabel, '', 'sofa', 'tag.furnishing']);
   if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-emerald', 'user-check', 'tag.verifiedOwner']);
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
   if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
+  /* Last, and neutral on purpose: this is a fact about the transaction, not a verification Draazy
+     performed, so it must not join the emerald set the tiers above are reserved for. */
+  tags.push([tr('property.zeroBrokerageDirect'), '', 'hand-coins', 'tag.zeroBrokerage']);
 
-  /* Sign-in and not-your-own-listing are re-stated here only to spend a toast instead of a round
-     trip; the server enforces both independently, and the branches below are what happens when a
-     stale session disagrees. `created` is the server's word on whether this was a new row — saying
-     "sent" for a duplicate promises the owner a notification nobody is going to receive. */
+/* Re-stated here only to spend a toast instead of a round trip; the server enforces both independently.
+   `created` is the server's word — saying "sent" for a duplicate promises a notification nobody will get. */
   const requestPhotos = async () => {
     if (!isIn) { sendToSignIn('photos'); return; }
     if (isOwner) { toast(tr('property.ownListingPhotos'), 'info'); return; }
@@ -274,11 +307,6 @@ export default function useProperty() {
   };
 
   const returnTo = location.state?.from || getLastSearch()?.search || `/listings?deal=${p.deal}&loc=${encodeURIComponent(p.locality)}`;
-  const backToMap = /view=map/.test(returnTo);
-  // `state.from` is set only by the results/map cards, so when present the previous history entry
-  // is the results page and a real Back restores filters, pin and scroll for free.
-  const goBackToSearch = () =>
-    location.state?.from ? navigate(-1) : navigate(returnTo, { state: { restore: true } });
 
   const hasAmenities = !!(p.amenities && p.amenities.length);
   const reviewsOn = flagEnabled('reviewsEnabled');
@@ -303,14 +331,14 @@ export default function useProperty() {
     tourOpen, setTourOpen, reportOpen, setReportOpen, contactOpen, setContactOpen,
     visitOpen, setVisitOpen,
     isIn, user, toast, flagEnabled, rootRef, lbTouchX, gallery, activeTab,
-    startChatRequest, handleContact, ownerMob, contactApproved, ownerHidesNumber: contactGate.ownerHidesNumber, canChat, isOwner, isAdmin, isApproved,
+    handleContact, ownerMob, contactApproved, ownerHidesNumber: contactGate.ownerHidesNumber, canChat, isOwner, isAdmin, isApproved,
     // Owner and staff previews both need saying out loud: otherwise the only difference between a
     // live page and a pending one is invisible. Not `!isApproved` — sold/rented is also unapproved.
     ownerPreview: (isOwner || isAdmin) && (p.status === 'pending' || p.status === 'flagged'),
     staffPreview: !isOwner && isAdmin && (p.status === 'pending' || p.status === 'flagged'),
-    isRent, kind, isLand, baths, furnishLabel, parkingLabel, emi, possessionLabel, title, priceStr,
-    viewingNow, visitsScheduled, enquiriesThisWeek, perUnitLabel, perUnitVal, details, highlights,
-    topHighlights, amenPhrase, overviewMore, waShare, tags, requestPhotos, returnTo, backToMap,
-    goBackToSearch, hasAmenities, reviewsOn, tabs, current, selectTab,
+    isRent, kind, isLand, baths, furnishLabel, parkingLabel, possessionLabel, title, priceStr,
+    viewingNow, visitsScheduled, enquiriesThisWeek, perUnitLabel, perUnitVal, showPerUnit, details, highlights,
+    topHighlights, amenPhrase, overviewMore, waShare, tags, requestPhotos, returnTo,
+    hasAmenities, reviewsOn, tabs, current, selectTab,
   };
 }

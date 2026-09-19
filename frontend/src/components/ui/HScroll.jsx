@@ -1,19 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '../../lib/format.js';
 
-/* Horizontal scroll row with an edge-fade affordance.
-   Mobile/tablet are touch-based, so the user swipes directly; the gradient fade
-   on each side signals "there's more to scroll here" — the same clean melt used by
-   the home "Explore by property type" rail. Set `fadeColor` to the immediate
-   container's background so the fade melts into it (rather than reading as a shadow).
-
-   Props:
-   - className     -> passed to the inner scrolling row (its flex/grid/gap/padding).
-   - wrapClassName -> passed to the outer positioned wrapper (use for -mx bleed).
-   - fadeColor     -> gradient colour, default the page background so cards melt out.
-   - fadeWidth     -> width of each fade band.
-   - scrollRef     -> optional external ref to the scrolling element.
-   - ...rest       -> forwarded to the row (role="tablist", aria-label, style, etc). */
+/* The gradient fade on each side is the only "there's more here" signal on a touch device. Set `fadeColor`
+   to the immediate container's background so it melts into it rather than reading as a shadow. */
 export default function HScroll({
   children,
   className = '',
@@ -37,9 +26,8 @@ export default function HScroll({
     setFadeRight(scrollLeft < scrollWidth - clientWidth - 4);
   }, [ref]);
 
-  // Smart scroll: bring a clipped item fully into view. When a control near the
-  // edge is tapped (e.g. a half-hidden tab), nudge the strip so the whole item is
-  // visible with a little breathing room — nothing moves if it's already in view.
+  // When a control near the edge is tapped (a half-hidden tab), nudge the strip so the whole item is
+  // visible with a little breathing room. Nothing moves if it is already in view.
   const revealChild = useCallback((child) => {
     const el = ref.current;
     if (!el || !child || !el.contains(child)) return;
@@ -86,7 +74,7 @@ export default function HScroll({
 
   return (
     <div className={classNames('relative', wrapClassName)}>
-      <div ref={ref} onClick={handleClick} className={classNames('overflow-x-auto no-scrollbar', className)} {...rest}>
+      <div ref={ref} onClick={handleClick} className={classNames('hscroll-row overflow-x-auto no-scrollbar', className)} {...rest}>
         {children}
       </div>
       <div

@@ -224,6 +224,7 @@
     "coPaymentPending": "Payment pending",
     "coPaymentPendingBody": "We've opened your payment and are waiting for your bank to confirm it. Your plan activates the moment it clears \u2014 usually within a few minutes.",
     "coPaymentFailed": "We couldn't start that payment. Nothing has been charged \u2014 please try again.",
+    "coOrderAlreadyOpen": "You already have an order waiting for payment. Nothing extra has been charged \u2014 an unpaid order is cancelled automatically once its checkout runs out, and you can try again after that.",
     "coPaidVia": "paid via",
     "coOrderReference": "Order reference",
     "coGoToDashboard": "Go to dashboard",

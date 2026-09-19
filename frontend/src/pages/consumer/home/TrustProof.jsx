@@ -2,21 +2,18 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { STATS } from '../../../data/homeData.js';
 
-/* Trust chips + headline stats. These sit in the hero on desktop but below the Featured rail on
-   mobile, and no CSS `order` moves a block across a section boundary — so both surfaces render this
-   one component. Exactly one instance shows at any width, so the a11y tree sees no duplicate. */
+/* One component for both surfaces because no CSS `order` moves a block across a section boundary, and these
+   sit in the hero on desktop but below the Featured rail on mobile. Only one instance shows at any width. */
 
 const CHIPS = [
-  { icon: 'shield-check', key: 'trustIdVerified', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
-  { icon: 'hand-coins', key: 'trustZeroBrokerage', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
+  { icon: 'hand-coins', key: 'trustZeroBrokerage', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
   { icon: 'phone-off', key: 'trustNoSpam', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
+  { icon: 'handshake', key: 'trustEndToEnd', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
   { icon: 'badge-check', key: 'trustAssured', tone: 'bg-amber-500/10 border-amber-500/25 text-amber-300', ink: 'text-amber-300', dot: 'bg-amber-400/15 text-amber-300' },
 ];
 
-/* `compact` is the mobile hero layout: a checklist, not boxes. Pills sized to their own labels read
-   as scatter and a ruled 2x2 panel reads as a heavy table — both spend chrome on the container
-   rather than the claims. Colour lives only in the icon discs, so the four labels read as one list;
-   `*Short` labels keep every item on a single line at 360px. */
+/* `compact` is the mobile hero layout: a checklist, not boxes, because pills read as scatter and a ruled
+   2x2 as a heavy table. Colour lives only in the icon discs so the four labels read as one list. */
 export function TrustChips({ className = '', compact = false }) {
   const { t } = useTranslation();
   if (compact) {
@@ -63,10 +60,8 @@ export function HeroStats({ className = '' }) {
   );
 }
 
-/* Mobile-only proof strip, rendered below lg. The headline stats stay under the Featured rail — on
-   a phone "how big is this?" only lands once real stock has been seen — and the trust chips are
-   excluded here because the hero already carries them, so a second copy would duplicate them in
-   the accessibility tree. */
+/* The stats stay under the Featured rail because on a phone "how big is this?" only lands once real stock
+   has been seen. The trust chips are excluded: the hero carries them, and a second copy duplicates the a11y tree. */
 export default function MobileTrustProof() {
   return (
     <section className="lg:hidden relative section-pb">

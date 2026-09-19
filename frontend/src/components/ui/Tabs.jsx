@@ -3,10 +3,7 @@ import { classNames } from '../../lib/format.js';
 import HScroll from './HScroll.jsx';
 import Icon from '../Icon.jsx';
 
-/* Tabs: items [{ key, label, icon?, content }].
-   Controlled: pass `active` + `onChange`.
-   Uncontrolled: pass `initial` (defaults to first item).
-   variant: 'pill' (default segmented look) | 'underline' (property-detail style). */
+/* Controlled via `active` + `onChange`, or uncontrolled via `initial`. */
 export default function Tabs({ items, initial, active: controlledActive, onChange, variant = 'pill' }) {
   const [internalActive, setInternalActive] = useState(initial ?? items[0]?.key);
   const active = controlledActive ?? internalActive;
@@ -42,12 +39,8 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
     );
   }
 
-  /* A segmented control is a "pick one of these" decision, so every option has to
-     be visible to be weighed. Past three pills that stops being true on a 360px
-     phone — the rest sit off-screen behind a scroll nobody knows to perform — so
-     below `sm` the strip wraps into a 2-up grid instead. The HScroll wrapper stays
-     (desktop is unchanged) and its edge fades switch themselves off once there is
-     nothing left to scroll. */
+  /* A segmented control is a "pick one of these" decision, so every option must be visible to be weighed.
+     Past three pills on a 360px phone the rest sit off-screen, so below `sm` the strip wraps 2-up. */
   const wrapOnMobile = items.length > 3;
 
   return (
@@ -55,6 +48,9 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
       <HScroll
         role="tablist"
         fadeColor="var(--brand-card, #1a1730)"
+        // The phone axis lock in index.css would turn this back into a scroll container, because
+        // `overflow-x: visible` beside `overflow-y: hidden` computes to `auto`.
+        data-axis-free={wrapOnMobile ? '' : undefined}
         className={classNames(
           'flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1',
           wrapOnMobile && 'max-sm:grid max-sm:grid-cols-2 max-sm:overflow-x-visible',
