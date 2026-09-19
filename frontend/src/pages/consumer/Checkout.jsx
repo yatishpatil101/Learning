@@ -27,8 +27,7 @@ export default function Checkout() {
   const [params] = useSearchParams();
   const planId = params.get('plan');
   // The configured price list, from `GET /pricing`. Only the fallback — `serverPrice` below is the
-  // plan catalogue's own number and wins when it resolves. Both used to be unreachable from a
-  // browser, so what a signed-out visitor was charged came from a constant in the bundle.
+  // plan catalogue's own number and wins when it resolves.
   const { prices } = usePricing();
   const CO = checkoutPlans(t, prices);
   const METHODS = checkoutMethods(t);
@@ -65,21 +64,12 @@ export default function Checkout() {
     setError('');
     try {
       const sub = await subscribe(planId, method.toLowerCase());
-      /* The reference the customer quotes at support. `paymentRef` is the gateway's own order id
-         and is what appears on their bank statement, so it is the useful one; the subscription id
-         is the fallback for a free plan, which has no gateway order to point at.
-
-         This used to be `addServiceOrder({...}).id` — a localStorage row written next to a comment
-         saying it "drives the mock billing history". It did not: `BillingPanel` renders a static
-         `BILLING_HISTORY` constant and `getServiceOrders()` had no callers at all. So the browser
-         was minting an order number for a record nobody could ever look up, and handing it to the
-         customer as the thing to quote. */
+      /* The reference the customer quotes at support: `paymentRef` is the gateway's order id and appears on
+         their bank statement; the subscription id is the fallback for a free plan, which has no order. */
       setOrderRef(sub?.paymentRef || sub?.id || '');
 
-      // Option A hosted checkout: a pending subscription carrying a session id means the server
-      // opened a real Cashfree order. Hand off to Cashfree's own hosted checkout, then re-read the
-      // subscription — the signature-verified webhook, not this browser, is what activates it, so
-      // the screen reflects `/me/subscription` rather than treating the modal closing as success.
+      // A pending subscription carrying a session id means the server opened a real Cashfree order. The
+      // signature-verified webhook activates it, so re-read `/me/subscription` rather than trusting the modal.
       if (sub?.status === 'pending' && sub?.paymentSessionId) {
         await openCashfreeCheckout(sub.paymentSessionId);
         setResult(await refresh());
@@ -87,10 +77,10 @@ export default function Checkout() {
         // Mock provider, or a free plan that is active immediately — there is no gateway to visit.
         setResult(sub);
       }
-    } catch {
-      // A failed subscribe must not render the success screen. The user keeps their money and
-      // the Pay button, which is the only recoverable outcome.
-      setError(t('misc.coPaymentFailed'));
+    } catch (err) {
+      // 409 is the server's one-open-unpaid-order cap and earns its own message, because retrying cannot work
+      // until the sweep retires the older order. Branch on status, never `err.message` — this page is localised.
+      setError(err?.status === 409 ? t('misc.coOrderAlreadyOpen') : t('misc.coPaymentFailed'));
     } finally {
       setPaying(false);
     }
@@ -99,16 +89,13 @@ export default function Checkout() {
   if (!base) return <Navigate to="/plans" replace />;
   if (!isIn) return <Navigate to={`/signin?next=${encodeURIComponent('/checkout?plan=' + planId)}`} replace />;
 
-  // `pending` is not `paid`. For a priced plan the server opens a gateway order and waits for the
-  // payment webhook; only that webhook activates the subscription. Telling someone the purchase
-  // landed before the money has is the one outcome worth designing against here.
+  // `pending` is not `paid`: only the payment webhook activates a priced subscription, and telling someone
+  // the purchase landed before the money has is the one outcome worth designing against here.
   const paid = result?.status === 'active';
   const pending = result?.status === 'pending';
 
-  // Guard against paying twice for a plan you already hold. Subscriptions (owner2/
-  // owner5) persist via the plan context; the one-time Seeker Plus top-up has no lasting
-  // ownership, so it stays re-purchasable. Shown before payment (not after — the
-  // success screen still needs to render for a purchase just made this session).
+  // Guard against paying twice for a plan you already hold; the one-time Seeker Plus top-up has no lasting
+  // ownership, so it stays re-purchasable. Shown before payment only — a purchase made now still succeeds.
   const alreadyOnThisPlan = P.kind === 'plan' && !result && currentPlanId === planId;
 
   return (
