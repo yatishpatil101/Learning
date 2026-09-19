@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { pickDate } from '../helpers/datePicker.helper.js';
+import { uploadPublishablePhotos } from '../helpers/listingPhotos.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signIn, signedInAs, signedInAsNew, apiLogin, uniqueMobile, authHeaders, API } from '../helpers/liveAuth.js';
 
@@ -9,9 +10,8 @@ const OWNER = { mobile: '9470744469', name: 'Meera Deshpande', total: 4, publicl
 // An approved OWNER fixture supports public deal and review flows.
 const OWNER_LISTING = '1078d711-d3eb-5961-ab3c-30d4bdc5f377';
 
-/* Decoded the way the product decodes (`atob`), and inlined at both call sites since a page-side
-   function cannot close over this file: `connect-src 'self'` refuses a `data:` fetch and
-   `script-src` grants `'wasm-unsafe-eval'` but not `'unsafe-eval'`. */
+/* Decoded the way the product decodes (`atob`), and inlined at both call sites since a page-side function
+   cannot close over this file: `connect-src 'self'` refuses a `data:` fetch. */
 const PNG_1PX_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const PNG_1PX = Buffer.from(PNG_1PX_BASE64, 'base64');
@@ -233,11 +233,11 @@ test.describe('LIVE: property domain against the real API', () => {
      // A fresh account prevents this write from changing OWNER's fixed listing fixture.
     await signedInAsNew(page);
 
-     // Seed step one because this test starts at the location-dependent second step.
+     // Seed step one because this test starts at the location-dependent address step.
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:list-property', JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
-        floor: '9', availableFrom: '2026-09-01',
+        floor: '9', totalFloors: '14', availableFrom: '2026-09-01',
       }));
       // Seed consent so the delayed banner cannot intercept the wizard controls.
       localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
@@ -262,30 +262,36 @@ test.describe('LIVE: property domain against the real API', () => {
 
     // A unique society name makes this run's server row identifiable.
     const society = `Seam Spec Residency ${Date.now()}`;
-    const step2 = { flatNumber: 'A-902', society, pincode: '411045', monthlyRent: '31000', deposit: '90000' };
-    for (const [field, value] of Object.entries(step2)) {
+    const address = { flatNumber: 'A-902', society, pincode: '411045' };
+    for (const [field, value] of Object.entries(address)) {
+      await page.locator(`input[data-err="${field}"]`).fill(value);
+    }
+    await next.click();
+    for (const [field, value] of Object.entries({ monthlyRent: '31000', deposit: '90000' })) {
       await page.locator(`input[data-err="${field}"]`).fill(value);
     }
     await next.click();
     await page.getByPlaceholder(/MSEDCL electricity bill/i).fill(`1800${Date.now()}`.slice(0, 12));
 
-    // A photo is required before the wizard exposes Submit.
+    // Photos are required before the wizard exposes Submit, and one is not enough.
     const photo = page.locator('[data-err="photos"] label.upload-zone input[type="file"]');
     await expect(photo).toBeAttached({ timeout: 20_000 });
     const uploaded = page.waitForResponse(
       (r) => r.url().includes('/me/photos') && r.request().method() === 'POST',
       { timeout: 30_000 },
     );
-    await photo.setInputFiles({ name: 'living-room.png', mimeType: 'image/png', buffer: PNG_1PX });
+    await uploadPublishablePhotos(page);
     expect((await uploaded).status()).toBe(201);
 
-    const docInput = page.locator('.doc-upload input[type="file"]').first();
+    /* Named, not `.first()`: the first slot takes the original MSEDCL PDF and nothing else, so an image
+       dropped there is refused at the picker and never reaches the wire. */
+    const docInput = page.locator('[data-err="Property Tax Receipt"] input[type="file"]');
     await expect(docInput).toBeAttached({ timeout: 20_000 });
     const docPosted = page.waitForResponse(
       (r) => /\/api\/me\/documents\//.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
       { timeout: 30_000 },
     );
-    await docInput.setInputFiles({ name: 'ownership-proof.png', mimeType: 'image/png', buffer: PNG_1PX });
+    await docInput.setInputFiles({ name: 'tax-receipt.png', mimeType: 'image/png', buffer: PNG_1PX });
 
     const created = page.waitForResponse(
       (r) => /\/api\/me\/listings$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
@@ -302,7 +308,7 @@ test.describe('LIVE: property domain against the real API', () => {
     const docRes = await docPosted;
     expect(docRes.status(), `API calls: ${calls.join(', ')}`).toBe(201);
     expect(new URL(docRes.url()).pathname).toContain(String(body.slug || body.id));
-    expect((await docRes.json()).category).toBe('Ownership Proof');
+    expect((await docRes.json()).category).toBe('Property Tax Receipt');
 
     await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 20_000 });
 
@@ -1708,10 +1714,8 @@ test.describe('LIVE: identity verification against the real API', () => {
     expect(status.status).toBe('none');
   });
 
-  /* Submitting is a *queue*, not a grant. `POST /me/verification/identity` answers 202 and the
-     next read still says pending — the badge waits on a staff decision. This is the security
-     half: a client that could talk itself into a trust badge is a defect, and asserting the
-     202 alone would not notice one that also flipped the flag. */
+  /* Submitting is a *queue*, not a grant: a client that could talk itself into a trust badge is a defect,
+     and asserting the 202 alone would not notice one that also flipped the flag. */
   test('submitting enters the review queue and grants no badge', async ({ page }) => {
     await signedInAsNew(page);
     await page.goto('/dashboard');

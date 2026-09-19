@@ -33,7 +33,6 @@
     "@mediapipe/tasks-vision": "^1.0.1",
     "@phosphor-icons/react": "^2.1.10",
     "@vis.gl/react-google-maps": "^1.9.0",
-    "browser-image-compression": "2.0.2",
     "chart.js": "^4.4.7",
     "heic-to": "1.5.2",
     "i18next": "^24.2.3",

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { badgeDocumentProgress, docsFor, isLandType } from './constants.js';
 import { FieldError } from './controls.jsx';
 import { fld, lbl } from './styles.js';
-import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../../lib/uploads/policy.js';
+import { DOCUMENT_ACCEPT } from '../../../lib/uploads/policy.js';
 
 export default function PropertyDocumentUploads({ form, set, documents, errors, isMediaBusy, handleDocUpload }) {
   const { t } = useTranslation();
@@ -13,17 +13,22 @@ export default function PropertyDocumentUploads({ form, set, documents, errors, 
   const index = choices.find((d) => d.key === 'Index II');
   const records = choices.filter((d) => !d.verifies);
   const ready = badgeDocumentProgress(form.deal, documents) === 1;
+  /* Validation returns a code, not a sentence, so the copy stays in the locale files. Anything else is an
+     upload failure, already phrased by the uploader that raised it. */
+  const docError = (key) => (errors[key] === 'naOrder' ? t('listProperty.err.naOrder') : errors[key]);
 
+  /* No per-field "(optional)" marker: the card says once that every document here is optional, and
+     repeating it on all six labels made the word louder than the document name it qualifies. */
   const upload = (doc) => (
     <div key={doc.key} data-err={doc.key}>
-      <p className={lbl}>{doc.label} <span className="text-gray-500 font-normal">{t('listProperty.optional')}</span></p>
+      <p className={lbl}>{doc.label}</p>
       <label className={`doc-upload focus-within:ring-2 focus-within:ring-teal-400 ${documents[doc.key] ? 'has-file' : ''} ${isMediaBusy ? 'opacity-60' : ''}`}>
         <input type="file" className="sr-only" accept={doc.originalPdf ? '.pdf,application/pdf' : DOCUMENT_ACCEPT}
           aria-label={`Upload ${doc.label}`} disabled={isMediaBusy} onChange={(e) => handleDocUpload(doc.key, e)} />
         <FileText className="w-5 h-5 text-teal-400 flex-shrink-0" />
         <span className="doc-name text-sm text-gray-400 truncate">{documents[doc.key]?.name || doc.cta}</span>
       </label>
-      {errors[doc.key] && <FieldError show>{errors[doc.key]}</FieldError>}
+      {errors[doc.key] && <FieldError show>{docError(doc.key)}</FieldError>}
       {doc.hint && <p className="text-gray-400 text-xs mt-1.5 leading-relaxed">{doc.hint}</p>}
     </div>
   );
@@ -39,7 +44,7 @@ export default function PropertyDocumentUploads({ form, set, documents, errors, 
           {form.deal === 'rent'
             ? 'For rent: a current electricity bill or property-tax receipt.'
             : 'For sale: Index II plus a current electricity bill or property-tax receipt.'}
-          {' '}All documents are optional for publishing. Uploading does not grant a badge; staff must check the evidence.
+          {' '}These are optional for publishing.
         </p>
         <p className="text-gray-400 text-xs my-3 flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0 text-teal-400" />
           Staff review these documents privately. This is a property-document check, not identity verification or a legal title guarantee.
@@ -56,22 +61,26 @@ export default function PropertyDocumentUploads({ form, set, documents, errors, 
         </div>
         {!isLandType(form.propertyType) && (
           <div className="mt-4">
-            <label htmlFor="electricity-consumer-no" className={lbl}>{t('listProperty.fields.electricityConsumerNo')} <span className="text-gray-500 font-normal">{t('listProperty.optional')}</span></label>
+            <label htmlFor="electricity-consumer-no" className={lbl}>{t('listProperty.fields.electricityConsumerNo')}</label>
             <input id="electricity-consumer-no" inputMode="numeric" maxLength={20} value={form.electricityConsumerNo}
               onChange={(e) => set('electricityConsumerNo', e.target.value.replace(/\D/g, ''))}
               placeholder={t('listProperty.ph.egElectricityConsumer')} aria-describedby="electricity-consumer-help" className={fld} />
             <p id="electricity-consumer-help" className="text-gray-400 text-xs mt-1.5">{t('listProperty.help.electricityConsumerHelp')}</p>
           </div>
         )}
+        {/* The one claim that has to survive: evidence supplied is not a badge granted. It lives here
+           rather than in the intro paragraph because this line already changes with the deal's
+           progress, so the owner reads it at the moment it becomes true. */}
         <p role="status" aria-label="Badge documents" className="text-xs text-teal-200 mt-4">
           {ready ? 'Badge documents ready for staff review — not yet verified.' : 'You can publish without a badge and provide these documents later.'}
         </p>
-        <p className="text-gray-400 text-xs mt-3 leading-relaxed">{t(PDF_GUIDANCE_KEY)}</p>
       </div>
-      <details className="mt-4 rounded-xl border border-white/10 p-4">
-        <summary className="text-sm font-semibold text-gray-200 cursor-pointer min-h-[44px] py-3">Other documents — optional, for your records</summary>
-        <p className="text-gray-400 text-xs mb-4 leading-relaxed">{t(DOCUMENT_GUIDANCE_KEY)} {t('listProperty.photosDocs.otherDocsNote')}</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{records.map(upload)}</div>
+      {/* Padding on the summary, not the details, so the collapsed tile is exactly its 44px tap
+         target instead of one sentence floating in a card. Forced open once a slot in here is
+         required: `scrollToError` can reach a collapsed slot but the owner cannot read it. */}
+      <details className="mt-4 rounded-xl border border-white/10 px-4" open={records.some((d) => errors[d.key]) || undefined}>
+        <summary className="text-sm font-semibold text-gray-200 cursor-pointer min-h-[44px] flex items-center">Other documents — for your records</summary>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4">{records.map(upload)}</div>
       </details>
     </section>
   );

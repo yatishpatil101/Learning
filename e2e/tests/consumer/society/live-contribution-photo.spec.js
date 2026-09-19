@@ -1,49 +1,6 @@
 /**
- * LIVE check that a resident's society photo is *uploaded*, not pasted into the request body.
- *
- * Excluded from the default run; needs a backend on :8081 under the `local,e2e` profiles and the
- * `draazy_e2e` database. Run it explicitly:
- *
- *   cd e2e; npx playwright test tests/consumer/society/live-contribution-photo.spec.js --config=playwright.config.js
- *
- * ## Why this needed its own live spec
- *
- * This is the exact class of bug the whole live suite exists for, in its purest form: **the mock
- * could not fail.**
- *
- * `EvidenceUpload` hands its callback two things — a preview object `{ name, size, mime, dataUrl }`
- * and the original `File`. The photo modal was wiring only the first into `cForm.photo`, and
- * `submitContribution` was sending that object as `photoUrl`. On the wire `photoUrl` is a
- * `@Size(max = 500) String`, so Jackson could not bind it: the request died in deserialisation,
- * and `submitContribution`'s `catch` flattened that into "That could not be shared. Please try
- * again." — a resident tapping Post, being told to try again, and trying again forever.
- *
- * In mock mode the same object round-trips through `localStorage` and `CommunityTab` renders its
- * `dataUrl` happily. The photo appears. **Every mock spec passes, on a feature that has never once
- * worked against the real server.** No amount of mock coverage could have caught this, which is why
- * the fix does not ship without this file.
- *
- * ## What is actually asserted
- *
- * The load-bearing assertion is that the stored `photoUrl` is **not** a `data:` URL. That single
- * check is what separates a real upload from the preview, and it is the one that fails on the old
- * code. Around it:
- *
- * 1. The multipart `POST /me/photos` is observed happening, so the ordering (upload, *then*
- *    reference) is proven rather than inferred from the result.
- * 2. The contribution is re-read from `GET /societies/{slug}/contributions` over HTTP, outside the
- *    browser that made it — so what is being checked is what the server kept, not what React holds.
- * 3. The hub renders that same URL, rather than a preview it kept beside it.
- *
- * The stored object is **not** fetched back; `live-fees-and-photos.spec.js` explains why at its own
- * upload, and the reason applies unchanged here.
- *
- * A second test covers the failure path: `uploadPhoto` rejecting must not file a photo
- * contribution with no photo. The server would refuse that anyway ("Add a photo to share."), so
- * filing it would only trade a nameable failure for a generic one.
- *
- * The seeded verified society "Skyline Heights, Baner" is used, as in every other society live
- * spec — it is the one with coordinates and a listing, so the hub renders all five tabs.
+ * In mock mode the preview object round-trips through localStorage and renders, so no mock spec can fail on
+ * this: the load-bearing assertion is that the stored `photoUrl` is NOT a `data:` URL, re-read over HTTP.
  */
 import { test, expect } from '../../../fixtures/live.js';
 import { signIn, authHeaders, uniqueMobile, API } from '../../../helpers/liveAuth.js';
@@ -58,10 +15,8 @@ const PNG_1PX = Buffer.from(
 );
 
 /**
- * Open the hub's Community tab and press "Add photo".
- *
- * The heading is awaited first because the tab list only paints once the society read resolves;
- * clicking into it earlier races the fetch.
+ * Open the hub's Community tab and press "Add photo". The heading is awaited first because the tab list
+ * only paints once the society read resolves; clicking into it earlier races the fetch.
  */
 async function openPhotoModal(page) {
   await page.goto(`${BASE}/society/${SLUG}?tab=community`);
@@ -127,9 +82,8 @@ test('the photo a resident picks is uploaded and referenced, not pasted into the
     expect(mine.photoUrl, 'photoUrl must use the dev public-storage route').toMatch(/^\/api\/dev\/storage\/public\//);
   expect(mine.photoUrl.length, 'photoUrl must fit the column').toBeLessThanOrEqual(500);
 
-    /* The page must render the server's URL rather than a preview it kept beside it. The D246 dev
-      public store is same-origin through Vite, so visibility now proves the photo bytes resolve as
-      well as proving the `src` the app chose. */
+    /* The page must render the server's URL rather than a preview kept beside it. The dev public store is
+       same-origin through Vite, so visibility proves the bytes resolve as well as the `src` chosen. */
     await expect(page.locator(`img[src="${mine.photoUrl}"]`).first()).toBeVisible();
 });
 
@@ -139,9 +93,8 @@ test('an upload that fails files nothing, rather than a photo post with no photo
 
   const caption = `This one should never land ${Date.now()}`;
 
-  /* Break the upload at the network edge. Failing it server-side would need a file the server
-     rejects, which tests the server's validation instead of the page's ordering — and the ordering
-     is the thing this file is about. */
+  /* Broken at the network edge: failing it server-side would need a file the server rejects, which tests the
+     server's validation instead of the page's ordering. */
   await page.route('**/me/photos', (route) => route.abort('failed'));
 
   const modal = await openPhotoModal(page);
@@ -152,9 +105,8 @@ test('an upload that fails files nothing, rather than a photo post with no photo
   });
   await modal.getByPlaceholder(/Caption/i).fill(caption);
 
-  /* Nothing may be filed. Asserted by watching for the request rather than by re-reading after a
-     delay: a POST that never happens is the claim, and a `waitForResponse` that times out proves
-     it more directly than an absence in a list that could simply be paged. */
+  /* Watched for rather than re-read after a delay: a POST that never happens is the claim, and an absence in
+     a list could simply mean the row was paged. */
   let filedAnyway = false;
   page.on('request', (r) => {
     if (/\/societies\/[^/]+\/contributions$/.test(r.url()) && r.method() === 'POST') filedAnyway = true;

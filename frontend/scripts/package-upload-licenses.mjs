@@ -31,7 +31,7 @@ for (const [name, url] of sources) {
   await writeFile(path.join(output, name), bytes);
   manifest.push({ name, url, sha256: createHash('sha256').update(bytes).digest('hex') });
 }
-for (const name of ['heic-to', 'browser-image-compression', 'pdf-lib']) {
+for (const name of ['heic-to', 'pdf-lib']) {
   const license = name === 'pdf-lib' ? 'LICENSE.md' : 'LICENSE';
   await copyFile(path.join(root, 'node_modules', name, license), path.join(output, `${name}-LICENSE.txt`));
 }
@@ -46,7 +46,7 @@ await writeFile(path.join(output, 'README.txt'), `Upload processing libraries
 heic-to 1.5.2: Copyright Hopper Gee; LGPL-3.0-or-later.
 Includes libheif 1.22.2 and libde265 1.0.16. See their bundled source archives
 for complete copyright notices, individual component licenses and build scripts.
-browser-image-compression 2.0.2 and pdf-lib 1.17.1: MIT; notices are included here.
+pdf-lib 1.17.1: MIT; its notice is included here.
 
 The HEIC library is an unmodified, separately loaded JavaScript asset in /assets/.
 It is loaded only for HEIC/HEIF files, not merged into the application's code.

@@ -12,6 +12,8 @@ async function openPhotos(page) {
   await signedInAsNew(page);
   await page.evaluate(() => localStorage.setItem('dzDraft:list-property', JSON.stringify({
     deal: 'rent', propertyType: 'flat', carpetArea: '900', bhk: '2', bathrooms: '2',
+    // A tower's floors are answered on step 1, so a draft without them never gets past it.
+    floor: '9', totalFloors: '14',
     flatNumber: 'M-101', society: 'Media Test Home', pincode: '411045',
     monthlyRent: '23000', deposit: '46000', availableFrom: '2026-12-01',
   })));
@@ -22,6 +24,8 @@ async function openPhotos(page) {
   await page.getByRole('option', { name: 'Baner', exact: true }).click();
   await page.locator('input[data-err="society"]').fill('Media Test Home');
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  // The draft already carries the rent, deposit and date, so the pricing step needs no answers.
   await page.getByRole('button', { name: /Next Step/i }).click();
   await expect(page.locator('[data-err="photos"]')).toBeVisible();
 }
@@ -88,7 +92,7 @@ test.describe('upload preparation in the real browser', () => {
     }
   });
 
-  test('compresses an oversized image without reducing below the quality floor', async ({ page }) => {
+  test('compresses an oversized image without spending resolution it does not have to', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
       const canvas = document.createElement('canvas');
@@ -134,34 +138,57 @@ test.describe('upload preparation in the real browser', () => {
     expect((await prepare(page, huge, 'huge.png', 'image/png')).error).toMatch(/48 megapixels/);
   });
 
-  test('tries the high-quality floor before refusing an image that can fit', async ({ page }) => {
+  test('never refuses a photo for its size: quality is spent before resolution', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
-      const canvas = new OffscreenCanvas(1200, 900);
-      const ctx = canvas.getContext('2d');
-      const pixels = ctx.createImageData(1200, 900);
-      let seed = 17;
-      for (let i = 0; i < pixels.data.length; i += 4) {
-        for (let channel = 0; channel < 3; channel += 1) {
-          seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
-          pixels.data[i + channel] = seed >>> 24;
+      const noise = (width, height) => {
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        const pixels = ctx.createImageData(width, height);
+        let seed = 17;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          for (let channel = 0; channel < 3; channel += 1) {
+            seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+            pixels.data[i + channel] = seed >>> 24;
+          }
+          pixels.data[i + 3] = 255;
         }
-        pixels.data[i + 3] = 255;
-      }
-      ctx.putImageData(pixels, 0, 0);
-      const high = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
-      const floor = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9025 });
-      const original = await canvas.convertToBlob({ type: 'image/png' });
-      try {
+        ctx.putImageData(pixels, 0, 0);
+        return canvas;
+      };
+      const shots = [];
+      for (const [width, height] of [[1200, 900], [2560, 1920]]) {
+        const canvas = noise(width, height);
+        // The worker's last rung before it starts shedding pixels.
+        const floor = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.35 });
+        const original = await canvas.convertToBlob({ type: 'image/png' });
         const output = await prepareUpload(new File([original], 'noise.png', { type: 'image/png' }));
-        return { high: high.size, floor: floor.size, output: output.size };
-      } catch (error) { return { high: high.size, floor: floor.size, error: error.message }; }
+        const decoded = await createImageBitmap(output);
+        let scan;
+        try {
+          const asDocument = await prepareUpload(new File([original], 'scan.png', { type: 'image/png' }), { document: true });
+          const read = await createImageBitmap(asDocument);
+          scan = { edge: Math.max(read.width, read.height) }; read.close();
+        } catch (error) { scan = { error: error.message }; }
+        shots.push({ source: `${width}x${height}`, width, height, before: original.size, floor: floor.size,
+          after: output.size, type: output.type, out: [decoded.width, decoded.height], scan });
+        decoded.close();
+      }
+      return shots;
     });
-    expect(result.high).toBeGreaterThanOrEqual(CAP);
-    expect(result.floor).toBeLessThan(CAP);
-    expect(result.error).toBeUndefined();
-    expect(result.output).toBeLessThan(CAP);
-    expect(result.output).toBeGreaterThanOrEqual(result.floor);
+    // One shot each side of the branch, so neither a version that always downscales nor one that
+    // never does can pass: the trade-off is the claim, not merely the byte ceiling.
+    expect(result.map((shot) => shot.floor < CAP)).toEqual([true, false]);
+    for (const shot of result) {
+      expect(shot.before, shot.source).toBeGreaterThanOrEqual(CAP);
+      expect(shot.after, shot.source).toBeLessThan(CAP);
+      expect(shot.type, shot.source).toBe('image/jpeg');
+      // Pixels are shed only once the quality ladder has run out; otherwise the frame stays whole.
+      if (shot.floor < CAP) expect(shot.out, shot.source).toEqual([shot.width, shot.height]);
+      else expect(Math.max(...shot.out), shot.source).toBeLessThan(Math.max(shot.width, shot.height));
+      // A photo is never refused; a scan may be, but never silently made unreadable instead.
+      if (!shot.scan.error) expect(shot.scan.edge, shot.source).toBeGreaterThanOrEqual(Math.min(1600, Math.max(shot.width, shot.height)));
+    }
   });
 
   test('converts a real HEIC into a browser-readable JPEG under 1 MB', async ({ page, request }) => {
@@ -195,8 +222,10 @@ test.describe('upload preparation in the real browser', () => {
     expect(Buffer.from(optimized.catalog.get(PDFName.of('TestPayload')).asBytes()).toString('ascii')).toBe('property record '.repeat(100_000));
   });
 
-  test('rejects signed, malformed and still-oversized PDFs with actionable errors', async ({ page }) => {
-    expect((await prepare(page, await pdf({ signed: true }), 'signed.pdf', 'application/pdf', true)).error).toMatch(/signed|unsigned/i);
+  test('preserves a small signed PDF but rejects malformed and oversized PDFs', async ({ page }) => {
+    const signed = await pdf({ signed: true });
+    expect(await prepare(page, signed, 'signed.pdf', 'application/pdf', true))
+      .toMatchObject({ size: signed.length, unchanged: true });
     expect((await prepare(page, Buffer.from('%PDF-1.7 invalid'), 'broken.pdf', 'application/pdf', true)).error).toMatch(/PDF/i);
     expect((await prepare(page, await pdf({ incompressible: true }), 'scan.pdf', 'application/pdf', true)).error).toMatch(/1 MB|smaller/i);
   });
@@ -237,13 +266,14 @@ test.describe('upload preparation in the real browser', () => {
   });
 });
 
-test('wizard hides videos and explains allowed photos and unsigned documents', async ({ page }) => {
+test('wizard hides videos and explains accepted photo formats', async ({ page }) => {
   await openPhotos(page);
   await expect(photoInput(page)).toHaveAttribute('accept', /\.heic/);
   await expect(photoInput(page)).not.toHaveAttribute('accept', /webp|avif|image\/\*/);
   await expect(page.locator('input[accept^="video"]')).toHaveCount(0);
-  await expect(page.getByText(/Digitally signed PDFs.*not supported|Digitally signed PDFs.*supported/i)).toBeVisible();
   await expect(page.getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toBeVisible();
+  // The 25 MB and 48 MP guards are decode-memory limits, told to the one file that hits them.
+  await expect(page.locator('[data-err="photos"] label.upload-zone')).not.toContainText(/25 ?MB|megapixel/i);
   await expect(page.locator('.lp-step')).not.toContainText(/5MB|10MB|20 photos/);
 });
 
@@ -256,6 +286,7 @@ test('wizard caps a batch at ten, keeps the cap across picks and frees a removed
   await expect(photos).toHaveCount(10);
   await expect(photoInput(page)).toBeDisabled();
   expect(uploads).toBe(10);
+  await expect(page.getByRole('button', { name: /Remove photo/i }).first().locator('span')).toHaveClass(/w-\[22px\].*h-\[22px\].*bg-red-500\/40/);
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: /Remove photo/i }).first().click();
   await expect(photos).toHaveCount(9);
@@ -319,7 +350,7 @@ test('upload instructions and controls fit narrow phones', async ({ page }, test
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.getByText(/Digitally signed PDFs are not supported/)).toBeVisible();
+    await expect(page.getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toBeVisible();
   }
   await page.locator('[data-err="photos"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('upload-phone.png'), fullPage: true });

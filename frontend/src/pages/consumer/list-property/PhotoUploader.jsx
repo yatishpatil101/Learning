@@ -1,9 +1,9 @@
-import { CloudUpload, X, Check, Circle, Plus, Camera } from 'lucide-react';
+import { CloudUpload, X, Check, Circle, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select';
 import { FieldError } from './controls.jsx';
 import { lbl3 } from './styles.js';
-import { photoCategoriesFor, keyPhotoCategoriesFor } from './constants.js';
+import { photoCategoriesFor, keyPhotoCategoriesFor, MIN_PUBLISH_PHOTOS, MIN_PUBLISH_KEY_CATEGORIES } from './constants.js';
 import { MAX_PHOTOS, PHOTO_ACCEPT, PHOTO_GUIDANCE_KEY, CAMERA_GUIDANCE_KEY } from '../../../lib/uploads/policy.js';
 
 // Both posting flows share the same gallery policy and category controls.
@@ -16,24 +16,30 @@ const PhotoUploader = ({
   const KEY_CATS = keyPhotoCategoriesFor(form.propertyType, form.commercialType);
   const hasCat = (k) => photos.some((p) => p.category === k);
   const disabled = isMediaBusy || photos.length >= MAX_PHOTOS;
+  /* The validator reports a code, not a sentence: it holds the counts but has no `t`, so only this
+     side can say the rule in the reader's language. */
+  const ERROR_COPY = {
+    min: ['listProperty.err.photosMin', { count: MIN_PUBLISH_PHOTOS }],
+    max: ['listProperty.err.photosMax', { count: MAX_PHOTOS }],
+    categories: ['listProperty.err.photosKeyCats', { count: Math.min(MIN_PUBLISH_KEY_CATEGORIES, KEY_CATS.length), cats: KEY_CATS.join(', ') }],
+  };
+  const errorCopy = ERROR_COPY[error] || ['listProperty.photoUploader.errorAddPhoto', {}];
   return (
     <div className="mb-6" data-err="photos" aria-busy={isMediaBusy}>
       <label className={lbl3}>{label || t('listProperty.photoUploader.defaultLabel')}</label>
       {hint && <p className="text-gray-500 text-xs mb-3">{hint}</p>}
+      {/* One control, not two. A separate `capture="environment"` button existed to reach the rear
+         camera, but an accept list that is entirely image types already makes iOS and Android offer
+         Take Photo alongside the library in this picker — and only this one can take several at once. */}
       <label className={`upload-zone rounded-2xl p-5 text-center block focus-within:ring-2 focus-within:ring-teal-400 ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${error ? 'dz-invalid' : ''}`}>
         <input type="file" className="sr-only" multiple accept={PHOTO_ACCEPT} disabled={disabled} aria-label="Upload property photos" onChange={handlePhotoUpload} />
         <div className="w-12 h-12 rounded-xl bg-teal-400/10 border border-teal-400/20 flex items-center justify-center mx-auto mb-2.5"><CloudUpload className="w-6 h-6 text-teal-400" /></div>
         <p className="text-white font-medium text-sm mb-0.5">{t('listProperty.photoUploader.addPhoto')}</p>
         <p className="text-gray-400 text-xs">{t(PHOTO_GUIDANCE_KEY)}</p>
       </label>
-        <p className="text-gray-400 text-xs mt-2 leading-relaxed">{t(CAMERA_GUIDANCE_KEY)}</p>
+      <p className="text-gray-400 text-xs mt-2 leading-relaxed">{t(CAMERA_GUIDANCE_KEY)}</p>
       <p className="text-teal-300 text-xs mt-2" role="status">{mediaStatus || `${photos.length} / ${MAX_PHOTOS} photos`}</p>
-      {/* Capture opens the rear camera on supported phones instead of the gallery. */}
-      <label className={`sm:hidden mt-2 btn-outline w-full min-h-[44px] flex items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-within:ring-2 focus-within:ring-teal-400 ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
-        <input type="file" className="sr-only" accept={PHOTO_ACCEPT} capture="environment" disabled={disabled} aria-label={t('listProperty.photoUploader.takePhoto')} onChange={handlePhotoUpload} />
-        <Camera className="w-4 h-4" /> {t('listProperty.photoUploader.takePhoto')}
-      </label>
-      {error && <FieldError show>{typeof error === 'string' ? error : t('listProperty.photoUploader.errorAddPhoto')}</FieldError>}
+      {error && <FieldError show>{t(...errorCopy)}</FieldError>}
 
       {photos.length > 0 && (
         <>
@@ -54,14 +60,18 @@ const PhotoUploader = ({
                 <div className="relative h-[122px] group">
                   <img src={p.url} alt="" className="w-full h-full object-cover" />
                   {i === 0 && <span className="absolute top-2 left-2 text-[9px] font-bold px-2 py-0.5 rounded-full bg-teal-500 text-white">{t('listProperty.photoUploader.cover')}</span>}
+                  {/* The button keeps its 44px touch target; only the disc inside it is drawn, so
+                     the control shrank by half visually without becoming hard to hit on a phone. */}
                   <button
                     type="button"
                     disabled={isMediaBusy}
                     onClick={() => { if (window.confirm(t('listProperty.photoUploader.confirmRemove'))) removePhoto(i); }}
                     aria-label={t('listProperty.photoUploader.remove')}
-                    className="absolute top-1 right-1 sm:top-2 sm:right-2 w-11 h-11 sm:w-6 sm:h-6 rounded-full bg-red-500/80 flex items-center justify-center text-white hover:bg-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                    className="absolute top-0 right-0 sm:top-1 sm:right-1 w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center group/rm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
-                    <X className="w-4 h-4 sm:w-3 sm:h-3" />
+                    <span className="w-[22px] h-[22px] sm:w-5 sm:h-5 rounded-full bg-red-500/40 backdrop-blur-[2px] flex items-center justify-center text-white group-hover/rm:bg-red-500/70 transition-colors">
+                      <X className="w-3 h-3" />
+                    </span>
                   </button>
                   {/* Category picker sits ON the photo — a scrim keeps it legible over
                       any image while it reads as part of the thumbnail, not a strip below. */}

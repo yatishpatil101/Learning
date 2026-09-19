@@ -2,7 +2,7 @@ import { MAX_UPLOAD_BYTES, uploadType } from './policy.js';
 
 const PROCESSING_TIMEOUT_MS = 30_000;
 
-function processInWorker(file, type, signal) {
+function processInWorker(file, type, document, signal) {
   return new Promise((resolve, reject) => {
     const worker = type === 'application/pdf'
       ? new Worker(new URL('./pdf.worker.js', import.meta.url), { type: 'module' })
@@ -27,7 +27,7 @@ function processInWorker(file, type, signal) {
         finish(null, new File([data.blob], name, { type: data.blob.type, lastModified: file.lastModified }));
       }
     };
-    if (signal?.aborted) abort(); else worker.postMessage({ file, type });
+    if (signal?.aborted) abort(); else worker.postMessage({ file, type, document });
   });
 }
 
@@ -42,5 +42,5 @@ export async function prepareUpload(file, { document = false, originalPdf = fals
   if (originalPdf && file.size >= MAX_UPLOAD_BYTES) {
     throw new Error('The original PDF must be under 1 MB. Keep it unchanged; use a current property-tax receipt instead if it is too large.');
   }
-  return processInWorker(file, type, signal);
+  return processInWorker(file, type, document, signal);
 }
