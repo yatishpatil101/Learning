@@ -7,7 +7,7 @@ import {
 import { uploadDocument } from '../../../services/documentService.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { formatIndian } from './format.js';
-import { COMMERCIAL_SUBTYPES, isResidentialType, isCommercialType, isLandType, isHouseType } from './constants.js';
+import { commercialLabelOf, COMMERCIAL_SPEC_KEYS, docsFor, FLOOR_PLAN_CATEGORY, isResidentialType, isCommercialType, isLandType, isHouseType, landUseFor } from './constants.js';
 import { matchLocalityToCanonical } from '../../../data/localities.js';
 import {
   classifyChanges, displayValue, recentMaterialEdits,
@@ -18,34 +18,49 @@ import { requestRecheckFields, clearedRecheckFields } from '../../../lib/recheck
 import { pickListingFormDetails } from '../../../lib/listingFormDetails.js';
 import { editPayload } from './editPayload.js';
 
-/* Wizard form key → the server's wire field name, inverted from the map the gate already pins.
-   `price` and `monthlyRent` both fold onto `price`, because the wizard splits sale price from
-   monthly rent while the entity has one column — and the moderator must be told "price", which is
-   the field they will actually look at. */
+/* `price` and `monthlyRent` both fold onto `price`: the wizard splits sale from rent while the entity has
+   one column, and the moderator must be told "price", the field they will actually look at. */
 const STAYS_LIVE_FORM_TO_WIRE = Object.fromEntries(
   Object.entries(FOUNDATION_STAYS_LIVE_KEYS).flatMap(([wire, formKeys]) => formKeys.map((k) => [k, wire])),
 );
 
-/* The record the app reads, adjusted for the one consumer that is not the app: the API contract.
-   `toListingCreate` picks out the keys it knows and ignores the rest, so this only has to close the
-   gaps where the wizard's name and the contract's name diverge — plus one field the record
-   deliberately does not carry at all. */
+const COMMERCIAL_DETAIL_KEYS = new Set([
+  'commercialType', 'washrooms', 'shellType', 'powerBackup', 'pantry', 'camCharges', 'suitableFor', 'fixtures',
+  'gstOnRent', 'fitOutMonths', 'escalationPct', 'tenancyStatus', 'inPlaceRent', 'leaseExpiry',
+  ...COMMERCIAL_SPEC_KEYS,
+]);
+const RESIDENTIAL_DETAIL_KEYS = new Set([
+  'foodPref', 'petsPolicy', 'rentMaintMode', 'transactionType', 'possession',
+  'loanAvailable', 'furniture', 'preferredTenants',
+]);
+
+const withoutFormDetails = (form, keys) => pickListingFormDetails(Object.fromEntries(
+  Object.entries(form).filter(([key]) => !keys.has(key)),
+));
+
+const formDetailsForPropertyType = (form) => {
+  if (isCommercialType(form.propertyType)) return withoutFormDetails(form, RESIDENTIAL_DETAIL_KEYS);
+  return withoutFormDetails(form, COMMERCIAL_DETAIL_KEYS);
+};
+
+/* `toListingCreate` picks the keys it knows and ignores the rest, so this only closes the gaps where the
+   wizard's name and the contract's name diverge, plus one field the record does not carry. */
 const forTheWire = (record, form, isRent, storedAddress = '') => ({
   ...record,
-  formDetails: pickListingFormDetails(form),
-  /* AddressKey derives the duplicate signal from this line, so it must carry the unit token — with
-     just building and locality every flat looks like one property. `storedAddress` wins when the
-     form has no unit token, since recomposing from boxes `splitStoredAddress` could not fill would
-     drop the flat number the server already holds. */
+  formDetails: formDetailsForPropertyType(form),
+/* AddressKey derives the duplicate signal from this line, so it must carry the unit token. `storedAddress`
+   wins when the form has no unit, since recomposing would drop the flat number the server already holds. */
   address: [form.flatNumber, form.tower, form.society, form.street]
     .map((part) => String(part ?? '').trim()).filter(Boolean).join(', ')
     || storedAddress,
-  /* Guarded on `form.floor`, not `record.floor`: the latter is `parseInt(...) || 0`, which cannot
-     tell "ground floor" from "never asked" — and forwarding 0 for villas, plots and PGs fabricates a
-     duplicate signal out of an input never shown. Ground surviving as 0 is intended. */
+/* Guarded on `form.floor`, not `record.floor`: the latter is `parseInt(...) || 0` and cannot tell "ground"
+   from "never asked", so forwarding 0 for villas and plots fabricates a duplicate signal. */
   floor: form.floor === '' || form.floor == null ? undefined : record.floor,
   // The wizard splits maintenance by deal (and by whether rent includes it); the entity has one column.
-  maintenance: parseAmount(isRent ? (form.rentMaintMode === 'extra' ? form.rentMaintenance : '') : form.monthlyMaintenance) || 0,
+  maintenance: (() => {
+    const value = isRent ? (form.rentMaintMode === 'extra' ? form.rentMaintenance : '') : form.monthlyMaintenance;
+    return value === '' || value == null ? undefined : parseAmount(value);
+  })(),
   // The record calls it `rera` and the contract calls it `reraId`; the mismatch dropped it silently.
   reraId: form.reraId || '',
   /* Lifted out of `strongIds` for the request only, and kept out of `record` on purpose: the record
@@ -53,9 +68,8 @@ const forTheWire = (record, form, isRent, storedAddress = '') => ({
   electricityConsumerNo: form.electricityConsumerNo || '',
 });
 
-/* The picker keeps only the base64 preview and lets the `File` go, while the vault endpoint is
-   multipart — so the bytes are reconstructed here. Doing it at upload time is also what makes a
-   restored draft work: no `File` survives a round trip through storage, but the data URL does. */
+/* The picker keeps only the base64 preview while the vault endpoint is multipart, so the bytes are rebuilt
+   here. That is also what makes a restored draft work: no `File` survives storage, but the data URL does. */
 const fileFromDataUrl = (dataUrl, name, mime) => {
   const comma = String(dataUrl || '').indexOf(',');
   if (comma < 0) return null;
@@ -87,10 +101,10 @@ export const persistListing = async ({ form, user, editId, editListing, document
 
     const isRent = form.deal === 'rent';
     const typeMap = { flat: 'Flat', villa: 'Villa', independent: 'Independent House', plot: 'Plot', openplot: 'Open Plot', farmland: 'Farm Land', commercial: 'Commercial' };
-    const subtypeLabel = COMMERCIAL_SUBTYPES.find((s) => s.value === form.commercialType)?.label || '';
+    const subtypeLabel = commercialLabelOf(form.commercialType);
     const typeLabel = (form.propertyType === 'commercial' && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
     // BHK only qualifies a residential home; commercial and land carry none.
-    const bhkLabel = (isResidentialType(form.propertyType) && form.bhk) ? (String(form.bhk) === '4' ? '4+ BHK' : form.bhk + ' BHK') : '';
+    const bhkLabel = (isResidentialType(form.propertyType) && form.bhk) ? (String(form.bhk) === '0' ? '1 RK' : String(form.bhk) === '4' ? '4+ BHK' : form.bhk + ' BHK') : '';
     const titlePrefix = bhkLabel ? bhkLabel + ' ' : '';
     const title = titlePrefix + typeLabel + (form.locality ? ' in ' + form.locality : '');
     const priceNum = parseAmount(isRent ? form.monthlyRent : form.price);
@@ -116,7 +130,13 @@ export const persistListing = async ({ form, user, editId, editListing, document
       'https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?auto=format&fit=crop&w=800&q=70',
       'https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?auto=format&fit=crop&w=800&q=70',
     ];
-    const cover = gallery[0];
+/* Checked against `uploaded` so it inherits that filter — a `data:` plan dies with the tab. Empty string,
+   never undefined: an absent key means "leave it alone" in a PATCH, so untagging would not reach. */
+    const tagged = photos.find((p) => p?.category === FLOOR_PLAN_CATEGORY)?.url;
+    const floorPlan = uploaded.includes(tagged) ? tagged : '';
+    /* A schematic makes a poor search card, and the plan is often the first thing uploaded. Falls
+       back to the plan only when it is the sole photo, where the alternative is no card image. */
+    const cover = gallery.find((url) => url !== floorPlan) || gallery[0];
 
     const listingId = editId || ('L' + Date.now());
     const viewUrl = `/property/${listingId}`;
@@ -150,30 +170,33 @@ export const persistListing = async ({ form, user, editId, editListing, document
       views: 0,
       enquiries: 0,
       photoCount: photos.length,
-      furnishing: form.furnishing,
+      furnishing: isResidentialType(form.propertyType) ? form.furnishing : undefined,
       facing: form.facing || '',
       overlooking: isLandType(form.propertyType) ? '' : form.overlooking || '',
       floor: parseInt(form.floor, 10) || 0,
       age: form.age || '',
-      // Only a genuinely under-construction age makes a home "not ready"; a completed home with a
-      // future handover date is still ready, and its date is captured in `available`/`possession`.
-      construction: form.age === 'under-construction' ? 'under' : form.age ? 'ready' : undefined,
+      construction: form.construction || undefined,
       amenities: form.amenities || [],
       img: cover,
       image: cover,
       gallery,
+      floorPlan,
       viewUrl,
       lat: form.propLat,
       lng: form.propLng,
       desc: form.description || '',
       deposit: isRent ? parseAmount(form.deposit) : 0,
-      pets: form.petsPolicy ? form.petsPolicy === 'yes' : form.petsAllowed,
-      food: form.foodPref || 'any',
+      // Undefined, not false: `petsAllowed` defaults to false, so the old fallback turned every
+      // owner who skipped the question into one who had banned pets.
+      pets: isResidentialType(form.propertyType) ? (form.petsPolicy === 'yes' ? true : form.petsPolicy === 'no' ? false : undefined) : undefined,
+      food: isResidentialType(form.propertyType) ? form.foodPref || 'any' : undefined,
       rera: form.reraId || '',
       lockin: form.lockIn || '0',
       notice: form.noticePeriod || '1',
-      available: (isRent || form.possession === 'available') ? form.availableFrom : '',
-      tenants: (form.preferredTenants || []).join(','),
+      agreementDuration: form.agreementDuration || '',
+      available: form.availableFrom || '',
+      tenants: isResidentialType(form.propertyType) ? (form.preferredTenants?.includes('anyone') ? [] : form.preferredTenants || []) : [],
+      furniture: isResidentialType(form.propertyType) ? form.furniture || [] : [],
       // Top-level spec fields the cards & detail page read directly (kept flat so
       // consumers don't have to reach into record.form). Zeroed/blank when N/A.
       balconies: isResidentialType(form.propertyType) ? (parseInt(form.balconies, 10) || 0) : 0,
@@ -183,7 +206,9 @@ export const persistListing = async ({ form, user, editId, editListing, document
         ? (parseInt(form.bathrooms, 10) || 0)
         : undefined,
       carpetArea: isLandType(form.propertyType) ? undefined : Number(form.carpetArea) || undefined,
-      builtUp: Number(form.builtUp) || undefined,
+      // Commercial is quoted and rented on carpet alone; it is never asked for either of these.
+      builtUp: isCommercialType(form.propertyType) ? undefined : Number(form.builtUp) || undefined,
+      superBuiltUp: isCommercialType(form.propertyType) ? undefined : Number(form.superBuiltUp) || undefined,
       areaUnit: form.areaUnit || 'sqft',
       // Blank stays blank: `|| 0` would say "no parking" on behalf of every owner who skipped
       // the question.
@@ -194,11 +219,10 @@ export const persistListing = async ({ form, user, editId, editListing, document
       floorsInHouse: isHouseType(form.propertyType) ? (parseInt(form.floorsInHouse, 10) || 0) : 0,
       totalFloors: parseInt(form.totalFloors, 10) || 0,
       ownership: form.ownership || '',
-      possession: form.possession || '',
       transactionType: form.transactionType || '',
       loanAvailable: !isRent && !!form.loanAvailable,
       monthlyMaintenance: isRent ? '' : (form.monthlyMaintenance || ''),
-      rentMaintMode: isRent ? (form.rentMaintMode || 'included') : '',
+      rentMaintMode: isRent ? (form.rentMaintMode || '') : '',
       rentMaintenance: isRent && form.rentMaintMode === 'extra' ? (form.rentMaintenance || '') : '',
       negotiable: !!form.priceNegotiable,
       ...(isCommercialType(form.propertyType) && {
@@ -206,10 +230,16 @@ export const persistListing = async ({ form, user, editId, editListing, document
         shellType: form.shellType || '',
         washrooms: parseInt(form.washrooms, 10) || 0,
         camCharges: form.camCharges || '',
-        powerBackup: !!form.powerBackup,
         pantry: !!form.pantry,
         suitableFor: form.suitableFor || [],
         fixtures: form.fixtures || [],
+        gstOnRent: isRent ? (form.gstOnRent || '') : '',
+        fitOutMonths: isRent ? (form.fitOutMonths || '') : '',
+        escalationPct: isRent ? (form.escalationPct || '') : '',
+        tenancyStatus: isRent ? '' : (form.tenancyStatus || ''),
+        inPlaceRent: !isRent && form.tenancyStatus === 'leased' ? (form.inPlaceRent || '') : '',
+        leaseExpiry: !isRent && form.tenancyStatus === 'leased' ? (form.leaseExpiry || '') : '',
+        ...Object.fromEntries(COMMERCIAL_SPEC_KEYS.map((key) => [key, form[key] || ''])),
       }),
       ...(isLandType(form.propertyType) && {
         plotLength: form.plotLength || '',
@@ -219,11 +249,13 @@ export const persistListing = async ({ form, user, editId, editListing, document
         cornerPlot: !!form.cornerPlot,
         boundaryWall: !!form.boundaryWall,
         plotZone: form.plotZone || '',
-        naSanctioned: !!form.naSanctioned,
+        naStatus: form.naStatus || '',
         waterSource: form.waterSource || '',
         electricity: !!form.electricity,
         roadAccess: !!form.roadAccess,
-        satbara: !!form.satbara,
+        otherRights: form.otherRights || '',
+        buyerEligibility: !isRent && form.propertyType === 'farmland' ? (form.buyerEligibility || '') : '',
+        landUse: landUseFor(form.propertyType, form.plotZone),
       }),
       createdAt: Date.now(),
       // Buyer-facing form snapshot with private identifiers stripped — the raw
@@ -243,17 +275,14 @@ export const persistListing = async ({ form, user, editId, editListing, document
         pmcPropertyId: form.pmcPropertyId || '',
         reraId: form.reraId || '',
       },
-      /* Duplicate claims are the server's call — this browser has only ever seen the listings it
-         posted itself. The two keys stay blank because the moderation queue reads them on rows that
-         already carry them, and a listing that stops setting a field is not one that sets it false. */
+      /* Blank, not false: the moderation queue reads these on rows that already carry them, and a listing
+         that stops setting a field is not one that sets it false. Duplicate claims are the server's call. */
       duplicateFlag: false,
       duplicateOf: '',
     };
 
-    /* The write of record, ahead of all local bookkeeping and outside the try/catch that swallows a
-       localStorage quota error: losing the mirror is survivable, losing the save is not. The edit
-       path sends nothing about re-checks — a client that could assert "this edit stays live" would
-       be a client that could edit its way around moderation. */
+    /* Ahead of all local bookkeeping and outside the try/catch that swallows a quota error: losing the mirror
+       is survivable, losing the save is not. A client that could assert "this edit stays live" could evade review. */
     let saved;
     try {
       const payload = forTheWire(record, form, isRent, editListing?.address);
@@ -261,11 +290,16 @@ export const persistListing = async ({ form, user, editId, editListing, document
         ? await saveListingFields(editId, editPayload(payload, form, editListing))
         : await saveListing(payload);
     } catch (err) {
+      // An invariant violation names internal tables; the owner gets the generic line, the console
+      // keeps the detail.
+      if (err?.internal) {
+        console.error(err);
+        return { ok: false, error: 'Could not save your listing.' };
+      }
       return { ok: false, error: (err && err.message) || 'Could not save your listing.' };
     }
-    /* Adopt the server's id before anything local is written, or the mirror, the notification link
-       and the documents are filed under an id that exists on no server. A create that resolves
-       without one is a failure, not an `L<timestamp>` that looks alive only on this machine. */
+    /* Adopt the server's id before anything local is written, or the mirror, the notification link and the
+       documents are filed under an id that exists on no server. A create without one is a failure. */
     if (!editId) {
       if (!saved || !saved.id) {
         return { ok: false, error: 'Your listing was sent but the server did not confirm it. Please try again.' };
@@ -330,10 +364,8 @@ export const persistListing = async ({ form, user, editId, editListing, document
         if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
       }
 
-      /* The server's verdict is already in hand on `saved`, so recomputing it here would let the
-         mirror disagree with the row it mirrors. The local computation is the mock-provider
-         fallback and copies each condition exactly, since any approximation is more permissive
-         than the server and would pass a test the API fails. */
+      /* The server's verdict is already on `saved`, so recomputing would let the mirror disagree with the row
+         it mirrors. The local branch is the mock fallback and copies each condition — any approximation is laxer. */
       const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
         ? {
             recheckPending: saved.recheckPending,
@@ -378,13 +410,12 @@ export const persistListing = async ({ form, user, editId, editListing, document
     /* The re-review note, the duplicate case and the listing-received notification are all raised
        server-side, into the threads ops and the owner's inbox actually read. */
 
-    /* Documents go through `uploadDocument` for rent as well as sale: the attachment here is the
-       evidence behind the Verified Owner badge, so a moderator has to be able to reach it.
-       Deliberately non-fatal and outside the try above — the listing already exists server-side, so
-       failures are named and handed back for the success screen to report. */
+/* Rent as well as sale: the attachment is the evidence behind the Verified Owner badge. Non-fatal and outside
+   the try above — the listing already exists, so failures are named and handed to the success screen. */
     const documentsFailed = [];
+    const allowedDocumentKeys = new Set(docsFor(form.deal, form.propertyType, form.commercialType).map((doc) => doc.key));
     for (const [category, doc] of Object.entries(documents)) {
-      if (!doc || !doc.data) continue;
+      if (!allowedDocumentKeys.has(category) || !doc || !doc.data) continue;
       const file = fileFromDataUrl(doc.data, doc.name, doc.mime);
       if (!file) { documentsFailed.push(category); continue; }
       try {

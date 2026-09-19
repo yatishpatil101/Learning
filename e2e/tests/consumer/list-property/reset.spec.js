@@ -2,6 +2,7 @@
 // takes the session with it or lands on the listing-limit paywall.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 // Register a real owner so the whole-place flow is shown. No identity badge — posting does not need one.
 async function gotoFlow(page) {
@@ -37,9 +38,8 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
   await gotoFlow(page);
 
   await page.locator('input[data-err="carpetArea"]').fill('1050');
-  /* The autosave is debounced, and the read below goes through `page.evaluate`, which does not
-     retry -- so this wait is load-bearing. Polling the draft waits for the write itself rather than
-     for a duration somebody timed the debounce at once. */
+  /* The autosave is debounced and the read below goes through `page.evaluate`, which does not retry. Polling
+     the draft waits for the write itself rather than for a duration somebody timed the debounce at once. */
   await expect
     .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:list-property')))
     .toContain('1050');
@@ -48,9 +48,8 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
 
   // Open confirm and commit the reset (triggers a full reload).
   await page.locator('.lp-reset').click();
-  /* `exact` matters here: Playwright matches accessible names by substring by default, and the
-     modal's close button is labelled "Close Start over?" — which contains "Start over". Two
-     matches, and the one that would have been clicked is a coin toss. */
+  /* `exact` matters: names match by substring, and the close button is labelled "Close Start over?" — two
+     matches, with the one that would be clicked a coin toss. */
   await page.locator('.dz-modal-panel').getByRole('button', { name: 'Start over', exact: true }).click();
 
   // Page reloads back into a fresh, still-signed-in flow.
@@ -74,9 +73,10 @@ test('Start over control is present on the Location step header', async ({ page 
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
-  await expect(page.getByText('Location & pricing', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Location', exact: true })).toBeVisible();
   await expect(page.locator('.lp-reset')).toBeVisible();
 });

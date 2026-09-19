@@ -7,7 +7,7 @@ import PropertyDetailsWhole from './PropertyDetailsWhole.jsx';
 import PropertyDetailsFlatmate from './PropertyDetailsFlatmate.jsx';
 
 const PropertyDetailsStep = ({
-  form, set, onPropertyType, rentMode, setRentMode, isFlatmateMode, errors,
+  form, set, onPropertyType, onCommercialType, rentMode, setRentMode, isFlatmateMode, errors,
   isResidential, isLand, isCommercial, isHouse, toggleInArray, nextStep,
   money, onReset, allowFlatmate = true,
 }) => {
@@ -58,6 +58,7 @@ const PropertyDetailsStep = ({
                   {!isFlatmateMode && (
                     <PropertyDetailsWhole
                       form={form} set={set} onPropertyType={onPropertyType} errors={errors}
+                      onCommercialType={onCommercialType}
                       isResidential={isResidential} isLand={isLand} isCommercial={isCommercial}
                       isHouse={isHouse} toggleInArray={toggleInArray} nextStep={nextStep}
                     />

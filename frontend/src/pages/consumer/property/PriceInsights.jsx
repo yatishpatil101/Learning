@@ -9,12 +9,8 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 
-/* Price Insights (BUY). Two jobs a serious buyer has on this tab:
-   1. "Is this price fair?" — benchmark ₹/sq.ft vs the locality + a 4-year trend.
-   2. "What will it actually cost me?" — EMI affordability AND the acquisition
-      costs Indian buyers always underestimate (stamp duty, registration, GST).
-   Styled with the same tile language as the Overview tab (rd-cell / detail-card
-   / teal icon chips / glass panels / insight-bar). */
+/* Answers the two questions a serious buyer has on a sale: is this price fair (benchmark ₹/sq.ft plus trend),
+   and what will it actually cost (EMI plus the stamp duty, registration and GST buyers underestimate). */
 export function PriceInsights({ p }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
@@ -41,53 +37,40 @@ export function PriceInsights({ p }) {
   const n = tenure * 12;
   const emi = Math.round((loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)) || 0;
 
-  // Acquisition costs — indicative Pune (Maharashtra) rates. Stamp duty ~6% (incl.
-  // metro cess; women buyers get a 1% concession), registration 1% capped at
-  // ₹30,000, and GST only on genuinely under-construction built homes. Ready-to-move
-  // homes and land are exempt. Affordable homes (≤₹45L *and* ≤90 sqm carpet, both
-  // arms required in a metro) are taxed at 1%, others at 5% (both without ITC).
+  // Indicative Pune (Maharashtra) rates: stamp duty ~6% incl. metro cess, registration 1% capped at ₹30,000,
+  // and GST only on genuinely under-construction built homes — ready-to-move homes and land are exempt.
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
   const stampDuty = Math.round(p.price * 0.06);
   const registration = Math.min(30000, Math.round(p.price * 0.01));
-  /* Stated in the view model's own vocabulary. The line this replaces read
-     `p.possession === 'available' && p.age !== 'under-construction'`, and neither field is on the
-     view model: `propertyMapper` folds the wire's `possession` into `construction`
-     (`ready-to-move|new-launch|under-construction` → `ready|new|under`, CONSTRUCTION_FROM_WIRE:28)
-     and emits age as the number `ageYears`, never a band string. Both operands were therefore
-     `undefined`, so the resale escape hatch could never fire and `under` — the one state the
-     comment above calls out by name — was never taxed at all, while every new launch was taxed
-     unconditionally. GST runs to the completion certificate, so both pre-completion states pay.
-     The old prose also promised an exemption for "a ready home handed over on a future Available
-     From date". That case is simply `ready`, so it needs no clause; and `availableFrom` is a
-     rent-side move-in bucket (`Property.java:263`), not a possession signal on a sale, so it is not
-     available as a proxy here. The promise is removed from the comment rather than reconstructed
-     out of a field that does not mean that. */
+  /* Stated in the view model's vocabulary: `propertyMapper` folds the wire's possession into `construction`,
+     so `possession`/`age` band strings are undefined here. GST runs to the completion certificate. */
   const underConstruction = !isLand && (p.construction === 'new' || p.construction === 'under');
-  /* Under-construction GST: 12% for commercial units, 1% (affordable) / 5% for homes.
-    Affordable housing is a two-armed statutory test — value ≤₹45L AND carpet area ≤90 sqm. Pune
-    uses the non-metro limit; the 60 sqm rule applies to the notified metro cities, not every large
-    city. The price arm
-     alone was here already but inert, because nothing ever reached this line; making
-     `underConstruction` real makes the missing area arm real too, and a ₹42L / 900 sq.ft. flat
-     would otherwise be quoted 1% where it owes 5%.
-
-     `p.carpetArea ?? p.area`, in that order, because `carpetArea` is null for every listing the
-     wizard creates — `forTheWire` has no writer for that column (propertyMapper.js:537) and the
-     wizard posts its "Carpet Area (sq.ft)" box as `area` (submit.js:165,232). Gating on
-     `carpetArea` alone would make the 1% branch unreachable in production and quote ₹2,00,000 on a
-     ₹40L home that owes ₹40,000 — a new wrong number, not a conserved old one. `area` is only
-     ambiguous between carpet and built-up on legacy rows, and only land lets the owner change the
-     unit (PropertyDetailsWhole.jsx:139) — neither land nor commercial reaches this branch. When
-     both are unstated, 5%: overstating a cost the buyer can check beats understating one they
-     discover at registration. */
+  /* Affordable housing is a two-armed test — ≤₹45L AND ≤90 sqm carpet (Pune uses the non-metro limit).
+     `carpetArea ?? area` because the wizard posts its carpet box as `area`; when both are unstated, 5%. */
   const AFFORDABLE_CARPET_SQFT = 969; // 90 sqm
   const affordableArea = p.carpetArea ?? p.area;
   const isAffordable = p.price <= 4500000 && affordableArea != null && affordableArea <= AFFORDABLE_CARPET_SQFT;
   const gstRate = isCommercial ? 0.12 : (isAffordable ? 0.01 : 0.05);
   const gst = underConstruction ? Math.round(p.price * gstRate) : 0;
   const allIn = p.price + stampDuty + registration + gst;
-  const needsTds = p.price > 5000000;
+  /* s.194-IA excludes agricultural land by its own terms, so 1% TDS on a farm parcel is not owed. `landUse`
+     rather than property type: an agriculture-zone open plot is agricultural too, a converted farm is not. */
+  const needsTds = p.price > 5000000 && p.landUse !== 'agricultural';
+  const stated = (value) => value == null || value === '' ? t('property.notSpecified') : value;
+  /* Commercial states one recurring cost and the market quotes it per sq.ft. — CAM is the only
+     maintenance the commercial wizard collects, so `maintenance` is empty on those listings. */
+  const monthlyMaintenance = isCommercial
+    ? (p.camCharges ? '₹' + fmtNum(p.camCharges) + '/sq.ft.' : t('property.notSpecified'))
+    : p.maintenance == null ? t('property.notSpecified') : fmtINR(p.maintenance);
+  const loanAvailable = p.loanAvailable == null
+    ? t('property.notSpecified')
+    : p.loanAvailable ? t('property.loanAvailable') : t('property.loanNotAvailable');
+  const negotiable = p.negotiable == null
+    ? t('property.notSpecified')
+    : p.negotiable ? t('property.negotiable') : t('property.notNegotiable');
+  const tenancyLabel = p.tenancyStatus === 'leased' ? t('property.tenancyLeased')
+    : p.tenancyStatus === 'vacant' ? t('property.tenancyVacant') : t('property.notSpecified');
 
   const costTile = (icon, label, value, tipKey) => {
     const tile = (
@@ -195,6 +178,26 @@ export function PriceInsights({ p }) {
           </div>
           {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>}
         </MobileCollapse>
+      </div>
+
+      <div className="glass rounded-2xl p-6 mt-6">
+        <div className="flex items-center gap-2 mb-4"><Icon name="file-text" className="w-4 h-4 text-brand-teal-2" /><h3 className="font-semibold text-white">{t('property.saleTerms')}</h3></div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {costTile('file-check', t('property.ownershipType'), stated(p.ownership))}
+          {costTile('receipt-indian-rupee', t('property.monthlyMaintenance'), monthlyMaintenance)}
+          {costTile('landmark', t('property.homeLoan'), loanAvailable)}
+          {costTile('tag', t('property.priceNegotiability'), negotiable)}
+        </div>
+        {/* A leased commercial asset is bought for its yield and a vacant one for its use, so the
+            two are priced by different arithmetic. Without the rent in place and the date the
+            lease runs to, an investor can compute neither. */}
+        {isCommercial ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2.5">
+            {costTile('key-round', t('property.tenancyStatus'), tenancyLabel)}
+            {p.tenancyStatus === 'leased' ? costTile('indian-rupee', t('property.inPlaceRent'), p.inPlaceRent ? fmtINR(p.inPlaceRent) : t('property.notSpecified')) : null}
+            {p.tenancyStatus === 'leased' ? costTile('calendar-clock', t('property.leaseExpiry'), stated(p.leaseExpiry)) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* The real cost to buy — acquisition costs buyers routinely miss. Collapsed

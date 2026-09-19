@@ -1,6 +1,7 @@
 // Read maintenance back through the API so a dropped mode-dependent amount cannot pass as saved.
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 
 const PNG =
@@ -52,6 +53,11 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' }).first().click();
   await page.locator('input[data-err="carpetArea"]').fill('900');
+  for (const [dataErr, value] of [['floor', '9'], ['totalFloors', '14']]) {
+    await page.locator(`[data-err="${dataErr}"] .dz-dropdown__trigger`).click();
+    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+    await page.getByRole('option', { name: value, exact: true }).click();
+  }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
@@ -59,17 +65,19 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
   await page.locator('input[data-err="monthlyRent"]').fill('30000');
   await page.locator('input[data-err="deposit"]').fill('60000');
   await page.locator('.radio-pill', { hasText: 'Charged Extra' }).click();
   await page.locator('input[placeholder="e.g. 2,500"]').fill('2500');
-  await pickDate(page, '[data-err="availableFrom"]', '2025-12-31');
+  await pickDate(page, '[data-err="availableFrom"]', '2027-12-31');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Photos & documents/i', { timeout: 15000 });
 
   // Canvas-generated PNG bytes keep decode validation from masking the persistence assertion.
   const buf = Buffer.from(PNG, 'base64');
-  await page.locator('[data-err="photos"] label.upload-zone input[type="file"]').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
+  await uploadPublishablePhotos(page);
   await page.locator('.doc-upload input[type="file"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
   await page.getByRole('button', { name: /Submit Property/i }).click();
   await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 30000 });

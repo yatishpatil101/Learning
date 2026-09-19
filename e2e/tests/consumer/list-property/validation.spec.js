@@ -2,6 +2,7 @@
 // account and nothing more — so granting one would assert a wall the product does not have.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors } from '../../../helpers/listingForm.helper.js';
 
 // Register a real account and sign it in over HTTP, so the flow renders straight into the form for
 // a session the server recognises.
@@ -24,13 +25,14 @@ async function pickType(page, label) {
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-// Fill a valid Details step for a flat and advance to Location & pricing.
+// Fill a valid Details step for a flat and advance to Location.
 async function toStep2Flat(page) {
   await gotoForm(page);
   await pickType(page, 'Flat / Apartment');
   await page.locator('input[data-err="carpetArea"]').fill('1200');
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.getByText('Location & pricing').waitFor({ timeout: 10000 });
+  await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
 }
 
 test('numeric fields strip letters, signs and extra dots as you type', async ({ page }) => {
@@ -47,8 +49,9 @@ test('a zero or empty area cannot pass the Details step', async ({ page }) => {
   await pickType(page, 'Flat / Apartment');
   await page.locator('input[data-err="carpetArea"]').fill('0');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  // Rejected: we stay on Details and the area field is flagged.
-  await expect(page.getByText('Location & pricing')).toHaveCount(0);
+  // Rejected: we stay on Details — the map of the location step never renders — and the area
+  // field is flagged.
+  await expect(page.locator('.gm-style')).toHaveCount(0);
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveClass(/dz-invalid/);
 });
 
@@ -67,13 +70,9 @@ test('pincode must be a real six-digit code, not 000000', async ({ page }) => {
   await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
-  await page.locator('input[data-err="price"]').fill('5000000');
-  await page.locator('[data-err="ownership"]').click();
-  await menuOpen(page);
-  await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="pincode"]').fill('000000');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  // Rejected: never reaches Photos & documents; pincode is flagged.
-  await expect(page.getByText('Photos & documents')).toHaveCount(0);
+  // Rejected: never reaches the pricing step; pincode is flagged.
+  await expect(page.getByText('Price & terms')).toHaveCount(0);
   await expect(page.locator('input[data-err="pincode"]')).toHaveClass(/dz-invalid/);
 });

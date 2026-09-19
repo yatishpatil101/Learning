@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { DETAIL_KEYS } from '../src/lib/listingFormDetails.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
@@ -12,6 +13,7 @@ const repo = join(here, '..', '..');
 /* The contract is hand-written and single-source. The stale copies under the backend build
    directories are output, not source, and are deliberately not read. */
 const SPEC = join(repo, 'backend/src/main/resources/static/openapi/draazy-api.yaml');
+const FORM_DETAILS_JAVA = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingFormDetails.java');
 
 const failures = [];
 let checks = 0;
@@ -34,10 +36,8 @@ const sameSet = (actual, expected, what) => {
   }
 };
 
-/* A line scanner rather than a parser: the frontend has no yaml dependency and this would be the
-   only reason to add one. Both shapes are handled — inline flow and block form. The colon is part
-   of the match because "enum" appears in schema prose, and the match is case-sensitive because
-   otherwise `hideNumber` and `pageNumber` fire. */
+/* A line scanner rather than a parser: the frontend has no yaml dependency and this would be the only
+   reason to add one. Case-sensitive and colon-anchored, or `pageNumber` and schema prose fire. */
 const specText = readFileSync(SPEC, 'utf8');
 const specLines = specText.split(/\r?\n/);
 
@@ -65,18 +65,16 @@ function readEnums() {
       }
     }
     if (!values.length) continue;
-    /* The field this enum constrains. Two layouts, both present in the file: flow style, where the
-       enum sits on the field's own line (`furnishing: { type: string, enum: [...] }`), and block
-       style, where the field name is a standalone key some lines above. */
+    /* Two layouts, both present in the file: flow style puts the enum on the field's own line, block style
+       leaves the field name as a standalone key some lines above. */
     const STRUCTURAL = new Set(['items', 'properties', 'additionalProperties']);
     let inlineField = (/^\s{6,}([A-Za-z0-9_]+):\s*\{/.exec(line) || [])[1] || null;
     if (inlineField && STRUCTURAL.has(inlineField)) inlineField = null;
     let field = inlineField;
     for (let j = i; j >= 0 && !field; j -= 1) {
       const f = /^\s{6,}([A-Za-z0-9_]+):\s*$/.exec(specLines[j]);
-      /* `items` and `properties` are structure, not field names. An array-valued facet declares its
-         enum one level down (`tenants: { type: array, items: { enum: [...] } }`), so a scan that
-         stops at the first key up finds the wrapper and reports the field as missing. */
+      /* `items` and `properties` are structure, not field names: an array-valued facet declares its enum one
+         level down, so stopping at the first key up finds the wrapper and reports the field as missing. */
       if (f && !STRUCTURAL.has(f[1])) field = f[1];
     }
     const key = schema || '(root)';
@@ -126,14 +124,14 @@ function fieldEnum(schema, field) {
 const { FURN, CONSTR_STATUS, TENANTS, ROOM_TYPES } = await import('../src/pages/consumer/listings/constants.js');
 const { LAND_USE } = await import('../src/data/propertyTypes.js');
 const { VOCAB } = await import('../src/services/providers/http/flatmateMapper.js');
+const { landUseFor, plotZoneOptions } = await import('../src/pages/consumer/list-property/constants.js');
 const { toViewModel, toListingCreate } = await import('../src/services/providers/http/propertyMapper.js');
 const { toFacetQuery } = await import('../src/lib/listings/facetQuery.js');
 
 const keysOf = (catalogue) => catalogue.map((e) => (Array.isArray(e) ? e[0] : e.value ?? e)).filter((k) => k !== '');
 
-/* A filter state complete enough for `toFacetQuery` to consider the axis relevant. `sectionVisible`
-   drops any facet the chosen property types do not make meaningful, so a bare `{}` would return
-   `undefined` for everything and every assertion below would pass without testing anything. */
+/* Complete enough for `toFacetQuery` to consider the axis relevant: `sectionVisible` drops facets the chosen
+   types do not make meaningful, so a bare `{}` would pass every assertion below without testing anything. */
 const filterState = (axis, value) => ({
   deal: axis === 'constr' ? 'buy' : 'rent',
   types: new Set(['flat']),
@@ -225,6 +223,66 @@ if (flatmateFurnishing) {
     + ' the flatmate tables still hold `semi` breaks every existing room.',
   );
 }
+
+/* ─── 6. Plot zoning is the owner's label; land use is the column the filter reads ────────────── */
+/* Translated in one direction only: a zone whose translation the contract refuses is a 422 the owner cannot
+   act on, and a `LAND_USE` key no zone produces is a filter option no wizard-posted plot can match. */
+console.log('  6. plot zoning translated into land use');
+const landUseWire = fieldEnum('ListingFields', 'landUse');
+const plotZoneWire = fieldEnum('ListingFormDetails', 'plotZone');
+/* Containment, not equality: the contract also carries retired labels, which stay legal so a plot published
+   under one can be re-saved. The loop below runs over the contract, so a legacy label mapping to nothing still fails. */
+if (plotZoneWire) {
+  const absent = plotZoneOptions.filter((v) => !plotZoneWire.has(v));
+  ok(
+    absent.length === 0,
+    `the Zone picker offers ${absent.map((v) => `'${v}'`).join(', ')}, which the contract does not accept.`,
+  );
+}
+if (landUseWire) {
+  const translated = new Set();
+  for (const zone of [...(plotZoneWire || plotZoneOptions)].filter(Boolean)) {
+    const written = landUseFor('openplot', zone);
+    translated.add(written);
+    ok(
+      landUseWire.has(written),
+      `posting an open plot zoned '${zone}' puts '${written}' on the wire, which is not one of`
+      + ` ${[...landUseWire].join(', ')}.`,
+    );
+  }
+  const farm = landUseFor('farmland', '');
+  ok(
+    landUseWire.has(farm),
+    `farm land is never asked its zone and defaults to '${farm}', which the contract does not accept.`,
+  );
+  translated.add(farm);
+  ok(
+    landUseFor('flat', 'Residential') === undefined,
+    'a flat is being given a land use. A building has none of its own, and stating one files it'
+    + ' under a filter that exists to find bare land.',
+  );
+  for (const key of keysOf(LAND_USE)) {
+    ok(
+      translated.has(key),
+      `the Land-use filter offers '${key}', which no zone the wizard offers translates into — so no`
+      + ' wizard-posted plot can ever answer it.',
+    );
+  }
+}
+
+/* ─── formDetails allowlist ──────────────────────────────────────────────────────────────────── */
+/* `formDetails` is free-form JSONB in the spec, so its allowlist is hand-written twice. A key on one side only
+   fails silently both ways: absent from JS the answer never ships, absent from Java the 422 names nothing. */
+const javaText = readFileSync(FORM_DETAILS_JAVA, 'utf8');
+
+const javaKeys = new Set();
+for (const table of ['TEXT', 'FLAGS', 'ARRAYS']) {
+  const block = new RegExp(`Set<String> ${table} = Set\\.of\\(([\\s\\S]*?)\\);`).exec(javaText);
+  ok(Boolean(block), `ListingFormDetails.java no longer declares a \`Set<String> ${table} = Set.of(...)\` this scanner can read.`);
+  if (block) for (const [, key] of block[1].matchAll(/"([^"]+)"/g)) javaKeys.add(key);
+}
+ok(javaKeys.size > 40, `Only ${javaKeys.size} formDetails keys read from Java — the scanner has gone blind.`);
+sameSet(DETAIL_KEYS, javaKeys, 'listingFormDetails.js DETAIL_KEYS vs ListingFormDetails.java TEXT+FLAGS+ARRAYS');
 
 /* ─── Report ──────────────────────────────────────────────────────────────────────────────────── */
 if (failures.length) {

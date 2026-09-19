@@ -10,6 +10,7 @@ export const initialForm = {
   balconies: '1',
   carpetArea: '',
   builtUp: '',
+  superBuiltUp: '',
   // house types (independent / villa)
   plotArea: '',
   floorsInHouse: '',
@@ -24,12 +25,29 @@ export const initialForm = {
   washrooms: '',
   shellType: '',
   parkingSpaces: '',
-  powerBackup: false,
+  /* No `powerBackup`: it is a commercial amenity offered in all three profile lists, and a second control
+     here made one fact answerable twice. Absent means "unstated"; `toEditForm` still carries a stored value. */
   pantry: false,
   camCharges: '',
   suitableFor: [],
   fixtures: [],
+  // commercial lease economics (rent) and tenancy (buy)
+  gstOnRent: '',
+  fitOutMonths: '',
+  escalationPct: '',
+  tenancyStatus: '',
+  inPlaceRent: '',
+  leaseExpiry: '',
+  // commercial physical specs — only the ones the chosen use-profile asks for are ever rendered
+  seatCount: '',
+  frontage: '',
+  floorLoad: '',
+  clearHeight: '',
+  sanctionedPower: '',
+  dockCount: '',
   // land specifics (open plot / farm land)
+  /* A plot default. A farm has no square feet on its unit list, so `changePropertyType` swaps this for
+     `defaultAreaUnitFor(type)`; keeping 'sqft' would post a farm out by three orders of magnitude. */
   areaUnit: 'sqft',
   plotLength: '',
   plotWidth: '',
@@ -38,11 +56,16 @@ export const initialForm = {
   cornerPlot: false,
   boundaryWall: false,
   plotZone: '',
-  naSanctioned: false,
+  /* Unanswered. A boolean could not tell "still agricultural" from "never asked", and had no way
+     at all to say deemed-NA. Legacy listings keep their stored `naSanctioned`. */
+  naStatus: '',
   waterSource: '',
   electricity: false,
   roadAccess: false,
-  satbara: false,
+  /* What the 7/12's Other Rights column says, replacing a "7/12 available" toggle that every
+     parcel could answer yes to. */
+  otherRights: '',
+  buyerEligibility: '',
   floor: '',
   totalFloors: '',
   facing: '',
@@ -66,17 +89,24 @@ export const initialForm = {
   pmcPropertyId: '',
   propLat: 18.5590,
   propLng: 73.7760,
+  /* The coordinates above are a map default (Baner centre) and Baner's own canonical coords are
+     identical, so nothing can tell a chosen spot from an untouched one. Record the placement. */
+  pinPlaced: false,
   price: '',
   priceNegotiable: false,
   transactionType: '',
-  possession: 'ready',
+  /* Unanswered: this is the field the Ready-to-Move / Under-Construction facet is built from, so a
+     pre-selected default would make the required check unfailable and publish a claim as the owner's own. */
+  construction: '',
   ownership: '',
   monthlyMaintenance: '',
   reraId: '',
   loanAvailable: true,
   monthlyRent: '',
   deposit: '',
-  rentMaintMode: 'included',
+  // Unstated. Defaulting to 'included' printed "Maintenance: Included" on the detail page of every
+  // rental whose owner never touched the control, beside the figures they did give.
+  rentMaintMode: '',
   rentMaintenance: '',
   availableFrom: '',
   preferredTenants: [],

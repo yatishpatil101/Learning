@@ -1,6 +1,7 @@
-import { test, expect } from '../../../fixtures/live.js';
+import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 
 const DRAFT_KEY = 'dzDraft:list-property';
 const DETAILS = {
@@ -79,13 +80,16 @@ async function seedListing(page, request, { deal = 'rent', legacy = false } = {}
       lat: 18.559, lng: 73.786, floor: 0, totalFloors: 15, ageYears: 7,
       facing: 'East', overlooking: 'Garden', electricityMeterNo: `00${mobile}`,
       reraId: 'P52100000001', images: [url], description: 'Original owner description.',
+      ...(deal === 'buy' ? { possession: 'under-construction' } : {}),
       address: legacy ? storedAddress : ADDRESS,
       ...(legacy ? {} : { pincode: '411045', formDetails: DETAILS }),
     },
   });
   expect(response.status(), 'fresh owner must create a valid listing').toBe(201);
   const listing = await response.json();
-  const category = deal === 'rent' ? 'Ownership Proof' : 'Index II';
+  /* A rental has no title deed to show, so its badge evidence is the address proof; only a sale
+     asks for Index II. Seeding the category the wizard does not offer leaves nothing to prefill. */
+  const category = deal === 'rent' ? 'Electricity Bill' : 'Index II';
   const document = await request.post(`${API}/me/documents/${listing.id}`, {
     headers: { authorization: headers.authorization }, multipart: { category, file },
   });
@@ -119,7 +123,7 @@ async function openEdit(page, seeded, { reload = false, carpetArea = 875.5, buil
   await expect(page.getByRole('button', { name: /^Find a flatmate\b/ })).toHaveCount(0);
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue(String(carpetArea));
   await expect(field(page, /^Built-up Area$/).locator('input')).toHaveValue(String(builtUpArea));
-  await expect(field(page, /^Floor No\.$/).locator('.dz-dropdown__trigger')).toContainText('Ground');
+  await expect(field(page, /^Floor No\. \*$/).locator('.dz-dropdown__trigger')).toContainText('Ground');
   await expect(field(page, /^Age of Property$/).locator('.dz-dropdown__trigger')).toContainText('5 - 10 years');
 }
 
@@ -191,8 +195,9 @@ test('rent reload restores address, terms and zeros; description-only save prese
   const writes = recordWrites(page);
   await openEdit(page, seeded);
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
+  await nextStep(page, 'Price & terms');
   await expect(page.locator('input[data-err="deposit"]')).toHaveValue('0');
   await expect(page.locator('[data-err="availableFrom"]')).toHaveText('20/01/2027');
   for (const [label, value] of [[/^Agreement Duration$/, '24 months'], [/^Lock-in Period$/, 'None'], [/^Notice Period$/, '2 months']]) {
@@ -214,8 +219,9 @@ test('rent reload restores address, terms and zeros; description-only save prese
   await saveDescription(page, 'Updated rental description only.', writes);
   await expectPreserved(request, seeded, 'Updated rental description only.');
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   await expectDocument(page, seeded);
   await expect(page.locator('textarea')).toHaveValue('Updated rental description only.');
@@ -227,24 +233,74 @@ test('sale reload restores Freehold, false loan availability, meter, RERA and sa
   const writes = recordWrites(page);
   await openEdit(page, seeded);
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
+  await nextStep(page, 'Price & terms');
   await expect(page.locator('[data-err="ownership"]')).toContainText('Freehold');
   await expect(page.getByRole('switch', { name: /home loan/i })).toHaveAttribute('aria-checked', 'false');
   await expect(page.locator('[data-err="availableFrom"]')).toHaveText('20/01/2027');
+  // MahaRERA moved off the document step to sit beside the possession answer that demands it.
+  await expect(page.getByPlaceholder('e.g. P52100012345', { exact: true })).toHaveValue('P52100000001');
   await nextStep(page, 'Photos & documents');
   await expectDocument(page, seeded);
-  await expect(page.getByPlaceholder('e.g. P52100012345', { exact: true })).toHaveValue('P52100000001');
   const screenshot = testInfo.outputPath('edit-prefill-saved-documents.png');
   await page.screenshot({ path: screenshot, fullPage: true });
   await testInfo.attach('Saved proof, meter and RERA', { path: screenshot, contentType: 'image/png' });
   await saveDescription(page, 'Updated sale description only.', writes);
   await expectPreserved(request, seeded, 'Updated sale description only.');
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   await expectDocument(page, seeded);
+});
+
+test('sale edit clears an optional maintenance amount without retaining a public claim', async ({ page, request }) => {
+  const seeded = await seedListing(page, request, { deal: 'buy' });
+  await openEdit(page, seeded);
+  await nextStep(page, 'Location');
+  await nextStep(page, 'Price & terms');
+  await expect(field(page, /^Monthly Maintenance/).locator('input')).toHaveValue('2,500');
+  await field(page, /^Monthly Maintenance/).locator('input').fill('');
+  await nextStep(page, 'Photos & documents');
+  const patched = page.waitForResponse((response) => response.request().method() === 'PATCH'
+    && new URL(response.url()).pathname === `/api/me/listings/${seeded.id}`);
+  await page.getByRole('button', { name: 'Submit Property', exact: true }).click();
+  const response = await patched;
+  expect(response.status(), 'clearing optional maintenance must succeed').toBe(200);
+  expect(response.request().postDataJSON()).toEqual({ clearMaintenance: true });
+
+  const published = await request.patch(`${API}/properties/${seeded.id}/status`, {
+    headers: await authHeaders(ACTORS.admin), data: { status: 'approved', reason: 'Maintenance clear fixture' },
+  });
+  expect(published.status()).toBe(200);
+  const publicListing = await request.get(`${API}/properties/${seeded.id}`);
+  expect(publicListing.status()).toBe(200);
+  expect(await publicListing.json()).not.toHaveProperty('maintenance');
+});
+
+test('a tenant-preference edit reaches the canonical field the rental facet searches', async ({ page, request }) => {
+  const seeded = await seedListing(page, request);
+  await openEdit(page, seeded);
+  await nextStep(page, 'Location');
+  await nextStep(page, 'Price & terms');
+  await page.getByRole('button', { name: 'Bachelors', exact: true }).click();
+  await page.getByRole('button', { name: 'Bachelor (Male)', exact: true }).click();
+  await nextStep(page, 'Photos & documents');
+  const patched = page.waitForResponse((response) => response.request().method() === 'PATCH'
+    && new URL(response.url()).pathname === `/api/me/listings/${seeded.id}`);
+  await page.getByRole('button', { name: 'Submit Property', exact: true }).click();
+  expect((await patched).status(), 'a tenant-preference edit must succeed').toBe(200);
+  expect((await patched).request().postDataJSON().tenants).toEqual(['family', 'bachelor-male']);
+
+  const published = await request.patch(`${API}/properties/${seeded.id}/status`, {
+    headers: await authHeaders(ACTORS.admin), data: { status: 'approved', reason: 'Tenant edit fixture' },
+  });
+  expect(published.status()).toBe(200);
+  const publicListing = await request.get(`${API}/properties/${seeded.id}`);
+  expect(publicListing.status()).toBe(200);
+  expect((await publicListing.json()).tenants).toEqual(['family', 'bachelor-male']);
 });
 
 for (const deal of ['rent', 'buy']) {
@@ -252,12 +308,13 @@ for (const deal of ['rent', 'buy']) {
     const seeded = await seedListing(page, request, { deal, legacy: true });
     const writes = recordWrites(page);
     await openEdit(page, seeded);
-    await nextStep(page, 'Location & pricing');
+    await nextStep(page, 'Location');
     const address = page.getByRole('heading', { name: 'Saved address', exact: true }).locator('..').locator('p').first();
     expect(await address.textContent()).toBe(LEGACY_ADDRESS);
     await expect(page.locator('input[data-err="flatNumber"]')).toHaveValue('');
     await expect(page.locator('input[data-err="society"]')).toHaveValue('');
     await expect(page.locator('input[data-err="pincode"]')).toHaveValue('');
+    await nextStep(page, 'Price & terms');
     if (deal === 'rent') await expect(page.locator('[data-err="availableFrom"]')).toHaveText('DD/MM/YYYY');
     else await expect(page.locator('[data-err="ownership"]')).toContainText('Select ownership');
     await nextStep(page, 'Photos & documents');
@@ -266,8 +323,9 @@ for (const deal of ['rent', 'buy']) {
     await saveDescription(page, description, writes);
     await expectPreserved(request, seeded, description);
     await openEdit(page, seeded, { reload: true });
-    await nextStep(page, 'Location & pricing');
+    await nextStep(page, 'Location');
     expect(await address.textContent()).toBe(LEGACY_ADDRESS);
+    await nextStep(page, 'Price & terms');
     await nextStep(page, 'Photos & documents');
     await expectDocument(page, seeded);
     await expect(page.locator('textarea')).toHaveValue(description);
@@ -279,7 +337,7 @@ test('an address the wizard composed is recovered into the boxes and replaced on
   const writes = recordWrites(page);
   const street = page.locator('input[autocomplete="address-line1"]');
   await openEdit(page, seeded);
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   // The owner gets their address back in the boxes rather than an apology beside empty ones.
   await expect(page.getByRole('heading', { name: 'Saved address', exact: true })).toHaveCount(0);
   await expect(page.locator('input[data-err="flatNumber"]')).toHaveValue('101');
@@ -287,15 +345,17 @@ test('an address the wizard composed is recovered into the boxes and replaced on
   await expect(street).toHaveValue('Shirode Road');
 
   // Recovered boxes are not an edit: an unrelated save must still leave the stored line alone.
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   const description = 'Recovered address: description changed without replacing the address.';
   await saveDescription(page, description, writes);
   await expectPreserved(request, seeded, description);
 
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await street.fill('Shirode Lane');
   // Advancing proves the recovered boxes satisfy the address rules a replacement has to meet.
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   const patched = page.waitForResponse((response) => response.request().method() === 'PATCH'
     && /^\/api\/me\/listings\/[^/]+$/.test(new URL(response.url()).pathname));
@@ -307,7 +367,7 @@ test('an address the wizard composed is recovered into the boxes and replaced on
   expect(saved.address, 'only the edited part changes').toBe('101, KATEPURAM PHASE-2, Shirode Lane');
   expect(saved.formDetails).toMatchObject({ flatNumber: '101', society: 'KATEPURAM PHASE-2', street: 'Shirode Lane' });
   await openEdit(page, seeded, { reload: true });
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expect(street).toHaveValue('Shirode Lane');
 });
 
@@ -333,11 +393,12 @@ test('the photo deep link opens on the photo step with the whole listing already
   await page.getByRole('list', { name: 'Listing progress' }).getByRole('listitem')
     .filter({ hasText: 'Step 1' }).click();
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('875.5');
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
 
   // And the save is still a one-field PATCH. `expectPreserved` re-reads outside the browser, so a
   // deep link that had quietly rebuilt the form from defaults cannot pass.
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   const description = 'Photo deep link: description changed, everything else untouched.';
   await saveDescription(page, description, writes);
@@ -371,8 +432,9 @@ test('vault failure blocks the entire editor and all writes until an explicit re
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await recovered;
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('875.5');
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page);
+  await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & documents');
   await expectDocument(page, seeded);
   expect(writes()).toHaveLength(0);
@@ -391,7 +453,8 @@ for (const [wireKey, value] of [['builtUpArea', 1100.75], ['carpetArea', 900.75]
       : page.locator('input[data-err="carpetArea"]');
     await input.fill(String(value));
     await expect(input).toHaveValue(String(value));
-    await nextStep(page, 'Location & pricing');
+    await nextStep(page, 'Location');
+    await nextStep(page, 'Price & terms');
     await nextStep(page, 'Photos & documents');
     await expectDocument(page, seeded);
     const patched = page.waitForResponse((response) => response.request().method() === 'PATCH'
@@ -408,8 +471,9 @@ for (const [wireKey, value] of [['builtUpArea', 1100.75], ['carpetArea', 900.75]
     const areas = { carpetArea: expected.carpetArea, builtUpArea: expected.builtUpArea };
     await openEdit(page, seeded, areas);
     await openEdit(page, seeded, { ...areas, reload: true });
-    await nextStep(page, 'Location & pricing');
+    await nextStep(page, 'Location');
     await expectAddress(page);
+    await nextStep(page, 'Price & terms');
     await nextStep(page, 'Photos & documents');
     await expectDocument(page, seeded);
     expect(writes()).toHaveLength(1);
@@ -429,15 +493,24 @@ test('create through the rental wizard persists exact answers and decimal areas 
   const headers = await authHeaders(mobile);
   const details = {
     ...DETAILS, society: `Zztest Prefill ${mobile.slice(-6)}`, ownership: '', loanAvailable: true,
-    lockIn: '6', possession: 'ready', furniture: ['Wardrobe'], commercialType: '',
+    lockIn: '6', furniture: ['Wardrobe'], commercialType: '',
     plotArea: '', floorsInHouse: '', washrooms: '', shellType: '', camCharges: '',
+    gstOnRent: '', fitOutMonths: '', escalationPct: '', tenancyStatus: '', inPlaceRent: '',
+    leaseExpiry: '', seatCount: '', frontage: '', floorLoad: '', clearHeight: '',
+    sanctionedPower: '', dockCount: '',
     plotLength: '', plotWidth: '', openSides: '', roadWidth: '', plotZone: '', waterSource: '',
-    powerBackup: false, pantry: false, cornerPlot: false, boundaryWall: false,
+    pantry: false, cornerPlot: false, boundaryWall: false,
     naSanctioned: false, electricity: false, roadAccess: false, satbara: false, suitableFor: [],
   };
+  /* The wizard asks about possession on a sale and nowhere else, so the ABSENCE of the key is the assertion:
+     a pre-filled default would claim a handover the owner never stated on a rental. */
+  delete details.possession;
   const meter = `00${mobile}`;
   const description = 'Zztest rental wizard: structured address and decimal measurements.';
   const writes = recordWrites(page);
+  /* A draft left by an earlier attempt restores its photos into this one. Removing the key after load fails —
+     the autosave writes the restored state straight back — so this runs before the app's own scripts. */
+  await page.addInitScript((key) => localStorage.removeItem(key), DRAFT_KEY);
   await page.goto('/list-property');
   await expect(page.getByRole('heading', { name: 'Property details', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Rent', exact: true }).click();
@@ -452,13 +525,13 @@ test('create through the rental wizard persists exact answers and decimal areas 
   for (const label of [/^Balconies$/, /^Parking Spaces$/]) {
     await field(page, label).getByRole('button', { name: 'None', exact: true }).click();
   }
-  for (const [label, option] of [[/^Floor No\.$/, 'Ground'], [/^Total Floors$/, '15'],
+  for (const [label, option] of [[/^Floor No\. \*$/, 'Ground'], [/^Total Floors \*$/, '15'],
     [/^Age of Property$/, '5 - 10 years'], [/^Facing$/, 'East'], [/^Overlooking$/, 'Garden']]) {
     await selectOption(page, field(page, label).locator('.dz-dropdown__trigger'), option);
   }
   await page.getByRole('button', { name: 'Semi-Furnished', exact: true }).click();
   await page.locator('.furn-tile').filter({ has: page.getByText('Wardrobe', { exact: true }) }).click();
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   // Choosing a real locality places the pin without relying on Google tile timing.
   await selectOption(page, page.locator('[data-err="locality"]'), 'Baner');
   const pin = page.locator('[data-err="location"] p').filter({ hasText: /Location set:/ });
@@ -471,11 +544,14 @@ test('create through the rental wizard persists exact answers and decimal areas 
   await page.locator('input[autocomplete="address-line1"]').fill(details.street);
   await page.locator('input[autocomplete="address-line3"]').fill(details.landmark);
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await nextStep(page, 'Price & terms');
   await page.locator('input[data-err="monthlyRent"]').fill('31000');
   await page.locator('input[data-err="deposit"]').fill('0');
   await page.getByRole('button', { name: 'Charged Extra', exact: true }).click();
   await page.getByPlaceholder('e.g. 2,500', { exact: true }).fill('2500');
   await pickDate(page, '[data-err="availableFrom"]', details.availableFrom);
+  // A fresh form carries the standard terms collapsed, so revealing them is part of the answer.
+  await page.getByRole('button', { name: 'Change rental terms', exact: true }).click();
   for (const [label, option] of [[/^Agreement Duration$/, '24 months'], [/^Lock-in Period$/, '6 months'], [/^Notice Period$/, '2 months']]) {
     await selectOption(page, field(page, label).locator('.dz-dropdown__trigger'), option);
   }
@@ -494,6 +570,9 @@ test('create through the rental wizard persists exact answers and decimal areas 
   expect(photo.url).toMatch(/^\/api\/dev\/storage\/public\/photos\//);
   await expect(page.locator('[data-err="photos"]')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('[data-err="photos"] img')).toHaveCount(1);
+  // One photo does not publish. Two more carry the listing to the floor and cover the key categories the
+  // upload step checks, without disturbing the single upload asserted above.
+  await uploadPublishablePhotos(page, { count: 2 });
   const posted = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === '/api/me/listings');
   await page.getByRole('button', { name: 'Submit Property', exact: true }).click();
@@ -507,9 +586,12 @@ test('create through the rental wizard persists exact answers and decimal areas 
     facing: 'East', overlooking: 'Garden', furnishing: 'semi-furnished', locality: 'Baner',
     price: 31000, deposit: 0, maintenance: 2500, pincode: '411045', electricityMeterNo: meter,
     address: `${details.flatNumber}, ${details.tower}, ${details.society}, ${details.street}`,
-    description, images: [photo.url], formDetails: details,
+    description, formDetails: details,
   };
   expect(body).toMatchObject(expected);
+  // The first upload is the one whose response shape was asserted, so it must lead the list.
+  expect(body.images).toHaveLength(3);
+  expect(body.images[0]).toBe(photo.url);
   expect(body.lat).toBeCloseTo(Number(coordinates[1]), 4);
   expect(body.lng).toBeCloseTo(Number(coordinates[2]), 4);
   const created = { ...(await response.json()), headers };
@@ -519,12 +601,12 @@ test('create through the rental wizard persists exact answers and decimal areas 
   const saved = await readListing(request, created);
   expect(saved).toMatchObject({ ...expected, lat: body.lat, lng: body.lng });
   expect(saved.formDetails).toEqual(details);
-  expect(saved.images).toEqual([photo.url]);
+  expect(saved.images).toEqual(body.images);
   expect(writes().filter((entry) => entry.method() === 'POST'
     && new URL(entry.url()).pathname === '/api/me/listings')).toHaveLength(1);
   await openEdit(page, created);
   await openEdit(page, created, { reload: true });
-  await expect(field(page, /^Total Floors$/).locator('.dz-dropdown__trigger')).toContainText('15');
+  await expect(field(page, /^Total Floors \*$/).locator('.dz-dropdown__trigger')).toContainText('15');
   await expect(field(page, /^Facing$/).locator('.dz-dropdown__trigger')).toContainText('East');
   await expect(field(page, /^Overlooking$/).locator('.dz-dropdown__trigger')).toContainText('Garden');
   await expect(page.getByRole('button', { name: 'Semi-Furnished', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -532,10 +614,11 @@ test('create through the rental wizard persists exact answers and decimal areas 
   for (const label of [/^Balconies$/, /^Parking Spaces$/]) {
     await expect(field(page, label).getByRole('button', { name: 'None', exact: true })).toHaveAttribute('aria-pressed', 'true');
   }
-  await nextStep(page, 'Location & pricing');
+  await nextStep(page, 'Location');
   await expectAddress(page, details);
   await expect(page.locator('[data-err="locality"]')).toContainText('Baner');
   await expect(pin).toContainText(`${Number(body.lat).toFixed(4)}, ${Number(body.lng).toFixed(4)}`);
+  await nextStep(page, 'Price & terms');
   await expect(page.locator('input[data-err="monthlyRent"]')).toHaveValue('31,000');
   await expect(page.locator('input[data-err="deposit"]')).toHaveValue('0');
   await expect(page.getByPlaceholder('e.g. 2,500', { exact: true })).toHaveValue('2,500');
@@ -552,7 +635,8 @@ test('create through the rental wizard persists exact answers and decimal areas 
   await nextStep(page, 'Photos & documents');
   await expect(page.getByLabel('Electricity Consumer No.', { exact: true })).toHaveValue(meter);
   await expect(page.locator('textarea')).toHaveValue(description);
-  await expect(page.locator('[data-err="photos"] img')).toHaveCount(1);
-  await expect(page.locator('[data-err="photos"] img')).toHaveAttribute('src', photo.url);
+  await expect(page.locator('[data-err="photos"] img')).toHaveCount(3);
+  // The photo whose upload response was asserted above is the cover, so it reloads first.
+  await expect(page.locator('[data-err="photos"] img').first()).toHaveAttribute('src', photo.url);
   expect(writes().filter((entry) => entry.method() === 'PATCH')).toHaveLength(0);
 });

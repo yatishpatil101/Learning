@@ -7,27 +7,14 @@ import { availableLabel, propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 import { fixturesFor, commercialProfileFromType } from '../list-property/constants.js';
 
-/* Rent Details (RENT). The RENT twin of PriceInsights — same tile language as the
-   Overview tab (detail-card / rd-cell / teal icon chips / glass panels / insight-bar),
-   driven by the listing's real fields (deposit, maintenance mode, available-from,
-   lock-in, notice, furnishing, preferred tenants, pets, food) with graceful fallbacks
-   for legacy seed data. Grouped by the three jobs a renter has here:
-   1. "What will it cost me?"  — monthly outgo + one-time move-in.
-   2. "What are the terms?"     — available-from, lock-in, notice, furnishing.
-   3. "Is it a fit / fair?"     — who it's for + rent-vs-locality benchmark. */
+/* The rent twin of PriceInsights, grouped by the three jobs a renter has: what it costs, what the terms
+   are, and whether it is a fit. */
 
 // Inventory tiers store i18n key-suffixes (translated at render via property.inventory.*).
 const RENT_INVENTORY = {
   furnished: ['wardrobes', 'beds', 'sofa', 'fridge', 'washingMachine', 'ac', 'modularKitchen', 'geyser'],
   semi: ['wardrobes', 'modularKitchen', 'geyser', 'fansLights'],
   unfurnished: ['fansLights'],
-};
-// Commercial fit-out is spoken in shell terms, not household furniture — keyed by the same
-// furnishing tier the owner sets, but with vocabulary true across office/shop/warehouse/co-working.
-const COMMERCIAL_INVENTORY = {
-  furnished: ['fittedInteriors', 'airConditioning', 'powerBackup', 'washrooms'],
-  semi: ['warmShell', 'powerBackup', 'washrooms'],
-  unfurnished: ['bareShell', 'washrooms'],
 };
 
 const toNum = (v) => Number(String(v ?? '').replace(/[^\d.]/g, '')) || 0;
@@ -38,7 +25,9 @@ export function RentDetails({ p }) {
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
 
+  // "None" is a term the owner agreed to; silence is not.
   const monthsLabel = (m) => {
+    if (m == null || m === '') return tr('property.notSpecified');
     const n = Number(m) || 0;
     return n <= 0 ? tr('property.monthsNone') : tr('property.months', { count: n });
   };
@@ -47,20 +36,25 @@ export function RentDetails({ p }) {
   // Deposit is a real field on posted rentals; legacy seed rows lack it, so fall back to
   // the common ~2 months' rent (kept as a fallback, never overwriting authored data).
   const deposit = toNum(p.deposit) || rent * 2;
-  // Maintenance: only charge extra when the owner said so — an unknown mode is treated
-  // as "included", never fabricated into an inflated all-in figure.
+  /* Only charge extra when the owner said so. An unstated mode is not "included" either: that is a rupee
+     claim they did not make, and the renter who believes it finds out on the first bill. */
   const maintExtra = p.rentMaintMode === 'extra' ? toNum(p.rentMaintenance) : 0;
-  const maintLabel = p.rentMaintMode === 'extra' ? (maintExtra ? '₹' + fmtNum(maintExtra) : tr('property.maintExtra')) : tr('property.maintIncluded');
+  /* Commercial states one recurring cost, per sq.ft.: CAM is how the market quotes it, and it is
+     the only maintenance the commercial wizard collects. */
+  const camPerSqft = toNum(p.camCharges);
+  const maintLabel = isCommercial
+    ? (camPerSqft ? '₹' + fmtNum(camPerSqft) + '/sq.ft.' : tr('property.askOwner'))
+    : p.rentMaintMode === 'extra'
+      ? (maintExtra ? '₹' + fmtNum(maintExtra) : tr('property.maintExtra'))
+      : p.rentMaintMode === 'included' ? tr('property.maintIncluded') : tr('property.askOwner');
   const allIn = rent + maintExtra;
   const moveIn = rent + deposit;
   const savings = rent; // ~1 month's rent is the brokerage a renter avoids here
 
   const available = availableLabel(tr, p.availableFrom);
   const furnishing = tr('property.rentFurnishing.' + (['furnished', 'semi', 'unfurnished'].includes(p.furnishing) ? p.furnishing : 'semi'));
-  // Commercial fit-out: prefer the owner's real, sub-type-specific fixtures (filtered to the
-  // profile's valid options so stale cross-profile picks never show), enriched with the shell /
-  // power / pantry / washroom signals already captured at posting. Legacy seed rows with none
-  // of these fall back to the generic furnishing-keyed list — nothing is ever fabricated.
+  /* Filtered to the profile's valid options so a stale cross-profile pick never shows. Nothing is
+     substituted when they said nothing: a fit-out list reads as the owner's own claim. */
   const commercialFitOut = () => {
     const opts = fixturesFor(commercialProfileFromType(p.commercialType || p.type));
     const declared = (Array.isArray(p.fixtures) ? p.fixtures : []).filter((f) => opts.includes(f));
@@ -70,22 +64,31 @@ export function RentDetails({ p }) {
     if (wr) signals.push(tr('property.washroom', { count: wr }));
     if (p.powerBackup) signals.push(tr('property.inventory.powerBackup'));
     if (p.pantry) signals.push(tr('property.pantry'));
-    const tags = [...new Set([...declared, ...signals])];
-    return tags.length ? tags : (COMMERCIAL_INVENTORY[p.furnishing] || COMMERCIAL_INVENTORY.semi).map((k) => tr('property.inventory.' + k));
+    return [...new Set([...declared, ...signals])];
   };
-  const inventory = isCommercial ? commercialFitOut() : (RENT_INVENTORY[p.furnishing] || RENT_INVENTORY.semi).map((k) => tr('property.inventory.' + k));
+  const inventory = isCommercial
+    ? commercialFitOut()
+    : Array.isArray(p.furniture)
+      ? p.furniture
+      : (RENT_INVENTORY[p.furnishing] || RENT_INVENTORY.semi).map((k) => tr('property.inventory.' + k));
 
   const tenantList = String(p.tenants || '')
     .split(',').map((s) => s.trim()).filter(Boolean)
-    .map((t) => { const key = t === 'any' ? 'anyone' : t; return ['family', 'bachelors', 'company', 'anyone'].includes(key) ? tr('property.tenant.' + key) : t; });
+    .map((t) => { const key = t === 'any' ? 'anyone' : t; return ['family', 'bachelors', 'bachelor-male', 'bachelor-female', 'company', 'anyone'].includes(key) ? tr('property.tenant.' + key) : t; });
+  // Who a commercial unit suits is its own answer, not the residential tenant preference.
+  const businessList = Array.isArray(p.suitableFor) ? p.suitableFor : [];
+  const gstLabel = p.gstOnRent === 'yes' ? tr('property.gstApplicable')
+    : p.gstOnRent === 'no' ? tr('property.gstNotApplicable') : tr('property.askOwner');
   const petsLabel = p.pets === true ? tr('property.petsAllowed') : p.pets === false ? tr('property.petsNotAllowed') : tr('property.askOwner');
   const foodLabel = p.food === 'veg' ? tr('property.foodVeg') : p.food === 'any' ? tr('property.foodBoth') : tr('property.askOwner');
   const depMonths = rent ? Math.round(deposit / rent) : 0;
   const depMonthsLabel = depMonths ? tr('property.depMonths', { count: depMonths }) : '—';
+  const agreementDuration = p.agreementDuration == null || p.agreementDuration === ''
+    ? tr('property.notSpecified')
+    : p.agreementDuration === 'long' ? tr('property.longTerm') : monthsLabel(p.agreementDuration);
 
-  // Fair-rent benchmark — this listing's rent/sq.ft vs the CURATED locality
-  // rent average (only for residential listings in a known locality; we never
-  // fabricate an average for commercial/land or an unknown area).
+  // Residential listings in a known locality only: there is no curated average to compare a commercial
+  // unit or an unknown area against, and fabricating one would read as a surveyed figure.
   const bench = valueBenchmark(p);
   const perSqft = bench.perSqft;
   const RENT_TONE = {
@@ -142,17 +145,25 @@ export function RentDetails({ p }) {
           {/* Tenancy terms */}
           <div className="mt-6 pt-5 border-t border-white/5">
             <p className="text-xs text-slate-400 mb-2.5 flex items-center gap-1.5"><Icon name="file-signature" className="w-4 h-4 text-brand-teal-3" /> {tr('property.tenancyTerms')}</p>
-            <div className={`grid grid-cols-2 ${isLand ? 'sm:grid-cols-3' : 'sm:grid-cols-4'} gap-2.5`}>
+            <div className={`grid grid-cols-2 ${isLand ? 'sm:grid-cols-3' : 'sm:grid-cols-5'} gap-2.5`}>
               {tile('calendar-check', tr('property.available'), available)}
+              {tile('file-text', tr('property.agreementDuration'), agreementDuration)}
               {tile('lock', tr('property.lockIn'), monthsLabel(p.lockin), 'rent.lockin')}
-              {tile('clock', tr('property.notice'), monthsLabel(p.notice ?? 1), 'rent.notice')}
+              {tile('clock', tr('property.notice'), monthsLabel(p.notice), 'rent.notice')}
               {!isLand ? tile('sofa', tr('property.furnishingLabel'), furnishing) : null}
             </div>
+            {isCommercial ? (
+              <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {tile('receipt-indian-rupee', tr('property.gstOnRent'), gstLabel)}
+                {tile('calendar-clock', tr('property.fitOutPeriod'), monthsLabel(p.fitOutMonths))}
+                {tile('trending-up', tr('property.escalation'), p.escalationPct ? p.escalationPct + '%' : tr('property.notSpecified'))}
+              </div>
+            ) : null}
           </div>
 
           {/* What's included — furniture/appliances only make sense for built space, not bare land.
               Commercial speaks in fit-out/shell terms, not household furniture. */}
-          {!isLand ? (
+          {!isLand && inventory.length ? (
           <div className="mt-5 pt-5 border-t border-white/5">
             <p className="text-xs text-slate-400 mb-2.5 flex items-center gap-1.5"><Icon name={isCommercial ? 'building-2' : 'sofa'} className="w-4 h-4 text-brand-teal-3" /> {isCommercial ? tr('property.fitOutFixtures') : tr('property.whatsIncluded')}</p>
             <div className="flex flex-wrap gap-2">{inventory.map((it) => <span key={it} className="tag tag-teal">{it}</span>)}</div>
@@ -211,7 +222,7 @@ export function RentDetails({ p }) {
             </>
           ) : (
             <div className="grid grid-cols-1 gap-2.5 mb-4">
-              {tile('users', tr('property.suitableFor'), tenantList.length ? tenantList.join(', ') : tr('property.anyBusiness'))}
+              {tile('users', tr('property.suitableFor'), businessList.length ? businessList.join(', ') : tr('property.anyBusiness'))}
             </div>
           )}
 

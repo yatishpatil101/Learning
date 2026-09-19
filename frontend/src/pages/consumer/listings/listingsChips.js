@@ -1,5 +1,5 @@
 import { fmtINR } from '../../../lib/format.js';
-import { fmtRent, fmtArea } from './format.js';
+import { fmtRent, fmtAreaSqft } from './format.js';
 import {
   BUY_TYPES,
   RENT_TYPES,
@@ -60,7 +60,7 @@ export function buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, se
       if (lbl) chips.push({ id: 'constr-' + v, label: lbl[1], remove: () => delFrom('constr', v) });
     });
     if (f.budget[0] !== 0 || f.budget[1] !== 50000000) chips.push({ id: 'budget', label: fmtINR(f.budget[0]) + ' – ' + fmtINR(f.budget[1]), remove: () => set({ budget: [0, 50000000] }) });
-    if (f.area[0] !== 0 || f.area[1] !== 6000) chips.push({ id: 'area', label: fmtArea(f.area[0]) + ' – ' + fmtArea(f.area[1]), remove: () => set({ area: [0, 6000] }) });
+    if (f.area[0] !== 0 || f.area[1] !== 6000) chips.push({ id: 'area', label: fmtAreaSqft(f.area[0]) + ' – ' + fmtAreaSqft(f.area[1]), remove: () => set({ area: [0, 6000] }) });
     if ((f.age[0] !== 0 || f.age[1] !== 25) && relc('age')) chips.push({ id: 'age', label: tr('listings.chipAge', { from: f.age[0], to: f.age[1] }), remove: () => set({ age: [0, 25] }) });
     if ((f.floor[0] !== 0 || f.floor[1] !== 40) && relc('floor')) chips.push({ id: 'floor', label: tr('listings.chipFloor', { from: f.floor[0], to: f.floor[1] }), remove: () => set({ floor: [0, 40] }) });
   }

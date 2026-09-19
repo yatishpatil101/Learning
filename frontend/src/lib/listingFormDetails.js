@@ -1,14 +1,19 @@
 export const ADDRESS_PARTS = ['flatNumber', 'tower', 'society', 'street'];
 
-// Matches ListingFormDetails on the server; canonical fields, trust flags and uploads stay outside.
-const DETAIL_KEYS = new Set([
+// Matches ListingFormDetails on the server; canonical fields, trust flags and uploads stay outside. Pinned
+// against the Java set by `check-enum-vocabulary.mjs`: a one-sided key is dropped silently, no 422, no log.
+export const DETAIL_KEYS = new Set([
   ...ADDRESS_PARTS, 'landmark', 'commercialType', 'ownership', 'agreementDuration',
   'lockIn', 'noticePeriod', 'foodPref', 'petsPolicy', 'availableFrom', 'possession',
-  'rentMaintMode', 'plotArea', 'floorsInHouse', 'washrooms', 'shellType', 'camCharges',
+  'transactionType', 'rentMaintMode', 'plotArea', 'floorsInHouse', 'washrooms', 'shellType', 'camCharges',
   'plotLength', 'plotWidth', 'openSides', 'roadWidth', 'plotZone', 'waterSource',
   'loanAvailable', 'powerBackup', 'pantry', 'cornerPlot', 'boundaryWall',
+  'naStatus', 'otherRights', 'buyerEligibility',
+  // Retired in favour of `naStatus` / `otherRights`; kept so published listings still read back.
   'naSanctioned', 'electricity', 'roadAccess', 'satbara',
   'furniture', 'fixtures', 'suitableFor', 'preferredTenants',
+  'gstOnRent', 'fitOutMonths', 'escalationPct', 'tenancyStatus', 'inPlaceRent', 'leaseExpiry',
+  'seatCount', 'frontage', 'floorLoad', 'clearHeight', 'sanctionedPower', 'dockCount',
 ]);
 
 export function pickListingFormDetails(form = {}) {
@@ -21,10 +26,8 @@ export function hasStoredAddress(form = {}) {
     && !ADDRESS_PARTS.some((key) => String(form[key] ?? '').trim());
 }
 
-/* The wire carries the address as one composed line, the wizard as four boxes. Handing the line
-   back in the ORDER it was joined is what makes this safe rather than a guess — `submit.js` rejoins
-   the same boxes in the same order, so only the labelling can be wrong and it sits in front of the
-   owner. A line this wizard could not have composed is left alone: mangling beats preserving. */
+/* The wire carries the address as one composed line, the wizard as four boxes. Splitting in the ORDER
+   `submit.js` joined them is what makes this safe; a line this wizard could not have composed is left alone. */
 const PART_LIMITS = { flatNumber: 20, tower: 30, society: 60, street: 60 };
 // Indexed by segment count. Land has no unit or wing, so its line is only ever project and street.
 const SHAPES = {

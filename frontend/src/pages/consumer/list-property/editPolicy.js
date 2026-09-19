@@ -1,7 +1,5 @@
-/* Edit policy — single source of truth for how owner edits are treated once a listing is live.
-   TIER A (material/trust: identity fields, existing photos) stays live but is flagged for a fast
-   admin re-check, anti bait-and-switch; TIER B (price, description, amenities …) publishes
-   instantly. The identity subset also interacts with the freemium quota. Pure module. */
+/* Single source of truth for how owner edits are treated once a listing is live: TIER A (identity fields,
+   existing photos) stays live but is flagged for an anti bait-and-switch re-check; TIER B publishes instantly. */
 
 /* ---------- amount parser (kept local so this stays dependency-free) ---------- */
 const amount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
@@ -22,7 +20,7 @@ export const TIER_A_FIELDS = [
   // Match facing's client-side classification; server re-review is decided separately.
   { key: 'overlooking', label: 'Overlooking' },
   { key: 'age', label: 'Property age' },
-  { key: 'possession', label: 'Possession status' },
+  { key: 'construction', label: 'Possession status' },
   { key: 'ownership', label: 'Ownership type' },
   { key: 'locality', label: 'Locality' },
   { key: 'society', label: 'Society / project' },
@@ -35,15 +33,12 @@ export const TIER_A_FIELDS = [
 /* The synthetic "photos" change (an existing photo was removed/replaced). */
 export const PHOTO_FIELD = { key: 'photos', label: 'Listing photos' };
 
-/* Identity = the fields that define which property this actually is. Changing
-   any of them is treated as a new property for the freemium quota. Society is
-   deliberately excluded — a society/name correction stays a re-check (Tier A),
-   not a paywall trigger. */
+/* Identity = the fields that define which property this is; changing one is a new property for the quota.
+   Society is excluded on purpose — a name correction stays a re-check, not a paywall trigger. */
 export const IDENTITY_FIELDS = ['propertyType', 'commercialType', 'locality'];
 
-/* Tier B — soft fields reported in the "goes live instantly" summary. Anything
-   not listed in Tier A or here (e.g. map lat/lng, transient UI flags) is ignored
-   for reporting. */
+/* Tier B — soft fields reported in the "goes live instantly" summary. Anything in neither list
+   (map lat/lng, transient UI flags) is ignored for reporting. */
 export const TIER_B_FIELDS = [
   { key: 'price', label: 'Sale price' },
   { key: 'monthlyRent', label: 'Monthly rent' },
@@ -75,13 +70,23 @@ export const TIER_B_FIELDS = [
   { key: 'parkingSpaces', label: 'Parking spaces' },
   { key: 'powerBackup', label: 'Power backup' },
   { key: 'pantry', label: 'Pantry' },
+  { key: 'gstOnRent', label: 'GST on rent' },
+  { key: 'fitOutMonths', label: 'Rent-free / fit-out period' },
+  { key: 'escalationPct', label: 'Annual escalation' },
+  { key: 'tenancyStatus', label: 'Tenancy status' },
+  { key: 'inPlaceRent', label: 'In-place rent' },
+  { key: 'leaseExpiry', label: 'Lease expiry' },
+  { key: 'seatCount', label: 'Seating capacity' },
+  { key: 'frontage', label: 'Frontage' },
+  { key: 'floorLoad', label: 'Floor load' },
+  { key: 'clearHeight', label: 'Clear height' },
+  { key: 'sanctionedPower', label: 'Sanctioned power' },
+  { key: 'dockCount', label: 'Loading docks' },
   { key: 'waterSource', label: 'Water source' },
 ];
 
-/* The server's own rule, narrower than Tier A/B above: OFF SEARCH fields change what the listing
-   fundamentally *is*, so leaving it indexed answers wrongly, while STAYS LIVE fields raise a work
-   item and stay in search. It disagrees with Tier A/B in both directions on purpose — collapsing
-   them would make one lie. `scripts/check-listing-foundation.mjs` fails the build on drift. */
+/* The server's own rule, narrower than Tier A/B and disagreeing with it in both directions on purpose:
+   collapsing them would make one lie. `scripts/check-listing-foundation.mjs` fails the build on drift. */
 
 /** Foundation fields whose edit takes the listing off search (server: revertToPending). */
 export const FOUNDATION_OFF_SEARCH_KEYS = {
@@ -95,8 +100,13 @@ export const FOUNDATION_OFF_SEARCH_KEYS = {
 export const FOUNDATION_STAYS_LIVE_KEYS = {
   price: ['price', 'monthlyRent'],
   furnishing: ['furnishing'],
-  possession: ['possession'],
+  possession: ['construction'],
   address: ['street'],
+  /* The evidence the approval was given against. `photos` is reported by classifyChanges from the
+     photo-url arguments rather than from a form field, which is why it is PHOTO_FIELD's key. */
+  images: ['photos'],
+  description: ['description'],
+  amenities: ['amenities'],
 };
 
 /** Both halves, for callers that only care that a field is a foundation field at all. */
@@ -147,13 +157,16 @@ export const classifyChanges = (oldForm = {}, newForm = {}, oldPhotoUrls = [], n
 
   const tierA = changed(TIER_A_FIELDS);
   const removedPhotos = photosRemoved(oldPhotoUrls, newPhotoUrls);
-  if (removedPhotos) tierA.push({ key: PHOTO_FIELD.key, label: PHOTO_FIELD.label, from: 'Original photos', to: 'Edited' });
+  /* Any gallery change, not only a removal: the photographs are what the approval was given against. Compared
+     in order, unlike `norm` — the server uses `List.equals` and the first photo is the site-wide cover. */
+  const gallery = (urls) => (urls || []).map(String).join('|');
+  if (removedPhotos || gallery(oldPhotoUrls) !== gallery(newPhotoUrls)) {
+    tierA.push({ key: PHOTO_FIELD.key, label: PHOTO_FIELD.label, from: 'Original photos', to: 'Edited' });
+  }
   const tierB = changed(TIER_B_FIELDS);
 
-  /* The server's outcome, derived rather than read off the tiers, because it cuts across both: a
-     price edit must not be reported as "publishes instantly" when it does the opposite. tierA/tierB
-     are returned unchanged for the throttle and paywall. `remoderation` covers only the half the
-     server takes offline — the stays-live half is a re-check, but the owner is not told it goes dark. */
+  /* Derived rather than read off the tiers, because the server's outcome cuts across both: a price edit
+     must not be reported as "publishes instantly" when it does the opposite. */
   const remoderation = [...tierA, ...tierB].filter((c) => OFF_SEARCH_KEYS.has(c.key));
   const remoderationKeys = new Set(remoderation.map((c) => c.key));
   const staysLive = [...tierA, ...tierB].filter(

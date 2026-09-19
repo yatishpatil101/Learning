@@ -3,13 +3,11 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
+import { PHOTO_PNG, uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { createRequire } from 'node:module';
 
 const requireFrontend = createRequire(new URL('../../../../frontend/package.json', import.meta.url));
 const { PDFDocument, PDFName } = requireFrontend('pdf-lib');
-
-const PNG =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII=';
 
 // Track owners before submission so teardown can withdraw listings even after a mid-flow failure.
 const owners = new Set();
@@ -40,15 +38,19 @@ async function pickOption(page, dataErr, label) {
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-// The optional floor has no error hook; the innermost label wrapper isolates its Select.
-async function pickFloor(page, value) {
-  const field = page.locator('div').filter({ has: page.locator('label:text-is("Floor No.")') }).last();
+// Floor and total floors are required on a tower type; the innermost label wrapper isolates each Select.
+async function pickFloor(page, value, label = 'Floor No. *') {
+  const field = page.locator('div').filter({ has: page.locator(`label:text-is("${label}")`) }).last();
   await field.locator('.dz-dropdown__trigger').click();
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.getByRole('option', { name: value, exact: true }).click();
 }
 
-async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCategory = 'Electricity Bill', index = false }) {
+/* Both date fields are bounded at today, so a literal is a fixture with an expiry date: the calendar
+   day renders `disabled` once the date passes and the click waits out its whole timeout. */
+const inDays = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+
+async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCategory = 'Electricity Bill', index = false, furniture = [], agreementDuration = '', monthlyMaintenance = '', priceNegotiable = false, loanAvailable = true, bhk = '2', construction = '', preferredTenants = [], superBuiltUp = '', availableFrom = inDays(120), petsPolicy = '', rentMaintMode = 'extra' }) {
   const mobile = await signedInAsNew(page);
   owners.add(mobile);
   await page.goto('/list-property');
@@ -57,12 +59,19 @@ async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCa
 
   if (deal === 'rent') await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await pickOption(page, 'propertyType', 'Flat / Apartment');
+  if (bhk === '0') await page.getByRole('button', { name: '1 RK', exact: true }).click();
+  if (furniture.length) {
+    await page.locator('.radio-pill').filter({ hasText: /^Furnished$/ }).click();
+    for (const item of furniture) await page.locator('.furn-tile', { hasText: item }).click();
+  }
   await page.locator('input[data-err="carpetArea"]').fill('1150');
+  if (superBuiltUp) await page.locator('input[data-err="superBuiltUp"]').fill(superBuiltUp);
   // Scope by label because bathrooms and balconies also offer a "2" pill.
   await page.locator('div').filter({ has: page.locator('label:text-is("Parking Spaces")') }).last()
     .locator('.radio-pill').filter({ hasText: /^2$/ }).first().click();
   // The string-valued floor must survive numeric mapping for the society/floor/BHK duplicate signal.
   await pickFloor(page, '9');
+  await pickFloor(page, '14', 'Total Floors *');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
@@ -72,21 +81,49 @@ async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCa
   await page.locator('input[data-err="flatNumber"]').fill(flat);
   await page.locator('input[data-err="society"]').fill(society);
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
   if (deal === 'rent') {
     await page.locator('input[data-err="monthlyRent"]').fill('30000');
     await page.locator('input[data-err="deposit"]').fill('60000');
-    await page.locator('.radio-pill', { hasText: 'Charged Extra' }).click();
-    await page.locator('input[placeholder="e.g. 2,500"]').fill('2500');
-    await pickDate(page, '[data-err="availableFrom"]', '2025-12-31');
+    if (rentMaintMode === 'extra') {
+      await page.locator('.radio-pill', { hasText: 'Charged Extra' }).click();
+      await page.locator('input[placeholder="e.g. 2,500"]').fill('2500');
+    } else if (rentMaintMode) {
+      await page.locator('.radio-pill', { hasText: 'Included in Rent' }).click();
+    }
+    if (petsPolicy) await page.locator('[data-err="petsPolicy"]').getByRole('button', { name: petsPolicy, exact: true }).click();
+    await pickDate(page, '[data-err="availableFrom"]', availableFrom);
+    for (const tenant of preferredTenants) await page.getByRole('button', { name: tenant, exact: true }).click();
+    if (agreementDuration) {
+      // The standard 11/0/1 terms are summarised; the three dropdowns only exist once revealed.
+      await page.locator('[data-testid="lp-rental-terms"]').getByRole('button', { name: 'Change rental terms', exact: true }).click();
+      await page.getByText('Agreement Duration', { exact: true }).locator('..').locator('.dz-dropdown__trigger').click();
+      await page.getByRole('option', { name: agreementDuration, exact: true }).click();
+    }
   } else {
     await page.locator('input[data-err="price"]').fill('9500000');
     await pickOption(page, 'ownership', 'Freehold');
+    if (monthlyMaintenance) await page.locator('input[placeholder="e.g. 3,500"]').fill(monthlyMaintenance);
+    if (priceNegotiable) await page.getByRole('switch', { name: 'Negotiable', exact: true }).click();
+    if (!loanAvailable) await page.getByRole('switch', { name: 'Home Loan Available', exact: true }).click();
+    if (construction) {
+      await page.getByRole('button', { name: construction, exact: true }).click();
+      // A launch or an under-construction sale owes a handover date; Ready to Move does not.
+      if (construction !== 'Ready to Move') {
+        await pickDate(page, '[data-err="availableFrom"]', inDays(540));
+        // …and, in Maharashtra, a registration number in the advertisement.
+        await page.locator('input[data-err="reraId"]').fill('P52100012345');
+      }
+    } else {
+      await page.getByRole('button', { name: 'Ready to Move', exact: true }).click();
+    }
   }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Photos & documents/i', { timeout: 15000 });
 
   const verification = page.getByRole('heading', { name: 'Property Documents & Verification', exact: true }).locator('..');
-  const consumerNumber = verification.getByLabel('Electricity Consumer No. (optional)', { exact: true });
+  const consumerNumber = verification.getByLabel('Electricity Consumer No.', { exact: true });
   await expect(consumerNumber).toBeVisible();
   await expect(consumerNumber).toHaveAttribute('inputmode', 'numeric');
   await expect(consumerNumber).toHaveAttribute('maxlength', '20');
@@ -100,17 +137,10 @@ async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCa
   await expect(consumerNumber).toHaveValue(meter);
 
   // Canvas-generated PNG bytes keep decode validation from masking the persistence assertions.
-  const buf = Buffer.from(PNG, 'base64');
-  const photos = page.locator('[data-err="photos"]');
-  await photos.locator('label.upload-zone input[type="file"]')
-    .setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
-  // The picker is `disabled` while a photo uploads and a pick made in that window is dropped
-  // silently, so wait for the media queue to drain rather than for the control to be enabled.
-  await expect(photos.locator('img').first()).toBeVisible();
-  await expect(photos).toHaveAttribute('aria-busy', 'false');
+  await uploadPublishablePhotos(page);
 
   await expect(page.getByRole('heading', { name: 'Get the Verified badge', exact: true })).toBeVisible();
-  await expect(page.getByText('Other documents — optional, for your records', { exact: true })).toBeVisible();
+  await expect(page.getByText('Other documents — for your records', { exact: true })).toBeVisible();
   const billInput = page.getByLabel('Upload Electricity Bill', { exact: true });
   await expect(billInput).toHaveAttribute('accept', '.pdf,application/pdf');
   await expect(billInput).toBeEnabled();
@@ -121,7 +151,7 @@ async function postAFlat(page, { flat, society, meter, doc, deal = 'rent', docCa
     pdf.addPage().drawText('Synthetic property document');
     const docFile = doc ?? { name: 'original-bill.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) };
     if (docCategory === 'Property Tax Receipt') {
-      await billInput.setInputFiles({ name: 'bill-photo.png', mimeType: 'image/png', buffer: buf });
+      await billInput.setInputFiles({ name: 'bill-photo.png', mimeType: 'image/png', buffer: PHOTO_PNG });
       await expect(page.locator('[data-err="Electricity Bill"]')).toContainText('original MSEDCL PDF, not a photo or scan');
       await expect(badgeStatus).toContainText('publish without a badge');
       await page.getByText('Don’t have a bill? Use a property-tax receipt', { exact: true }).click();
@@ -186,9 +216,172 @@ test('the wizard lifts the fields whose names the contract does not share', asyn
   expect(row.parking).toBe(2);
 });
 
+test('rental detail shows the owner-selected furniture and agreement duration', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B1-1204', society: 'Furniture Truth Homes', meter: '180099887767',
+    furniture: ['TV'], agreementDuration: '24 months',
+  });
+  const row = await savedRow(mobile);
+  expect(row.formDetails.furniture).toEqual(['TV']);
+  expect(row.formDetails.agreementDuration).toBe('24');
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Phase one property detail fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const publicResponse = await fetch(`${API}/properties/${row.id}`);
+  expect(publicResponse.status).toBe(200);
+  expect(await publicResponse.json()).toMatchObject({ furniture: ['TV'], agreementDuration: '24' });
+
+  await page.goto(`/property/${row.id}`);
+  await page.getByRole('tab', { name: 'Rent Details', exact: true }).click();
+  await expect(page.getByText('TV', { exact: true })).toBeVisible();
+  await expect(page.getByText('Wardrobes', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('24 months', { exact: true })).toBeVisible();
+});
+
+test('sale detail shows the owner-declared ownership, maintenance, loan and negotiability', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B2-1205', society: 'Sale Terms Homes', meter: '180099887768', deal: 'buy',
+    monthlyMaintenance: '3500', priceNegotiable: true, loanAvailable: false,
+  });
+  const row = await savedRow(mobile);
+  expect(row).toMatchObject({ maintenance: 3500, negotiable: true });
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Phase one sale detail fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const publicResponse = await fetch(`${API}/properties/${row.id}`);
+  expect(publicResponse.status).toBe(200);
+  expect(await publicResponse.json()).toMatchObject({
+    ownership: 'Freehold', maintenance: 3500, loanAvailable: false, negotiable: true,
+  });
+
+  await page.goto(`/property/${row.id}`);
+  await page.getByRole('tab', { name: 'Price Insights', exact: true }).click();
+  await expect(page.getByText('Freehold', { exact: true })).toBeVisible();
+  await expect(page.getByText('₹3,500', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loan not available', { exact: true })).toBeVisible();
+  await expect(page.getByText('Negotiable', { exact: true })).toBeVisible();
+});
+
+test('1 RK and canonical construction and tenant choices reach the listing facets', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B3-1206', society: 'Vocabulary Homes', meter: '180099887769', deal: 'buy',
+    bhk: '0', construction: 'New Launch', preferredTenants: [],
+  });
+  const row = await savedRow(mobile);
+  expect(row).toMatchObject({ bhk: 0, possession: 'new-launch' });
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Phase two vocabulary fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const facet = await fetch(`${API}/properties?bhks=0&construction=new-launch`);
+  expect(facet.status).toBe(200);
+  expect((await facet.json()).content.map((listing) => listing.id)).toContain(row.id);
+
+  await page.goto(`/property/${row.id}`);
+  await expect(page.getByRole('heading', { name: /1 RK Flat for Sale/i })).toBeVisible();
+});
+
+test('gendered bachelor tenant preferences reach the rental facet', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B4-1207', society: 'Tenant Vocabulary Homes', meter: '180099887770',
+    preferredTenants: ['Bachelor (Male)'],
+  });
+  const row = await savedRow(mobile);
+  expect(row.tenants).toEqual(['bachelor-male']);
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Phase two tenant vocabulary fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const facet = await fetch(`${API}/properties?tenants=bachelor-male&rank=newest`);
+  expect(facet.status).toBe(200);
+  expect((await facet.json()).content.map((listing) => listing.id)).toContain(row.id);
+});
+
+test('a stated super built-up area and a near move-in date reach the detail page and the move-in filter', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B5-1208', society: 'Enrichment Homes', meter: '180099887771',
+    superBuiltUp: '1400', availableFrom: inDays(10),
+  });
+  const row = await savedRow(mobile);
+  expect(Number(row.superBuiltUpArea)).toBe(1400);
+  expect(row.availableFrom).toBe('15');
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Phase three enrichment fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const facet = await fetch(`${API}/properties?availableFrom=15&rank=newest`);
+  expect(facet.status).toBe(200);
+  expect((await facet.json()).content.map((listing) => listing.id)).toContain(row.id);
+
+  await page.goto(`/property/${row.id}`);
+  // The same figure also heads the collapsed summary, so assert the labelled breakdown row.
+  await expect(page.locator('div').filter({ hasText: /^Super Built-up1,400 sq\.ft\.$/ }).first()).toBeVisible();
+});
+
+test('a move-in date beyond the widest bucket states no move-in claim at all', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B6-1209', society: 'Distant Move Homes', meter: '180099887772',
+    availableFrom: inDays(120),
+  });
+  const row = await savedRow(mobile);
+  // Not "within 30 days": a filter that returned this flat would waste every caller's journey.
+  expect(row.availableFrom == null || row.availableFrom === '').toBe(true);
+});
+
+test('an unanswered pet and maintenance question is published as unstated, not as a refusal', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B7-1210', society: 'Unstated Terms Homes', meter: '180099887773',
+    petsPolicy: '', rentMaintMode: '',
+  });
+  const row = await savedRow(mobile);
+  // Absent, not false: the owner skipped the question, and "Not allowed" is an answer nobody gave.
+  expect(row.pets ?? null).toBeNull();
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Unstated terms fixture' }),
+  });
+  expect(published.status).toBe(200);
+  expect((await (await fetch(`${API}/properties/${row.id}`)).json()).pets ?? null).toBeNull();
+
+  // The pet-friendly facet promises nothing it was not told.
+  const facet = await fetch(`${API}/properties?pets=true&rank=newest`);
+  expect((await facet.json()).content.map((listing) => listing.id)).not.toContain(row.id);
+
+  await page.goto(`/property/${row.id}`);
+  await expect(page.getByText('Not allowed', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Included', { exact: true })).toHaveCount(0);
+});
+
+test('an owner who answers the pet question has that answer published and searchable', async ({ page }) => {
+  const mobile = await postAFlat(page, {
+    flat: 'B8-1211', society: 'Stated Terms Homes', meter: '180099887774', petsPolicy: 'Allowed',
+  });
+  const row = await savedRow(mobile);
+  expect(row.pets).toBe(true);
+
+  const published = await fetch(`${API}/properties/${row.id}/status`, {
+    method: 'PATCH', headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ status: 'approved', reason: 'Stated terms fixture' }),
+  });
+  expect(published.status).toBe(200);
+  const facet = await fetch(`${API}/properties?pets=true&rank=newest`);
+  expect((await facet.json()).content.map((listing) => listing.id)).toContain(row.id);
+});
+
 // Signature-shaped dictionaries exercise byte preservation, not cryptographic signature validity.
-async function signedPdf() {
-  const pdf = await PDFDocument.create();
+async function signedPdf() {  const pdf = await PDFDocument.create();
   pdf.addPage().drawText('MSEDCL bill - O-201, Evidence Court, Baner Road');
   const signature = pdf.context.register(pdf.context.obj({
     Type: 'Sig', Filter: 'Adobe.PPKLite', SubFilter: 'adbe.pkcs7.detached', ByteRange: [0, 0, 0, 0],

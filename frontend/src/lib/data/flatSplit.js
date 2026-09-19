@@ -1,5 +1,6 @@
 /* Pure UI validation for the server-owned flat-splitting flow. Room persistence, occupancy and
    verification now travel exclusively through `flatmateService`. */
+import { isResidentialHome } from '../../data/propertyTypes.js';
 
 export const bedroomsOf = (bhk) => {
   const n = parseInt(String(bhk ?? '').trim(), 10);
@@ -9,7 +10,11 @@ export const bedroomsOf = (bhk) => {
 export const maxRoomsForBhk = (bhk) => (bedroomsOf(bhk) === 4 ? Infinity : (bedroomsOf(bhk) || 1) + 1);
 export const ROOM_SHARE_MAX = 3;
 
-export const canSplitIntoRooms = (listing) => !!(listing && listing.deal === 'rent' && listing.id);
+/* A room is a bedroom in somebody's home, so only a home can be let one at a time: a shop, a
+   godown and a plot have nothing to split, and the offer was reaching all three. */
+export const canSplitIntoRooms = (listing) => !!(
+  listing && listing.deal === 'rent' && listing.id && isResidentialHome(listing.type)
+);
 
 export const capBoundsFor = (roomCount) => ({
   min: Math.max(1, roomCount),

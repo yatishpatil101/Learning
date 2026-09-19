@@ -1,13 +1,12 @@
-/* Property-type options (and their type-specific sub-filters) come from the
-   canonical browse taxonomy so the filter, the home search and "Post a property"
-   always offer the same set. */
+/* From the canonical browse taxonomy so the filter, the home search and "Post a property" always offer
+   the same set. */
 export { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, LAND_USE, LANDUSE_LBL } from '../../../data/propertyTypes.js';
 export const FURN = [['furnished', 'Furnished'], ['semi', 'Semi-Furnished'], ['unfurnished', 'Unfurnished']];
 export const AMEN_BUY = [['gym', 'Gym'], ['pool', 'Pool'], ['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['garden', 'Garden'], ['club', 'Clubhouse']];
 export const AMEN_RENT = [['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['gym', 'Gym'], ['pool', 'Pool']];
-export const BHK_BUY = [['1', '1 BHK'], ['2', '2 BHK'], ['3', '3 BHK'], ['4', '4 BHK'], ['5', '5+ BHK']];
+export const BHK_BUY = [['1', '1 BHK'], ['2', '2 BHK'], ['3', '3 BHK'], ['4', '4+ BHK']];
 export const BHK_RENT = [['0', '1 RK / Room'], ['1', '1 BHK'], ['2', '2 BHK'], ['3', '3 BHK'], ['3plus', '3+ BHK']];
-export const TENANTS = [['family', 'Family'], ['bachelor-male', 'Bachelors (Male)'], ['bachelor-female', 'Bachelors (Female)'], ['company', 'Company']];
+export const TENANTS = [['family', 'Family'], ['bachelors', 'Bachelors'], ['bachelor-male', 'Bachelors (Male)'], ['bachelor-female', 'Bachelors (Female)'], ['company', 'Company'], ['anyone', 'No preference']];
 export const ROOM_TYPES = [['single', 'Single Room (Private)'], ['shared', 'Shared Room']];
 export const AVAIL_FROM = [['', 'Anytime'], ['now', 'Immediately'], ['15', 'Within 15 days'], ['30', 'Within 30 days']];
 export const AVAIL_BUY = [['', 'All'], ['ready', 'Ready to Move'], ['uc', 'Under Construction']];

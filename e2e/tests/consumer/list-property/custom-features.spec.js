@@ -2,6 +2,7 @@
 // quietly assert the opposite of what `live-no-gate` proves.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';
 
 // Sign in as a real owner so the whole-place flow renders straight into the form.
 async function gotoForm(page) {
@@ -23,19 +24,23 @@ async function pickType(page, label) {
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-async function toStep3Flat(page) {
+async function toUploadsFlat(page) {
   await gotoForm(page);
   await pickType(page, 'Flat / Apartment');
   await page.locator('input[data-err="carpetArea"]').fill('1200');
+  await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.getByText('Location & pricing').waitFor({ timeout: 10000 });
+  await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
   await page.locator('[data-err="locality"]').click();
   await menuOpen(page);
   await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Test Project');
   await page.locator('input[data-err="pincode"]').fill('411045');
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
   await page.locator('input[data-err="price"]').fill('5000000');
+  await pickPossession(page);
   await page.locator('[data-err="ownership"]').click();
   await menuOpen(page);
   await page.locator('.dz-dropdown__option').first().click();
@@ -78,7 +83,7 @@ test('Furniture: a user can add a custom item and remove it', async ({ page }) =
 });
 
 test('Amenities: a user can add a custom amenity not in our list', async ({ page }) => {
-  await toStep3Flat(page);
+  await toUploadsFlat(page);
 
   const input = page.getByLabel('Add a custom amenity');
   await input.fill('EV Charging');

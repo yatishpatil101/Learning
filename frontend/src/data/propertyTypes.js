@@ -1,9 +1,7 @@
-/* Single source of truth for how properties are *browsed and searched*, deliberately aligned with
-   the authoring types in the post flow so everything posted is discoverable. `matches` are
-   case-insensitive substrings of a listing's stored `type`; `null` means a different signal
-   decides it (flatmates use `shareType`). */
+/* Aligned with the authoring types in the post flow so everything posted is discoverable. `matches` are
+   case-insensitive substrings of a listing's stored `type`; `null` means another signal decides it. */
 export const SEARCH_TYPES = [
-  { key: 'flat', label: 'Flat', icon: 'building', buy: true, rent: true, matches: ['flat', 'studio', 'penthouse'] },
+  { key: 'flat', label: 'Flat', icon: 'building', buy: true, rent: true, matches: ['flat', 'apartment', 'studio', 'penthouse'] },
   { key: 'house', label: 'Independent House', icon: 'home', buy: true, rent: true, matches: ['independent house', 'row house'] },
   { key: 'villa', label: 'Villa', icon: 'building-2', buy: true, rent: true, matches: ['villa'] },
   { key: 'flatmates', label: 'Shared Room', icon: 'door-open', buy: false, rent: true, matches: null },

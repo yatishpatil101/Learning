@@ -3,7 +3,7 @@ import { INITIAL } from '../../../lib/listings/filterState.js';
 // Parses a natural-language query into filter state. Shared by Smart search and Save search so a
 // typed query always yields matching criteria and label; pure, returning null for empty input.
 const GENERIC_LOC_WORDS = new Set(['nagar', 'road', 'park', 'east', 'west', 'new', 'the']);
-const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4', '5'] };
+const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4'] };
 
 export function parseSmartQuery(raw, { fallbackDeal, localities, locNameBySlug }) {
   const q = (raw || '').toLowerCase().trim();
@@ -33,7 +33,7 @@ export function parseSmartQuery(raw, { fallbackDeal, localities, locNameBySlug }
     let key = String(n);
     if (!keys.includes(key)) {
       if (deal === 'rent' && n > 3) key = '3plus';
-      else if (deal === 'buy' && n >= 5) key = '5';
+      else if (deal === 'buy' && n >= 4) key = '4';
     }
     if (keys.includes(key)) next.bhk.add(key);
   }

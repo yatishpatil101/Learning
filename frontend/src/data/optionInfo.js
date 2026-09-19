@@ -14,10 +14,9 @@ export const OPTION_INFO = {
   'keydetail.age': { title: 'Property age', body: 'How old the building is. Newer builds need less upkeep; older ones often have larger layouts in settled localities.' },
   'keydetail.available': { title: 'Availability', body: "When the home is free to take, as a window rather than a date: 'Immediately' means it is vacant now; 'Within 15/30 days' means the owner needs that long. On a sale this row shows possession status instead. A dash means the owner hasn't said." },
   'keydetail.plotArea': { title: 'Plot area', body: 'The size of the land parcel in square feet — the actual ground you own.' },
-  'keydetail.plotZone': { title: 'Plot zone', body: 'The land-use zone (residential, commercial, agricultural, etc.). It decides what you are legally allowed to build.' },
+  'keydetail.plotZone': { title: 'Plot zone', body: 'The land-use zone on the Zone Certificate the planning authority issues — R1, C-1, Green Zone and so on. It decides what you are legally allowed to build, and Green Zone means nothing at all.' },
   'keydetail.title': { title: 'Title status', body: 'Whether ownership records are clear and verified. A clear title means no disputes, loans or dues attached to the land.' },
   'keydetail.perUnitBuy': { title: 'Price per sq.ft', body: 'The rate per square foot — the fairest way to compare value between properties of different sizes.' },
-  'keydetail.perUnitRent': { title: 'Rent per sq.ft', body: 'Monthly rent divided by area — a quick way to compare how efficiently two rentals are priced.' },
 
   // ---- Overview: status / trust tags ------------------------------------------
   'tag.readyToMove': { title: 'Ready to Move', body: 'Construction is complete — you can occupy the home right after the paperwork, with no waiting period.' },
@@ -26,6 +25,7 @@ export const OPTION_INFO = {
   'tag.ownershipVerified': { title: 'Ownership Verified', body: 'Draazy has seen documents linking this person to the property, reducing the risk of fake or duplicate listings.' },
   'tag.rera': { title: 'RERA Approved', body: 'Registered under the Real Estate Regulatory Authority — the project is legally accountable for timelines, carpet area and quality.' },
   'tag.furnishing': { title: 'Furnishing', body: 'Unfurnished, Semi-furnished (usually wardrobes and fittings) or Furnished (adds beds, sofa and appliances).' },
+  'tag.zeroBrokerage': { title: 'Zero brokerage', body: 'Draazy charges no commission on this deal. You talk to the owner directly, so there is no agent fee — typically one to two months of rent, or 1–2% of a sale price — on top of what you agree with them.' },
 
   // ---- Overview: floor plan ----------------------------------------------------
   'floorplan.carpet': { title: 'Carpet area', body: 'The actual usable floor space inside your walls — what you can lay a carpet on. This is the RERA-mandated figure to compare.' },
