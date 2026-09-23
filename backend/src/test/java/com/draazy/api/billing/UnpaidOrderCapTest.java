@@ -27,33 +27,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * The unpaid-order cap on subscriptions and boosts, and the floor under it — D160.
- *
- * <p><strong>What was wrong.</strong> {@code POST /me/subscription} and
- * {@code POST /me/properties/&#123;id&#125;/boost} each open a live Cashfree order per call and
- * neither bounded how many a customer could hold. {@code WriteRateLimitFilter} caps the <em>rate</em>
- * and {@code Idempotency-Key} is optional, so a loop that simply omits the header opened unbounded
- * real orders against a real gateway. The services desk had already been given this cap (D153); the
- * other two priced paths had not.
- *
- * <p><strong>Why both a count and an index.</strong> The count in the service is the fast path: it
- * answers the ordinary double click before anything is inserted, so the customer gets a sentence
- * they can act on rather than a bare constraint error. It is a check-then-act read over rows that do
- * not exist yet, so N concurrent callers all see zero — which is why the partial unique index is
- * what actually holds. Both are proved separately below, because a suite that only exercises the
- * count would pass with the index dropped, and that is precisely the D153 defect.
- *
- * <p><strong>No threads</strong> — the same reasoning as {@code ServiceRequestUnpaidExitTest}. A
- * race reproduced with threads is a race reproduced <em>sometimes</em>. What the fix adds is a
- * constraint, and a constraint does not depend on timing: the second row is refused whether it
- * arrives a millisecond later or a day later. So the tests insert the second row directly, past the
- * service's count, and assert the database's own answer.
- */
+/** The count in the service is the fast path; the partial unique index is what actually holds, since
+ *  the count is a check-then-act read. Both are proved separately, and no threads are used. */
 @DisplayName("D160 — one outstanding unpaid order per user, on subscriptions and boosts")
 class UnpaidOrderCapTest extends AbstractApiTest {
 
-    /** Seeded by {@code R__DML_seed_reference_data.sql}. Owner Plus, 2499 — priced, so it is capped. */
+    /** Seeded by {@code R__DML_seed_reference_data.sql}. Owner Plus, 999 — priced, so it is capped. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
 
     /** Free, so it never opens an order and the cap must not apply to it. */
@@ -70,11 +49,8 @@ class UnpaidOrderCapTest extends AbstractApiTest {
     @Test
     @DisplayName("both indexes exist under the exact names the services translate on")
     void indexNamesMatchTheConstantsTheServicesMatchOn() {
-        // Each service turns a constraint violation into its 409 by matching the index name inside
-        // the driver's message, and nothing else connects the two: rename the index in a later
-        // migration and the translation silently stops recognising its own constraint, so the cap
-        // starts answering 500 instead of 409. The tests below cannot catch that -- they would still
-        // see a rejection, just the wrong one -- so the names are pinned here, once, on both sides.
+        // Each service turns a constraint violation into its 409 by matching the index name in the
+        // driver's message, so a rename would silently downgrade the cap to a 500.
         assertThat(indexExists("uq_subscriptions_open_unpaid"))
                 .as("SubscriptionService.OPEN_UNPAID_INDEX must name a real index")
                 .isTrue();
@@ -102,15 +78,12 @@ class UnpaidOrderCapTest extends AbstractApiTest {
             subscribe(u, PAID_PLAN, 409);
 
             // Still one row: the count answered before the insert, so no constraint was reached and
-            // this transaction is still usable — which is what makes the fast path worth having.
+            // this transaction is still usable.
             assertThat(pendingSubscriptions(u)).isEqualTo(1);
         }
 
-        /**
-         * Bypasses the service entirely. A raw INSERT is what a lost race amounts to: a second row
-         * arriving after the count read zero. Without {@code uq_subscriptions_open_unpaid} this
-         * would succeed, which is the unbounded-orders outcome D160 records.
-         */
+        /** A raw INSERT is what a lost race amounts to: a second row arriving after the count read
+         *  zero. Without {@code uq_subscriptions_open_unpaid} it would succeed. */
         @Test
         @DisplayName("a second open unpaid row is refused by the database, not just by the service")
         void theDatabaseRefusesTheSecondRow() throws Exception {
@@ -143,7 +116,7 @@ class UnpaidOrderCapTest extends AbstractApiTest {
             String orderId = subscribeAndReadRef(u);
             deliverSigned(orderId);
 
-            // Active, so out of the partial index and out of the count. The cap is on outstanding
+            // Active, so out of the partial index and out of the count: the cap is on outstanding
             // orders, not on how many a customer may ever buy.
             subscribe(u, PAID_PLAN, 201);
             assertThat(pendingSubscriptions(u)).isEqualTo(1);
@@ -156,7 +129,7 @@ class UnpaidOrderCapTest extends AbstractApiTest {
             subscribe(u, FREE_PLAN, 201);
 
             // Nothing is pending — a free plan activates immediately — so this is not the cap being
-            // skipped, it is the cap having nothing to count. Both must stay true together.
+            // skipped, it is the cap having nothing to count.
             assertThat(pendingSubscriptions(u)).isZero();
             subscribe(u, FREE_PLAN, 201);
         }
@@ -169,8 +142,7 @@ class UnpaidOrderCapTest extends AbstractApiTest {
             String again = subscribeWithKey(u, "sub-cap-replay", 201);
 
             // The replay is answered before the cap is consulted, so a client retrying a request
-            // whose response it never saw is not told it already has an order — it is given the one
-            // it already has.
+            // whose response it never saw is given the order it already has.
             assertThat(jsonField(again, "id")).isEqualTo(jsonField(first, "id"));
             assertThat(pendingSubscriptions(u)).isEqualTo(1);
         }
@@ -188,8 +160,7 @@ class UnpaidOrderCapTest extends AbstractApiTest {
                     .andExpect(status().isConflict())
                     // Finish the checkout they have...
                     .andExpect(jsonPath("$.message", containsString("Finish paying")))
-                    // ...or wait, because the sweep clears it. Both are real; a message naming an
-                    // action the customer cannot take is worse than no message (D152).
+                    // ...or wait, because the sweep clears it.
                     .andExpect(jsonPath("$.message", containsString("expire")));
         }
     }
@@ -222,11 +193,8 @@ class UnpaidOrderCapTest extends AbstractApiTest {
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
-        /**
-         * The deliberate product difference from the idempotency key, which V23 scoped to the
-         * listing. A retry key may be per-listing because it identifies one attempt; a cap may not,
-         * because a bound that grows with how many listings someone can create is not a bound.
-         */
+        /** Deliberately unlike the idempotency key, which is per-listing: a bound that grows with
+         *  how many listings someone can create is not a bound. */
         @Test
         @DisplayName("the cap is per buyer, so a second listing does not get its own allowance")
         void theCapIsPerBuyerNotPerListing() throws Exception {
@@ -279,8 +247,6 @@ class UnpaidOrderCapTest extends AbstractApiTest {
         }
     }
 
-    // ---------------------------------------------------------------- fixtures
-
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
         u.setName("Cap User " + mobile.substring(6));
@@ -297,8 +263,6 @@ class UnpaidOrderCapTest extends AbstractApiTest {
         p.setArea(new BigDecimal("900"));
         return properties.saveAndFlush(p);
     }
-
-    // ---------------------------------------------------------------- actions
 
     private void subscribe(User caller, String planId, int expected) throws Exception {
         mvc.perform(post(Routes.Plans.SUBSCRIPTION)
@@ -353,7 +317,7 @@ class UnpaidOrderCapTest extends AbstractApiTest {
         String body = "{\"type\":\"PAYMENT_SUCCESS_WEBHOOK\",\"data\":{"
                 + "\"order\":{\"order_id\":\"" + orderId + "\"},"
                 + "\"payment\":{\"payment_status\":\"SUCCESS\","
-                + "\"payment_amount\":2499.00,"
+                + "\"payment_amount\":999.00,"
                 + "\"payment_time\":\"" + paidAt + "\"}}}";
         String ts = String.valueOf(System.currentTimeMillis());
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
@@ -364,11 +328,10 @@ class UnpaidOrderCapTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    // ---------------------------------------------------------------- state
-
     private void insertPendingSubscription(User u) {
-        jdbc.update("insert into subscriptions (user_id, plan_id, status) values (?, ?, ?)",
-                u.getId(), UUID.fromString(PAID_PLAN), SubscriptionStatuses.PENDING);
+        jdbc.update("insert into subscriptions (user_id, plan_id, status, amount) "
+                        + "select ?, p.id, ?, p.price from plans p where p.id = ?",
+                u.getId(), SubscriptionStatuses.PENDING, UUID.fromString(PAID_PLAN));
     }
 
     private void insertPendingBoost(User buyer, Property listing) {

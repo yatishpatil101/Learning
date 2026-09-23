@@ -24,32 +24,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * A payment that failed releases its idempotency key — D171.
- *
- * <p><strong>The trap this is about.</strong> The key a client sends is not random. The frontend
- * derives it from what is being bought — the plan, the pack — so the key
- * a customer presents on their second attempt is <em>the same key</em> as the first. That is exactly
- * what makes retrying after a decline safe to do and impossible to get right by accident: if the
- * dead row keeps the key, the replay lookup finds it and hands the customer back their own failure,
- * forever, with a {@code 201} on top. They can never buy the thing again. {@code abandonCheckout}
- * already nulled the key for this reason; the {@code fail} paths did not.
- *
- * <p><strong>Why one class for two families.</strong> It is one rule, and the value of stating it
- * once is that the next payment family added is obviously in scope. Each family still gets its own
- * nest, because "failed" is spelled differently in each terminal state — {@code cancelled} for a
- * subscription, {@code expired} for a boost — and a shared assertion would hide that.
- *
- * <p><strong>The service-request family is deliberately absent.</strong> It carries no idempotency
- * key at all, so it has nothing to release; there is no gap there to cover.
- *
- * <p>Every callback is signed with the real {@link WebhookSignature} bean: a signature check that is
- * only ever stubbed is a check nobody has run.
- */
+/** The client derives the idempotency key from what is being bought, so a retry after a decline
+ *  presents the same key — a dead row that keeps it replays the failure forever, with a 201 on top. */
 @DisplayName("D171 — a failed payment releases its idempotency key so the customer can retry")
 class FailedPaymentKeyReleaseTest extends AbstractApiTest {
 
-    /** Owner Plus, 2499 — priced, so it commits {@code pending} and can be failed. */
+    /** Owner Plus, 999 — priced, so it commits {@code pending} and can be failed. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
 
     /** 7-day Spotlight, 999. */
@@ -57,11 +37,8 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
 
     private static final long RENT = 28_000L;
 
-    /**
-     * The figure carried on the callback body. Not asserted anywhere: the decline branch settles on
-     * the order id alone, so this only has to parse.
-     */
-    private static final String WEBHOOK_AMOUNT = "2499.00";
+    /** Not asserted anywhere — the decline branch settles on the order id alone, so it only parses. */
+    private static final String WEBHOOK_AMOUNT = "999.00";
 
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
@@ -74,11 +51,8 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
     @DisplayName("subscriptions")
     class Subscriptions {
 
-        /**
-         * The failure this fixes, end to end. Without the key release the second call replays the
-         * cancelled row: {@code 201}, same id, no new order, and a customer whose card worked on the
-         * second try is still not subscribed.
-         */
+        /** Without the key release the second call replays the cancelled row: 201, same id, no new
+         *  order, and a card that worked on the second try is still not subscribed. */
         @Test
         @DisplayName("after a declined payment the same key opens a fresh order")
         void aDeclinedSubscriptionCanBeRetriedWithTheSameKey() throws Exception {
@@ -95,10 +69,7 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
             assertThat(subscriptions.findByUserIdOrderByStartedAtDesc(u.getId())).hasSize(2);
         }
 
-        /**
-         * The dead row is not resurrected or overwritten — it stays cancelled as the audit of what
-         * happened. Releasing the key must free the customer, not rewrite history.
-         */
+        /** Releasing the key must free the customer, not rewrite the audit of what happened. */
         @Test
         @DisplayName("the declined subscription stays cancelled")
         void theDeclinedRowIsLeftAsHistory() throws Exception {
@@ -146,10 +117,7 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
             assertThat(boosts.findByPropertyIdOrderByCreatedAtDesc(p.getId())).hasSize(2);
         }
 
-        /**
-         * A declined boost must not have promoted anything on its way out, and the retry must not
-         * inherit a ranking the owner has still not paid for.
-         */
+        /** The retry must not inherit a ranking the owner has still not paid for. */
         @Test
         @DisplayName("neither the declined boost nor its retry promotes the listing")
         void aDeclinedBoostNeverRanksTheListing() throws Exception {
@@ -176,8 +144,6 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
         }
     }
 
-    // ---------------------------------------------------------------- fixtures
-
     private User user(String mobile, String role) {
         User u = new User(mobile, role);
         u.setName("Retry User " + mobile.substring(6));
@@ -195,9 +161,7 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    // ---------------------------------------------------------------- the gateway's word
-
-    /** The decline. Every family is offered the event; only the one owning the order acts on it. */
+    /** Every family is offered the event; only the one owning the order acts on it. */
     private void decline(String orderId) throws Exception {
         deliverSigned("{\"type\":\"PAYMENT_FAILED_WEBHOOK\",\"data\":{"
                 + "\"order\":{\"order_id\":\"" + orderId + "\"},"

@@ -47,6 +47,8 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
     @Autowired SubscriptionRepository subscriptions;
+
+    @Autowired PlanRepository plans;
     @Autowired SubscriptionSweeper sweeper;
 
     private User subscriber(String mobile) {
@@ -58,8 +60,12 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
 
     /** A subscription in whatever state the test needs, dated however it needs. */
     private Subscription subscription(User owner, String status, Instant startedAt, Instant renewsAt) {
+        UUID planId = UUID.fromString(PAID_PLAN);
+        // The plan's own price, read rather than written out, so a reprice cannot leave a literal
+        // here claiming a subscription was sold for something it never cost.
+        long price = plans.findById(planId).orElseThrow().getPrice();
         return subscriptions.saveAndFlush(new Subscription(owner.getId(),
-                UUID.fromString(PAID_PLAN), status, startedAt, renewsAt, null, null));
+                planId, status, price, startedAt, renewsAt, null, null));
     }
 
     // ---- 1: the sweep ends what has run out, and only what has run out ----

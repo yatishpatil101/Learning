@@ -28,9 +28,14 @@ public class TestPlanGrants {
 
     @Autowired SubscriptionRepository subscriptions;
 
+    @Autowired PlanRepository plans;
+
     /** Put {@code userId} on {@code planId}, active for the next thirty days. */
     public void grant(UUID userId, UUID planId) {
+        // The plan's price, read rather than written out, because a literal here would be a second
+        // place the catalogue is stated and would drift the first time one is repriced.
+        long price = plans.findById(planId).orElseThrow().getPrice();
         subscriptions.saveAndFlush(new Subscription(userId, planId, SubscriptionStatuses.ACTIVE,
-                Instant.now(), Instant.now().plus(30, ChronoUnit.DAYS), null, null));
+                price, Instant.now(), Instant.now().plus(30, ChronoUnit.DAYS), null, null));
     }
 }

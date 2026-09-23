@@ -226,6 +226,7 @@ public class SubscriptionService {
                 caller.userId(),
                 plan.getId(),
                 free ? SubscriptionStatuses.ACTIVE : SubscriptionStatuses.PENDING,
+                plan.getPrice(),
                 now,
                 free ? renewalFrom(now, plan.getBillingCycle()) : null,
                 null,
@@ -252,7 +253,10 @@ public class SubscriptionService {
         // why here: this is the last transaction that will be open, and the gateway call must not
         // hold a connection while it waits on the network.
         String phone = users.findById(caller.userId()).map(User::getMobile).orElse(null);
-        return new Opened(null, saved.getId(), plan.getPrice(),
+        // The saved row's amount, not the plan's: the order the gateway is asked to collect and the
+        // figure the ledger later reports must be one number, or a reprice between the two reads
+        // makes the receipt disagree with the charge.
+        return new Opened(null, saved.getId(), saved.getAmount(),
                 "subscription:" + caller.userId() + ":" + plan.getId(),
                 new PaymentGateway.Customer(caller.userId().toString(), phone));
     }

@@ -40,6 +40,8 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
     @Autowired PropertyRepository properties;
     @Autowired SubscriptionRepository subscriptions;
 
+    @Autowired PlanRepository plans;
+
     // ---- fixtures ----
 
     private User user(String mobile, String role) {
@@ -83,8 +85,13 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
 
     private void unlimitedPlan(User u) {
         subscriptions.saveAndFlush(new Subscription(u.getId(), UUID.fromString(UNLIMITED_PLAN),
-                SubscriptionStatuses.ACTIVE, Instant.now(),
+                SubscriptionStatuses.ACTIVE, priceOf(UNLIMITED_PLAN), Instant.now(),
                 Instant.now().plus(30, ChronoUnit.DAYS), null, null));
+    }
+
+    /** Read, not written out: a literal price here would drift the first time the plan is repriced. */
+    private long priceOf(String planId) {
+        return plans.findById(UUID.fromString(planId)).orElseThrow().getPrice();
     }
 
     /**
@@ -317,7 +324,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
     void aPendingSubscriptionEntitlesNothing() throws Exception {
         User u = user("9844406000", "owner");
         subscriptions.saveAndFlush(new Subscription(u.getId(), UUID.fromString(UNLIMITED_PLAN),
-                SubscriptionStatuses.PENDING, Instant.now(), null, null, null));
+                SubscriptionStatuses.PENDING, priceOf(UNLIMITED_PLAN), Instant.now(), null, null, null));
 
         mvc.perform(get(Routes.Plans.ENTITLEMENTS).header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isOk())

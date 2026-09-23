@@ -36,6 +36,22 @@ public class Subscription extends VersionedEntity {
     @Column(name = "status", nullable = false)
     private String status;
 
+    /**
+     * What this subscription was charged, in whole rupees, copied from the plan at purchase (V37).
+     *
+     * <p><strong>Why a copy and not a join.</strong> {@code plans.price} is what a plan costs
+     * <em>today</em>; this is what this purchase cost. The two look interchangeable right up until
+     * the catalogue is repriced, at which point every historical figure derived from the join
+     * silently restates itself — including the settlement ledger, which must equal what the gateway
+     * actually captured. The catalogue is seeded by a repeatable migration that upserts
+     * {@code price = EXCLUDED.price}, so that is a one-line edit away, not a hypothetical.
+     *
+     * <p>Not updatable. A subscription's price is what was agreed when it was bought; changing it
+     * would be editing a receipt. A new price is a new subscription.
+     */
+    @Column(name = "amount", nullable = false, updatable = false)
+    private long amount;
+
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
 
@@ -72,11 +88,12 @@ public class Subscription extends VersionedEntity {
         // JPA
     }
 
-    Subscription(UUID userId, UUID planId, String status, Instant startedAt, Instant renewsAt,
-            String paymentRef, String idempotencyKey) {
+    Subscription(UUID userId, UUID planId, String status, long amount, Instant startedAt,
+            Instant renewsAt, String paymentRef, String idempotencyKey) {
         this.userId = userId;
         this.planId = planId;
         this.status = status;
+        this.amount = amount;
         this.startedAt = startedAt;
         this.renewsAt = renewsAt;
         this.paymentRef = paymentRef;

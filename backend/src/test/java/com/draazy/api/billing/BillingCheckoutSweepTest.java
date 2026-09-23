@@ -28,29 +28,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * The sweep that retires abandoned subscription and boost checkouts — D161.
- *
- * <p><strong>What was wrong.</strong> D148 splits every priced purchase into two transactions: the
- * row is committed unpaid, the gateway order is opened outside any transaction, then the reference
- * is attached. A crash between them, or a customer who closes the Cashfree modal and never returns,
- * strands the row {@code pending} forever. The services desk was given a sweep for exactly this
- * (D152); subscriptions, boosts and rent were not. With D160 now capping outstanding unpaid orders,
- * a stranded row is not merely untidy — it locks the customer out of buying at all.
- *
- * <p><strong>Driven by a fabricated instant, never by the clock.</strong> The split between
- * {@code AbandonedCheckoutSweep}'s schedule and each family's
- * {@code expireAbandonedCheckouts(cutoff)} exists so no test has to wait. The scheduler itself is
- * disabled in the test profile; what is proved here is the work it triggers.
- *
- * <p>The exit is per family and not shared, because the terminal state is not: a subscription is
- * {@code cancelled} and a boost is {@code expired}. Both are proved separately below for that
- * reason.
- */
+/** Driven by a fabricated cutoff instant so no test waits; the scheduler itself is disabled in the
+ *  test profile. The exit state is per family — subscriptions cancel, boosts expire. */
 @DisplayName("D161 — abandoned subscription and boost checkouts are retired")
 class BillingCheckoutSweepTest extends AbstractApiTest {
 
-    /** Owner Plus, 2499 — priced, so it commits {@code pending} and can be stranded. */
+    /** Owner Plus, 999 — priced, so it commits {@code pending} and can be stranded. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
 
     /** 7-day Spotlight, 999. */
@@ -78,7 +61,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isEqualTo(1);
 
             assertThat(statusOfLatestSubscription(u)).isEqualTo(SubscriptionStatuses.CANCELLED);
-            // The whole point: the D160 cap no longer holds a customer who never came back.
+            // The whole point: the unpaid-order cap no longer holds a customer who never came back.
             subscribe(u, 201);
         }
 
@@ -113,11 +96,8 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isZero();
         }
 
-        /**
-         * The case the sweep exists for, and the one {@code abandonUnopened} could never cover: the
-         * order <em>was</em> opened, the customer just closed the modal. A guard on
-         * {@code paymentRef == null} would have skipped exactly these rows.
-         */
+        /** A guard on {@code paymentRef == null} would skip exactly these rows: the order was
+         *  opened, the customer just closed the modal. */
         @Test
         @DisplayName("a row that already carries a gateway order is swept, not skipped")
         void rowsWithAnOrderAreSweptToo() throws Exception {
@@ -181,11 +161,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             assertThat(boostService.expireAbandonedCheckouts(future())).isZero();
         }
 
-        /**
-         * A window that never opened never promoted anything, so there is nothing to unwind — but
-         * an expiry that wrote {@code boosted_until} anyway would rank a listing the owner never
-         * paid for, which is the failure worth guarding.
-         */
+        /** An expiry that wrote {@code boosted_until} anyway would rank a listing nobody paid for. */
         @Test
         @DisplayName("expiring an unpaid boost does not touch the listing's ranking")
         void theListingIsNotPromoted() throws Exception {
@@ -198,8 +174,6 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             assertThat(isPromoted(p)).isFalse();
         }
     }
-
-    // ---------------------------------------------------------------- fixtures
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
@@ -227,8 +201,6 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
     private Instant past() {
         return Instant.now().minus(Duration.ofHours(1));
     }
-
-    // ---------------------------------------------------------------- actions
 
     private void subscribe(User caller, int expected) throws Exception {
         mvc.perform(post(Routes.Plans.SUBSCRIPTION)
@@ -272,7 +244,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
         String body = "{\"type\":\"PAYMENT_SUCCESS_WEBHOOK\",\"data\":{"
                 + "\"order\":{\"order_id\":\"" + orderId + "\"},"
                 + "\"payment\":{\"payment_status\":\"SUCCESS\","
-                + "\"payment_amount\":2499.00,"
+                + "\"payment_amount\":999.00,"
                 + "\"payment_time\":\"" + paidAt + "\"}}}";
         String ts = String.valueOf(System.currentTimeMillis());
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
@@ -283,14 +255,8 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    // ---------------------------------------------------------------- state
-
-    /**
-     * Read through the repository rather than {@code jdbc} on purpose. The sweep joins this test's
-     * transaction and mutates managed entities; those changes are not written to the database until
-     * something forces a flush, and a raw JdbcTemplate query does not. A JPA query does, so this
-     * sees the sweep's work — where the equivalent SQL would silently assert the pre-sweep state.
-     */
+    /** Read through the repository, not {@code jdbc}: the sweep mutates managed entities and only a
+     *  JPA query forces the flush that makes its work visible. */
     private String statusOfLatestSubscription(User u) {
         return subscriptions.findByUserIdOrderByStartedAtDesc(u.getId())
                 .getFirst().getStatus();
