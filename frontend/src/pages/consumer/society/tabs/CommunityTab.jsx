@@ -128,7 +128,7 @@ export default function CommunityTab({ ctx }) {
                        exactly as long as a shared photo never left the device that shared it. Now
                        the server stores the photo and returns a CDN URL, and that guard would have
                        rejected every single one of them \u2014 a photo tab that silently rendered
-                       nothing. `data:` stays accepted so a mock-backed run still draws.
+                       nothing. `data:` stays accepted for a photo still held inline by the browser.
 
                        The third arm is the same lesson a second time. Object storage hands back an
                        absolute `https:` URL, so `https?:` alone was enough in production and the

@@ -4,31 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
 /* Selection order is meaningful here (it drives the trigger summary), so an
    order-sensitive compare is the right equality for "has the parent caught up". */
 const sameValues = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
-/**
- * Custom multi-select dropdown (themed, dark). Mirrors Select.jsx for visual and
- * keyboard parity, but holds an array of values and keeps the menu open while the
- * user toggles choices — the right fit for "pick all that apply" fields.
- * @param {object} props
- * @param {string[]} props.values - Currently selected values.
- * @param {(values: string[]) => void} props.onChange - Callback with the next selection.
- * @param {Array<{value: string, label: string}>|string[]} props.options - Menu options.
- * @param {string} [props.placeholder] - Placeholder when nothing is selected; defaults to the translated "Select…".
- * @param {boolean} [props.searchable] - Force search input (auto-enabled for ≥8 options).
- * @param {string} [props.className] - Additional class on the trigger wrapper.
- * @param {boolean} [props.disabled] - Disable interaction.
- * @param {string} [props.ariaLabel] - Accessible label for the trigger button.
- * @param {boolean} [props.invalid] - Show error styling.
- * @param {string} [props.dataErr] - data-err attribute for field-error binding.
- * @param {boolean} [props.autoClose] - Close the menu after each selection (single-pick feel).
- * @param {(query: string) => Promise<Array>} [props.asyncSearch] - Optional live search (see Select).
- * @param {(option: object) => void} [props.onPick] - Called with the full option when one is added.
- */
+/* Mirrors Select.jsx for visual and keyboard parity, but holds an array and keeps the menu open
+   while the user toggles choices. */
 const MultiSelect = forwardRef(function MultiSelect({
   values = [],
   onChange,
@@ -145,9 +129,8 @@ const MultiSelect = forwardRef(function MultiSelect({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
 
-  // Portal the menu to <body> and anchor it to the trigger with fixed
-  // positioning so it escapes any ancestor overflow/transform trap and can
-  // flip up near the viewport edge — identical behaviour to Select.
+  // Fixed positioning against the trigger so the portalled menu escapes any ancestor
+  // overflow/transform trap and can flip up near the viewport edge.
   const position = useCallback(() => {
     const trigger = triggerRef.current;
     const menu = menuRef.current;
@@ -188,33 +171,17 @@ const MultiSelect = forwardRef(function MultiSelect({
   }, [open, position, visible.length]);
 
   /* A sheet covers the page, so the page behind it must not scroll with it. */
-  useEffect(() => {
-    if (!open || !sheet) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open, sheet]);
+  useScrollLock(open && sheet);
 
-  // Focus the search box once after the menu is anchored — mirrors Select and
-  // avoids the inline ref callback re-focusing (and stealing focus) on every
-  // re-render, which the async live-search now triggers more often.
+  // Focused here rather than from an inline ref callback, which would steal focus back on every
+  // re-render the async live-search triggers.
   useLayoutEffect(() => {
     if (!open || !isSearchable) return;
     searchRef.current?.focus({ preventScroll: true });
   }, [open, isSearchable]);
 
-  /* Our last emission, and the `values` prop it was derived from.
-
-     A parent may apply `onChange` inside a React transition (the Listings filters do:
-     recomputing results is expensive, so the commit is deliberately low priority). Until
-     that transition commits, `values` is still the pre-click array — so deriving the next
-     toggle from the prop silently discards every pick but the last. Reproduced at 8x CPU
-     throttle: three consecutive picks in the Property Type filter left exactly one
-     selected, 3/3 runs. On a mid-range phone that is an ordinary tap speed.
-
-     So: while the prop still equals what we were handed when we emitted, keep building on
-     what we emitted. The moment it differs, the parent has spoken (it committed ours, or
-     changed the value itself) and the prop wins again. */
+  /* A parent applying `onChange` inside a transition leaves `values` at the pre-click array, so
+     building the next toggle off the prop discards every rapid pick but the last. */
   const pendingRef = useRef(null);
   const toggle = useCallback((opt) => {
     if (opt.disabled) return;
@@ -268,6 +235,9 @@ const MultiSelect = forwardRef(function MultiSelect({
         break;
       case 'Escape':
         e.preventDefault();
+        /* Escape closes the innermost thing only. Without this the event reaches the document-level
+           handlers the surrounding dialogs register and dismisses the whole form behind the menu. */
+        e.stopPropagation();
         close();
         break;
       default:

@@ -4,9 +4,9 @@ import Select from '../../../components/ui/Select';
 import FeatureSelector from '../../../components/ui/FeatureSelector';
 import { Pill, FieldError, ToggleRow } from './controls.jsx';
 import AgreementUpload from '../flatmates/AgreementUpload.jsx';
-import { fld, lbl, lbl3, unitSuffix } from './styles.js';
-import { facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions, furnitureItems, lifestyleTags } from './constants.js';
-import { toDecimal } from './sanitize.js';
+import FlatmateTerms from '../flatmates/FlatmateTerms.jsx';
+import { fld, lbl, lbl3 } from './styles.js';
+import { floorOptions, totalFloorsOptions, furnitureItems, lifestyleTags, HOME_TYPE_PILLS } from './constants.js';
 
 export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, toggleInArray, nextStep }) {
   const { t: tr } = useTranslation();
@@ -45,6 +45,8 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                               <AgreementUpload
                                 doc={form.agreementDoc}
                                 onChange={(doc) => set('agreementDoc', doc)}
+                                registration={{ regNo: form.agreementRegNo, registeredOn: form.agreementRegisteredOn, validTill: form.agreementValidTill }}
+                                onRegistrationChange={(next) => { set('agreementRegNo', next.regNo); set('agreementRegisteredOn', next.registeredOn); set('agreementValidTill', next.validTill); }}
                                 ariaLabel={tr('listProperty.host.agreementAria')}
                                 hint={tr('listProperty.host.agreementHint')}
                               />
@@ -62,7 +64,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         <label className={lbl3}>{tr('listProperty.fields.homeType')}</label>
                         <p className="text-gray-500 text-xs mb-3">{tr('listProperty.help.homeTypeHelp')}</p>
                         <div className="flex flex-wrap gap-2.5">
-                          {[['flat', 'Flat'], ['independent', 'Independent House'], ['villa', 'Villa'], ['independent', 'Row House']].map(([pt, label]) => (
+                          {HOME_TYPE_PILLS.map(([pt, label]) => (
                             <Pill key={label} selected={form.homeTypeLabel === label} onClick={() => { set('propertyType', pt); set('homeTypeLabel', label); }} className="px-5 py-2.5">{label}</Pill>
                           ))}
                         </div>
@@ -122,24 +124,6 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         </div>
                       </div>
 
-                      {/* Paired dimensions share one row at every width. */}
-                      <div className="mb-6 grid grid-cols-2 gap-4">
-                        <div>
-                          <label className={lbl3}>{tr('listProperty.fields.carpetArea')}</label>
-                          <div className="relative">
-                            <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-12`} />
-                            <div className={unitSuffix}>sq.ft.</div>
-                          </div>
-                        </div>
-                        <div>
-                          <label className={lbl3}>{tr('listProperty.fields.builtUpArea')}</label>
-                          <div className="relative">
-                            <input inputMode="decimal" maxLength={9} value={form.builtUp} onChange={(e) => set('builtUp', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1200')} className={`${fld} pr-12`} />
-                            <div className={unitSuffix}>sq.ft.</div>
-                          </div>
-                        </div>
-                      </div>
-
                       {isHouse() ? (
                         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                           <div>
@@ -172,23 +156,6 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                           </div>
                         </div>
                       )}
-
-                        {/* Separate controls let owners state both compass direction and view. */}
-                      <div className="mb-6 grid grid-cols-2 gap-4">
-                        <div>
-                          <label className={lbl3}>{tr('listProperty.fields.facing')}</label>
-                          {/* Disable auto-search so more options cannot summon a mobile keyboard. */}
-                          <Select value={form.facing} onChange={(v) => set('facing', v)} ariaLabel={tr('listProperty.fields.facing')} placeholder={tr('listProperty.ph.selectFacing')} searchable={false} options={facingOptions} />
-                        </div>
-                        <div>
-                          <label className={lbl3}>{tr('listProperty.fields.overlooking')}</label>
-                          <Select value={form.overlooking} onChange={(v) => set('overlooking', v)} ariaLabel={tr('listProperty.fields.overlooking')} placeholder={tr('listProperty.ph.selectOverlooking')} searchable={false} options={overlookingOptions} />
-                        </div>
-                        <div>
-                          <label className={lbl3}>{tr('listProperty.fields.ageOfProperty')}</label>
-                          <Select value={form.age} onChange={(v) => set('age', v)} placeholder={tr('listProperty.ph.selectAge')} options={ageOptions} />
-                        </div>
-                      </div>
 
                       <div className="mb-6">
                         <label className={lbl3}>{tr('listProperty.fields.furnishing')}</label>
@@ -241,6 +208,32 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                             <Pill key={t} selected={form.lifestyle.includes(t)} onClick={() => toggleInArray('lifestyle', t)} className="px-4 py-2">{t}</Pill>
                           ))}
                         </div>
+                      </div>
+
+                      {/* Who already lives here. A spare room is one vacancy in a flat somebody is
+                          already in, so this is the seeker's first question and the only thing the
+                          wizard can answer that the photos cannot. */}
+                      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div>
+                          <label className={lbl3}>{tr('listProperty.fields.occupantsNow')}</label>
+                          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label={tr('listProperty.fields.occupantsNow')}>
+                            {['0', '1', '2', '3'].map((n) => (
+                              <Pill key={n} role="radio" selected={form.occupants === n} onClick={() => set('occupants', n)} className="px-5 py-2.5">{n === '0' ? tr('listProperty.opt.nobodyYet') : n}</Pill>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className={lbl3}>{tr('listProperty.fields.maxOccupants')}</label>
+                          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label={tr('listProperty.fields.maxOccupants')}>
+                            {['1', '2', '3', '4', '5', '6'].map((n) => (
+                              <Pill key={n} role="radio" selected={form.maxOccupants === n} onClick={() => set('maxOccupants', n)} className="px-5 py-2.5">{n}</Pill>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mb-8">
+                        <FlatmateTerms value={form} onChange={(patch) => Object.entries(patch).forEach(([k, v]) => set(k, v))} />
                       </div>
 
                       <div className="flex justify-end lp-step-actions">

@@ -17,13 +17,12 @@ import Loading from '../../components/ui/Loading.jsx';
 
 const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements'], ['reviews', 'Reviews']];
 
-// The blanks are the server's fields, not the store's.
+// The blanks are the server's fields, and only those.
 //
-// Banners lost `sub`, `cta` and `theme`; announcements lost `audience`; FAQs lost `active`. None of
-// those exist on the API, no consumer surface ever rendered a mock banner or announcement, and a
-// console that keeps offering a field the server will not store is a console that quietly loses
-// work. Announcements gained `severity` and a schedule window, which is the more useful half of
-// what `audience` was being asked to imply.
+// No `sub`, `cta` or `theme` on a banner, no `audience` on an announcement, no `active` on an FAQ:
+// none of them exist on the API, and a console that keeps offering a field the server will not
+// store is a console that quietly loses work. Announcements carry `severity` and a schedule window
+// instead, which is the more useful half of what `audience` was being asked to imply.
 const BLANK_BANNER = { headline: '', image: '', link: '/listings', position: 0 };
 const BLANK_FAQ = { question: '', answer: '', category: 'general' };
 const BLANK_ANN = { title: '', body: '', severity: 'info', active: true };
@@ -59,8 +58,6 @@ export default function AdminContent() {
     [optionEnabled],
   );
 
-  // The localities list used to be loaded here purely to gate the spinner; its own tab moved to
-  // Analytics long ago and nothing on this page has read it since. The gate is now a plain boolean.
   useEffect(() => {
     let alive = true;
     Promise.all([
@@ -97,7 +94,6 @@ export default function AdminContent() {
     );
   }
 
-  // ---- Helpers ----
   const openAdd = (kind, blank) => { setEditModal({ kind, isNew: true }); setEditData({ ...blank }); };
   const openEdit = (kind, item) => { setEditModal({ kind, isNew: false, id: item.id }); setEditData({ ...item }); };
   const closeMod = () => { setEditModal(null); setEditData({}); };
@@ -106,9 +102,8 @@ export default function AdminContent() {
   // form does not know the id, the created timestamp or what the server normalised, and guessing
   // any of the three is how a console starts disagreeing with the database it is editing.
   //
-  // `logAudit` used to be called after each of these. It is gone: the API writes the audit row
-  // itself, from the authenticated principal, and a second entry composed in the browser was both
-  // duplicate and less trustworthy than the one it duplicated.
+  // No `logAudit` call: the API writes the audit row itself, from the authenticated principal, and
+  // a second entry composed in the browser is both duplicate and less trustworthy.
   const saveItem = async (kind, setter) => {
     const type = TYPE_OF[kind];
     try {
@@ -151,10 +146,9 @@ export default function AdminContent() {
   };
 
   /**
-   * Announcements are the only CMS type with an `active` flag. Banners and FAQs used to have one in
-   * the browser store, but the API has no such column for either: withdrawing a banner or an answer
-   * is archiving it. Two ways to hide the same row is one way too many, and the toggle was the one
-   * that left no record of who hid it.
+   * Announcements are the only CMS type with an `active` flag. The API has no such column for
+   * banners or FAQs: withdrawing a banner or an answer is archiving it. Two ways to hide the same
+   * row is one way too many, and a toggle leaves no record of who hid it.
    */
   const toggleActive = async (item) => {
     try {
@@ -165,27 +159,18 @@ export default function AdminContent() {
     }
   };
 
-  /* ---- Reviews ----
+  /* Reviews are not a CMS type: they are written by users, and the console's only job here is to
+   * decide whether one stays up. That is `PATCH /reviews/{id}/status`, and the two verdicts it
+   * accepts are the two buttons below.
    *
-   * Not a CMS type: reviews are written by users, and the console's only job here is to decide
-   * whether one stays up. That is `PATCH /reviews/{id}/status`, and the two verdicts it accepts are
-   * the two buttons below.
+   * No Archive/Restore. An `archived` flag would be a second, weaker notion of "taken down" that
+   * the rating aggregate does not honour — the review would vanish from this table while still
+   * dragging the society's average down, which is the exact thing a moderator archives a review to
+   * prevent. `rejected` is the one verdict that both hides the text and removes it from the maths.
    *
-   * **Archive and Restore stood here and were deleted with the browser store they belonged to.**
-   * They wrote an `archived` flag that existed nowhere but localStorage. Against the live table it
-   * would have been a second, weaker notion of "taken down" that the rating aggregate does not
-   * honour — the review would have vanished from this table while still dragging the society's
-   * average down, which is the exact thing a moderator archives a review to prevent. `rejected` is
-   * the one verdict that both hides the text and removes it from the maths, so it is the only one
-   * offered. The `Archived reviews` table underneath went with them; `archived` was the only thing
-   * that ever put a row in it.
-   *
-   * The internal note went too. It was written by `addInternalNote` into a browser-side log this
-   * console was also the only reader of, and there is no server surface that shows it back. The
-   * live route takes an optional `reason` that reaches the audit log, which is a real record — but
-   * wiring a `window.prompt` to it would be re-adding a control whose output nobody can read from
-   * the product. If the reason is worth capturing it deserves a field and a place to read it, not a
-   * prompt.
+   * No internal note either. The live route takes an optional `reason` that reaches the audit log,
+   * but a `window.prompt` wired to it is a control whose output nobody can read from the product.
+   * If the reason is worth capturing it deserves a field and a place to read it.
    */
   const decide = async (r, status) => {
     const before = reviews;

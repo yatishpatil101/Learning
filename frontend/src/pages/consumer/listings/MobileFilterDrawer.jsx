@@ -7,8 +7,12 @@ export default function MobileFilterDrawer({ drawer, setDrawer, f, set, localiti
   const { t } = useTranslation();
   /* The panel enters from the left, so the gesture that dismisses it is a drag
      back the way it came. Its content scrolls vertically, which leaves the
-     horizontal axis free and unambiguous. */
-  const swipe = useSwipeDismiss(() => setDrawer(false), { axis: 'x' });
+     horizontal axis free and unambiguous.
+
+     Matched to the panel's own `lg:hidden`, but gated on a coarse pointer: the hook arms on any
+     pointerdown in the panel, so on a mouse-driven window narrowed below 1024px a leftward
+     drag to select a locality name would otherwise close the drawer mid-selection. */
+  const swipe = useSwipeDismiss(() => setDrawer(false), { axis: 'x', query: '(max-width: 1023.98px) and (pointer: coarse)' });
   return (
     <>
       {/* Mobile filter drawer */}
@@ -26,7 +30,9 @@ export default function MobileFilterDrawer({ drawer, setDrawer, f, set, localiti
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pb-6 filter-scroll">
           <Filters f={f} set={set} localities={localities} onAddLocality={onAddLocality} clearAll={clearAll} idp="m-" showClear={false} />
         </div>
-        <div className="shrink-0 flex items-center gap-2 border-t border-white/10 p-3" style={{ background: '#1a1730' }}>
+        {/* The drawer is pinned to the viewport bottom, so the action that is the whole point of it
+            would otherwise sit inside the home-indicator zone on a gesture-bar phone. */}
+        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: '#1a1730' }}>
           <span className="sr-only" aria-live="polite">
             {total === 0 ? t('listings.noMatchesSr') : t('listings.resultsMatch', { count: total })}
           </span>

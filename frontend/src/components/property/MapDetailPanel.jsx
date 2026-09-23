@@ -8,7 +8,9 @@ import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
+import { isBrokered } from '../../lib/contact.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
+import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
@@ -54,6 +56,9 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   const saved = savedList.has(p?.id);
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
+  /* Below 768px this is a bottom sheet with a grabber, and a grabber that cannot be grabbed is the
+     loudest non-native tell on the map. The close button stays the accessible way out. */
+  const swipe = useSwipeDismiss(onClose, { axis: 'y', query: '(max-width: 767px)' });
 
   const gallery = p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]) : [];
 
@@ -73,6 +78,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   if (!p) return null;
 
   const isRent = p.deal === 'rent';
+  const brokered = isBrokered(p);
   const loc = (locName && locName[p.localitySlug]) || p.locality;
   const priceStr = isRent ? `₹${(p.price || 0).toLocaleString('en-IN')}` : fmtINR(p.price);
   const emi = Math.round((p.price * 0.0072) / 100) * 100;
@@ -92,11 +98,11 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   };
   // Mirrors the property-detail page: L1 contact (badge-not-gate), so queue a pending in-app chat
   // request and open the thread, falling back to the enquiry popup when messaging is disabled.
-  const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const contact = () => {
     if (!isIn) { sendToSignIn('contact'); return; }
     if (!chatEnabled) { setContactOpen(true); return; }
-    startChatRequest();
+    queuePendingChat(p);
+    navigate(messagesLinkForProp(p));
   };
   const schedule = () => {
     if (!isIn) { sendToSignIn('schedule'); return; }
@@ -109,7 +115,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
 
   return (
     <>
-      <aside className="dz-mdp" role="dialog" aria-modal="true" aria-label={titleOf(p) + ' details'}>
+      <aside {...swipe} data-no-ptr className="dz-mdp" role="dialog" aria-modal="true" aria-label={titleOf(p) + ' details'}>
         <span className="dz-mdp-grip" aria-hidden="true" />
         <div className="dz-mdp-top">
           <div className="dz-mdp-step">
@@ -139,7 +145,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
               {tags.map(([t, cls]) => <span key={t} className={'dz-mdp-tag ' + cls}>{t}</span>)}
             </div>
             <div className="dz-mdp-price">{priceStr}{isRent ? <i>/mo</i> : null}</div>
-            {!isRent ? <div className="dz-mdp-emi">EMI from ₹{fmtNum(emi)}/mo · Zero brokerage</div> : <div className="dz-mdp-emi">Zero brokerage — deal direct with owner</div>}
+            {!isRent ? <div className="dz-mdp-emi">EMI from ₹{fmtNum(emi)}/mo · Zero brokerage</div> : <div className="dz-mdp-emi">{brokered ? 'Zero brokerage' : 'Zero brokerage — deal direct with owner'}</div>}
             <h3 className="dz-mdp-title">{titleOf(p)}</h3>
             <div className="dz-mdp-loc"><Icon name="map-pin" /> {loc}, {cityLabelFor(p)}</div>
 
@@ -168,7 +174,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
             <div className="dz-mdp-sect">
               <div className="dz-mdp-sect-hd">Overview</div>
               <p className="dz-mdp-desc">
-                This {p.bhkNum ? p.bhkNum + ' BHK ' : ''}{(p.type || 'home').toLowerCase()} in {loc} offers{amenities.length ? ' ' + amenities.slice(0, 3).map(amenLabel).join(', ').toLowerCase() : ' modern living'} with great connectivity to Pune's IT hubs, schools and hospitals — broker-free, direct from the verified owner.
+                This {p.bhkNum ? p.bhkNum + ' BHK ' : ''}{(p.type || 'home').toLowerCase()} in {loc} offers{amenities.length ? ' ' + amenities.slice(0, 3).map(amenLabel).join(', ').toLowerCase() : ' modern living'} with great connectivity to Pune's IT hubs, schools and hospitals — broker-free{brokered ? '' : ', direct from the verified owner'}.
               </p>
             </div>
           </div>

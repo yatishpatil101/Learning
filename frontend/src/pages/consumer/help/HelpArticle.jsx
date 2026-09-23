@@ -7,27 +7,24 @@ import ArticleProse from '../../../components/help/ArticleProse.jsx';
 import ArticleToc from '../../../components/help/ArticleToc.jsx';
 import ArticleFeedback from '../../../components/help/ArticleFeedback.jsx';
 import { Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
-import { articleNeighbours, markViewed } from '../../../lib/help.js';
-import { useHelpTree, useHelpLang, useHelpPath } from '../../../lib/useHelp.js';
+import { markViewed } from '../../../lib/help.js';
+import { useHelpTree, useHelpLang, useHelpPath, useArticleNeighbours } from '../../../lib/useHelp.js';
 import { useHelpSeo } from '../../../lib/useHelpSeo.js';
-import { useAuth } from '../../../context/AuthContext.jsx';
 
 export default function HelpArticle() {
   const { slug } = useParams();
   const { t } = useTranslation();
-  const { user } = useAuth();
   const lang = useHelpLang();
   const hp = useHelpPath();
-  const { sections, categories, articles } = useHelpTree();
+  const { sections, categories, articles, pending } = useHelpTree();
 
   const article = articles.find((a) => a.slug === slug) || null;
   const category = article ? categories.find((c) => c.id === article.category) : null;
   const section = category ? sections.find((s) => s.id === category.section) : null;
-  const { prev, next } = articleNeighbours(article, user, lang);
+  const { prev, next } = useArticleNeighbours(article);
 
-  // An untranslated article serves identical English at all three URLs, so the
-  // alternates would be a duplicate-content signal rather than a translation
-  // one. Only publish them once the article actually exists in this language.
+  // An untranslated article serves identical English at all three URLs, so alternates would be a
+  // duplicate-content signal. Only publish them once the article exists in this language.
   useHelpSeo(`/help/a/${slug}`, lang, {
     index: article ? article.access !== 'staff' : false,
   });
@@ -44,6 +41,7 @@ export default function HelpArticle() {
   }, [article]);
 
   if (!article) {
+    if (pending) return <HelpLayout title={t('help.centre')} />;
     return (
       <HelpLayout title={t('help.articleNotFound')}>
         <EmptyState icon="file-text" title={t('help.articleNotFound')}>
@@ -92,9 +90,8 @@ export default function HelpArticle() {
             </div>
           </header>
 
-          {/* Falling back to English is better than hiding the article, but the
-              reader has to be told, or a page that suddenly switches language
-              reads as a bug rather than a gap in our content. */}
+          {/* A page that silently switches language reads as a bug rather than a gap in our
+              content, so the fallback to English has to be announced. */}
           {!article.translated && (
             <div
               lang="en"
@@ -108,11 +105,25 @@ export default function HelpArticle() {
             </div>
           )}
 
+          {article.translated && article.stale && (
+            <div className="mb-7 flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3.5">
+              <Icon name="warning" className="mt-0.5 w-4 h-4 shrink-0 text-amber-300" />
+              <div>
+                <p className="text-sm font-semibold text-white">{t('help.translationBehindTitle')}</p>
+                <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                  <Trans
+                    i18nKey="help.translationBehindBody"
+                    components={{ 1: <Link to={`/help/a/${slug}`} lang="en" className="text-teal-400 hover:underline" /> }}
+                  />
+                </p>
+              </div>
+            </div>
+          )}
+
           <ArticleToc headings={article.headings} variant="inline" />
 
-          {/* `lang` marks the body's actual language for screen readers and for
-              the browser's hyphenation and font selection, which matters when the
-              body is English inside an otherwise-Marathi page. */}
+          {/* `lang` drives screen readers, hyphenation and font selection when the body is
+              English inside an otherwise-Marathi page. */}
           <div lang={article.lang}>
             <ArticleProse html={article.html} />
           </div>
@@ -132,7 +143,7 @@ export default function HelpArticle() {
             </div>
           )}
 
-          <ArticleFeedback slug={article.slug} title={article.title} />
+          <ArticleFeedback key={article.slug} slug={article.slug} title={article.title} lang={article.lang} />
 
           {(prev || next) && (
             <nav aria-label={t('help.moreIn', { section: category?.title || '' })} className="mt-8 grid gap-3 sm:grid-cols-2">

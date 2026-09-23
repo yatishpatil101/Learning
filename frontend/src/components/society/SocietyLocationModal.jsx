@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import LocationPicker from '../../pages/consumer/list-property/LocationPicker.jsx';
+import useScrollLock from '../../hooks/useScrollLock.js';
 import { fetchSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../../lib/places.js';
 
 /* Resident location-correction picker. A verified resident searches (Places
@@ -24,6 +25,7 @@ export default function SocietyLocationModal({ societyName, initial, onSubmit, o
   const sessionRef = useRef(newAutocompleteSession());
   const tRef = useRef();
   const pickSeq = useRef(0); // invalidates a slow place-detail fetch when the user picks/edits again
+  useScrollLock();
 
   // Raw strings keep decimal typing intact ("18." mid-entry); parse only to validate/submit.
   const lat = latStr.trim() === '' ? null : Number(latStr);

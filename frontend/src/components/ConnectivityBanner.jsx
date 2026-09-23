@@ -2,41 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from './Icon.jsx';
 import { useConnectivity } from '../hooks/useConnectivity.js';
+import { dismissUpdate, useAppUpdate } from '../hooks/useAppUpdate.js';
 
-/** How long the "back online" confirmation stays up. Long enough to read, short enough that it
- *  never becomes chrome — a banner that appears and never leaves is worse than none. */
+/** How long the "back online" confirmation stays up. */
 const RECOVERY_MS = 4000;
 
-/* App-wide connectivity banner, mounted once per layout — ConsumerLayout and AdminLayout (D164).
- *
- * Three states, and the wording is the whole point:
- *   offline      the OS says no interface is up — a confident statement, because it is.
- *   unreachable  requests are not reaching the server while the OS says we are online. Hedged
- *                copy, because `navigator.onLine` cannot tell a captive portal from a good
- *                connection. It never claims the user is offline.
- *   restored     a transient confirmation, so a recovered connection is announced rather than
- *                leaving the user to guess whether it is safe to retry.
- * A server error (500/404/422) reaches none of these — see `hooks/useConnectivity.js`.
- *
- * Docked to the TOP, under the navbar, and that is a structural decision rather than a promise:
- * the bottom of a phone viewport already carries the floating tab bar with its raised centre FAB
- * plus four other fixed widgets (city pill 1200, assistant 1300, install prompt 1350, cookie
- * consent 1400), all anchored to --dz-bottom-inset. A sixth one there would sit on top of at least
- * one of them at 360px. From --dz-top-inset this banner is geometrically incapable of covering the
- * bottom nav or the FAB, and it rides the hide-on-scroll navbar for free (the token drops to 0
- * when the bar slides away), so it never strands content behind a fixed strip.
- *
- * The live region is always mounted and empty when there is nothing to say. Inserting the region
- * and its text in the same tick is how announcements get missed — several screen readers only
- * watch regions that were present when they built their model of the page.
- *
- * `zClass` exists for exactly one caller: the maintenance overlay, which is `z-[99999]` because it
- * must bury the whole app. A banner underneath it would be invisible on the one screen most likely
- * to be looked at during an incident, and the alternative — raising this to 100000 for everyone —
- * would float it over open modals (D164). */
+/* Connectivity outranks the update prompt — reloading while offline lands on a blank page. Docked
+   top because --dz-bottom-inset is full; the live region stays mounted or some AT never watches it. */
 export default function ConnectivityBanner({ zClass = 'z-[1450]' }) {
   const { t } = useTranslation();
   const { status } = useConnectivity();
+  const { updateReady } = useAppUpdate();
   const [restored, setRestored] = useState(false);
   const prev = useRef(status);
 
@@ -49,21 +25,20 @@ export default function ConnectivityBanner({ zClass = 'z-[1450]' }) {
     else if (was !== 'online') setRestored(true);
   }, [status]);
 
-  /* The dismissal timer is keyed on `restored`, not on the transition that set it. Owning it in the
-     effect above would leak under StrictMode: the double-invoke clears the timer on the discarded
-     pass and the second pass sees `prev.current` already updated, so it never sets a new one and
-     the confirmation stays up for good. */
+  /* Keyed on `restored`, not on the transition that set it: owning the timer in the effect above
+     leaks under StrictMode, leaving the confirmation up for good. */
   useEffect(() => {
     if (!restored) return undefined;
     const id = setTimeout(() => setRestored(false), RECOVERY_MS);
     return () => clearTimeout(id);
   }, [restored]);
 
-  const showing = status !== 'online' ? status : restored ? 'restored' : null;
+  const showing = status !== 'online' ? status : restored ? 'restored' : updateReady ? 'update' : null;
   const copy = {
     offline: ['alert-triangle', 'text-amber-400', t('connectivity.offlineTitle'), t('connectivity.offlineBody')],
     unreachable: ['alert-triangle', 'text-amber-400', t('connectivity.unreachableTitle'), t('connectivity.unreachableBody')],
     restored: ['check-circle', 'text-teal-400', t('connectivity.restoredTitle'), t('connectivity.restoredBody')],
+    update: ['refresh-cw', 'text-violet-300', t('connectivity.updateTitle'), t('connectivity.updateBody')],
   }[showing] || [];
   const [icon, tone, title, body] = copy;
 
@@ -80,6 +55,29 @@ export default function ConnectivityBanner({ zClass = 'z-[1450]' }) {
           <p className="text-[13px] leading-snug text-gray-300 min-w-0">
             <span className="font-semibold text-white">{title}</span>{' '}{body}
           </p>
+          {/* Dismiss is padded to a 32px box rather than the 44px target: the banner is 36px tall
+              and growing it would cover the content it is commenting on. */}
+          {showing === 'update' && (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                data-testid="app-update-reload"
+                onClick={() => window.location.reload()}
+                className="rounded-lg bg-violet-500/90 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-violet-500"
+              >
+                {t('connectivity.updateAction')}
+              </button>
+              <button
+                type="button"
+                data-testid="app-update-dismiss"
+                onClick={dismissUpdate}
+                aria-label={t('connectivity.updateDismiss')}
+                className="rounded-lg p-2 text-gray-400 hover:text-white"
+              >
+                <Icon name="x" className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

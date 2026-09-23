@@ -18,12 +18,10 @@ import Loading from '../../components/ui/Loading.jsx';
 
 /* The server's vocabulary, not the browser's.
    -------------------------------------------
-   This list used to read `new / in_progress / done / cancelled`, which was the mock store's own
-   invention. `TicketStatuses` on the server has five words and two of them are different ideas:
-   `waiting` (we are blocked on the customer) and `closed` (filed without a resolution) are states
-   a desk genuinely reaches and the old four could not express, and `cancelled` was never one of
-   them. Renaming the labels would not have been enough — `updateTicket(id, { status: 'done' })`
-   against `PATCH /tickets/{id}` is a 400, so the words here are the request, not a display detail. */
+   `TicketStatuses` has five words, and two of them are ideas a shorter list cannot express:
+   `waiting` (we are blocked on the customer) and `closed` (filed without a resolution). The words
+   here are the request, not a display detail — `updateTicket(id, { status: 'done' })` against
+   `PATCH /tickets/{id}` is a 400. */
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
   { value: 'open', label: 'Open' },
@@ -37,7 +35,7 @@ const LABEL = {
   urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low',
 };
 const label = (v) => LABEL[v] || v || '';
-/* `urgent` is in `TicketPriorities` and was missing here, so an urgent ticket was unfilterable. */
+/* `urgent` is in `TicketPriorities`; omit it here and an urgent ticket is unfilterable. */
 const PRIORITY_OPTS = [
   { value: '', label: 'All priorities' },
   { value: 'urgent', label: 'Urgent' },
@@ -61,16 +59,15 @@ const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
  * `service` is an ops annotation — `TicketCreate` has no component for it on purpose, because a
  * client that could name its own service line would be writing the pipeline report. So it is null
  * on every ticket a customer raised, and `subject` (the words they actually typed, and the only
- * required field on the form) is the name. The board used to render `t.service` alone, which meant
- * a blank primary column and an unsearchable row for precisely the enquiries that came from
- * outside. Falling back is not cosmetic: the search corpus below uses the same value.
+ * required field on the form) is the name. Rendering `t.service` alone leaves a blank primary
+ * column and an unsearchable row for precisely the enquiries that came from outside. Falling back
+ * is not cosmetic: the search corpus below uses the same value.
  */
 const titleOf = (t) => t.service || t.subject || '';
 
 function openDays(t) {
-  /* `createdAt` is epoch milliseconds off `ticketMapper.toViewModel`, not the mock store's
-     `YYYY-MM-DD`. The old body appended `'T00:00:00'` to it, which on a number yields
-     `Invalid Date` and silently hid every age chip on the board. */
+  /* `createdAt` is epoch milliseconds off `ticketMapper.toViewModel`. Appending `'T00:00:00'` to a
+     number yields `Invalid Date` and silently hides every age chip on the board. */
   if (!t.createdAt) return null;
   const days = Math.floor((Date.now() - t.createdAt) / 86400000);
   return Number.isNaN(days) ? null : days;
@@ -273,10 +270,6 @@ export default function AdminServices() {
     </div>
   );
 
-  /* A "served by the API, which is not enabled in this build" notice stood here, because `ticket`
-     was a live-only domain with no mock provider (D184) and an empty board would have read as "no
-     customer has asked for anything". There is no build in which the API is not enabled now. */
-
   if (!tickets || flagsLoading) return <Loading />;
 
   if (loadError) {
@@ -381,10 +374,10 @@ export default function AdminServices() {
     </div>
   );
 
-  /* Values are user ids, not names. `TicketUpdate.assigneeId` takes an id (S42) — the old board sent
-     a display name, which meant two colleagues called Priya were the same person and a rename
-     orphaned every ticket they held. The blank option is "leave as it is", not "unassign":
-     unassigning has its own sentinel on the server and no control on this screen asks for it. */
+  /* Values are user ids, not names. `TicketUpdate.assigneeId` takes an id — sending a display name
+     makes two colleagues called Priya the same person and orphans every ticket a rename touches.
+     The blank option is "leave as it is", not "unassign": unassigning has its own sentinel on the
+     server and no control on this screen asks for it. */
   const staffOpts = active
     ? [{ value: '', label: '— Leave unchanged —' }, ...teamStaff(active.team).map((s) => ({ value: s.id, label: s.name }))]
     : [{ value: '', label: '— Leave unchanged —' }];

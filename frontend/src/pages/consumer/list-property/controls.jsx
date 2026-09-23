@@ -1,22 +1,12 @@
-/* ---------- small UI atoms ---------- */
+import { onActivateKey } from '../../../lib/onActivateKey.js';
 
-// Enter/Space should activate a div-based control just like a native button, so
-// keyboard users get the same behaviour as a click (and Space never scrolls the
-// page). Shared by the pill and toggle atoms below.
-const onActivateKey = (fn) => (e) => {
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault();
-    fn?.(e);
-  }
-};
-
-export const Pill = ({ selected, onClick, children, className = '', dataErr, ariaLabel }) => (
+export const Pill = ({ selected, onClick, children, className = '', dataErr, ariaLabel, role = 'button' }) => (
   <div
     onClick={onClick}
     onKeyDown={onActivateKey(onClick)}
-    role="button"
+    role={role}
     tabIndex={0}
-    aria-pressed={!!selected}
+    {...(role === 'radio' ? { 'aria-checked': !!selected } : { 'aria-pressed': !!selected })}
     aria-label={ariaLabel}
     data-err={dataErr}
     className={`radio-pill rounded-xl text-sm font-medium cursor-pointer ${selected ? 'selected' : 'text-gray-400'} ${className}`}
@@ -37,7 +27,9 @@ export const Toggle = ({ on, onClick, ariaLabel }) => (
     tabIndex={0}
     aria-checked={!!on}
     aria-label={ariaLabel}
-    className={`toggle-track cursor-pointer ${on ? 'active' : ''}`}
+    // The track is 26px tall, under the 44px touch floor, and its drawn height is
+    // load-bearing (the thumb travels it), so .tap-extend carries the target instead.
+    className={`toggle-track tap-extend cursor-pointer ${on ? 'active' : ''}`}
   >
     <div className="toggle-thumb" />
   </div>

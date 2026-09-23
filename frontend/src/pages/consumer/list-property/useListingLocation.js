@@ -18,6 +18,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   // pulling their address from the pin, and that they should verify the filled fields.
   const [geoFillStatus, setGeoFillStatus] = useState('');
   const lastGeoRef = useRef('');
+  const pinSourceRef = useRef(null);
   /* Address fields the owner hand-edited; auto-fill never overwrites them. Tracked explicitly rather than by
      comparing values, so it holds however the field got its value — draft, society binding, prior search. */
   const userEditedRef = useRef({});
@@ -33,7 +34,6 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     }
   }, [errors]);
 
-  /* ---------- map search ---------- */
   const onMapSearchChange = (v) => {
     setMapSearch(v);
     if (mapSearchStatus) setMapSearchStatus('');
@@ -111,14 +111,15 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     applyAddressFill({ ...rev, lat, lng }, false, gaps);
   };
   // Placement rides the form so a restored draft and an edit prefill both carry it.
-  const placePin = (lat, lng) => {
+  const placePin = (lat, lng, source) => {
+    pinSourceRef.current = source;
     setForm((prev) => ({ ...prev, propLat: lat, propLng: lng, pinPlaced: true }));
     if (errors.location) setErrors((prev) => { const n = { ...prev }; delete n.location; return n; });
   };
   /* With `geo` the address comes from the result's own components — more precise than, and sparing, a
      reverse-geocode of the pin; `replace` marks it a deliberate pick so stale auto-fills refresh. */
-  const flyToCoords = (lat, lng, geo, replace = false) => {
-    placePin(lat, lng);
+  const flyToCoords = (lat, lng, geo, replace = false, source = 'map') => {
+    placePin(lat, lng, source);
     setFlyTo([lat, lng]);
     if (geo) {
       applyPlaceFill(lat, lng, geo, replace);
@@ -130,14 +131,15 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
      Google pick gives exact coords; otherwise fall back to the static table for the known shortlist. */
   const onLocalityChange = (v, coords) => {
     set('locality', v);
+    if (pinSourceRef.current === 'manual' || pinSourceRef.current === 'society') return;
     if (coords && coords.lat != null && coords.lng != null) {
-      flyToCoords(coords.lat, coords.lng);
+      flyToCoords(coords.lat, coords.lng, undefined, false, 'locality');
     } else if (v && localityCoords[v]) {
-      flyToCoords(localityCoords[v][0], localityCoords[v][1]);
+      flyToCoords(localityCoords[v][0], localityCoords[v][1], undefined, false, 'locality');
     }
   };
   const onPinMove = (lat, lng) => {
-    placePin(lat, lng);
+    placePin(lat, lng, 'manual');
     autofillFromPin(lat, lng);
   };
   const runMapSearch = async () => {
@@ -174,14 +176,22 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   const onAreaSelect = (details) => {
     if (!details || details.lat == null || details.lng == null) return;
     setMapSearchStatus('');
-    placePin(details.lat, details.lng);
+    placePin(details.lat, details.lng, 'map');
     setFlyTo([details.lat, details.lng]);
     applyPlaceFill(details.lat, details.lng, details, true);
+  };
+
+  const onSocietyPick = ({ id, name, lat, lng }) => {
+    set('societyId', id);
+    set('society', name);
+    if (lat == null || lng == null || pinSourceRef.current === 'manual') return;
+    placePin(lat, lng, 'society');
+    setFlyTo([lat, lng]);
   };
 
   return {
     set,
     mapSearch, mapSearchStatus, flyTo, geoFillStatus,
-    onMapSearchChange, runMapSearch, onAreaSelect, onLocalityChange, onPinMove,
+    onMapSearchChange, runMapSearch, onAreaSelect, onSocietyPick, onLocalityChange, onPinMove,
   };
 }

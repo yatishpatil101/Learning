@@ -9,10 +9,9 @@ import { isResidentialHome } from '../../data/propertyTypes.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 
-/* The feed is the live catalogue, not a curated list — it used to be eight hardcoded
-   entries with stock photos whose CTAs merely *pointed* at real IDs, so a newly posted
-   home could never appear here and the captions could drift from the listing they
-   linked to. Two gates decide what earns a reel:
+/* The feed is the live catalogue, not a curated list — a hardcoded set means a newly posted home
+   can never appear here and its caption can drift from the listing it links to. Two gates decide
+   what earns a reel:
 
      isResidentialHome  Reels is deliberately homes-only (see data/propertyTypes.js).
                         Land and commercial are reachable from /listings instead.
@@ -40,10 +39,10 @@ const toReel = (p) => ({
   id: p.id,
   /* Carried alongside `id` because they are different strings and the save needs the other one.
      `id` is the slug the URL and every membership check use; `uuid` is the row's primary key, which
-     is what `PUT /me/saved/{propId}` binds. Dropping it here left `saved.toggle` falling back to the
-     slug, and the write 400s — so a reel could not be saved at all unless the property already
-     happened to be in the shortlist, which is the one case where the context could recover the uuid
-     itself. Undefined in mock mode, where nothing carries a uuid and the slug is the key. */
+     is what `PUT /me/saved/{propId}` binds. Dropping it here leaves `saved.toggle` falling back to
+     the slug, and the write 400s — so a reel cannot be saved at all unless the property already
+     happens to be in the shortlist, which is the one case where the context can recover the uuid
+     itself. */
   uuid: p.uuid,
   photos: (p.gallery || []).slice(0, MAX_PHOTOS),
   title: p.title,
@@ -99,8 +98,7 @@ export default function Reels() {
         .slice(0, FEED_MAX);
 
       const hydrated = await Promise.all(eligible.map(async (p) => {
-        // Already complete in mock mode, where the list rows carry their galleries. Skipping the
-        // fetch there keeps this one code path honest in both modes instead of two.
+        // A list row that already carries enough of a gallery needs no detail fetch.
         if ((p.gallery || []).length >= MIN_PHOTOS) return p;
         try {
           return (await getProperty(p.id)) || null;
@@ -195,8 +193,8 @@ export default function Reels() {
     el?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' });
   }, [reels, reduced]);
 
-  // Story-style auto-advance. With the segmented progress bar gone there is nothing
-  // to paint per frame, so a single timer replaces the old rAF loop.
+  // Story-style auto-advance. With no segmented progress bar there is nothing to paint per frame,
+  // so one timer does the job of a rAF loop.
   useEffect(() => {
     if (!playing || reduced || reels.length === 0) return undefined;
     const timer = setTimeout(() => {

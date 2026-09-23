@@ -1,7 +1,7 @@
 # Scoped to the graphify scan root (frontend/src). Same syntax as .gitignore.
 # .gitignore is already respected automatically; this only excludes more.
 
-# Mock/seed data and i18n bundles: 132 .json files that produce zero graph nodes
+# Seed data and i18n bundles: 132 .json files that produce zero graph nodes
 # but are still read, parsed, and warned about on every rebuild.
 *.json
 

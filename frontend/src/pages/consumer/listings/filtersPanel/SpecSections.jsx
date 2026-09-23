@@ -1,9 +1,13 @@
 import { useTranslation } from 'react-i18next';
+import DualRange from '../../../../components/ui/DualRange.jsx';
 import { FilterGroup, Divider, Cb, Rb } from '../FilterControls.jsx';
 import { toggleSet } from '../matchers.js';
 import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
+import { RANGE } from '../../../../lib/listings/filterState.js';
 import { tLabel } from './helpers.js';
 import { BHK_BUY, BHK_RENT, AVAIL_BUY, FURN } from '../constants.js';
+
+const [AREA_MIN, AREA_MAX] = RANGE.area;
 
 export default function SpecSections({ f, set, idp }) {
   const { t } = useTranslation();
@@ -49,6 +53,11 @@ export default function SpecSections({ f, set, idp }) {
           <Divider />
         </>
       )}
+
+      <FilterGroup icon="ruler" title={t('listings.carpetArea')} summary={f.area[0] === AREA_MIN && f.area[1] === AREA_MAX ? '' : `${f.area[0]} - ${f.area[1]}`} defaultCollapsed>
+        <DualRange min={AREA_MIN} max={AREA_MAX} step={50} value={f.area} onChange={(v) => set({ area: v })} label={t('listings.carpetAreaLabel')} format={(v) => v.toLocaleString('en-IN')} />
+      </FilterGroup>
+      <Divider />
     </>
   );
 }

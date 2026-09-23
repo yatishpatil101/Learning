@@ -84,11 +84,11 @@ export default function Footer() {
               Pune's broker-free property marketplace. Verified owners, zero brokerage, direct contact.
             </p>
             <div className="flex items-center gap-2">
-              <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="x" label="Draazy on X" href="https://x.com/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazy" hover="hover:bg-pink-500/10 hover:text-pink-400" />
-              <Soc k="youtube" label="Draazy on YouTube" href="https://www.youtube.com/@draazy" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
-              <Soc k="linkedin" label="Draazy on LinkedIn" href="https://www.linkedin.com/company/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/share/1EKDhPoDnE/?mibextid=wwXIfr" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp?stkn=dGl6eWQ3cGQ4YzQ%3D&utm_source=qr" hover="hover:bg-pink-500/10 hover:text-pink-400" />
+              <Soc k="x" label="Draazy on X" href="https://x.com/draazyapp?s=11" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="linkedin" label="Draazy on LinkedIn" href="http://www.linkedin.com/in/draazy-app-4a3195435" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
             </div>
           </div>
 

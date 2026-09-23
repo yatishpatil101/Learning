@@ -4,17 +4,11 @@ import EvidenceUpload from '../../../components/ui/EvidenceUpload.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import OtpBoxes from '../../../components/auth/OtpBoxes.jsx';
 import SocietyLocationModal from '../../../components/society/SocietyLocationModal.jsx';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 import { PROOF_TYPES, SOC_AMEN, CONTRIB_META, BOARD_META } from './constants.js';
 
-/**
- * Report target ids → their label key.
- *
- * All six kinds, not three. The map used to name only `review`, `question` and `answer`, and the
- * lookup fell back to `society.targetReview` for anything missing — so reporting a neighbour's
- * recommendation, a reply to one, or a noticeboard post opened a dialog headed "Report this
- * review". The reader was being asked to confirm a complaint about something other than the thing
- * they had clicked.
- */
+/* All six kinds, not three: without the last three, reporting a recommendation, a reply or a
+   noticeboard post opens a dialog headed "Report this review". */
 const REPORT_TARGET_KEYS = {
   review: 'society.targetReview',
   question: 'society.targetQuestion',
@@ -38,6 +32,9 @@ export default function SocietyModals({ ctx }) {
     reportBusy, reportReasons, submitReport,
     locOpen, soc, hasCoords, submitLocation, setLocOpen,
   } = ctx;
+  /* One lock for the seven dialogs this file renders inline. `locOpen` is absent on purpose:
+     `SocietyLocationModal` is mount-gated and takes its own. */
+  useScrollLock(Boolean((claim && saasOn) || resOpen || sugOpen || contribOpen || boardOpen || waOpen || reportFor));
   return (
     <>
       {/* Sticky mobile action bar — the two primary society actions (Follow / Review)

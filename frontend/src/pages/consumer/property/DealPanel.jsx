@@ -30,7 +30,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   /* The deal routes parse their path parameter with `Ids.parseUuid` and 404 on anything else, so
      they need the **UUID** — not the seam's `p.id`, which is the listing's slug (`p5015`) because
      the property routes accept slug-or-id and a slug makes a prettier URL. `p.uuid` is the same
-     row's real key; the fallback covers mock listings, which have no separate uuid. */
+     row's real key; the fallback covers rows with no separate uuid. */
   const propId = String(p.uuid || p.id || '');
   const isRent = p.deal === 'rent';
   const dealKind = isRent ? 'rent' : 'sell';
@@ -56,7 +56,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
 
   /* Prefers the row's own `buyerVerified`, the only source that can answer live: a buyer's mobile
      leaves the server irreversibly masked, so it can never equal the number the badge is stored
-     against. `state.verified` is the mock-seam fallback, a set of unmasked mobiles. */
+     against. `state.verified` is a fallback set of unmasked mobiles. */
   const isVerifiedTenant = (row) => {
     if (row?.buyerVerified === true) return true;
     const d = digits(row?.buyerMobile || '').slice(-10);

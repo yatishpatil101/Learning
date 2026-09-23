@@ -14,17 +14,15 @@ const IW_OFFSET = [0, -22]; // stable identity so vis.gl doesn't re-run setOptio
 
 const PREFIX = { group: 'g', room: 'r', seeker: 's' };
 
-// Per-kind view model so one row renderer serves seekers, rooms and groups. A map
-// cluster is a mixed feed just like the list, so this dispatches on the record's
-// own `kind` rather than on the active tab.
+// A map cluster is a mixed feed just like the list, so this dispatches on the
+// record's own `kind` rather than on the active tab.
 function rowModel(item, t) {
   if (item.kind === 'room') {
     return {
       prefix: 'r', title: item.society, verified: !!item.verified,
       meta: inr(item.budget) + t('flatmates.perMonth') + ' · ' + (item.roomType || item.flatType || t('flatmates.roomFallback')),
-      // Same chain `helpers.js:227` and `RoomCard` use. `item.img` alone is `undefined` on every
-      // server-backed room — `toRoomViewModel` emits `photos` — so the thumb fell through to the
-      // avatar and a room's photo never reached the map bubble.
+      // Same chain `helpers.js` and `RoomCard` use: `item.img` is `undefined` on every
+      // server-backed room, which emits `photos` instead.
       thumb: item.img || item.photos?.[0] || FLATMATE_IMG, avatarText: null, avatarGrad: 'from-teal-500 to-indigo-500',
     };
   }
@@ -88,9 +86,6 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
   );
 }
 
-// Frame the map to the localities that actually have posts: fit their bounds
-// (with a little padding) when there are several, else center on the single
-// area, else fall back to a Pune-wide view.
 function framing(items) {
   const pts = Object.keys(items).map((l) => LOCALITY_COORDS[l]).filter(Boolean);
   if (pts.length >= 2) {
@@ -128,7 +123,9 @@ function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin,
           {...frame}
           mapId={GOOGLE_MAPS_MAP_ID}
           colorScheme="DARK"
-          gestureHandling="greedy"
+          /* Not greedy: this map is 460px inside a scrolling page, so a greedy map would swallow
+             every one-finger drag. Cooperative hands those back to the page and pans on two. */
+          gestureHandling="cooperative"
           clickableIcons={false}
           mapTypeControl={false}
           streetViewControl={false}

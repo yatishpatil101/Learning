@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
-import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { maskPhone, fmtPhone, digits, isBrokered } from '../../../lib/contact.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
@@ -14,6 +14,8 @@ import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
+import isTopDialog from '../../../lib/isTopDialog.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
@@ -40,14 +42,17 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const verifiedLabel = [identityVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : '']
     .filter(Boolean)
     .join(' · ');
-  // B1: seeker nudge at value moment — only when owner is verified and seeker is not yet.
   const { verified: seekerVerified } = useVerification();
+  const panelRef = useRef(null);
 
+  useScrollLock();
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const onKey = (e) => {
+      if (!isTopDialog(panelRef.current)) return;
+      if (e.key === 'Escape') onClose();
+    };
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const request = async () => {
@@ -127,12 +132,12 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   };
 
   return (
-    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.contactTheOwner')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div ref={panelRef} className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.contactTheOwner')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.contactTheOwner')}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">{t('property.noBrokerageSub')}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{t(isBrokered(p) ? 'property.noBrokerageFee' : 'property.noBrokerageSub')}</p>
           </div>
           <button onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>

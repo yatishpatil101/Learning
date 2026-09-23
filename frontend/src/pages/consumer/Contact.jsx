@@ -9,7 +9,7 @@ import MobileField from '../../components/MobileField.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFieldErrors } from '../../lib/hooks.js';
-import { maskPhone } from '../../lib/contact.js';
+import { maskPhone, isBrokered } from '../../lib/contact.js';
 import { getProperty } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 
@@ -74,6 +74,7 @@ export default function Contact() {
     .join('')
     .slice(0, 2)
     .toUpperCase();
+  const brokered = isBrokered(refListing);
 
 
   const [form, setForm] = useState({ name: '', phone: '', email: '', subject: presel, msg: preMsg });
@@ -130,7 +131,6 @@ export default function Contact() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-            {/* Enquiry form */}
             <div className="glass-card rounded-2xl p-6 sm:p-8 reveal order-2 lg:order-1" ref={formRef}>
               <h2 className="text-lg font-bold text-white mb-5">{t('misc1.contactSendEnquiry')}</h2>
               {refListing ? (
@@ -196,11 +196,11 @@ export default function Contact() {
                   <h2 className="text-lg font-bold text-white mb-4">{t('misc1.contactDirectTitle')}</h2>
                   <div className="flex items-center gap-2 px-3 py-2 mb-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                     <Icon name="hand-coins" className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs text-emerald-300 font-medium">{t('misc1.contactNoBrokerage')}</span>
+                    <span className="text-xs text-emerald-300 font-medium">{t(brokered ? 'misc1.contactNoBrokerageFee' : 'misc1.contactNoBrokerage')}</span>
                   </div>
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">{ownerInitials}</div>
-                    <div><p className="text-white font-semibold">{owner.name}</p><p className="text-gray-500 text-xs flex items-center gap-1"><Icon name="badge-check" className="w-3.5 h-3.5 text-teal-400" /> {t('misc1.contactVerifiedOwner')}</p></div>
+                    <div><p className="text-white font-semibold">{owner.name}</p><p className="text-gray-500 text-xs flex items-center gap-1"><Icon name="badge-check" className="w-3.5 h-3.5 text-teal-400" /> {t(brokered ? 'misc1.contactPostedByAgent' : 'misc1.contactVerifiedOwner')}</p></div>
                   </div>
                   <div className="space-y-2.5">
                     <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-3">

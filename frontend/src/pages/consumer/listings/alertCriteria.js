@@ -1,6 +1,12 @@
 /* One place that turns the live listings filter state into a persisted saved-search record and a
    set of display chips, so the alert card, the manual "Save search" action and the dashboard Alerts
-   panel all capture and show the SAME full filter set. */
+   panel all capture and show the same set of filters.
+
+   That set is a SUBSET of the panel, and deliberately so rather than by omission: the server's
+   matcher (`SavedSearchService.countMatching`) reads only `deal`, `localities` and `bhk`, so a key
+   added here is stored and displayed but does not narrow what the user is notified about. Before
+   adding one — `ownerOnly` is the live candidate, since "no brokerage" is a promise rather than a
+   preference — widen the matcher first, or the chip advertises a guarantee the alert cannot keep. */
 import { fmtINR } from '../../../lib/format.js';
 import { fmtRent } from './format.js';
 import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES } from '../../../data/propertyTypes.js';

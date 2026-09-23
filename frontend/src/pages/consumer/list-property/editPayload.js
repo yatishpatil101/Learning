@@ -1,4 +1,4 @@
-import { ADDRESS_PARTS, pickListingFormDetails } from '../../../lib/listingFormDetails.js';
+import { ADDRESS_PARTS, canStateBuyerEligibility, pickListingFormDetails } from '../../../lib/listingFormDetails.js';
 
 const FIELD_INPUTS = {
   title: ['bhk', 'propertyType', 'commercialType', 'locality'],
@@ -39,7 +39,11 @@ export function editPayload(payload, form, original) {
      so without this word the old zoning survives and goes on answering the Land-use filter. */
   const clearsLandUse = 'landUse' in fields
     && fields.landUse === undefined && original.landUse != null;
-  const currentDetails = payload.formDetails ?? pickListingFormDetails(form);
+  const currentDetails = pickListingFormDetails(payload.formDetails ?? form);
+  const carriesBuyerEligibility = canStateBuyerEligibility(form);
+  const storedDetails = Object.fromEntries(Object.entries(pickListingFormDetails(original.formDetails))
+    .filter(([key]) => carriesBuyerEligibility || key !== 'buyerEligibility'));
+  const removesBuyerEligibility = !carriesBuyerEligibility && 'buyerEligibility' in pickListingFormDetails(original.formDetails);
   const propertyTypeChanged = !same(form.propertyType, before.propertyType);
   const changedDetails = Object.fromEntries(Object.entries(currentDetails)
     .filter(([key, value]) => !same(value, before[key])));
@@ -66,7 +70,7 @@ export function editPayload(payload, form, original) {
     ...(headlineChanged && { area: payload.area }),
     ...(propertyTypeChanged
       ? { formDetails: currentDetails }
-      : Object.keys(details).length && { formDetails: { ...pickListingFormDetails(original.formDetails), ...details } }),
+      : (Object.keys(details).length || removesBuyerEligibility) && { formDetails: { ...storedDetails, ...details } }),
     ...(galleryChanged && { gallery: payload.gallery, photoHashes: payload.photoHashes }),
     ...(floorPlanChanged && { floorPlan: newPlan }),
   };

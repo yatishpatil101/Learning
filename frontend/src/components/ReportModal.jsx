@@ -2,21 +2,10 @@ import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import { createReport } from '../services/reportService.js';
 import { LISTING_REPORT_REASONS } from '../lib/reportReasons.js';
+import useScrollLock from '../hooks/useScrollLock.js';
 
-/* Platform-wide "Report this…" modal. One component powers reporting of property
-   listings, flatmate/room/group posts, and anything else that needs moderation.
-   Callers pass a `target` ({ id, title, ownerName, ownerMobile }), a `kind`
-   ('listing' | 'user' | 'share') and optionally a reason set + copy.
-
-   **`kind` must match the reason set.** The server validates the reason *against* the target type,
-   so `SHARE_REPORT_REASONS` needs `kind="share"` and not `"user"` — `filled` is not something you
-   can say about a person, and sending it as one is a 400. The mock stored whatever it was handed,
-   which is how that mismatch survived in Flatmates.jsx until the reports slice. See
-   `services/providers/http/reportMapper.js` for the mapping table.
-
-   The vocabularies themselves live in `lib/reportReasons.js`, not here — the ops queue and the http
-   mapper need them too, and a services-layer module should not be importing from `components/`.
-   Import them from there; this file no longer re-exports them. */
+/* **`kind` must match the reason set**: the server validates the reason against the target type,
+   so `SHARE_REPORT_REASONS` needs `kind="share"` and not `"user"`. */
 
 export default function ReportModal({
   target,
@@ -32,28 +21,18 @@ export default function ReportModal({
   const [details, setDetails] = useState('');
   const [sending, setSending] = useState(false);
 
+  useScrollLock();
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const submit = async () => {
     if (!reason || sending) return;
     setSending(true);
-    /**
-     * The modal used to close and toast success unconditionally, because a localStorage write
-     * cannot fail. Two things can now:
-     *
-     * - **409, a duplicate.** The server refuses a second live report of the same target by the
-     *   same person. Thanking somebody for a report nobody received is the one outcome worth
-     *   avoiding here — they would assume it was heard.
-     * - **anything else.** Reporting is a safety action; a silent failure means an abuse signal
-     *   that never arrived and a user who believes it did.
-     *
-     * The modal stays open on failure so the report is not lost with it.
-     */
+    /* The modal stays open on failure so the report is not lost with it: a 409 duplicate or any
+       other refusal must not be thanked, since the reporter would assume it was heard. */
     let result;
     try {
       result = await createReport({

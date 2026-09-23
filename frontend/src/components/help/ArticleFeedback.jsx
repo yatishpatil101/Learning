@@ -1,42 +1,48 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { getFeedback, saveFeedback } from '../../lib/help.js';
+import { submitHelpFeedback } from '../../services/contentService.js';
 
-/* "Was this helpful?" — the only signal that tells us which articles are failing.
- *
- * A bare thumbs-down is close to useless on its own, so a negative answer opens a
- * short free-text field and routes the reader to support rather than leaving them
- * on a page that did not answer their question. */
-
-export default function ArticleFeedback({ slug, title }) {
+/* localStorage is the widget's own memory (a returning reader sees "thanks"); the POST is the
+   measurement. The caller keys this on the slug, so deriving state in an effect would flash stale. */
+export default function ArticleFeedback({ slug, title, lang }) {
   const { t } = useTranslation();
-  const [choice, setChoice] = useState(null);
+  const remembered = () => getFeedback(slug);
+  const [choice, setChoice] = useState(() => remembered()?.helpful ?? null);
   const [comment, setComment] = useState('');
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState(() => !!remembered());
 
-  // Reset between articles — this component stays mounted across route changes.
-  useEffect(() => {
-    const existing = getFeedback(slug);
-    setChoice(existing ? existing.helpful : null);
-    setSent(!!existing);
-    setComment('');
-  }, [slug]);
+  // Fire-and-forget on purpose: the reader has answered and been thanked, and there is nothing
+  // they could do about an upload failure. Loud in dev only.
+  const report = (helpful, reason) => {
+    submitHelpFeedback({ slug, lang, helpful, comment: reason }).catch((err) => {
+      if (import.meta.env.DEV) console.warn('[help] feedback upload failed', err);
+    });
+  };
 
+  // Double-click is guarded only by `setSent(true)` running in the same tick as the handler, so
+  // React removes the button before the second click lands. Moving it after an await reopens it.
   const pick = (helpful) => {
     setChoice(helpful);
     if (helpful) {
       saveFeedback(slug, true);
+      report(true);
       setSent(true);
     } else {
+      // Reported before the reason is typed: a negative that only counts when explained biases the
+      // measure. No local record here, so abandoning still leaves the box reachable next time.
+      report(false);
       setSent(false);
     }
   };
 
   const submitComment = (e) => {
     e.preventDefault();
-    saveFeedback(slug, false, comment.trim());
+    const reason = comment.trim();
+    saveFeedback(slug, false, reason);
+    report(false, reason);
     setSent(true);
   };
 
@@ -46,7 +52,7 @@ export default function ArticleFeedback({ slug, title }) {
         <div className="flex items-start gap-3">
           <Icon name="check-circle" className="mt-0.5 w-5 h-5 shrink-0 text-teal-400" />
           <div>
-            <p className="text-sm font-semibold text-white">{t('help.thanksTitle')}</p>
+            <p id="article-feedback" className="text-sm font-semibold text-white">{t('help.thanksTitle')}</p>
             <p className="mt-1 text-xs text-gray-500">
               {choice ? t('help.thanksPositive') : t('help.thanksNegative')}
               {' '}{t('help.stillStuck')}{' '}
@@ -61,7 +67,7 @@ export default function ArticleFeedback({ slug, title }) {
           <label htmlFor="feedback-comment" id="article-feedback" className="block text-sm font-semibold text-white">
             {t('help.whatWasMissing')}
           </label>
-          <p className="mt-1 text-xs text-gray-500">{t('help.whatWasMissingHint')}</p>
+          <p id="feedback-hint" className="mt-1 text-xs text-gray-500">{t('help.whatWasMissingHint')}</p>
           <textarea
             id="feedback-comment"
             rows={3}
@@ -69,8 +75,12 @@ export default function ArticleFeedback({ slug, title }) {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder={t('help.feedbackPlaceholder')}
+            aria-describedby="feedback-hint feedback-privacy"
             className="mt-3 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-teal-400/50 focus:outline-none"
           />
+          {/* Said before the prose is typed: a box asking "what was missing?" on a support-adjacent
+              surface collects phone numbers, and the notice reduces how much of that we store. */}
+          <p id="feedback-privacy" className="mt-2 text-xs text-gray-400">{t('help.feedbackPrivacy')}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="submit"

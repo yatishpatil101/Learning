@@ -11,7 +11,7 @@ import { useSignInGate } from '../lib/useSignInGate.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 /* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request
-   the customer then tracks (which crosses the seam per `VITE_API_DOMAINS`). */
+   the customer then tracks. */
 import { createTicket } from '../services/ticketService.js';
 import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
@@ -108,7 +108,6 @@ export default function ServiceLanding({
   return (
     <div ref={rootRef}>
       <div>
-        {/* Hero + quote */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
           {/* A real <img>, not a CSS background — a srcset has no effect on one. Decorative;
               the headline below carries the meaning. */}
@@ -133,7 +132,6 @@ export default function ServiceLanding({
               </div>
             </div>
 
-            {/* Quick quote form */}
             <div ref={formRef} id="quote" className="glass-card svc-quote rounded-2xl p-6 sm:p-7 reveal">
               {!done ? (
                 <>
@@ -191,7 +189,6 @@ export default function ServiceLanding({
           </div>
         </section>
 
-        {/* Stats */}
         {flowType ? <ServiceTracker key={trackerRefresh} typeFilter={flowType} title={trackerTitle || 'Your requests'} /> : null}
         {stats.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
@@ -201,7 +198,6 @@ export default function ServiceLanding({
           </section>
         ) : null}
 
-        {/* Why choose */}
         {services.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-y">
             <div className="text-center mb-6 sm:mb-10 reveal">
@@ -222,7 +218,6 @@ export default function ServiceLanding({
 
         {extra}
 
-        {/* Why choose */}
         {trust.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
             <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">{quote?.trustHeading || 'Why choose Draazy'}</h2></div>
@@ -238,7 +233,6 @@ export default function ServiceLanding({
           </section>
         ) : null}
 
-        {/* How it works */}
         {steps.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
             <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">How it works</h2></div>
@@ -256,7 +250,6 @@ export default function ServiceLanding({
           </section>
         ) : null}
 
-        {/* FAQ */}
         {faqs.length ? (
           <section className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
             <div className="text-center mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">Frequently asked questions</h2></div>
@@ -274,7 +267,6 @@ export default function ServiceLanding({
           </section>
         ) : null}
 
-        {/* CTA */}
         {cta ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
             <div className="glass-card rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">

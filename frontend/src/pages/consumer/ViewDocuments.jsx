@@ -43,9 +43,9 @@ const isPdfDoc = (doc) => /pdf/i.test(doc.mime || '') || /\.pdf$/i.test(doc.name
 const isImageDoc = (doc) => /image/i.test(doc.mime || '');
 const docTypeIcon = (doc) => (isImageDoc(doc) ? 'image' : isPdfDoc(doc) ? 'file-text' : 'file-lock-2');
 
-// Where a document's bytes are. The mock stores them inline as a base64 `dataUrl`; the http
-// provider returns a signed `url` and leaves `dataUrl` null (D120: the signed url does not resolve
-// in dev). Reading both is what lets one viewer serve the localStorage flow and the live share.
+// Where a document's bytes are. A locally-held document carries them inline as a base64 `dataUrl`;
+// the http provider returns a signed `url` and leaves `dataUrl` null (the signed url does not
+// resolve in dev). Reading both is what lets one viewer serve either.
 const docSource = (doc) => doc.dataUrl || doc.url || null;
 
 // Decode a base64 data URL to bytes for pdf.js (it wants a typed array, not a URL).
@@ -144,7 +144,7 @@ function PdfViewer({ doc }) {
         if (!pdfjs.GlobalWorkerOptions.workerSrc) {
           pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
         }
-        // Inline bytes when the mock stored them; otherwise let pdf.js fetch the signed url itself.
+        // Inline bytes when the document carries them; otherwise let pdf.js fetch the signed url.
         const bytes = doc.dataUrl ? dataUrlToBytes(doc.dataUrl) : null;
         const source = bytes ? { data: bytes } : { url: doc.url };
         if (!bytes && !doc.url) throw new Error('Unreadable PDF data');
@@ -224,8 +224,8 @@ function DocumentCard({ doc }) {
 }
 
 // Horizontally-scrollable strip that lets the buyer jump to any shared paper.
-// Only the selected document is rendered below, so a multi-doc share no longer
-// stacks every viewer at full height (big mobile scroll + memory win).
+// Only the selected document is rendered below, so a multi-doc share does not
+// stack every viewer at full height (big mobile scroll + memory win).
 function DocSwitcher({ docs, active, onSelect }) {
   const { t } = useTranslation();
   return (
@@ -313,14 +313,13 @@ const ERR_PENDING_UPLOAD = {
 };
 
 /**
- * The share-token half of this page (D42) — `/shared-documents#<token>`.
+ * The share-token half of this page — `/shared-documents#<token>`.
  *
  * **Why the fragment.** The token is a bearer credential: whoever holds the string reads the
- * owner's title deeds until the grant expires. It used to travel as `?token=…`, which put it in
- * every place a URL goes — the server's own access log, every proxy and CDN in between, and the
- * `Referer` of the next request out. A fragment is never transmitted to any server, so none of
- * those exist for it; the token reaches the API only on the `X-Share-Token` header, which no
- * ordinary log records.
+ * owner's title deeds until the grant expires. As a `?token=…` query it would go everywhere a URL
+ * goes — the server's own access log, every proxy and CDN in between, and the `Referer` of the
+ * next request out. A fragment is never transmitted to any server, so none of those exist for it;
+ * the token reaches the API only on the `X-Share-Token` header, which no ordinary log records.
  *
  * What a fragment does *not* fix, and nothing can: this URL is the credential, so browser history,
  * a bookmark, and the recipient pasting it into a chat still carry it. That is inherent in sharing

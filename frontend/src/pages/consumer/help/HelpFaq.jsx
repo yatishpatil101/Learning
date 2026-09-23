@@ -9,24 +9,9 @@ import { localizeRecord } from '../../../lib/contentLang.js';
 import { useHelpSearch, useHelpLang, useHelpPath } from '../../../lib/useHelp.js';
 import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 
-/* FAQ page.
- *
- * Reads the content seam (`services/contentService.listFaqs`) rather than
- * duplicating the questions into Markdown — one answer, two surfaces, and the
- * same source the support page uses.
- *
- * FAQs are admin-editable records, so their translations live on the record
- * itself under a nested `translations` object and are resolved by
- * lib/contentLang.js; see that file for why they cannot sit in the locale
- * bundles. The seam speaks the server's vocabulary — `question` / `answer` /
- * `category`, not the mock's `q` / `a` / `cat`.
- *
- * The list is rendered in whatever order it arrives. `GET /faqs` makes no order
- * promise (see contentService.js), so sorting here would invent one; the page
- * groups by category instead, which is an order the copy itself supplies.
- *
- * FAQs are short answers. Anything needing more than a paragraph belongs in an
- * article, which is why each open question links onward into the help centre. */
+/* FAQs are admin-editable records, so their translations live on the record under a nested
+   `translations` object and are resolved by lib/contentLang.js. `GET /faqs` promises no order,
+   so the page groups by category rather than inventing a sort. */
 
 const LOCALIZED_FIELDS = ['question', 'answer', 'category'];
 

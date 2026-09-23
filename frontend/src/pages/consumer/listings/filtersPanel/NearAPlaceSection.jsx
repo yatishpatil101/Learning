@@ -5,6 +5,7 @@ import Select from '../../../../components/ui/Select.jsx';
 import { FilterGroup, Divider } from '../FilterControls.jsx';
 import { fetchPlaceDetails, fetchSuggestions, newAutocompleteSession } from '../../../../lib/places.js';
 import { useCommitOnRelease } from '../../../../lib/useCommitOnRelease.js';
+import { clampNearRadius, nearMaxFor } from '../../../../lib/nearParams.js';
 import { localityBySlug, matchLocalityToCanonical, nearestLocality } from '../../../../data/localities.js';
 
 export default function NearAPlaceSection({ f, set, onAddLocality }) {
@@ -13,6 +14,27 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
   // The slider reports every step of a drag; hold the in-flight radius here and lift it when the
   // value settles, so every read-out below tracks the thumb rather than freezing mid-drag.
   const [liveRadius, setLiveRadius, radiusCommit] = useCommitOnRelease(f.nearRadius, (v) => set({ nearRadius: v }));
+  const nearMax = nearMaxFor(nearMode);
+  /* The number field's half-typed text, held here rather than in the filter. A blank or
+     out-of-range string is a keystroke on the way somewhere, not a radius the user chose: writing
+     it through stores `''`, which makes `nearParams` drop the centre point along with the radius —
+     the whole proximity filter silently off while the chip still names the place.
+     `null` means "not being typed in", so the field shows the committed radius. */
+  const [radiusDraft, setRadiusDraft] = useState(null);
+  const onRadiusType = useCallback((e) => {
+    const raw = e.target.value;
+    setRadiusDraft(raw);
+    const n = Number(raw);
+    // Commit as they type, but only a value they could have meant; the rest waits for blur.
+    if (raw !== '' && Number.isInteger(n) && n >= 1 && n <= nearMax) set({ nearRadius: n });
+  }, [nearMax, set]);
+  const onRadiusSettle = useCallback((e) => {
+    const raw = e.target.value;
+    setRadiusDraft(null);
+    // A field left blank keeps the radius already in effect rather than snapping to the minimum:
+    // deleting the text is how you start retyping, not a request to search one kilometre.
+    if (raw !== '') set({ nearRadius: clampNearRadius(raw, nearMax) });
+  }, [nearMax, set]);
   // A place in an unselected locality makes the two location filters contradict and return
   // nothing, so nudge the user to add the parent. Derived from state, so it fires for shared URLs.
   const [nearDismissed, setNearDismissed] = useState(null);
@@ -164,11 +186,11 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                 <input
                   type="number"
                   min={1}
-                  max={25}
-                  value={liveRadius}
+                  max={nearMax}
+                  value={radiusDraft ?? liveRadius}
                   aria-label={t('listings.searchRadiusValue')}
-                  onChange={(e) => set({ nearRadius: e.target.value === '' ? '' : Number(e.target.value) })}
-                  onBlur={(e) => set({ nearRadius: Math.min(25, Math.max(1, Math.round(+e.target.value) || 1)) })}
+                  onChange={onRadiusType}
+                  onBlur={onRadiusSettle}
                   className="w-16 text-2xl font-bold text-teal-300 tabular-nums text-center bg-white/5 border border-white/10 rounded-lg py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-400"
                 />
                 <span className="text-sm text-gray-400 font-medium">{nearMode === 'km' ? t('listings.kmAway') : t('listings.minCommute')}</span>
@@ -176,12 +198,12 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
 
               {/* Distance slider */}
               <div>
-                {/* Lifted on release, not per step — 25 steps of a drag is 25 searches otherwise.
+                {/* Lifted on release, not per step — a whole drag is one search otherwise.
                     The twin number field above stays immediate: typing is already one intent. */}
                 <input
                   type="range"
                   min="1"
-                  max="25"
+                  max={nearMax}
                   step="1"
                   value={liveRadius}
                   onChange={(e) => setLiveRadius(Number(e.target.value))}
@@ -191,13 +213,13 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                 />
                 <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
                   <span>1 {nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}</span>
-                  <span>25 {nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}</span>
+                  <span>{nearMax} {nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}</span>
                 </div>
               </div>
 
               {/* Quick presets */}
               <div className="flex flex-wrap gap-1.5">
-                {(nearMode === 'km' ? [1, 3, 5, 10, 25] : [5, 10, 15, 20, 25]).map((v) => (
+                {(nearMode === 'km' ? [1, 3, 5, 10, nearMax] : [5, 10, 15, 20, nearMax]).map((v) => (
                   <button
                     key={v}
                     type="button"

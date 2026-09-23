@@ -83,7 +83,7 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
         <LoadError message={t('flatmates.loadError')} error={feedError} onRetry={onRetryFeeds} />
       ) : activeList.length ? (
         <>
-          <div className={'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5' + (searching ? ' opacity-60 transition-opacity' : '')}>{activeList.map(renderCard)}</div>
+          <div className={'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5' + (searching ? ' opacity-60 transition-opacity' : '')}>{activeList.filter((item) => item.id !== myPost?.id).map(renderCard)}</div>
           <Pager page={page + 1} pageCount={pageCount} onGoTo={(n) => onGoToPage(n - 1)} />
         </>
       ) : !loaded ? (

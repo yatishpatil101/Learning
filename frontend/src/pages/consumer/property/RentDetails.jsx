@@ -6,6 +6,7 @@ import { fmtNum } from '../../../lib/format.js';
 import { availableLabel, propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 import { fixturesFor, commercialProfileFromType } from '../list-property/constants.js';
+import { isBrokered } from '../../../lib/contact.js';
 
 /* The rent twin of PriceInsights, grouped by the three jobs a renter has: what it costs, what the terms
    are, and whether it is a fit. */
@@ -50,6 +51,9 @@ export function RentDetails({ p }) {
   const allIn = rent + maintExtra;
   const moveIn = rent + deposit;
   const savings = rent; // ~1 month's rent is the brokerage a renter avoids here
+  /* Only Draazy's own nil fee survives when an agent or a developer posted this: the saving above
+     is a month's rent the agent may well still charge, so quoting it would be flatly wrong. */
+  const brokered = isBrokered(p);
 
   const available = availableLabel(tr, p.availableFrom);
   const furnishing = tr('property.rentFurnishing.' + (['furnished', 'semi', 'unfurnished'].includes(p.furnishing) ? p.furnishing : 'semi'));
@@ -133,7 +137,7 @@ export function RentDetails({ p }) {
             <div>
               <p className="text-xs text-slate-400">{tr('property.allInMonthly')}</p>
               <p className="text-2xl font-extrabold text-white leading-tight">₹{fmtNum(allIn)}</p>
-              <p className="text-[11px] text-emerald-300 flex items-center gap-1 mt-0.5"><Icon name="hand-coins" className="w-3 h-3" /> {maintExtra ? tr('property.inclMaintenance') : ''}{tr('property.brokerageSave', { amount: fmtNum(savings) })}</p>
+              <p className="text-[11px] text-emerald-300 flex items-center gap-1 mt-0.5"><Icon name="hand-coins" className="w-3 h-3" /> {maintExtra ? tr('property.inclMaintenance') : ''}{brokered ? tr('property.noBrokerageFee') : tr('property.brokerageSave', { amount: fmtNum(savings) })}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-400">{tr('property.oneTimeMoveIn')}</p>
@@ -228,7 +232,7 @@ export function RentDetails({ p }) {
 
           <div className="rounded-xl border border-emerald-500/20 px-3.5 py-3 mb-4 flex items-center gap-2" style={{ background: 'rgba(16,185,129,.06)' }}>
             <Icon name="hand-coins" className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <p className="text-xs text-slate-300">{tr('property.zeroBrokerageOwner')}</p>
+            <p className="text-xs text-slate-300">{tr(brokered ? 'property.noBrokerageFee' : 'property.zeroBrokerageOwner')}</p>
           </div>
 
           {/* Move-in snapshot — the numbers a renter actually decides on, in one glance.

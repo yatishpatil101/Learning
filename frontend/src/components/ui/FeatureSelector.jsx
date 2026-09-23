@@ -2,23 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Plus, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
+import { onActivateKey } from '../../lib/onActivateKey.js';
 
-/**
- * Tile grid for "pick all that apply" feature lists (furniture, amenities) that
- * also lets the user add their own entries when ours don't cover their property.
- *
- * Selected labels are held as a plain string array by the parent, so custom
- * entries flow through the existing state/submit path with no schema change.
- * Predefined tiles render exactly as before; custom entries render as checked
- * tiles with an ✕ badge to remove.
- *
- * @param {object} props
- * @param {Array<{label: string, Icon: React.ComponentType}>} props.options - Predefined choices.
- * @param {string[]} props.values - Currently selected labels.
- * @param {(label: string) => void} props.onToggle - Toggles a label in the array.
- * @param {string} [props.placeholder] - Placeholder for the add input; defaults to the translated "Add your own…".
- * @param {string} [props.addAriaLabel] - Noun used in the input's aria-label.
- */
+/** Custom entries are held in the same plain string array as the predefined ones, so they flow
+ *  through the existing state/submit path with no schema change. */
 export default function FeatureSelector({
   options,
   values,
@@ -30,9 +17,8 @@ export default function FeatureSelector({
   const ph = placeholder || t('ui.addYourOwn');
   const noun = addAriaLabel || t('ui.featureNoun');
   const [draft, setDraft] = useState('');
-  // A short-lived confirmation so a commit always visibly "does something" —
-  // otherwise typing a name that's already selected (or a predefined tile that
-  // has scrolled out of view) just clears the box and reads as "nothing happened".
+  // A short-lived confirmation so a commit always visibly "does something": re-adding an entry
+  // already in the list would otherwise just clear the box and read as nothing happening.
   const [status, setStatus] = useState(null); // { text, tone: 'ok' | 'muted' }
   const inputRef = useRef(null);
   const statusTimer = useRef(null);
@@ -81,6 +67,12 @@ export default function FeatureSelector({
             <div
               key={label}
               onClick={() => onToggle(label)}
+              onKeyDown={onActivateKey(() => onToggle(label))}
+              // The app-wide :active press response selects on roles, never on tag names,
+              // so without this the grid stays inert under a finger.
+              role="button"
+              tabIndex={0}
+              aria-pressed={on}
               className={classNames('furn-tile', on && 'checked')}
             >
               <span className="furn-check"><Check className="w-3 h-3" /></span>
@@ -89,19 +81,28 @@ export default function FeatureSelector({
             </div>
           );
         })}
-        {customValues.map((label) => (
-          <div
-            key={label}
-            onClick={() => onToggle(label)}
-            className="furn-tile checked"
-            title={`Remove ${label}`}
-            data-custom="true"
-          >
-            <span className="furn-check"><X className="w-3 h-3" /></span>
-            <span className="furn-icon"><Sparkles className="w-5 h-5" /></span>
-            <span className="furn-label">{label}</span>
-          </div>
-        ))}
+        {customValues.map((label) => {
+          // aria-label overrides title for a screen reader but not for the mouse tooltip,
+          // so both are needed and must not drift.
+          const removeLabel = `Remove ${label}`;
+          return (
+            <div
+              key={label}
+              onClick={() => onToggle(label)}
+              onKeyDown={onActivateKey(() => onToggle(label))}
+              role="button"
+              tabIndex={0}
+              aria-label={removeLabel}
+              className="furn-tile checked"
+              title={removeLabel}
+              data-custom="true"
+            >
+              <span className="furn-check"><X className="w-3 h-3" /></span>
+              <span className="furn-icon"><Sparkles className="w-5 h-5" /></span>
+              <span className="furn-label">{label}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="mt-3 flex items-center gap-2 max-w-md">

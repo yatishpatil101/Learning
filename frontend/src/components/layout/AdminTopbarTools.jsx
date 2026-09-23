@@ -3,41 +3,25 @@ import { useNavigate } from 'react-router';
 import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Compass, BookOpen } from 'lucide-react';
 /* The Ctrl+K palette. Register item 22 in `tasks/DECISIONS-NEEDED.md`, resolved as option (1).
 
-   ## What this used to be
-
-   Seven categories, five of which answered from `rawDb()` — a synchronous read of the localStorage
-   store `main.jsx` seeds from `db.json` at boot, with no reference to the domain allow-list. In
-   mock mode that store *is* the system being administered and the answers were right; the moment a
-   domain went live it became a stale copy of a fixture file, and the palette handed an operator 80
-   fixture listings and 62 fixture users dressed as production rows, whose ids resolve to nothing on
-   the console each result links to.
-
-   The first repair gated each category on `!isHttpDomain(<its domain>)`, which stopped the lie but
-   left a live build with a palette that is only a nav-jumper — and, worse, one whose search field
-   went quiet exactly as the catalogue it should search got big enough to need searching. Item 22
-   listed the alternatives; option (1), the fan-out, is what this file now does.
-
-   ## Which two categories, and why not the other three
+   ## Which two categories search, and why not the other three
 
    `listings` and `people` go through the **seam**, not through `lib/`: `propertyService
-   .searchForModeration` and `usersService.listUsers` both already forward a `q` to their http
-   provider *and* implement it in their mock one, so one call site is correct in both builds and the
-   `isHttpDomain` branch disappears rather than being inverted. No endpoint was added — see
-   `toModerationQuery` and `GET /users?q=`, which were already there and already role-gated. The
-   authorization question item 22 raised is answered by using the console's own endpoints: a caller
-   who may not read `/admin/properties` gets the same refusal here as on the page itself.
+   .searchForModeration` and `usersService.listUsers` both forward a `q` to the API. No endpoint was
+   added — see `toModerationQuery` and `GET /users?q=`, which were already there and already
+   role-gated. The authorization question item 22 raised is answered by using the console's own
+   endpoints: a caller who may not read `/admin/properties` gets the same refusal here as on the
+   page itself.
 
-   Services, enquiries and deals are **dropped**, not hidden. `ticket` is live-only by D184 and has
-   no mock provider at all, and neither `contact` nor `deal` has a search parameter on its list
-   endpoint — so keeping them would mean either re-reading `db.json` (the original defect) or
-   fetching a page and filtering it in the browser, which is the "confident empty on a row that
-   exists" failure `searchForModeration`'s own docblock was written about. Three categories that
-   cannot answer honestly are better spent as three that can.
+   Services, enquiries and deals are **dropped**, not hidden. Neither `contact` nor `deal` has a
+   search parameter on its list endpoint, so keeping them would mean fetching a page and filtering
+   it in the browser — the "confident empty on a row that exists" failure `searchForModeration`'s
+   own docblock was written about. Three categories that cannot answer honestly are better spent as
+   three that can.
 
    ## Asynchrony is the cost, and it is paid here
 
-   The old `results` was a `useMemo` because the store was in memory. A network fan-out cannot be,
-   so the two halves are now separated: pages and features stay synchronous and appear on the first
+   A network fan-out cannot be a `useMemo`, so the two halves are separated: pages and features stay
+   synchronous and appear on the first
    keystroke, and the two data categories arrive when they arrive. Each is `allSettled` — a 403 on
    one desk must not blank the other — and the failure is *named on screen* rather than rendered as
    an empty category, because an empty category is indistinguishable from "no such listing". */
@@ -151,8 +135,11 @@ const FEATURES_INDEX = [
 
   /* Staff runbooks. Indexed here so the answer to "what is the SLA on this queue?"
      is one ⌘K away from the queue itself, rather than something you have to know
-     the help centre exists to find. These are the same articles gated by role in
-     lib/help.js — only internal accounts can reach the back-office at all. */
+     the help centre exists to find. The labels are written out rather than read
+     from the help content because the runbook bodies now ship as a separate chunk
+     fetched only for staff (see lib/help.js) — deriving the palette from it would
+     make these entries appear a beat after the palette opens. Titles here, the
+     procedures themselves behind the chunk. */
   { label: 'Verification SLAs', keywords: 'sla slas turnaround target verification kyc queue breach escalation runbook internal ops deadline', path: '/help/a/verification-sla', parent: 'Runbooks', flag: null },
   { label: 'Ticket Handling & Escalation', keywords: 'ticket handling escalation priority p0 p1 p2 p3 support refund approval ladder runbook internal ops', path: '/help/a/ticket-escalation', parent: 'Runbooks', flag: null },
   { label: 'Ops Playbook', keywords: 'ops playbook runbook internal staff procedures guide index', path: '/help/c/ops-playbook', parent: 'Runbooks', flag: null },
@@ -309,10 +296,9 @@ export default function AdminTopbarTools() {
     };
   }, [nav, remote, q, filter]);
 
-  /* The bell. Both queues over the seam, both `allSettled` for the same reason as the palette —
-     and `ticket` is live-only (D184), so in a mock build that half legitimately refuses and says
-     so. It must never fall back to "All caught up.": a console that agrees with you is more
-     dangerous than one that errors (D231). */
+  /* The bell. Both queues over the seam, both `allSettled` for the same reason as the palette: a
+     half that refuses must say so. It must never fall back to "All caught up." — a console that
+     agrees with you is more dangerous than one that errors (D231). */
   const [notif, setNotif] = useState({ pending: [], pendingTotal: 0, open: [], openTotal: 0, blind: [], total: 0 });
 
   useEffect(() => {
@@ -320,7 +306,7 @@ export default function AdminTopbarTools() {
     (async () => {
       const [pending, tickets] = await Promise.allSettled([
         searchForModeration({ status: 'pending' }, 'newest', { page: 1, size: BELL_CAP }),
-        // `open` is the server's word for unclaimed; the mock's `new` is not in `TicketStatuses`.
+        // `open` is the server's word for unclaimed.
         listTicketQueue({ status: 'open', page: 0, size: BELL_CAP }),
       ]);
       if (!live) return;

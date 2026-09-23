@@ -1,25 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
-/* CategorySwitcher — the shortlist's category switcher for phones (< sm).
-   Replaces the tab strip, which put three pills (icon + label + count) across a
-   360 px viewport: the labels truncated, "Flatmates & Rooms" had to be shortened
-   to "Flatmates" to fit at all, and the per-category descriptions had nowhere to
-   go. Here a single row shows the current category; tapping opens a bottom sheet
-   listing EVERY category with its description and count, so nothing is truncated
-   and the sizes of the other two shortlists are glanceable in one place.
-
-   Deliberately the same component as the dashboard's MobileNav (see
-   pages/consumer/dashboard/MobileNav.jsx) down to the markup: same trigger
-   geometry, same dz-modal-panel / glass-card / brand-teal sheet, same focus and
-   Escape handling. A second, subtly different sheet would be worse than the row
-   this replaces. Tablet and desktop keep the pill strip unchanged.
-
-   `data-no-ptr` on the overlay: Saved arms pull-to-refresh on the page root, and
-   this sheet is a DOM descendant of it, so a downward drag inside the sheet would
-   otherwise be read as an overscroll at the top of the page and fire a refetch —
-   see lib/usePullToRefresh.js. */
+/* `data-no-ptr` on the overlay: Saved arms pull-to-refresh on the page root and this sheet is a DOM
+   descendant, so a drag inside it would otherwise read as an overscroll — see lib/usePullToRefresh.js. */
 
 export default function CategorySwitcher({ categories, activeKey, counts = {}, onSelect, labelFor, descFor }) {
   const { t: tr } = useTranslation();
@@ -29,14 +14,14 @@ export default function CategorySwitcher({ categories, activeKey, counts = {}, o
   const panelRef = useRef(null);
   const wasOpen = useRef(false);
   const headingId = useId();
+  useScrollLock(open);
   const active = useMemo(
     () => categories.find((c) => c.key === activeKey) || categories[0],
     [categories, activeKey],
   );
 
-  // While the sheet is open, behave like a proper modal: close on Escape, keep Tab
-  // focus inside the panel, and auto-focus its first control. On close, hand focus
-  // back to the switcher so keyboard users never lose their place (WCAG 2.4.3).
+  // While the sheet is open, behave like a proper modal: close on Escape, trap Tab inside the
+  // panel, and hand focus back to the switcher on close (WCAG 2.4.3).
   useEffect(() => {
     if (!open) {
       // Only pull focus back to the switcher after an actual open→close (never on
@@ -89,8 +74,7 @@ export default function CategorySwitcher({ categories, activeKey, counts = {}, o
 
       {open && (
         /* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions --
-           Backdrop-click-to-dismiss; mirrors `dashboard/MobileNav.jsx`. Escape is bound on the
-           document while the sheet is open, which is the keyboard equivalent the rule wants. */
+           Backdrop-click-to-dismiss; Escape is bound on the document while the sheet is open. */
         <div
           data-no-ptr
           className="fixed inset-0 z-[1500] flex items-end justify-center bg-black/75 backdrop-blur-md"

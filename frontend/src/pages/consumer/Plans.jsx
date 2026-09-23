@@ -11,31 +11,16 @@ import { useAuth } from '../../context/AuthContext.jsx';
 /**
  * The plan catalogue is the price.
  *
- * These cards used to render `fee('ownerPlanYearly')` — the back-office Fees panel — while
- * `POST /me/subscription` charged whatever the server's plan row said. `SubscribeRequest` carries
- * no price, so the client number never travels: it is a *claim about* the charge, not the charge.
- * When the two disagreed the customer was shown ₹999 and billed ₹2,499.
+ * `POST /me/subscription` charges whatever the server's plan row says, and `SubscribeRequest`
+ * carries no price, so any client number is a *claim about* the charge rather than the charge.
+ * Quote a card from the back-office Fees panel instead and the customer can be shown ₹999 and
+ * billed ₹2,499. Same for the rent-agreement platform fee: `platform_fees('rent')` is what
+ * checkout bills from, while `FEE_DEFAULTS.rentAgreementPlatform` is a bundled guess.
  *
- * So the server wins, and the Fees panel keeps only the non-plan charges it genuinely owns
- * (rent-agreement platform fee, featured listing). `fee()` stays as the fallback for the moment
- * before the catalogue resolves and for a failed fetch — a pricing page that renders a stale number
- * still converts; one that renders a blank does not.
- *
- * ## The paragraph above named the rent-agreement fee as one the panel "genuinely owns". It does not
- *
- * That sentence was written when this page was flipped to the plan catalogue, and it was true of
- * *featured listing*, which has no server row anywhere. It was never true of the rent-agreement
- * platform fee. `platform_fees('rent')` has carried that figure since the fees domain was built, the
- * rent-agreement sidebar has read it through `feesService` since D150, and the checkout bills from
- * it.
- *
- * Which means this page had exactly the bug its own header describes, on a different number. The
- * seeded `platform_fees` row is **1999**; `FEE_DEFAULTS.rentAgreementPlatform` is **500**. A visitor
- * read "₹500 platform fee" in the panel below and in FAQ 4, clicked through, and met ₹1,999 in the
- * wizard — shown one price, charged another, which is the sentence three paragraphs up.
- *
- * So the fee is fetched from the same `GET /fees` the sidebar reads, and `fee()` survives only as
- * the pre-resolution and failed-fetch fallback, for the same reason it does for the plan cards.
+ * So every figure here is fetched — plans from the catalogue, the rent fee from the same
+ * `GET /fees` the rent-agreement sidebar reads. `fee()` survives only as the pre-resolution and
+ * failed-fetch fallback: a pricing page that renders a stale number still converts; one that
+ * renders a blank does not.
  */
 const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
@@ -59,13 +44,16 @@ const ownerPlans = (t, fee) => [
  *                bundle shipped with and never hear about a change.
  *
  *                It must be this resolver and not `fee()` directly. `GET /pricing` and `GET /plans`
- *                are two different tables answering two different questions, and on the seeded
- *                catalogue they disagree: the fee schedule says Owner Plus is ₹999 where the
- *                catalogue — the number that is charged — says ₹2,499. An FAQ answering "how much
- *                are the owner plans" from the fee schedule therefore quoted ₹999 directly beneath
- *                a card quoting ₹2,499 for the same plan, and quoted Owner Pro at ₹2,499, which is
- *                Owner Plus's real price. Same page, three numbers, one of them a live mis-quote of
- *                a real charge.
+ *                are two different tables answering two different questions, and if they disagree
+ *                an FAQ answering "how much are the owner plans" from the fee schedule quotes one
+ *                number directly beneath a card quoting another for the same plan. A backend test
+ *                pins the two together, so the
+ *                numbers now agree — which is exactly why this still reads the catalogue. Agreement
+ *                is an invariant somebody maintains, not a property of the data; the moment an
+ *                operator edits one table the prose must follow the one that is charged, and a
+ *                resolver that was switched back to `fee()` while they happened to match would
+ *                reintroduce the bug silently, with nothing on screen to show for it until a
+ *                customer was quoted a price they would not be billed.
  */
 const plansFaqs = (t, rentFee, price) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
@@ -198,8 +186,8 @@ export default function Plans() {
   const { t } = useTranslation();
   const { hasEverListed } = useAuth();
   // The platform's own price list, from `GET /pricing`. This is the fallback the catalogue reads
-  // below fall through to — it used to be a constant compiled into the bundle, which meant a page
-  // whose whole purpose is to quote a price quoted one nobody could change.
+  // below fall through to — a constant compiled into the bundle would mean a page whose whole
+  // purpose is to quote a price quoting one nobody could change.
   const { fee } = usePricing();
   // The plan the caller holds, from the same context the paywall and the Feature action read, so
   // the "Current plan" lock on a card cannot disagree with the entitlement it implies.

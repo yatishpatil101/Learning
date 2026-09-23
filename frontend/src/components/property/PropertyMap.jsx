@@ -168,7 +168,10 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
           colorScheme="DARK"
           defaultCenter={initialCenter}
           defaultZoom={initialZoom}
-          gestureHandling="greedy"
+          /* Not greedy: every caller embeds this in a scrolling document — the locality card, the
+             detail page's tab panel, the results pane — so a greedy map swallows the one-finger
+             drag meant for the page. Cooperative pans on two fingers instead. */
+          gestureHandling="cooperative"
           clickableIcons={false}
           mapTypeControl={false}
           streetViewControl={false}

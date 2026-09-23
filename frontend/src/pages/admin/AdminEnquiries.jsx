@@ -19,9 +19,8 @@ import FunnelView from './enquiries/FunnelView.jsx';
 import { ENQUIRY_STATUS_OPTS, VISIT_STATUS_OPTS, DEAL_STATUS_OPTS, DEAL_TYPE_OPTS, AWAITING_STATUSES } from './enquiries/constants.js';
 
 /**
- * Timestamps arrive as ISO instants from the server and as pre-written strings from the mock store.
- * Formatting the parseable ones and passing everything else through keeps one column readable under
- * both providers without the page needing to know which one it is talking to.
+ * Timestamps arrive as ISO instants. Formatting the parseable ones and passing everything else
+ * through keeps one column readable when a row carries a pre-written string instead.
  */
 const fmtWhen = (v) => {
   if (!v) return '\u2014';
@@ -31,7 +30,7 @@ const fmtWhen = (v) => {
 };
 
 /**
- * The demand console — enquiries, site visits and closed deals (D25).
+ * The demand console — enquiries, site visits and closed deals.
  *
  * ## Two things about this page are load-bearing
  *
@@ -42,20 +41,18 @@ const fmtWhen = (v) => {
  * therefore not a disclosure toggle in the browser; there is nothing here to toggle, because the
  * number was never sent.
  *
- * That also silently fixes the CSV export, which used to write `r.mobile` for every filtered row.
- * It still does — it just cannot reach anything now, because the rows in memory are the masked ones.
+ * The CSV export writes `r.mobile` for every filtered row and therefore cannot reach a real
+ * number: the rows in memory are the masked ones.
  *
- * **The board is read-only, and now it is read-only in both modes.** "Responded" writes an
- * **internal note on the listing** rather than flipping a status: `contact_requests.status` is the
- * *owner's* consent decision (`pending → approved | declined`, per `ContactRequestStatuses`), so a
- * desk writing "responded" into it would be forging a consent the owner never gave. A note is a
- * sentence a colleague can read next week and nobody has to take on trust.
+ * **The board is read-only.** "Responded" writes an **internal note on the listing** rather than
+ * flipping a status: `contact_requests.status` is the *owner's* consent decision (`pending →
+ * approved | declined`, per `ContactRequestStatuses`), so a desk writing "responded" into it would
+ * be forging a consent the owner never gave. A note is a sentence a colleague can read next week
+ * and nobody has to take on trust.
  *
- * The console used to carry a second set of buttons — Close, visit completion, cancel, reschedule —
- * that wrote to the browser store through `mutateDb` and were hidden when the domain was live. They
- * are gone. They had no server-side meaning, so what they really offered was a desk that looked like
- * it worked and quietly did nothing to the platform; the toast said "Visit cancelled" and no visitor
- * was ever told. Deleting them is what removed the last `lib/mockApi.js` import under `pages/admin/`.
+ * There is deliberately no Close, visit-completion, cancel or reschedule button. None of them has
+ * a server-side meaning, so what they offer is a desk that looks like it works and quietly does
+ * nothing to the platform — the toast says "Visit cancelled" and no visitor is ever told.
  */
 export default function AdminEnquiries() {
   const { toast } = useToast();
@@ -91,9 +88,6 @@ export default function AdminEnquiries() {
    * back-office surface over the four record kinds ops already work cases on, and the listing is the
    * thing a colleague picking this up tomorrow will open. A new note entity for a row that has no
    * writes of its own would be a table to serve one sentence.
-   *
-   * Unconditional now. `addNote` is a real service call with a provider on both sides, so the mock
-   * desk performs the same action the live one does instead of a different, invented one.
    */
   const noteResponded = async (r) => {
     try {
@@ -220,7 +214,6 @@ export default function AdminEnquiries() {
     ) },
   ];
 
-  // Mobile card renderers — one per tab (columns differ per record type)
   const enquiryCard = (r) => (
     <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">

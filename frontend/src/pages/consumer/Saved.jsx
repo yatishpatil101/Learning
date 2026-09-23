@@ -32,23 +32,15 @@ const statusLabelFor = (status) => {
   return status.charAt(0).toUpperCase() + status.slice(1);
 };
 
-/* The flatmate half of the shortlist, read from the seam.
-
-   It used to be a synchronous `localStorage` read of `draazyFlatmateSaved`, which stored the
-   rendered card alongside the key — so this page drew the title, locality and rent a room had at
-   the moment it was bookmarked, and went on drawing them after the host changed or withdrew it.
-   The saves are now server-side and keys only, so the card is joined on read and is current by
-   construction. The trade is that this is a fetch: it needs an effect, and pull-to-refresh below
-   re-runs it rather than re-reading a string. */
+/* The flatmate half of the shortlist. Saves are server-side and keys only, so the card is joined on
+   read and is current by construction — which makes this a fetch rather than a synchronous read. */
 async function readFlatmateSaves() {
   const page = await flatmateService.listFlatmateSaves();
   return (page?.items || []).map(toSavedCard).filter(Boolean);
 }
 
-/* Arms swipe-left-to-remove on one saved card. A component rather than an inline
-   hook call because hooks can't run inside a .map(). The gesture itself is
-   mobile-only (useSwipeDismiss never arms above 640px), and `pan-y` keeps the
-   page's vertical scroll with the browser while we claim the horizontal axis. */
+/* A component rather than an inline hook call because hooks can't run inside a `.map()`. `pan-y`
+   keeps the page's vertical scroll with the browser while the gesture claims the horizontal axis. */
 function SwipeCard({ onRemove, className, children }) {
   const swipe = useSwipeDismiss(onRemove, { axis: 'x' });
   return (
@@ -58,15 +50,8 @@ function SwipeCard({ onRemove, className, children }) {
   );
 }
 
-/* The placeholder a removed card leaves behind for `UNDO_WINDOW_MS`.
-
-   `role="status"` announces the removal, and focus moves onto Undo because the
-   control that caused it — the card's own trash button, or the card itself under a
-   swipe — unmounts with the card. Without the move, focus falls to `<body>` and a
-   keyboard or screen-reader user would have to tab from the top of the document to
-   reach an escape hatch that expires in five seconds. The button carries the card's
-   title in its accessible name for the same reason: on arrival "Undo" alone does
-   not say what is being undone. */
+/* Focus moves onto Undo because the control that caused the removal unmounts with the card — focus
+   would otherwise fall to `<body>`, far from an escape hatch that expires in five seconds. */
 function UndoRow({ label, undoLabel, undoAria, onUndo }) {
   const btn = useRef(null);
   useEffect(() => { btn.current?.focus(); }, []);
@@ -96,32 +81,22 @@ export default function Saved() {
   const [tab, setTab] = useState('buy');
   const [sort, setSort] = useState('newest');
   const [removing, setRemoving] = useState(() => new Set());
-  /* Ids removed but not yet committed — they render as an undo row instead of a
-     card. A swipe is easy to fire by accident on a list the user curated by hand,
-     so removal is always reversible for a few seconds. Every removal path goes
-     through here, not just the gesture: a gesture-only undo would leave the people
-     who cannot swipe with the destructive half of the feature and none of the
-     safety net. */
+  /* Ids removed but not yet committed — they render as an undo row instead of a card. Every removal
+     path goes through here, or the people who cannot swipe get the destructive half only. */
   const [pendingRemoval, setPendingRemoval] = useState(() => new Set());
   const undoTimers = useRef(new Map());
 
   const savedList = useSaved();
   const { create: createSavedSearch } = useSavedSearches();
 
-  /* Saved properties come from the shared shortlist, which already holds the rows: the page used to
-     read a list of ids and then fetch each property, so a shortlist of thirty cost thirty-one
-     requests to render. This is a pure reshape of rows already in hand — hence useMemo, not an
-     effect with its own fetch. Flatmate saves are a separate localStorage feature and still load
-     below; only the property half moved. */
+  /* The shared shortlist already holds the rows, so this is a pure reshape — hence useMemo, not an
+     effect with its own fetch, which would cost a request per card. */
   const dynamicSaved = useMemo(() => savedList.items.map((p) => {
     const isRent = p.deal === 'rent';
     return {
       id: p.id,
-      /* The row's primary key, carried alongside the routing token because `remove()` below
-         addresses a `DELETE /me/saved/{propId}` with it. `SavedContext.toggle` can fall back to
-         looking it up in its own shortlist, so omitting this would still work — but then the call
-         site would read as though a card knows nothing about the row it came from, and the fallback
-         would be load-bearing for the one caller instead of a safety net for the others. */
+      // `remove()` below addresses `DELETE /me/saved/{propId}` with the row's primary key, not the
+      // routing token.
       uuid: p.uuid,
       cat: isRent ? 'rent' : 'buy',
       title: p.title || p.type || 'Property',
@@ -154,9 +129,8 @@ export default function Saved() {
   );
   useEffect(() => { loadFlatmateSaves(); }, [loadFlatmateSaves, isIn]);
 
-  /* Pull down from the top of the list to re-read both halves: the property shortlist from its
-     context and the flatmate saves from theirs. Refreshing only one would leave the gesture looking
-     like it half worked on a page that shows the two interleaved. */
+  /* Re-reads both halves: refreshing only one would leave the gesture looking like it half worked
+     on a page that shows the two interleaved. */
   const refreshShortlist = savedList.refresh;
   const ptr = usePullToRefresh(useCallback(
     () => Promise.resolve(refreshShortlist()).catch(() => {}).then(loadFlatmateSaves),
@@ -178,9 +152,7 @@ export default function Saved() {
         savedList.toggle(id, card.uuid);
       } else if (card && card.cat === 'flatmates') {
         /* Drop it locally first so the card leaves with the animation, then tell the server. A
-           refused unsave puts it back, for the same reason the bookmark on the board does: a card
-           that vanishes from a shortlist the server still holds reappears on the next visit with no
-           explanation. */
+           refused unsave puts it back, or it reappears on the next visit with no explanation. */
         setCards((arr) => arr.filter((c) => c.id !== id));
         flatmateService.unsaveFlatmatePost(card.saveKind, String(card.id).slice(2))
           .catch((e) => {
@@ -242,7 +214,6 @@ export default function Saved() {
     toast(tr('saved.alertToast'), 'success');
   };
 
-  // Merge hardcoded + share + dynamically saved (from heart toggles)
   const allCards = useMemo(() => {
     const existingIds = new Set(cards.map((c) => c.id));
     const merged = [...cards, ...dynamicSaved.filter((d) => !existingIds.has(d.id))];
@@ -303,10 +274,8 @@ export default function Saved() {
             )}
           </div>
 
-          {/* Signed-out shortlists are real: Reels, Compare and the map detail panel
-              all write dzSavedProps while logged out, and Saved is a permanent bottom-nav
-              tab. Show what's on the device and explain the ceiling, rather than bouncing
-              the user to a login wall they never asked for. */}
+          {/* Signed-out shortlists are real — Reels, Compare and the map detail panel all write
+              dzSavedProps while logged out. Show the device's list rather than a login wall. */}
           {!isIn && (
             <div className={'mb-6 sm:mb-8 flex flex-col gap-3 rounded-2xl border border-teal-400/20 bg-teal-500/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between fade-in' + (mounted ? ' visible' : '')}>
               <div className="flex items-start gap-3 min-w-0">
@@ -327,11 +296,8 @@ export default function Saved() {
 
           {allCards.length > 0 ? (
             <>
-              {/* Three pills across a 360 px viewport truncated their own labels —
-                  "Flatmates & Rooms" only fit as "Flatmates" — and left no room for
-                  the descriptions that tell the categories apart. Phones get the
-                  dashboard's bottom-sheet switcher instead; tablet and desktop keep
-                  the centred pill strip below, unchanged. */}
+              {/* Three pills across a 360px viewport truncate their own labels and leave no room for
+                  the descriptions, so phones get a bottom sheet instead. Tablet and desktop keep the strip. */}
               <CategorySwitcher
                 categories={CATEGORIES}
                 activeKey={tab}

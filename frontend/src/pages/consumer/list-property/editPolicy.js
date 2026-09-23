@@ -1,7 +1,7 @@
 /* Single source of truth for how owner edits are treated once a listing is live: TIER A (identity fields,
    existing photos) stays live but is flagged for an anti bait-and-switch re-check; TIER B publishes instantly. */
 
-/* ---------- amount parser (kept local so this stays dependency-free) ---------- */
+/* Kept local so this file stays dependency-free. */
 const amount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
 
 /* Tier A — material fields. Editing any of these on a live listing schedules a
@@ -14,6 +14,8 @@ export const TIER_A_FIELDS = [
   { key: 'carpetArea', label: 'Carpet area' },
   { key: 'builtUp', label: 'Built-up area' },
   { key: 'plotArea', label: 'Plot area' },
+  // The zone is what `landUseFor` derives `landUse` from, and the server takes a listing off search for it.
+  { key: 'plotZone', label: 'Plot zone' },
   { key: 'floor', label: 'Floor' },
   { key: 'totalFloors', label: 'Total floors' },
   { key: 'facing', label: 'Facing' },
@@ -94,6 +96,9 @@ export const FOUNDATION_OFF_SEARCH_KEYS = {
   propertyType: ['propertyType'],
   locality: ['locality'],
   deal: ['deal'],
+  /* Nobody types `landUse`; it is derived by `landUseFor(propertyType, plotZone)`. Only the zone is named
+     here because `propertyType` is already its own entry above and both flatten into the same Set. */
+  landUse: ['plotZone'],
 };
 
 /** Foundation fields whose edit is re-checked but stays in search (server: requestRecheck). */

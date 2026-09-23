@@ -247,7 +247,11 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
 
       {/* Mobile filter drawer */}
       <div className={'filter-overlay lg:hidden ' + (drawer ? 'open' : '')} onClick={() => setDrawer(false)} />
-      <div className={'filter-panel lg:hidden p-6 ' + (drawer ? 'open' : '')} role="dialog" aria-label={t('flatmates.filters')} aria-modal="true">
+      {/* `p-6` dropped because `.sf-page .filter-panel` already overrides all four sides — the split
+          its own comment warns against. `inert` while closed for the same reason the account drawer
+          carries it: the panel keeps its shape through the slide-out, so its buttons stay focusable
+          and it stays announced as a modal dialog while parked off-screen. */}
+      <div className={'filter-panel lg:hidden ' + (drawer ? 'open' : '')} role="dialog" aria-label={t('flatmates.filters')} aria-modal="true" inert={!drawer}>
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-bold text-white">{t('flatmates.filters')}{activeCount > 0 && <span className="ml-2 text-sm font-medium text-teal-300">· {t('flatmates.nActive', { count: activeCount })}</span>}</h3>
           <button onClick={() => setDrawer(false)} className="w-11 h-11 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center hover:bg-white/10 t-all" aria-label={t('flatmates.ariaCloseFilters')}>

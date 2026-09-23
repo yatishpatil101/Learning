@@ -16,14 +16,13 @@ export default function ReviewsTab({ ctx }) {
    * collapsing it into the unrated branch is the shape that let a total review outage read as "no
    * reviews yet" on every property page for weeks. It stays its own branch.
    *
-   * The aggregate now requires a real review behind it. It used to render for any society that was
-   * neither thin nor community-sourced — all 348 curated rows — because the bars had a baseline to
-   * fall back on. D197 deleted that baseline, so at zero reviews there is nothing to draw.
+   * The aggregate requires a real review behind it: the bars have no baseline to fall back on, so
+   * at zero reviews there is nothing to draw.
    *
    * The grid is gated separately, on `bars.length`, and the two conditions are genuinely different:
    * a review may rate the society overall and skip every aspect, which leaves a headline worth
-   * printing and no bars to print under it. Sharing one gate rendered an empty grid element whose
-   * bottom margin opened a gap the reader could see and not explain.
+   * printing and no bars to print under it. Sharing one gate renders an empty grid element whose
+   * bottom margin opens a gap the reader can see and not explain.
    *
    * Neither gate carries the "nobody has reviewed this" sentence. That comes from the empty-list
    * line below, which is driven by `reviews.length` — a *different* read from `rating.count`. The
@@ -55,15 +54,12 @@ export default function ReviewsTab({ ctx }) {
               ) : null}
               {reviews.length ? (
                 <div className="space-y-3">
-                  {/* No author badge here, and there cannot be one. This card used to read
-                      `r.resident`, a flag the mock computed in the browser from
-                      `isVerifiedResident(slug)` and stored alongside the review — a review's standing
-                      was whatever the writer's own tab claimed. The view model has no such field, so
-                      the badge had simply stopped rendering; the server's equivalent is `context`,
-                      and `reviewMapper` documents it as **null on society reviews** because there is
-                      no tenancy or visit to derive one from. Re-pointing at `context` would render a
-                      badge that is null for every row on this tab, which is the same dead affordance
-                      with a more convincing name. */}
+                  {/* No author badge here, and there cannot be one. The view model carries no
+                      standing for a society review: the server's equivalent is `context`, and
+                      `reviewMapper` documents it as **null on society reviews** because there is
+                      no tenancy or visit to derive one from. Pointing at `context` would render a
+                      badge that is null for every row on this tab, which is a dead affordance
+                      with a convincing name. */}
                   {reviews.slice(0, 5).map((r) => (
                     <div key={r.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between mb-1"><span className="font-semibold text-sm flex items-center gap-1.5">{r.user}</span><span className="flex items-center gap-2"><Stars value={r.rating} size={14} /><button onClick={() => openReport({ targetType: 'review', targetId: r.id, snapshot: r.text || `${r.rating}★ · ${r.user}` })} aria-label={t('society.reportReview')} className="text-gray-500 hover:text-amber-300"><Icon name="flag" className="w-3.5 h-3.5" /></button></span></div>{r.text ? <p className="text-gray-400 text-sm">{r.text}</p> : null}</div>
                   ))}

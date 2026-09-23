@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -5,30 +6,49 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import AgreementUpload from './AgreementUpload.jsx';
+import FlatmateTerms from './FlatmateTerms.jsx';
 import { LOCALITIES } from './constants.js';
 import { inr } from './helpers.js';
+import isTopDialog from '../../../lib/isTopDialog.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
 export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpDraft, grp, setGrp, grpErr, myListings, myListingsStatus, retryMyListings, myTenancies, myTenanciesStatus, retryMyTenancies, onAttachProperty, onAttachTenancy, onRequestConsent }) {
   const { t: tr } = useTranslation();
+  const panelRef = useRef(null);
+  /* Reference-counted inside the hook, which matters here: this sheet can open the owner-consent
+     modal on top of itself, and an unconditional release when that one closes would let the board
+     scroll while this form is still up. */
+  useScrollLock();
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isTopDialog(panelRef.current)) return;
+      if (e.key === 'Escape') setGroupOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [setGroupOpen]);
   return (
     <div className="sf-modal" onClick={() => setGroupOpen(false)}>
-      <div className="glass rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={tr('flatmates.groupModalTitle')} className="glass rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-5">
           <div><h2 className="text-xl font-bold text-white">{tr('flatmates.groupModalTitle')}</h2><p className="text-gray-400 text-xs mt-1">{tr('flatmates.groupModalSubtitle')}</p></div>
           <button onClick={() => setGroupOpen(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <form onSubmit={submitGroup} className="space-y-4" ref={grpFormRef}>
           <AutosaveBanner restored={grpDraft.restored} onStartFresh={grpDraft.startFresh} />
-          <div data-err="title"><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.groupTitleLabel')} <span className="text-rose-400">*</span></label><input value={grp.title} onChange={(e) => { setGrp({ ...grp, title: e.target.value }); grpErr.clear('title'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + grpErr.cx('title')} placeholder={tr('flatmates.groupTitlePlaceholder')} /><FieldError show={grpErr.has('title')}>{grpErr.msg('title')}</FieldError></div>
+          <div data-err="title"><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.groupTitleLabel')} <span className="text-rose-400">*</span></label><input value={grp.title} onChange={(e) => { setGrp({ ...grp, title: e.target.value, consentVerified: false }); grpErr.clear('title'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + grpErr.cx('title')} placeholder={tr('flatmates.groupTitlePlaceholder')} /><FieldError show={grpErr.has('title')}>{grpErr.msg('title')}</FieldError></div>
           {/* Where + who this share is open to */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.fLocality')} <span className="text-rose-400">*</span></label><LocalitySelect value={grp.locality} onChange={(v) => setGrp({ ...grp, locality: v })} options={LOCALITIES} placeholder={tr('flatmates.selectLocality')} ariaLabel={tr('flatmates.fLocality')} className="w-full" /></div>
+            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.fLocality')} <span className="text-rose-400">*</span></label><LocalitySelect value={grp.locality} onChange={(v) => setGrp({ ...grp, locality: v, consentVerified: false })} options={LOCALITIES} placeholder={tr('flatmates.selectLocality')} ariaLabel={tr('flatmates.fLocality')} className="w-full" /></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.openTo')}</label><NativeSelect value={grp.policy} onChange={(e) => setGrp({ ...grp, policy: e.target.value })} className="field w-full rounded-full px-4 py-2 text-sm"><option value="women">{tr('flatmates.optWomenOnly')}</option><option value="men">{tr('flatmates.optMenOnly')}</option><option value="any">{tr('flatmates.optAnyone')}</option></NativeSelect></div>
           </div>
           {/* The money split: rent + people directly drive the per-person share shown below */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div data-err="rent"><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.totalMonthlyRent')} <span className="text-rose-400">*</span></label><input type="number" min="1" value={grp.rent} onChange={(e) => { setGrp({ ...grp, rent: e.target.value }); grpErr.clear('rent'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + grpErr.cx('rent')} placeholder={tr('flatmates.rentPlaceholder')} /><FieldError show={grpErr.has('rent')}>{grpErr.msg('rent')}</FieldError></div>
-            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.peopleSharing')} <span className="text-rose-400">*</span></label><input type="number" min="2" max="6" value={grp.seats} onChange={(e) => setGrp((g) => { const s = parseInt(e.target.value, 10); if (!s) return { ...g, seats: e.target.value }; const maxOpen = Math.max(1, s - 1); return { ...g, seats: e.target.value, seatsOpen: String(Math.min(parseInt(g.seatsOpen, 10) || 1, maxOpen)) }; })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" /></div>
+            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.peopleSharing')} <span className="text-rose-400">*</span></label><input type="number" min="1" max="12" value={grp.seats} onChange={(e) => setGrp({ ...grp, seats: e.target.value })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" /></div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.groupDeposit')} <span className="text-gray-600">{tr('flatmates.optional')}</span></label><input type="number" min="0" value={grp.deposit} onChange={(e) => setGrp({ ...grp, deposit: e.target.value })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" placeholder={tr('flatmates.depositPlaceholder')} /></div>
           </div>
           {/* Per-person share — a derived, read-only summary. Rendered as caption text
               (not an input tile) so it can't be mistaken for a field the host must fill. */}
@@ -38,10 +58,7 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
             <span className="text-sm font-bold gradient-text">{grp.rent && grp.seats ? inr(Math.round(+grp.rent / +grp.seats)) + tr('flatmates.perMonth') : '—'}</span>
             <span className="text-[11px] text-gray-600">{tr('flatmates.autoSplit')}</span>
           </div>
-          {/* Current vacancy — smart-capped to (people − 1) since you already hold one seat */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.seatsOpenNow')} <span className="text-rose-400">*</span></label><input type="number" min="1" max={Math.max(1, (parseInt(grp.seats, 10) || 2) - 1)} value={grp.seatsOpen} onChange={(e) => setGrp((g) => { const raw = e.target.value; if (raw === '') return { ...g, seatsOpen: '' }; const maxOpen = Math.max(1, (parseInt(g.seats, 10) || 2) - 1); return { ...g, seatsOpen: String(Math.max(1, Math.min(maxOpen, parseInt(raw, 10) || 1))) }; })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" /><p className="text-[11px] text-gray-500 mt-1">{tr('flatmates.seatsOpenHelp')}</p></div>
-          </div>
+          <FlatmateTerms value={grp} onChange={(patch) => setGrp((g) => ({ ...g, ...patch }))} />
           <div data-err="name"><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.nameLabel')} <span className="text-rose-400">*</span></label><input value={grp.name} onChange={(e) => { setGrp({ ...grp, name: e.target.value }); grpErr.clear('name'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + grpErr.cx('name')} placeholder={tr('flatmates.yourNamePlaceholder')} /><FieldError show={grpErr.has('name')}>{grpErr.msg('name')}</FieldError></div>
           <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.shortNote')} <span className="text-gray-600">{tr('flatmates.optional')}</span></label><textarea value={grp.note} onChange={(e) => setGrp({ ...grp, note: e.target.value })} rows={2} className="field w-full rounded-xl px-3.5 py-2.5 text-sm resize-none" placeholder={tr('flatmates.groupNotePlaceholder')} /></div>
 
@@ -115,6 +132,8 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
                   <AgreementUpload
                     doc={grp.agreementDoc}
                     onChange={(doc) => setGrp((g) => ({ ...g, agreementDoc: doc }))}
+                    registration={{ regNo: grp.agreementRegNo, registeredOn: grp.agreementRegisteredOn, validTill: grp.agreementValidTill }}
+                    onRegistrationChange={(next) => setGrp((g) => ({ ...g, agreementRegNo: next.regNo, agreementRegisteredOn: next.registeredOn, agreementValidTill: next.validTill }))}
                     ariaLabel={tr('flatmates.agreementUploadAria')}
                     hint={tr('flatmates.agreementUploadHint')}
                   />

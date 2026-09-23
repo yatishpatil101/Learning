@@ -12,17 +12,15 @@ export function SocietySection({ p }) {
   /* Which building this listing names, from the seam.
    *
    * The slug comes from the listing itself where the server put it, and only falls back to
-   * `societyForListing` for records that carry the synthetic `societyId` instead — mock rows and
-   * community societies still key on `S01`. Preferring the slug is not tidiness: `societyForListing`
+   * `societyForListing` for records that carry the synthetic `societyId` instead — community
+   * societies still key on `S01`. Preferring the slug is not tidiness: `societyForListing`
    * resolves against the bundled catalogue, so a listing bound to a society **minted through the
-   * API** found nothing and this whole section vanished, which on a property page reads as "this
+   * API** finds nothing and this whole section vanishes, which on a property page reads as "this
    * home is not in a society" about a home that is.
    *
-   * This also retires the `useSocietyCatalogue()` re-render trick that used to live here. 320 of
-   * the 348 bundled slugs arrive in a lazy chunk, and a synchronous read answered null for them on
-   * first paint with nothing to correct it; the component subscribed to the chunk purely to be
-   * re-run. The mock provider now awaits the catalogue before answering, so the wait is the seam's
-   * and this component just gets told once, the same way it would live.
+   * There is deliberately no `useSocietyCatalogue()` re-render subscription here. 320 of the 348
+   * bundled slugs arrive in a lazy chunk, so a synchronous read answers null for them on first
+   * paint. Awaiting the catalogue is the seam's job; this component is told once.
    *
    * `null` is left as `null` — no `genericSociety` here. The section's whole contract is that its
    * absence means "we do not know this home's building", and inventing a row to fill it would put
@@ -71,18 +69,16 @@ export function SocietySection({ p }) {
     return () => { alive = false; };
   }, [slug]);
 
-  /* D19 — no binding, no section. Every hook above still runs, so this early return is safe.
+  /* No binding, no section. Every hook above still runs, so this early return is safe.
 
-     `societyForListing` used to answer with `SOCIETIES[fnvHash(p.id) % SOCIETIES.length]`, which is
-     never null, so this component always had a society to draw and the question "is this listing in
-     a society at all?" was never asked. It now answers null for a listing that carries no
-     `societySlug`, which is most of them: an owner is not obliged to name a building, and
-     `properties.society_id` is null for the majority of real rows.
+     `societyForListing` answers null for a listing that carries no `societySlug`, which is most of
+     them: an owner is not obliged to name a building, and `properties.society_id` is null for the
+     majority of real rows.
 
      The tempting half-measure — keep the heading, drop the details — is worse than nothing. A
      "Society Information" heading over a generic "Building" name, a registration tile and a
      conveyance tile still asserts that this home belongs to a society and that someone checked its
-     paperwork. Those tiles were fed by `p.ownershipVerified`, which is a claim about the *seller's*
+     paperwork. Those tiles are fed by `p.ownershipVerified`, which is a claim about the *seller's*
      title and says nothing at all about a society's registration or conveyance deed. Absent is the
      only honest rendering of unknown. */
   if (!soc) return null;

@@ -22,7 +22,8 @@ export default function SocietyMap({ lat, lng, name, height = 220 }) {
           colorScheme="DARK"
           defaultCenter={position}
           defaultZoom={15}
-          gestureHandling="greedy"
+          /* Not greedy: a 220px card mid-page should never capture the scroll gesture. */
+          gestureHandling="cooperative"
           clickableIcons={false}
           mapTypeControl={false}
           streetViewControl={false}

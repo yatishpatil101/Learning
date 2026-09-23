@@ -13,11 +13,6 @@ export default function BuyExtraSections({ f, set, idp }) {
   if (isRent) return null;
   return (
     <>
-      <FilterGroup icon="ruler" title={t('listings.carpetArea')} summary={f.area[0] === 0 && f.area[1] === 6000 ? '' : `${f.area[0]} - ${f.area[1]}`} defaultCollapsed>
-        <DualRange min={0} max={6000} step={50} value={f.area} onChange={(v) => set({ area: v })} label={t('listings.carpetAreaLabel')} format={(v) => v.toLocaleString('en-IN')} />
-      </FilterGroup>
-      <Divider />
-
       {vis('age') && (
         <>
           <FilterGroup icon="calendar-clock" title={t('listings.propertyAge')} summary={f.age[0] === 0 && f.age[1] === 25 ? '' : `${f.age[0]} - ${f.age[1] === 25 ? '25+' : f.age[1]} ${t('listings.yr')}`} defaultCollapsed>

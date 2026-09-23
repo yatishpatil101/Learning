@@ -5,6 +5,7 @@ import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
 import { fmtNum } from '../../../lib/format.js';
 import { propertyKind } from './derivations.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
 export function FloorPlan({ p }) {
   const { t } = useTranslation();
@@ -39,12 +40,12 @@ export function FloorPlan({ p }) {
   if (isResidential && balconies != null) {
     areaRows.push({ k: 'balconies', lbl: t('property.balconies'), val: String(balconies), tipKey: 'floorplan.balconies' });
   }
+  useScrollLock(zoom);
   useEffect(() => {
     if (!zoom) return undefined;
-    document.body.style.overflow = 'hidden';
     const onKey = (e) => { if (e.key === 'Escape') setZoom(false); };
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+    return () => document.removeEventListener('keydown', onKey);
   }, [zoom]);
   const row = (k, lbl, val, border = true, tipKey) => (
     <Tip key={k} k={tipKey}>

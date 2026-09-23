@@ -2,7 +2,7 @@ import '../../styles/routes/filters.css';
 import '../../styles/routes/listings.css';
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import { recordSignal } from '../../services/demandService.js';
 import { listLocalities } from '../../services/localityService.js';
@@ -22,7 +22,7 @@ import { useSignInGate } from '../../lib/useSignInGate.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
 import { toFacetQuery } from '../../lib/listings/facetQuery.js';
-import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from '../../lib/listings/filterState.js';
+import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams, switchDealFilters, hasFilterParams } from '../../lib/listings/filterState.js';
 import { canonicalTypeKey } from '../../data/propertyTypes.js';
 import Filters from './listings/Filters.jsx';
 import MobileFilterDrawer from './listings/MobileFilterDrawer.jsx';
@@ -49,7 +49,6 @@ const loadLocalities = () => listLocalities();
 export default function Listings() {
   const { t: tr } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
   const sendToSignIn = useSignInGate();
@@ -63,7 +62,6 @@ export default function Listings() {
   // (comma-separated) or legacy labels; ?deal=rent|buy is honoured directly.
   const urlTypeRaw = params.get('ptype') || params.get('type') || '';
   const urlTypeKeys = urlTypeRaw.split(',').map(canonicalTypeKey).filter(Boolean);
-  const urlQ = (params.get('q') || params.get('locality') || '').toLowerCase();
   // An explicit ?deal= always wins; otherwise a shared-room search opens on Rent.
   const dealParam = params.get('deal');
   const urlDeal = dealParam === 'rent' || dealParam === 'buy'
@@ -89,13 +87,17 @@ export default function Listings() {
   const [localities, setLocalities] = useState([]);
   const [drawer, setDrawer] = useState(false);
   const [aiQuery, setAiQuery] = useState('');
+  /* The words smart search could not turn into a facet. Held in state and mirrored to `?q=` by the
+     same effect that writes the filters, because the address bar tolerates only one writer. */
+  const [freeText, setFreeText] = useState(() => params.get('q') || '');
   const set = (patch) => startTransition(() => setF((prev) => ({ ...prev, ...patch })));
-  const clearAll = () => setF(INITIAL(f.deal));
-  // The two journeys have different filter shapes, so switching deal resets to that deal's
-  // defaults and drops back to page 1 / relevance.
+  const clearFreeText = useCallback(() => setFreeText(''), []);
+  const clearAll = () => { setF(INITIAL(f.deal)); setFreeText(''); };
+  // Deal-specific state (price, tenancy, sale availability) resets and the list drops back to
+  // page 1 / relevance; what both journeys share is carried over.
   const switchDeal = (deal) => {
     if (deal === f.deal) return;
-    startTransition(() => { setF(INITIAL(deal)); setSort('relevance'); setPage(1); });
+    startTransition(() => { setF((prev) => switchDealFilters(prev, deal)); setSort('relevance'); setPage(1); });
   };
 
   // Map search can be turned off by feature flag. When it is, a `view=map` deep-link
@@ -113,6 +115,7 @@ export default function Listings() {
     const snap = getLastSearch();
     if (!snap) return;
     if (snap.filters) setF(deserializeF(snap.filters));
+    if (snap.q != null) setFreeText(snap.q);
     if (snap.view) setView(snap.view);
     if (snap.activeId) setActiveId(snap.activeId);
     if (snap.scrollY != null) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, snap.scrollY)));
@@ -128,13 +131,14 @@ export default function Listings() {
     if (locs.length) sp.set('loc', locs.join(','));
     const socs = [...f.societies];
     if (socs.length) sp.set('soc', socs.join(','));
+    if (freeText) sp.set('q', freeText);
     if (activeId) sp.set('property', activeId);
     return '/listings?' + sp.toString();
   };
 
   // Save the full context (incl. non-URL filters) so the return is lossless even after
   // a refresh on the property page.
-  const saveReturnContext = () => setLastSearch({ search: buildReturnSearch(), filters: serializeF(f), view, activeId, scrollY: window.scrollY });
+  const saveReturnContext = () => setLastSearch({ search: buildReturnSearch(), filters: serializeF(f), q: freeText, view, activeId, scrollY: window.scrollY });
 
   const onSelectProperty = (id) => setActiveId(id);
   const onCloseProperty = () => setActiveId(null);
@@ -147,12 +151,21 @@ export default function Listings() {
     if (effView === 'grid') next.delete('view'); else next.set('view', effView);
     if (sort === 'relevance') next.delete('sort'); else next.set('sort', sort);
     if (activeId) next.set('property', activeId); else next.delete('property');
+    if (freeText) next.set('q', freeText); else next.delete('q');
     if (next.toString() !== params.toString()) setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effView, sort, f, activeId]);
+  }, [effView, sort, f, activeId, freeText]);
 
-  // keep deal in sync with URL changes
-  useEffect(() => { setF((prev) => (prev.deal === urlDeal ? prev : INITIAL(urlDeal))); }, [urlDeal]);
+  /* A link that names its own filters is a new search and is read from the URL; a bare deal change
+     is the toggle, and carries over what both sides can express. Without the split, the sync below
+     would hand "Buy plots" the localities of whatever rent search preceded it. */
+  useEffect(() => {
+    setF((prev) => {
+      if (prev.deal === urlDeal) return prev;
+      return hasFilterParams(params) ? paramsToFilters(params, urlDeal) : switchDealFilters(prev, urlDeal);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlDeal]);
 
   useEffect(() => {
     const ls = localityRows;
@@ -190,16 +203,16 @@ export default function Listings() {
   const size = effView === 'map' ? MAP_MARKER_CAP : PAGE_SIZE;
 
   const query = useMemo(
-    () => (hasData && !mapGated ? toFacetQuery(deferredF, { sort, q: urlQ }) : null),
-    [hasData, mapGated, deferredF, sort, urlQ],
+    () => (hasData && !mapGated ? toFacetQuery(deferredF, { sort, q: freeText }) : null),
+    [hasData, mapGated, deferredF, sort, freeText],
   );
   /* The near-search recovery is a second query, built only when the two location filters can
      actually contradict each other: a map pin plus an explicit locality selection. */
   const relaxedQuery = useMemo(
     () => (query && deferredF.near && deferredF.localities.size
-      ? toFacetQuery(deferredF, { sort, q: urlQ, dropLocalities: true })
+      ? toFacetQuery(deferredF, { sort, q: freeText, dropLocalities: true })
       : null),
-    [query, deferredF, sort, urlQ],
+    [query, deferredF, sort, freeText],
   );
 
   /* Reset to page 1 during render, not in an effect: an effect would fire page 7 of the old search
@@ -218,6 +231,9 @@ export default function Listings() {
   // A server count: the browser sees one page, so counting badges on it would answer "how many of
   // these 24" while reading as "how many in Baner".
   const verifiedCount = search.data.verifiedTotal;
+  /* Area, age, floor and deposit bounds keep listings that never stated the value, because most of
+     the catalogue never states it. Saying how many is what keeps that from reading as "these all match". */
+  const unstatedCount = search.data.unstatedTotal;
   const relaxedNear = search.relaxed
     ? { locNames: [...deferredF.localities].map((s) => locNameBySlug[s] || s), nearLabel: deferredF.nearLabel || tr('listings.thePlace') }
     : null;
@@ -249,7 +265,10 @@ export default function Listings() {
   const activeProperty = activeIndex >= 0 ? pageResults[activeIndex] : null;
   const goToPage = (n) => {
     setPage(Math.min(Math.max(1, n), pageCount));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    /* No explicit `behavior`: it defaults to `auto`, which the spec defines as deferring to the
+       computed `scroll-behavior` — so both the media query and the app's own "Reduce motion"
+       toggle are already honoured. Naming `smooth` here would instead OUTRANK them. */
+    window.scrollTo({ top: 0 });
   };
 
   // Passive search intent logging — fires when user changes filters
@@ -267,16 +286,22 @@ export default function Listings() {
   }, [deferredF, loaded]);
 
   const activeChips = useMemo(
-    () => buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, set }),
-    [f, locNameBySlug, socNameBySlug, tr],
+    () => buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, set, freeText, clearFreeText }),
+    [f, locNameBySlug, socNameBySlug, tr, freeText, clearFreeText],
   );
 
-  const smartSearch = () => {
-    const parsed = parseSmartQuery(aiQuery, { fallbackDeal: f.deal, localities, locNameBySlug });
-    if (!parsed) return;
+  const applyParsed = (parsed) => {
     setF(parsed.next);
-    navigate(`/listings?deal=${parsed.deal}`);
-    toast(tr('listings.smartSearchToast', { detail: parsed.parts.join(' · ') }), 'success');
+    setFreeText(parsed.q);
+  };
+
+  const smartSearch = () => {
+    const parsed = parseSmartQuery(aiQuery, { current: f, localities, locNameBySlug });
+    if (!parsed) return;
+    applyParsed(parsed);
+    const detail = [...parsed.parts, parsed.q && tr('listings.smartFreeText', { text: parsed.q })]
+      .filter(Boolean).join(' · ');
+    toast(tr('listings.smartSearchToast', { detail }), 'success');
   };
 
   const saveSearch = () => {
@@ -289,11 +314,8 @@ export default function Listings() {
     // If the box has a typed query, parse it so the saved criteria match the label/text
     // (and apply it to the results) — no more "label says X but filters say Y" mismatch.
     const typed = aiQuery.trim();
-    const parsed = typed ? parseSmartQuery(aiQuery, { fallbackDeal: f.deal, localities, locNameBySlug }) : null;
-    if (parsed) {
-      setF(parsed.next);
-      navigate(`/listings?deal=${parsed.deal}`);
-    }
+    const parsed = typed ? parseSmartQuery(aiQuery, { current: f, localities, locNameBySlug }) : null;
+    if (parsed) applyParsed(parsed);
     const record = buildAlertRecord(parsed ? parsed.next : f, locNameBySlug);
     createSavedSearch({ ...record, label: typed || record.label, query: typed });
     toast(tr('listings.searchSavedToast'), 'success');
@@ -354,7 +376,7 @@ export default function Listings() {
               </div>
             </aside>
 
-            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={total} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={search.status === 'error'} searching={search.status === 'loading'} loadError={search.error} onRetryLoad={search.retry} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={total} verifiedCount={verifiedCount} unstatedCount={unstatedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={search.status === 'error'} searching={search.status === 'loading'} loadError={search.error} onRetryLoad={search.retry} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
           </div>
           )}
         </div>

@@ -26,7 +26,7 @@ const ListPropertyForm = () => {
     form, set, changePropertyType, changeCommercialType, rentMode, setRentMode, errors,
     isResidential, isLand, isCommercial, isHouse,
     toggleInArray, toggleTenant, nextStep, prevStep, money, setDepositMonths, openResetConfirm,
-    mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, onAreaSelect,
+    mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, onAreaSelect, onSocietyPick,
     geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
     isMediaBusy, mediaStatus,
@@ -229,6 +229,7 @@ const ListPropertyForm = () => {
                   runMapSearch={runMapSearch}
                   mapSearchStatus={mapSearchStatus}
                   onAreaSelect={onAreaSelect}
+                  onSocietyPick={onSocietyPick}
                   geoFillStatus={geoFillStatus}
                   flyTo={flyTo}
                   onLocalityChange={onLocalityChange}

@@ -95,8 +95,8 @@ export default function OpsQueue({ title, subtitle, team = null }) {
       toast(e?.message || 'That ticket could not be claimed.', 'error');
     }
   };
-  /* An append, not a rewrite: the old board sent the whole `notes` array back, so whichever of two
-     colleagues saved second erased the other. The server returns just the new note. */
+  /* An append, not a rewrite: sending the whole `notes` array back means whichever of two
+     colleagues saves second erases the other. The server returns just the new note. */
   const addNote = async () => {
     if (!note.trim() || !detail) return;
     try {
@@ -130,13 +130,6 @@ export default function OpsQueue({ title, subtitle, team = null }) {
     }
     return list;
   }, [all, status, q, mineOnly, meName]);
-
-  /* A "this board needs the live API" panel stood here, for the case where `ticket` was left out
-     of the domain allow-list. The mock store could not answer `GET /tickets` — three statuses
-     where the server has five, assignment by display name where the server assigns by user id —
-     so the board shut itself rather than render an empty queue that might be hiding real work.
-     There is no allow-list and no mock store now, so the only way this board comes up empty is
-     that the server said so, and the only way it fails is the error branch below. */
 
   if (state.status === 'error') {
     return (

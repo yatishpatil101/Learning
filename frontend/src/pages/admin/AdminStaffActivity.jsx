@@ -13,12 +13,10 @@ import DateRangePills from '../../components/ui/DateRangePills.jsx';
 /**
  * The back-office review surface: who did what, and how much of it.
  *
- * Everything on this page is now counted by the server. That is the whole change. The version this
- * replaces read a parallel activity log the frontend wrote to localStorage, filtered it in memory,
- * and folded its own KPI tiles and leaderboard out of the rows it happened to have — so "total
- * activities" meant "rows in this tab", and the leaderboard ranked the current page rather than the
- * team. Those were not display bugs. They were the wrong numbers, printed confidently, on the page
- * used to judge colleagues.
+ * Every figure on this page is counted by the server. Folding KPI tiles and a leaderboard out of
+ * the rows the browser happens to hold makes "total activities" mean "rows in this tab" and ranks
+ * the current page rather than the team — wrong numbers, printed confidently, on the page used to
+ * judge colleagues.
  *
  * Two reads, both administrator-only under `audit:read`:
  *   - the feed, paged, one row per audited back-office action
@@ -158,9 +156,8 @@ export default function AdminStaffActivity() {
     {
       key: 'detail',
       header: 'Record',
-      /* The mock printed a prose `detail` written in the browser at the moment of the action. There
-         is no such sentence on the server and one is not invented here: what identifies the record
-         is its id, and a caption assembled by the reader is not evidence. */
+      /* No prose caption here. The server stores no such sentence and one is not invented: what
+         identifies the record is its id, and a caption assembled by the reader is not evidence. */
       render: (a) => (
         <span className="font-mono text-xs text-gray-400">{a.entityId || '—'}</span>
       ),

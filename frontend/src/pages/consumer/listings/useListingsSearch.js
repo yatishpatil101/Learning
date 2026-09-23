@@ -6,7 +6,7 @@ import { createSearchCache } from '../../../lib/searchCache.js';
 /* The listings page's one remote read. A page of results is a REQUEST and the totals come off the
    response — see `docs/system/frontend-data-seam.md` § The listings search slice. */
 
-const EMPTY = { items: [], total: 0, verifiedTotal: 0, pageCount: 0 };
+const EMPTY = { items: [], total: 0, verifiedTotal: 0, unstatedTotal: 0, pageCount: 0 };
 
 /* Module scope so the cache outlives a remount (Back from a property, the grid↔map toggle). Safe to
    share: `GET /properties` is public and floored to approved rows, so the answer is caller-agnostic. */
@@ -15,10 +15,8 @@ const cache = createSearchCache({ max: 30, ttl: 60_000 });
 /** Cache key for one request: everything that changes the answer, and nothing that does not. */
 const cacheKey = (query, page, size) => JSON.stringify([query, page, size]);
 
-/**
- * Run a listings search, with the near-search recovery and the races a paged remote read implies.
- * `query` null suspends the read; `relaxedQuery` (minus localities) is used only on an empty primary.
- */
+/** `query` null suspends the read; `relaxedQuery` (minus localities) is used only when the
+ *  primary search comes back empty. */
 export default function useListingsSearch({ query, relaxedQuery = null, page = 1, size = 24 }) {
   const [state, setState] = useState({ data: EMPTY, status: 'loading', error: null, relaxed: false });
   const [nonce, setNonce] = useState(0);

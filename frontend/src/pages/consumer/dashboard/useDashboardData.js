@@ -104,16 +104,15 @@ export function useDashboardData({ user, toast }) {
     !!user?.mobile,
   );
 
-  // The document request inbox is a seam read (mock or live, per `document` domain), owner-scoped by
-  // the session, so like the contact inbox below it takes its own effect rather than the synchronous
-  // localStorage read the panels above use. Reading it here through the same service `DocumentsTab`
-  // uses is what keeps the Documents tab, this sidebar badge and the Action Center on one source of
-  // truth — before this, the tab read the seam while the badge read localStorage, so in http mode a
-  // real request showed in one place and not the other, and a grant issued here never reached the
-  // server.
+  // The document request inbox is a seam read, owner-scoped by the session, so like the contact
+  // inbox below it takes its own effect rather than the synchronous localStorage read the panels
+  // above use. Reading it here through the same service `DocumentsTab` uses is what keeps the
+  // Documents tab, this sidebar badge and the Action Center on one source of truth — a badge
+  // reading localStorage while the tab reads the seam leaves a real request visible in one place
+  // and not the other, and a grant issued here never reaching the server.
   //
-  // It used to `.catch` to an empty inbox, which told an owner nobody had asked for their documents
-  // when in fact we had failed to look (D166). `useAsyncList` keeps the failure separable from the
+  // Catching to an empty inbox would tell an owner nobody had asked for their documents when in
+  // fact we had failed to look. `useAsyncList` keeps the failure separable from the
   // genuinely-empty case; `enabled` covers the signed-out state, which really is empty.
   const [docReqs, docReqsStatus, setDocReqs, retryDocReqs, docReqsError] = useAsyncList(
     () => listDocRequests(user.mobile),
@@ -143,8 +142,7 @@ export function useDashboardData({ user, toast }) {
   // Accept/decline is irreversible and the server refuses a second answer, so the row is re-read
   // rather than patched in place: what comes back is what the server actually recorded. The toast
   // lives here rather than at the two call sites because it must not fire until the write lands —
-  // it used to be raised optimistically next to a synchronous localStorage write, which is a
-  // promise this cannot keep now that a decision can be refused.
+  // raising it optimistically is a promise this cannot keep when a decision can be refused.
   const decideApp = async (appId, status) => {
     try {
       const decided = await decideGroupApplication(appId, status);
@@ -409,9 +407,9 @@ export function useDashboardData({ user, toast }) {
     setRecent(realRecent);
     setRecommended(approved.slice(0, 6));
     // Retention loop: for each active saved search, how many LIVE approved listings match its
-    // criteria right now. The count is carried on the record by the seam (D227) — it used to be
-    // computed here against `approved`, which is one page of the catalogue, so the strip read
-    // "2 match" to a user with fifty. Only searches with real matches surface; each links to the
+    // criteria right now. The count is carried on the record by the seam; computing it here against
+    // `approved` would count one page of the catalogue, so the strip would read "2 match" to a user
+    // with fifty. Only searches with real matches surface; each links to the
     // actual filtered results. Nothing is fabricated.
     const matches = searches
       .filter((s) => s.alerts !== false)

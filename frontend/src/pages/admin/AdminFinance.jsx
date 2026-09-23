@@ -1,36 +1,23 @@
 /**
- * Finance console — on the live seam (ledger item 20, D235).
+ * Finance console.
  *
- * ## What this screen used to be
+ * Every figure comes from `services/financeService.js`. Nothing on this page computes money except
+ * two divisions that are presentation (ARPU and ARPPU). Where the server cannot source a figure,
+ * the figure is **zero and disclosed** rather than modelled — the `NotMeasured` marker below is
+ * the mechanism.
  *
- * Every number on it was invented in the browser. The revenue curve came from
- * `120000 + ((seed * 7919) % 80000)` where `seed` was the year and month; the ledger's statuses came
- * from rotating a ten-element array and its amounts from four hardcoded fee constants; partner
- * payouts were 65% of the invented services figure and commission the other 35%; MRR was split
- * 55/45 between two plans and divided by a price to produce a subscriber count.
- *
- * `GET /admin/finance` had existed and been admin-gated the whole time, with no caller.
- *
- * ## What it is now, and the calls that shaped it
- *
- * Every figure comes from `services/financeService.js`. Nothing on this page computes money any
- * more except two divisions that are presentation (ARPU and ARPPU). Where the server cannot source
- * a figure, the figure is **zero and disclosed** rather than modelled — the `NotMeasured` marker
- * below is the mechanism, and it predates this port.
- *
- * 1. **Three bands.** The chart keeps a services band and it renders a measured ₹0 under
- *    the "quoted, not received" marker, rather than being dropped. The marketplace visibly takes
+ * 1. **Three bands.** The chart keeps a services band and renders a measured ₹0 under the
+ *    "quoted, not received" marker rather than dropping it. The marketplace visibly takes
  *    bookings, so a chart with no services in it reads as a rendering fault instead of as a
  *    statement about the business.
  * 2. **Both denominators.** ARPU (everyone) and ARPPU (everyone who paid this month) are separate
  *    tiles, because one figure under an unqualified label invites the reader to assume it is the
  *    other.
- * 3. **The net-position panel stops inventing.** "Partner payouts (65%)" and "Platform
- *    commission (35%)" were a split of a number that was itself fabricated. Payouts, GST held on
- *    rent and unsettled gateway fees were all facts about the tenant-to-owner rent rail; that rail
- *    was withdrawn, so those rows are gone rather than pinned at a zero an operator would read as
- *    a quiet month. What remains is revenue in, refunds out — and refunds keep the marker that
- *    says no refund path exists.
+ * 3. **The net-position panel does not model.** Payouts, GST held on rent and unsettled gateway
+ *    fees were all facts about the tenant-to-owner rent rail; that rail does not exist, so those
+ *    rows are absent rather than pinned at a zero an operator would read as a quiet month. What
+ *    remains is revenue in, refunds out — and refunds keep the marker that says no refund path
+ *    exists.
  * 4. **The subscription book is listed, not derived.** Plan rows come from the server's `plans`,
  *    which sums to `mrr` by construction. Offline there are no subscription records, so the panel
  *    renders its empty state rather than a modelled one.
@@ -67,7 +54,7 @@ const MAX_MONTHS = 24;
  */
 const LEDGER_PAGE_SIZE = 100;
 
-/** Wire `kind` to the words the console has always shown. The server sends the source, not a label. */
+/** Wire `kind` to the words the console shows. The server sends the source, not a label. */
 const KIND_LABELS = {
   subscription: 'Subscription',
   featured: 'Featured listing',
@@ -88,7 +75,7 @@ function monthLabel(iso) {
     : d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 }
 
-/* Structural zeros disclose themselves (tech debt D63/D65).
+/* Structural zeros disclose themselves.
  *
  * Two of the money lines on this screen describe paths the platform does not have: there is no
  * refund path at all, and revenue excludes the services marketplace because `service_orders.amount`
@@ -96,17 +83,16 @@ function monthLabel(iso) {
  * and an operator reading "₹0 refunded" concludes something false about the business rather than
  * something true about the software.
  *
- * There was a third — "no payout has ever been executed" — and it went with the tenant-to-owner rent
- * rail rather than being pinned at zero. A disclosure only earns its place while the figure beside
- * it could one day move; once the path is withdrawn the sentence stops qualifying a number and
- * starts implying a feature that is merely idle.
+ * A disclosure only earns its place while the figure beside it could one day move; once a path is
+ * withdrawn the sentence stops qualifying a number and starts implying a feature that is merely
+ * idle, so the row goes rather than gaining a marker.
  *
- * So the marker is attached to the figure, not printed instead of it: the row keeps its number and
- * gains a reason. Which markers show now travels **with the finance payload** rather than in the
+ * The marker is attached to the figure, not printed instead of it: the row keeps its number and
+ * gains a reason. Which markers show travels **with the finance payload** rather than in the
  * settings document — the server owns these flags (`draazy.finance.*`), and putting them beside
- * the figures they qualify means a figure and its disclosure can no longer arrive from two
- * different reads and disagree. Absent still means "not measured": the default has to be today's
- * truth, because a disclosure that defaults to "measured" is a lie told by a typo.
+ * the figures they qualify means a figure and its disclosure cannot arrive from two different
+ * reads and disagree. Absent means "not measured": the default has to be today's truth, because a
+ * disclosure that defaults to "measured" is a lie told by a typo.
  */
 function NotMeasured({ children }) {
   return (
@@ -117,7 +103,6 @@ function NotMeasured({ children }) {
   );
 }
 
-// Defined outside component to avoid recreation on every render
 function FlowRow({ label, amount, neg, pos, total, note, noteLabel }) {
   return (
     <div className={`border-b border-white/5 py-2 text-sm ${total ? 'font-bold border-white/15' : ''}`}>
@@ -213,9 +198,9 @@ export default function AdminFinance() {
 
   const KPIS = [
     { label: 'MRR (subscriptions)', value: fmtINR(mrr), delta: null, icon: RefreshCw },
-    /* Value and delta from the same source. The value used to come from the overview's
-       `monthRevenue` while the delta compared two series buckets, so a lag between the two reads
-       could caption a healthy figure "−100% MoM". A delta must describe the number above it. */
+    /* Value and delta from the same source. Sourcing the value from the overview's `monthRevenue`
+       while the delta compares two series buckets lets a lag between the two reads caption a
+       healthy figure "−100% MoM". A delta must describe the number above it. */
     { label: 'Revenue this month', value: fmtINR(monthTotal), delta: pct(monthTotal, prevTotal), icon: IndianRupee },
     /* Figure-local wording: the aggregate rows say revenue *excludes* services, which would read as
        a denial of the number printed directly above it on this card. */
@@ -242,19 +227,17 @@ export default function AdminFinance() {
   );
 
   /* "Platform take", not "Amount". The figure is the platform's cut rather than the sum that
-     changed hands. Both surviving sources — subscriptions and featured — happen to be bought from
-     the platform outright, so today the two readings coincide; the name is kept because it stays
-     true if a source that carries a gross figure is ever added back, and because a column called
-     Amount invites every reader to add these up into a revenue number. The withdrawn rent rail was
-     the case that made the distinction visible: a ₹22,000 rent payment appeared here as the few
-     hundred rupees of fee on it, two orders of magnitude apart. */
+     changed hands. Both sources — subscriptions and featured — happen to be bought from the
+     platform outright, so today the two readings coincide; the name stays true if a source that
+     carries a gross figure is ever added, and a column called Amount invites every reader to add
+     these up into a revenue number. */
   const txCols = [
     { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-gray-400">{r.id}</span> },
     { key: 'date', header: 'Date', render: (r) => <span className="text-xs text-gray-400">{r.date}</span> },
     { key: 'party', header: 'Party', render: (r) => <span>{r.party}</span> },
-    /* The wire sends `kind` — the revenue source — and the console has always shown a label.
-       Falling back to the raw kind means a source this build has not been taught about still
-       renders, rather than leaving a blank cell that looks like missing data. */
+    /* The wire sends `kind` — the revenue source — and the console shows a label. Falling back to
+       the raw kind means a source this build has not been taught about still renders, rather than
+       leaving a blank cell that looks like missing data. */
     { key: 'kind', header: 'Type', render: (r) => <span className="text-xs">{KIND_LABELS[r.kind] || r.kind}</span> },
     { key: 'amount', header: 'Platform take', className: 'font-semibold', render: (r) => <span className={r.amount < 0 ? 'text-red-400' : ''}>{fmtINR(r.amount)}</span> },
     { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
@@ -402,7 +385,9 @@ export default function AdminFinance() {
                  count, which is how a console reports customers it does not have. */
               <p className="py-2 text-sm text-gray-500">{t('adminFinance.noActivePlans')}</p>
             ) : (plans || []).map((p) => (
-              <div key={p.name} className="flex items-center justify-between border-b border-white/5 py-2 text-sm">
+              /* Keyed on the price too: a repriced plan legitimately returns one line per price
+                 cohort, so the name alone is no longer unique. */
+              <div key={`${p.name}:${p.price}`} className="flex items-center justify-between border-b border-white/5 py-2 text-sm">
                 <div>
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-gray-500">{fmtNum(p.active)} active · {fmtINR(p.price)}/{p.billingCycle === 'yearly' ? 'yr' : p.billingCycle === 'quarterly' ? 'qtr' : 'mo'}</div>
@@ -459,17 +444,14 @@ export default function AdminFinance() {
                 className="[--dd-sm-w:200px]"
                 options={[{ value: '', label: 'All types' }, ...txTypes.map((k) => ({ value: k, label: KIND_LABELS[k] || k }))]}
               />
-              {/* Exactly the settlement vocabulary a row can hold. `closed` was the mock's word, and
-                  `refunded` names a state no row reaches while there is no refund path.
+              {/* Exactly the settlement vocabulary a row can hold. No `closed`, and no `refunded` —
+                  that names a state no row reaches while there is no refund path.
 
-                  Corrected (D251): this comment used to finish "both would answer 400, so offering
-                  them would ship a filter that cannot succeed". That is true of the endpoint and
-                  false of this control — `txStatus` is consumed by the `rows.filter` above and is
-                  never sent to anyone, so a bogus option would not have failed at all. It would have
-                  rendered a confidently empty ledger, which is the worse outcome, not the impossible
-                  one. The three values are still the right three; the reason is that they are the
-                  only three a row holds. The endpoint's own vocabulary is a separate claim, pinned
-                  by `live-admin-finance.spec.js`. */}
+                  `txStatus` is consumed by the `rows.filter` above and is never sent to anyone, so
+                  a bogus option would not fail: it would render a confidently empty ledger, which
+                  is the worse outcome. The three values are the only three a row holds. The
+                  endpoint's own vocabulary is a separate claim, pinned by
+                  `live-admin-finance.spec.js` (D251). */}
               <Select
                 size="sm"
                 value={txStatus}

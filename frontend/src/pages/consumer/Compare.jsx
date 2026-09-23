@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { jsPDF } from 'jspdf';
@@ -8,6 +8,8 @@ import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
 import { fmtArea, fmtINR, isSqftUnit } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
+import useModalDialog from '../../hooks/useModalDialog.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 import { cityLabelFor } from '../../lib/geoConfig.js';
 
 const MAX = 4;
@@ -82,6 +84,9 @@ export default function Compare() {
   const [pickFailed, setPickFailed] = useState(false);
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState('');
+  useScrollLock(modal);
+  const closeModal = useCallback(() => setModal(false), []);
+  const modalRef = useModalDialog(modal, closeModal);
 
   // Resolve exactly the compared ids rather than downloading the catalogue to find them. Ids that
   // fail to resolve stay in the list as `available: false`.
@@ -376,7 +381,7 @@ export default function Compare() {
 
       {modal ? (
         <div className="fixed inset-0 z-[60] modal-overlay flex items-center justify-center p-4" onClick={() => setModal(false)}>
-          <div className="dz-modal-panel rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t('compare.modalTitle')} className="dz-modal-panel rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl outline-none" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-white/10">
               <h3 className="text-lg font-bold text-white">{t('compare.modalTitle')}</h3>
               <button type="button" onClick={() => setModal(false)} aria-label={t('compare.close')} className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5"><Icon name="x" className="w-5 h-5" /></button>

@@ -41,7 +41,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
 
   /* The review routes bind `{propId}` as a UUID; the seam's `p.id` is the listing's *slug*
      (`p5015`), because the property routes accept slug-or-id and a slug makes a prettier URL.
-     `p.uuid` is the same row's real key, and the fallback covers mock listings, which have none. */
+     `p.uuid` is the same row's real key, and the fallback covers rows that have none. */
   const propId = String(p.uuid || p.id || '');
 
   /* Two reads: the headline numbers come from `.../reviews/summary`, computed in SQL over every

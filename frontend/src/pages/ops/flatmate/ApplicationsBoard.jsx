@@ -1,23 +1,7 @@
-/**
- * Board 3 of 3 — **group applications**. `GET/PATCH /admin/group-applications`.
- *
- * A formed group applying to take a whole listing. Two statuses ride on every row and only one of
- * them is ours:
- *
- *   `status`    — the **owner's** accept/decline. Read-only here, and the server could not let us
- *                 write it if we tried: `FlatmateGroupApplication#moderate` cannot reach the field.
- *   `modStatus` — **our** axis. Removing a spam application must not thereby decline it on the
- *                 owner's behalf, because "we took this down" and "the owner said no" are different
- *                 facts and only one of them is true.
- *
- * The table shows both, side by side and separately labelled, so the screen cannot blur them.
- *
- * `rent` and `perHead` are joined from the live listing on every read rather than stored on the
- * application, so this board can never show a price that stopped being true when the owner edited
- * their listing.
- */
+/* Two statuses ride on every row and only `modStatus` is ours: `status` is the owner's
+   accept/decline, and "we took this down" must never read as "the owner said no". */
 import { useCallback, useState } from 'react';
-import { Ban, Check, Flag, Users } from 'lucide-react';
+import { Ban, Check, EyeOff, Users } from 'lucide-react';
 import { listGroupApplications, moderateGroupApplication } from '../../../services/flatmateService.js';
 import { fmtNum } from '../../../lib/format.js';
 import { useToast } from '../../../context/ToastContext.jsx';
@@ -26,7 +10,7 @@ import { BoardCount, BoardState, InlineNote, PAGE_SIZE, Pager, fmtDate, usePaged
 
 const ACTIONS = [
   { id: 'approved', label: 'Clear', icon: Check, note: false, tone: 'border-brand-teal/30 bg-brand-teal/10 text-brand-teal' },
-  { id: 'flagged', label: 'Flag', icon: Flag, note: true, tone: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
+  { id: 'flagged', label: 'Hide for review', icon: EyeOff, note: true, tone: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
   { id: 'removed', label: 'Remove', icon: Ban, note: true, tone: 'border-white/10 text-gray-300 hover:bg-white/5' },
 ];
 
@@ -110,7 +94,9 @@ export default function ApplicationsBoard() {
                     </div>
                   </td>
                   <td className="p-3"><Badge status={r.status} /></td>
-                  <td className="p-3"><Badge status={r.modStatus} /></td>
+                  <td className="p-3"><Badge status={r.modStatus}>
+                    {r.modStatus === 'flagged' ? 'Hidden for review' : null}
+                  </Badge></td>
                   <td className="p-3">
                     {noting && noting.startsWith(`${r.id}:`) ? (
                       <InlineNote

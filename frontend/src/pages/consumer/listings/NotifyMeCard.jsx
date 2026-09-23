@@ -13,9 +13,8 @@ const CHANNELS = [
   { key: 'sms', label: 'SMS', icon: 'smartphone' },
 ];
 
-/* "Create a property alert" card for a search with no or few results. One submit both creates a
-   user-owned saved-search alert (account-gated) and feeds the admin demand-gap signal, which still
-   fires for anonymous visitors before the sign-in redirect. */
+/* One submit both creates a user-owned saved-search alert (account-gated) and feeds the admin
+   demand-gap signal, which still fires for anonymous visitors before the sign-in redirect. */
 export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const { t } = useTranslation();
   const { isIn, user } = useAuth();
@@ -57,8 +56,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
       return;
     }
 
-    // Persists the full filter set so matching and display stay complete. Awaited, because a
-    // fire-and-forget write would confirm an alert the server may have rejected.
+    // Awaited, because a fire-and-forget write would confirm an alert the server may have rejected.
     setSaving(true);
     try {
       await createSavedSearch({ ...record, query: '', channel });
@@ -106,7 +104,6 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
           </div>
         </div>
 
-        {/* Criteria summary */}
         <div className="mt-4 flex flex-wrap gap-1.5">
           {chips.map((c, i) => (
             <span key={i} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-gray-200">
@@ -116,7 +113,6 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-          {/* Channel choice */}
           <div>
             <p className="mb-1.5 text-[11px] font-medium text-gray-500">{t('listings.notifyOn')}</p>
             <div className="flex gap-2">
@@ -137,7 +133,6 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
             </div>
           </div>
 
-          {/* Mobile + submit */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1 sm:max-w-[240px]">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">+91</span>

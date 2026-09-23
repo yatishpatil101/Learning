@@ -21,8 +21,8 @@ const avgTone = (avgHours, targetHours) => (
 /**
  * One measured track: work completed, how long it took, and what is still outstanding.
  *
- * Every derived figure is nullable and every null renders as a dash or as "not recorded", because
- * the empty case is what this panel was rewritten to stop lying about. The two counts are the
+ * Every derived figure is nullable and every null renders as a dash or as "not recorded": the
+ * empty case is the one this panel must not lie about. The two counts are the
  * exception and print as numbers including zero — "nothing is waiting" is a measurement, not the
  * absence of one, and the outstanding column is the only cell here an operator acts on today.
  */
@@ -80,19 +80,15 @@ function Track({ title, desc, track, completedLabel, outstandingLabel }) {
  * fields; ticket pickup, service delivery and the concierge pipeline arrive as `ticketPickup`,
  * `ticketDelivery` and `conciergeToLive`, each carrying its own target, turnaround and backlog.
  *
- * **What used to be here.** A weekly compliance line, a Service Fulfilment panel and a Concierge
- * panel, all three drawn by a seeded generator and chipped `Sample`. The chip was not enough: they
- * sat in the same grid, in the same typeface, beside real measurements, and they never moved —
- * `avgPickupTime` was a constant that stayed put whether the desk cleared every ticket within the
- * hour or touched none all month. Two of the three are the real thing now. The weekly line is
- * deleted rather than rebuilt: it needs a history of weekly snapshots nothing writes, and a chart
- * that cannot be sourced does not become sourceable by being labelled.
+ * **There is no weekly compliance line.** It needs a history of weekly snapshots nothing writes,
+ * and a chart that cannot be sourced does not become sourceable by being labelled `Sample` — it
+ * sits in the same grid, in the same typeface, beside real measurements, and never moves.
  *
- * **Turnaround can be legitimately unknown, and says so.** Against mocks there is no audit log at
- * all, so the averages arrive null and render as "not recorded". Coercing them to zero would read as
+ * **Turnaround can be legitimately unknown, and says so.** Where the audit log holds nothing the
+ * averages arrive null and render as "not recorded". Coercing them to zero would read as
  * instantaneous service and 0% compliance simultaneously — two false claims from one `|| 0`. The
  * backlog figures beside them survive, because they come from creation timestamps on work still
- * open, which both mock and server hold.
+ * open.
  *
  * @param {{sla: (object|null), failed: boolean}} props `sla` of null renders nothing, which is the
  *   pre-arrival state; `failed` distinguishes that from a load that came back empty-handed, which

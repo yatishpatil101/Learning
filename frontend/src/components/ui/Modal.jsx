@@ -1,60 +1,17 @@
-import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { classNames } from '../../lib/format.js';
+import useModalDialog from '../../hooks/useModalDialog.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 
 /* Accessible modal dialog — portals to body, traps focus, closes on Escape/backdrop. */
 export default function Modal({ open, onClose, title, children, footer, size = 'md' }) {
-  const panelRef = useRef(null);
-  /* Below 640px the panel is a bottom sheet with a grab handle; make the handle
-     mean something. Desktop never arms the gesture. */
+  /* Gives the grab handle that `.dz-modal-sheet::before` draws an actual behaviour. */
   const swipe = useSwipeDismiss(onClose);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => {
-      // When modals stack, only the top-most dialog reacts to Escape/Tab so one
-      // keypress doesn't collapse the whole stack.
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      if (dialogs.length && dialogs[dialogs.length - 1] !== panelRef.current) return;
-      if (e.key === 'Escape') { onClose?.(); return; }
-      // Focus trap: keep Tab within the modal
-      if (e.key === 'Tab') {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusable = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (!focusable.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    /* Re-running on an `onClose` identity change is load-bearing: a dialog that swaps contents in
-       place unmounts the focused button. But most callers pass an inline `onClose`, so this also
-       re-runs on every keystroke — hence claiming focus only when it is not already in the panel. */
-    if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
-
-  /* Its own effect, keyed only on `open`: the effect above also re-runs whenever `onClose` changes
-     identity, and restoring focus there would eject the user from a dialog that is still open. */
-  useEffect(() => {
-    if (!open) return undefined;
-    const opener = document.activeElement;
-    return () => {
-      // A trigger whose dialog navigated away is gone from the document; focusing it would take
-      // focus off the page the user just arrived at.
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, [open]);
+  useScrollLock(open);
+  const panelRef = useModalDialog(open, onClose);
 
   if (!open) return null;
 

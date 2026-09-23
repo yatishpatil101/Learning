@@ -2,17 +2,8 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
 import { fmt } from './helpers.js';
 
-/*
-   The charges half of this panel is rendered from the server's published fee breakdown, not from a
-   calculation in this browser (D9, D150) — so the number here is the number the payment will be
-   for, by construction rather than by coincidence.
-
-   That makes the read a dependency, which means it has two states this component has to survive:
-   still loading, and failed. Neither may render a price. A failed fees read that fell through to
-   ₹0, or to a locally derived guess dressed up as the price, is exactly the "confident wrong
-   number" this whole change exists to remove — so the charges block goes blank and says so, while
-   the rent, deposit and term rows (the customer's own answers, not charges) stay readable.
-*/
+/* The charges half is rendered from the server's published fee breakdown, so the read has two
+   states that must not render a price: still loading, and failed. Neither may fall through to ₹0. */
 
 function ChargesUnavailable({ cost }) {
   const { t } = useTranslation();
@@ -39,10 +30,8 @@ function ChargesUnavailable({ cost }) {
 function CostLines({ cost }) {
   const { t } = useTranslation();
   const ready = cost.status === 'ready';
-  // Any figure this browser had to derive (mock mode only — see `useRentAgreement`) makes the total
-  // an estimate again, and it is labelled as one. When every figure came from the server it is not
-  // an estimate, it is the bill, and calling it an estimate would undersell the only guarantee this
-  // panel now offers.
+  // Any figure this browser had to derive (see `useRentAgreement`) makes the total an estimate
+  // again, and it is labelled as one. All-server figures are the bill, not an estimate.
   const estimated = (cost.computed || []).length > 0;
   return (
     <div className="space-y-2.5 text-sm">
@@ -64,14 +53,8 @@ function CostLines({ cost }) {
   );
 }
 
-/*
-   The footnote under the breakdown.
-
-   The Art. 36A formula only describes what happens when this browser derives the statutory figures
-   — once they come from the server that text describes a calculation nobody performed, so it is
-   replaced by whatever the published schedule says about itself. Silent when there is nothing
-   truthful to say.
-*/
+/* The Art. 36A formula only describes a locally derived figure, so once the statutory numbers come
+   from the server it is replaced by the published schedule's own note. Silent when neither holds. */
 function CostFootnote({ cost }) {
   const { t } = useTranslation();
   if (cost.status !== 'ready') return null;

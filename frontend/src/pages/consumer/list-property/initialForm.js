@@ -1,4 +1,3 @@
-/* ---------- default form state ---------- */
 export const initialForm = {
   deal: 'buy',
   propertyType: '',
@@ -11,7 +10,6 @@ export const initialForm = {
   carpetArea: '',
   builtUp: '',
   superBuiltUp: '',
-  // house types (independent / villa)
   plotArea: '',
   floorsInHouse: '',
   // A room share can be a flat or an independent house, so `propertyType` drives the physical
@@ -21,7 +19,14 @@ export const initialForm = {
   // flatmate washroom — is the offered room's bathroom private (attached) or a
   // shared/common one? A top question for room seekers.
   attachedBath: '',
-  // commercial specifics
+  /* The flat's occupancy ledger and the terms a seeker asks about in the first message. Blank
+     means "the host did not say", which is not the same answer as a stated zero. */
+  occupants: '',
+  maxOccupants: '',
+  noticePeriodDays: '',
+  lockInMonths: '',
+  maintenanceBilling: '',
+  electricityBilling: '',
   washrooms: '',
   shellType: '',
   parkingSpaces: '',
@@ -31,21 +36,18 @@ export const initialForm = {
   camCharges: '',
   suitableFor: [],
   fixtures: [],
-  // commercial lease economics (rent) and tenancy (buy)
   gstOnRent: '',
   fitOutMonths: '',
   escalationPct: '',
   tenancyStatus: '',
   inPlaceRent: '',
   leaseExpiry: '',
-  // commercial physical specs — only the ones the chosen use-profile asks for are ever rendered
   seatCount: '',
   frontage: '',
   floorLoad: '',
   clearHeight: '',
   sanctionedPower: '',
   dockCount: '',
-  // land specifics (open plot / farm land)
   /* A plot default. A farm has no square feet on its unit list, so `changePropertyType` swaps this for
      `defaultAreaUnitFor(type)`; keeping 'sqft' would post a farm out by three orders of magnitude. */
   areaUnit: 'sqft',
@@ -119,7 +121,6 @@ export const initialForm = {
   noticePeriod: '1',
   description: '',
   amenities: [],
-  // flatmate
   roomType: '',
   rentShare: '',
   lookingFor: 'any',
@@ -130,5 +131,10 @@ export const initialForm = {
   hostRole: 'owner',
   agreementDeclared: false,
   agreementDoc: null,
+  // Kept flat beside the doc rather than nested inside it because the server stores them as their
+  // own columns — the badge-expiry sweep queries `agreementValidTill`, and jsonb keys cannot be indexed.
+  agreementRegNo: '',
+  agreementRegisteredOn: '',
+  agreementValidTill: '',
   ownerConsentMobile: '',
 };

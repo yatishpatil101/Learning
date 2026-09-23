@@ -17,13 +17,11 @@ export default function PostSuccessSplitNudge({ listing }) {
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState(false);
 
-  /* Through the seam, like the My Listings copy of this action. It used to call the mock
-     `splitFlat()` directly, which wrote the rooms to this browser's `draazyRoomListings` — so an
-     owner who accepted the nudge created supply that no seeker could ever be shown.
+  /* Through the seam, like the My Listings copy of this action.
 
-     The owner's identity comes off the token now rather than being passed in from `useAuth`, which
-     is why this no longer reads the user at all: the server will not take a claimed `ownerMobile`,
-     and it was never a fact the client should have been asserting. */
+     The owner's identity comes off the token rather than being passed in from `useAuth`, which is
+     why this does not read the user at all: the server will not take a claimed `ownerMobile`, and
+     it is not a fact the client should be asserting. */
   const confirm = async ({ maxOccupants, rooms }) => {
     let created;
     try {

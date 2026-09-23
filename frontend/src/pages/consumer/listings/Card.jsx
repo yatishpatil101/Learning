@@ -61,7 +61,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const psf = p.area ? Math.round((p.price || 0) / p.area) : 0;
   const deposit = Number(p.deposit) || (isRent ? (p.price || 0) * 2 : 0);
   // `dealStatus` mirrors the deal on the listing (reserved = under offer, still open to backup
-  // offers). The legacy `'under-offer'` string stays as a fallback for mock rows carrying it.
+  // offers). The legacy `'under-offer'` string stays as a fallback for rows still carrying it.
   const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
   const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
   const postedByDraazy = !!p.postedByAdmin;

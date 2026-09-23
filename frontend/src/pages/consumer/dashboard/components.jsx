@@ -58,9 +58,8 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
 export function SubNav({ items, active, onChange, variant = 'pill' }) {
   if (!items || items.length < 2) return null;
 
-  // Underline variant reuses the app-wide `.dz-detail-tab` style (same as the shared
-  // <Tabs variant="underline"> used in Finances, property detail, etc.) so every tab
-  // strip reads as one standard. Count badges are kept — they carry live lead volume.
+  // Underline variant reuses the app-wide `.dz-detail-tab` style so every tab strip reads as one
+  // standard.
   if (variant === 'underline') {
     return (
       <HScroll role="tablist" fadeColor="var(--brand-bg, #0e0c1a)" wrapClassName="mb-5" className="flex gap-1 sm:gap-2 border-b border-white/10">
@@ -125,9 +124,8 @@ const CHIP_TINTS = {
   emerald: 'bg-emerald-400/15 text-emerald-300',
 };
 
-/* Borderless "quiet list" wrapper for request/lead rows. Replaces the old boxed
-   rows (each outlined with border-white/8) — the outer Card is the only frame;
-   inside, rows are separated by a single hairline divider, not a full box. */
+/* Borderless "quiet list" wrapper for request/lead rows: the outer Card is the only frame; inside,
+   rows are separated by a single hairline divider, not a full box. */
 export const RequestList = ({ children }) => (
   <div className="-mx-3 divide-y divide-white/[0.05]">{children}</div>
 );
@@ -139,14 +137,8 @@ const URGENCY_TINTS = {
   warm: 'bg-amber-400/15 text-amber-300',
 };
 
-/* One request/lead row — mobile-first. `avatar` (initials) marks a person; `icon`+`tint`
-   marks a system request type. `attention` raises a left accent bar (rose when urgent)
-   so items awaiting your action read at a glance. `time` renders a right-aligned age pill;
-   `urgency` ({ label, level }) surfaces an SLA badge on the row.
-
-   Layout: the identity block is `basis-full` on phones so the actions/badges passed via
-   `children` wrap onto their own thumb-friendly row (indented under the content, never
-   squeezing the name/meta); from `sm` up they sit inline on the right. */
+/* The identity block is `basis-full` on phones so the actions passed via `children` wrap onto their
+   own thumb-friendly row rather than squeezing the name; from `sm` up they sit inline. */
 export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, time, urgency, attention = false, onOpen, children }) {
   const chip = CHIP_TINTS[tint] || CHIP_TINTS.teal;
   const urgent = urgency?.level === 'hot';
@@ -267,9 +259,8 @@ export const StatusBadge = ({ status }) => {
     responded: 'bg-indigo-500/15 text-indigo-300',
     confirmed: 'bg-emerald-500/15 text-emerald-300',
     cancelled: 'bg-rose-500/15 text-rose-300',
-    // Photo requests (V118). Without these two the pair falls through to the same grey chip, so a
-    // declined row and a satisfied one look identical on the one screen the owner uses to tell them
-    // apart. Rose rather than green for `declined` because it is a "no", but a legitimate one.
+    // Without these two, photo requests fall through to the same grey chip and a declined row looks
+    // identical to a satisfied one.
     resolved: 'bg-emerald-500/15 text-emerald-300',
     declined: 'bg-rose-500/15 text-rose-300',
   };

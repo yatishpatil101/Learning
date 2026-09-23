@@ -1,28 +1,7 @@
-/**
- * Board 2 of 3 — **post moderation** (D72). `GET /admin/flatmates/moderation`,
- * `PATCH /admin/flatmates/{id}/moderation`.
- *
- * The question is *may this be published at all?* and the answer is visibility. Every newly written
- * post, room and group starts `pending`: visible to its author, to nobody else. That is only
- * defensible because this screen exists — without it "moderated before public" means "never
- * public", which is a worse outcome for honest supply than the unmoderated board was. **This board
- * is the queue that makes D72 legitimate**, and it had no UI at all until now.
- *
- * ## `freeText` is the point of the screen
- *
- * `title`, `note` and `locality` are unbounded strings, and a broker who cannot publish a phone
- * number in the contact field types it into one of those instead. So the free text is rendered in
- * full and never truncated — a row showing only a headline and a price would pass through exactly
- * the abuse the queue was built to catch.
- *
- * ## One kind per call
- *
- * Posts, rooms and groups are three tables. A merged board would have to load every pending row to
- * sort it in memory, or report a `totalElements` true of one table and false of the screen. The
- * server asks which board you want, so the page asks too.
- */
+/* The question is *may this be published at all?* Free text and photos are rendered in full and
+   never truncated — a broker blocked from the contact field types the number into `title` or `note`. */
 import { useCallback, useState } from 'react';
-import { Ban, Check, Flag, ShieldAlert } from 'lucide-react';
+import { Ban, Check, EyeOff, ShieldAlert } from 'lucide-react';
 import { listFlatmateModeration, moderateFlatmatePost } from '../../../services/flatmateService.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
@@ -34,32 +13,29 @@ const KINDS = [
   { id: 'group', label: 'Groups' },
 ];
 
-/**
- * Four of the six `MOD_STATUS` words.
- *
- * `live` is the pre-D72 state: every row written under the old "visible the instant it is written"
- * rule still carries it, and those posts were published under a policy their authors could not have
- * known would change. It gets a tab so "what can the city see right now?" has an answer, but no
- * button — pulling that backlog into a queue retroactively would punish people for our decision.
- *
- * `rejected` is absent deliberately. It is in the shared vocabulary and the server would accept it,
- * but on this axis it means exactly what `removed` means, and two words for "not published" is an
- * invitation for a desk to use them inconsistently and then be unable to report on either.
- */
+/* `live` is published without a moderator, `approved` is the one a human typed — both public, and
+   the difference matters only here. `recheck` is not a `MOD_STATUS`: it surfaces an edit to a
+   published row. `rejected` is omitted deliberately; on this axis it duplicates `removed`. */
 const STATES = [
   { id: 'pending', label: 'Pending' },
+  { id: 'recheck', label: 'Re-check' },
   { id: 'approved', label: 'Published' },
-  { id: 'flagged', label: 'Flagged' },
+  { id: 'flagged', label: 'Hidden for review' },
   { id: 'removed', label: 'Removed' },
-  { id: 'live', label: 'Live (pre-D72)' },
+  { id: 'live', label: 'Live (unread)' },
 ];
 
 /** Publishing needs no explanation; withholding does, and the audit row is where it lives. */
 const ACTIONS = [
   { id: 'approved', label: 'Publish', icon: Check, note: false, tone: 'border-brand-teal/30 bg-brand-teal/10 text-brand-teal' },
-  { id: 'flagged', label: 'Flag', icon: Flag, note: true, tone: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
+  { id: 'flagged', label: 'Hide for review', icon: EyeOff, note: true, tone: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
   { id: 'removed', label: 'Remove', icon: Ban, note: true, tone: 'border-white/10 text-gray-300 hover:bg-white/5' },
 ];
+
+/* Hide the action a row is already in — except on a re-check row, which is public by definition, so
+   the rule would filter away the only verdict that says *I have read the edit and it is fine*. */
+const actionsFor = (row) => ACTIONS.filter((a) => a.id !== row.modStatus || row.recheckRequestedAt)
+  .map((a) => (a.id === row.modStatus ? { ...a, label: 'Looks fine', note: false } : a));
 
 export default function ModerationBoard() {
   const { toast } = useToast();
@@ -77,7 +53,14 @@ export default function ModerationBoard() {
   const apply = async (row, next, why) => {
     try {
       await moderateFlatmatePost(row.id, next, why);
-      toast(next === 'approved' ? 'Published — it is on the board now' : `Marked ${next}`, next === 'approved' ? 'success' : 'error');
+      // Re-stamping the state a row is already in is the "Looks fine" verdict, and saying
+      // "Published" for it would claim an outcome the moderator did not cause.
+      const settled = row.modStatus === next;
+      const published = next === 'approved';
+      toast(
+        settled ? 'Re-check cleared' : published ? 'Published — it is on the board now' : `Marked ${next}`,
+        settled || published ? 'success' : 'error',
+      );
       setNoting(null);
       setNote('');
       board.reload();
@@ -101,7 +84,9 @@ export default function ModerationBoard() {
           to nobody else — so this queue is the only thing standing between honest supply and a board
           nobody can post to. Read the <b className="text-gray-200">free text</b>: that is where a contact
           number goes when the contact field will not take one. Publishing does
-          {' '}<b className="text-gray-200">not</b> grant a trust badge; that is <b className="text-gray-200">Verification</b>.
+          {' '}<b className="text-gray-200">not</b> grant a trust badge; that is <b className="text-gray-200">Verification</b>,
+          which is also the only board that says <b className="text-gray-200">Contested address</b> — a
+          guardrail, not a verdict, and nothing to do with hiding a post here.
         </div>
       </div>
 
@@ -122,6 +107,7 @@ export default function ModerationBoard() {
                 <th className="p-3">Author</th>
                 <th className="p-3">Headline</th>
                 <th className="p-3">What they typed</th>
+                {kind === 'room' ? <th className="p-3">Photos</th> : null}
                 <th className="p-3">State</th>
                 <th className="p-3">Actions</th>
               </tr>
@@ -141,7 +127,47 @@ export default function ModerationBoard() {
                   <td className="p-3 max-w-md whitespace-pre-wrap break-words text-gray-300">
                     {r.freeText || <span className="text-gray-500">—</span>}
                   </td>
-                  <td className="p-3"><Badge status={r.modStatus} /></td>
+                  {/* All of them, never a "+9 more": the one that was swapped in is as likely to
+                      be last as first, and a moderator who has to click cannot scan. A post and a
+                      group carry none, so the column only exists on the board that has them. */}
+                  {kind === 'room' ? (
+                    <td className="p-3 flatmate-mod-photos">
+                      {r.photos.length ? (
+                        <div className="flex max-w-xs flex-wrap gap-1">
+                          {/* Index, not the URL: nothing de-duplicates the list, and a host who
+                              uploads the same file twice would otherwise collide two keys. */}
+                          {r.photos.map((src, i) => (
+                            <a key={i} href={src} target="_blank" rel="noreferrer noopener">
+                              <img
+                                src={src}
+                                alt={`${i + 1} of ${r.photos.length}`}
+                                loading="lazy"
+                                decoding="async"
+                                width={48}
+                                height={48}
+                                className="h-12 w-12 rounded object-cover ring-1 ring-white/10"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">—</span>
+                      )}
+                    </td>
+                  ) : null}
+                  <td className="p-3">
+                    <Badge status={r.modStatus}>
+                      {r.modStatus === 'flagged' ? 'Hidden for review' : null}
+                    </Badge>
+                    {/* Keyed off the timestamp, not the reason: the server's own presence test is
+                        `recheck_requested_at is not null`, and a row whose reason list came back
+                        empty would otherwise sit on this tab wearing no marker at all. */}
+                    {r.recheckRequestedAt ? (
+                      <div className="mt-1 text-[11px] text-amber-300 flatmate-mod-recheck">
+                        Edited since review: {r.recheckReason || 'edited'} · {fmtDate(r.recheckRequestedAt)}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="p-3">
                     {noting && noting.startsWith(`${r.id}:`) ? (
                       <InlineNote
@@ -154,7 +180,7 @@ export default function ModerationBoard() {
                       />
                     ) : (
                       <div className="flex flex-wrap gap-1">
-                        {ACTIONS.filter((a) => a.id !== r.modStatus).map((a) => (
+                        {actionsFor(r).map((a) => (
                           <button
                             key={a.id}
                             type="button"

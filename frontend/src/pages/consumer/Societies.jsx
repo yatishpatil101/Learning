@@ -161,8 +161,8 @@ export default function Societies() {
   const enriched = useMemo(() => societies.map((soc) => {
     /* `source`, not `tier`: the server records how a society got here and, separately, whether ops
        have confirmed it — so a member-added society that has been verified stops being badged as
-       unchecked, which a browser-stamped `tier` could never do. The mock provider translates its
-       `tier` into this field, so the fallback below is a belt, not a second vocabulary. */
+       unchecked, which a browser-stamped `tier` could never do. The `tier` fallback below is a
+       belt for locally-seeded rows, not a second vocabulary. */
     const community = (soc.source || soc.tier) === 'community';
     const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {

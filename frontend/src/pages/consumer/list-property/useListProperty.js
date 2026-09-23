@@ -16,13 +16,14 @@ import { haptic } from '../../../lib/haptics.js';
 import {
   docsFor, isResidentialType, isLandType, isCommercialType, isHouseType, COMMERCIAL_SPEC_KEYS,
   leaseKindOf, LEASE_DEFAULTS, defaultAreaUnitFor, FLOOR_PLAN_CATEGORY, photoCategoriesFor,
+  homeTypeLabelFor,
 } from './constants.js';
 import { initialForm } from './initialForm.js';
 import { classifyChanges } from './editPolicy.js';
 import { scrollToError, validateStep1, validateLocationStep, validatePricingStep, validateStep3, validateFlatmateStep1, validateFlatmateStep2 } from './validation.js';
 import { triggerConfetti } from './confetti.js';
 import { persistListing } from './submit.js';
-import { hasAgreementEvidence } from '../flatmates/helpers.js';
+import { hasAgreementEvidence, numeric, terms } from '../flatmates/helpers.js';
 import { hashPhotos } from '../../../lib/data/imageHash.js';
 import { computeProgress } from './progress.js';
 import useListingMedia from './useListingMedia';
@@ -104,7 +105,10 @@ export default function useListProperty() {
     // Browser drafts predate the database migration; preserve an independently stated view.
     return legacyView ? { ...restored, facing: '', overlooking: restored.overlooking || legacyView } : restored;
   }), []);
-  const { clear: clearFormDraft, startFresh } = useFormDraft('dzDraft:list-property', form, restoreDraft, { enabled: !editId });
+  const { clear: clearFormDraft, startFresh } = useFormDraft('dzDraft:list-property:v2', form, restoreDraft, {
+    enabled: !editId,
+    omit: ['agreementDeclared', 'agreementDoc', 'agreementRegNo', 'agreementRegisteredOn', 'agreementValidTill', 'hostRole', 'ownerConsentMobile'],
+  });
 
   const isFlatmateMode = !editId && form.deal === 'rent' && rentMode === 'flatmate';
 
@@ -114,9 +118,10 @@ export default function useListProperty() {
   );
 
   useEffect(() => {
-    // Entry intent wins over a draft, but never over an existing listing.
+    // Entry intent wins over a draft, but never over an existing listing. The home type is reset
+    // with the property type because they are one answer.
     if (flatmateMode && !editId) {
-      setForm((f) => ({ ...f, deal: 'rent', propertyType: 'flat', hostRole: 'tenant' }));
+      setForm((f) => ({ ...f, deal: 'rent', propertyType: 'flat', homeTypeLabel: homeTypeLabelFor('flat'), hostRole: 'tenant' }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -244,6 +249,9 @@ export default function useListProperty() {
     setForm((prev) => {
       const next = { ...prev, propertyType: v };
       TYPE_SPECIFIC_KEYS.forEach((k) => { next[k] = initialForm[k]; });
+      /* Not a TYPE_SPECIFIC_KEY, because those reset to `initialForm` and every type would come
+         back "Flat". Re-typing is an explicit re-answer, so the type's default label is right. */
+      next.homeTypeLabel = homeTypeLabelFor(v) || prev.homeTypeLabel;
       /* `initialForm.areaUnit` is the plot default and is not on the farm unit list, so the blanket reset
          above has to be corrected per type or the farm form opens on a unit it cannot render. */
       next.areaUnit = defaultAreaUnitFor(v);
@@ -434,20 +442,26 @@ export default function useListProperty() {
     if (!form.roomType) err.roomType = true;
     if (!form.locality) err.locality = true;
     if (!form.society.trim()) err.society = true;
+    if (!form.pinPlaced) err.location = true;
     if (!(Number(form.rentShare) > 0)) err.rentShare = true;
     if (!form.availableFrom) err.availableFrom = true;
-    // A room is one space: its own photo floor stays at one, so `true` keeps the generic message.
-    if (!photos.length) err.photos = true;
+    // No photo floor: the server files a pictureless room as pending rather than onto the board, so
+    // an empty gallery costs only the auto-publish, while refusing the post cost the whole post.
     if (photos.length > MAX_PHOTOS) err.photos = 'max';
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setPosting(true);
     try {
-      const agreementDoc = form.hostRole === 'tenant' && form.agreementDeclared ? form.agreementDoc : null;
+      const tenantEvidence = form.hostRole === 'tenant' && form.agreementDeclared;
+      const agreementDoc = tenantEvidence ? form.agreementDoc : null;
       const house = isHouseType(form.propertyType);
       await createRoom({
+        homeTypeLabel: form.homeTypeLabel,
         bhk: form.bhk,
         roomType: form.roomType,
         attachedBath: form.attachedBath,
+        ...numeric('occupants', form.occupants),
+        ...numeric('maxOccupants', form.maxOccupants),
+        ...terms(form),
         furnishing: form.furnishing,
         locality: form.locality,
         societyId: house ? '' : (form.societyId || ''),
@@ -462,30 +476,16 @@ export default function useListProperty() {
         hostRole: form.hostRole,
         agreementDeclared: !!form.agreementDeclared && hasAgreementEvidence(agreementDoc),
         agreementDoc,
+        // Gated on the same condition as the doc: an owner who once toggled "I'm a tenant", typed
+        // a number and switched back must not ship a registration claim they are not making.
+        agreementRegNo: tenantEvidence ? form.agreementRegNo : '',
+        agreementRegisteredOn: tenantEvidence ? form.agreementRegisteredOn : '',
+        agreementValidTill: tenantEvidence ? form.agreementValidTill : '',
         ownerConsentMobile: form.ownerConsentMobile,
         photos: photos.map((photo) => photo.url),
         note: form.note,
         lat: form.propLat,
         lng: form.propLng,
-        propertyType: form.propertyType || 'flat',
-        homeTypeLabel: form.homeTypeLabel || 'Flat',
-        gatedCommunity: !!form.gatedCommunity,
-        // Only a house has floors of its own; a flat has a floor *within* a building.
-        floorsInHouse: house ? (form.floorsInHouse || '') : '',
-        floor: house ? 0 : (parseInt(form.floor, 10) || 0),
-        totalFloors: house ? 0 : (parseInt(form.totalFloors, 10) || 0),
-        bathrooms: parseInt(form.bathrooms, 10) || 0,
-        balconies: parseInt(form.balconies, 10) || 0,
-        carpetArea: parseAmount(form.carpetArea),
-        builtUp: parseAmount(form.builtUp),
-        facing: form.facing || '',
-        overlooking: form.overlooking || '',
-        age: form.age || '',
-        furniture: form.furniture || [],
-        tower: form.tower || '',
-        street: form.street || '',
-        landmark: form.landmark || '',
-        pincode: form.pincode || '',
       });
       clearFormDraft();
       triggerConfetti();

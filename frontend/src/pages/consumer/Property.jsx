@@ -75,7 +75,10 @@ export default function Property() {
             <span className="text-slate-300 truncate">{title}</span>
           </nav>
 
-          <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} priceStr={priceOnHero ? ctx.priceStr : null} />
+          {/* Keyed on the listing: `active` is reset here on an id change but the gallery's own
+              `ask` slide is not, so an in-place navigation would otherwise park the next
+              listing's hero on its request-photos card. */}
+          <Gallery key={p.id} gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} priceStr={priceOnHero ? ctx.priceStr : null} />
 
           <PropertyHeader ctx={ctx} priceOnHero={priceOnHero} />
 

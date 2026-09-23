@@ -9,7 +9,7 @@ import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 export default function HelpCategory() {
   const { categoryId } = useParams();
   const { t } = useTranslation();
-  const { sections, categories, articles: allArticles } = useHelpTree();
+  const { sections, categories, articles: allArticles, pending } = useHelpTree();
   const category = categories.find((c) => c.id === categoryId) || null;
   const hp = useHelpPath();
   // Staff runbooks stay out of the index: a crawler has no staff session, so the
@@ -17,6 +17,7 @@ export default function HelpCategory() {
   useHelpSeo(`/help/c/${categoryId}`, useHelpLang(), { index: category?.access !== 'staff' });
 
   if (!category) {
+    if (pending) return <HelpLayout title={t('help.centre')} />;
     return (
       <HelpLayout title={t('help.topicNotFound')}>
         <EmptyState icon="folder-x" title={t('help.topicNotFound')}>

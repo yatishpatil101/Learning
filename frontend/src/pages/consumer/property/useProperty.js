@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 import { recordSignal } from '../../../services/demandService.js';
 import { getProperty } from '../../../services/propertyService.js';
 import { track } from '../../../lib/pmf.js';
@@ -14,6 +15,7 @@ import { requestPhotos as askForPhotos } from '../../../services/photoRequestSer
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { messagesLinkForProp } from '../../../lib/chatFormat.js';
+import { isBrokered } from '../../../lib/contact.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveOverlooking, deriveAge, propertyKind } from './derivations.js';
 import { commercialSpecsFor } from '../list-property/constants.js';
@@ -74,19 +76,16 @@ export default function useProperty() {
 
   const gallery = useMemo(() => (p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]) : []), [p]);
 
+  useScrollLock(lightbox || tourOpen);
   useEffect(() => {
     if (!lightbox && !tourOpen) return undefined;
-    document.body.style.overflow = 'hidden';
     const onKey = (e) => {
       if (e.key === 'Escape') { setLightbox(false); setTourOpen(false); }
       else if (lightbox && e.key === 'ArrowLeft') setActive((i) => (i - 1 + gallery.length) % gallery.length);
       else if (lightbox && e.key === 'ArrowRight') setActive((i) => (i + 1) % gallery.length);
     };
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [lightbox, tourOpen, gallery.length]);
 
   if (p === undefined) return { loading: true, tr };
@@ -251,15 +250,16 @@ export default function useProperty() {
   // Type-aware "Read more" blurb — a co-op community pitch (schools/hospitals) is
   // meaningless for an office or a plot, so each kind gets its own framing.
   const amenPhrase = (p.amenities || []).map((a) => AMEN_LABEL[a] || a).join(', ') || tr('property.modernAmenities');
+  const brokered = isBrokered(p);
   const overviewMore = isLand
-    ? tr('property.overviewLand', {
+    ? tr(brokered ? 'property.overviewLandBrokered' : 'property.overviewLand', {
         type: typeLower,
         locality: p.locality,
         zone: plotZone ? tr('property.overviewLandZone', { zone: String(plotZone).toLowerCase() }) : '',
       })
     : kind === 'commercial'
-      ? tr('property.overviewCommercial', { type: typeLower, locality: p.locality, amenities: amenPhrase })
-      : tr('property.overviewResidential', {
+      ? tr(brokered ? 'property.overviewCommercialBrokered' : 'property.overviewCommercial', { type: typeLower, locality: p.locality, amenities: amenPhrase })
+      : tr(brokered ? 'property.overviewResidentialBrokered' : 'property.overviewResidential', {
           bhk: p.bhkNum ? p.bhkNum + ' BHK ' : '',
           type: typeLower,
           locality: p.locality,
@@ -281,8 +281,11 @@ export default function useProperty() {
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
   if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
   /* Last, and neutral on purpose: this is a fact about the transaction, not a verification Draazy
-     performed, so it must not join the emerald set the tiers above are reserved for. */
-  tags.push([tr('property.zeroBrokerageDirect'), '', 'hand-coins', 'tag.zeroBrokerage']);
+     performed, so it must not join the emerald set the tiers above are reserved for. Only the
+     "deal direct" half is withdrawn for a broker's listing — Draazy's own cut is nil regardless. */
+  tags.push(brokered
+    ? [tr('property.zeroBrokerageOnly'), '', 'hand-coins', 'tag.zeroBrokerageOnly']
+    : [tr('property.zeroBrokerageDirect'), '', 'hand-coins', 'tag.zeroBrokerage']);
 
 /* Re-stated here only to spend a toast instead of a round trip; the server enforces both independently.
    `created` is the server's word — saying "sent" for a duplicate promises a notification nobody will get. */

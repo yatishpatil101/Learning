@@ -229,7 +229,6 @@ export default function AdminProperties() {
 
   const jumpTo = (t, status) => { setTab(t); if (t === 'all') { setQAll(''); setFDeal(''); setFStatus(status || ''); } };
 
-  // ---- computed data ----
   /* `null` rather than `0` on failure: a tile rendering `0` because a fetch rejected is an all-clear
      nobody issued, and it ends the moderator's search. `KpiCard` shows an em-dash instead. */
   const [dupCount, setDupCount] = useState(null);
@@ -312,8 +311,9 @@ export default function AdminProperties() {
   const flaggedQueue = useModerationQueue({ status: 'flagged', archived: false, q: qFlagged || undefined, deal: fDeal || undefined }, reloadToken);
   const featuredQueue = useModerationQueue({ featured: true, archived: false, q: qFeatured || undefined, deal: fDeal || undefined }, reloadToken);
   const staffQueue = useModerationQueue({ postedByAdmin: true, archived: false, q: qStaff || undefined, deal: fDeal || undefined }, reloadToken);
-  // The one queue whose rows are live in search right now, which is why it needs a desk. Never predicate
-  // it on `real` — a mock-store field the http mapper never emits, which hid fifty-three listings.
+  // The one queue whose rows are live in search right now, which is why it needs a desk. Never
+  // predicate it on `real` — the mapper does not emit that field, and doing so hid fifty-three
+  // listings.
   const unconfirmedQueue = useModerationQueue({ status: 'approved', archived: false, unconfirmed: true, q: qFollowUp || undefined, deal: fDeal || undefined }, reloadToken);
   /* Its own fetch, because the follow-up tab asks the verification queue's question with its own
      search box: a shared fetch would let whichever box was typed in last re-cut both splits. */
@@ -429,14 +429,12 @@ export default function AdminProperties() {
     toast(`No listing ${reviewId} in the loaded queues — it may have been archived, or be older than the current page`, 'error');
   }, [findListing, deepLinkSettled, params, toast]);
 
-  // ---- selection ----
   const selAllIds = useMemo(() => rowsAll.filter((l) => selAll.has(l.id)).map((l) => l.id), [rowsAll, selAll]);
   const selVerIds = useMemo(() => rowsVerify.filter((l) => selVer.has(l.id)).map((l) => l.id), [rowsVerify, selVer]);
   const toggleOne = (setFn) => (id) => setFn((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleOneAll = toggleOne(setSelAll);
   const toggleOneVer = toggleOne(setSelVer);
 
-  // ---- actions ----
   // Awaited and surfaced: these are real writes that can 403 (self-dealing is refused) or 404.
   const doFeature = async (l) => {
     try {
@@ -528,7 +526,7 @@ export default function AdminProperties() {
     if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error');
     if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error');
     if (!loc) return toast('Locality is required', 'error');
-  // Both names go out: `bhkNum` is what the wire mapper reads, `bhk` the label the mock store renders. An
+  // Both names go out: `bhkNum` is what the wire mapper reads, `bhk` the label the row renders. An
   // empty box is omitted rather than sent as 0 — 0 marks plots and studios, so it would reclassify a flat.
     const bhkRaw = String(edit.bhk ?? '').trim();
     const bhkNum = bhkRaw === '' ? undefined : Number(bhkRaw);
@@ -538,7 +536,7 @@ export default function AdminProperties() {
     const bhkPatch = bhkNum === undefined ? {} : { bhkNum, bhk: bhkNum ? `${bhkNum} BHK` : '' };
     try {
       /* The moderator route, not the owner's: `/me/listings/{id}` resolves owner-scoped, so it 404s for
-         every listing the moderator does not own. Mock mode hides this — its store has no owner to check. */
+         every listing the moderator does not own. */
       await updateListingAsModerator(edit.id, { title, price, area: area || edit._ref.area, ...bhkPatch, type: edit.type.trim(), locality: loc, deal: edit.deal });
       if (edit.status && edit.status !== edit._ref.status) await setListingStatus(edit.id, edit.status);
     } catch (err) {
@@ -569,7 +567,7 @@ export default function AdminProperties() {
   const handleConfirmReminder = (l) => chase(l, freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale');
 
   // Awaited and error-branched like every other write here: against the API this can 403 (post-on-behalf
-  // rights), 404, or refuse the value. The old localStorage form could not fail, so it had no error path.
+  // rights), 404, or refuse the value.
   const advancePipeline = async (id, newStage) => {
     try {
       await setPipelineStage(id, newStage);
@@ -581,7 +579,6 @@ export default function AdminProperties() {
     refresh();
   };
 
-  // ---- bulk ----
   // `allSettled`: self-dealing 403s make partial failure the expected case, so report and refresh.
   const bulkFeature = async () => {
     if (!selAllIds.length) return;
@@ -633,7 +630,6 @@ export default function AdminProperties() {
     refresh();
   };
 
-  // ---- export ----
   const exportCurrentCsv = () => {
     if (activeTab === 'verify') exportCsv('draazy-verification-queue.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Submitted'], rowsVerify.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.createdAt]));
     else if (activeTab === 'flagged') exportCsv('draazy-flagged.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Reason'], rowsFlagged.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.flagReason || 'Flagged']));
@@ -828,13 +824,10 @@ export default function AdminProperties() {
       {activeTab === 'staff' && (
         <>
           <QueueTruncated page={staffQueue.page} noun="listings were posted by staff" testId="staff-truncated" />
-          {/* "staff name" is gone from this placeholder. The browser-side filter used to include
-              `postedByStaff`, which reads as staff-name search and was one against the mock, where
-              the console wrote the display name into the row it then searched. The server derives
-              that field from the caller's token, so live it is a uuid inside a jsonb map — typing
-              "Priya" matched nothing then and matches nothing now. Promising it was the defect;
-              removing the promise is the fix, and a real staff-name filter is a `users` join and a
-              query parameter of its own. */}
+          {/* "staff name" is deliberately absent from this placeholder. The server derives
+              `postedByStaff` from the caller's token, so it is a uuid inside a jsonb map — typing
+              "Priya" matches nothing. Promising it is the defect; a real staff-name filter is a
+              `users` join and a query parameter of its own. */}
           {staffQueue.failed ? <QueueFailed noun="staff-posted" testId="staff-error" /> : renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, locality\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
         </>
       )}

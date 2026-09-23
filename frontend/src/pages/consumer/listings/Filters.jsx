@@ -7,6 +7,7 @@ import SpecSections from './filtersPanel/SpecSections.jsx';
 import RentExtraSections from './filtersPanel/RentExtraSections.jsx';
 import BuyExtraSections from './filtersPanel/BuyExtraSections.jsx';
 import AmenitiesSection from './filtersPanel/AmenitiesSection.jsx';
+import PostedBySection from './filtersPanel/PostedBySection.jsx';
 import VerificationSection from './filtersPanel/VerificationSection.jsx';
 
 export default function Filters({ f, set, localities, onAddLocality, clearAll, idp = '', showClear = true }) {
@@ -21,6 +22,7 @@ export default function Filters({ f, set, localities, onAddLocality, clearAll, i
       <RentExtraSections f={f} set={set} idp={idp} />
       <BuyExtraSections f={f} set={set} idp={idp} />
       <AmenitiesSection f={f} set={set} />
+      <PostedBySection f={f} set={set} idp={idp} />
       <VerificationSection f={f} set={set} />
       {showClear ? (
         <>

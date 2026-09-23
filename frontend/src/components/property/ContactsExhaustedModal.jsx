@@ -5,6 +5,7 @@ import Icon from '../Icon.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { referralContactsPerReward } from '../../lib/referralConfig.js';
 import { getEntitlements } from '../../services/entitlementService.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 
 /* Shown when a seeker has spent every free owner contact. Two honest ways out:
    refer a friend (free, +15 contacts each) or buy Seeker Plus (unlimited).
@@ -32,12 +33,8 @@ export default function ContactsExhaustedModal({ onClose }) {
     return () => { alive = false; };
   }, []);
 
+  useScrollLock();
   useEffect(() => {
-    // Save and restore the previous value: this modal can open over an already
-    // scroll-locked surface (a sheet, the help drawer), and blanking it on close
-    // would unlock the page underneath.
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     // Move focus into the dialog, and hand it back to the trigger on close —
     // otherwise Tab walks the page behind the backdrop.
     const prevFocus = document.activeElement;
@@ -46,7 +43,6 @@ export default function ContactsExhaustedModal({ onClose }) {
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
       if (prevFocus instanceof HTMLElement) prevFocus.focus();
     };
   }, [onClose]);

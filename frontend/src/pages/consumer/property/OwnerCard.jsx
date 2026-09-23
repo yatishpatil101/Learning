@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
-import { digits } from '../../../lib/contact.js';
+import { digits, isBrokered } from '../../../lib/contact.js';
 import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { ContactBox } from './ContactBox.jsx';
@@ -17,15 +17,18 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = 
      checked out, and a listing can carry either alone. */
   const identityVerified = !!p.ownerVerified;
   const anyVerified = identityVerified || !!p.ownershipVerified;
+  /* An agent's or a developer's listing keeps the fee promise and loses the "directly with owner"
+     one, so the banner and its tooltip switch together rather than half-contradicting each other. */
+  const brokered = isBrokered(p);
   const verifiedLabel = [identityVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : '']
     .filter(Boolean)
     .join(' · ');
   return (
     <div className="glass-strong rounded-2xl p-5">
-      <Tip k="owner.noBrokerage">
+      <Tip k={brokered ? 'owner.noBrokerageFee' : 'owner.noBrokerage'}>
         <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
           <Icon name="hand-coins" className="w-4 h-4 text-emerald-400" />
-          <span className="text-xs text-emerald-300 font-medium">{t('property.noBrokerageDeal')}</span>
+          <span className="text-xs text-emerald-300 font-medium">{t(brokered ? 'property.noBrokerageFee' : 'property.noBrokerageDeal')}</span>
         </div>
       </Tip>
       <Link to={`/owner/${p.ownerId}`} className="flex items-center gap-3 mb-3 group">

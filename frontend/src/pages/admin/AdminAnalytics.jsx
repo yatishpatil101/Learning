@@ -28,21 +28,14 @@ export default function AdminAnalytics() {
   const { optionEnabled } = useAdminFlags();
 
   /*
-   * A `getAnalytics()` call from `mockApi` stood here, and a `if (!analytics) return <Loading />;`
-   * gate stood below. Everything it fetched was one five-row constant feeding one doughnut on the
-   * Traffic tab, so the page held all eight tabs behind a spinner waiting on a localStorage read
-   * for a chart whose two neighbours were already hardcoded. That constant is gone: the Traffic
-   * tab's source mix is a real referrer rollup now, so the doughnut is measured rather than drawn.
-   *
-   * Nothing on this page is generated any more. Three tabs — Traffic, Engagement and Anonymous
-   * surfers — read the page-view aggregates below; Supply Gap is a server aggregate; Pricing and SLA
-   * are server reports. The eighth tab, Seasonal, is deleted: a month-over-month demand curve needs
-   * one to three years of history that collection started far too recently to have, and the only
-   * thing standing in for it was a seeded generator with a `Sample` chip. Deleting it is the honest
-   * version of that chip. `lib/data/analytics-extra.js` no longer feeds this page at all.
+   * Nothing on this page is generated. Three tabs — Traffic, Engagement and Anonymous surfers —
+   * read the page-view aggregates below; Supply Gap is a server aggregate; Pricing and SLA are
+   * server reports. There is no Seasonal tab: a month-over-month demand curve needs one to three
+   * years of history that collection started far too recently to have, and a seeded generator
+   * behind a `Sample` chip is not the honest version of that.
    */
 
-  // The supply gap is a server aggregate now, so it is fetched rather than derived. Kept out of the
+  // The supply gap is a server aggregate, so it is fetched rather than derived. Kept out of the
   // `analytics` gate above because it is one tab: an outage in the demand report should leave the
   // other seven tabs rendering, so a failure here empties this tab rather than the page.
   const [supplyGap, setSupplyGap] = useState([]);
@@ -111,10 +104,6 @@ export default function AdminAnalytics() {
    * Each gets its own effect and its own catch, like Supply Gap above and for the same reason: a
    * failure should empty one tab, not the page. `null` is the pre-arrival state and the tabs render
    * nothing for it — distinct from a loaded report that happens to be empty, which they do render.
-   *
-   * Neither takes a generated figure any more. The cards that had no server source — six-month
-   * price trends, per-listing price position, the weekly compliance line — are deleted, and ticket
-   * and concierge turnaround are served by the SLA endpoint itself. See `analyticsService.js`.
    */
   /*
    * Three states, not two, and the third is why this is not simply `useState(null)` with a `[]` in
@@ -208,15 +197,13 @@ export default function AdminAnalytics() {
   /*
    * Resolved against the tabs that exist, not taken from the URL as read.
    *
-   * `searchParams.get('tab') || 'traffic'` stood here, which handles a missing parameter and
-   * nothing else: any other value selected a tab that was not in the list, and `Tabs` rendered the
-   * strip with nothing under it. That is not a hypothetical URL. Seasonal was a real tab with a
-   * real address until D252 deleted it, so bookmarks and pasted links to `?tab=seasonal` exist and
-   * every one of them landed on a heading above an empty page — which reads as an outage rather
-   * than as a removal, and is the version of this an operator reports as "analytics is down".
+   * `searchParams.get('tab') || 'traffic'` handles a missing parameter and nothing else: any other
+   * value selects a tab that is not in the list, and `Tabs` renders the strip with nothing under
+   * it. Retired tabs keep real addresses in bookmarks and pasted links, and a heading above an
+   * empty page reads as an outage rather than as a removal.
    *
-   * The same hole swallowed a tab an operator had switched off in Settings: the flags filter the
-   * list, so deep-linking a disabled tab produced the identical blank. Falling back to the first
+   * The same hole swallows a tab an operator has switched off in Settings: the flags filter the
+   * list, so deep-linking a disabled tab produces the identical blank. Falling back to the first
    * tab that survived both filters is the only answer that cannot render nothing.
    */
   const activeTab = tabs.some((t) => t.key === requestedTab) ? requestedTab : tabs[0]?.key;

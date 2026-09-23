@@ -68,36 +68,31 @@ export default function AdminDashboard() {
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
   const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
 
-  /* Catalogue-wide totals are counted in SQL; queue depths come from the paged collections their
-     tiles link through to, so a tile always agrees with the list it opens. Non-essential reads hide
-     their tile rather than zero it — "0 pending" during an outage sends the desk home. */
+  /* Queue depths come from the paged collections their tiles link through to, so a tile always
+     agrees with the list it opens. A non-essential read hides its tile rather than zeroing it. */
   useEffect(() => {
     let alive = true;
 
-    /** A read whose failure costs a tile rather than the page. Logged — never silently swallowed. */
+    // A read whose failure costs a tile rather than the page.
     const soft = (label, promise) =>
       promise.catch((err) => {
         console.warn(`[AdminDashboard] ${label} could not be read; the tiles it feeds are hidden.`, err);
         return null;
       });
 
-    /* Two `soft` reads of the service desk: a desk that cannot be read costs a tile, not the page. */
-
     Promise.all([
       /* Pending-only and `oldest`-first: every use below wants the listings waiting longest, and a
-         newest-first page cap drops precisely those. The Flagged tile takes its number from
-         `moderationSummary`, which the server counts over the whole catalogue. */
+         newest-first page cap drops precisely those. */
       listForModeration({ status: 'pending', archived: false }, 'oldest'),
       soft('the catalogue counters', moderationSummary()),
       listEnquiries(),
       listVisits(),
       listDeals(),
       /* Two reads: the card wants the newest tickets whatever their state, the tile wants an exact
-         count of one state — counting the first five would report "3 open" on a desk with ninety.
-         `open`, not `new`: `new` is the mock's word and the server rejects it. */
+         count of one state — counting the first five would report "3 open" on a desk with ninety. */
       soft('the service desk', listTicketQueue({ size: 5 })),
       soft('the service desk', listTicketQueue({ status: 'open', size: 1 })),
-      /* Same trick for the owner sub-label: one row fetched, only `total` used. */
+      // Same trick for the owner sub-label: one row fetched, only `total` used.
       soft('the owner count', listUsers({ role: 'owner', size: 1 })),
       soft('the scorecard', dashboardKpis()),
       soft('traffic', fetchTraffic({ days: 30 })),
@@ -125,9 +120,8 @@ export default function AdminDashboard() {
      reports a queue as shorter than it is. Null on a failed read, which hides the tile. */
   const flagged = summary?.flagged ?? null;
 
-  /* Catalogue-wide, counted by the server. `pendingModeration` degrades to the counters rather than
-     vanishing — the desk routes work from this tile, so a warned-about number beats no tile, and
-     never `listings.length`, which is a page of the queue and would report the page as the backlog. */
+  /* Never `listings.length`, which is a page of the queue and would report the page as the backlog.
+     Degrades to the counters rather than vanishing — the desk routes work from this tile. */
   const pendingVerif = kpis ? kpis.pendingModeration : summary?.pending ?? null;
 
   const tickets = ticketPage?.items || [];
@@ -135,15 +129,13 @@ export default function AdminDashboard() {
   const owners = ownerPage?.total ?? null;
 
   /* `series` is ordered oldest-first by the server. Note the field: a day carries `sessions`, not
-     `visits` — the mock's word. Reading `.visits` here would have found `undefined` on every row and
-     rendered a confident zero. */
+     `visits`. Reading `.visits` here finds `undefined` on every row and renders a confident zero. */
   const days = traffic?.series || [];
   const lastDay = days[days.length - 1] || null;
   const sessions30 = days.reduce((sum, d) => sum + d.sessions, 0);
 
   /* `listings` arrives pending-only and oldest-first, so these five are the oldest in the catalogue
-     rather than in a page. The status guard is redundant against the query on purpose: widen the
-     query if this card ever wants a second status, not this filter. */
+     rather than in a page. Widen the query if this card ever wants a second status, not the filter. */
   const now = Date.now();
   const staleListings = listings
     .filter((l) => {
@@ -153,9 +145,8 @@ export default function AdminDashboard() {
     })
     .slice(0, 5);
 
-  /* Owners who got a claim link but finished neither photos nor Aadhaar. No server-side filter
-     exists for that, so it stays a client filter — but over the oldest pending listings, which
-     surfaces the ones stuck longest rather than whichever were recent. */
+  /* No server-side filter exists for "claimed but finished neither photos nor Aadhaar", so it stays
+     a client filter — but over the oldest pending listings, which surfaces the ones stuck longest. */
   const awaitingOwner = listings
     .filter((l) => l.postedByAdmin && l.status === 'pending' && (!l.photosUploaded || !l.identityVerified))
     .slice(0, 5);
@@ -164,8 +155,7 @@ export default function AdminDashboard() {
     .filter((v, i, a) => a.findIndex((x) => x.id === v.id) === i);
 
   /* A tile whose source went away is dropped rather than left showing a plausible figure. Owner KYC
-     Pending has no live equivalent here (the queue belongs to the ops identity desk) and its slot
-     goes to Open Reports, which hides on a failed read rather than claiming zero. */
+     Pending has no live equivalent here, so its slot goes to Open Reports. */
   const actionTiles = [
     { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: pendingVerif != null },
     { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
@@ -177,9 +167,8 @@ export default function AdminDashboard() {
     { lbl: 'Deals in Progress', val: dealsProg, icon: Handshake, tint: 'emerald', href: '/admin/enquiries', cta: 'Close deals', show: true },
   ].filter((t) => t.show).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
 
-  /* `revenue30d` is null for a `staff` caller by design — the server redacts the one admin-only
-     figure rather than refusing the whole read. `fmtINR(null)` would print ₹0, so null hides the
-     tile, which is what a redaction looks like. One rolling 30-day sum, hence no MoM delta. */
+  /* `revenue30d` is null for a `staff` caller by design — the server redacts that one figure rather
+     than refusing the read. `fmtINR(null)` would print ₹0, so null hides the tile instead. */
   const glanceTilesAll = [
     { lbl: 'Total Users', val: kpis?.totalUsers, display: fmtNum(kpis?.totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: owners == null ? 'buyers & owners' : `${fmtNum(owners)} owners`, show: Boolean(kpis) },
     { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },
@@ -212,8 +201,7 @@ export default function AdminDashboard() {
   ];
 
   /* Oldest first, because this card is a queue and not a feed: the listing that has waited longest
-     is the one a moderator should open next. It used to be the five *newest* pending listings, which
-     is the order that leaves a backlog at the bottom of the screen growing quietly. */
+     is the one a moderator should open next. */
   const pend = listings.filter((l) => l.status === 'pending').slice(0, 5);
   const latestTickets = tickets.slice(0, 5);
 
@@ -221,21 +209,9 @@ export default function AdminDashboard() {
     <div>
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across Draazy" />
 
-      {/* Three panels used to sit on this page — Smart Alerts, SLA Health and the Daily Ops
-          Scorecard — and all three were generated in the browser. `slaMetrics()` and
-          `dailyOpsScorecard()` drew their figures from `rng(314159)` over the mock store; the
-          alerts were computed from `rawDb` directly. All three flags default to **on**, so every
-          operator saw them, and the numbers did not move when the thing they measured moved.
+      {/* Smart Alerts, SLA Health and the Daily Ops Scorecard are absent because no route produces
+          their data; each is a row in tasks/DECISIONS-NEEDED.md and the components stay on disk. */}
 
-          They are removed rather than repointed because there is nothing to repoint them at.
-          `reviewSla()` is real but answers a much narrower question than `SlaHealthPanel` renders
-          (four of its eight KPIs have no counterpart), and no route produces the alerts or the
-          scorecard at all. Each is a row in tasks/DECISIONS-NEEDED.md naming what the backend would
-          have to grow. The panel components are left on disk so the work returns cheaply when it
-          does. This is the same call the mock analytics provider made when it replaced the
-          same generators for the Analytics page: compute it or report the gap, never invent it. */}
-
-      {/* Needs attention */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className={SECTIONS}>Needs attention</h2>
         <span className="text-sm text-gray-500">Click a tile to jump straight to the queue and take action</span>
@@ -246,7 +222,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* At a glance */}
       <div className="mb-3">
         <h2 className={SECTIONS}>At a glance</h2>
       </div>
@@ -256,7 +231,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Platform health & quick actions */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className={SECTIONS}>Platform health &amp; quick actions</h2>
         <span className="text-sm text-gray-500">System status pulled live from your settings</span>
@@ -307,18 +281,12 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Latest activity */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className={SECTIONS}>Latest activity</h2>
         <span className="text-sm text-gray-500">Most recent items needing a look</span>
       </div>
-      {/* min-w-0 on both cards: a grid item defaults to `min-width: auto`, so the
-         track refuses to shrink below the widest thing inside it. The rows here are
-         already built to truncate (`min-w-0 flex-1` + `truncate`), but that never got
-         a chance to run — the card grew to fit a listing title instead, and at 390px
-         it overflowed the viewport by 14px with the right-hand Review button clipped
-         off screen. One property, and the truncation that was always there starts
-         working. */}
+      {/* min-w-0 on both cards: a grid item defaults to `min-width: auto`, so the track refuses to
+          shrink and the rows' existing truncation never gets a chance to run. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="dz-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">

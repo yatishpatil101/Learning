@@ -126,17 +126,30 @@ export default function VerificationBoard() {
                           <X className="h-2.5 w-2.5" />No document
                         </span>
                       ) : null}
-                      {r.ownerConsent && (
+                      {r.ownerConsent ? (
                         <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
                           <Check className="h-2.5 w-2.5" />Owner consent
                         </span>
-                      )}
+                      ) : r.tier === 'tenant' ? (
+                        // Shown as its own chip because approving this row is refused with a 422
+                        // until the owner answers the OTP — the desk should know before clicking.
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300" data-testid="consent-missing">
+                          <X className="h-2.5 w-2.5" />Owner consent missing
+                        </span>
+                      ) : null}
                       {r.flagForReview && (
                         <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
                           <Flag className="h-2.5 w-2.5" />Contested address
                         </span>
                       )}
                     </div>
+                    {r.agreementRegNo && (
+                      <div className="mt-1.5 text-[11px] text-gray-400" data-testid="agreement-registration">
+                        <span className="font-mono text-gray-300">{r.agreementRegNo}</span>
+                        {r.agreementRegisteredOn && <span> · registered {r.agreementRegisteredOn}</span>}
+                        {r.agreementValidTill && <span> · valid till {r.agreementValidTill}</span>}
+                      </div>
+                    )}
                   </td>
                   <td className="p-3">
                     <Badge status={r.status} />

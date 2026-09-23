@@ -86,10 +86,8 @@ export function buildActionItems({
         ],
       });
     });
-    // "Ops is waiting on you" used to be a `clarification` status this file read straight out of
-    // localStorage. The server's review has no such status — what it has is a thread, and the
-    // honest signal is an unread message from ops. Same rule as the listing card's chip, and it
-    // reads the summaries the container already loaded rather than opening a second data source.
+    // "Ops is waiting on you" has no `clarification` status behind it — the honest signal is an
+    // unread message from ops, read off the summaries the container already loaded.
     listings.filter((l) => !l.flatmate && (reviewsByProp?.[l.id]?.unread || 0) > 0).forEach((l) => {
       const rev = reviewsByProp[l.id];
       actionItems.push({
@@ -111,12 +109,9 @@ export function buildActionItems({
       actions: [{ label: 'Review', icon: 'arrow-right', onClick: () => go('visits') }],
     });
   });
-  /* There used to be a "Rent due soon" item here, gated on `!isOwner && rental`. It could never
-     fire: `rental` was picked out of `managedProps`, and a non-empty `managedProps` is itself one
-     of the things that makes `isOwner` true, so the two halves of the guard excluded each other.
-     Worse than dead — `managedProps` are homes the user rents OUT, so relaxing the guard would
-     have labelled a landlord's own let-out flat as the home they rent and shown their rental
-     income as their rent. A tenant-side version has to be built from `myRentals()`. */
+  /* No "Rent due soon" item: `rental` comes out of `managedProps`, which is itself what makes
+     `isOwner` true, so `!isOwner && rental` can never fire. A tenant-side version needs
+     `myRentals()` — `managedProps` are homes the user rents OUT. */
   const STALE_MS = 2 * 86400000;
   actionItems.sort((a, b) => {
     const aStale = a.at && Date.now() - a.at > STALE_MS ? 1 : 0;
@@ -127,12 +122,7 @@ export function buildActionItems({
   return actionItems;
 }
 
-/* Owner Overview stat cards — real figures from the user's own listings + leads.
-
-   That sentence used to be half true. The third tile counted `enquiries`, which was a slice of
-   fixture rows nothing in the app ever wrote, so an owner with no activity at all was still shown
-   a headline "8 Enquiries". It now counts the same leads the Leads panel lists — number requests,
-   photo requests, document requests and flatmate requests — which is why the caller passes one
+/* The third tile counts the same leads the Leads panel lists, which is why the caller passes one
    `leadCount` rather than the arrays: the tile and the panel must not be able to disagree. */
 export function buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go }) {
   return [

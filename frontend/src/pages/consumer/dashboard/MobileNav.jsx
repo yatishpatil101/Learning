@@ -1,20 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../../components/Icon.jsx';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
-/* MobileNav — the dashboard's section switcher for phones (< lg).
-   Replaces the old horizontal-scrolling pill strip, which only fit ~2.5 of the
-   9–11 sections on screen and hid the rest (and their attention badges) behind a
-   horizontal scroll. Here a single row shows the current section; tapping opens a
-   bottom sheet listing EVERY section with its attention badge, so nothing is
-   hidden and pending work is glanceable in one place.
-
-   Reuses the dashboard's existing bottom-sheet look (dz-modal-panel, glass-card,
-   brand-teal) — no new design language. Desktop keeps its sidebar unchanged. */
+/* A single row shows the current section; tapping opens a bottom sheet listing every section with
+   its attention badge, so no pending work is hidden behind a horizontal scroll. */
 export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts = {}, user, onLogout, labelFor }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
   const wasOpen = useRef(false);
+  useScrollLock(open);
   const active = useMemo(() => tabs.find((t) => t.tab === activeTab) || tabs[0], [tabs, activeTab]);
 
   // Sum of pending items across sections other than the current one — the badge
@@ -24,9 +19,8 @@ export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts =
     [tabs, activeTab, attentionCounts],
   );
 
-  // While the sheet is open, behave like a proper modal: close on Escape, keep Tab
-  // focus inside the panel, and auto-focus its first control. On close, hand focus
-  // back to the switcher so keyboard users never lose their place (WCAG 2.4.3).
+  // While the sheet is open, behave like a proper modal: close on Escape, trap Tab focus, and hand
+  // focus back to the switcher on close (WCAG 2.4.3).
   useEffect(() => {
     if (!open) {
       // Only pull focus back to the switcher after an actual open→close (never on
@@ -83,10 +77,8 @@ export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts =
 
       {open && (
         /* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions --
-           Backdrop-click-to-dismiss. The keyboard equivalent the rule asks for is Escape, and it is
-           already bound on the document while the sheet is open (see the effect above); a keyboard
-           listener on the backdrop itself would need the backdrop focused, which is exactly what the
-           focus trap prevents. The close button inside the panel is the focusable way out. */
+           The keyboard equivalent is Escape, already bound while the sheet is open; a listener here
+           would need the backdrop focused, which the focus trap prevents. */
         <div
           className="fixed inset-0 z-[1500] flex items-end justify-center bg-black/75 backdrop-blur-md"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}

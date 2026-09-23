@@ -69,10 +69,8 @@ export default function ScheduleVisit() {
       return;
     }
 
-    /* One write, not two. This used to call `scheduleVisit` (the global collection) *and*
-       `addVisitRequest` (the owner's bucket) — two records of one real-world event, which then
-       drifted the moment either was updated alone. The seam writes once; the mock provider still
-       feeds the admin collection internally until that slice ships. */
+    /* One write, not two. A visit is one real-world event: writing it to both the global collection
+       and the owner's bucket gives two records that drift the moment either is updated alone. */
     setBusy(true);
     scheduleVisit({
       propertyId: listingId || listing?.id || '',

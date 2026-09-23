@@ -25,8 +25,8 @@ const fmtDate = (ts) => {
 };
 
 export default function AlertsPanel() {
-  // Shared with the Overview stat card and the match-count effect, so deleting an alert here no
-  // longer leaves the count above it claiming the old number until a reload.
+  // Shared with the Overview stat card and the match-count effect, so deleting an alert here does
+  // not leave the count above it claiming a stale number until a reload.
   const { searches: alerts, setFrequency, remove } = useSavedSearches();
   const activeCount = alerts.filter((a) => a.alerts).length;
 

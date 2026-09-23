@@ -6,28 +6,29 @@ import OtpBoxes from './OtpBoxes.jsx';
 import { useOtpFlow } from './useOtpFlow.js';
 import { requestOwnerConsent } from '../../services/flatmateService.js';
 import { fmtPhone } from '../../lib/contact.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 
 /* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate cannot produce ownership
    docs, so the flat's OWNER confirms by OTP instead. Both calls go through the seam, because
    `ownerConsent` is not client-settable — a locally recorded consent is dropped at the door and the
-   server learns nothing. Keyed on (owner mobile, tenant), so it can be taken before the group. */
-export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) {
+   server learns nothing. Keyed on (owner mobile, tenant, flat), so it can be taken before the group
+   exists but only vouches for the flat named here. */
+export default function OwnerConsentModal({ ownerMobile, title, locality, onClose, onVerified }) {
   /* The surrounding copy is English, but `otp.sendError` is an i18n key by contract. */
   const { t } = useTranslation();
   const owner = String(ownerMobile || '').replace(/\D/g, '').slice(0, 10);
   const [verifying, setVerifying] = useState(false);
   const [failed, setFailed] = useState(null);
-  const otp = useOtpFlow((mobile) => requestOwnerConsent({ ownerMobile: mobile }));
+  /* The address rides on the SEND too, not just the record. The row is scoped to a flat, so an
+     address the server cannot fingerprint is refused either way — asking first is what stops the
+     owner being texted for a consent that was never going to be storable. */
+  const otp = useOtpFlow((mobile) => requestOwnerConsent({ ownerMobile: mobile, title, locality }));
 
+  useScrollLock();
   useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const submit = async (e) => {
@@ -39,7 +40,9 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
     try {
       // A wrong code answers 401 and a spent attempt cap 429, so the only way to reach
       // `onVerified` is for the owner to have actually acted.
-      const { consentRecorded } = await requestOwnerConsent({ ownerMobile: owner, otp: otp.otp });
+      const { consentRecorded } = await requestOwnerConsent({
+        ownerMobile: owner, otp: otp.otp, title, locality,
+      });
       if (!consentRecorded) throw new Error('consent not recorded');
       onVerified?.();
       onClose();
@@ -99,7 +102,9 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
               {failed && <p className="text-red-400 text-xs text-center mt-2">{failed}</p>}
               <div className="flex items-center justify-center gap-2 text-sm mt-4">
                 <span className="text-slate-500">Owner didn't get it?</span>
-                <button type="button" onClick={otp.resend} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                {/* The number, explicitly: `resend` forwards its argument to the dispatch, so a
+                    bare handler reference would post React's click event as `ownerMobile`. */}
+                <button type="button" onClick={() => otp.resend(owner)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                   {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
                 </button>
               </div>

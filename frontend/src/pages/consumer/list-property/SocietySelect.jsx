@@ -65,7 +65,7 @@ export default function SocietySelect({
   const pickSociety = (s) => {
     setQuery(s.name);
     setMeta({ verified: s.verified, community: s.community });
-    onChange({ id: s.id, name: s.name });
+    onChange({ id: s.id, name: s.name, lat: s.lat, lng: s.lng });
     setOpen(false);
   };
 
@@ -99,7 +99,7 @@ export default function SocietySelect({
     // minted — so trust the record rather than assuming what we asked for was created.
     const community = rec.source === 'community';
     setMeta({ verified: !community && !!(rec.registration && rec.conveyance), community });
-    onChange({ id: rec.id, name: rec.name });
+    onChange({ id: rec.id, name: rec.name, lat: rec.lat, lng: rec.lng });
     setOpen(false);
   };
 
@@ -114,7 +114,7 @@ export default function SocietySelect({
     // Auto-bind on an exact name match, otherwise keep the name but drop the id so we never claim
     // a listing belongs to a society the user didn't pick. The effect below repairs a late match.
     const hit = results.find((r) => norm(r.name) === norm(v));
-    onChange({ id: hit ? hit.id : '', name: v });
+    onChange({ id: hit ? hit.id : '', name: v, lat: hit?.lat, lng: hit?.lng });
   };
 
   /* Re-attempt the bind once a search settles: typing an exact name before the read lands leaves
@@ -124,7 +124,7 @@ export default function SocietySelect({
     const hit = results.find((r) => norm(r.name) === norm(query));
     // Repair the binding only: `norm` ignores case and spacing, so `hit.name` can differ
     // cosmetically from text the owner never asked to have respelled.
-    if (hit) onChange({ id: hit.id, name: query });
+    if (hit) onChange({ id: hit.id, name: query, lat: hit.lat, lng: hit.lng });
     // `onChange` is the parent's unmemoised setter; including it re-runs this every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searched, results, query, value]);

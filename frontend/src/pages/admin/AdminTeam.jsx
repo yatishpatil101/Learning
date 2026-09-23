@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Ban, Check, Clock, Info, Pencil, Plus, RotateCcw, ShieldCheck, UsersRound } from 'lucide-react';
-/* Team members come through the services seam, so this console talks to the real API when the
-   `team` domain is switched on and to a mock that enforces the same refusals when it is not
-   (D205). Permissions do not go through the seam at all — see `services/permissionsService.js`
-   for why a domain whose only previous implementation contradicted the server has no mock. */
+/* Team members come through the services seam. Permissions do not go through the seam at
+   all — see `services/permissionsService.js` for why. */
 import {
   listTeamMembers, saveTeamMember, setTeamMemberStatus,
   listPendingApprovals, approveTeamMember,
@@ -101,8 +99,8 @@ export default function AdminTeam() {
   const [memberModal, setMemberModal] = useState(null); // form object or null
   const [pendingError, setPendingError] = useState(null);
 
-  /* Every mutation on this page can now be refused by the server, and a refusal an operator never
-     sees is indistinguishable from the console's old confident wrong answer. `role_change_unsupported`
+  /* Every mutation on this page can be refused by the server, and a refusal an operator never sees
+     is indistinguishable from a confident wrong answer. `role_change_unsupported`
      is the one failure this client raises itself, so it is the one with a translated message; the
      rest carry the server's own wording, which names the fix and must not be reworded here. */
   const failed = (err) => toast(
@@ -146,7 +144,6 @@ export default function AdminTeam() {
     return 'Open the record to see';
   };
 
-  // ---- Member CRUD ----
   /* New accounts default to Ops staff, not Manager: `manager` is an admin-console permission label
      and not one of the contract's roles (`Role = buyer|owner|staff|admin`), so a live create with it
      is refused. Defaulting to a role that cannot be created would make the primary action fail. */
@@ -291,9 +288,8 @@ export default function AdminTeam() {
     { key: 'role', header: 'Role', render: (m) => <RolePill role={m.role} /> },
     { key: 'access', header: 'Access', render: (m) => <span className="text-gray-300">{accessSummary(m)}</span> },
     { key: 'status', header: 'Status', render: (m) => <StatusPill status={m.status} /> },
-    /* No Remove action. There is no `DELETE /users/{id}` in the contract and there never was — this
-       platform is soft-delete only, so Suspend *is* the removal (it archives the account). The
-       button used to drop the row from the mock store and would have had nothing to call live. */
+    /* No Remove action. There is no `DELETE /users/{id}` in the contract — this platform is
+       soft-delete only, so Suspend *is* the removal (it archives the account). */
     { key: 'actions', header: '', className: 'text-right', render: (m) => (
       <div className="flex items-center justify-end gap-1.5">
         <button onClick={() => openEditMember(m)} title="Edit" className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition"><Pencil className="h-4 w-4" /></button>
@@ -485,8 +481,7 @@ export default function AdminTeam() {
 
             {memberModal.role === 'manager' && !memberModal.id ? (
               /* Said before the save, not after it. `manager` is an admin-console permission label,
-                 not one of the contract's roles, so this create is refused — by the server live,
-                 and by the mock too, which now refuses it in the server's words. */
+                 not one of the contract's roles, so the server refuses this create. */
               <p className="flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-amber-200">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{t('team.managerNotCreatable')}</span>

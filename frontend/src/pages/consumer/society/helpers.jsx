@@ -11,10 +11,8 @@ function MonthCalendar({ month, onMonth, events, selected, onSelect }) {
   const startDow = first.getDay();
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const today = ymd(new Date());
-  /* Month and weekday names come from Intl for the active language rather than
-     the hardcoded English MONTHS/DOW arrays, so a Marathi reader picks dates
-     against Marathi month names. Intl already ships these for hi and mr, so
-     there is nothing to translate by hand and nothing to keep in sync. */
+  /* Month and weekday names come from Intl for the active language, so a Marathi reader picks
+     dates against Marathi month names with nothing to translate by hand. */
   const locale = i18n.language || 'en';
   const monthName = new Intl.DateTimeFormat(locale, { month: 'long' }).format(month);
   // 7 Jan 2024 was a Sunday, matching getDay() === 0.
@@ -54,16 +52,8 @@ function MonthCalendar({ month, onMonth, events, selected, onSelect }) {
   );
 }
 
-/* Society blurb.
- *
- * Takes `t` rather than importing it: this is called from render, and passing the
- * translator keeps the function pure and testable.
- *
- * The English original built one sentence by gluing fragments — size, RERA,
- * builder, locality. That cannot survive translation, because Hindi and Marathi
- * put the builder and the locality in different positions relative to the noun.
- * So the sentence is now a whole template per case, with only the descriptor
- * ("3-tower, 160-home, RERA-registered") interpolated. */
+/* A whole template per case, with only the descriptor interpolated: Hindi and Marathi put the
+   builder and locality in different positions, so a sentence glued from fragments cannot translate. */
 function buildAbout(soc, locName, t) {
   if (soc._thin) return t('society.aboutThin', { name: soc.name, locality: locName });
 
@@ -90,30 +80,8 @@ function buildAbout(soc, locName, t) {
   return sentences.join(' ');
 }
 
-/**
- * Back-compat placeholder: a slug that is not in the catalogue still renders a page rather than a
- * 404, because `/society/:slug` is reachable from a shared link, a `?s=` deep link and a listing
- * whose society was minted and later merged away.
- *
- * It is a placeholder and **not a society**, so every field it does not know is absent.
- *
- * It used to be a plausible one instead: builder "Independent", 3 towers, 160 units, built 2016,
- * 88% occupancy, `registration: true`, `conveyance: true`. Because those were all present and
- * truthy, the hub took the fully-specified branch — an unknown slug rendered a stats grid of
- * invented specifications, a **"Society Verified"** badge and a community-estimate star rating, for
- * a building nobody has ever confirmed exists. There is no reading of that page that is not a lie,
- * and it was indistinguishable from a real one to a human and to every unit test.
- *
- * With the specs absent, `_thin` is true, which is the honest state the hub already knows how to
- * render: "Details not confirmed yet", no verified badge (`registration && conveyance` is now
- * falsy), no *fabricated* rating — real resident reviews only, and the hero says "Not rated yet"
- * until there are some. Note reviews are keyed on the slug, not on catalogue membership, so an
- * unknown slug can accumulate genuine ratings and will show them. And the "Help verify" call to
- * action. Both stat lists already null-filter, so they simply come out empty.
- *
- * `lat`/`lng` stay absent too — the Location tab is already hidden on `_generic`, and inventing
- * coordinates for an unknown building is the same class of claim as inventing its lift count.
- */
+/* Back-compat placeholder for a slug that is not in the catalogue, reachable from shared links and
+   merged-away societies. Every unknown field stays absent so `_thin` renders the honest state. */
 function genericSociety(slug, name, locName) {
   return {
     id: 'G:' + slug, slug, name: name || titleCase(slug), localitySlug: slug,

@@ -43,9 +43,8 @@ export default function Messages() {
   const SHARE_MAP = shareMap(tr);
   const QUICK_REPLIES = quickReplies(tr);
   const { refresh: refreshChatBadge } = useConversationUnread();
-  /* A canned auto-reply and typing dots used to run here, so the prototype's threads felt alive
-     with nobody on the other end. The other end is a real person now: fabricating a reply from
-     them would put words in their mouth, and the message would not exist on their device. */
+  /* No canned auto-reply or typing dots: the other end is a real person, so fabricating a reply
+     from them would put words in their mouth, and the message would not exist on their device. */
   const [convs, setConvs] = useState([]);
   const [tab, setTab] = useState('chats');
   const [activeId, setActiveId] = useState(null);
@@ -62,11 +61,9 @@ export default function Messages() {
   /**
    * Optimistic local update.
    *
-   * This used to be `saveConversations(next)` — write the whole array to localStorage and re-render
-   * from what came back. Against the API there is no "write the whole array": each change is its own
-   * request, and awaiting one before repainting puts a round trip between the keystroke and the
-   * bubble. So this now updates only what is on screen, and every caller separately fires the one
-   * request that corresponds to what the user did.
+   * Each change is its own request, and awaiting one before repainting puts a round trip between
+   * the keystroke and the bubble. So this updates only what is on screen, and every caller
+   * separately fires the one request that corresponds to what the user did.
    */
   const persist = (next) => { setConvs(next); setMsgTick((t) => t + 1); return next; };
 
@@ -155,10 +152,9 @@ export default function Messages() {
   // A `?c=<id>` or `?openProp=<propertyId>` deep-link opens that specific thread on
   // any width — this is how a listing hands the buyer straight into the owner chat.
   //
-  // This has to wait for the inbox. `convs` used to be seeded synchronously from localStorage, so
-  // a mount-time effect saw the whole list; behind the seam the list arrives from a request, and a
-  // mount-time effect sees `[]` and silently opens nothing. So it runs on every `convs` change and
-  // latches itself off the first time it has something to look at.
+  // This has to wait for the inbox. The list arrives from a request, so a mount-time effect sees
+  // `[]` and silently opens nothing. It runs on every `convs` change instead, and latches itself
+  // off the first time it has something to look at.
   const autoOpened = useRef(false);
   useEffect(() => {
     if (autoOpened.current || convs.length === 0) return;
@@ -176,12 +172,11 @@ export default function Messages() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convs]);
 
-  /* Chats vs Requests is the `staged` flag and nothing else (D52).
+  /* Chats vs Requests is the `staged` flag and nothing else.
 
      A row is either one the server holds — which means a contact request was approved in one
      direction or the other, because that is the only way a thread comes to exist — or one the seam
-     is still holding back until that happens. There is no third condition on the wire, and the
-     `incoming` one the prototype invented has been removed rather than given a contract field. */
+     is still holding back until that happens. There is no third condition on the wire. */
   const requests = convs.filter((c) => c.staged).length;
   const inTab = (c) => (tab === 'requests' ? !!c.staged : !c.staged);
   const q = search.toLowerCase();
@@ -213,8 +208,6 @@ export default function Messages() {
         toast(tr('misc.msgSendFailed'), 'error');
         reload();
       });
-    /* A simulated "them" auto-reply fired here, once per conversation, 1.4s after sending. It was
-       mock-only. The reply now comes from a person, or it does not come. */
   };
   const send = () => sendText(draft);
   const share = (kind) => {

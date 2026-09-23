@@ -5,6 +5,7 @@ import MobileField from '../../../components/MobileField.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import TimeField from '../../../components/ui/TimeField.jsx';
 import { todayIso } from '../../../lib/visitWhen.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
 export function ScheduleVisitModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
@@ -16,11 +17,11 @@ export function ScheduleVisitModal({ p, isIn, onClose, toast }) {
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState(false);
 
+  useScrollLock();
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const submit = () => {

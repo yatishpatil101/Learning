@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -6,7 +7,9 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
-import { LOCALITIES, TAGS } from './constants.js';
+import { LOCALITIES, MAX_LOCALITIES, TAGS } from './constants.js';
+import isTopDialog from '../../../lib/isTopDialog.js';
+import useScrollLock from '../../../hooks/useScrollLock.js';
 
 // A move-in value is either 'now' (immediate) or an ISO date from the picker —
 // only the latter contains a '-'. Mirrors the FilterBar control.
@@ -19,9 +22,21 @@ const todayIso = () => {
 
 export default function PostModal({ setPostOpen, submitPost, postFormRef, postDraft, post, setPost, postErr, editingId, seg }) {
   const { t: tr } = useTranslation();
+  const panelRef = useRef(null);
+  /* Without the lock a thumb that reaches the end of this form goes on scrolling the results
+     behind it, so the sheet closes onto a board that has moved. */
+  useScrollLock();
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isTopDialog(panelRef.current)) return;
+      if (e.key === 'Escape') setPostOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [setPostOpen]);
   return (
     <div className="sf-modal" onClick={() => setPostOpen(false)}>
-      <div className="glass rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={tr('flatmates.postModalTitle')} className="glass rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-5">
           <div><h2 className="text-xl font-bold text-white">{tr('flatmates.postModalTitle')}</h2><p className="text-gray-400 text-xs mt-1">{tr('flatmates.postModalSubtitle')}</p></div>
           <button onClick={() => setPostOpen(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
@@ -34,17 +49,20 @@ export default function PostModal({ setPostOpen, submitPost, postFormRef, postDr
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.age')}</label><input type="number" value={post.age} onChange={(e) => setPost({ ...post, age: e.target.value })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" placeholder={tr('flatmates.agePlaceholder')} /></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.occupation')}</label><input value={post.occupation} onChange={(e) => setPost({ ...post, occupation: e.target.value })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" placeholder={tr('flatmates.occupationPlaceholder')} /></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.budgetShareLabel')} <span className="text-rose-400">*</span></label><input type="number" min="1" value={post.budget} onChange={(e) => { setPost({ ...post, budget: e.target.value }); postErr.clear('budget'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + postErr.cx('budget')} data-err="budget" placeholder={tr('flatmates.budgetPlaceholder')} /><FieldError show={postErr.has('budget')}>{postErr.msg('budget')}</FieldError></div>
+            {/* The board filters on a range, so a point value only ever matches by accident. The
+                ceiling stays optional: a seeker who quoted one number meant one number. */}
+            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.budgetMaxLabel')} <span className="text-gray-600">{tr('flatmates.optional')}</span></label><input type="number" min={post.budget || 1} value={post.budgetMax} onChange={(e) => { setPost({ ...post, budgetMax: e.target.value }); postErr.clear('budgetMax'); }} className={'field w-full rounded-xl px-3.5 py-2.5 text-sm' + postErr.cx('budgetMax')} data-err="budgetMax" placeholder={tr('flatmates.budgetMaxPlaceholder')} /><FieldError show={postErr.has('budgetMax')}>{postErr.msg('budgetMax')}</FieldError></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.moveIn')}</label><div className="flex items-center gap-2"><button type="button" onClick={() => setPost({ ...post, moveIn: 'now' })} aria-pressed={post.moveIn === 'now'} className={seg(post.moveIn === 'now') + ' shrink-0'}>{tr('flatmates.immediate')}</button><DateField value={isDateVal(post.moveIn) ? post.moveIn : ''} min={todayIso()} onChange={(iso) => setPost({ ...post, moveIn: iso })} className="field rounded-full px-4 h-10 text-sm flex-1 min-w-0" ariaLabel={tr('flatmates.ariaMoveInDate')} placeholder={tr('flatmates.byDate')} /></div></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.flatmatePrefWith')}</label><NativeSelect title={tr('flatmates.flatmatePrefWith')} value={post.flatPref} onChange={(e) => setPost({ ...post, flatPref: e.target.value })} className="field w-full rounded-full px-4 py-2 text-sm"><option value="any">{tr('flatmates.optAnyone')}</option><option value="women">{tr('flatmates.optWomenOnly')}</option><option value="men">{tr('flatmates.optMenOnly')}</option></NativeSelect></div>
             <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.roomPreference')}</label><NativeSelect title={tr('flatmates.roomPreference')} value={post.roomPref} onChange={(e) => setPost({ ...post, roomPref: e.target.value })} className="field w-full rounded-full px-4 py-2 text-sm"><option value="any">{tr('flatmates.optNoPreference')}</option><option value="private">{tr('flatmates.optPrivateRoom')}</option><option value="shared">{tr('flatmates.optSharedRoom')}</option></NativeSelect></div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.preferredLocalities')} <span className="text-rose-400">*</span> <span className="text-gray-600">{tr('flatmates.upTo5')}</span></label>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.preferredLocalities')} <span className="text-rose-400">*</span> <span className="text-gray-600">{tr('flatmates.upToN', { count: MAX_LOCALITIES })}</span></label>
               <LocalitySelect
                 multi
                 values={post.localities}
-                onChange={(arr) => { if (arr.length <= 5) { setPost({ ...post, localities: arr }); postErr.clear('localities'); } }}
+                onChange={(arr) => { if (arr.length <= MAX_LOCALITIES) { setPost({ ...post, localities: arr }); postErr.clear('localities'); } }}
                 options={LOCALITIES}
                 placeholder={tr('flatmates.addLocalities')}
                 invalid={postErr.has('localities')}

@@ -13,6 +13,11 @@ import { useSaved } from '../../context/SavedContext.jsx';
 import { TOPBAR_SCROLL } from '../../lib/chrome.js';
 import { firstName, initial, roleLabel } from '../../lib/auth.js';
 import { useHelpPath } from '../../lib/useHelp.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
+
+/* Below lg the account menu is a full-height drawer; at lg+ the same state renders an anchored
+   dropdown. Only the drawer is modal. */
+const ACCT_DRAWER = '(max-width: 1023px)';
 
 export default function Navbar() {
   const { t } = useTranslation();
@@ -203,19 +208,27 @@ export default function Navbar() {
     return () => document.removeEventListener('click', onDoc);
   }, []);
 
-  // While the mobile account drawer is open, lock body scroll and allow Escape so it behaves like
-  // a modal. It is a drawer only below lg; at lg+ it is a dropdown that must not lock scroll.
+  /* Subscribed rather than sampled: the same `acctOpen` renders a drawer below lg and an anchored
+     dropdown at lg+, and only the drawer should lock the page. Reading `matchMedia` inline would
+     make the lock follow a rotation only if something else happened to re-render the navbar. */
+  const [acctIsDrawer, setAcctIsDrawer] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(ACCT_DRAWER).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(ACCT_DRAWER);
+    const onChange = (e) => setAcctIsDrawer(e.matches);
+    mq.addEventListener('change', onChange);
+    setAcctIsDrawer(mq.matches);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  useScrollLock(acctOpen && acctIsDrawer);
+
+  // Escape closes the account menu, drawer or dropdown.
   useEffect(() => {
     if (!acctOpen) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') setAcctOpen(false); };
     document.addEventListener('keydown', onKey);
-    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
-    const prev = document.body.style.overflow;
-    if (isMobile) document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      if (isMobile) document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [acctOpen]);
 
   // Close the account menu whenever the route changes (a link was followed).

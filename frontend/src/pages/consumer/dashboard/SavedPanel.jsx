@@ -5,9 +5,9 @@ import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { Card, SectionHead } from './components.jsx';
 
 export default function SavedPanel() {
-  /* The shortlist arrives as property rows, so this panel no longer resolves ids itself. It used
-     to fetch the *entire catalogue* (`listProperties({ includeAllStatuses: true })`) and index it
-     just to look up six saved homes — a whole-database read to render a preview card. */
+  /* The shortlist arrives as property rows, so this panel does not resolve ids itself: doing so
+     would mean fetching the *entire catalogue* (`listProperties({ includeAllStatuses: true })`)
+     and indexing it just to look up six saved homes. */
   const { items } = useSaved();
   const saved = items.slice(0, 6);
 

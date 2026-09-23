@@ -753,7 +753,7 @@ export function useRentAgreement() {
           }
           if (request?.paymentSessionId) {
             // The sidebar renders the server's own published breakdown, so these agree by
-            // construction except when a fees read failed or in mock mode (no published figures).
+            // construction except when a fees read failed.
             const charged = Number(request.amount);
             if (Number.isFinite(charged) && charged > 0 && charged !== cost.total) {
               toast(tr('services.ra.cost.chargedDiffers', { amount: fmt(charged) }), 'info');

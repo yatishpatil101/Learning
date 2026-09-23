@@ -3,8 +3,12 @@ import DualRange from '../../../../components/ui/DualRange.jsx';
 import MultiSelect from '../../../../components/ui/MultiSelect.jsx';
 import { FilterGroup, Divider, Rb } from '../FilterControls.jsx';
 import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
+import { RANGE } from '../../../../lib/listings/filterState.js';
+import { fmtRent } from '../format.js';
 import { tLabel, optsOf } from './helpers.js';
 import { AVAIL_FROM, TENANTS } from '../constants.js';
+
+const [DEP_MIN, DEP_MAX] = RANGE.deposit;
 
 export default function RentExtraSections({ f, set, idp }) {
   const { t } = useTranslation();
@@ -13,6 +17,11 @@ export default function RentExtraSections({ f, set, idp }) {
   if (!isRent) return null;
   return (
     <>
+      <FilterGroup icon="wallet" title={t('listings.securityDeposit')} summary={f.deposit[0] === DEP_MIN && f.deposit[1] === DEP_MAX ? '' : `${fmtRent(f.deposit[0])} - ${fmtRent(f.deposit[1])}`}>
+        <DualRange min={DEP_MIN} max={DEP_MAX} step={10000} value={f.deposit} onChange={(v) => set({ deposit: v })} label={t('listings.securityDeposit')} format={(v) => (v === DEP_MAX ? `${fmtRent(v)}+` : fmtRent(v))} />
+      </FilterGroup>
+      <Divider />
+
       {vis('availFrom') && (
         <>
           <FilterGroup icon="calendar-check" title={t('listings.availableFrom')} summary={(AVAIL_FROM.find(([v]) => v === f.availFrom) || [])[1] === 'Anytime' ? '' : (AVAIL_FROM.find(([v]) => v === f.availFrom) || [])[1]}>

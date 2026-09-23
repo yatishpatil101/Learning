@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
+import useScrollLock from '../../hooks/useScrollLock.js';
 import Icon from '../Icon.jsx';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
@@ -166,12 +167,7 @@ const Select = forwardRef(function Select({
   }, [open, position, visible.length]);
 
   /* A sheet covers the page, so the page behind it must not scroll with it. */
-  useEffect(() => {
-    if (!open || !sheet) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open, sheet]);
+  useScrollLock(open && sheet);
 
   // Focus the search box only after position() has anchored the portaled menu: focusing while it
   // still resolves to its static page-bottom position drags the window to the footer.
@@ -225,6 +221,9 @@ const Select = forwardRef(function Select({
         break;
       case 'Escape':
         e.preventDefault();
+        /* Escape closes the innermost thing only. Without this the event reaches the document-level
+           handlers the surrounding dialogs register and dismisses the whole form behind the menu. */
+        e.stopPropagation();
         close();
         break;
       default:

@@ -4,50 +4,15 @@ import { digits } from '../../../lib/contact.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { applyGroupToListing, myFlatmateGroups } from '../../../services/flatmateService.js';
 
-/**
- * "Apply as a group" on a rental listing.
- *
- * ## What this is the missing half of
- *
- * The ops desk has always had a group-applications board, and until now nothing in the product
- * could put a row on it — no route created an application, so the board was a correct, guarded,
- * paged read over a table that could never acquire a row. This is the entry point that fills it:
- * a formed group commits itself to a whole flat, and the flat's owner answers from their dashboard
- * inbox. Two people, one row, two separate columns (`status` is the owner's, `modStatus` is ops').
- *
- * ## Why it renders nothing far more often than it renders something
- *
- * The button is for one narrow person: someone who *hosts* a group that still has seats to fill,
- * looking at someone else's rental listing. Everyone else — buyers, owners viewing their own flat,
- * anyone browsing a sale listing, signed-out visitors — gets nothing at all rather than a disabled
- * control explaining a workflow they are not in. A control that cannot be used teaches nothing; it
- * only takes up the place where the next real action would have been.
- *
- * So the load is deliberately quiet. It runs once, only when signed in and only on a rental, and a
- * failure renders nothing rather than an error strip: the caller did not ask for this panel, and
- * "we could not check whether you host a group" is not information anyone came here for. That is
- * the opposite of the dashboard inbox's rule, and correctly so — there, an empty list is a claim
- * about the owner's business and must not be made from a failed request.
- *
- * ## Which listings
- *
- * Rentals only, and the server agrees (400 on a sale listing). On a sale listing `price` is the
- * whole consideration rather than a monthly figure, so the per-head number the owner's inbox shows
- * would be wrong by orders of magnitude — the kind of wrong that looks like a real offer.
- */
+/* Renders nothing far more often than it renders something: only a signed-in host of a group with
+   seats left, on someone else's rental. A failed load renders nothing rather than an error strip. */
 export function GroupApplyCard({ p, isIn, toast }) {
   const isRent = p?.deal === 'rent';
-  /* The listing routes take the row's real key. `p.id` is the slug (`p5015`) because the property
-     routes accept slug-or-id and a slug makes a prettier URL; `p.uuid` is the same row's uuid, and
-     the fallback covers mock listings, which have no separate one. Same reasoning as DealPanel. */
+  /* `p.id` is the slug (`p5015`) because the property routes accept slug-or-id; `p.uuid` is the
+     same row's real key, and the fallback covers rows with no separate one. */
   const listingId = String(p?.uuid || p?.id || '');
-  /* Who is signed in is a question for the session, so it is asked of the auth context rather than
-     of storage — the same answer every other gate on this page is drawn from, and one that cannot
-     disagree with the header while a stale cached number sits in localStorage.
-
-     `mine` is empty whenever nobody is signed in, and the `!!mine` guard is what keeps that from
-     reading as ownership: without it an empty mobile equals an empty `ownerMobile` and every
-     listing that states no owner would look like this visitor's own. */
+  /* `!!mine` is what keeps a signed-out visitor from reading as the owner: without it an empty
+     mobile equals an empty `ownerMobile` and every listing stating no owner looks like theirs. */
   const { user } = useAuth();
   const mine = digits(user?.mobile).slice(-10);
   const isOwnListing = !!mine && mine === digits(p?.ownerMobile || '').slice(-10);

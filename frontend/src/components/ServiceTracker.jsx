@@ -8,6 +8,7 @@ import {
   listServiceRequests, decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
 } from '../services/serviceRequestService.js';
 import { openDocUrl } from '../lib/openDoc.js';
+import useScrollLock from '../hooks/useScrollLock.js';
 
 function ProgressBar({ status }) {
   const pct = progressPct(status);
@@ -60,12 +61,12 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
   const refresh = () => setTick((t) => t + 1);
 
   // Lock scroll + close on Escape while the "Request changes" modal is open.
+  useScrollLock(Boolean(changeReq));
   useEffect(() => {
-    if (!changeReq) return;
-    document.body.style.overflow = 'hidden';
+    if (!changeReq) return undefined;
     const onKey = (e) => e.key === 'Escape' && setChangeReq(null);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+    return () => document.removeEventListener('keydown', onKey);
   }, [changeReq]);
 
   // `tick` re-runs the API read after a mutation.
@@ -158,9 +159,8 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
                   <Stepper status={r.status} />
 
                   {(() => {
-                  // Mobile: lay the actions out as an even 2-col grid so long labels
-                  // don't wrap into a ragged staircase; desktop keeps them inline.
-                  // When Messages is the only action, let it span the full width.
+                  // Mobile lays the actions out as an even 2-col grid so long labels don't wrap
+                  // into a ragged staircase; a solo Messages button spans the full width.
                   const soloMsg = r.status !== 'draft_shared' && !(r.status === 'completed' && r.finalDoc);
                   return (
                   <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">

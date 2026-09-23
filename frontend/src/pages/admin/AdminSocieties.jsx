@@ -16,6 +16,7 @@ import { listReports, triageReport } from '../../services/reportService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
+import useScrollLock from '../../hooks/useScrollLock.js';
 import { titleCase, fmtDate, Chip, DUPES_FAILED } from './societies/helpers.jsx';
 import ClaimsTab from './societies/ClaimsTab.jsx';
 import ResidentsTab from './societies/ResidentsTab.jsx';
@@ -30,8 +31,8 @@ import ModerationTab from './societies/ModerationTab.jsx';
  * down through `PATCH /reviews/{id}/status`, so nothing on the wire says whether a given review
  * report is about a society or about a listing — including them here would drag every property
  * review complaint into the societies console. They stay in Admin ▸ Reports, which handles every
- * kind. The browser-only queue could tell them apart because it stored a slug on every row; the
- * contract does not, and inventing the distinction client-side would get it wrong silently.
+ * kind. Nothing on a row carries the slug that would let the distinction be made here, and
+ * inventing it client-side would get it wrong silently.
  */
 const SOCIETY_REPORT_KINDS = new Set(['contribution', 'reply', 'question', 'answer', 'board']);
 
@@ -46,11 +47,10 @@ const DIR_PAGE_SIZE = 20;
 /**
  * A `details` proposal, dressed as the shape the candidates tab and the review dialog render.
  *
- * The wire is flat (`builder`, `buildYear`, …) where the old store nested everything under
- * `fields`. The society's name and locality now travel on the proposal itself — a small
- * denormalisation the server does deliberately, because the alternative is what this function used
- * to do: resolve them out of the bundled catalogue, which held 28 curated societies and none of the
- * member-added ones. A proposal against a society added last week rendered as a title-cased slug.
+ * The wire is flat (`builder`, `buildYear`, …). The society's name and locality travel on the
+ * proposal itself — a small denormalisation the server does deliberately, because the alternative
+ * is resolving them out of the bundled catalogue, which holds 28 curated societies and none of the
+ * member-added ones, so a proposal against a recently added society renders as a title-cased slug.
  */
 const toSuggestionRow = (p) => ({
   id: p.id,
@@ -72,11 +72,9 @@ const toSuggestionRow = (p) => ({
 
 export default function AdminSocieties() {
   const { toast } = useToast();
-  /* No `by` here any more. Every decision on this console used to pass the signed-in operator's
-     display name to a store function that stamped it onto a localStorage row — which meant the
-     record of who verified a society was a self-reported string in the browser of the person
-     claiming it. The server takes the actor from the authenticated principal and never from the
-     request body, so there is nothing left to pass. */
+  /* No `by` passed with a decision. The server takes the actor from the authenticated principal
+     and never from the request body — a name supplied by the browser would make the record of who
+     verified a society a self-reported string from the person claiming it. */
   const [tab, setTab] = useTabParam(['claims', 'residents', 'candidates', 'directory', 'moderation'], 'claims');
   const [claims, setClaims] = useState([]);
   const [residents, setResidents] = useState([]);
@@ -98,10 +96,9 @@ export default function AdminSocieties() {
      at a time and would have no row to key on if it were. */
   const [merging, setMerging] = useState(false);
   const [review, setReview] = useState(null); // pending suggestion under review
+  useScrollLock(Boolean(edit || merge || review));
 
-  /* Every queue on this console now reads the API. `reload` is one async statement again, and the
-     split synchronous path that used to run first — the candidates queue, read straight out of
-     localStorage — is gone with the last of the browser-local ops state.
+  /* Every queue on this console reads the API.
 
      `reloadSeq` is what stops a slow reload overwriting a fast one. Every decision below bumps
      `bump`, which re-fires the effect, so two reloads are routinely in flight at once — the first
@@ -153,10 +150,9 @@ export default function AdminSocieties() {
     setResidents(residentRows);
     setCandidates(candidateRows);
     setMerges(mergeRows);
-    /* The three "pending" lists this console used to read from three localStorage keys are one
-       resource with a `kind` column — `details`, `whatsapp`, `location`. One request, grouped
-       here. That collapse is the single most surprising thing about this migration: there is no
-       third queue to forget to drain, and a proposal cannot exist in two of them. */
+    /* The three "pending" lists are one resource with a `kind` column — `details`, `whatsapp`,
+       `location`. One request, grouped here, so there is no third queue to forget to drain and a
+       proposal cannot exist in two of them. */
     setSuggestions(proposals.filter((p) => p.kind === 'details').map(toSuggestionRow));
     setWaPending(proposals.filter((p) => p.kind === 'whatsapp'));
     setLocFixes(proposals.filter((p) => p.kind === 'location'));
@@ -164,25 +160,20 @@ export default function AdminSocieties() {
       (r) => SOCIETY_REPORT_KINDS.has(r.kind) && LIVE_REPORT_STATUSES.has(r.status),
     ));
   };
-  /* Keyed on `bump` alone now. `catalogueReady` used to be a second dependency because the duplicate
-     hint below was computed from the bundled catalogue and had to wait for it to load; the hint is
-     served, so the bundled catalogue is no longer read on this screen at all. */
+  /* Keyed on `bump` alone: the duplicate hint below is served rather than computed, so the bundled
+     catalogue is not read on this screen at all. */
   useEffect(() => { reload(); }, [bump]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; `bump` is the real input.
 
-  /* The directory is a real server page (D129 closes here).
-
-     It used to be `allSocieties().map(resolveSociety)` — the bundled catalogue, every row of it, cut
-     into tens by `Table`'s client-side pager. That pager was a lie about network cost the moment the
-     rows started coming from Postgres, and `api-standards.md` §5 names it: "a client-side pager is a
-     smell, not a solution... if a screen needs a pager, the endpoint feeding it needs PageEnvelope".
+  /* The directory is a real server page. `api-standards.md` §5: "a client-side pager is a smell,
+     not a solution... if a screen needs a pager, the endpoint feeding it needs PageEnvelope".
 
      It reads `GET /societies` rather than an `/admin/societies` of its own, which is the call
      `Routes.AdminSocieties` argues for in the backend: every column below is already on
      `SocietyResponse`, and a second listing route would be a second set of filters to keep in step
-     with this one. The visible consequence is that a merged-away society no longer appears here —
+     with this one. The visible consequence is that a merged-away society does not appear here —
      correct, since a merged society is not a building an operator should be editing.
 
-     `dirQuery` is debounced into `dirSearch` because this is now a request per keystroke otherwise.
+     `dirQuery` is debounced into `dirSearch` because this is a request per keystroke otherwise.
      Both live here rather than inside `DirectoryTab` so that resetting to page 0 on a new search is
      one statement instead of a callback contract between the two. */
   const [dirQuery, setDirQuery] = useState('');
@@ -207,14 +198,12 @@ export default function AdminSocieties() {
     return () => { alive = false; };
   }, [dirSearch, dirPage, bump]);
 
-  /* The duplicate hint, served (D252).
-     It was computed here, from the bundled catalogue the page loaded beside the directory. That
-     catalogue is 28 curated societies compiled into the app. Every duplicate this queue actually
-     produces is a member-added row — that is what a candidate *is* — and not one of those was in
-     the file, so a candidate that was a textbook second copy of another candidate rendered "No
-     obvious match". The operator reads that as "no duplicate exists" and verifies the junk row into
-     a permanent one, at which point nothing automatic can undo it. The scan has to run where the
-     catalogue is.
+  /* The duplicate hint, served rather than computed here. The bundled catalogue is 28 curated
+     societies compiled into the app; every duplicate this queue produces is a member-added row —
+     that is what a candidate *is* — and none of those are in the file, so scanning it would render
+     "No obvious match" for a textbook second copy. The operator reads that as "no duplicate
+     exists" and verifies the junk row into a permanent one, which nothing automatic can undo. The
+     scan has to run where the catalogue is.
 
      It is still a hint and not a claim, and the column still says so. Nothing here decides anything:
      the chip opens the merge dialog with that society pre-picked, and the operator can change it,
@@ -222,8 +211,8 @@ export default function AdminSocieties() {
      one click away instead of one search away — the difference between an operator merging it and
      an operator verifying it because merging looked like work.
 
-     Fetched only while the candidates tab is open, because this is now a request per row rather
-     than a memo, and four at a time rather than all at once: a backlog of eighty candidates would
+     Fetched only while the candidates tab is open, because this is a request per row rather than a
+     memo, and four at a time rather than all at once: a backlog of eighty candidates would
      otherwise open eighty sockets the instant an operator clicked the tab, and the browser would
      queue them behind each other anyway while starving the merge picker's type-ahead. */
   const [dupes, setDupes] = useState({});
@@ -268,30 +257,17 @@ export default function AdminSocieties() {
   const pendingClaims = claims.filter((c) => c.status === 'pending').length;
   const pendingRes = residents.filter((r) => r.status === 'pending').length;
 
-  /* Ten `logAudit('Societies', …)` calls stood one line below each of the ten decisions in this
-     block — claim, resident, report, WhatsApp, location, verify, merge, apply, dismiss, edit. They
-     are gone, and the reason is not that the audit question was answered.
+  /* No client-side audit write beside the ten decisions in this block. `logAudit` unshifts a
+     sentence onto a browser-local array only Admin ▸ Settings ▸ Audit log reads, describing
+     changes no other operator can see. The server's `/admin/audit-log` is read-only by
+     construction and `AuditService.record` is server-internal. */
 
-     `logAudit` unshifted a sentence onto `db.auditLog` in this browser's localStorage, capped at
-     200 rows. Exactly one screen ever read that array: Admin ▸ Settings ▸ Audit log. Every write
-     underneath these ten lines goes to `lib/store/societyAdmin.js`, which uses its own `dzSociety*`
-     keys and never reaches the server — so these rows described changes no other operator could
-     see, in a log no other operator could read.
-
-     The register item that owns the audit *reader* (18) is still open, and this does not touch it:
-     the server's `/admin/audit-log` is read-only by construction and `AuditService.record` is
-     server-internal, so these ten sentences were never going to appear there no matter how item 18
-     is decided. The same deletion was already made in `AdminFlagsContext`, `AdminContent`,
-     `AdminProperties`, `AdminReports` and `AdminPostOnBehalf`. The honest cost is ten sentences
-     that stopped appearing in one browser's Audit tab. */
-
-  /* Every decision below bumps `bump` and nothing else. It used to call `reload()` *and* bump,
-     which was harmless while the reload was a synchronous localStorage read; now it would fire two
+  /* Every decision below bumps `bump` and nothing else — calling `reload()` as well would fire two
      overlapping rounds of requests where the effect already fires one. */
   const failed = (err, fallback) => toast(err?.message || fallback, 'error');
 
   /* Ids with a decision in flight. The Approve/Reject buttons stay mounted for the whole PATCH
-     plus the reload behind it, and a decided row now answers 409 — so an impatient second click
+     plus the reload behind it, and a decided row answers 409 — so an impatient second click
      would answer the first click's success with "could not record that decision", which reads as
      though the approval failed. A Set rather than a boolean because several rows are actionable
      at once and one operator's click must not grey out the rest of the queue. */
@@ -347,8 +323,8 @@ export default function AdminSocieties() {
     try {
       const cert = await getSocietyClaimCertificate(id);
       if (!cert?.url) {
-        // Dev has no signed-URL provider configured, and the mock keeps only metadata for a large
-        // file. Say so rather than opening `about:blank`, which reads as a broken button.
+          // Dev has no signed-URL provider configured, so a stored certificate has no openable url.
+          // Say so rather than opening `about:blank`, which reads as a broken button.
         toast('That certificate is stored but cannot be opened in this environment.', 'info');
         return;
       }
@@ -465,10 +441,10 @@ export default function AdminSocieties() {
     return mergeCandidates.filter((r) => r.slug !== merge.cand.slug).slice(0, 8);
   }, [merge, mergeCandidates]);
 
-  /* Slug to the *list* of that society's pending detail suggestions, not to one of them. The old
-     store held a single pending suggestion per society, so the slug identified it; the server
-     holds a queue, and `Object.fromEntries` would silently keep only the last — the other
-     resident's suggestion would be unreachable from the candidate row that should surface it. */
+  /* Slug to the *list* of that society's pending detail suggestions, not to one of them. The
+     server holds a queue per society, so `Object.fromEntries` would silently keep only the last —
+     the other resident's suggestion would be unreachable from the candidate row that should
+     surface it. */
   const suggMap = useMemo(() => {
     const out = {};
     for (const s of suggestions) {
@@ -517,12 +493,11 @@ export default function AdminSocieties() {
       maintenancePerSqft: Number(edit.maintenancePerSqft) || 0,
       claimStatus: edit.claimStatus, adminNote: edit.adminNote.trim(),
     };
-    /* Awaited, and the dialog stays open on failure. This form used to write a browser-side overlay
-       and could not fail, so "Society details saved" was safe to say unconditionally. Against a
-       route it is not: these are the four fields a buyer reads to judge whether a building's
-       paperwork is in order, and a toast claiming a save that 403'd or 422'd is worse than no toast
-       — the operator closes the dialog believing the record is corrected. `adminNote` is sent even
-       when empty, because '' clears the note and absent would leave it. */
+    /* Awaited, and the dialog stays open on failure. These are the four fields a buyer reads to
+       judge whether a building's paperwork is in order, and a toast claiming a save that 403'd or
+       422'd is worse than no toast — the operator closes the dialog believing the record is
+       corrected. `adminNote` is sent even when empty, because '' clears the note and absent would
+       leave it. */
     try {
       await editSociety(edit.slug, patch);
     } catch (err) { failed(err, 'Could not save that society.'); return; }
@@ -532,10 +507,9 @@ export default function AdminSocieties() {
 
   const KPIS = [
     /* `dir.total`, not `dir.items.length` — the page is twenty rows and the tile means "how many
-       societies exist". Reading the array would have shown 20 with no compile error and no failing
-       assertion beyond the one spec that pins it above 300, which is the only reason this is not a
-       silent regression. It follows the search box: with a filter applied the tile is the size of
-       the filtered set, which is the number the operator is looking at. */
+       societies exist". Reading the array shows 20 with no compile error and no failing assertion
+       beyond the one spec that pins it above 300. It follows the search box: with a filter applied
+       the tile is the size of the filtered set, which is the number the operator is looking at. */
     { label: 'Societies', value: dir.status === 'ready' ? fmtNum(dir.total) : '—', icon: Building2, tab: 'directory' },
     { label: 'Pending claims', value: fmtNum(pendingClaims), icon: ShieldCheck, tab: 'claims' },
     { label: 'Pending residents', value: fmtNum(pendingRes), icon: Home, tab: 'residents' },

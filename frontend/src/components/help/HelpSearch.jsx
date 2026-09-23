@@ -5,15 +5,8 @@ import Icon from '../Icon.jsx';
 import { excerptFor } from '../../lib/help.js';
 import { useHelpSearch, useHelpPath } from '../../lib/useHelp.js';
 
-/* Search box for the help centre.
- *
- * Two modes:
- *   - `variant="hero"`  large, centred, used on the landing page
- *   - `variant="bar"`   compact, used in the sticky docs header
- *
- * Suggestions appear inline below the field. Enter goes to the full results
- * page so a query is always shareable as a URL, which a dropdown-only search
- * cannot offer. */
+/* Enter goes to the full results page rather than staying in the dropdown, so a query is always
+   shareable as a URL. */
 
 export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
   const { t } = useTranslation();
@@ -125,7 +118,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
             </p>
           ) : (
             <>
-              <ul className="max-h-[22rem] overflow-y-auto py-1">
+              <ul className="max-h-[22rem] overflow-y-auto overscroll-contain py-1">
                 {results.map(({ article }, i) => (
                   <li key={article.slug}>
                     <button
@@ -146,7 +139,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
               <button
                 type="button"
                 onClick={() => { setOpen(false); navigate(hp(`/help/search?q=${encodeURIComponent(query.trim())}`)); }}
-                className="block w-full border-t border-white/5 px-4 py-2.5 text-left text-xs font-semibold text-teal-400 hover:bg-white/[0.04]"
+                className="tap-target flex w-full items-center border-t border-white/5 px-4 py-2.5 text-left text-xs font-semibold text-teal-400 hover:bg-white/[0.04]"
               >
                 {t('help.seeAllResults', { query: query.trim() })}
               </button>

@@ -74,7 +74,8 @@ export default function Checkout() {
         await openCashfreeCheckout(sub.paymentSessionId);
         setResult(await refresh());
       } else {
-        // Mock provider, or a free plan that is active immediately — there is no gateway to visit.
+        // No gateway to visit — a free plan that is active immediately, or a server running without
+        // a merchant account.
         setResult(sub);
       }
     } catch (err) {

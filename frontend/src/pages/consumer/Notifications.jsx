@@ -46,14 +46,13 @@ const isToday = (at) => {
 const SAFE_LINK_RE = /^\/(?!\/)[a-zA-Z0-9\-_/?=&#%.]*$/;
 const safeLink = (link) => (typeof link === 'string' && SAFE_LINK_RE.test(link) ? link : '/notifications');
 
-// How many live listings match a saved search is the seam's answer now, carried on the record as
-// `matchCount` (D227). This page used to count it here over one page of the catalogue.
+// How many live listings match a saved search is the seam's answer, carried on the record as
+// `matchCount`.
 
 export default function Notifications() {
   const { t, i18n } = useTranslation();
-  /* The inbox is whatever the seam returns. Demo content is the mock provider's business — this
-     page no longer holds a fixture, no longer imports the store, and therefore has no build-mode
-     branch to get wrong. */
+  /* The inbox is whatever the seam returns. This page holds no fixture of its own, and therefore
+     has no build-mode branch to get wrong. */
   const [notifs, setNotifs] = useState([]);
   const [filter, setFilter] = useState('all');
   const saved = useSaved();
@@ -67,7 +66,7 @@ export default function Notifications() {
   const [derived, setDerived] = useState([]);
 
   /**
-   * Read the inbox: server rows (or localStorage on mocks) merged with whatever has been derived.
+   * Read the inbox: server rows merged with whatever has been derived.
    *
    * One function for two callers — the effect below and the pull-to-refresh gesture — so a pull
    * lands the same merge the page loaded with rather than a second, subtly different read. The
@@ -125,11 +124,9 @@ export default function Notifications() {
         if (!searches.length && !savedIds.length) return;
         const extra = [];
 
-        /* The match count comes off the saved search itself (D227). It used to be counted here,
-           over `listProperties({})` — which is one page of the catalogue, so the number was right
-           only while the catalogue was smaller than a page and silently wrong forever after. The
-           seam now answers it: the server counts it on live, the mock counts it over the whole
-           demo catalogue, and neither can be truncated by a page size this file does not set. */
+        /* The match count comes off the saved search itself, counted by the server. Counting
+           it here would mean counting over `listProperties({})` — one page of the catalogue — so
+           the number would be right only while the catalogue was smaller than a page. */
         searches.slice(0, 4).forEach((s) => {
           if (s.alerts === false) return;
           const count = s.matchCount ?? 0;

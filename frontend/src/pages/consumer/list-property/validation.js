@@ -167,6 +167,7 @@ export const validateFlatmateStep2 = (form) => {
   const err = {};
   if (!form.locality) err.locality = true;
   if (!hasText(form.society)) err.society = true;
+  if (!form.pinPlaced) err.location = true;
   if (!isPositive(form.rentShare)) err.rentShare = true;
   if (!form.availableFrom) err.availableFrom = true;
   return err;

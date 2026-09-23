@@ -11,7 +11,6 @@ import { applyAppPrefs } from './lib/localPrefs.js';
 import { track } from './lib/pmf.js';
 import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
 
-/* ─── Synchronous imports (critical path — needed immediately) ─── */
 import Home from './pages/consumer/Home.jsx';
 import Signin from './pages/consumer/Signin.jsx';
 import Signup from './pages/consumer/Signup.jsx';
@@ -19,17 +18,14 @@ import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
 import HelpLangRoute from './components/help/HelpLangRoute.jsx';
 
-/* Route-shaped Suspense fallbacks, necessarily in the entry chunk — a placeholder that arrives with
-   the chunk it covers for is no placeholder. Plain markup with no imports of their own, and must
-   stay that way or they drag a route's dependencies into the critical path. */
+/* Route-shaped Suspense fallbacks, necessarily in the entry chunk. They must stay free of imports
+   of their own or they drag a route's dependencies into the critical path. */
 import DashboardSkeleton from './pages/consumer/dashboard/DashboardSkeleton.jsx';
 import FlatmatesSkeleton from './pages/consumer/flatmates/FlatmatesSkeleton.jsx';
 import SocietySkeleton from './pages/consumer/society/SocietySkeleton.jsx';
 
-/* `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale namespaces, fetched
-   in parallel with the chunk and behind the same fallback, so English is not bundled whole onto
-   every visitor's critical path. `npm run check:i18n` proves the namespace list from the import
-   graph, so a route that starts using a new one fails the build rather than rendering raw keys. */
+/* `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale namespaces, so English
+   is not bundled whole onto every visitor's critical path. `npm run check:i18n` proves the list. */
 const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'listings', 'owner', 'property', 'verify');
 const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
 const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
@@ -57,8 +53,7 @@ const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-pro
 const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'society');
 const Reels = lazyPage(() => import('./pages/consumer/Reels.jsx'), 'reels-docs');
 const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-saved');
-// The rent-pay rail was withdrawn: there is no backend, no fee and no flag to turn it on. This is
-// a static page describing what is coming, and it calls nothing.
+// The rent-pay rail was withdrawn: this is a static page describing what is coming, and calls nothing.
 const PayRent = lazyPage(() => import('./pages/consumer/PayRentComingSoon.jsx'), 'misc2');
 const ViewDocuments = lazyPage(() => import('./pages/consumer/ViewDocuments.jsx'), 'reels-docs');
 const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'misc2');
@@ -76,7 +71,6 @@ const Terms = lazy(() => import('./pages/consumer/Terms.jsx'));
 const RefundPolicy = lazy(() => import('./pages/consumer/RefundPolicy.jsx'));
 const Disclaimer = lazy(() => import('./pages/consumer/Disclaimer.jsx'));
 
-/* ─── Lazy admin pages ─── */
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard.jsx'));
 const AdminProperties = lazy(() => import('./pages/admin/AdminProperties.jsx'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics.jsx'));
@@ -86,27 +80,22 @@ const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries.jsx'));
 const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports.jsx'));
-// AdminSupport merged into AdminServices — route redirects
-// AdminFlatmates retired — /admin/flatmates redirects to the live /ops/flatmate-review
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminPostOnBehalf = lazy(() => import('./pages/admin/AdminPostOnBehalf.jsx'));
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
 const AdminSocieties = lazy(() => import('./pages/admin/AdminSocieties.jsx'));
 const AdminLocalities = lazy(() => import('./pages/admin/AdminLocalities.jsx'));
-/* The only admin route with a locale namespace: the approvals queue and the refusals around it are
-   new UI (D205) and were written translated. The rest of this page's strings predate D129 and are
-   still English \u2014 see the item's report. */
+/* The only admin route with a locale namespace: the approvals queue was written translated, the
+   rest of this page's strings are still English. */
 const AdminTeam = lazyPage(() => import('./pages/admin/AdminTeam.jsx'), 'team');
 
-/* ─── Lazy ops pages ─── */
 const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));
 const OpsRequests = lazy(() => import('./pages/ops/OpsRequests.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
 const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
 const OpsIdentityReview = lazy(() => import('./pages/ops/OpsIdentityReview.jsx'));
-/* Both read the service-request seam and sit here rather than under
-   /admin because their endpoints are staff+admin: the admin group is admin+manager, which would
-   lock out the audience the server admits and admit one it refuses (D51, D173). */
+/* These sit here rather than under /admin because their endpoints are staff+admin: the admin group
+   is admin+manager, which would lock out the audience the server admits and admit one it refuses. */
 const OpsSupportQueue = lazy(() => import('./pages/ops/OpsSupportQueue.jsx'));
 const OpsDraftingDesk = lazy(() => import('./pages/ops/OpsDraftingDesk.jsx'));
 
@@ -132,10 +121,8 @@ function ScrollToTop() {
   return null;
 }
 
-/**
- * First-party page view telemetry, kept out of `ScrollToTop` because it is permanent and sends to
- * our own API. The beacon reduces the pathname to a pattern and never emits back-office routes.
- */
+/* Separate from `ScrollToTop` because it is permanent and sends to our own API. The beacon reduces
+   the pathname to a pattern and never emits back-office routes. */
 function PageViewTelemetry() {
   const { pathname } = useLocation();
 
@@ -169,12 +156,9 @@ export default function App() {
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
         <Route path="/view-documents/:requestId" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
         <Route path="/verify-identity" element={<ProtectedRoute><AppFlagsProvider><AppFlagRoute flag="kycBadgeEnabled"><VerifyIdentity /></AppFlagRoute></AppFlagsProvider></ProtectedRoute>} />
-        {/* The share-link side of the same viewer (D42). Public by design: the token in the URL
-            fragment IS the credential, and the recipient is a lawyer or a banker with no account,
-            so a sign-in wall here would make the whole share unusable. The fragment never reaches
-            any server — the token travels to the API on an `X-Share-Token` header instead. */}
+        {/* Public by design: the token in the URL fragment IS the credential, and the recipient has
+            no account. The fragment never reaches a server — the token travels on `X-Share-Token`. */}
         <Route path="/shared-documents" element={<ViewDocuments shared />} />
-        {/* Consumer */}
         <Route element={<ConsumerLayout />}>
           <Route path="/" element={<Home />} />
           <Route path="/listings" element={<Listings />} />
@@ -202,45 +186,29 @@ export default function App() {
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/schedule-visit" element={<AppFlagRoute flag="scheduleVisit"><ProtectedRoute><ScheduleVisit /></ProtectedRoute></AppFlagRoute>} />
           <Route path="/societies" element={<Societies />} />
-          {/* Own boundary so the outer spinner never covers this route: it is centred
-              in a 60vh box, and the society page opens on a 224–288px hero, so the
-              swap shunts everything below it downward the instant the chunk lands.
-              The boundary sits inside the flag guard — a disabled flag redirects, and
-              a placeholder for a page nobody is going to see is just a flash. */}
+          {/* Own boundary so the outer centred spinner never covers this route: the society page
+              opens on a 224–288px hero, so the swap would shunt everything below it downward. */}
           <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Suspense fallback={<SocietySkeleton />}><Society /></Suspense></AppFlagRoute>} />
           <Route path="/society/:slug" element={<Suspense fallback={<SocietySkeleton />}><Society /></Suspense>} />
           <Route path="/reels" element={<Reels />} />
-          {/* Saves live in localStorage and several surfaces (Reels, Compare, the map
-              detail panel) already write them while signed out, so a hard auth wall on
-              /saved turned the bottom nav's Saved tab into a dead end for exactly those
-              users. The page renders the on-device shortlist and prompts for sign-in
-              itself — see the signed-out banner in Saved.jsx. */}
+          {/* No auth wall: saves live in localStorage and several surfaces write them while signed
+              out, so a guard here made the bottom nav's Saved tab a dead end for those users. */}
           <Route path="/saved" element={<AppFlagRoute flag="savedListings"><Saved /></AppFlagRoute>} />
           <Route path="/pay-rent" element={<ProtectedRoute><PayRent /></ProtectedRoute>} />
           <Route path="/locality" element={<Locality />} />
           <Route path="/locality/:slug" element={<Locality />} />
           <Route path="/map" element={<Navigate to="/listings?view=map" replace />} />
           <Route path="/messages" element={<AppFlagRoute flag="inAppMessaging"><ProtectedRoute><Messages /></ProtectedRoute></AppFlagRoute>} />
-          {/* Same reasoning as /society: the hero, the filter deck and the first
-              row of cards all arrive together, so a centred spinner guarantees a
-              reflow at the exact moment someone reaches for the List/Map toggle. */}
+          {/* Same reasoning as /society: hero, filter deck and first card row arrive together, so a
+              centred spinner guarantees a reflow as someone reaches for the List/Map toggle. */}
           <Route path="/flatmates" element={<Suspense fallback={<FlatmatesSkeleton />}><Flatmates /></Suspense>} />
-          {/* Legacy path kept as a permanent redirect: this was the public URL before
-              the feature was renamed to Flatmates, so external links and search results
-              still point at it. Only remaining use of the old name in the app. */}
+          {/* Permanent redirect: this was the public URL before the rename to Flatmates, so external
+              links and search results still point at it. */}
           <Route path="/share-flat" element={<Navigate to="/flatmates" replace />} />
           <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
-          {/* Help centre — public and indexable. Staff runbooks live under the same
-              routes but are filtered out of the tree for non-staff accounts by
-              lib/help.js, so a direct link to one 404s for everyone else. */}
-          {/* Registered once per language: unprefixed (English, canonical) plus a
-              `/hi` and `/mr` prefix. Serving three languages from one URL would
-              let a crawler index only one of them, making the Hindi and Marathi
-              articles unreachable by search for exactly the people most likely to
-              want them. HelpLangRoute binds the prefix to the active language;
-              lib/helpUrl.js owns the prefix rule and must stay in step with this
-              list. Written out rather than built from a regex param because
-              React Router 7 has no pattern syntax for path segments. */}
+          {/* Registered once per language so a crawler can index all three: serving them from one
+              URL hides the Hindi and Marathi articles from search. lib/helpUrl.js owns the prefix
+              rule and must stay in step with this list. */}
           {['', '/hi', '/mr'].map((prefix) => (
             <Route key={prefix || 'en'} element={<HelpLangRoute />}>
               <Route path={`${prefix}/help`} element={<HelpHome />} />
@@ -294,12 +262,9 @@ export default function App() {
           />
         </Route>
 
-        {/* Admin console — administrators only.
-            `manager` used to share this shell and is gone: it was never one of the contract's roles
-            (`buyer|owner|staff|admin`), only a console label attached to a custom-role bundle whose
-            storage V61 deleted. Operations staff hold permission atoms too, but those govern what
-            the API grants them in the service portal, not which console they may load; the
-            `ModuleRoute` guards inside remain as defence in depth rather than as the only gate. */}
+        {/* Administrators only. Operations staff hold permission atoms too, but those govern what
+            the API grants them, not which console they may load; the `ModuleRoute` guards inside
+            remain as defence in depth rather than as the only gate. */}
         <Route
           element={
             <RoleRoute roles={['admin']}>
@@ -317,13 +282,8 @@ export default function App() {
           <Route path="/admin/content" element={<ModuleRoute moduleKey="content"><AdminContent /></ModuleRoute>} />
           <Route path="/admin/reports" element={<ModuleRoute moduleKey="reports"><FlagRoute flag="reports"><AdminReports /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/support" element={<Navigate to="/admin/services" replace />} />
-          {/* `/admin/flatmates` was a fourth flatmate desk on the mock: it moderated seekers, groups
-              and group applications out of `db.json`, could not see rooms at all, and knew only one
-              of the two verdicts a flatmate row carries. `/ops/flatmate-review` does the same three
-              jobs against the real API and adds the host-verification queue this page never had, so
-              this is a redirect rather than a second screen to keep in step. The guards stay on the
-              redirect: an admin without the Flatmates module, or with the flag off, should still be
-              refused here rather than bounced onto a desk they may not open. */}
+          {/* Redirects rather than rendering a second desk. The guards stay on the redirect — an
+              admin without the Flatmates module should still be refused here, not bounced. */}
           <Route path="/admin/flatmates" element={<ModuleRoute moduleKey="flatmates"><FlagRoute flag="flatmates"><Navigate to="/ops/flatmate-review" replace /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/societies" element={<ModuleRoute moduleKey="societies"><AdminSocieties /></ModuleRoute>} />
           <Route path="/admin/localities" element={<ModuleRoute moduleKey="localities"><AdminLocalities /></ModuleRoute>} />
@@ -333,7 +293,6 @@ export default function App() {
           <Route path="/admin/staff-activity" element={<ModuleRoute moduleKey="staffActivity"><AdminStaffActivity /></ModuleRoute>} />
         </Route>
 
-        {/* Ops (role: staff or admin) */}
         <Route
           element={
             <RoleRoute roles={['staff', 'admin']}>
@@ -345,12 +304,8 @@ export default function App() {
           <Route path="/ops/requests" element={<OpsRequests />} />
           <Route path="/ops/support" element={<OpsSupportQueue />} />
           <Route path="/ops/drafting-desk" element={<OpsDraftingDesk />} />
-          {/* The five team desks were one component (`OpsServiceQueue`) over `localStorage`, so
-              once consumers filed through the seam they were reading a store the work no longer
-              arrived in. They are gone; `/ops/drafting-desk` is the desk, and `?type=` is what
-              used to be five routes. Redirects rather than deletions because operators have these
-              bookmarked, and `TeamRoute` is dropped with them: the destination is already behind
-              the staff/admin guard and the server scopes the queue to the caller either way. */}
+          {/* The five team desks are now one `?type=` on the drafting desk. Redirects rather than
+              deletions because operators have these bookmarked. */}
           <Route path="/ops/rent-agreement" element={<Navigate to="/ops/drafting-desk?type=rental" replace />} />
           <Route path="/ops/legal" element={<Navigate to="/ops/drafting-desk?type=legal" replace />} />
           <Route path="/ops/interior" element={<Navigate to="/ops/drafting-desk?type=interior" replace />} />

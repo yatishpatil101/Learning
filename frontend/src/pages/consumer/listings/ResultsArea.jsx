@@ -15,7 +15,7 @@ import { RANGE } from '../../../lib/listings/filterState.js';
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
 const MapDetailPanel = lazy(() => import('../../../components/property/MapDetailPanel.jsx'));
 
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, unstatedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
@@ -28,8 +28,6 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   if (!isRent && (f.budget[0] !== RANGE.budget[0] || f.budget[1] !== RANGE.budget[1])) broadeners.push({ id: 'budget', label: t('listings.broadenBudget'), apply: () => set({ budget: [...RANGE.budget] }) });
   if (f.bhk.size) broadeners.push({ id: 'bhk', label: t('listings.broadenAnyBhk'), apply: () => set({ bhk: new Set() }) });
   if (f.types.size) broadeners.push({ id: 'type', label: t('listings.broadenAnyType'), apply: () => set({ types: new Set(), commercialTypes: new Set() }) });
-
-
 
   const viewToggles = (
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -60,6 +58,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   const countLine = loaded ? (
     <p className="text-gray-400 text-sm" aria-busy={searching ? 'true' : undefined}>{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
+      {unstatedCount > 0 ? <span className="text-amber-300/90"> · <Icon name="info" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.unstatedCount', { count: unstatedCount })}</span> : null}
     </p>
   ) : loadFailed ? (
     /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read a false
@@ -95,7 +94,10 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               {/* A direct child of the tall results column so it stays stuck under the header
                   across the whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              <div className="dz-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+              {/* `.dz-docks-under-nav` owns the offset below lg (it tracks the hide-on-scroll top
+              bar) and this element is `sm:hidden`, so the override always wins here and a
+              `top-*` utility alongside it would be dead weight that reads as the real value. */}
+              <div className="dz-docks-under-nav sm:hidden sticky z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}
               </div>

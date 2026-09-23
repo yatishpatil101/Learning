@@ -23,10 +23,10 @@ const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
 /**
  * The queue's status vocabulary, reconciled with the server's.
  *
- * The server has four — `open`, `reviewing`, `actioned`, `dismissed` — and this list had a fifth,
- * `resolved`, that has never existed on the wire. It meant "reviewed, no action needed", which is
- * exactly what `dismissed` means; the mapper translates it on the way out so a triage still works,
- * but showing it as a *filter* would offer a state no live report can be in.
+ * The server has four — `open`, `reviewing`, `actioned`, `dismissed`. `resolved` is not among
+ * them: it means "reviewed, no action needed", which is exactly what `dismissed` means. The mapper
+ * translates it on the way out so a triage still works, but offering it as a *filter* would offer
+ * a state no live report can be in.
  *
  * `reviewing` is the reverse case: real server-side, no button here. Listed so the filter can reach
  * reports another moderator has picked up.
@@ -42,18 +42,12 @@ const STATUS_OPTS = [
 /**
  * The reason filter, derived from the vocabularies reporters actually choose from.
  *
- * This list used to be hand-written, and it was wrong in both directions. It offered `inaccurate`
- * and `offensive` — codes no report can carry, because neither appears in any of the three
- * `ReportModal` vocabularies the server validates against, so selecting either always emptied the
- * queue and looked like "no such complaints". And it omitted nine codes reports *do* carry:
- * `sold`, `unavailable`, `pricing`, `broker`, `brokerage`, `abuse`, `fakelistings`, `filled`,
- * `inappropriate` and `other`. On an Indian rental marketplace "posted by a broker, not the owner"
- * is among the commonest complaints filed, and it was not filterable at all.
- *
- * That is the same defect `STATUS_OPTS` above had with its phantom `resolved`, three lines away,
- * fixed on its own while this list was left alone. Hand-maintained mirrors of a vocabulary drift
- * one at a time. So this one is not maintained: it is *derived* from the exact arrays the modal
- * offers and the backend's `ReportReasons` mirrors, and cannot drift without the modal changing.
+ * Derived, not hand-maintained. A hand-written mirror drifts in both directions: it offers codes
+ * no report can carry — which empties the queue and looks like "no such complaints" — and omits
+ * codes reports do carry, so a common complaint such as "posted by a broker, not the owner" stops
+ * being filterable at all. `STATUS_OPTS` above drifted the same way. This list is built from the
+ * exact arrays `ReportModal` offers and the backend's `ReportReasons` mirrors, so it cannot drift
+ * without the modal changing.
  *
  * Keyed by tab because reasons are per target type — the server's rule is "this reason must be
  * valid *for this target type*". `pricing` is a meaningful complaint about a listing and meaningless
@@ -72,16 +66,10 @@ const REASON_OPTS = {
 /**
  * Which `kind` each tab is responsible for.
  *
- * There are three because the wire has always had three. `toViewModel` maps `targetType: 'post'` to
- * `kind: 'share'`, and every flatmate report — room, group or seeker — is filed as one. The queue
- * had only two tabs and asked `kind === 'listing' ? … : kind === 'user'`, so a `share` row matched
- * neither branch and **rendered in no tab at all**: filed correctly, stored correctly, and
- * invisible to the moderators whose job it was.
- *
- * It hid behind a second bug. Flatmates.jsx used to send `kind='user'` with the *post* vocabulary,
- * which the server would have rejected outright and the mock stored anyway — so these reports
- * surfaced under "Reported users", mislabelled but reachable. Fixing the wire mapping is what made
- * them disappear, which is the ordinary way a latent gap becomes visible.
+ * There are three because the wire has three. `toViewModel` maps `targetType: 'post'` to
+ * `kind: 'share'`, and every flatmate report — room, group or seeker — is filed as one. Miss a
+ * kind here and its rows render in no tab at all: filed correctly, stored correctly, and invisible
+ * to the moderators whose job they are.
  *
  * `review` is deliberately absent as a tab of its own. `ReportReasons` knows the target type and
  * society reviews are filed under it, but they are moderated through the reviews queue and its own
@@ -125,7 +113,6 @@ export default function AdminReports() {
   const load = () => listReports().then((res) => setAll(res.items)).catch(() => setAll([]));
   useEffect(() => { let alive = true; load().then(() => !alive); return () => { alive = false; }; }, []); // eslint-disable-line
 
-  // Deep-link ?open=<id>
   useEffect(() => {
     if (!all) return;
     const oid = searchParams.get('open');
@@ -173,19 +160,10 @@ export default function AdminReports() {
       toast('That decision could not be saved. Please reload the queue.', 'error');
       return;
     }
-    // Neither `logAudit` nor `addInternalNote` here, and for the same reason: `ReportService.triage`
-    // writes `report.triage` with the from-status, the to-status, the authenticated actor and — via
-    // `body.note()` — this very string. Both lines that stood here wrote a second, browser-local
-    // copy of something the server had already stored under a real author.
+    // Neither `logAudit` nor `addInternalNote` here: `ReportService.triage` writes `report.triage`
+    // with the from-status, the to-status, the authenticated actor and — via `body.note()` — this
+    // very string. A browser-local copy would be a second record under no real author.
     //
-    // `addInternalNote('report', id, note, …)` was the longer-lived of the two. It filed the note
-    // under the key `report:<id>` in localStorage. Nothing in this app ever read that key: the
-    // `InternalNote` widget is only mounted with `entityType="listing"`, and this screen does not
-    // mount it at all. So the note was written, capped at 200 rows, and never shown to anyone.
-    //
-    // The `logAudit` line that also stood here wrote the *requested* status into a browser-local
-    // array — and the comment immediately below explains why the requested status is not always the
-    // stored one, which is the second reason that copy was worse than useless.
     // The server's answer is authoritative for `status` — `resolved` is recorded as `dismissed`,
     // so echoing the requested value would show a state the server did not store.
     const saved = updated?.status || status;
@@ -264,7 +242,6 @@ export default function AdminReports() {
   const hasFilters = statusF || activeReason || dateRange || q;
   const clearFilters = () => { setStatusF(''); setReasonF(''); setDateRange(''); setQ(''); };
 
-  // Reset selection when filters or tab change
   useEffect(() => { setSelected(new Set()); }, [tab, statusF, activeReason, dateRange, q]);
 
   if (!all) return <Loading />;
@@ -385,10 +362,6 @@ export default function AdminReports() {
        * reporter chose not to identify themselves — and an unattributable complaint is a much
        * easier one to dismiss. "Withheld" says the true thing: somebody is on the hook for this
        * report, and it isn't your business who.
-       *
-       * The mock denormalises a name onto the row, so this column only ever looked populated
-       * because it was being fed invented data. When the mock goes at P5c the `||` branch becomes
-       * the only branch.
        */
       header: 'Reported by',
       render: (r) => (

@@ -228,4 +228,15 @@ export const BUDGET_MAX = 40000;
 /** True when the range is wide open, i.e. the budget filter is narrowing nothing. */
 export const budgetIsAny = (b) => b[0] <= BUDGET_MIN && b[1] >= BUDGET_MAX;
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };
+/* An untouched control means "the host did not say", which is a different answer from a stated
+   zero — a notice period of 0 days is a real and common term between flatmates. Omitting the key
+   keeps the two apart all the way to the column, where null carries the same distinction. */
+const numeric = (name, raw) => (raw === '' || raw == null ? {} : { [name]: Number(raw) });
+const terms = (f) => ({
+  ...numeric('noticePeriodDays', f.noticePeriodDays),
+  ...numeric('lockInMonths', f.lockInMonths),
+  ...(f.maintenanceBilling ? { maintenanceBilling: f.maintenanceBilling } : {}),
+  ...(f.electricityBilling ? { electricityBilling: f.electricityBilling } : {}),
+});
+
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, numeric, terms, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

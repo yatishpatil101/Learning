@@ -1,23 +1,6 @@
-/* Loading placeholder for the /flatmates route chunk.
- *
- * Replaces the app-wide centred spinner. The spinner sits in a `min-h-[60vh]`
- * box, so the hero, the filter deck and the first row of cards all land at once
- * and jolt the page — a late reflow, and the reason this route was awkward to
- * assert against: a tap aimed at the List/Map toggle can land where the spinner
- * used to be.
- *
- * Sizes are taken from the real components:
- *   - wrapper    Flatmates.jsx  — `pt-6 pb-20 min-h-[100dvh]`, `max-w-6xl`
- *   - hero       Hero.jsx       — `glass rounded-3xl p-4 sm:p-6 mb-4`, badge + h1 + 2-line blurb + 3 pills
- *   - filters    FilterBar.jsx  — `glass rounded-2xl p-4 sm:p-5 mb-5`, tab row over a control row
- *   - results    Results.jsx    — `grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5`
- *
- * Deliberately built from global classes only (`skeleton`, `glass`, Tailwind
- * utilities). `styles/routes/flatmates.css` is imported by Flatmates.jsx, which
- * means it ships inside the very chunk this placeholder is waiting for — reaching
- * for `.sf-card` or `.sf-seg` here would render unstyled until the moment the
- * skeleton is thrown away, i.e. exactly when it stops mattering.
- */
+/* Sizes mirror Flatmates.jsx, Hero.jsx, FilterBar.jsx and Results.jsx so the real list
+   replaces this without a reflow. Global classes only: `styles/routes/flatmates.css`
+   ships inside the very chunk this placeholder is waiting for. */
 export default function FlatmatesSkeleton() {
   return (
     <div
@@ -29,7 +12,6 @@ export default function FlatmatesSkeleton() {
       data-testid="flatmates-skeleton"
     >
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Hero */}
         <div className="glass rounded-3xl p-4 sm:p-6 mb-4">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-5">
             <div className="max-w-2xl w-full">
@@ -68,9 +50,8 @@ export default function FlatmatesSkeleton() {
           </div>
         </div>
 
-        {/* Six cards: the first screenful on every breakpoint (one column on a
-            phone, two from sm, three from xl), so the grid never reflows when the
-            real list replaces it. */}
+        {/* Six cards: the first screenful on every breakpoint, so the grid never
+            reflows when the real list replaces it. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="glass rounded-2xl p-5">

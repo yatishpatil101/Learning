@@ -9,10 +9,8 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
 
   const cutoff = funnelTime ? Date.now() - Number(funnelTime) * 86400000 : 0;
   const inRange = (dateStr) => !cutoff || new Date(dateStr).getTime() >= cutoff;
-  // `kind` used to be an alternative here, so that the deal pills could filter enquiries too. It
-  // never existed on a contact request — the mock invented `contact | chat | call` — so the clause
-  // matched nothing on live data and matched noise on mock data. Deals have a deal type; enquiries
-  // do not, and the pills now simply do not narrow them.
+  // Deals have a deal type; enquiries do not, so the pills narrow deals only. A contact request
+  // carries no `kind`, and matching on one would filter nothing while looking like it filtered.
   const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal;
 
   const enqCount = enquiries.filter((e) => inRange(e.at)).length;
@@ -25,13 +23,10 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
   const visitToDeal = visitCount > 0 ? Math.round((dealCount / visitCount) * 100) : 0;
   const enqToDeal = enqCount > 0 ? Math.round((dealCount / enqCount) * 100) : 0;
 
-  // Locality breakdown.
-  //
-  // This used to read the locality out of the listing *title*, by splitting on the word " in ". That
-  // worked on seeded titles shaped "2 BHK in Kothrud" and produced "Unknown" for every real listing,
-  // which is most of them — so the table below was a ranking of one bucket. Rows now carry the
-  // locality the listing is actually filed under; the title split stays only as a fallback for mock
-  // rows that have no locality field at all.
+  // Rows carry the locality the listing is filed under. The title split is a fallback only, for
+  // rows with no locality field at all: reading the locality out of the *title* works on titles
+  // shaped "2 BHK in Kothrud" and produces "Unknown" for everything else, which would make the
+  // table below a ranking of one bucket.
   const localityOf = (r) => r.locality || (r.listing || '').split(' in ')[1] || 'Unknown';
   const localityMap = {};
   enquiries.filter((e) => inRange(e.at)).forEach((e) => {

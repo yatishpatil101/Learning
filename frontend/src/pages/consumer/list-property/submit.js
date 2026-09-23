@@ -15,7 +15,7 @@ import {
   PRICE_REDUCED_PCT, PRICE_JUMP_FLAG_PCT, MATERIAL_EDIT_CAP,
 } from './editPolicy.js';
 import { requestRecheckFields, clearedRecheckFields } from '../../../lib/recheckFields.js';
-import { pickListingFormDetails } from '../../../lib/listingFormDetails.js';
+import { canStateBuyerEligibility, pickListingFormDetails } from '../../../lib/listingFormDetails.js';
 import { editPayload } from './editPayload.js';
 
 /* `price` and `monthlyRent` both fold onto `price`: the wizard splits sale from rent while the entity has
@@ -39,8 +39,10 @@ const withoutFormDetails = (form, keys) => pickListingFormDetails(Object.fromEnt
 ));
 
 const formDetailsForPropertyType = (form) => {
-  if (isCommercialType(form.propertyType)) return withoutFormDetails(form, RESIDENTIAL_DETAIL_KEYS);
-  return withoutFormDetails(form, COMMERCIAL_DETAIL_KEYS);
+  const excluded = isCommercialType(form.propertyType) ? RESIDENTIAL_DETAIL_KEYS : COMMERCIAL_DETAIL_KEYS;
+  return withoutFormDetails(form, canStateBuyerEligibility(form)
+    ? excluded
+    : new Set([...excluded, 'buyerEligibility']));
 };
 
 /* `toListingCreate` picks the keys it knows and ignores the rest, so this only closes the gaps where the
@@ -83,7 +85,6 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
   }
 };
 
-/* ---------- listing persistence ---------- */
 /* The record is built here but written through `propertyService.addListing`, the only path where
    the server can run its duplicate probe. */
 export const persistListing = async ({ form, user, editId, editListing, documents, photos, photoHashes }) => {
@@ -119,8 +120,8 @@ export const persistListing = async ({ form, user, editId, editListing, document
     }
     const loc = [form.society, form.locality, 'Pune'].filter(Boolean).join(', ');
 
-    /* Only URLs that outlive this tab. A `data:` URL is dropped deliberately: in mock mode the
-       "upload" is a base64 read, and a few of those blow the localStorage quota and lose the write. */
+  /* Only URLs that outlive this tab. A `data:` URL is dropped deliberately: it is a base64 read of
+     the local file, which no other device or session can resolve. */
     const uploaded = photos
       .map((p) => p && p.url)
       .filter((u) => typeof u === 'string' && u !== '' && !u.startsWith('data:'));
@@ -186,8 +187,8 @@ export const persistListing = async ({ form, user, editId, editListing, document
       lng: form.propLng,
       desc: form.description || '',
       deposit: isRent ? parseAmount(form.deposit) : 0,
-      // Undefined, not false: `petsAllowed` defaults to false, so the old fallback turned every
-      // owner who skipped the question into one who had banned pets.
+      // Undefined, not false: `petsAllowed` defaults to false, so a `false` fallback turns every
+      // owner who skipped the question into one who has banned pets.
       pets: isResidentialType(form.propertyType) ? (form.petsPolicy === 'yes' ? true : form.petsPolicy === 'no' ? false : undefined) : undefined,
       food: isResidentialType(form.propertyType) ? form.foodPref || 'any' : undefined,
       rera: form.reraId || '',
@@ -310,7 +311,6 @@ export const persistListing = async ({ form, user, editId, editListing, document
       }
     }
 
-    // ---- Edit policy ----------------------------------------
     // Changes are classified material (Tier A: re-check while staying live) or soft (Tier B).
     if (editId) {
       /* The listing as the editor opened it, handed in by the hook: a local read would answer about
@@ -364,8 +364,9 @@ export const persistListing = async ({ form, user, editId, editListing, document
         if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
       }
 
-      /* The server's verdict is already on `saved`, so recomputing would let the mirror disagree with the row
-         it mirrors. The local branch is the mock fallback and copies each condition — any approximation is laxer. */
+      /* The server's verdict is already on `saved`, so recomputing would let the mirror disagree with the
+         row it mirrors. The local branch below is the fallback for when it is absent, and it copies each
+         condition — any approximation is laxer. */
       const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
         ? {
             recheckPending: saved.recheckPending,

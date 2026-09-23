@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { localityNames, localityCoordMap } from '../../../data/localities.js';
 
-/* ---------- static option data ---------- */
 /* Derived from the canonical registry so "Search an area" works offline; free text still falls back
    to geocoding and a Google pick refines the pin. */
 export const localities = localityNames();
@@ -131,8 +130,8 @@ export const rentDocs = [
   { key: 'Society NOC', label: 'Society NOC', cta: 'Upload Society NOC', hint: 'Keep your society’s no-objection certificate with the property records.' },
 ];
 
-/* ---------- property-type model ----------
-   Single source of truth: dropdown order, Step-1 groups, validation, progress and admin all read here. */
+/* Single source of truth for the property-type model: dropdown order, Step-1 groups, validation,
+   progress and admin all read here. */
 export const PROPERTY_TYPES = [
   { value: 'flat', label: 'Flat / Apartment' },
   { value: 'independent', label: 'Independent House' },
@@ -176,6 +175,22 @@ export const isCommercialType = (t) => groupOf(t) === 'commercial';
 export const isLandType = (t) => groupOf(t) === 'land';
 export const isHouseType = (t) => !!TYPE_CONFIG[t]?.house;
 
+/* The flatmate wizard's home-type pills, as one `[propertyType, label]` list because the two are
+   halves of a single answer and the server stores both. Row House shares `independent`: it is let
+   exactly like one, and `propertyType` only picks which physical fields to ask for. Which of the
+   pair the host actually picked rides on the label, which is what the room card renders.
+
+   Listed once so a re-type cannot leave the other half behind — `homeTypeLabelFor` reads this same
+   list, and the first entry for a type is its default, which is why Independent House precedes Row
+   House. Two copies would drift silently: nothing type-checks a label against a type. */
+export const HOME_TYPE_PILLS = [
+  ['flat', 'Flat'],
+  ['independent', 'Independent House'],
+  ['villa', 'Villa'],
+  ['independent', 'Row House'],
+];
+export const homeTypeLabelFor = (t) => HOME_TYPE_PILLS.find(([pt]) => pt === t)?.[1] || '';
+
 /* Which lease vocabulary a type is let on. The three groups happen to name it today, but the
    question is its own — a type could share a group and not a lease. */
 export const leaseKindOf = (t) => (isCommercialType(t) ? 'commercial' : isLandType(t) ? 'land' : 'residential');
@@ -184,7 +199,6 @@ export const leaseKindOf = (t) => (isCommercialType(t) ? 'commercial' : isLandTy
    Open Plot / Farm Land split still classify correctly. */
 export const NONRES = ['commercial', 'openplot', 'farmland', 'plot'];
 
-/* ---------- commercial + land option data ---------- */
 export const shellOptions = [['bareShell', 'Bare Shell'], ['warmShell', 'Warm Shell'], ['furnished', 'Furnished']];
 export const washroomOptions = ['1', '2', '3', '4+'];
 /* The full set the server's `ListingFormDetails` accepts. The wizard offers the per-profile subsets
@@ -269,8 +283,8 @@ export const buyerEligibilityOptions = [
   { value: 'unknown', label: 'Not sure' },
 ];
 
-/* ---------- commercial use-profiles ----------
-   Three profiles that differ in what a seeker needs to see: workspace, retail and industrial. */
+/* Three commercial profiles that differ in what a seeker needs to see: workspace, retail and
+   industrial. */
 export const commercialProfileOf = (subtype) => {
   if (subtype === 'shop' || subtype === 'retail') return 'retail';
   if (subtype === 'warehouse' || subtype === 'industrial') return 'industrial';
@@ -283,8 +297,8 @@ export const commercialProfileOf = (subtype) => {
    re-render does not hand a multi-select a brand-new empty array. */
 const NO_OPTIONS = [];
 
-/* ---------- commercial fixtures (per use-profile) ----------
-   Scoped by the same three profiles as commercialProfileOf so a warehouse never offers "Reception". */
+/* Scoped by the same three profiles as commercialProfileOf so a warehouse never offers
+   "Reception". */
 export const COMMERCIAL_FIXTURES = {
   workspace: ['Server / UPS Room', 'Meeting Cabins', 'Reception Area', 'Conference Room', 'False Ceiling', 'Central AC'],
   retail: ['Main-Road Frontage', 'Display Windows', 'Rolling Shutter', 'Signage Space', 'Mezzanine Floor', 'Customer Washroom'],
@@ -295,7 +309,7 @@ export const COMMERCIAL_FIXTURES = {
 export const fixturesFor = (subtype) => COMMERCIAL_FIXTURES[commercialProfileOf(subtype)] ?? NO_OPTIONS;
 
 /* The businesses each profile can actually house, drawn from `suitableForTags` so every offered
-   value stays inside the server's own set. A warehouse owner was being offered Clinic and Gym. */
+   value stays inside the server's own set. */
 const COMMERCIAL_SUITABLE_FOR = {
   workspace: ['Office', 'Clinic', 'Bank / ATM'],
   retail: ['Retail', 'Showroom', 'Restaurant', 'Clinic', 'Gym / Studio', 'Bank / ATM'],
@@ -303,8 +317,8 @@ const COMMERCIAL_SUITABLE_FOR = {
 };
 export const suitableForFor = (subtype) => COMMERCIAL_SUITABLE_FOR[commercialProfileOf(subtype)] ?? NO_OPTIONS;
 
-/* ---------- commercial physical specs (per use-profile) ----------
-   Scoped so a shop is never asked its floor load. `key` is both the form field and the i18n suffix. */
+/* Physical specs scoped per use-profile so a shop is never asked its floor load. `key` is both the
+   form field and the i18n suffix. */
 const COMMERCIAL_SPECS = {
   workspace: [{ key: 'seatCount', unit: '', ph: 'eg40', max: 4 }],
   retail: [{ key: 'frontage', unit: 'ft', ph: 'eg30', max: 4 }],
@@ -413,7 +427,6 @@ export const docsFor = (deal, propertyType, commercialType) => {
   return rentDocs;
 };
 
-/* ---------- type-aware photo categories ---------- */
 /* Not merely a label: tagging a photo with it is how an owner states "this is my unit's plan", and
    `submit.js` reads it into `floorPlan`. Exported so the three files matching on it cannot drift. */
 export const FLOOR_PLAN_CATEGORY = 'Floor Plan';
@@ -452,8 +465,8 @@ export const MIN_PUBLISH_PHOTOS = 3;
 export const MIN_PUBLISH_KEY_CATEGORIES = 2;
 export const STRONG_PHOTO_COUNT = 5;
 
-/* ---------- type-aware amenities ----------
-   Raw land has none (section hidden); a godown should not advertise a club house or co-working. */
+/* Amenities are type-aware: raw land has none (section hidden); a godown should not advertise a
+   club house or co-working. */
 const COMMERCIAL_AMENITY_LABELS = {
   workspace: ['2-Wheeler Parking', '4-Wheeler Parking', 'Power Backup', 'Lift', 'Smart Security', 'Co-Working Spaces', 'Club House'],
   retail: ['2-Wheeler Parking', '4-Wheeler Parking', 'Power Backup', 'Lift', 'Smart Security'],

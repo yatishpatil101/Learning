@@ -3,6 +3,9 @@ import { localityNames, localityCoordMap } from '../../../data/localities.js';
 // Locality identity is owned by the canonical registry (data/localities.js);
 // derive the flatmates list + coord map from it so there is one source of truth.
 const LOCALITIES = localityNames();
+/* Mirrors `@Size(max = 10)` on FlatmateSeekerPostCreate.localities. A stricter client limit is a
+   rule the server never made, and the seeker is told no by a form rather than by the product. */
+const MAX_LOCALITIES = 10;
 const TAGS = ['Vegetarian', 'Non-veg ok', 'Non-smoker', 'Early riser', 'Night owl', 'Pet-friendly', 'Working professional', 'Student', 'Fitness'];
 const MOVE_LBL = { now: 'Immediately', 15: 'Within 15 days', 30: 'Within a month', 60: 'In 1–2 months' };
 const FLAT_PREF_LBL = { any: 'Anyone', women: 'Women only', men: 'Men only' };
@@ -41,4 +44,4 @@ const SEED_GROUPS = [
   { id: 'g5', title: 'Girls 2BHK share near Aundh', locality: 'Aundh', policy: 'women', rent: 32000, seatsTotal: 3, members: [{ name: 'Ananya', initials: 'AN', verified: true }, { name: 'Meera', initials: 'ME', verified: true }], tags: ['Vegetarian', 'Pet-friendly'], note: 'Plants & cats welcome. Long-term preferred.', time: '5 days ago' },
 ];
 
-export { LOCALITIES, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, LOCALITY_COORDS, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };
+export { LOCALITIES, MAX_LOCALITIES, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, LOCALITY_COORDS, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };

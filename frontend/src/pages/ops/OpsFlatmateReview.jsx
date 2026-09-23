@@ -18,14 +18,6 @@
  *
  * A single merged status column would be a screen that cannot tell a host "we could not verify your
  * agreement" apart from "we took your post down". Those are different things to be told.
- *
- * ## What changed at wave 2c
- *
- * This page used to read a `localStorage` review store the consumer flow wrote into. It could model
- * the verification queue's happy path and nothing else: no moderation axis at all — so the D72
- * backlog, the thing that makes "invisible until moderated" defensible, had **no UI in the product**
- * — no group applications, and no notion of the `flatmates:read` / `flatmates:write` split that
- * decides whether the account looking at this queue is allowed to work it.
  */
 import { useState } from 'react';
 import { BedDouble, ShieldCheck, Users } from 'lucide-react';
@@ -46,12 +38,6 @@ const BOARDS = [
 
 export default function OpsFlatmateReview() {
   const [board, setBoard] = useState('verification');
-
-  /* A "this desk needs the live API" panel stood here, for the case where `flatmate` was left out
-     of the domain allow-list. The mock store behind it could model about a third of this desk — no
-     moderation axis, no group applications, no read-versus-write permission split — so an empty
-     queue would have been indistinguishable from a cleared backlog (D72). Both the allow-list and
-     the store are gone; the three boards below each render their own failure. */
 
   const active = BOARDS.find((b) => b.id === board) || BOARDS[0];
 
