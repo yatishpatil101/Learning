@@ -18,7 +18,7 @@
     top: 84px;
     right: 24px;
     width: 384px;
-    max-height: calc(100vh - 108px);
+    max-height: calc(100dvh - 108px);
     border-radius: 18px;
     animation: dzMdpIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -30,7 +30,9 @@
     left: 0;
     right: 0;
     bottom: 0;
-    max-height: 86vh;
+    /* dvh, not vh: `vh` is the viewport with the URL bar collapsed, so with the bar showing the
+       sheet is 86% of a box taller than the screen and its footer action is cut off. */
+    max-height: 86dvh;
     border-radius: 20px 20px 0 0;
     border-bottom: none;
     animation: dzMdpUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
@@ -75,6 +77,14 @@
     margin: 8px auto 2px;
     flex: none;
   }
+
+  /* The sheet is fixed over the map, so a one-finger drag anywhere in its chrome must move the
+     sheet or nothing — never the listings page behind it. Scrolling is handed back to the one
+     element that actually scrolls. `pinch-zoom` rather than `none`, on both: this sheet is the
+     whole listing on a phone, and `touch-action` governs zooming as well as panning, so `none`
+     would leave the price and address un-magnifiable. Taps are unaffected either way. */
+  .dz-mdp { touch-action: pinch-zoom; }
+  .dz-mdp-scroll { touch-action: pan-y pinch-zoom; }
 }
 
 .dz-mdp-top {

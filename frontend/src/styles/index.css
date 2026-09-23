@@ -343,17 +343,16 @@
   }
 
   /* What a touch user needs is proof the tap registered, most of all on the mid-range Android
-     this app targets. The browser's own blue flash is removed, so a replacement is not optional. */
-  a,
-  button,
-  [role="button"],
-  [role="tab"],
-  summary,
-  label { -webkit-tap-highlight-color: transparent; }
-
+     this app targets. The browser's own blue flash is suppressed on `html`, so a replacement is
+     not optional. */
+  /* `label` is deliberately absent: roughly sixty labels in this app WRAP their field, so a
+     label rule would dim the whole group the moment a finger lands in a text input. The two
+     labels that are genuinely buttons (the file pickers) carry their own rule in the wizard's
+     route sheet. */
   a:active,
   button:not(:disabled):active,
   [role="button"]:active,
+  [role="switch"]:active,
   [role="tab"]:active,
   summary:active { opacity: 0.72; }
 }
@@ -460,6 +459,30 @@
 html {
   scroll-behavior: smooth;
   overflow-x: clip;
+  /* Reserve the classic scrollbar's track whether or not one is showing. `useScrollLock` holds an
+     open overlay still by setting the root's `overflow-y: hidden`, which takes the scrollbar away
+     with it — so without a stable gutter the page behind every modal, drawer and sheet widens by
+     its width and every centred element jumps as the backdrop fades in. Desktop-only in effect:
+     phones and macOS draw overlay scrollbars, which occupy no track to reserve. */
+  scrollbar-gutter: stable;
+  /* Suppresses Chrome's own pull-to-refresh app-wide. On the four surfaces that carry
+     `usePullToRefresh` it would otherwise fire alongside it — that hook's preventDefault is
+     skipped once the browser has committed the gesture, so a fast flick gets both spinners.
+     Everywhere else the intent is the same: a gesture that hard-reloads a SPA is never what was
+     meant, and the pages that can refresh do it themselves. `contain` rather than `none` keeps
+     iOS's rubber-band bounce, which is native feel worth having, and only blocks chaining out to
+     browser UI — no page loses scroll chaining of its own. Declared here and not on body: the
+     `overflow-x: clip` above stops body's value propagating to the viewport at all. */
+  overscroll-behavior-y: contain;
+  /* Unconditional, not under (hover: none): a touch laptop and an iPad with a trackpad both
+     report (hover: hover) and would otherwise get the flash back. Every control carries its
+     own :active response instead. */
+  -webkit-tap-highlight-color: transparent;
+  /* iOS inflates text in landscape, overriding the mobile type ramp at the end of this file. */
+  -webkit-text-size-adjust: 100%;
+  /* No light theme exists, so UA chrome — scrollbars, <select> popups, date and autofill
+     dropdowns — renders light on a #0f0d1a page unless told otherwise. */
+  color-scheme: dark;
 }
 
 body {
@@ -467,6 +490,46 @@ body {
   background: var(--brand-dark);
   color: var(--text);
   overflow-x: clip;
+}
+
+/* The app ships its own reduce-motion switch and does not seed it from the OS, so honouring
+   only the media query leaves the people who found the setting still getting the animation. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+html.dz-reduce-motion { scroll-behavior: auto; }
+
+/* iOS Safari still holds `click` for the double-tap-zoom window on some elements; declaring that
+   the element never zooms makes the tap fire on contact instead of ~300ms later. */
+a,
+button,
+[role="button"],
+[role="tab"],
+summary,
+label { touch-action: manipulation; }
+
+/* A long press on a control must not raise the selection handles or the link callout. `a` is
+   deliberately absent: links wrap card titles and addresses, which are content a user copies. */
+button,
+[role="button"],
+[role="tab"],
+summary,
+label {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* `user-select` inherits, and roughly sixty labels in this app WRAP their field rather than
+   sitting beside it — so the rule above would otherwise reach inside and cost iOS Safari its
+   long-press Select/Paste on PAN, email and rent-amount inputs. */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* Devanagari: leading-none/tight clip matras and tracking-widest breaks the shirorekha. Scoped
@@ -559,20 +622,27 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .dz-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
-/* ===== Tinted shadows: brand hue, not pure black ===== */
-.property-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
-}
+/* ===== Tinted shadows: brand hue, not pure black =====
+   Gated on hover capability: touch fakes :hover on first tap and holds it, so an ungated lift
+   leaves a tapped card raised and glowing until the user taps elsewhere. `(pointer: fine)` is
+   deliberately NOT part of the query — Tailwind's `hoverOnlyWhenSupported` emits `(hover: hover)`
+   alone, and a device that is hover-capable but coarse would otherwise take the utility half of a
+   card's hover state (border, group-hover scale) without the lift these rules provide. */
+@media (hover: hover) {
+  .property-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
+  }
 
-.cat-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 0 30px rgba(13, 148, 136, 0.18), 0 8px 32px rgba(15, 13, 26, 0.45) !important;
-}
+  .cat-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 0 30px rgba(13, 148, 136, 0.18), 0 8px 32px rgba(15, 13, 26, 0.45) !important;
+  }
 
-.feature-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 0 40px rgba(13, 148, 136, 0.12), 0 8px 24px rgba(15, 13, 26, 0.4) !important;
+  .feature-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 0 40px rgba(13, 148, 136, 0.12), 0 8px 24px rgba(15, 13, 26, 0.4) !important;
+  }
 }
 
 /* ── Section subtext max-width — prevents lines stretching too wide ── */
@@ -601,6 +671,10 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
+
+/* Only inside the drawer, which is modal. The same element is the desktop sidebar, where
+   reaching the end of the list should go on scrolling the page behind it. */
+.filter-panel .filter-scroll { overscroll-behavior: contain; }
 
 .filter-scroll:hover,
 .filter-scroll:focus-within { scrollbar-color: rgba(20, 184, 166, 0.45) transparent; }
@@ -816,7 +890,9 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .card-img-wrap img { transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
-.property-card:hover .card-img-wrap img { transform: scale(1.08); }
+@media (hover: hover) {
+  .property-card:hover .card-img-wrap img { transform: scale(1.08); }
+}
 
 /* ── Heart animation ── */
 @keyframes heartPop {
@@ -834,9 +910,11 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 /* ── Glow hover for category cards ── */
 .cat-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease; }
 
-.cat-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 0 30px rgba(79, 70, 229, 0.25), 0 8px 32px rgba(0, 0, 0, 0.4);
+@media (hover: hover) {
+  .cat-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 0 30px rgba(79, 70, 229, 0.25), 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
 }
 
 /* Edge fades hinting the category strip scrolls; each shows only when there is more that way.
@@ -867,9 +945,11 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   contain-intrinsic-size: 0 380px;
 }
 
-.property-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+@media (hover: hover) {
+  .property-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
 }
 
 .card-hover {
@@ -1225,14 +1305,18 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 }
 
 /* ── Sleek hover for search button (no gimmicky pulse) ── */
-.search-btn:hover { box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28); }
+@media (hover: hover) {
+  .search-btn:hover { box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28); }
+}
 
 /* Feature card glow */
 .feature-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease; }
 
-.feature-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 0 40px rgba(79, 70, 229, 0.2);
+@media (hover: hover) {
+  .feature-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 0 40px rgba(79, 70, 229, 0.2);
+  }
 }
 
 /* FAQ */
@@ -1315,6 +1399,9 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   overflow-y: auto;
   overflow-x: hidden;
+  /* The drawer is modal, so reaching the end of the filter list must not hand the scroll to the
+     results page behind it. */
+  overscroll-behavior: contain;
 }
 
 .filter-panel.open { transform: translateX(0); }
@@ -1923,8 +2010,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .main-image-wrapper img { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 
-.main-image-wrapper:hover img { transform: scale(1.05); }
-
 .thumbnail {
   cursor: pointer;
   border: 2px solid transparent;
@@ -1933,7 +2018,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: all 0.3s ease;
 }
 
-.thumbnail:hover,
 .thumbnail.active {
   border-color: var(--teal-2);
   box-shadow: 0 0 16px rgba(20, 184, 166, 0.3);
@@ -1941,7 +2025,21 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .thumbnail img { transition: transform 0.3s ease; }
 
-.thumbnail:hover img { transform: scale(1.1); }
+/* Touch fakes :hover on the tapped element and holds it until the next tap lands elsewhere, so
+   ungated these two were states a finger could not clear: the hero stayed 5% zoomed after the
+   tap that opened the lightbox, and a thumbnail's hover is the same rule as .active, leaving two
+   of them reading as selected at once. `pointer: fine` keeps the trackpad iPad in and rules out
+   the Android devices that claim hover they cannot deliver. */
+@media (hover: hover) and (pointer: fine) {
+  .main-image-wrapper:hover img { transform: scale(1.05); }
+
+  .thumbnail:hover {
+    border-color: var(--teal-2);
+    box-shadow: 0 0 16px rgba(20, 184, 166, 0.3);
+  }
+
+  .thumbnail:hover img { transform: scale(1.1); }
+}
 
 /* Chip used in list context — rent inventory, tenant list, price insights and the
    similar-property cards. Stays boxed; only the property-header rail below opts out. */
@@ -1957,7 +2055,9 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   display: inline-flex;
 }
 
-.tag:hover { background: rgba(255, 255, 255, 0.12); }
+@media (hover: hover) and (pointer: fine) {
+  .tag:hover { background: rgba(255, 255, 255, 0.12); }
+}
 
 /* ONE tile, not N badges: these phrases answer a single question, and boxing each separately
    turned one answer into four tappable-looking buttons. Packed, not stretched across tracks. */
@@ -1991,9 +2091,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: color 0.2s ease;
 }
 
-.tag-strip .tag:hover {
-  background: none;
-  color: #fff;
+@media (hover: hover) and (pointer: fine) {
+  .tag-strip .tag:hover {
+    background: none;
+    color: #fff;
+  }
 }
 
 .tag-strip .tag svg {
@@ -2045,11 +2147,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
-.detail-card:hover {
-  background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(20, 184, 166, 0.25);
-}
-
 .amenity-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2059,11 +2156,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   align-items: center;
   gap: 0.7rem;
   transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.amenity-card:hover {
-  background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(20, 184, 166, 0.25);
 }
 
 /* → moved to styles/components/buttons.css (Tier 0 — shared, loaded from main.jsx) */
@@ -2079,12 +2171,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
   transition: all 0.3s ease;
-}
-
-.icon-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
 }
 
 .icon-btn.saved {
@@ -2111,9 +2197,23 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
-.highlight-pill:hover {
-  background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(20, 184, 166, 0.25);
+/* One rule for three tiles that always shared it, now that gating each separately would have
+   meant three identical media blocks. Gated because touch holds the hover on the tapped tile,
+   which on this page means a teal border a finger cannot clear. */
+@media (hover: hover) and (pointer: fine) {
+
+  .detail-card:hover,
+  .amenity-card:hover,
+  .highlight-pill:hover {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: rgba(20, 184, 166, 0.25);
+  }
+
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+  }
 }
 
 /* Phone density pass: at 390px a tile's border, radius and padding cost more of the line than the value in
@@ -2223,7 +2323,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 1rem;
+  padding: calc(env(safe-area-inset-top, 0px) + 1rem) calc(env(safe-area-inset-right, 0px) + 1rem) calc(env(safe-area-inset-bottom, 0px) + 1rem) calc(env(safe-area-inset-left, 0px) + 1rem);
+  /* Nothing here scrolls, and the three overlays that use this class are hand-rolled rather than
+     going through <Modal>, so they never get its body scroll lock. Without this the photo's own
+     swipe handler also drags the listing behind it, and a downward swipe fires pull-to-refresh. */
+  touch-action: none;
   animation: dzLbFade 0.25s ease;
 }
 
@@ -2238,12 +2342,21 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
-  max-width: 92vw;
+  max-width: 100%;
 }
 
 .dz-lightbox img {
-  max-width: 92vw;
-  max-height: 82vh;
+  /* 100%, not 92vw: the overlay's padding already holds the photo off the edges, and on a
+     landscape notched phone the insets make the content box narrower than 92vw — which let the
+     photo overflow a box that, being touch-action: none, cannot be scrolled to reach the rest. */
+  max-width: 100%;
+  /* dvh, not vh: vh is the viewport with the URL bar collapsed, so on load the photo plus its
+     caption stood taller than the screen actually showing them. */
+  max-height: 82dvh;
+  /* One of the three overlays is the floor plan, which exists to be enlarged to read room
+     dimensions and has no swipe handler of its own, so the overlay's touch-action would leave it
+     un-zoomable. Single-finger pan stays blocked, so the photo lightbox's swipe is untouched. */
+  touch-action: pinch-zoom;
   border-radius: 1rem;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   user-select: none;
@@ -2257,8 +2370,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .dz-lb-close {
   position: absolute;
-  top: 1.25rem;
-  right: 1.25rem;
+  /* An absolutely positioned child resolves against its ancestor's PADDING box, so the safe-area
+     padding on .dz-lightbox does not move this button — on a notched phone it landed under the
+     status bar. It has to carry the inset itself. */
+  top: calc(env(safe-area-inset-top, 0px) + 1.25rem);
+  right: calc(env(safe-area-inset-right, 0px) + 1.25rem);
   width: 44px;
   height: 44px;
   border-radius: 9999px;
@@ -2270,8 +2386,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border: 1px solid rgba(255, 255, 255, 0.15);
   transition: all 0.2s ease;
 }
-
-.dz-lb-close:hover { background: rgba(255, 255, 255, 0.16); }
 
 .dz-lb-nav {
   width: 48px;
@@ -2287,9 +2401,19 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: all 0.2s ease;
 }
 
-.dz-lb-nav:hover {
-  background: rgba(20, 184, 166, 0.25);
-  border-color: rgba(20, 184, 166, 0.5);
+/* Same call the hero makes one level up: swipe already works here, and two unshrinkable 48px
+   arrows beside a full-width photo do not fit a 390px screen in the first place. */
+@media (pointer: coarse) {
+  .dz-lb-nav { display: none; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dz-lb-close:hover { background: rgba(255, 255, 255, 0.16); }
+
+  .dz-lb-nav:hover {
+    background: rgba(20, 184, 166, 0.25);
+    border-color: rgba(20, 184, 166, 0.5);
+  }
 }
 
 .dz-tour-frame {
@@ -2370,9 +2494,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
-.rd-cell:hover {
-  background: rgba(255, 255, 255, .055);
-  border-color: rgba(20, 184, 166, .25);
+@media (hover: hover) and (pointer: fine) {
+  .rd-cell:hover {
+    background: rgba(255, 255, 255, .055);
+    border-color: rgba(20, 184, 166, .25);
+  }
 }
 
 .rd-lbl {
@@ -2440,9 +2566,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: all 0.2s ease;
 }
 
-.dz-modal-x:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+@media (hover: hover) and (pointer: fine) {
+  .dz-modal-x:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+  }
 }
 
 /* Mobile: centred dialogs become bottom sheets. Every consumer overlay already shares
@@ -2548,14 +2676,20 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: all .3s ease;
 }
 
-.prop-row:hover {
-  border-color: rgba(20, 184, 166, .25);
-  transform: translateY(-2px);
-}
-
 .prop-row img { transition: transform .5s ease; }
 
-.prop-row:hover img { transform: scale(1.06); }
+/* Gated: on touch the lift and the teal border stay on the last row tapped, which on the owner's
+   own list of properties reads as a selection the page never made. `(pointer: fine)` is left out
+   for the reason given with the card lifts above — the row also carries `group-hover:` utilities,
+   which Tailwind emits under `(hover: hover)` alone, and the two halves must not split. */
+@media (hover: hover) {
+  .prop-row:hover {
+    border-color: rgba(20, 184, 166, .25);
+    transform: translateY(-2px);
+  }
+
+  .prop-row:hover img { transform: scale(1.06); }
+}
 
 .cover { background: var(--hero-gradient); }
 
@@ -2645,10 +2779,12 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: all .35s cubic-bezier(.4, 0, .2, 1);
 }
 
-.svc:hover {
-  transform: translateY(-6px);
-  border-color: rgba(20, 184, 166, .3);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
+@media (hover: hover) {
+  .svc:hover {
+    transform: translateY(-6px);
+    border-color: rgba(20, 184, 166, .3);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
+  }
 }
 
 .faq-q { cursor: pointer; }
@@ -2700,9 +2836,11 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: transform .35s cubic-bezier(.4, 0, .2, 1), box-shadow .35s;
 }
 
-.tile:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+@media (hover: hover) {
+  .tile:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+  }
 }
 
 .ba {
@@ -2886,7 +3024,11 @@ label.lbl {
   cursor: pointer;
 }
 
-.pick:hover { border-color: rgba(20, 184, 166, .4); }
+/* Gated for the same reason as .thumbnail:hover — the teal this paints is a paler version of the
+   one .pick.sel paints, so on touch the last-tapped option looks half-chosen until another is. */
+@media (hover: hover) and (pointer: fine) {
+  .pick:hover { border-color: rgba(20, 184, 166, .4); }
+}
 
 .pick.sel {
   border-color: var(--teal-2);
@@ -2955,7 +3097,9 @@ label.lbl {
   transition: color .2s ease, border-color .2s ease;
 }
 
-.dz-detail-tab:hover { color: #fff; }
+@media (hover: hover) and (pointer: fine) {
+  .dz-detail-tab:hover { color: #fff; }
+}
 
 .dz-detail-tab.is-active {
   color: #5eead4;
@@ -3091,10 +3235,17 @@ label.lbl {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 5vh 1rem;
+  /* dvh, not vh: the box is the visible viewport, so a vh gutter is measured against a taller
+     one and the card starts lower than the 5% asked for. The document is rendered at
+     viewport-fit=cover, so the last of the scroll — Cancel / Post request — needs the indicator
+     inset added or it sits under the bar. */
+  padding: 5dvh 1rem calc(5dvh + var(--dz-safe-b));
   background: rgba(8, 7, 15, .7);
   backdrop-filter: blur(6px);
   overflow-y: auto;
+  /* This element is the scroller, and it is modal: reaching the end of the form must not hand the
+     gesture to the results page behind it. Same rule .filter-panel carries. */
+  overscroll-behavior: contain;
 }
 
 .map-pin {

@@ -6,6 +6,7 @@
 
 /* Reels (vertical snap-scroll walkthroughs) */
 .reels-page {
+  position: relative;
   background: #12101f;
 }
 
@@ -21,6 +22,10 @@
   height: calc(100dvh - var(--dz-nav-h));
   overflow-y: auto;
   scroll-snap-type: y mandatory;
+  /* html already blocks chaining out to browser UI; this stops a flick past the first or last
+     reel from rubber-banding the document behind the feed, which exposes the page background
+     under a surface that is meant to be edge-to-edge media. The feed keeps its own bounce. */
+  overscroll-behavior-y: contain;
 }
 
 .reels-page .reel-wrap::-webkit-scrollbar {
@@ -32,6 +37,7 @@
   height: calc(100dvh - var(--dz-nav-h));
   scroll-snap-align: start;
   position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-end;
 }
@@ -88,6 +94,8 @@
   background: linear-gradient(180deg, rgba(10, 8, 24, .15) 30%, rgba(10, 8, 24, .92));
 }
 
+/* Purely an indicator — the tap it reports is handled by `.reel-gallery` underneath, which is
+   why it takes no pointer events of its own. */
 .reels-page .play-badge {
   position: absolute;
   top: 50%;
@@ -101,6 +109,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity .3s ease, transform .3s ease;
 }
 
 /* The action rail carries five items now (like / save / share / view / contact), so it
@@ -108,7 +119,9 @@
    runs under — plus the height of the caption block beneath it. */
 .reels-page .rail {
   position: absolute;
-  right: 14px;
+  /* `viewport-fit=cover` puts the page under the sensor housing, which in landscape sits over
+     this column. */
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
   bottom: calc(var(--dz-bottom-inset) + 132px);
   display: flex;
   flex-direction: column;
@@ -120,28 +133,6 @@
   .reels-page .rail {
     bottom: calc(var(--dz-bottom-inset) + 150px);
     gap: 14px;
-  }
-}
-
-/* Short viewports (the 360x640 Android baseline). Five rail items with labels are
-   taller than the gap between the top overlay and the caption, so the rail grew up
-   into the filter chips. The labels are the part that can go: every item already
-   carries an aria-label, and the icons are the same ones the user knows from the
-   feed. The like *count* stays — it is data, not a label — which is why the two are
-   separate spans rather than one text node. */
-@media (max-height: 700px) {
-  .reels-page .rail {
-    bottom: calc(var(--dz-bottom-inset) + 138px);
-    gap: 12px;
-  }
-
-  .reels-page .rail .lb {
-    display: none;
-  }
-
-  .reels-page .rail .ic {
-    width: 42px;
-    height: 42px;
   }
 }
 
@@ -170,6 +161,35 @@
   transition: transform .18s ease, background .18s ease, color .18s ease;
 }
 
+/* Short viewports (the 360x640 Android baseline). Five rail items with labels are
+   taller than the gap between the top overlay and the caption, so the rail grew up
+   into the filter chips. The labels are the part that can go: every item already
+   carries an aria-label, and the icons are the same ones the user knows from the
+   feed. The like *count* stays — it is data, not a label — which is why the two are
+   separate spans rather than one text node.
+
+   Declared AFTER the base `.rail .ic` rule, not beside its siblings above: a media query
+   contributes no specificity, so an equal-specificity override that precedes the rule it
+   overrides loses on source order and silently does nothing. The icon shrink here had
+   never once applied. */
+@media (max-height: 700px) {
+  .reels-page .rail {
+    bottom: calc(var(--dz-bottom-inset) + 138px);
+    gap: 12px;
+  }
+
+  .reels-page .rail .lb {
+    display: none;
+  }
+
+  /* 44px, not the 42px this block used to ask for: below that a thumb starts missing, and
+     dropping the labels has already bought the breakpoint the height it needed. */
+  .reels-page .rail .ic {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 /* The primary action still has to read as the primary action once it is a rail icon
    rather than a filled pill — brand fill plus its glow is what carries that. */
 .reels-page .rail .is-cta .ic {
@@ -178,21 +198,13 @@
   box-shadow: 0 8px 22px rgba(20, 184, 166, .42);
 }
 
-.reels-page {
-  position: relative;
-}
-
-.reels-page .reel {
-  overflow: hidden;
-}
-
 /* Property caption. Its own bottom padding is what keeps the text clear of the floating
    tab bar, now that the media itself runs underneath the bar. */
 .reels-page .reel-info {
   position: relative;
   z-index: 4;
   width: 100%;
-  padding: 20px 20px calc(var(--dz-bottom-inset) + 14px);
+  padding: 20px calc(env(safe-area-inset-right, 0px) + 20px) calc(var(--dz-bottom-inset) + 14px) calc(env(safe-area-inset-left, 0px) + 20px);
 }
 
 /* Loading / empty notice. Fills the same box a reel would, so the page never collapses
@@ -290,13 +302,6 @@
   outline-offset: 2px;
 }
 
-/* Center play/pause badge */
-.reels-page .play-badge {
-  z-index: 5;
-  pointer-events: none;
-  transition: opacity .3s ease, transform .3s ease;
-}
-
 .reels-page .play-badge.is-playing {
   opacity: 0;
   transform: translate(-50%, -50%) scale(1.4);
@@ -357,12 +362,15 @@
   left: 0;
   right: 0;
   z-index: 7;
-  padding: 8px 14px 18px;
+  padding: 8px calc(env(safe-area-inset-right, 0px) + 14px) 18px calc(env(safe-area-inset-left, 0px) + 14px);
   background: linear-gradient(180deg, rgba(10, 8, 24, .75), rgba(10, 8, 24, 0));
   pointer-events: none;
 }
 
-.reels-page .reels-top>* {
+/* Only the controls, not the whole row: `.reels-topbar` is full-width with a
+   `space-between` gutter, so granting it the taps makes that empty gutter swallow presses
+   meant for the play/pause toggle on the media underneath. */
+.reels-page .reels-filters {
   pointer-events: auto;
 }
 
@@ -403,6 +411,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 44px;
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 12px;
@@ -412,11 +421,19 @@
   border: 1px solid rgba(255, 255, 255, .14);
   backdrop-filter: blur(6px);
   cursor: pointer;
-  transition: all .2s ease;
+  transition: background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .1s ease;
 }
 
-.reels-page .reels-chip:hover {
-  background: rgba(255, 255, 255, .18);
+/* Ungated, a tap leaves the chip lit until the next tap lands elsewhere — the filter reads as
+   selected when it is not. */
+@media (hover: hover) and (pointer: fine) {
+  .reels-page .reels-chip:hover {
+    background: rgba(255, 255, 255, .18);
+  }
+}
+
+.reels-page .reels-chip:active {
+  transform: scale(.96);
 }
 
 .reels-page .reels-chip.is-on {

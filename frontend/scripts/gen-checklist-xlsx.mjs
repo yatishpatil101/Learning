@@ -85,7 +85,7 @@ const global = [
   ['Toasts', 'success/error toasts fire and dismiss'],
   ['Loading fallback', 'lazy-route spinner shows, no layout jump'],
   ['Formatting', 'Currency/number/date formatting consistent (lib/format.js)'],
-  ['localStorage mock API', 'CRUD persists across reload (draazyDB_v1)'],
+  ['API persistence', 'CRUD survives a reload and a second browser, not just this tab'],
   ['Responsive breakpoints', '360 / 414 / 768 / 1024 / 1280 all clean'],
   ['Accessibility', 'focus rings, alt text, aria on icon-only buttons, modal focus trap'],
   ['Console/network', 'zero uncaught errors, no 404 assets across a full click-through'],

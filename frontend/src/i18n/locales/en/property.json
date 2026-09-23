@@ -39,6 +39,7 @@
     "prevPhoto": "Previous photo",
     "photoDotsAria": "Photo navigation",
     "goToPhoto": "Go to photo {{n}}",
+    "photoAlt": "{{title}} — photo {{n}} of {{total}}",
     "nextPhoto": "Next photo",
 
     "furnishing": {
@@ -67,6 +68,7 @@
     "breadcrumbRent": "Rent",
     "breadcrumbBuy": "Buy",
     "zeroBrokerageDirect": "Zero brokerage — deal direct",
+    "zeroBrokerageOnly": "Zero brokerage",
     "postedAgo": "Posted {{time}}",
     "freshnessTitle": "How recently the owner confirmed this listing is available",
 
@@ -139,9 +141,12 @@
     "readMore": "Read more",
     "readLess": "Read less",
     "overviewLand": "This {{type}} in {{locality}}{{zone}} with clear, verified ownership and ready access to Pune's growth corridors — broker-free, dealing directly with the verified owner.",
+    "overviewLandBrokered": "This {{type}} in {{locality}}{{zone}} with clear, verified ownership and ready access to Pune's growth corridors — listed through an agent or developer, and Draazy charges no brokerage.",
     "overviewLandZone": " is a {{zone}} plot",
     "overviewCommercial": "This {{type}} in {{locality}} offers business-ready space with {{amenities}}. Well-connected to Pune's commercial hubs, arterial roads and public transit — broker-free, dealing directly with the verified owner.",
+    "overviewCommercialBrokered": "This {{type}} in {{locality}} offers business-ready space with {{amenities}}. Well-connected to Pune's commercial hubs, arterial roads and public transit — listed through an agent or developer, and Draazy charges no brokerage.",
     "overviewResidential": "This {{bhk}}{{type}} in {{locality}} is part of a well-maintained, secure community with {{amenities}}. Strategically located with great connectivity to Pune's IT hubs, schools and hospitals — broker-free and deal directly with the verified owner.",
+    "overviewResidentialBrokered": "This {{bhk}}{{type}} in {{locality}} is part of a well-maintained, secure community with {{amenities}}. Strategically located with great connectivity to Pune's IT hubs, schools and hospitals — listed through an agent or developer, and Draazy charges no brokerage.",
 
     "amenitiesHeading": "Amenities",
     "locationHeading": "Location",
@@ -170,6 +175,7 @@
     "share": "Share",
 
     "noBrokerageDeal": "No brokerage · Deal directly with owner",
+    "noBrokerageFee": "No brokerage charged by Draazy",
     "verifiedRespondsFaster": "Verified owner — usually responds 2× faster",
     "chatWithOwner": "Chat with Owner",
     "profile": "Profile",

@@ -5,7 +5,7 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 2
-updated: 2026-07-31
+updated: 2026-09-22
 summary: Priority definitions, first-response targets, and the escalation ladder for support tickets.
 tags: [ops, support, tickets, escalation, internal]
 ---
@@ -22,7 +22,13 @@ tags: [ops, support, tickets, escalation, internal]
 | P2 | Feature not working, verification stuck | 8 hours | 3 working days |
 | P3 | How-to question, feedback, feature request | 24 hours | 5 working days |
 
+P0–P3 are ours; the ticket itself stores `urgent`, `high`, `normal` and `low` in that order, and the field is set by the **customer**, not by us. Re-set it to match the impact you assess as soon as you pick the ticket up — the queue sorts on the stored value, so a P0 left at `normal` is a P0 nobody is looking at.
+
 Set priority from the **impact**, not from the tone of the message. An angry P3 is still a P3; a calm report of a lost deposit is a P0.
+
+## Statuses
+
+`new` → `open` (*In progress*) → `waiting` (*Awaiting your reply*) → `resolved` → `closed`. A customer reply re-opens a ticket from `resolved`, `closed` or `waiting`, so a case you closed can come back — check your own queue before assuming a silent ticket is done. Park a ticket in `waiting` only when the next action is genuinely theirs; the clock keeps running while it sits in `open`.
 
 ## Handling order
 

@@ -4,7 +4,7 @@ slug: saved-searches-alerts
 category: search-visits
 audience: tenant
 order: 2
-updated: 2026-07-29
+updated: 2026-09-22
 summary: Save a search once and get told the moment something matching goes live — the difference between finding a home and hearing it is gone.
 tags: [alerts, saved search, notifications]
 ---
@@ -31,7 +31,7 @@ In a tight locality, the good listings are taken within 48 hours. Saved searches
 
 ## Managing them
 
-All saved searches live under **Dashboard → Saved searches**. From there you can edit the filters, change frequency, pause a search while you are travelling, or delete it.
+All saved searches live under **Dashboard → Saved & Activity**. From there you can edit the filters, change frequency, pause a search while you are travelling, or delete it.
 
 You can hold up to 10 saved searches. Delete the ones you have stopped acting on — alert fatigue is the main reason people miss a match.
 

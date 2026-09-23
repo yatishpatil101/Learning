@@ -4,7 +4,7 @@ slug: manage-profile
 category: account
 audience: everyone
 order: 1
-updated: 2026-07-25
+updated: 2026-09-22
 summary: Update your name, number, email and tenant profile — and understand what owners can see.
 tags: [profile, account, tenant profile]
 ---
@@ -38,11 +38,11 @@ Worth filling in:
 
 ## Changing your mobile number
 
-Your number is your login, so changing it needs OTP verification on both the old and new numbers. Go to **Dashboard → Account → Change number**. If you no longer have access to the old number, raise a ticket at [Support](/support) with ID proof.
+Your number is your login, so there is no self-serve switch for it. Raise a ticket at [Support](/support) with ID proof and we will move the account across.
 
 ## Deleting your account
 
-**Dashboard → Account → Delete account.** This removes your profile, saved properties, searches and messages. Listings you posted are delisted. Invoices and tickets are retained for the period required by law — see [Your data and privacy](/help/a/your-data-privacy).
+**Dashboard → Profile → Privacy & Account → Request account erasure.** This removes your profile, saved properties, searches and messages. Listings you posted are delisted. Invoices and tickets are retained for the period required by law — see [Your data and privacy](/help/a/your-data-privacy).
 
 ## Related
 

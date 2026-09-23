@@ -4,7 +4,7 @@ slug: your-data-privacy
 category: account
 audience: everyone
 order: 3
-updated: 2026-07-25
+updated: 2026-09-22
 summary: What we collect, who sees it, how long we keep it, and how to get it deleted.
 tags: [privacy, data, dpdp, deletion]
 ---
@@ -41,7 +41,7 @@ We do **not** sell your contact details to brokers or third parties. This is a s
 
 Under India's DPDP Act you can ask us to:
 
-- **Access** a copy of your data — **Dashboard → Settings → Download my data**
+- **Access** a copy of your data — **Dashboard → Profile → Privacy & Account → Download my data**
 - **Correct** anything inaccurate
 - **Delete** your account and associated data
 - **Withdraw consent** for optional processing, such as location

@@ -158,9 +158,11 @@
   cursor: pointer;
 }
 
-.lp-steps__item.is-done:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(20, 184, 166, 0.3);
+@media (hover: hover) and (pointer: fine) {
+  .lp-steps__item.is-done:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(20, 184, 166, 0.3);
+  }
 }
 
 .lp-steps__item.is-done:focus-visible {
@@ -296,9 +298,26 @@ input.form-input {
   cursor: pointer;
 }
 
-.radio-pill:hover {
-  border-color: rgba(20, 184, 166, 0.3);
-  background: rgba(20, 184, 166, 0.05);
+/* The pill reads neither --btn-h nor --control-h, so the phone ramp that lifts every other
+   control to 44px misses it; these sit in dense deal / BHK / tenant rows where 40px lands
+   a near-miss on the neighbour. The breakpoint is the token ramp's own (639px, not 639.98px):
+   half a pixel apart they disagree under display scaling and the pill reads the 40px value.
+   Column direction so the main axis is vertical: children keep full width, and the card-shaped
+   pills (a single icon + title + description block) cannot shrink-wrap and drift off the edge. */
+@media (max-width: 639px) {
+  .radio-pill {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: var(--control-h);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .radio-pill:hover {
+    border-color: rgba(20, 184, 166, 0.3);
+    background: rgba(20, 184, 166, 0.05);
+  }
 }
 
 .radio-pill.selected {
@@ -350,10 +369,29 @@ input.form-input {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.upload-zone:hover,
+/* drag-over stays outside the capability gate: a drag is not a hover, and it is the only
+   feedback a desktop drop target gives. */
 .upload-zone.drag-over {
   border-color: var(--teal-2);
   background: rgba(20, 184, 166, 0.05);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .upload-zone:hover {
+    border-color: var(--teal-2);
+    background: rgba(20, 184, 166, 0.05);
+  }
+}
+
+/* Both file pickers are <label>, which the app-wide :active response deliberately skips
+   (labels wrap text fields there). These two are buttons in everything but tag name, and the
+   OS picker takes long enough to open that a tap with no acknowledgement reads as a dropped one. */
+@media (hover: none) {
+
+  .upload-zone:active,
+  .doc-upload:active {
+    opacity: 0.72;
+  }
 }
 
 /* ----- Listing success celebration ----- */
@@ -448,21 +486,6 @@ input.form-input {
   background: rgba(20, 184, 166, .08);
 }
 
-.thumb-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s;
-}
-
-.thumb-card .thumb-remove {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.thumb-card:hover .thumb-remove {
-  opacity: 1;
-}
-
 .doc-upload {
   display: flex;
   align-items: center;
@@ -475,9 +498,11 @@ input.form-input {
   transition: all 0.25s ease;
 }
 
-.doc-upload:hover {
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.05);
+@media (hover: hover) and (pointer: fine) {
+  .doc-upload:hover {
+    border-color: rgba(20, 184, 166, 0.5);
+    background: rgba(20, 184, 166, 0.05);
+  }
 }
 
 .doc-upload.has-file {
@@ -506,10 +531,22 @@ input.form-input {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.furn-tile:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.06);
-  transform: translateY(-1px);
+/* The lift is gated hard: on touch the faked hover sticks after the tap, leaving one tile
+   raised and teal-bordered beside the real .checked state — a false "selected" signal on the
+   one grid a user taps a dozen times. */
+@media (hover: hover) and (pointer: fine) {
+  .furn-tile:hover {
+    border-color: rgba(20, 184, 166, 0.4);
+    background: rgba(20, 184, 166, 0.06);
+    transform: translateY(-1px);
+  }
+}
+
+/* The tiles are keyboard-reachable, and the UA outline ignores the 14px radius. */
+.furn-tile:focus-visible {
+  outline: none;
+  border-color: var(--teal-2);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
 }
 
 .furn-tile .furn-icon {
@@ -584,10 +621,34 @@ input.form-input {
   animation: lpSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .lp-step {
+    animation: none;
+  }
+}
+
+/* The app carries its own reduce-motion switch (localPrefs -> html.dz-reduce-motion) for people
+   who want it here and not OS-wide; index.css honours it throughout, so this sheet must too —
+   and every animation in it belongs here, not only the one that prompted the gate. */
+html.dz-reduce-motion .lp-step,
+html.dz-reduce-motion .lp-success-card,
+html.dz-reduce-motion .lp-success-badge,
+html.dz-reduce-motion .lp-success-ring,
+html.dz-reduce-motion .lp-meter__pct {
+  animation: none;
+}
+
+html.dz-reduce-motion .lp-meter__fill,
+html.dz-reduce-motion .lp-meter__node {
+  transition: none;
+}
+
 /* ---- Momentum meter (gamified completion) ---- */
+/* No `top` here: .dz-docks-under-nav owns the offset below lg, a `top-[var(--dz-nav-h)]` utility
+   in the JSX owns it above lg, and a literal alongside either is equal specificity. Remove that
+   utility and this becomes `top: auto`, i.e. silently not sticky. */
 .lp-meter {
   position: sticky;
-  top: 84px;
   z-index: 30;
   background: rgba(20, 18, 40, 0.92);
   backdrop-filter: blur(24px);

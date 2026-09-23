@@ -5,30 +5,41 @@ category: payments
 audience: owner
 order: 1
 featured: true
-updated: 2026-07-24
-summary: What each owner plan includes, who genuinely needs one, and who does not.
-tags: [plans, pricing, featured, owner]
+updated: 2026-09-22
+summary: What each plan includes, how listing and contact allowances work, and who genuinely needs one.
+tags: [plans, pricing, featured, owner, contacts, referral]
 ---
 
-**You do not need a plan to list a property or to receive enquiries.** Plans buy visibility, not access. See the current pricing on the [Plans page](/plans).
+**You do not need a plan to list a property or to receive enquiries.** Plans buy headroom and visibility, not access. See the current pricing on the [Plans page](/plans).
 
 ## What is free forever
 
-- Posting a listing
-- Verification
-- Receiving and replying to unlimited enquiries
+- One active listing
+- Verification, and the badges it earns
+- Receiving and replying to enquiries — owners are never charged to answer
 - Site-visit scheduling
-- Tenant profiles on every enquiry
+- Tenant profiles attached to every enquiry
+- 15 owner contacts, if you are the one searching
 
-## What plans add
+## What owner plans add
 
 | Feature | What it does |
 | --- | --- |
-| Featured placement | Your listing appears above organic results in its locality |
-| Boost | A time-boxed surge in placement, useful in the first 72 hours |
-| Photo shoot | A professional shoots the property |
-| Relationship manager | A person who screens enquiries and coordinates visits for you |
-| Priority verification | Same-day rather than same-week |
+| More active listings | Free is 1. The paid tiers raise it, up to unlimited on the top tier. |
+| Featured placement | Outranks every other signal on the default Relevance sort, in your locality |
+| Boost | A time-boxed surge — 7 days by default — useful in a listing's first week |
+| Unlimited owner contacts | The 15-contact cap is lifted on your account |
+| Dedicated manager | Top tier only: a person who screens enquiries and coordinates visits |
+
+Featuring and boosting are self-serve on a paid plan; on the free plan the controls are visible but locked.
+
+## If you are searching, not listing
+
+There is a seeker plan too. It exists for one reason: the free account includes 15 owner contacts in total, and a serious search in a competitive locality can spend those. The plan lifts the cap — see [Contacting owners](/help/a/contacting-owners) for how the quota is counted.
+
+## Earning allowance instead of buying it
+
+Every qualified referral adds to your allowance for free — **+15 owner contacts** on the seeker side, extra listing slots on the owner side. Your code is on the [Plans page](/plans). Referrals are reviewed for fraud, so a reward appears once the referral qualifies, not the moment someone signs up.
 
 ## Who a plan is worth it for
 
@@ -46,13 +57,14 @@ tags: [plans, pricing, featured, owner]
 - Your price is above comparables. Paid placement in front of the wrong price just buys you more people leaving
 
 > [!IMPORTANT]
-> Featured placement increases *views*. It does not fix a listing problem. If your photos, price or verification are weak, a plan amplifies a listing that people are already choosing not to enquire on.
+> Featured placement increases *views*. It does not fix a listing problem. If your photos, price or verification are weak, a plan amplifies a listing that people are already choosing not to enquire on. It also only applies on the default Relevance sort — a buyer who sorts by price or by newest never sees the boost.
 
 ## Billing
 
-Plans are prepaid for the term. Invoices are under **Dashboard → Billing** and emailed if you have an email on file. Auto-renewal is **off** by default.
+Plans are prepaid for the term. Your plan and every payment against it are under **Dashboard → Plan & Billing**.
 
 ## Related
 
 - [Invoices, refunds and receipts](/help/a/invoices-and-refunds)
 - [Pricing your property](/help/a/price-your-property)
+- [Contacting owners](/help/a/contacting-owners)

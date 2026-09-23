@@ -47,8 +47,11 @@ function ok(condition, what) {
 
 const quoted = (blob) => [...blob.matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2]);
 
-/* 1. The server's set, read off ListingEditRules.apply. A flat scan is honest only because no foundation
-   block nests braces; if one ever does, the emptiness assertions below fail rather than drop a field. */
+/* 1. The server's set, read off ListingEditRules.apply. The scan only sees blocks opening `if (in.field()`,
+   which is every foundation block but two: `commercialTypeChanged(p, in)` reads its subtype out of
+   formDetails, and the `clearLandUse` arm nests an inner `if`. Each sets a flag this scan credits to no
+   field, and is harmless only because a flat sibling block names that same field anyway. A *new* foundation
+   field written in either shape would be dropped here in silence — write it flat, or widen this pattern. */
 console.log('\n  1. ListingEditRules.apply — the two foundation sets');
 const serviceSrc = read(SERVICE);
 const applyBody = (read(RULES).split('EditImpact apply(Property p, ListingUpdate in) {')[1] || '')
@@ -94,28 +97,63 @@ sameSet(serverStaysLive, oracle('STAYS_LIVE'), 'ListingEditRules.apply stays-liv
 /* 3. The client mirrors the OWNER rule, so pin which path that is: `update` acts on the impact and
    `updateAsModerator` deliberately does not, and mirroring `apply` alone would not catch an inversion. */
 console.log('  3. update() reverts or queues a re-check; updateAsModerator() does neither');
+
+/* Blanks out every innermost `{...}` until none is left, so what remains is the statements the branch runs
+   unconditionally. Position stopped being a proxy for that in 23aa4651, which opened two of these branches
+   with a status guard; `beforeFirstIf` then read as "the rule is gone" rather than "the rule moved". */
+const atDepthZero = (s) => {
+  let out = s;
+  let prev;
+  do { prev = out; out = out.replace(/\{[^{}]*\}/g, ''); } while (out !== prev);
+  return out;
+};
+
+const updateBody = (serviceSrc.split('public Property update(UUID userId,')[1] || '').split('\n    }')[0];
+const remoderationBranch = (updateBody.split('if (impact.remoderationRequired()')[1] || '').split('} else if')[0];
 ok(
-  /if \(impact\.remoderationRequired\(\)\) \{\s*p\.revertToPending\(\);/.test(serviceSrc),
+  remoderationBranch.includes('p.revertToPending();'),
   'ListingService.update no longer reverts to pending on an off-search foundation change — the client'
   + ' banner now describes a rule the server does not have. Decide which is right before editing this check.',
 );
-/* Asserted by splitting the branch open rather than by adjacency: the owner note may be conditional, the
-   re-check may not, so `requestRecheck` must appear before the branch's first `if`. */
-const recheckBranch = (serviceSrc.split('else if (impact.recheckOnly()) {')[1] || '').split('\n        }')[0];
-const beforeFirstIf = recheckBranch.split(/\n\s*if \(/)[0];
+/* Asserted on the guard rather than on its absence, because narrowing it is legitimate — a draft or an
+   archived listing has no search placement to lose. APPROVED is the one status that must stay inside it:
+   drop that and a live listing keeps answering a filter it was never re-checked against, silently. */
 ok(
-  beforeFirstIf.includes('p.requestRecheck('),
+  remoderationBranch.includes('PropertyStatus.APPROVED.equals(p.getStatus())'),
+  'ListingService.update reverts on an off-search foundation change, but no longer for an APPROVED'
+  + ' listing — which is the only status where "comes off search" means anything. Every other status'
+  + ' is already off search, so this guard is the whole rule.',
+);
+/* Asserted by emptying the branch of its nested blocks: the owner note may be conditional and the re-pend
+   below is, but the re-check itself may not be — a price edit that queues nothing is a free edit. */
+const recheckBranch = (serviceSrc.split('else if (impact.recheckOnly()) {')[1] || '').split('\n        }')[0];
+ok(
+  atDepthZero(recheckBranch).includes('p.requestRecheck('),
   'ListingService.update no longer queues a re-check for the stays-live foundation fields'
   + ' unconditionally, so a price edit can now be free. That is a moderation hole, not a'
   + ' simplification (Q14). The owner note may be conditional; the re-check may not.',
 );
 const moderatorBody = (serviceSrc.split('public Property updateAsModerator(')[1] || '').split('\n    }')[0];
 ok(
-  moderatorBody.includes('apply(p, in);') && !moderatorBody.includes('revertToPending')
-    && !moderatorBody.includes('requestRecheck'),
-  'updateAsModerator now reverts to pending or queues a re-check — a staff typo fix would take the'
-  + ' listing off the site, or file staff a ticket to check their own correction. If that is intended'
-  + ' it is a product change, not a checker change.',
+  moderatorBody.includes('apply(p, in);'),
+  'updateAsModerator no longer asks ListingEditRules what the edit costs, so a staff edit to a foundation'
+  + ' field now bypasses the rule entirely rather than being exempted from its consequences.',
+);
+ok(
+  !moderatorBody.includes('requestRecheck'),
+  'updateAsModerator now files a re-check ticket, so staff are queued to check their own correction.'
+  + ' If that is intended it is a product change, not a checker change.',
+);
+/* It may re-pend, and since 23aa4651 it does — but only a listing that is *already* pending, to reset a
+   lifecycle verification the edit invalidated. The harm this guards is the live case: an APPROVED listing
+   must never come off the site because staff fixed a typo, so the revert has to stay behind the guard. */
+ok(
+  !atDepthZero(moderatorBody).includes('revertToPending')
+    && (!moderatorBody.includes('revertToPending')
+      || moderatorBody.includes('PropertyStatus.PENDING.equals(p.getStatus())')),
+  'updateAsModerator reverts to pending without first establishing the listing was already pending, so a'
+  + ' staff typo fix would take a live listing off the site. If that is intended it is a product change,'
+  + ' not a checker change.',
 );
 
 /* ─── 4. The live form maps onto it ────────────────────────────────────────────────────────────── */

@@ -1,7 +1,4 @@
-/**
- * Contract vocabularies pinned against the client catalogues that talk to them: every member of
- * every bridged vocabulary is pushed through the real read and write paths, in both directions.
- */
+/* Every member of every bridged vocabulary is pushed through the real read and write paths, both ways. */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -120,7 +117,6 @@ function fieldEnum(schema, field) {
   return new Set(found.values);
 }
 
-/* ─── The client side ─────────────────────────────────────────────────────────────────────────── */
 const { FURN, CONSTR_STATUS, TENANTS, ROOM_TYPES } = await import('../src/pages/consumer/listings/constants.js');
 const { LAND_USE } = await import('../src/data/propertyTypes.js');
 const { VOCAB } = await import('../src/services/providers/http/flatmateMapper.js');
@@ -138,7 +134,6 @@ const filterState = (axis, value) => ({
   [axis]: new Set([value]),
 });
 
-/* ─── 1–3. Furnishing: mismatched, translated, exercised in both directions ────────────────────── */
 console.log('  1. Furnishing');
 const furnishingWire = topLevelEnum('Furnishing');
 if (furnishingWire) {
@@ -170,7 +165,6 @@ if (furnishingWire) {
   }
 }
 
-/* ─── Possession: the same shape, translated since V79, kept honest by the same round trip ─────── */
 console.log('  2. PropertyPossession');
 const possessionWire = topLevelEnum('PropertyPossession');
 if (possessionWire) {
@@ -199,7 +193,6 @@ if (possessionWire) {
   }
 }
 
-/* ─── 4. Vocabularies that share a spelling, and so have nothing protecting them ───────────────── */
 console.log('  4. identical vocabularies (no table, nothing to protect them)');
 const identical = [
   ['LAND_USE', keysOf(LAND_USE), fieldEnum('PropertySummary', 'landUse')],
@@ -210,7 +203,6 @@ for (const [name, uiKeys, wire] of identical) {
   if (wire) sameSet(new Set(uiKeys), wire, `${name} vs the contract`);
 }
 
-/* ─── 5. The flatmate fork is deliberate — pin it so nobody "fixes" it ────────────────────────── */
 console.log('  5. the flatmate furnishing fork');
 const flatmateFurnishing = fieldEnum('FlatmateRoom', 'furnishing');
 if (flatmateFurnishing) {
@@ -224,7 +216,6 @@ if (flatmateFurnishing) {
   );
 }
 
-/* ─── 6. Plot zoning is the owner's label; land use is the column the filter reads ────────────── */
 /* Translated in one direction only: a zone whose translation the contract refuses is a 422 the owner cannot
    act on, and a `LAND_USE` key no zone produces is a filter option no wizard-posted plot can match. */
 console.log('  6. plot zoning translated into land use');
@@ -270,7 +261,6 @@ if (landUseWire) {
   }
 }
 
-/* ─── formDetails allowlist ──────────────────────────────────────────────────────────────────── */
 /* `formDetails` is free-form JSONB in the spec, so its allowlist is hand-written twice. A key on one side only
    fails silently both ways: absent from JS the answer never ships, absent from Java the 422 names nothing. */
 const javaText = readFileSync(FORM_DETAILS_JAVA, 'utf8');
@@ -284,7 +274,41 @@ for (const table of ['TEXT', 'FLAGS', 'ARRAYS']) {
 ok(javaKeys.size > 40, `Only ${javaKeys.size} formDetails keys read from Java — the scanner has gone blind.`);
 sameSet(DETAIL_KEYS, javaKeys, 'listingFormDetails.js DETAIL_KEYS vs ListingFormDetails.java TEXT+FLAGS+ARRAYS');
 
-/* ─── Report ──────────────────────────────────────────────────────────────────────────────────── */
+/* Report reasons are a plain string in the spec, so the only allowlist is the Java `Set.of` the endpoint
+   validates against: a code the picker offers and Java lacks is a 422 on a reason the UI invited. */
+const REPORT_REASONS_JAVA = join(repo, 'backend/src/main/java/com/draazy/api/moderation/report/ReportReasons.java');
+const reportText = readFileSync(REPORT_REASONS_JAVA, 'utf8');
+
+/* `OTHER` is a constant, not a literal, so a bare `"([^"]+)"` scan would miss it on every set and
+   report four identical phantom failures. Substituted before the literals are read. */
+const javaReasonSet = (name) => {
+  const block = new RegExp(`Set<String> ${name} =\\s*Set\\.of\\(([^;]*?)\\);`).exec(reportText);
+  ok(Boolean(block), `ReportReasons.java no longer declares a \`Set<String> ${name} = Set.of(...)\` this scanner can read.`);
+  if (!block) return new Set();
+  const body = block[1].replace(/\bOTHER\b/g, '"other"');
+  return new Set([...body.matchAll(/"([^"]+)"/g)].map(([, v]) => v));
+};
+
+const { LISTING_REPORT_REASONS, SHARE_REPORT_REASONS, OWNER_REPORT_REASONS, SOCIETY_REPORT_REASONS } =
+  await import('../src/lib/reportReasons.js');
+
+for (const [js, java, what] of [
+  [LISTING_REPORT_REASONS, 'FOR_PROPERTY', 'LISTING_REPORT_REASONS vs FOR_PROPERTY'],
+  [SHARE_REPORT_REASONS, 'FOR_POST', 'SHARE_REPORT_REASONS vs FOR_POST'],
+  [OWNER_REPORT_REASONS, 'FOR_USER', 'OWNER_REPORT_REASONS vs FOR_USER'],
+  [SOCIETY_REPORT_REASONS, 'FOR_SOCIETY_CONTENT', 'SOCIETY_REPORT_REASONS vs FOR_SOCIETY_CONTENT'],
+]) {
+  sameSet(new Set(keysOf(js)), javaReasonSet(java), `reportReasons.js ${what}`);
+}
+
+/* `FOR_REVIEW` is deliberately unpaired — asserted rather than skipped, so building a review reason
+   picker makes this line fail and sends you to the pairs above. */
+ok(
+  javaReasonSet('FOR_REVIEW').size === 3,
+  'FOR_REVIEW changed. It is the one set with no frontend list; if a review reason picker now exists,'
+  + ' add it to the pairs above instead of widening this check.',
+);
+
 if (failures.length) {
   console.error(`\n  x ${failures.length} of ${checks} checks failed\n`);
   failures.forEach((f) => console.error(`    - ${f}\n`));

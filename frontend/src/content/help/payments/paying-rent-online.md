@@ -14,7 +14,7 @@ not move money, and there is nothing to set up. Keep paying your landlord howeve
 
 ## What you can do now
 
-Record the home you rent under **Dashboard → Rent Wallet** — the address, your monthly rent, your
+Record the home you rent under **Dashboard → Finances** — your Rent Wallet — the address, your monthly rent, your
 deposit and the date the lease started. That is all it takes. The Wallet then works out, and keeps
 up to date on its own:
 

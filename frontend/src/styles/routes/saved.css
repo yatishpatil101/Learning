@@ -5,10 +5,19 @@
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.saved-page .property-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(20, 184, 166, 0.2);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 40px rgba(20, 184, 166, 0.05);
+/* Gated for the same reason as the global `.property-card:hover` in index.css: touch fakes a
+   hover on first tap and holds it, so an ungated lift leaves a tapped card raised. These are
+   `.saved-page`-scoped, so they outrank the gated global rule and would defeat it here. */
+@media (hover: hover) {
+  .saved-page .property-card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(20, 184, 166, 0.2);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 40px rgba(20, 184, 166, 0.05);
+  }
+
+  .saved-page .property-card:hover .card-image img {
+    transform: scale(1.08);
+  }
 }
 
 .saved-page .property-card .card-image {
@@ -17,10 +26,6 @@
 
 .saved-page .property-card .card-image img {
   transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.saved-page .property-card:hover .card-image img {
-  transform: scale(1.08);
 }
 
 .saved-page .property-card.removing {

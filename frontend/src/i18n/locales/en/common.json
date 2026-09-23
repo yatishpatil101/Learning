@@ -25,6 +25,10 @@
     "unreachableBody": "Your connection may have dropped, so some things won't load until it returns.",
     "restoredTitle": "Back online.",
     "restoredBody": "Retry anything that didn't load.",
+    "updateTitle": "A new version is available.",
+    "updateBody": "Reload when you're ready — anything you're in the middle of will be lost.",
+    "updateAction": "Reload",
+    "updateDismiss": "Not now",
     "listUnreachable": "We couldn't reach the server. Check your connection and try again."
   },
   "nav": {

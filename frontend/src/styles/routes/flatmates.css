@@ -27,6 +27,9 @@
 .dz-sp-list {
   max-height: 306px;
   overflow-y: auto;
+  /* The popup floats over a 460px map inside a scrolling page, so reaching the end of the list
+     must not hand the gesture on to the page behind it. */
+  overscroll-behavior: contain;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -130,11 +133,6 @@
   transition: transform 0.2s ease, color 0.2s ease;
 }
 
-.dz-sp-rowmain:hover .dz-sp-chev {
-  transform: translateX(2px);
-  color: var(--teal-3);
-}
-
 .dz-sp-rowact {
   display: flex;
   align-items: center;
@@ -157,10 +155,6 @@
   font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease;
-}
-
-.dz-sp-cta:hover {
-  background: #0f766e;
 }
 
 .dz-sp-cta svg {
@@ -195,11 +189,6 @@
   transition: all 0.2s ease;
 }
 
-.dz-sp-save:hover {
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, 0.09);
-}
-
 .dz-sp-save svg {
   width: 14px;
   height: 14px;
@@ -231,18 +220,53 @@
   transition: background 0.2s ease;
 }
 
-.dz-sp-all:hover {
-  background: rgba(20, 184, 166, 0.08);
-}
-
 .dz-sp-all svg {
   width: 14px;
   height: 14px;
   transition: transform 0.2s ease;
 }
 
-.dz-sp-all:hover svg {
-  transform: translateX(3px);
+/* Touch fakes a hover on the first tap and holds it until the next tap elsewhere, so an ungated
+   rule here leaves the tapped row's chevron nudged and its save button lit for the rest of the
+   session. Same gate the result card carries in routes/listings.css. */
+@media (hover: hover) {
+  .dz-sp-rowmain:hover .dz-sp-chev {
+    transform: translateX(2px);
+    color: var(--teal-3);
+  }
+
+  .dz-sp-cta:hover {
+    background: #0f766e;
+  }
+
+  .dz-sp-save:hover {
+    color: #e2e8f0;
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  .dz-sp-all:hover {
+    background: rgba(20, 184, 166, 0.08);
+  }
+
+  .dz-sp-all:hover svg {
+    transform: translateX(3px);
+  }
+}
+
+/* These grow by HEIGHT rather than by the centred ::before `.tap-extend` uses: the CTA sits
+   directly under `.dz-sp-rowmain`, which opens the posting, and an overhanging hit area would
+   stack two different actions on one pixel. */
+@media (pointer: coarse) {
+
+  .dz-sp-cta,
+  .dz-sp-all {
+    min-height: var(--btn-h);
+  }
+
+  .dz-sp-save {
+    width: var(--btn-h);
+    height: var(--btn-h);
+  }
 }
 
 /* Highlight the target card after "go to posting" jumps from the map. */
@@ -273,9 +297,15 @@
   transition: all .25s ease;
 }
 
-.sf-page .btn-ghost:hover {
-  border-color: rgba(20, 184, 166, .4);
-  color: #fff;
+/* `.btn-ghost` is this route's own class and has no rule in components/buttons.css, so it alone
+   never picked up the height every other button class carries and the live-request row's
+   Edit / Mark filled / Delete came out 32px. Tracking --btn-h rather than a literal keeps it level
+   with the .btn-teal beside it; `min-height`, because several of these wrap their label. Behind a
+   pointer query so the deliberately compact h-8/h-9 pills keep their size on a mouse. */
+@media (pointer: coarse) {
+  .sf-page .btn-ghost {
+    min-height: var(--btn-h);
+  }
 }
 
 .sf-page .sf-card {
@@ -284,10 +314,19 @@
   transition: all .25s ease;
 }
 
-.sf-page .sf-card:hover {
-  border-color: rgba(20, 184, 166, .25);
-  background: rgba(255, 255, 255, .06);
-  transform: translateY(-2px);
+/* Ungated, this left every tapped card raised for the rest of the session — tapping a child
+   applies the fake hover to the card too. */
+@media (hover: hover) {
+  .sf-page .btn-ghost:hover {
+    border-color: rgba(20, 184, 166, .4);
+    color: #fff;
+  }
+
+  .sf-page .sf-card:hover {
+    border-color: rgba(20, 184, 166, .25);
+    background: rgba(255, 255, 255, .06);
+    transform: translateY(-2px);
+  }
 }
 
 .sf-page .chip {
@@ -357,8 +396,10 @@
   transition: color .2s ease, background .2s ease;
 }
 
-.sf-page .sf-seg__btn:hover:not(.is-active) {
-  color: #fff;
+@media (hover: hover) {
+  .sf-page .sf-seg__btn:hover:not(.is-active) {
+    color: #fff;
+  }
 }
 
 /* The pill-in-pill construction caps the inner buttons at container height minus 10, leaving
@@ -398,6 +439,16 @@
 /* Smart-search submit: `.btn-primary` paints it but carries none of the classes buttons.css
    scopes `:focus-visible` to, so the ring would fall back to the UA outline. */
 .sf-page .sf-search-go:focus-visible { outline: 2px solid var(--teal-2); outline-offset: 2px; }
+
+/* The drawer is `position: fixed` against three edges and the document is rendered at
+   viewport-fit=cover, so padding measured from the physical edge puts the heading under the
+   Dynamic Island and Reset / Show results — the last of the scroll — under the home indicator.
+   All four sides live here rather than half here and half in the element's `p-6`, which would
+   drift. Scoped, because the /listings twin pads its own pinned row and would double-count. */
+.sf-page .filter-panel {
+  padding: calc(1.5rem + env(safe-area-inset-top, 0px)) 1.5rem
+           calc(1.5rem + var(--dz-safe-b)) calc(1.5rem + env(safe-area-inset-left, 0px));
+}
 
 .sf-page .sf-match-great {
   background: var(--brand-gradient);

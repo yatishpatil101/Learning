@@ -1,33 +1,6 @@
-/**
- * Vite plugin: compiles the help centre's Markdown source into a single virtual
- * module at build time.
- *
- * Why build-time rather than runtime:
- *   - No Markdown parser ships to the browser. `marked` is a devDependency; the
- *     client receives finished HTML strings and metadata only.
- *   - Headings, the search index and prev/next ordering are all derived once,
- *     during the build, instead of on every page view.
- *
- * Authors write plain `.md` files under src/content/help/<category>/, with YAML-ish
- * frontmatter. Everything else — slugs, anchors, table of contents, section
- * grouping — is derived from the file and its frontmatter.
- *
- * Translations: a file named `<slug>.hi.md` or `<slug>.mr.md` beside the English
- * `<slug>.md` supplies that language's version of the same article. English is
- * canonical — it defines which articles exist, their category and their ordering
- * — so a missing translation degrades to the English body rather than to a 404.
- * The reader is told when that happens; see HelpArticle.jsx.
- *
- * Consumers import the virtual module:
- *
- *     import { sections, categories, articles, translations, changelog } from 'virtual:help-content';
- *
- * Security note: article HTML is rendered with dangerouslySetInnerHTML on the
- * client. The content is authored in-repo and compiled at build time, so it is
- * trusted — but raw HTML inside Markdown is deliberately dropped (see the
- * renderer overrides below) so that pasting untrusted text into a doc can never
- * introduce a script tag.
- */
+/* Help Markdown is compiled at build time so no Markdown parser ships to the browser; staff runbooks
+   compile into a separate chunk. Article HTML is injected raw on the client, so the renderer below
+   drops raw HTML in Markdown deliberately. */
 
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -35,8 +8,11 @@ import { Marked } from 'marked';
 
 const VIRTUAL_ID = 'virtual:help-content';
 const RESOLVED_ID = '\0' + VIRTUAL_ID;
+const STAFF_VIRTUAL_ID = 'virtual:help-content-staff';
+const STAFF_RESOLVED_ID = '\0' + STAFF_VIRTUAL_ID;
 
-/** Languages an article may be translated into. English is the canonical source. */
+// Adding a language here also obliges HelpFeedbackCreate's @Pattern("en|hi|mr") and the
+// help_article_feedback lang CHECK, or feedback is rejected for that language alone.
 const LANGS = ['hi', 'mr'];
 
 /* GitHub-style callouts: > [!NOTE] / [!TIP] / [!WARNING] / [!IMPORTANT] */
@@ -47,15 +23,8 @@ const CALLOUTS = {
   IMPORTANT: { icon: 'shield-check', label: 'Important' },
 };
 
-/* Heading slugs.
- *
- * The character class deliberately keeps Devanagari (U+0900–U+097F) alongside
- * ASCII. Stripping to [a-z0-9] silently reduced every Hindi and Marathi heading
- * to an empty string, so a translated article's table of contents anchored to
- * "", "-2", "-3" and no heading link worked. Fragment identifiers are allowed to
- * carry non-ASCII — browsers percent-encode them in the address bar and
- * getElementById matches the raw string — so keeping the script is both simpler
- * and more useful than transliterating. */
+/* Devanagari (U+0900–U+097F) is kept: stripping to [a-z0-9] reduced every Hindi and Marathi heading
+   to an empty slug. Browsers percent-encode non-ASCII fragments and getElementById matches the raw string. */
 const SLUG_KEEP = /[^a-z0-9\u0900-\u097F]+/g;
 
 function slugify(s) {
@@ -77,9 +46,8 @@ const NAMED_ENTITIES = {
   lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
 };
 
-/* Marked escapes text for HTML output, so the derived plain text (used for the
-   table of contents, heading anchors and the search haystack) has to be decoded
-   again — otherwise a heading reads "I&#39;m" and anchors to `i-39-m`. */
+/* Marked escapes text for HTML output, so the derived plain text has to be decoded again —
+   otherwise a heading reads "I&#39;m" and anchors to `i-39-m`. */
 function decodeEntities(s) {
   return s
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
@@ -87,11 +55,8 @@ function decodeEntities(s) {
     .replace(/&([a-z]+);/gi, (m, name) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
 }
 
-/**
- * Minimal frontmatter reader. Supports `key: value`, quoted strings, booleans,
- * numbers and inline `[a, b]` arrays — the subset the help content actually uses.
- * A full YAML parser would be another dependency for no gain.
- */
+/* Supports only the frontmatter subset the help content uses; a full YAML parser would be
+   another dependency for no gain. */
 function parseFrontmatter(raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return { data: {}, body: raw };
@@ -131,10 +96,7 @@ function toPlainText(html) {
     .trim();
 }
 
-/**
- * Build a Marked instance that collects headings and rewrites blockquote
- * callouts. A fresh instance per file keeps the heading collector isolated.
- */
+/* A fresh Marked instance per file keeps the heading collector isolated. */
 function createRenderer(headings) {
   const marked = new Marked({ gfm: true, breaks: false });
   const seen = new Map();
@@ -162,13 +124,10 @@ function createRenderer(headings) {
         return `<div class="doc-callout doc-callout--${kind.toLowerCase()}" data-icon="${icon}">`
           + `<p class="doc-callout__label">${label}</p>${body}</div>\n`;
       },
-      // Raw HTML in Markdown is dropped rather than passed through — see the
-      // security note at the top of this file.
+      // Raw HTML in Markdown is dropped so pasted untrusted text can never introduce a script tag.
       html() { return ''; },
-      // marked v15 removed its built-in sanitizer, so an unguarded `[x](javascript:…)`
-      // in any article (including a translation contributed under a narrower review
-      // bar) would render a live script-executing anchor. Allowlist the schemes a
-      // help article can legitimately need; anything else becomes an inert '#'.
+      // marked v15 removed its built-in sanitizer, so an unguarded `[x](javascript:…)` would render
+      // a live script-executing anchor. Anything outside the allowlist becomes an inert '#'.
       link({ href, title, tokens }) {
         const text = this.parser.parseInline(tokens);
         const safe = /^(https?:|mailto:|tel:|\/|#)/i.test(href || '') ? href : '#';
@@ -198,15 +157,8 @@ function compileMarkdown(full, rel) {
   return { data, html, text, headings, rel };
 }
 
-/**
- * Compile every article, keyed by language.
- *
- * English defines the article set. A `<slug>.<lang>.md` sibling contributes only
- * the translatable surface — title, summary, body, headings — while category,
- * ordering, access and audience always come from the English file, so a
- * translation can never move an article into a different section or expose a
- * staff runbook publicly by getting its frontmatter wrong.
- */
+/* English defines the article set; a `<slug>.<lang>.md` sibling contributes only title, summary, body
+   and headings, so a translation can never re-categorise an article or expose a staff runbook. */
 function compileArticles(contentDir) {
   const files = walkMarkdown(contentDir);
   const articles = [];
@@ -253,13 +205,15 @@ function compileArticles(contentDir) {
       throw new Error(`help content: ${rel} translates "${slug}", which has no English source.`);
     }
     const { data, html, text, headings } = compileMarkdown(full, rel);
+    const stale = data.sourceStale === true;
+    if (!stale) assertInSync(rel, data, english);
     translations[lang][slug] = {
       title: data.title || english.title,
       summary: data.summary || text.slice(0, 160),
-      // Tags feed search, so translated tags let a Marathi reader find the
-      // article using Marathi words rather than only the English ones.
+      // Translated tags let a Marathi reader find the article using Marathi words.
       tags: Array.isArray(data.tags) ? data.tags : english.tags,
       readMinutes: Math.max(1, Math.round(text.split(' ').length / 200)),
+      stale,
       headings,
       html,
       text: text.slice(0, 4000),
@@ -268,6 +222,49 @@ function compileArticles(contentDir) {
 
   articles.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
   return { articles, translations };
+}
+
+/* The pin is a date rather than a body hash because `updated:` is the field authors already maintain;
+   a guard nobody can satisfy by hand gets disabled. It makes drift visible, it cannot prove a retranslation. */
+function assertInSync(rel, data, english) {
+  const expected = english.updated;
+  if (!expected) {
+    throw new Error(
+      `help content: ${rel} has a translation but "${english.slug}" has no \`updated:\` to pin it to. `
+      + 'Add `updated: YYYY-MM-DD` to the English article.',
+    );
+  }
+  const pinned = data.sourceUpdated ? String(data.sourceUpdated) : '';
+  if (pinned === expected) return;
+  throw new Error(
+    `help content: ${rel} is pinned to \`sourceUpdated: ${pinned || '(missing)'}\` but its English `
+    + `source was updated ${expected}. Re-read the English article, bring this one into line and set `
+    + `\`sourceUpdated: ${expected}\` — or add \`sourceStale: true\` to ship it behind on purpose.`,
+  );
+}
+
+/* Access is inherited downwards — a staff category makes its articles staff, a staff section its
+   categories — because this flag decides which chunk the text is compiled into. */
+function splitByAccess({ sections, categories, articles, translations }) {
+  const staffSections = new Set(sections.filter((s) => s.access === 'staff').map((s) => s.id));
+  const categoryIsStaff = (c) => c.access === 'staff' || staffSections.has(c.section);
+  const staffCategories = new Set(categories.filter(categoryIsStaff).map((c) => c.id));
+  const articleIsStaff = (a) => a.access === 'staff' || staffCategories.has(a.category);
+
+  const side = (staff) => {
+    const kept = articles.filter((a) => articleIsStaff(a) === staff);
+    const slugs = new Set(kept.map((a) => a.slug));
+    return {
+      sections: sections.filter((s) => staffSections.has(s.id) === staff),
+      categories: categories.filter((c) => categoryIsStaff(c) === staff),
+      articles: kept,
+      translations: Object.fromEntries(LANGS.map((l) => [
+        l,
+        Object.fromEntries(Object.entries(translations[l]).filter(([slug]) => slugs.has(slug))),
+      ])),
+    };
+  };
+  return { open: side(false), staff: side(true) };
 }
 
 function compileChangelog(file) {
@@ -297,9 +294,7 @@ function loadTaxonomy(file) {
   };
 }
 
-/**
- * @param {{ root?: string, siteUrl?: string }} [options]
- */
+/** @param {{ root?: string, siteUrl?: string }} [options] */
 export default function helpContentPlugin(options = {}) {
   const root = options.root || process.cwd();
   const siteUrl = (options.siteUrl || 'https://draazy.com').replace(/\/$/, '');
@@ -310,52 +305,54 @@ export default function helpContentPlugin(options = {}) {
   let server;
   let outDir = join(root, 'dist');
 
-  const build = () => {
+  const build = (audience) => {
     const { sections, categories } = loadTaxonomy(categoriesFile);
     const { articles, translations } = compileArticles(contentDir);
-    const changelog = compileChangelog(changelogFile);
-    return `export const sections = ${JSON.stringify(sections)};\n`
-      + `export const categories = ${JSON.stringify(categories)};\n`
-      + `export const articles = ${JSON.stringify(articles)};\n`
-      + `export const translations = ${JSON.stringify(translations)};\n`
-      + `export const changelog = ${JSON.stringify(changelog)};\n`;
+    const side = splitByAccess({ sections, categories, articles, translations })[audience];
+    return `export const sections = ${JSON.stringify(side.sections)};\n`
+      + `export const categories = ${JSON.stringify(side.categories)};\n`
+      + `export const articles = ${JSON.stringify(side.articles)};\n`
+      + `export const translations = ${JSON.stringify(side.translations)};\n`
+      + (audience === 'open'
+        ? `export const changelog = ${JSON.stringify(compileChangelog(changelogFile))};\n`
+        : '');
   };
 
   return {
     name: 'vite-plugin-help-content',
     configResolved(config) { outDir = resolve(root, config.build?.outDir || 'dist'); },
     configureServer(s) { server = s; },
-    resolveId(id) { return id === VIRTUAL_ID ? RESOLVED_ID : null; },
-    load(id) { return id === RESOLVED_ID ? build() : null; },
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID;
+      return id === STAFF_VIRTUAL_ID ? STAFF_RESOLVED_ID : null;
+    },
+    load(id) {
+      if (id === RESOLVED_ID) return build('open');
+      return id === STAFF_RESOLVED_ID ? build('staff') : null;
+    },
     /* Editing a doc invalidates the virtual module so the dev server hot-reloads
        the compiled output instead of requiring a restart. */
     handleHotUpdate(ctx) {
       const changed = ctx.file.replace(/\\/g, '/');
       if (!changed.includes('/src/content/')) return;
-      const mod = server?.moduleGraph.getModuleById(RESOLVED_ID);
-      if (mod) {
-        server.moduleGraph.invalidateModule(mod);
-        server.ws.send({ type: 'full-reload' });
+      for (const id of [RESOLVED_ID, STAFF_RESOLVED_ID]) {
+        const mod = server?.moduleGraph.getModuleById(id);
+        if (mod) server.moduleGraph.invalidateModule(mod);
       }
+      server?.ws.send({ type: 'full-reload' });
       return [];
     },
-    /* Help articles are public and worth indexing, and a hand-maintained sitemap
-       would drift the moment anyone adds a doc. Inject the public URLs into the
-       static sitemap after it has been copied to the output directory.
-
-       Each entry carries xhtml:link alternates so a crawler treats the three
-       language URLs as translations rather than duplicates. A language is only
-       listed for an article that genuinely has a translation — advertising
-       /mr/help/a/x when it serves English is a duplicate-content signal, and
-       the opposite of what hreflang is for. */
+    /* Injected after the static sitemap is copied, so a hand-maintained list cannot drift.
+       A language is listed as an alternate only where a translation genuinely exists — advertising
+       /mr/help/a/x when it serves English is a duplicate-content signal. */
     writeBundle() {
       const sitemap = join(outDir, 'sitemap.xml');
       if (!existsSync(sitemap)) return;
 
-      const { categories } = loadTaxonomy(categoriesFile);
+      const { sections, categories } = loadTaxonomy(categoriesFile);
       const { articles, translations } = compileArticles(contentDir);
-      const publicCategories = categories.filter((c) => c.access !== 'staff');
-      const publicCategoryIds = new Set(publicCategories.map((c) => c.id));
+      const open = splitByAccess({ sections, categories, articles, translations }).open;
+      const publicCategoryIds = new Set(open.categories.map((c) => c.id));
       const prefixOf = (lang) => (lang === 'en' ? '' : `/${lang}`);
 
       /** One <url> per language, each listing every language as an alternate. */
@@ -382,13 +379,13 @@ export default function helpContentPlugin(options = {}) {
         ...entriesFor('/help/faq', allLangs, { changefreq: 'weekly', priority: '0.6' }),
         // Release notes stay English-only by design; see HelpChangelog.jsx.
         ...entriesFor('/help/changelog', ['en'], { changefreq: 'weekly', priority: '0.4' }),
-        ...publicCategories.flatMap((c) =>
+        ...open.categories.flatMap((c) =>
           entriesFor(`/help/c/${c.id}`, allLangs, { changefreq: 'weekly', priority: '0.6' })),
-        ...articles
-          .filter((a) => a.access !== 'staff' && publicCategoryIds.has(a.category))
+        ...open.articles
+          .filter((a) => publicCategoryIds.has(a.category))
           .flatMap((a) => entriesFor(
             `/help/a/${a.slug}`,
-            ['en', ...LANGS.filter((l) => translations[l]?.[a.slug])],
+            ['en', ...LANGS.filter((l) => open.translations[l]?.[a.slug])],
             { changefreq: 'monthly', priority: '0.5', lastmod: a.updated },
           )),
       ];

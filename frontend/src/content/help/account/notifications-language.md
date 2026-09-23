@@ -4,7 +4,7 @@ slug: notifications-language
 category: account
 audience: everyone
 order: 2
-updated: 2026-07-25
+updated: 2026-09-22
 summary: Control which alerts you receive, on which channel, and switch the app between English, Hindi and Marathi.
 tags: [notifications, alerts, language, i18n]
 ---
@@ -17,7 +17,7 @@ Draazy can reach you three ways:
 - **SMS** — OTPs and time-critical updates only
 - **Email** — receipts, invoices and digests, if you added an email
 
-Manage all of them under **Dashboard → Settings → Notifications**.
+Manage all of them under **Dashboard → Profile → Notification Preferences**.
 
 ### What you can turn off
 
@@ -35,13 +35,13 @@ Manage all of them under **Dashboard → Settings → Notifications**.
 
 ## Changing language
 
-Draazy is available in **English, हिन्दी and मराठी**. Switch from the globe icon in the top bar, or under **Dashboard → Settings → Language**.
+Draazy is available in **English, हिन्दी and मराठी**. Switch from the globe icon in the top bar, or under **Dashboard → Profile → Language & Appearance**.
 
 Your choice is remembered on that device. Note that listing descriptions are shown in the language the owner wrote them in — we translate the interface, not user-written content.
 
 ## Reduce motion
 
-If animations are uncomfortable, enable **Dashboard → Settings → Reduce motion**. This respects your operating system setting by default.
+If animations are uncomfortable, enable **Dashboard → Profile → Language & Appearance → Reduce motion**. This respects your operating system setting by default.
 
 ## Related
 

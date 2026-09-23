@@ -5,7 +5,7 @@ category: search-visits
 audience: tenant
 order: 1
 featured: true
-updated: 2026-07-29
+updated: 2026-09-22
 summary: The filters that actually narrow a Pune search, and the order to apply them in.
 tags: [search, filters, listings]
 ---
@@ -36,13 +36,18 @@ Furnishing, parking, pet-friendly, vegetarian-only, gated society, lift, power b
 ## Filters worth knowing about
 
 - **Available from** — hides properties that free up after your move-in date
-- **Posted by owner** — already the default; every Draazy listing is owner-posted
-- **Verified only** — restricts to listings that passed [verification](/help/a/how-we-verify)
-- **Freshness** — surfaces listings confirmed available in the last 7 days
+- **Posted by owner** — most Draazy listings are posted by the owner themselves, but a small number are added for agents and builders by our concierge team. This filter restricts to the owner-posted ones.
+- **Verified only** — restricts to listings carrying at least one [verification badge](/help/a/how-we-verify)
+- **Freshness** — surfaces listings the owner has confirmed available recently
+
+> [!NOTE]
+> Draazy charges you nothing either way. What changes on an agent's or builder's listing is the *"deal direct with the owner"* half of the promise — so we drop that line rather than pretend.
 
 ## Sorting
 
-Default sort is relevance, which blends freshness, verification and completeness. Switch to **Newest** while actively hunting — in a hot locality, being early matters more than being precise.
+The default **Relevance** sort scores each listing on featured placement, verification badges, MahaRERA registration, freshness and completeness, in that order of weight. Featured placement is the only paid term and it outranks the rest.
+
+Pick any other order — **Newest**, price low-to-high, price high-to-low — and the whole score is switched off, featured placement included. A sort you choose is the sort you get. Switch to **Newest** while actively hunting; in a hot locality, being early matters more than being precise.
 
 ## Related
 

@@ -5,7 +5,14 @@
     <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real values on
          notched / gesture-bar devices. Without it every safe-area rule in the app is a no-op
          and fixed bottom bars sit under the home indicator. Desktop is unaffected (insets are 0). -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content makes Android Chrome's software keyboard shrink the
+         layout viewport, the way iOS already does. Without it a fixed bottom action bar — the
+         filter drawer's "Show N results" — stays behind the keyboard and cannot be reached. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- The app has no light theme. Declaring it keeps UA chrome — scrollbars, <select> popups,
+         date pickers, autofill dropdowns — from rendering light on a #0f0d1a page. Paired with
+         `color-scheme: dark` on html so it applies before the stylesheet lands. -->
+    <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0f0d1a" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Content-Security-Policy: restricts scripts to self + the Google Maps SDK so an

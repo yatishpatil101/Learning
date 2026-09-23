@@ -1,6 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
+  /* Compiles every `hover:` utility inside `@media (hover: hover)`. Without it a touch browser
+     applies the hover state on tap and leaves it there until the next tap elsewhere — so a card
+     tapped on a phone stays lifted and glowing. Default in Tailwind v4; opt-in on v3. */
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {

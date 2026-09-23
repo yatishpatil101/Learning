@@ -5,18 +5,23 @@ category: search-visits
 audience: tenant
 order: 4
 featured: true
-updated: 2026-07-29
-summary: How to book a visit, what to check when you are there, and what to do if the owner does not turn up.
-tags: [visit, viewing, checklist]
+updated: 2026-09-22
+summary: How to book an in-person or video visit, what to check when you are there, and what to do if the owner does not turn up.
+tags: [visit, viewing, checklist, video]
 ---
 
 ## Booking
 
-From any property page, tap **Schedule visit**, pick a date and a time slot, and confirm. The owner is notified immediately and confirms or proposes an alternative.
+From any property page, tap **Schedule visit**. Pick **in person** or **video walkthrough**, choose a date and one of the day's slots — 9:00 AM through 7:00 PM — and confirm. You need to be signed in. Dates are forward-only; you cannot book yesterday.
 
-You will get a reminder the evening before and an hour ahead. Manage all bookings under **Dashboard → Visits**.
+The owner is notified and has to confirm the slot. Until they do, your visit reads **Awaiting confirmation**. Track everything under **Dashboard → Visits**.
 
-You can hold up to **three** unconfirmed visits at a time. Cancel the ones you no longer want — no-shows affect how owners treat later requests from your account.
+There is no limit on how many visits you can hold, but you can only have **one live request per property** — booking the same listing again edits the request you already sent rather than adding a second one.
+
+If the owner reschedules, the visit goes back to awaiting confirmation so both sides re-agree on the new slot. Cancel anything you no longer want; owners see your history.
+
+> [!NOTE]
+> A visit the owner marks as completed is what unlocks your **Visited** review on that listing. Reviews are gated on a visit the owner confirmed actually happened, which is why a booked-but-unconfirmed visit does not unlock one.
 
 ## Before you travel
 
@@ -55,7 +60,7 @@ You can hold up to **three** unconfirmed visits at a time. Cancel the ones you n
 
 ## If the owner does not show up
 
-Report the no-show from the visit card in your dashboard. Repeated no-shows lead to the listing being suspended, and you get priority support to find alternatives in the same locality.
+Raise it with [Support](/support) with the listing and the slot. Our team marks the visit as a no-show — it is not something either side can record against the other unilaterally — and repeated no-shows count against the listing.
 
 ## Related
 

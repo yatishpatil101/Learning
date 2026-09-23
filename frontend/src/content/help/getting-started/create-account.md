@@ -4,7 +4,7 @@ slug: create-account
 category: getting-started
 audience: everyone
 order: 3
-updated: 2026-07-28
+updated: 2026-09-22
 summary: Sign up with your mobile number, verify it, and choose whether you are here to rent, buy or list.
 tags: [signup, otp, account]
 ---
@@ -19,6 +19,10 @@ You can browse Draazy without an account. You need one to contact owners, save p
 4. Add your name and, optionally, an email for receipts and alerts.
 5. Pick your intent — *Rent*, *Buy* or *List a property*. This only shapes what we show you first; you can do all three from one account.
 
+### If the code does not work
+
+A code is valid for **5 minutes** and you get **3 guesses**. The form counts down as you use them — after a wrong code it tells you how many are left, and the last one disables the form until you ask for a new code. Switching to your SMS app and back is fine; the countdown runs against the clock, not against the time the tab was in front.
+
 ### Not receiving the OTP?
 
 - Wait for the resend countdown to finish before requesting another code — the button is disabled for exactly as long as we will refuse a second code, and repeated requests can rate-limit your number.
@@ -26,11 +30,13 @@ You can browse Draazy without an account. You need one to contact owners, save p
 - If it still fails after two attempts, contact [Support](/support) with your number and the approximate time you tried.
 
 > [!TIP]
-> Use the same number you will answer calls on. Owners see the number you signed up with when you enquire, and a mismatch is the single most common reason enquiries go cold.
+> Use the same number you will answer calls on. It is the number an owner sees once they approve your contact request, and a number you do not pick up is the single most common reason enquiries go cold.
 
 ## Signing in later
 
-Sign-in uses the same OTP flow — there is no password to forget. Sessions persist on the device you signed in from until you sign out.
+Sign-in uses the same OTP flow — there is no password to forget. Tick **Remember me** and the session survives closing the browser on that device; leave it unticked and it lasts only for that tab.
+
+Your number is your login, so it cannot be changed from the app. If you need to move an account to a new number, raise a [Support](/support) ticket with ID proof.
 
 ## Staff and internal accounts
 

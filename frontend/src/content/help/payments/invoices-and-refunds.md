@@ -4,16 +4,17 @@ slug: invoices-and-refunds
 category: payments
 audience: everyone
 order: 2
-updated: 2026-07-24
+updated: 2026-09-22
 summary: Where to find your invoices, what is refundable, and how long a refund takes.
 tags: [invoice, refund, gst, billing, receipt]
 ---
 
 ## Finding your invoices
 
-All invoices are under **Dashboard → Billing**. Each one is downloadable as a PDF and includes GST details. If you added an email, a copy is sent automatically.
+Your payment history is under **Dashboard → Plan & Billing**, alongside the plan you are currently on. Each row carries the invoice number, what it was for, the amount and the date — that invoice number is what Support needs if you ever query a charge.
 
-Need a GSTIN on the invoice? Add it under **Dashboard → Billing → Tax details** *before* you pay — we cannot re-issue a tax invoice with a GSTIN added afterwards.
+> [!NOTE]
+> Downloadable PDF invoices and adding a GSTIN to an invoice are not live yet. If you need a tax invoice with a GSTIN on it, raise a ticket at [Support](/support) **before** you pay — we cannot re-issue one with a GSTIN added afterwards.
 
 ## Payment methods
 
@@ -43,17 +44,17 @@ The binding terms are in the [Refund Policy](/refund-policy). In summary:
 
 ## Requesting a refund
 
-Raise a ticket at [Support](/support), category **Payments**, with the invoice number. Attach a screenshot if the charge does not appear in your billing history.
+Raise a ticket at [Support](/support), category **Payment**, with the invoice number. Attach a screenshot if the charge does not appear in your billing history.
 
 ## A charge you do not recognise
 
-Check the billing page first — the descriptor on your statement may differ from the product name. If it is genuinely unknown, raise a ticket immediately with the amount, date and last four digits of the card; do not wait.
+Check **Dashboard → Plan & Billing** first — the descriptor on your statement may differ from the product name. If it is genuinely unknown, raise a ticket immediately with the amount, date and last four digits of the card; do not wait.
 
 ## Rent receipts
 
 Rent does not move through Draazy, so there are no rent receipts to issue. Record what you pay
-under **Dashboard → Rent Wallet** and it works out your yearly total and HRA exemption for you. See
-[Paying rent online](/help/a/paying-rent-online).
+under **Dashboard → Finances** — your Rent Wallet — and it works out your yearly total and HRA
+exemption for you. See [Paying rent online](/help/a/paying-rent-online).
 
 ## Related
 

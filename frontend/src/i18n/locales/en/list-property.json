@@ -134,11 +134,13 @@
       "flatType": "Flat Type *",
       "roomOffered": "Room Offered *",
       "washroomForRoom": "Washroom for this room",
+      "occupantsNow": "Who lives here already",
+      "maxOccupants": "People the flat can hold",
       "lookingFor": "Looking for",
       "foodPreference": "Food Preference",
       "lifestyle": "Lifestyle",
       "shortNote": "A short note",
-      "roomPhotos": "Room Photos *",
+      "roomPhotos": "Room Photos",
       "locality": "Locality *",
       "societyBuilding": "Society / Building *",
       "houseBuildingName": "House / Building Name *",
@@ -187,6 +189,7 @@
       "sale": "Sale",
       "rent": "Rent",
       "none": "None",
+      "nobodyYet": "Nobody yet",
       "yes": "Yes",
       "no": "No",
       "unfurnished": "Unfurnished",
@@ -429,7 +432,7 @@
       "submitting": "Posting…"
     },
     "flatmate": {
-      "photosHint": "Add photos of the whole flat/home — the offered room, plus shared spaces like the living room, kitchen and balcony. Listings with photos get far more replies.",
+      "photosHint": "Add photos of the whole flat/home — the offered room, plus shared spaces like the living room, kitchen and balcony. You can post without them and add them later, but a room with no photos waits for our team to check it before it reaches the board.",
       "postFind": "Post & Find Flatmates"
     },
     "areaSearch": {

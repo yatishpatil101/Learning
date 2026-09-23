@@ -63,6 +63,20 @@
   # rails need frame-src and form-action too. Both pairs listed: one artefact serves both envs.
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' blob: https://sandbox.cashfree.com https://api.cashfree.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'
 
+# Vite's build output, content-addressed: the hash in the filename IS the bytes, so a URL can never
+# point at different content and a revalidation can only ever answer 304. `immutable` is what tells
+# the browser not to ask — without it a returning visitor pays a conditional request per chunk
+# before first paint, on exactly the connection this app is built for.
+#
+# Stated here rather than left to the Pages default, because the default is the thing that changes
+# under us. It also keeps the HTTP cache in step with the service worker, whose CacheFirst rule for
+# the same paths already treats them as immutable (frontend/vite.config.js).
+#
+# Safe only while every file here is hashed. `globIgnores: ['**/floorplans/**']` in the PWA config
+# is a reminder that unhashed assets do exist in dist — they live under /floorplans, not /assets.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # Self-hosted fonts. Content-addressed by weight+subset and only ever replaced by re-running
 # scripts/fetch-fonts.mjs, so a year-long immutable cache is safe — and it is the whole point of
 # self-hosting: a repeat visitor pays nothing for type.

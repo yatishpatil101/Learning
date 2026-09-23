@@ -5,12 +5,14 @@ category: listing
 audience: owner
 order: 1
 featured: true
-updated: 2026-07-26
+updated: 2026-09-22
 summary: A step-by-step walk through listing a property, and the fields that decide whether anyone enquires.
 tags: [listing, owner, posting, verification]
 ---
 
 Posting is free and takes about ten minutes if you have your photos ready.
+
+A free account carries **one active listing**. Paid plans raise that — see [Plans explained](/help/a/plans-explained). Editing a listing you already have never costs a slot, and a listing you take down frees its slot immediately.
 
 ## Before you start
 
@@ -18,28 +20,33 @@ Have these to hand:
 
 - Photos of every room, plus the building exterior
 - Carpet area (not built-up — tenants filter on carpet)
-- Floor number and total floors
-- Society or building name
+- Flat number, floor number and total floors
+- Society or building name, and the pincode
 - Availability date
 - Rent, deposit and maintenance figures
 
 ## The steps
 
-1. Open [List your property](/list-property).
-2. **Type** — rent or sale, and the property type.
-3. **Location** — pick the society from our Pune/PCMC dataset if it is there. This auto-fills the locality, commute data and amenities, and helps your listing rank.
-4. **Details** — configuration, carpet area, floor, age, furnishing, facing.
-5. **Pricing** — rent, deposit, maintenance, and whether it is negotiable.
-6. **Photos** — see [Photos that get enquiries](/help/a/photos-that-convert).
-7. **Description** — what you would want to know as a tenant.
-8. **Availability & preferences** — move-in date, and any genuine restrictions.
-9. **Review and publish.**
+The wizard is three steps.
 
-Your listing goes into review and is usually live within a few hours.
+**Step 1 — Property details.** Whether it is to rent or to sell, and the property type: flat, independent house, villa, commercial, open plot or farmland. Commercial asks which kind. Residential asks for BHK and bathrooms. **Carpet area is required for every listing** — it is the one number every search depends on.
+
+If it is a rental of a residential property, you also choose here whether you are letting the **whole place** or looking for a **flatmate**. The flatmate route is a different flow — see [Finding flatmates](/help/a/finding-flatmates).
+
+**Step 2 — Location and pricing.** Locality, society, flat number and pincode, and you must **place the property on the map** — a listing is never left on a default pin. Pick the society from our Pune and PCMC dataset if it is there; that fills in the locality, commute data and amenities for you.
+
+For a rental: monthly rent, deposit and the available-from date. For a sale: price, possession and ownership type.
+
+**Step 3 — Photos and documents.** Between **one and ten photos**, as JPEG, PNG or HEIC. Large photos are compressed for you, so upload straight off the phone. Ownership documents are optional here but are what earns the badge — PDFs are accepted as well as images.
+
+Then review and publish. Your listing goes into review and is usually live within a few hours.
+
+> [!NOTE]
+> The wizard saves your progress as you go, so closing the tab does not lose the form.
 
 ## Getting the verified badge
 
-Verification is what makes tenants trust the listing enough to call. To get it:
+Verification is what makes tenants trust the listing enough to call — it is not required to post. To earn it:
 
 - Complete ID verification on your account
 - Upload an ownership document — index II, tax receipt or society NOC
@@ -64,4 +71,5 @@ See [How we verify owners and listings](/help/a/how-we-verify).
 
 - [Photos that get enquiries](/help/a/photos-that-convert)
 - [Pricing your property](/help/a/price-your-property)
-- [Managing enquiries](/help/a/managing-leads)
+- [Managing requests](/help/a/managing-leads)
+- [Keeping a listing fresh](/help/a/listing-freshness)

@@ -1,13 +1,18 @@
 /* Listings route styles (Tier 1), loaded with the /listings chunk. Anything shared with
    /flatmates (DualRange, checkbox marks, .fg-*, .page-btn) lives in routes/filters.css. */
 
-.card-hover:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
-}
+/* This is the half of the property-card hover block that was split out of index.css, and it
+   carries the same gate: touch fakes a hover on first tap and holds it until the next tap
+   elsewhere, which would leave a tapped result card raised for the rest of the session. */
+@media (hover: hover) {
+  .card-hover:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+  }
 
-.card-hover:hover .card-img {
-  transform: scale(1.08);
+  .card-hover:hover .card-img {
+    transform: scale(1.08);
+  }
 }
 
 /* Base .card-img { transition } is SHARED with property SimilarProperties.jsx -> kept global in index.css. */

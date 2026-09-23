@@ -14,13 +14,12 @@ What we shipped, newest first.
 
 **Search**
 
-- Commute-time filter now supports two-wheeler and public transport modes.
-- Map view remembers your last drawn area within a session.
+- Near a place: search around any landmark by distance or by travel time.
+- Map view on the listings board.
 
 **Owners**
 
-- Listing freshness reminders now arrive as push, not only email.
-- Enquiry reply templates.
+- Listing freshness prompts from your dashboard.
 
 **Fixes**
 

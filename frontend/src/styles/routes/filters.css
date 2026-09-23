@@ -236,6 +236,14 @@
   user-select: none;
 }
 
+/* The header is the only way to collapse a section, and its content — a 16px icon beside 14px
+   text — leaves a line box barely 20px tall, well under a fingertip. */
+@media (pointer: coarse) {
+  .fg-header {
+    min-height: 44px;
+  }
+}
+
 .fg-summary {
   margin-left: auto;
   font-size: 11px;
