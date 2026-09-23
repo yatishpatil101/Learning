@@ -8,17 +8,8 @@ import java.time.LocalDate;
 import java.util.UUID;
 import lombok.Getter;
 
-/**
- * A Leave &amp; License agreement record. Maps {@code rent_agreements} (V6).
- *
- * <p><strong>{@code tenantMobile} is text, not a user id</strong>, and V6 says why: at draft time
- * the tenant may not have a Draazy account at all — the owner types the number they were given.
- * It resolves to a user when the agreement activates.
- *
- * <p>{@code status} and {@code documentUrl} are server/ops-owned. The wizard creates a
- * {@code draft}; everything after that — e-sign, registration, the final registered copy — is the
- * ops workflow's to write, and lands with {@code /service-requests} rather than here.
- */
+/** Maps {@code rent_agreements} (V6). {@code tenantMobile} is text, not a user id, because at draft
+ * time the tenant may have no Draazy account; {@code status} is ops-owned, written only by {@link #moveTo}. */
 @Entity
 @Table(name = "rent_agreements")
 @Getter
@@ -67,4 +58,12 @@ public class RentAgreement extends AuditedEntity {
         this.durationMonths = durationMonths;
     }
 
+    /** No plain {@code setStatus}: readers treat the field as evidence, so the only writer is a move
+     * the ladder allowed. A null {@code documentUrl} leaves the stored copy alone rather than erasing it. */
+    void moveTo(String next, String documentUrl) {
+        this.status = next;
+        if (documentUrl != null && !documentUrl.isBlank()) {
+            this.documentUrl = documentUrl;
+        }
+    }
 }

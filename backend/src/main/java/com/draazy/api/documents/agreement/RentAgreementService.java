@@ -2,62 +2,39 @@ package com.draazy.api.documents.agreement;
 
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
+import com.draazy.api.security.AuthPrincipal;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The owner's Leave &amp; License agreement records.
- *
- * <p><strong>Deliberately thin, and worth saying why.</strong> The rent-agreement <em>wizard</em>
- * is a maker-checker workflow with statutory cost maths (Maharashtra Article 36A stamp duty),
- * co-fill invites and an ops queue — all of which the contract puts under
- * {@code /service-requests}, not here. These two operations are the durable record the workflow
- * produces and the owner's list of it. Implementing the cost calculation here, ahead of the
- * endpoints that expose it, would give us a second place for the money maths to live and drift.
- *
- * <p><strong>No KYC gate on a draft, on purpose.</strong> The flow doc calls rent agreements the
- * L3 "deal-verified" step where hard KYC legitimately applies — but the wizard <em>collects</em>
- * owner KYC as one of its steps, so requiring verified KYC to create the draft would lock the door
- * from the inside. The gate belongs on the transition out of {@code draft} (e-sign / registration),
- * which lands with the service workflow.
- */
+/** Deliberately thin: the rent-agreement wizard (stamp-duty maths, co-fill, ops queue) lives under
+ * {@code /service-requests}. KYC is gated on the transition out of {@code draft}, not on creation. */
 @Service
 public class RentAgreementService {
 
     private final RentAgreementRepository agreements;
     private final PropertyRepository properties;
     private final UserRepository users;
+    private final AuditService audit;
 
     public RentAgreementService(RentAgreementRepository agreements, PropertyRepository properties,
-            UserRepository users) {
+            UserRepository users, AuditService audit) {
         this.agreements = agreements;
         this.properties = properties;
         this.users = users;
+        this.audit = audit;
     }
 
-    /**
-     * Contract {@code myRentAgreements} — every agreement the caller is a <em>party</em> to,
-     * newest first: the ones they filed as landlord, and the ones filed against them as tenant.
-     *
-     * <p>Both sides come back from one call because an agreement is one document with two
-     * signatories, and the pages that read it — the tenant's rental hub and the owner's document
-     * vault — already scope what they show by property. Splitting the two sides into two routes
-     * would make the vault, which renders an owner pack and a tenancy pack side by side, issue two
-     * requests to rebuild a list the server can produce in one; and a landlord who rents their own
-     * home elsewhere is a single person whose "my agreements" plainly means both.
-     *
-     * <p>The tenant side matches on mobile rather than user id because that is the only identifier
-     * the record carries for them — an owner may file an agreement before the tenant has an
-     * account at all. A caller with no mobile on file therefore sees only their owner side, which
-     * is the correct answer rather than a degraded one.
-     */
+    /** Both sides in one call — one document, two signatories. The tenant side matches on mobile
+     * because that is the only identifier the record carries for them. */
     @Transactional(readOnly = true)
     public List<RentAgreementDto> mine(UUID ownerId) {
         String mobile = users.findById(ownerId)
@@ -70,15 +47,8 @@ public class RentAgreementService {
                 .toList();
     }
 
-    /**
-     * Contract {@code createRentAgreement} — record a new draft against one of the caller's
-     * listings.
-     *
-     * <p>The owner comes from the JWT and the property must already be theirs, so an agreement can
-     * never be filed against someone else's flat — a 404, never a 403.
-     *
-     * @throws NotFoundException when the listing is unknown or not the caller's
-     */
+    /** The property must already be the caller's, so an agreement can never be filed against someone
+     * else's flat — a 404, never a 403. */
     @Transactional
     public RentAgreementDto create(UUID ownerId, RentAgreementCreate body) {
         UUID propertyId = Ids.parseUuid(body.propertyId())
@@ -91,5 +61,50 @@ public class RentAgreementService {
         return RentAgreementDto.of(agreements.saveAndFlush(new RentAgreement(propertyId, ownerId,
                 MobileMask.normalise(body.tenantMobile()), body.rent(), body.deposit(),
                 body.startDate(), body.durationMonths())));
+    }
+
+    /** The only writer of {@code status}: {@code FlatmateTrustReconciler} badges hosts against rows
+     * this method moved off {@code draft}. Out-of-order moves are 422 — only the stored row knows. */
+    @Transactional
+    public RentAgreementDto transition(AuthPrincipal caller, UUID id, String status,
+            String documentUrl) {
+        String next = status == null ? "" : status.strip();
+        if (!RentAgreementStatuses.isKnown(next)) {
+            throw new ValidationException("Not a rent-agreement status. One of: "
+                    + String.join(", ", RentAgreementStatuses.ALL) + ".");
+        }
+
+        RentAgreement agreement = agreements.findById(id)
+                .orElseThrow(() -> NotFoundException.of("Rent agreement"));
+        String from = agreement.getStatus();
+        if (!RentAgreementStatuses.canMove(from, next)) {
+            List<String> legal = RentAgreementStatuses.nextFrom(from);
+            throw new ValidationException(legal.isEmpty()
+                    ? "This agreement is " + from + " and nothing follows it \u2014 a new tenancy is"
+                            + " a new agreement."
+                    : "An agreement that is " + from + " can only become "
+                            + String.join(" or ", legal) + ".");
+        }
+
+        String scan = documentUrl == null ? null : documentUrl.strip();
+        if (scan != null && !scan.isEmpty() && !scan.startsWith("https://")) {
+            // Handed straight back to both parties as the link to their own tenancy: a javascript:
+            // or data: URL runs in a session that has every reason to trust it.
+            throw new ValidationException(
+                    "The agreement document has to be an https:// link to the stored scan.");
+        }
+
+        agreement.moveTo(next, scan);
+        agreements.saveAndFlush(agreement);
+        // The URL is the evidence the status is claiming, so an audit row without it records that
+        // somebody said "registered" and not what they said it on.
+        if (scan != null && !scan.isEmpty()) {
+            audit.record(caller, "rentAgreement.status", "rentAgreement",
+                    agreement.getId().toString(), "from", from, "to", next, "documentUrl", scan);
+        } else {
+            audit.record(caller, "rentAgreement.status", "rentAgreement",
+                    agreement.getId().toString(), "from", from, "to", next);
+        }
+        return RentAgreementDto.of(agreement);
     }
 }

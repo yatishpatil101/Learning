@@ -17,10 +17,8 @@ import com.draazy.api.security.AuthPrincipal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Posting a listing on an owner's behalf — the server behind the back-office "Post on Behalf" desk.
- * Attribution is the whole feature, which is why it is a separate route rather than a flag.
- */
+/** Posting a listing on an owner's behalf. Attribution is the whole feature, which is why it is a
+ * separate route rather than a flag. */
 @Service
 public class OnBehalfListingService {
 
@@ -42,10 +40,8 @@ public class OnBehalfListingService {
         this.audit = audit;
     }
 
-    /**
-     * Resolve or provision the owner, then create the listing under their name. Two audit rows, since
-     * "operator X created a listing owned by Y" is a statement neither row makes on its own.
-     */
+    /** Two audit rows, since "operator X created a listing owned by Y" is a statement neither row
+     * makes on its own. */
     @Transactional
     public Property create(AuthPrincipal caller, OnBehalfListingRequest body) {
         User owner = users.findByMobile(body.ownerMobile()).orElse(null);
@@ -56,7 +52,7 @@ public class OnBehalfListingService {
                     "mobile", body.ownerMobile());
         }
 
-        Property created = listings.createOnBehalf(owner.getId(), body.listing());
+        Property created = listings.createOnBehalf(owner.getId(), body.listing(), body.postedByType());
         // The one creation path producing a listing its owner has never seen, so the only one that
         // owes anybody a hand-over.
         created.markPostedOnBehalf(caller.userId().toString());
@@ -68,10 +64,8 @@ public class OnBehalfListingService {
         return created;
     }
 
-    /**
-     * {@code GET /admin/properties/owner-standing} — the desk is exempt from the ceiling, not blind
-     * to it, so the numbers are published and the upgrade conversation is left with the operator.
-     */
+    /** The desk is exempt from the ceiling, not blind to it, so the numbers are published and the
+     * upgrade conversation is left with the operator. */
     @Transactional(readOnly = true)
     public OwnerListingStanding standingFor(String mobile) {
         String digits = mobile == null ? "" : mobile.replaceAll("\\D", "");
@@ -92,10 +86,8 @@ public class OnBehalfListingService {
             boolean overAllowance) {
     }
 
-    /**
-     * {@code POST /properties/{id}/pipeline} — move a staff-created listing along either funnel. The
-     * vocabularies are disjoint, so the value alone says which column is meant.
-     */
+    /** Moves a staff-created listing along either funnel; the vocabularies are disjoint, so the
+     * value alone says which column is meant. */
     @Transactional
     public Property advance(AuthPrincipal caller, String propertyId, String stage) {
         if (!PipelineStage.isKnown(stage)) {

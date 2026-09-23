@@ -1,18 +1,19 @@
-# Starts the backend on :8081 under the local,e2e profiles - the thing every live
-# Playwright run needs, and which e2e/playwright.config.js currently asks a
-# human to assemble by hand from a docblock.
+# Starts the backend on :8081 (or -Port) under the local,e2e profiles - what every
+# live Playwright run needs.
 #
 # WHY THIS EXISTS. A live suite run against a stale JVM does not fail loudly; it
-# fails as a scatter of assertion errors that read exactly like code defects. It
-# has cost this branch two sessions - most recently one where the whole
-# consumer/property wave was reported as broken, when the tree was correct and
-# the process on :8081 had simply booted two hours before the last edit. One
+# fails as a scatter of assertion errors that read exactly like code defects. One
 # command to restart is the cheapest guard against reading that as a bug.
 #
 # Sibling of run-local.ps1, which covers the local profile on :8080.
 #
 # Pure ASCII on purpose: PowerShell 5.1 parses a BOM-less UTF-8 .ps1 as cp1252,
 # and an em-dash in a double-quoted string terminates it early.
+#
+# -Port must match API_PORT on the Playwright side (e2e/playwright.config.js and
+# helpers/liveAuth.js both default to 8081); moving one without the other points
+# the suite at whatever else happens to be listening.
+param([int]$Port = 8081)
 $ErrorActionPreference = 'Stop'
 # $MyInvocation rather than a relative path: the caller's location is not ours,
 # and .env.local below must resolve against the backend directory.
@@ -37,10 +38,10 @@ if (Test-Path $envFile) {
     }
 }
 
-$log = Join-Path $env:TEMP 'be8081.log'
+$log = Join-Path $env:TEMP "be$Port.log"
 if (Test-Path $log) { Remove-Item $log -Force }
 # Profile order matters: local binds the mock OTP sender, e2e points the datasource
 # at draazy_e2e and fixes the OTP. Listing e2e last is what makes its
 # datasource win. buildDirName keeps this off whatever lane a concurrent build
 # is using.
-cmd /c ".\mvnw.cmd -o -DbuildDirName=target-verify spring-boot:run -Dspring-boot.run.profiles=local,e2e ""-Dspring-boot.run.arguments=--server.port=8081"" > ""$log"" 2>&1"
+cmd /c ".\mvnw.cmd -o -DbuildDirName=target-verify spring-boot:run -Dspring-boot.run.profiles=local,e2e ""-Dspring-boot.run.arguments=--server.port=$Port"" > ""$log"" 2>&1"

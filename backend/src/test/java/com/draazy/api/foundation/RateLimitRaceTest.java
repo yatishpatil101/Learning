@@ -13,20 +13,20 @@ import com.draazy.api.leads.society.SocietyLeadService;
 import com.draazy.api.provider.OtpSender;
 import com.draazy.api.support.Races;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Cannot be {@code @Transactional}: the bug is that one writer's *committed* row is missed by
- * another's count, which a rolling-back harness cannot express. {@link #cleanUp()} is load-bearing.
- */
+// Cannot be @Transactional: the bug is that one writer's *committed* row is missed by another's
+// count, which a rolling-back harness cannot express. cleanUp() is load-bearing.
 @SpringBootTest
 @DisplayName("Rate limits under concurrency — real threads, real commits (D73)")
 class RateLimitRaceTest {
@@ -34,6 +34,10 @@ class RateLimitRaceTest {
     /** These rows genuinely commit, so a mobile shared with another test becomes its fixture. */
     private static final String LEAD_MOBILE = "9876000073";
     private static final String OTP_MOBILE = "9876000173";
+    private static final String CALLER_MOBILE = "9876000273";
+
+    /** Outside {@link #CALLER_MOBILE}'s own value, so the caller never appears in its own count. */
+    private static final String RECIPIENT_PREFIX = "987600037";
 
     /** {@code SocietyLeadService.MAX_SUBMISSIONS}, which is private and deliberately not exposed. */
     private static final int LEAD_CAP = 3;
@@ -42,7 +46,7 @@ class RateLimitRaceTest {
     @Autowired OtpCodeRepository otpCodes;
     @Autowired OtpSender otpSender;
     @Autowired RateLimitLock locks;
-    @Autowired org.springframework.core.env.Environment environment;
+    @Autowired Environment environment;
     @Autowired PlatformTransactionManager txManager;
     @Autowired JdbcTemplate jdbc;
 
@@ -58,6 +62,10 @@ class RateLimitRaceTest {
     void cleanUp() {
         jdbc.update("delete from society_leads where mobile = ?", LEAD_MOBILE);
         jdbc.update("delete from otp_codes where mobile = ?", OTP_MOBILE);
+        // Before the user: these rows charge their sends to it, and that reference is
+        // ON DELETE RESTRICT, so the other order is an FK violation rather than a silent null.
+        jdbc.update("delete from otp_codes where mobile like ?", RECIPIENT_PREFIX + "%");
+        jdbc.update("delete from users where mobile = ?", CALLER_MOBILE);
     }
 
     private static SocietyLeadCreateRequest lead() {
@@ -66,9 +74,12 @@ class RateLimitRaceTest {
     }
 
     private long leadRows() {
-        Long n = jdbc.queryForObject(
-                "select count(*) from society_leads where mobile = ?", Long.class, LEAD_MOBILE);
-        return n == null ? 0 : n;
+        return count("select count(*) from society_leads where mobile = ?", LEAD_MOBILE);
+    }
+
+    private long count(String sql, String argument) {
+        Long rows = jdbc.queryForObject(sql, Long.class, argument);
+        return rows == null ? 0 : rows;
     }
 
     private static long refusals(List<Throwable> outcomes) {
@@ -101,25 +112,24 @@ class RateLimitRaceTest {
                 .isEqualTo(LEAD_CAP);
     }
 
-    /**
-     * Hand-built with a cap of two so the race is reachable, and driven by a
-     * {@link TransactionTemplate} because an unproxied bean gets no transaction for the lock.
-     */
+    // Hand-built with a cap of two so the race is reachable, and driven by a TransactionTemplate
+    // because an unproxied bean gets no transaction for the lock.
     @Test
     @DisplayName("three simultaneous OTP sends to one number spend one slot, not three")
     void otpSendsCannotOverspendTheWindowBudget() {
         // The platform ceiling stays wide: a second limit tight enough to fire would refuse the
-        // racers for the wrong reason and prove nothing about the lock.
+        // racers for the wrong reason. This races on `login`, exempt from the other two quotas.
         OtpService tightBudget = new OtpService(otpCodes, otpSender,
-                new OtpSendBudget(otpCodes, locks, 0, 2, 500), environment, "", "",
-                3);
+                new OtpSendBudget(otpCodes, locks, 0, 2, 500, 500, 500),
+                environment, "", "", 3);
 
-        tx.executeWithoutResult(status -> tightBudget.sendCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN));
+        tx.executeWithoutResult(status ->
+                tightBudget.sendSelfServiceCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN));
         assertThat(otpRows()).isEqualTo(1);
 
         List<Throwable> outcomes = Races.run(3, index ->
                 tx.executeWithoutResult(status ->
-                        tightBudget.sendCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN)));
+                        tightBudget.sendSelfServiceCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN)));
 
         assertThat(refusals(outcomes))
                 .as("two of the three racers must be refused")
@@ -131,8 +141,38 @@ class RateLimitRaceTest {
     }
 
     private long otpRows() {
-        Long n = jdbc.queryForObject(
-                "select count(*) from otp_codes where mobile = ?", Long.class, OTP_MOBILE);
-        return n == null ? 0 : n;
+        return count("select count(*) from otp_codes where mobile = ?", OTP_MOBILE);
+    }
+
+    // Budgets are left wide so a refusal can only be the lock, and each racer names a different
+    // recipient and flat so no other key serialises them — the count depends on real overlap.
+    @Test
+    @DisplayName("one account's three simultaneous consent sends buy one code, not three")
+    void oneCallerCannotSendConcurrentlyToThreeDifferentFlats() {
+        UUID caller = jdbc.queryForObject(
+                "insert into users (mobile) values (?) returning id", UUID.class, CALLER_MOBILE);
+        OtpService wideBudget = new OtpService(otpCodes, otpSender,
+                new OtpSendBudget(otpCodes, locks, 0, 500, 500, 500, 500),
+                environment, "", "", 3);
+
+        List<Throwable> outcomes = Races.run(3, index ->
+                tx.executeWithoutResult(status -> wideBudget.sendCode(recipient(index),
+                        OtpCode.PURPOSE_OWNER_CONSENT + ":flat" + index, caller)));
+
+        assertThat(refusals(outcomes))
+                .as("two of the three racers must be refused")
+                .isEqualTo(2);
+        assertThat(callerRows())
+                .as("naming a fresh number and a fresh flat must not buy a fresh slot — that is the "
+                        + "whole of the per-caller quota")
+                .isEqualTo(1);
+    }
+
+    private static String recipient(int index) {
+        return RECIPIENT_PREFIX + index;
+    }
+
+    private long callerRows() {
+        return count("select count(*) from otp_codes where mobile like ?", RECIPIENT_PREFIX + "%");
     }
 }

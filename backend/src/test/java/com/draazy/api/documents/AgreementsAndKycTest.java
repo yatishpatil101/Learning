@@ -1,7 +1,9 @@
 package com.draazy.api.documents;
 
 import com.draazy.api.support.AbstractApiTest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,28 +12,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.documents.agreement.RentAgreementRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
+import com.draazy.api.security.Roles;
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The paperwork records: rent agreements ({@code /me/rent-agreements}) and owner KYC
- * ({@code /me/owner-kyc}).
- *
- * <p>Both are small surfaces whose whole value is in what they refuse: an agreement cannot be filed
- * against a stranger's flat or claim its own status, and KYC never stores or echoes a raw PAN or
- * Aadhaar and never lets the client certify itself.
- */
+/** The status is the desk's to set, one rung at a time, because another slice reads it as proof —
+ *  see {@code RentAgreementStatuses}. */
 class AgreementsAndKycTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    RentAgreementRepository agreements;
 
     private User user(String mobile) {
         User u = new User(mobile, "owner");
@@ -55,8 +56,6 @@ class AgreementsAndKycTest extends AbstractApiTest {
                 + "\"durationMonths\":11}";
     }
 
-    // ---------------- POST /me/rent-agreements ----------------
-
     @Test
     void createAgreement_returnsTheServerAssignedRecord() throws Exception {
         User owner = user("9820003001");
@@ -79,8 +78,7 @@ class AgreementsAndKycTest extends AbstractApiTest {
         Property p = listing(owner, "Self certify flat");
 
         // RentAgreementCreate has no status/documentUrl, so these are dropped rather than honoured:
-        // an agreement that claims to be `registered` with a documentUrl pointing anywhere it liked
-        // would be a forged legal record.
+        // an agreement claiming to be `registered` would be a forged legal record.
         mvc.perform(post(Routes.MeRentAgreements.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -119,8 +117,6 @@ class AgreementsAndKycTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    // ---------------- GET /me/rent-agreements ----------------
-
     @Test
     void myAgreements_hidesAnAgreementTheCallerIsNotAPartyTo() throws Exception {
         User owner = user("9820003006");
@@ -145,10 +141,8 @@ class AgreementsAndKycTest extends AbstractApiTest {
     @Test
     void myAgreements_includesTheOnesFiledAgainstTheCallerAsTenant() throws Exception {
         User landlord = user("9820003020");
-        // agreementBody names 9876543210 as the tenant. That person is a real account here, and the
-        // agreement is the record of the home they rent — the tenant's own rental hub and document
-        // vault are built on it, so a list that only ever answered the landlord would leave the
-        // signatory who actually lives there unable to see their own lease.
+        // agreementBody names 9876543210 as the tenant, and that person is a real account here: a
+        // list answering only the landlord would hide the lease from the signatory who lives there.
         User tenant = user("9876543210");
         mvc.perform(post(Routes.MeRentAgreements.BASE)
                 .header(HttpHeaders.AUTHORIZATION, bearer(landlord))
@@ -171,9 +165,8 @@ class AgreementsAndKycTest extends AbstractApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(agreementBody(listing(landlord, "Not the bystander's"))));
 
-        // The guard that matters: the tenant half of the query is an equality on a mobile, and a
-        // caller whose number appears nowhere on the record must match no rows rather than all of
-        // them. This is the assertion that would fail if the null/blank handling ever collapsed.
+        // The tenant half of the query is an equality on a mobile: this is the assertion that would
+        // fail if the null/blank handling ever collapsed into matching every row.
         mvc.perform(get(Routes.MeRentAgreements.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(bystander)))
                 .andExpect(status().isOk())
@@ -185,7 +178,114 @@ class AgreementsAndKycTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeRentAgreements.BASE)).andExpect(status().isUnauthorized());
     }
 
-    // ---------------- /me/owner-kyc ----------------
+    /** Ops, holding the {@code services:write} baseline every staff account carries. */
+    private User desk(String mobile) {
+        User u = new User(mobile, Roles.Wire.STAFF);
+        u.setName("Ops desk");
+        u.setMobileVerified(true);
+        return users.saveAndFlush(u);
+    }
+
+    private String fileDraft(User owner, Property p) throws Exception {
+        String body = mvc.perform(post(Routes.MeRentAgreements.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(agreementBody(p)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int at = body.indexOf("\"id\":\"") + 6;
+        return body.substring(at, body.indexOf('"', at));
+    }
+
+    @Test
+    void transition_registersADraftAndTurnsItIntoEvidenceTheTrustSweepCanRead() throws Exception {
+        User owner = user("9820003030");
+        Property p = listing(owner, "Registered flat");
+        String id = fileDraft(owner, p);
+
+        // `hasRegisteredTenancy` is how a flatmate host gets the Tenant-verified badge without a
+        // human looking, and this route is the only way that status can be written at all.
+        assertThat(agreements.hasRegisteredTenancy(p.getId(), "9876543210")).isFalse();
+
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk("9877730001")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"registered\","
+                                + "\"documentUrl\":\"https://cdn.draazy.test/ll.pdf\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("registered"))
+                .andExpect(jsonPath("$.documentUrl").value("https://cdn.draazy.test/ll.pdf"));
+
+        assertThat(agreements.hasRegisteredTenancy(p.getId(), "9876543210")).isTrue();
+    }
+
+    @Test
+    void transition_refusesAMoveTheLadderDoesNotAllowAndNamesTheOnesItDoes() throws Exception {
+        User owner = user("9820003031");
+        String id = fileDraft(owner, listing(owner, "Backwards flat"));
+        String desk = bearer(desk("9877730002"));
+
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                .header(HttpHeaders.AUTHORIZATION, desk)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"registered\"}")).andExpect(status().isOk());
+
+        // 422 rather than 400 — the body is fine, the order is not, and only the stored row knows
+        // that: the sub-registrar's record does not change because ops clicked.
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                        .header(HttpHeaders.AUTHORIZATION, desk)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"draft\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("active or expired")));
+    }
+
+    @Test
+    void transition_isNotTheOwnersToMake() throws Exception {
+        User owner = user("9820003032");
+        String id = fileDraft(owner, listing(owner, "Self-registered flat"));
+
+        // Why this lives under /admin: an owner who could set `registered` on their own record
+        // could badge themselves Tenant-verified off a document nobody ever filed.
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"registered\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void transition_refusesAStatusThatIsNotOne() throws Exception {
+        User owner = user("9820003033");
+        String id = fileDraft(owner, listing(owner, "Made-up status flat"));
+
+        // Caught before the row is read, because the V6 CHECK would otherwise turn a typo into a
+        // 500 at flush time.
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk("9877730003")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"notarised\"}"))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void transition_refusesADocumentLinkThatIsNotAnHttpsScan() throws Exception {
+        User owner = user("9820003034");
+        String id = fileDraft(owner, listing(owner, "Bad link flat"));
+
+        // This URL is handed back to both parties as the thing to click to read their own tenancy,
+        // so a javascript: one runs in the session of somebody with every reason to trust it.
+        mvc.perform(patch(Routes.Moderation.RENT_AGREEMENT_BY_ID, id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk("9877730004")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"registered\","
+                                + "\"documentUrl\":\"javascript:alert(1)\"}"))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(agreements.findById(UUID.fromString(id)).orElseThrow().getStatus())
+                .isEqualTo("draft");
+    }
 
     @Test
     void getKyc_returnsAnEmptyPendingRecordBeforeAnythingIsSubmitted() throws Exception {

@@ -1,97 +1,6 @@
 #!/usr/bin/env node
-/**
- * Route census — which server routes does the frontend never mention?
- *
- * ## Why this file exists at all
- *
- * This script had been re-typed by hand into a PowerShell one-liner every time the census was run,
- * a dozen or more times across the migration. It carried a bug the entire way, and the bug was
- * invisible precisely *because* it was re-typed: the class-member regex required `public static
- * final String`, so every route class whose `BASE` is declared `private` failed to resolve, and
- * the script reported those constants as "unresolved" rather than as reached or unreached. Sixteen
- * of two hundred and forty-seven. Fourteen of them were in fact reached and the other two were
- * something more interesting (see below) — but the number in the notes said `unresolved=16` for
- * weeks and nobody looked at it, because an unresolved count is not a finding, it is a footnote.
- *
- * That is the actual lesson and it is worth stating plainly: **a tool that is re-created from
- * memory each time it is used cannot accumulate fixes.** It can only accumulate the parts of
- * itself that are memorable. Committing it costs one file and stops the next fix from evaporating.
- *
- * ## What it does
- *
- * 1. Parses `Routes.java` into `Class.CONSTANT -> expression`, keeping declaration order.
- * 2. Resolves the string-concatenation expressions to literal paths, iterating to a fixed point
- *    (constants reference siblings and other classes, so one pass is not enough).
- * 3. Builds one big string out of every `.js`/`.jsx` under `frontend/src`, minus the mock API,
- *    i18n bundles and `db.json` — the sources that are on their way out and would give false
- *    *positives*.
- * 4. For each resolved path, searches that index for the path's literal prefix (everything before
- *    the first `{`), requiring the hit to begin at a path boundary — see {@link mentions}.
- *
- * ## "Mentioned" is not "called", and the difference is the interesting part
- *
- * The index is text, so a route named in a comment counts as a mention. That is not a defect to be
- * engineered away — a comment naming an endpoint usually means somebody considered it — but it is
- * a distinction the reader needs, and conflating the two hides exactly the routes worth knowing
- * about. `POST /documents/requests` is the example: the only place the frontend names it is a
- * table in `documentService.js` explaining that the buyer's side of the document gate has no
- * faithful contract surface and stays mock-only. That is a deliberate, documented gap, and
- * reporting it as "reached" is worse than reporting it as unreached, because it is the one
- * category that needs no investigation and gets none either way.
- *
- * So the census builds two indexes — everything, and everything minus prose — and a route matched
- * only by the first is reported as `DOCUMENTED`.
- *
- * Prose stripping is deliberately conservative: block comments are removed, and lines whose first
- * non-space character is `*` or `//` are dropped. Inline trailing `//` is left alone, because
- * every `http://` in the file would take the rest of its line with it — a comment stripper that
- * eats URLs would silently un-match every absolute endpoint in the codebase, which is the same
- * class of quiet wrongness this whole script exists to find.
- *
- * ## What a "miss" does and does not mean
- *
- * A miss means *no frontend file contains the literal prefix*. That is weaker than "unreached", in
- * one specific and non-obvious way, which this script now reports rather than leaving to be
- * rediscovered:
- *
- * A route can be reached by passing a literal value into a *sibling template* route. The vault is
- * the live example. `GET /me/documents/personal` exists as its own handler, but the client never
- * writes that path — it calls `listDocuments(mobile, 'personal')`, which builds
- * `/me/documents/${propId}` with `propId = 'personal'`, and Spring resolves it to the personal
- * handler because a literal segment out-ranks a template one. `MeDocumentsController` says so in
- * its own Javadoc; the census could not see it, and reported a live, exercised route as unreached.
- *
- * So misses are split into three buckets.
- *
- * - `MATCHER` — the constant is not an endpoint. `/properties/*` and `/dev/storage/**` exist to be
- *   handed to Spring Security's path matching, and no client ever requests them. Expecting the
- *   frontend to mention them is a category error, and leaving them in the unreached list means the
- *   headline number is permanently four or five too high, which is how a report stops being read.
- * - `SHADOWED` — some *other* resolved route is a pattern that also matches this path, so the
- *   frontend may be reaching it through that sibling. Not a verdict: an instruction to go and read
- *   the caller.
- * - `UNREACHED` — nothing in the frontend mentions it and no sibling could be standing in for it.
- *
- * The shadow test compares whole paths segment by segment, not just the tail. That matters:
- * `/me/documents/personal/{docId}` is shadowed at its *third* segment by
- * `/me/documents/{propId}/{docId}`, and a tail-only test — which is what this had first — reports
- * the list route as shadowed and the delete route beside it as unreached, which is worse than
- * reporting both wrongly, because the inconsistency reads as a real distinction.
- *
- * All three buckets are computed from the route table rather than kept as a hand-maintained
- * exception list, because a hand-maintained list of exceptions inside a detector is the thing that
- * goes stale first (see register item 33 for the same mistake made in a warning message).
- *
- * ## Usage
- *
- *   node backend/tools/route-census.mjs              # summary + the miss list
- *   node backend/tools/route-census.mjs --all        # also print every resolved path
- *   node backend/tools/route-census.mjs --json       # machine-readable
- *
- * Exit code is always 0. This is a report, not a gate: a route with no frontend caller is very
- * often correct (webhooks, dev-only storage, admin surfaces that were deliberately deferred), and
- * a census that fails the build would be turned off within a week.
- */
+// Reports routes in Routes.java that nothing under frontend/src/services/ fetches. A report, not a
+// gate: exit is always 0. Usage: node backend/tools/route-census.mjs [--all] [--json]
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,53 +9,17 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ROUTES_JAVA = join(REPO, 'backend/src/main/java/com/draazy/api/common/web/Routes.java');
 const FRONTEND_SRC = join(REPO, 'frontend/src');
 
-/**
- * Sources excluded from the index. Each is a source of false *positives* — a file that mentions a
- * path without the live app ever calling it — so leaving them in would make unreached routes look
- * reached, which is the failure mode that matters here.
- *
- * `mockApi` is the localStorage provider being retired; it mirrors endpoint names in comments and
- * in its own fake routing. `i18n` bundles carry help copy that quotes URLs. `db.json` is fixture
- * data.
- */
-const EXCLUDE = /mockApi|i18n|db\.json/;
+/** Sources that quote a path without calling it — indexing them would make dead routes look live. */
+const EXCLUDE = /i18n|db\.json/;
 
 /** Paths shorter than this are too generic to search for — `/me`, `/api` would match everything. */
 const MIN_PREFIX = 4;
 
-/**
- * The only directory from which the app issues an HTTP request.
- *
- * <b>Why a second, narrower index exists.</b> The client's browser routes and its API routes are
- * written in the same alphabet. `App.jsx:303` declares `path="/admin/analytics"` for a React Router
- * screen; `Routes.Admin.ANALYTICS` is `"/admin/analytics"` for a Spring controller. They are
- * unrelated — one is a URL the browser shows, the other is a URL the browser fetches — and a text
- * census cannot tell them apart, so it credited the endpoint to a screen that has never called it.
- * `AdminAnalytics.jsx` reads its numbers out of `lib/mockApi.js`; `GET /admin/analytics` has no
- * caller at all. The census said `wired`.
- *
- * The rule is checkable rather than assumed: every path the app actually fetches is built under
- * `frontend/src/services/`, because that is where `http.js` and all 64 providers live. The claim was
- * tested before it was relied on — four files outside `services/` import `services/http.js`
- * (`AuthContext.jsx`, `useAsyncList.js`, `useConnectivity.js`, `lib/mockApi/team.js`) and not one
- * builds a path: they take `NetworkError`, `ApiError` and `observeReachability`. Nothing else
- * imports the HTTP layer.
- *
- * This is a *bucket*, not a filter. A route mentioned only outside `services/` is not reported as
- * unreached — it is reported as `ui-only`, with the distinction stated, because the interesting
- * fact is not "no caller" but "a screen exists and does not use it", which is a different and more
- * actionable finding than either neighbour.
- */
+// The only directory from which the app issues an HTTP request, so a path mentioned elsewhere is a
+// browser route wearing the same spelling (`/admin/analytics`). Re-check when a new importer appears.
 const API_CALLERS = /[\\/]frontend[\\/]src[\\/]services[\\/]/;
 
-// ── 1. Parse ────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * `static final class Foo` opens a scope; every `static final String BAR = ...;` inside it becomes
- * `Foo.BAR`. Visibility is deliberately not part of either pattern — that was the original bug.
- * A `private` BASE is still a BASE, and its only difference is that nothing outside the class can
- * name it, which is irrelevant to resolving the constants that do.
- */
+/** Visibility is deliberately not matched: a `private` BASE is still a BASE that others resolve through. */
 function parseRoutes(text) {
   const defs = new Map(); // "Class.NAME" -> raw expression, insertion-ordered
   let cls = '';
@@ -165,16 +38,8 @@ function parseRoutes(text) {
   return defs;
 }
 
-// ── 2. Resolve ──────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Expand `A + B + "literal"` to a string, iterating until nothing new resolves.
- *
- * A bare `NAME` reference is looked up in the declaring class first, which is how Java itself
- * scopes it. `Other.NAME` is looked up globally. Anything else — a method call, a formatted
- * string — leaves the constant unresolved, and unresolved constants are reported loudly rather
- * than skipped, because a silently-skipped route is a route the census claims nothing about.
- */
+// Expand `A + B + "literal"` to a fixed point; a bare `NAME` resolves in the declaring class first,
+// as Java scopes it. Anything unresolved is reported loudly — a skipped route is a claimless route.
 function resolveAll(defs) {
   const out = new Map();
   let progress = true;
@@ -208,8 +73,6 @@ function resolveAll(defs) {
   return out;
 }
 
-// ── 3. Index the frontend ───────────────────────────────────────────────────────────────────────
-
 function collectSources(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -220,7 +83,7 @@ function collectSources(dir, acc = []) {
   return acc;
 }
 
-/** Remove prose. See the header for why trailing `//` is left in place. */
+/** Remove prose. Trailing `//` is left alone, or every `http://` would take its line with it. */
 function stripProse(text) {
   return text
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -229,28 +92,14 @@ function stripProse(text) {
     .join('\n');
 }
 
-// ── 4. Classify ─────────────────────────────────────────────────────────────────────────────────
-
 /** Everything before the first path variable — the part a caller must write out literally. */
 function literalPrefix(path) {
   const brace = path.indexOf('{');
   return (brace >= 0 ? path.slice(0, brace) : path).replace(/\/+$/, '');
 }
 
-/**
- * Does the frontend index mention `prefix` as a path in its own right?
- *
- * A plain `includes` is not enough, and the failure is quiet. `POST /documents/requests` is the
- * buyer's side of the document gate and has no frontend caller — the provider's own header says
- * the buyer's side stays mock-only. But `/documents/requests` is a *substring* of
- * `/me/documents/requests`, the owner's inbox, which the frontend calls constantly. So a
- * substring test credits an unreached route to a completely different endpoint that merely ends
- * the same way, and the census reports one fewer gap than exists.
- *
- * The fix is to insist the hit starts at a boundary: the character before it must not be a word
- * character or a `/`, both of which would mean the real path is longer than the one being looked
- * for. In practice the preceding character is a quote, a backtick or an opening parenthesis.
- */
+// A plain `includes` would credit `/documents/requests` to the different `/me/documents/requests`,
+// so the hit must start at a path boundary — a quote, backtick or paren, never a word char or `/`.
 function mentions(index, prefix) {
   let at = index.indexOf(prefix);
   while (at !== -1) {
@@ -266,34 +115,13 @@ function isMatcher(path) {
   return path.includes('*');
 }
 
-/**
- * An endpoint a third party calls *us* on. Our own frontend can never mention it, so counting it
- * as unreached is the same category error as counting a security matcher: it inflates the number
- * permanently with rows that can never be retired, and a number that can never reach zero stops
- * being read.
- *
- * Derived from the path rather than from a hand-kept list of route keys, so a webhook added next
- * year is classified without anyone remembering to come back here. The rule is exactly as wide as
- * the fact that justifies it: everything under `/webhooks/` is inbound by construction, and
- * nothing else is assumed.
- */
+/** Derived from the path, not a hand-kept key list, so a webhook added later classifies itself. */
 function isInbound(path) {
   return path.startsWith('/webhooks/');
 }
 
-/**
- * Is `path` shadowed by a sibling pattern that also matches it? See the header — this is how
- * `/me/documents/personal` is reached without anyone writing `/me/documents/personal`.
- *
- * `other` shadows `path` when they have the same number of segments and, at every position, the
- * segment is either identical or `other`'s is a `{template}` (which matches anything). Two
- * differently-named templates at the same position count as identical: `{propId}` and `{docId}`
- * are the same wildcard wearing different labels, and treating them as distinct would make the
- * test depend on what someone called a variable.
- *
- * A path shadows itself trivially, so the caller must exclude it — here that is automatic, since
- * only *matched* paths are offered as candidates and `path` by definition did not match.
- */
+// Same segment count, each segment identical or a `{template}` on the other side — two differently
+// named templates are one wildcard. Caller must exclude `path`, which shadows itself trivially.
 function shadowingSibling(path, matchedPaths) {
   const mine = path.split('/');
   const isVar = (seg) => seg.startsWith('{');
@@ -303,8 +131,6 @@ function shadowingSibling(path, matchedPaths) {
     return theirs.every((seg, i) => isVar(seg) || seg === mine[i]);
   }) ?? null;
 }
-
-// ── main ────────────────────────────────────────────────────────────────────────────────────────
 
 const args = new Set(process.argv.slice(2));
 const defs = parseRoutes(readFileSync(ROUTES_JAVA, 'utf8'));
@@ -335,9 +161,8 @@ for (const [key, path] of resolved) {
   });
 }
 
-// `wired` now means "something under services/ writes this path", which is the only place a fetch
-// can originate. A path mentioned in code but never there is a browser route wearing the same
-// spelling, and gets its own bucket below rather than being silently promoted or silently dropped.
+// `wired` means something under services/ writes this path, the only place a fetch can originate.
+// A path mentioned in code but never there is a browser route, and gets its own bucket below.
 const matchedPaths = considered.filter((r) => r.inServices).map((r) => r.path);
 const missed = considered.filter((r) => !r.inServices);
 

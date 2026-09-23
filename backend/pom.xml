@@ -309,6 +309,25 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <!--
+                      Writes META-INF/build-info.properties, which is what makes BuildProperties a
+                      bean and so gives BuildStampFilter something to stamp. Bound to
+                      generate-resources, so `spring-boot:run` and `mvn test` both produce it; an
+                      IDE run that drives javac directly does not, and the filter degrades to
+                      sending no header rather than sending a wrong one.
+
+                      The value that matters downstream is build.time: it is identical for every
+                      container started from one image and differs across builds, which is exactly
+                      the distinction the update banner needs. A process-scoped id would flip as a
+                      client bounced between the four instances maxScale allows.
+                    -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <!--
               Spotless: the formatter that replaced Checkstyle (tech-debt D36).

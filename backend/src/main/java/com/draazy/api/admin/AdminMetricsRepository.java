@@ -73,9 +73,8 @@ public class AdminMetricsRepository {
      * permanent zero that reads as a bad quarter rather than as an absent product.
      */
     private static final String REVENUE_BY_SOURCE = """
-            select 'subscriptions' as source, coalesce(sum(p.price), 0) as amount
+            select 'subscriptions' as source, coalesce(sum(s.amount), 0) as amount
               from subscriptions s
-              join plans p on p.id = s.plan_id
              where s.payment_ref is not null
                and s.status <> 'pending'
                and (cast(:from as date) is null
@@ -98,9 +97,8 @@ public class AdminMetricsRepository {
      */
     private static final String REVENUE_SERIES = """
             select bucket, sum(amount) as amount from (
-                select date_trunc(:interval, s.started_at at time zone '%1$s') as bucket, p.price as amount
+                select date_trunc(:interval, s.started_at at time zone '%1$s') as bucket, s.amount as amount
                   from subscriptions s
-                  join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
                    and s.status <> 'pending'
                    and (s.started_at at time zone '%1$s') >= cast(:from as date)
@@ -150,9 +148,8 @@ public class AdminMetricsRepository {
     private static final String REVENUE_SERIES_BY_SOURCE = """
             select bucket, source, sum(amount) as amount from (
                 select date_trunc(:interval, s.started_at at time zone '%1$s') as bucket,
-                       'subscriptions' as source, p.price as amount
+                       'subscriptions' as source, s.amount as amount
                   from subscriptions s
-                  join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
                    and s.status <> 'pending'
                    and (s.started_at at time zone '%1$s') >= cast(:from as date)
@@ -178,10 +175,15 @@ public class AdminMetricsRepository {
      * per-plan breakdown printed beside it on the same screen — and two numbers on one card that do
      * not add up costs more trust than a rupee of precision buys.
      *
-     * <p><strong>Free plans are excluded by {@code price > 0}, not by name.</strong> Owner Free is a
-     * real subscription row and a real active plan; it is simply not revenue. Filtering on the price
-     * rather than on the plan's title means a promotional zero-rupee plan is handled correctly on
-     * the day it is created, with no list to remember to update.
+     * <p><strong>Free plans are excluded by {@code amount > 0}, not by name.</strong> Owner Free is
+     * a real subscription row and a real active plan; it is simply not revenue. Filtering on what
+     * was charged rather than on the plan's title means a promotional zero-rupee plan is handled
+     * correctly on the day it is created, with no list to remember to update.
+     *
+     * <p><strong>{@code s.amount}, not {@code p.price} (V37).</strong> What the book bills next
+     * month is what each subscriber agreed to pay, which is not necessarily what the plan costs a
+     * new buyer today. Only the cycle still comes from the plan, because that is the shape of the
+     * term rather than its price.
      *
      * <p><strong>{@code status = 'active'} here, where the revenue queries say
      * {@code status <> 'pending'}.</strong> That difference is the whole distinction between the two
@@ -191,36 +193,43 @@ public class AdminMetricsRepository {
     private static final String MRR = """
             select coalesce(sum(
                      case coalesce(p.billing_cycle, 'monthly')
-                       when 'monthly'   then p.price
-                       when 'quarterly' then round(p.price / 3.0)
-                       when 'yearly'    then round(p.price / 12.0)
-                       else p.price
+                       when 'monthly'   then s.amount
+                       when 'quarterly' then round(s.amount / 3.0)
+                       when 'yearly'    then round(s.amount / 12.0)
+                       else s.amount
                      end), 0)::bigint
               from subscriptions s
               join plans p on p.id = s.plan_id
              where s.status = 'active'
                and s.payment_ref is not null
-               and p.price > 0
+               and s.amount > 0
             """;
 
-    /** The same book as {@link #MRR}, itemised. Same filters, so the lines sum to the total. */
+    /**
+     * The same book as {@link #MRR}, itemised. Same filters, so the lines sum to the total.
+     *
+     * <p>Grouped by the charged amount as well as the plan, so a repriced plan holding subscribers
+     * on both sides of the change shows both cohorts. Collapsing them onto one line would have to
+     * print a single price that is wrong for one group — and this panel exists to be reconciled
+     * against, so a line whose count and price do not describe the same people is worse than two.
+     */
     private static final String PLAN_LINES = """
-            select p.name, p.audience, coalesce(p.billing_cycle, 'monthly'), p.price,
+            select p.name, p.audience, coalesce(p.billing_cycle, 'monthly'), s.amount,
                    count(*) as active,
                    coalesce(sum(
                      case coalesce(p.billing_cycle, 'monthly')
-                       when 'monthly'   then p.price
-                       when 'quarterly' then round(p.price / 3.0)
-                       when 'yearly'    then round(p.price / 12.0)
-                       else p.price
+                       when 'monthly'   then s.amount
+                       when 'quarterly' then round(s.amount / 3.0)
+                       when 'yearly'    then round(s.amount / 12.0)
+                       else s.amount
                      end), 0)::bigint as monthly
               from subscriptions s
               join plans p on p.id = s.plan_id
              where s.status = 'active'
                and s.payment_ref is not null
-               and p.price > 0
-             group by p.id, p.name, p.audience, p.billing_cycle, p.price
-             order by p.name
+               and s.amount > 0
+             group by p.id, p.name, p.audience, p.billing_cycle, s.amount
+             order by p.name, s.amount
             """;
 
     /**
@@ -238,10 +247,9 @@ public class AdminMetricsRepository {
             select count(*) from (
                 select s.user_id as uid
                   from subscriptions s
-                  join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
                    and s.status <> 'pending'
-                   and p.price > 0
+                   and s.amount > 0
                    and (s.started_at at time zone '%1$s') >= cast(:from as date)
                    and (s.started_at at time zone '%1$s') <  cast(:to   as date)
                 union
@@ -276,13 +284,12 @@ public class AdminMetricsRepository {
                    cast((s.started_at at time zone '%1$s') as date) as occurred_on,
                    coalesce(u.name, 'Member') as party,
                    'subscription' as kind,
-                   p.price as amount,
+                   s.amount as amount,
                    case when s.payment_ref is not null and s.status <> 'pending'
                         then 'paid' else 'pending' end as settlement
               from subscriptions s
-              join plans p on p.id = s.plan_id
               left join users u on u.id = s.user_id
-             where p.price > 0
+             where s.amount > 0
             union all
             select b.id,
                    cast((coalesce(b.paid_at, b.starts_at) at time zone '%1$s') as date),

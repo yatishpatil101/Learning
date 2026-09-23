@@ -16,20 +16,20 @@ spec:
   template:
     metadata:
       annotations:
-        # Free tier: an idle sandbox costs nothing, at the price of a JVM cold start. Raising this
-        # to 1 is the single largest cost trigger on the platform.
-        autoscaling.knative.dev/minScale: '0'
+        # Warm is not running: CPU is still throttled to ~0 between requests, so this alone does
+        # NOT make the eight @Scheduled sweeps fire.
+        autoscaling.knative.dev/minScale: '1'
 
         # 4 × Hikari's 5 connections = 20, which the free-tier Supavisor pooler absorbs; the default
         # 100 gives 500 and Postgres starts refusing. Also the runaway-cost stop.
         autoscaling.knative.dev/maxScale: '4'
 
-        # Extra CPU for the classload and component-scan window only, billed just for those seconds
-        # — the cheapest cold-start win available on a scale-to-zero service.
+        # Still earns its place under minScale 1: every deploy boots a fresh container, and
+        # instances 2..4 start cold under a spike.
         run.googleapis.com/startup-cpu-boost: 'true'
 
-        # CPU only while a request is in flight, which silently stops the eight @Scheduled sweeps
-        # ever firing. Accepted on sandbox, fatal for production — docs/DEPLOY.md §5 and §7.
+        # Stops the eight @Scheduled sweeps ever firing; 'false' needs ShedLock first and switches
+        # to instance-based billing (~6× the bill) — docs/DEPLOY.md §5 and §7.
         run.googleapis.com/cpu-throttling: 'true'
 
     spec:

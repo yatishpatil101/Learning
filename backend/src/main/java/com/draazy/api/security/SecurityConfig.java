@@ -18,10 +18,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
-/**
- * The one stateless resource-server chain every request flows through. Filter order, the disabled
- * CSRF decision, the header policy and every public matcher: docs/system/cross-cutting.md §8.
- */
+/** The one stateless resource-server chain every request flows through. Filter order, the disabled
+ * CSRF decision, the header policy and every public matcher: docs/system/cross-cutting.md §8. */
 @Configuration
 @EnableMethodSecurity
 @EnableConfigurationProperties(JwtProperties.class)
@@ -127,6 +125,9 @@ public class SecurityConfig {
                         // aggregate would map what Draazy is short of, locality by locality.
                         .requestMatchers(HttpMethod.POST, Routes.DemandSignals.BASE).permitAll()
                         .requestMatchers(HttpMethod.POST, Routes.PageViews.BASE).permitAll()
+                        // "Was this helpful?" under a help article. Most help readers have no
+                        // account yet, so a session would only collect the verdict from insiders.
+                        .requestMatchers(HttpMethod.POST, Routes.HelpFeedback.BASE).permitAll()
                         // The flatmates feed. Exact-path and GET-only: the writes beside it are
                         // role- or author-scoped, and the interest route releases a phone number.
                         .requestMatchers(HttpMethod.GET, Routes.Flatmates.POSTS).permitAll()

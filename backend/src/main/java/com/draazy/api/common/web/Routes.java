@@ -1,9 +1,7 @@
 package com.draazy.api.common.web;
 
-/**
- * The canonical URI of every HTTP route. One constant binds the controller mapping and the {@code
- * SecurityConfig} matcher, so public-vs-guarded cannot drift. Rules: docs/system/api-standards.md §7.2.
- */
+/** One constant binds each controller mapping to its {@code SecurityConfig} matcher, so
+ * public-vs-guarded cannot drift. Rules: docs/system/api-standards.md §7.2. */
 public final class Routes {
 
     private Routes() {
@@ -24,19 +22,15 @@ public final class Routes {
         /** Public — rotates the refresh token; reuse revokes the whole family. */
         public static final String REFRESH = "/auth/refresh";
 
-        /**
-         * Public — a colleague redeems their single-use invite and sets a password. Unauthenticated because
-         * the expiring single-use token is itself the credential (checked in StaffInviteService).
-         */
+        /** Public — unauthenticated because the expiring single-use token is itself the credential
+         * (checked in StaffInviteService). */
         public static final String STAFF_INVITE_REDEEM = "/auth/staff-invite/redeem";
 
         /** Authenticated — revokes the caller's refresh-token family. */
         public static final String LOGOUT = "/auth/logout";
 
-        /**
-         * Authenticated — the caller's own profile. Sits under {@code /auth} per the contract, so the
-         * controller lives in the {@code user} package.
-         */
+        /** Authenticated — the caller's own profile. Sits under {@code /auth} per the contract, so the
+         * controller lives in the {@code user} package. */
         public static final String ME = "/auth/me";
     }
 
@@ -52,19 +46,15 @@ public final class Routes {
         /** Public — featured-first listings for the homepage. */
         public static final String FEATURED = BASE + "/featured";
 
-        /**
-         * Public — how much of the live catalogue is verified, optionally for one locality. Safe beside
-         * {@link #BY_ID} because an exact path outranks a template one.
-         */
+        /** Public — verified share of the live catalogue. Safe beside {@link #BY_ID} because an exact
+         * path outranks a template one. */
         public static final String TRUST_STATS = BASE + "/trust-stats";
 
         /** Public — single listing by slug or id. */
         public static final String BY_ID = BASE + "/{id}";
 
-        /**
-         * Security-chain matcher for the public single-listing read. Single-segment ({@code *}) so deeper
-         * write routes such as {@link #ARCHIVE} stay authenticated.
-         */
+        /** Security-chain matcher for the public single-listing read. Single-segment ({@code *}) so
+         * deeper write routes such as {@link #ARCHIVE} stay authenticated. */
         public static final String ANY_SINGLE = BASE + "/*";
 
         /** Authenticated — soft-delete (never a hard delete). */
@@ -73,45 +63,33 @@ public final class Routes {
         /** Authenticated — undo an archive; the listing returns to moderation. */
         public static final String RESTORE = BY_ID + "/restore";
 
-        /**
-         * Owner-only — {@code POST} lets this flat room by room, {@code DELETE} withdraws that. Lives here,
-         * not under {@code /flatmates}, because the resource acted on is the listing.
-         */
+        /** Owner-only — {@code POST} lets this flat room by room, {@code DELETE} withdraws that. Lives
+         * here, not under {@code /flatmates}, because the resource acted on is the listing. */
         public static final String SPLIT = BY_ID + "/split";
 
-        /**
-         * Public — the rooms this flat was split into, plus its occupancy ledger. Deeper than {@link
-         * #ANY_SINGLE} matches, so it needs its own public-allowlist entry.
-         */
+        /** Public — the rooms this flat was split into. Deeper than {@link #ANY_SINGLE} matches, so it
+         * needs its own public-allowlist entry. */
         public static final String ROOMS = BY_ID + "/rooms";
     }
 
-    /**
-     * The public seller card: who is behind a listing. Deliberately not under {@link Users} — that family is
-     * the staff directory, and this one is capped to what a stranger may know.
-     */
+    /** The public seller card. Deliberately not under {@link Users} — that family is the staff
+     * directory, and this one is capped to what a stranger may know. */
     public static final class Owners {
 
         private Owners() {
         }
 
-        /**
-         * Public — one owner's profile card. There is deliberately no collection read: a public {@code GET
-         * /owners} would be a downloadable list of the platform's landlords.
-         */
+        /** Public — one owner's profile card. There is deliberately no collection read: a public
+         * {@code GET /owners} would be a downloadable list of the platform's landlords. */
         public static final String BY_ID = "/owners/{id}";
 
-        /**
-         * Security-chain matcher. Single-segment on purpose: there is no deeper owner route, and a {@code **}
-         * would make one public before anybody had decided it should be.
-         */
+        /** Security-chain matcher. Single-segment on purpose: a {@code **} would make a future deeper
+         * owner route public before anybody had decided it should be. */
         public static final String ANY_SINGLE = "/owners/*";
     }
 
-    /**
-     * The public reference catalogue: cities, localities, societies, reels and the fee schedule. Every route
-     * below is {@code security: []} — the pages a visitor sees before deciding to sign up.
-     */
+    /** The public reference catalogue: cities, localities, societies, reels and the fee schedule.
+     * Every route below is {@code security: []}. */
     public static final class Cities {
 
         private Cities() {
@@ -135,26 +113,19 @@ public final class Routes {
         /** Public — one locality with its narrative fields and price trend. */
         public static final String BY_SLUG = BASE + "/{slug}";
 
-        /**
-         * Security-chain matcher for the whole family. Single-segment ({@code *}) on purpose: a {@code **}
-         * here would silently make any future deeper locality route public.
-         */
+        /** Security-chain matcher for the whole family. Single-segment ({@code *}) on purpose: a
+         * {@code **} would silently make any future deeper locality route public. */
         public static final String ANY_SINGLE = BASE + "/*";
 
-        /**
-         * Staff — the curation console. Under {@code /admin} so the public matcher above stays one statement:
-         * everything under {@code /localities} is readable, nothing under it is writable.
-         */
+        /** Staff — the curation console. Under {@code /admin} so the public matcher above stays one
+         * statement: everything under {@code /localities} is readable, nothing under it writable. */
         public static final String ADMIN_BASE = "/admin/localities";
 
         /** Staff — edit or retire one locality. */
         public static final String ADMIN_BY_SLUG = ADMIN_BASE + "/{slug}";
     }
 
-    /**
-     * Staff — the listings the resolver could not place, and the assignment that clears one (register item
-     * 24).
-     */
+    /** Staff — the listings the resolver could not place, and the assignment that clears one. */
     public static final class LocalityQueue {
 
         private LocalityQueue() {
@@ -178,10 +149,8 @@ public final class Routes {
         /** Public — one society with its homes and community aggregates. */
         public static final String BY_SLUG = BASE + "/{slug}";
 
-        /**
-         * Public — where the caller stands in this society: their residency, whether they are the committee,
-         * the society's live claim, and how many residents are verified.
-         */
+        /** Public — where the caller stands in this society: their residency, whether they are the
+         * committee, the society's live claim, and how many residents are verified. */
         public static final String MEMBERSHIP = BY_SLUG + "/membership";
 
         /** Authenticated — {@code POST} asks to be recognised as a resident of one flat. */
@@ -208,10 +177,8 @@ public final class Routes {
         /** Author, committee or staff — {@code DELETE} takes one item down. */
         public static final String BOARD_ITEM = BOARD + "/{itemId}";
 
-        /**
-         * Public {@code GET}, authenticated {@code POST} — the community tab's tips, trusted picks and
-         * photos.
-         */
+        /** Public {@code GET}, authenticated {@code POST} — the community tab's tips, trusted picks
+         * and photos. */
         public static final String CONTRIBUTIONS = BY_SLUG + "/contributions";
 
         /** Author, committee or staff — {@code DELETE} removes one contribution. */
@@ -297,9 +264,7 @@ public final class Routes {
         /** Staff — {@code GET} lists every merge in force, newest first; {@code POST} records one. */
         public static final String BASE = "/admin/society-merges";
 
-        /**
-         * Staff — {@code DELETE} undoes one merge, addressed by the slug of the society that was merged away.
-         */
+        /** Staff — {@code DELETE} undoes one merge, addressed by the slug of the society merged away. */
         public static final String BY_SLUG = BASE + "/{slug}";
     }
 
@@ -309,10 +274,8 @@ public final class Routes {
         private AdminSocieties() {
         }
 
-        /**
-         * Staff — {@code PATCH} corrects registration, conveyance, maintenance, claim status and the internal
-         * note on one society.
-         */
+        /** Staff — {@code PATCH} corrects registration, conveyance, maintenance, claim status and the
+         * internal note on one society. */
         public static final String BY_SLUG = "/admin/societies/{slug}";
     }
 
@@ -387,10 +350,8 @@ public final class Routes {
         public static final String DUPLICATE_CHECK = BASE + "/duplicate-check";
     }
 
-    /**
-     * The authenticated owner's private "single-player" property records — the Owner Hub / Property Passport
-     * / rent tracker.
-     */
+    /** The authenticated owner's private "single-player" property records — the Owner Hub /
+     * Property Passport / rent tracker. */
     public static final class MeManagedProperties {
 
         private MeManagedProperties() {
@@ -403,17 +364,13 @@ public final class Routes {
         /** Publish one record into the marketplace (creates a pending listing, links back). */
         public static final String PUBLISH = BASE + "/{id}/publish";
 
-        /**
-         * Rent the owner recorded as received outside Draazy's payment rail — {@code GET} the recent ledger,
-         * {@code POST} to record one month.
-         */
+        /** Rent received outside Draazy's payment rail — {@code GET} the recent ledger, {@code POST}
+         * to record one month. */
         public static final String RENT_RECEIPTS = BY_ID + "/rent-receipts";
     }
 
-    /**
-     * Listing photo upload. Unscoped by property on purpose: in the create-listing wizard the photos are
-     * chosen before the property exists, so there is nothing to scope to yet.
-     */
+    /** Listing photo upload. Unscoped by property on purpose: in the create-listing wizard the photos
+     * are chosen before the property exists, so there is nothing to scope to yet. */
     public static final class MePhotos {
 
         private MePhotos() {
@@ -434,10 +391,8 @@ public final class Routes {
         public static final String BASE = Properties.BY_ID + "/photo-requests";
     }
 
-    /**
-     * The listing owner's side of the photo-request signal. Strictly owner-scoped, like {@link
-     * MeContactRequests}.
-     */
+    /** The listing owner's side of the photo-request signal. Strictly owner-scoped, like
+     * {@link MeContactRequests}. */
     public static final class MePhotoRequests {
 
         private MePhotoRequests() {
@@ -445,20 +400,16 @@ public final class Routes {
 
         public static final String BASE = "/me/photo-requests";
 
-        /**
-         * The owner's "buyers want more photos" badge — a count, not a list, because {@link #BASE} is
-         * paged and a badge derived from one page is wrong as soon as there are two.
-         */
+        /** A count, not a list, because {@link #BASE} is paged and a badge derived from one page is
+         * wrong as soon as there are two. */
         public static final String PENDING_COUNT = BASE + "/pending-count";
 
         /** {@code reqId}, mirroring {@link MeContactRequests#BY_ID}. */
         public static final String BY_ID = BASE + "/{reqId}";
     }
 
-    /**
-     * The owner's private annotations on their own leads — a note and a follow-up date, never seen by the
-     * buyer and never joined into a buyer-facing payload.
-     */
+    /** The owner's private annotations on their own leads — never seen by the buyer and never joined
+     * into a buyer-facing payload. */
     public static final class MeLeadNotes {
 
         private MeLeadNotes() {
@@ -467,10 +418,8 @@ public final class Routes {
         /** Authenticated. {@code GET} returns every note the caller owns; the inbox indexes them by key. */
         public static final String BASE = "/me/lead-notes";
 
-        /**
-         * {@code PUT} upserts, and clears when the body is empty — there is no {@code DELETE}, because there
-         * is no path through the UI that reaches one.
-         */
+        /** {@code PUT} upserts, and clears when the body is empty — there is no {@code DELETE},
+         * because there is no path through the UI that reaches one. */
         public static final String BY_KEY = BASE + "/{leadKey}";
     }
 
@@ -505,10 +454,8 @@ public final class Routes {
         public static final String BY_ID = BASE + "/{reqId}";
     }
 
-    /**
-     * In-app buyer&lt;-&gt;owner chat. Opening a thread requires an approved contact request in one direction
-     * or the other; see {@code ConversationService}.
-     */
+    /** In-app buyer&lt;-&gt;owner chat. Opening a thread requires an approved contact request in one
+     * direction or the other; see {@code ConversationService}. */
     public static final class Conversations {
 
         private Conversations() {
@@ -545,16 +492,12 @@ public final class Routes {
         /** The raiser or ops — add a message. */
         public static final String MESSAGES = BY_ID + "/messages";
 
-        /**
-         * The raiser or ops — upload a file to attach to a later message. Same two-phase shape as
-         * {@link Conversations#ATTACHMENTS}, and guarded by the same rule that guards the thread itself.
-         */
+        /** The raiser or ops — same two-phase shape as {@link Conversations#ATTACHMENTS}, and guarded
+         * by the same rule that guards the thread itself. */
         public static final String ATTACHMENTS = BY_ID + "/attachments";
 
-        /**
-         * The raiser or ops — clear the caller's own unread flag, and only that one. The
-         * platform-wide queue this feeds is {@link Admin#SUPPORT_TICKETS}.
-         */
+        /** The raiser or ops — clear the caller's own unread flag, and only that one. The
+         * platform-wide queue this feeds is {@link Admin#SUPPORT_TICKETS}. */
         public static final String READ = BY_ID + "/read";
     }
 
@@ -655,32 +598,24 @@ public final class Routes {
         private Verification() {
         }
 
-        /**
-         * Authenticated — {@code GET} reads the case, {@code POST} (multipart) submits live-captured document
-         * photos and a selfie for staff review.
-         */
+        /** Authenticated — {@code GET} reads the case, {@code POST} (multipart) submits live-captured
+         * document photos and a selfie for staff review. */
         public static final String IDENTITY = "/me/verification/identity";
 
-        /**
-         * Authenticated, {@code local} profile only ({@code @LocalOnly}) — approves the caller's case so
-         * the earned-badge state can be demonstrated in dev without a second staff session.
-         */
+        /** Authenticated, {@code local} profile only ({@code @LocalOnly}) — approves the caller's case
+         * so the earned-badge state can be demonstrated without a second staff session. */
         public static final String IDENTITY_SIMULATE = IDENTITY + "/simulate";
     }
 
-    /**
-     * Local-disk object bytes, <strong>{@code local} profile only</strong> ({@code @LocalOnly}) — the thing
-     * {@code MockFileStorage.signedDownloadUrl} points at.
-     */
+    /** Local-disk object bytes, <strong>{@code local} profile only</strong> ({@code @LocalOnly}) — the
+     * thing {@code MockFileStorage.signedDownloadUrl} points at. */
     public static final class DevStorage {
 
         private DevStorage() {
         }
 
-        /**
-         * The object itself. {@code {*key}} rather than {@code {key}} because a storage key has slashes in it
-         * ({@code documents/{propertyId}/{uuid}}) and a single-segment template would match none of them.
-         */
+        /** {@code {*key}} rather than {@code {key}} because a storage key has slashes in it
+         * ({@code documents/{propertyId}/{uuid}}) and a single-segment template would match none. */
         public static final String OBJECT = "/dev/storage/{*key}";
 
         /** The same routes as a servlet pattern, for the security matcher that fronts them. */
@@ -715,10 +650,8 @@ public final class Routes {
         public static final String DUES = BASE + "/dues";
     }
 
-    /**
-     * The tenant's own record of the home they rent — the counterpart to {@link Finances}, which is the
-     * owner's.
-     */
+    /** The tenant's own record of the home they rent — the counterpart to {@link Finances}, which is
+     * the owner's. */
     public static final class Rentals {
 
         private Rentals() {
@@ -731,10 +664,8 @@ public final class Routes {
         public static final String BY_ID = MINE + "/{rentalId}";
     }
 
-    /**
-     * Tenancies and tenant screening profiles (slice 5). Every read is participant-scoped; the one
-     * mobile-keyed read is relationship-guarded and answers 404 for every refusal (spec fix S10).
-     */
+    /** Tenancies and tenant screening profiles. Every read is participant-scoped; the one
+     * mobile-keyed read is relationship-guarded and answers 404 for every refusal. */
     public static final class Tenancies {
 
         private Tenancies() {
@@ -765,10 +696,8 @@ public final class Routes {
         public static final String DECLARATION_REVOKE = "/tenancy-declarations/{id}/revoke";
     }
 
-    /**
-     * Engagement (slice 8) — the things a signed-in person accumulates: a shortlist, followed societies,
-     * saved searches, notifications.
-     */
+    /** Engagement — the things a signed-in person accumulates: a shortlist, followed societies,
+     * saved searches, notifications. */
     public static final class Engagement {
 
         private Engagement() {
@@ -777,9 +706,7 @@ public final class Routes {
         /** Authenticated — the caller's shortlist, as full property summaries. */
         public static final String SAVED = "/me/saved";
 
-        /**
-         * Authenticated — {@code PUT} shortlists a property, {@code DELETE} removes it. Idempotent both ways.
-         */
+        /** Authenticated — {@code PUT} shortlists a property, {@code DELETE} removes it. Idempotent both ways. */
         public static final String SAVED_BY_PROPERTY = SAVED + "/{propId}";
 
         /** Authenticated — the caller's flatmate shortlist, as full card projections. */
@@ -788,10 +715,8 @@ public final class Routes {
         /** Authenticated — the caller's flatmate shortlist as bare keys, unpaged. */
         public static final String FLATMATE_SAVE_KEYS = FLATMATE_SAVES + "/keys";
 
-        /**
-         * Authenticated — {@code PUT} shortlists one flatmate post, {@code DELETE} removes it. Idempotent
-         * both ways.
-         */
+        /** Authenticated — {@code PUT} shortlists one flatmate post, {@code DELETE} removes it.
+         * Idempotent both ways. */
         public static final String FLATMATE_SAVE_BY_ID = FLATMATE_SAVES + "/{kind}/{id}";
 
         /** Authenticated — {@code PUT}/{@code DELETE} the caller's follow on one society. */
@@ -806,10 +731,8 @@ public final class Routes {
         /** Authenticated — {@code DELETE} one saved search the caller owns. */
         public static final String SAVED_SEARCH_BY_ID = SAVED_SEARCHES + "/{id}";
 
-        /**
-         * Authenticated — {@code GET} the caller's recent searches (the "resume your search" rail), {@code
-         * PUT} to record one.
-         */
+        /** Authenticated — {@code GET} the caller's recent searches (the "resume your search" rail),
+         * {@code PUT} to record one. */
         public static final String RECENT_SEARCHES = "/me/recent-searches";
 
         /** Authenticated — the caller's notifications, newest first, paged. */
@@ -821,10 +744,8 @@ public final class Routes {
         /** Authenticated — {@code DELETE} one notification the caller owns (dismiss). */
         public static final String NOTIFICATION_BY_ID = NOTIFICATIONS + "/{id}";
 
-        /**
-         * Authenticated — {@code GET}/{@code PUT} the caller's notification and communication settings:
-         * channel switches, the master match-alert switch, quiet hours and language.
-         */
+        /** Authenticated — {@code GET}/{@code PUT} channel switches, the master match-alert switch,
+         * quiet hours and language. */
         public static final String NOTIFICATION_PREFERENCES = "/me/notification-preferences";
     }
 
@@ -893,10 +814,8 @@ public final class Routes {
 
         /** Authenticated — request, then confirm, the flat owner's OTP consent. */
         public static final String GROUP_OWNER_CONSENT = GROUP_BY_ID + "/owner-consent";
-        /**
-         * Authenticated — request, then confirm, the flat owner's OTP consent <em>before</em> the group
-         * exists.
-         */
+        /** Authenticated — request, then confirm, the flat owner's OTP consent <em>before</em> the
+         * group exists. */
         public static final String OWNER_CONSENT = "/flatmates/owner-consent";
 
         /** Authenticated — ask to join. An open-policy group accepts outright. */
@@ -1035,10 +954,8 @@ public final class Routes {
         public static final String BASE = "/me/owner-kyc";
     }
 
-    /**
-     * Service requests (slice 11) — the assisted-service workflow: a customer asks for a rent agreement or a
-     * legal opinion, ops does the work, and a draft goes back for approval.
-     */
+    /** Service requests — the assisted-service workflow: a customer asks for a rent agreement or a
+     * legal opinion, ops does the work, and a draft goes back for approval. */
     public static final class ServiceRequests {
 
         private ServiceRequests() {
@@ -1062,16 +979,12 @@ public final class Routes {
         /** Customer or staff — attach a document to the request. */
         public static final String DOCS = BY_ID + "/docs";
 
-        /**
-         * Customer or staff — <strong>read-only</strong> progress against the named paperwork the request
-         * needs.
-         */
+        /** Customer or staff — <strong>read-only</strong> progress against the named paperwork the
+         * request needs. */
         public static final String CHECKLIST = BY_ID + "/checklist";
 
-        /**
-         * The parties' PAN and Aadhaar — <strong>written by the requester, read only by the staff
-         * member the request is assigned to</strong>.
-         */
+        /** The parties' PAN and Aadhaar — <strong>written by the requester, read only by the staff
+         * member the request is assigned to</strong>. */
         public static final String IDENTITIES = BY_ID + "/identities";
 
         /** Staff/admin — the maker: share a draft for approval (spec fix S41). */
@@ -1105,10 +1018,8 @@ public final class Routes {
         public static final String INVITE_DECISION = MY_INVITES + "/{partyId}";
     }
 
-    /**
-     * Billing catalogue and subscriptions (slice 13). {@link #BASE} is public — the price list is published
-     * before the sign-up wall, exactly like {@link Fees}.
-     */
+    /** Billing catalogue and subscriptions. {@link #BASE} is public — the price list is published
+     * before the sign-up wall, exactly like {@link Fees}. */
     public static final class Plans {
 
         private Plans() {
@@ -1137,10 +1048,8 @@ public final class Routes {
         public static final String LISTING = "/me/properties/{propId}/boost";
     }
 
-    /**
-     * The services marketplace (slice 13) — packers, interiors, legal, loans. The catalogue is public; orders
-     * are caller-scoped.
-     */
+    /** The services marketplace — packers, interiors, legal, loans. The catalogue is public; orders
+     * are caller-scoped. */
     public static final class ServiceCatalog {
 
         private ServiceCatalog() {
@@ -1155,10 +1064,8 @@ public final class Routes {
         /** One of the caller's own orders. Not served on its own; the two verbs below hang off it. */
         public static final String ORDER = ORDERS + "/{id}";
 
-        /**
-         * The customer's decision on a quote. Theirs alone — ops sets the price, the customer agrees to
-         * it, and {@link #ORDER_STATUS} cannot reach {@code scheduled}.
-         */
+        /** The customer's decision on a quote. Theirs alone — ops sets the price, the customer agrees
+         * to it, and {@link #ORDER_STATUS} cannot reach {@code scheduled}. */
         public static final String ORDER_ACCEPT = ORDER + "/accept";
 
         /** The customer calling the job off, any time before work starts. */
@@ -1193,10 +1100,8 @@ public final class Routes {
         public static final String CLAWBACK = BASE + "/{id}/clawback";
     }
 
-    /**
-     * The ops ticket board (slice 11). Team-scoped work items — the lightweight queue beside the {@link
-     * ServiceRequests} workflow.
-     */
+    /** The ops ticket board — team-scoped work items, the lightweight queue beside the
+     * {@link ServiceRequests} workflow. */
     public static final class Tickets {
 
         private Tickets() {
@@ -1233,19 +1138,15 @@ public final class Routes {
         /** Staff/admin — toggle homepage merchandising. */
         public static final String PROPERTY_FEATURED = Properties.BY_ID + "/toggle-featured";
 
-        /**
-         * Staff/admin — raise (POST) or clear (DELETE) a moderation flag. One path, two methods, so the
-         * mappings must be method-level or the two would collide.
-         */
+        /** Staff/admin — raise (POST) or clear (DELETE) a moderation flag. One path, two methods, so
+         * the mappings must be method-level or the two would collide. */
         public static final String PROPERTY_FLAG = Properties.BY_ID + "/flag";
 
         /** Staff/admin — correct another user's listing in place. */
         public static final String PROPERTY_ADMIN_UPDATE = Properties.BY_ID + "/admin";
 
-        /**
-         * Authenticated, participant-scoped — the owner&lt;-&gt;ops clarification thread. No {@code x-roles}:
-         * the owner is a participant, so role-gating it would lock them out of their own review.
-         */
+        /** Authenticated, participant-scoped. No {@code x-roles}: the owner is a participant, so
+         * role-gating it would lock them out of their own review. */
         public static final String PROPERTY_VERIFICATION = Properties.BY_ID + "/verification";
 
         /** Authenticated, participant-scoped — post to the thread. */
@@ -1260,10 +1161,8 @@ public final class Routes {
         /** Staff/admin — tick one checklist line as checked, or untick it. */
         public static final String VERIFICATION_CHECKLIST = PROPERTY_VERIFICATION + "/checklist";
 
-        /**
-         * The ownership gate. GET is participant-scoped — an owner must be able to see which required
-         * fact their listing is still waiting on — while POST, which grants the badge, is staff/admin.
-         */
+        /** The ownership gate. GET is participant-scoped — an owner must see which required fact they
+         * are waiting on — while POST, which grants the badge, is staff/admin. */
         public static final String VERIFICATION_OWNERSHIP = PROPERTY_VERIFICATION + "/ownership";
 
         /** Staff/admin — record one document against the ownership gate. */
@@ -1278,10 +1177,8 @@ public final class Routes {
         /** The owner's own side of the same queue. */
         public static final String ME_PROPERTY_REVIEWS = "/me/property-reviews";
 
-        /**
-         * POST is open to any signed-in user (file a report); GET is staff/admin (read the queue). The
-         * asymmetry is the whole design of an abuse queue and is enforced per-method.
-         */
+        /** POST is open to any signed-in user (file a report); GET is staff/admin (read the queue).
+         * The asymmetry is the whole design of an abuse queue and is enforced per-method. */
         public static final String REPORTS = "/reports";
 
         /** Staff/admin — triage one report (spec fix S30). */
@@ -1335,15 +1232,11 @@ public final class Routes {
         /** Ops — every deal on the platform, the funnel's floor. Read-only. */
         public static final String ADMIN_DEALS = "/admin/deals";
 
-        /**
-         * Admin — one row of the demand board with the counterparty's mobile <strong>unmasked</strong>, and
-         * never without an {@code audit_log} row.
-         */
+        /** Admin — one row of the demand board with the counterparty's mobile <strong>unmasked</strong>,
+         * and never without an {@code audit_log} row. */
         public static final String ADMIN_ENQUIRY_BY_ID = ADMIN_ENQUIRIES + "/{id}";
 
-        /**
-         * Admin — one site visit, visitor's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}.
-         */
+        /** Admin — one site visit, visitor's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}. */
         public static final String ADMIN_VISIT_BY_ID = ADMIN_VISITS + "/{id}";
 
         /** Admin — one deal, counterparty's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}. */
@@ -1355,10 +1248,17 @@ public final class Routes {
         /** Ops — decide one host verification. A rejection must carry a reason. */
         public static final String FLATMATE_REVIEW_BY_ID = FLATMATE_REVIEWS + "/{id}";
 
-        /**
-         * Staff/admin — the identity-verification queue: live-captured ID photos and a selfie awaiting a
-         * human decision.
-         */
+        /** Ops — re-check every standing owner-tier claim. An hourly sweep runs the same pass; see
+         * {@code FlatmateTrustReconciler#reconcileOwnerTier} for why the queue cannot reach it. */
+        public static final String FLATMATE_OWNER_TIER_RECONCILE =
+                FLATMATE_REVIEWS + "/reconcile-owner-tier";
+
+        /** Under {@code /admin} rather than {@code /me} because every status past {@code draft} asserts
+         * what a sub-registrar did, and the flatmate trust sweep reads that field as badge evidence. */
+        public static final String RENT_AGREEMENT_BY_ID = "/admin/rent-agreements/{id}";
+
+        /** Staff/admin — the identity-verification queue: live-captured ID photos and a selfie
+         * awaiting a human decision. */
         public static final String IDENTITY_REVIEWS = "/moderation/identity-reviews";
 
         /** Staff/admin — one case with its images and dedup warnings. */
@@ -1386,10 +1286,8 @@ public final class Routes {
         public static final String GROUP_APPLICATION_BY_ID = GROUP_APPLICATIONS + "/{id}";
     }
 
-    /**
-     * User administration (slice 9). Distinct from {@link Auth#ME}, which is the caller's own profile:
-     * everything here acts on <em>somebody else's</em> account.
-     */
+    /** User administration. Distinct from {@link Auth#ME}, which is the caller's own profile:
+     * everything here acts on <em>somebody else's</em> account. */
     public static final class Users {
 
         private Users() {
@@ -1425,10 +1323,8 @@ public final class Routes {
         /** Admin only — create a staff/admin account. The privilege-escalation surface. */
         public static final String STAFF = BASE + "/staff";
 
-        /**
-         * Admin only — the accounts minted through {@link #STAFF} that are still waiting for a second
-         * administrator to approve them.
-         */
+        /** Admin only — the accounts minted through {@link #STAFF} that are still waiting for a
+         * second administrator to approve them. */
         public static final String PENDING_APPROVALS = BASE + "/pending-approvals";
 
         /** Admin only — turn the second key on an account minted by <em>another</em> administrator. */
@@ -1447,16 +1343,12 @@ public final class Routes {
         /** Admin only — the append-only record of privileged actions. */
         public static final String AUDIT_LOG = "/admin/audit-log";
 
-        /**
-         * Admin only — the same rows as {@link #AUDIT_LOG}, narrowed to back-office actors and resolved to
-         * the person who acted rather than their id.
-         */
+        /** Admin only — the same rows as {@link #AUDIT_LOG}, narrowed to back-office actors and
+         * resolved to the person who acted rather than their id. */
         public static final String STAFF_ACTIVITY = "/admin/staff-activity";
 
-        /**
-         * Admin only — totals, the per-entity split, the action vocabulary and the leaderboard for the same
-         * window, aggregated in one round trip.
-         */
+        /** Admin only — totals, the per-entity split, the action vocabulary and the leaderboard for
+         * the same window, aggregated in one round trip. */
         public static final String STAFF_ACTIVITY_SUMMARY = STAFF_ACTIVITY + "/summary";
 
         /** Staff/admin — the KPI scorecard. Revenue is blanked for staff; see {@code AdminKpis}. */
@@ -1510,10 +1402,8 @@ public final class Routes {
         /** Staff/admin — the outreach template library, filtered by channel. */
         public static final String MESSAGE_TEMPLATES = "/admin/message-templates";
 
-        /**
-         * Staff/admin — CMS rows of one type. {@code {type}} is the discriminator across the four managed
-         * tables (announcements, services, faqs, banners).
-         */
+        /** Staff/admin — CMS rows of one type. {@code {type}} is the discriminator across the four
+         * managed tables (announcements, services, faqs, banners). */
         public static final String CONTENT = "/admin/content/{type}";
 
         /** Staff/admin — one CMS row. */
@@ -1542,11 +1432,20 @@ public final class Routes {
         private PageViews() {
         }
 
-        /**
-         * POST is public and capped per IP by {@code WriteRateLimitFilter}; the client batches so that a
-         * beacon cannot spend a visitor's whole write budget.
-         */
+        /** POST is public and capped per IP by {@code WriteRateLimitFilter}; the client batches so
+         * that a beacon cannot spend a visitor's whole write budget. */
         public static final String BASE = "/page-views";
+    }
+
+    /** Reader verdicts on help centre articles: the only signal on whether the writing works. */
+    public static final class HelpFeedback {
+
+        private HelpFeedback() {
+        }
+
+        /** POST is public and capped per caller by {@code WriteRateLimitFilter}. There is no GET — the
+         * verdicts are for whoever maintains the articles, not for the next reader. */
+        public static final String BASE = "/help/feedback";
     }
 
     /** The B2B pipeline: a society or builder asking to be onboarded in bulk. */
