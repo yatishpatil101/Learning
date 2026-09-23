@@ -56,7 +56,7 @@
 ## 5. Business rules & logic  *(the meat)*
 
 ### Load & view logging
-- `getProperty(id)` (from `lib/mockApi.js`). On success: `logPropertyView(locality, id)` and
+- `getProperty(id)`. On success: `logPropertyView(locality, id)` and
   `pushRecentProp(id)`. `p === undefined` -> loading; `p === null` -> not found.
 
 ### Access gate

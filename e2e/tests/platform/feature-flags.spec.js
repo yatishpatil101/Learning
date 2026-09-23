@@ -124,8 +124,10 @@ test.describe('reviewsEnabled flag', () => {
 
 
 test.describe('videoListings flag', () => {
-  // `.main-image-wrapper` is also the floor-plan frame (FloorPlan.jsx), so scope to the first.
-  const hero = (page) => page.locator('.main-image-wrapper > img').first();
+  /* `.main-image-wrapper` is also the floor-plan frame (FloorPlan.jsx), so scope to the first.
+     A descendant selector, not a child one: the hero is a scroll-snap track, so each photo sits
+     a level inside the wrapper. */
+  const hero = (page) => page.locator('.main-image-wrapper img').first();
 
   test('virtual tour button visible when enabled', async ({ page, flags }) => {
     await flags.enable('videoListings');

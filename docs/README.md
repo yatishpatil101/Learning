@@ -4,7 +4,7 @@ Written documentation for Draazy (Pune-first real-estate marketplace).
 
 These docs were originally the **API-build reference**: the React app held the business logic in a
 mock service layer, and the docs captured it so it could be re-implemented server-side. **That
-purpose is now largely discharged** — the backend exists. So the rule changed:
+purpose is discharged** — the backend exists and the mock layer is gone. So the rule changed:
 
 > **If a machine already enforces a fact, the docs do not restate it.** They carry the *reasoning*,
 > which no test can hold.
@@ -15,7 +15,6 @@ purpose is now largely discharged** — the backend exists. So the rule changed:
 |---|---|---|
 | Endpoint paths, params, status codes, schemas | [OpenAPI spec](../backend/src/main/resources/static/openapi/draazy-api.yaml) (Swagger UI at `/docs`) | `SpecCoverageTest` — fails the build on served-but-undeclared **and** declared-but-unhandled |
 | Physical database schema | `backend/src/main/resources/db/migration/**` | Flyway `validate` on every boot |
-| Which domains are live | `VITE_API_DOMAINS` in `e2e/playwright.config.js` | the live e2e run |
 | Test coverage | [`../e2e/COVERAGE.md`](../e2e/COVERAGE.md) | `check-coverage-citations.mjs` |
 | **Business rules, and why** | **`flows/` §1–§8** | nothing — this is why it is written down |
 
@@ -27,10 +26,10 @@ purpose is now largely discharged** — the backend exists. So the rule changed:
 4. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
 5. [`system/api-standards.md`](./system/api-standards.md) — the conventions the spec is written to.
 6. [`flows/`](./flows/) — per-feature deep dives: business logic, state machines, edge cases.
-7. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
+7. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, the wire contracts its mappers hold, and the rule that pages never import `lib/` directly.
 8. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system, the design-validation checklist.
 9. [`system/platform-architecture.md`](./system/platform-architecture.md) — §6.4 + ADR-019: badge-not-gate, and why freshness beats identity.
-10. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+10. [`system/code-quality.md`](./system/code-quality.md) — the ponytail ladder, comment hygiene, and how static-analysis findings get triaged.
 11. [`system/tech-debt.md`](./system/tech-debt.md) — the debt register: everything knowingly deferred, with the trigger that unblocks it. Finished items are **deleted**, not archived.
 12. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Separate from the register so the register stays 100% actionable.
 13. [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — entity choice, registration roadmap, MahaRERA/DPDP (launch-gate advisory).
@@ -50,11 +49,10 @@ Operational, not part of the reading order above — reach for these when you ar
 docs/
   DEPLOY.md   deploy contract · DEPLOY_WALKTHROUGH.md ordered runbook · LOCAL_DEV.md
   system/     platform-architecture, package-structure, data-model, cross-cutting, api-standards,
-              design-system, frontend-data-seam, profiles,
-              legal-entity-and-compliance, tech-debt, open-questions
-  flows/      consumer/ (16) admin/ (10) ops/ (2) — per-feature behavioural specs
-  roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
-  misc/       packing-plan
+              design-system, frontend-data-seam, profiles, code-quality,
+              legal-entity-and-compliance, tech-debt, open-questions, fixture-registry
+  flows/      consumer/ (16) admin/ (9) ops/ (3) — per-feature behavioural specs
+  roadmap/    mobile-app-plan, ai-ml-libraries
 ```
 
 ## Conventions
@@ -85,18 +83,18 @@ docs/
 - [`flows/consumer/societies.md`](./flows/consumer/societies.md) - Society and locality pages, claims, and reviews.
 - [`flows/consumer/support-tickets.md`](./flows/consumer/support-tickets.md) - Customer support tickets and FAQ.
 
-### Admin flows (10)
+### Admin flows (9)
 - [`flows/admin/analytics.md`](./flows/admin/analytics.md) - Platform KPIs and funnel analytics.
 - [`flows/admin/content-localities-societies.md`](./flows/admin/content-localities-societies.md) - CMS content, localities, and society moderation.
 - [`flows/admin/enquiries-funnel.md`](./flows/admin/enquiries-funnel.md) - Enquiries and deals funnel tracking.
 - [`flows/admin/finance.md`](./flows/admin/finance.md) - Revenue, fees, and transaction ledger views.
-- [`flows/admin/flatmates-moderation.md`](./flows/admin/flatmates-moderation.md) - Flatmate seekers, groups and group applications moderation.
 - [`flows/admin/property-verification.md`](./flows/admin/property-verification.md) - Listing verification queue (canonical maker-checker).
 - [`flows/admin/services-moderation.md`](./flows/admin/services-moderation.md) - Service-request desk, assignment, and moderation.
 - [`flows/admin/settings-team-staff.md`](./flows/admin/settings-team-staff.md) - Platform settings, team, and staff accounts.
 - [`flows/admin/trust-safety-reports.md`](./flows/admin/trust-safety-reports.md) - Reports triage and moderation actions.
 - [`flows/admin/users-kyc.md`](./flows/admin/users-kyc.md) - User management and KYC/verification decisions.
 
-### Ops flows (2)
+### Ops flows (3)
+- [`flows/ops/flatmate-moderation.md`](./flows/ops/flatmate-moderation.md) - The flatmate review desk: rooms, groups and seekers, and host verification.
 - [`flows/ops/service-queues.md`](./flows/ops/service-queues.md) - Shared back-office work queues for service fulfilment and flatmate host verification.
 - [`flows/ops/referrals-fraud.md`](./flows/ops/referrals-fraud.md) - Referral verification and fraud-review queue.

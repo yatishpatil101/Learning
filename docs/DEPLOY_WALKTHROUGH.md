@@ -876,8 +876,9 @@ It builds on an amd64 runner, pushes to Artifact Registry tagged with the commit
 so the file is the whole truth and a setting deleted from the repo is deleted from the service
 rather than lingering on it forever.
 
-Read `backend/deploy/cloudrun-sandbox.yaml` before this runs. `maxScale`, `containerConcurrency`,
-`memory` and `cpu-throttling` all encode consequences that are invisible from the console.
+Read `backend/deploy/cloudrun-sandbox.yaml` before this runs. `minScale`, `maxScale`,
+`containerConcurrency`, `memory` and `cpu-throttling` all encode consequences that are invisible
+from the console — `minScale: '1'` is the one that bills whether or not anyone uses the service.
 
 **Checkpoint** — the workflow deliberately does not print the URL, so fetch it:
 

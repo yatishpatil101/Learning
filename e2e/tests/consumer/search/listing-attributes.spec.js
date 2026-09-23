@@ -1,8 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-/* Twelve card-level attributes were derived in the browser from `fnvHash(listing.id)`, so the grid
-   filtered real homes by arithmetic on their slug. Every test below pins an EXACT set of slugs, each
-   one the hash provably cannot produce — "the filter returns fewer rows" passes under both. */
+/* Twelve card-level attributes were once derived in the browser from `fnvHash(listing.id)`, so the
+   grid filtered real homes by arithmetic on their slug. Every test below pins an EXACT set of slugs,
+   each one the hash provably cannot produce — "the filter returns fewer rows" passes under both.
+
+   Age and floor belong to `unstated-range-disclosure`: an exact set is not the right assertion
+   for them once a bound admits the listings that stated no value. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -21,26 +24,6 @@ const expectSlugs = async (page, expected) => {
   await expect.poll(async () => await slugs(page), { timeout: 15000 }).toEqual([...expected].sort());
 };
 
-/* ---------------------------------------------------------------- age / floor */
-
-/* Seeded: p5133=1, p5130=2, p5023=3 are the only approved buy rows aged 0-3; hash-implied ages are
-   -22, 0 and -6, so hashing yields {p5130} alone. p5010 and p5000 carry NO age deliberately — if
-   they appear here, an unstated age is being coerced to 0 and swept into "brand new" again. */
-test('Age filter matches the age the server stated, not a hash of the slug', async ({ page }) => {
-  await page.goto(`${BASE}/listings?deal=buy&age=0-3`);
-  await expectSlugs(page, ['p5133', 'p5130', 'p5023']);
-});
-
-/* Seeded floors: p5008=9, p5120=11 are the only approved buy rows on floor 8+.
-   Hash-implied floors are -36 and -25, so under the hash neither can appear and
-   p5013 (hash floor 18, seeded floor 2) takes their place - a disjoint set. */
-test('Floor filter matches the floor the server stated, not a hash of the slug', async ({ page }) => {
-  await page.goto(`${BASE}/listings?deal=buy&floor=8-40`);
-  await expectSlugs(page, ['p5008', 'p5120']);
-});
-
-/* ------------------------------------------------- trust claims (the sharp end) */
-
 /* "Society verified" and "Conveyance done" are legal assertions about a building's paperwork, so a
    buyer filtering on them must not be reading a coin flip. p5120 is the discriminator for both: the
    seed says verified, the hash said not, making this set unreachable by hashing. */
@@ -58,14 +41,21 @@ test('Conveyance-done filter reflects the seeded flag, not a hash of the slug', 
   await expectSlugs(page, ['p5120', 'p5008', 'p5023']);
 });
 
-/* -------------------------------------------------------------- rental policy */
-
-/* Seeded: p5121 and p5123 are the only rentals stating they accept families.
-   The hash put `family` on p5008, p5130, p5121 and p5033 and gave p5123
-   `bachelor-female`, so the sets overlap in exactly one row and differ in the rest. */
+/* Seeded: p5121 and p5123 are the only rentals stating they accept families, and an owner who
+   stated no preference at all is open to anyone, so the filter also admits every silent rental.
+   That makes an exact set the wrong assertion here — it would grow with the seed — so this pins
+   the rule instead: a STATED family policy matches, and a stated NON-family one never does.
+   The hash put `family` on p5008, p5130, p5121 and p5033, so the exclusions still defeat it. */
 test('Preferred-tenants filter reflects the stated policy, not a hash of the slug', async ({ page }) => {
   await page.goto(`${BASE}/listings?deal=rent&tenants=family`);
-  await expectSlugs(page, ['p5121', 'p5123']);
+  await cards(page).first().waitFor({ timeout: 15000 });
+  const shown = await slugs(page);
+  for (const stated of ['p5121', 'p5123']) {
+    expect(shown, `${stated} states it accepts families`).toContain(stated);
+  }
+  for (const other of ['p5122', 'p5007', 'p5014', 'p5033']) {
+    expect(shown, `${other} states a preference that is not family`).not.toContain(other);
+  }
 });
 
 /* Availability is the clearest evidence of the signed-shift bug: `(h >> 4) % 3`
@@ -85,34 +75,38 @@ test('Pet-friendly filter reflects the stated policy, not a hash of the slug', a
   await expectSlugs(page, ['p5033', 'p5122']);
 });
 
-/* --------------------------------------------------------------- flatmates */
-
-/* shareType is now DERIVED, but from a stated fact: a listing offering a room
+/* shareType is DERIVED, but from a stated fact: a listing offering a room
    arrangement (`room`) is a flat share, and one stating none is an ordinary
    rental belonging under neither chip. The old code chose with `h % 2`, a
-   literal coin flip on the slug that named the wrong rows either way. */
+   literal coin flip on the slug that named the wrong rows either way.
+
+   p5165-p5168 are plain Flats. Every earlier share was a converted Studio or
+   Penthouse, so `property_type` and `room` agreed on all four and the chip
+   could have been reading either; an ordinary 2 BHK offering a room is the
+   only shape that tells them apart. */
 test('Flatmates type comes from the stated room, not a coin flip on the slug', async ({ page }) => {
   await page.goto(`${BASE}/listings?deal=rent&ptype=flatmates`);
-  await expectSlugs(page, ['p5007', 'p5014', 'p5033', 'p5122']);
+  await expectSlugs(page, ['p5007', 'p5014', 'p5033', 'p5122', 'p5165', 'p5166', 'p5167', 'p5168']);
 });
 
-/* ------------------------------------------------------- the unstated listings */
+/* p5010 and p5000 carry no attributes. For a stated FLAG, "unknown" is not a value that can match,
+   so they must be absent from every narrowed search; this is the assertion that catches a
+   well-meaning `?? false` creeping back.
 
-/* p5010 and p5000 carry no attributes and p5130 no floor — an independent house sits in no building.
-   "Unknown" is not a value that can match a filter, so they must be absent from every narrowed
-   search; this is the assertion that catches a well-meaning `?? 0` / `?? false` creeping back. */
+   Age and floor are deliberately not here. A nullable MEASUREMENT is the opposite case: most of the
+   catalogue states neither, so excluding the silent ones deletes the majority on the first nudge of
+   a slider. They are kept and counted out instead, which `unstated-range-disclosure` pins.
+
+   `tenants` is not here either, and for a third reason: an empty preference is not silence but an
+   answer — the owner will take anyone — so p5000 is expected to match `tenants=family`. */
 test('listings that state nothing are excluded from narrowed searches, not defaulted in', async ({ page }) => {
-  for (const url of ['deal=buy&age=0-3', 'deal=buy&floor=8-40', 'deal=buy&v=society', 'deal=buy&v=conveyance']) {
+  for (const url of ['deal=buy&v=society', 'deal=buy&v=conveyance']) {
     await page.goto(`${BASE}/listings?${url}`);
     await cards(page).first().waitFor({ timeout: 15000 });
     expect(await slugs(page), `p5010 states no attributes and must not match ${url}`).not.toContain('p5010');
   }
 
-  await page.goto(`${BASE}/listings?deal=buy&floor=8-40`);
-  await expect.poll(async () => await slugs(page), { timeout: 15000 })
-    .not.toContain('p5130');
-
-  for (const url of ['deal=rent&tenants=family', 'deal=rent&availfrom=now', 'deal=rent&pets=1']) {
+  for (const url of ['deal=rent&availfrom=now', 'deal=rent&pets=1']) {
     await page.goto(`${BASE}/listings?${url}`);
     await cards(page).first().waitFor({ timeout: 15000 });
     expect(await slugs(page), `p5000 states no attributes and must not match ${url}`).not.toContain('p5000');

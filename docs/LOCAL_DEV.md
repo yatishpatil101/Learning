@@ -2,9 +2,8 @@
 
 How to run the full stack on one machine.
 
-**The backend is not optional.** `services/config.js` resolves every domain to the live API — there
-is no mock provider left, and no environment variable that can route a domain anywhere else. The
-per-domain `VITE_API_DOMAINS` switch this page used to document is gone; setting it does nothing.
+**The backend is not optional.** `services/config.js` resolves every domain to the live API, and no
+environment variable can route a domain anywhere else.
 Run both halves, or the catalogue renders empty.
 
 This page covers the first tier only. For how `local` relates to `local,e2e`, `sandbox` and
@@ -291,8 +290,8 @@ npm run dev          # http://localhost:5173
 ```
 
 **The backend must be running** — see §2. Every domain resolves to the live API, so a frontend
-started on its own serves the shell and then fails every request. There is no mock fallback to mask
-it, which is the point: for as long as the switch existed, "which backend am I actually talking
+started on its own serves the shell and then fails every request. Nothing masks that, which is the
+point: for as long as a per-domain switch existed, "which backend am I actually talking
 to?" was a question about a build, and a green run was only evidence about one side of it.
 `services/config.js` records what was removed and why.
 
@@ -330,28 +329,14 @@ page's `connect-src 'self'` CSP — which surfaces only as a generic "login fail
 
 > The proxy used to strip `/api` before forwarding, because the backend served `/auth/login`. That
 > made the prefix a dev-only fiction that worked here and 404'd the moment `VITE_API_BASE` named a
-> real host. Anything that calls the backend **directly** — `curl`, the parity harnesses, a REST
-> client — must therefore include `/api` itself: `http://localhost:8080/api/properties`. Swagger UI
+> real host. Anything that calls the backend **directly** — `curl`, a REST client, a test helper —
+> must therefore include `/api` itself: `http://localhost:8080/api/properties`. Swagger UI
 > is at `/api/docs` and health at `/api/actuator/health`.
 
 ## 4. Verifying the integration
 
-All three require the backend running. Only the first is automated.
-
-```powershell
-# Mock and live auth providers return the same shapes for every field the UI relies on.
-cd frontend
-node scripts\contract-parity.mjs --otp-log <path-to-backend-console-log>
-```
-
-It reads the OTP straight from the backend console log, so redirect it to a file:
-
-```powershell
-mvn spring-boot:run -Dspring-boot.run.profiles=local 2>&1 | Tee-Object -FilePath $env:TEMP\boot.log
-```
-
-Two things `contract-parity.mjs` does **not** cover, and which no automated check currently does
-either — verify them by hand against a live backend before trusting a release:
+The automated coverage is `mvn verify` and the Playwright suite (§5). Two things neither covers —
+verify them by hand against a live backend before trusting a release:
 
 1. **Session survives a reload, and a 401 triggers one silent refresh rather than a logout.** Log in,
    hard-reload, then let the access token expire and make a request.
@@ -363,41 +348,13 @@ two checks. Both files were zero bytes and had never contained anything — runn
 verified nothing, which is worse than having no instruction at all. They were deleted and the checks
 written out here instead (tech-debt D75).
 
-### What the parity harnesses leave behind
-
-There are eighteen `scripts/*-parity.mjs`. **They run against your real dev backend, so they write
-to `draazy`** — there is no way around that: the harness drives the *real* http provider over
-HTTP, and the backend, not the harness, chooses the database. Pointing a harness at a throwaway
-database would mean pointing the whole backend at one.
-
-Every one of them signs in, so every run mints a `users` row on a throwaway `987xxxxxxxx` mobile.
-That is invisible and harmless. What was neither was `review-parity.mjs`: it posts a genuine
-locality review, **reviews are public**, and so until 2026-08-09 each run left another "Parity probe
-review." rendering on `/locality/aundh` for anyone browsing the dev site. Four of them had
-accumulated, and the first live-reviews e2e asserted against them believing they were seed data
-(tech-debt D100).
-
-`review-parity.mjs` now removes its own row, and the contract is worth knowing before you read a
-failure from it:
-
-- It deletes **by the id the create returned**, straight through `psql` — never a
-  `LIKE 'Parity probe%'` sweep, which on a shared database would delete a concurrent run's row.
-- **Cleanup runs even when the assertions fail**, so a contract break does not also cost a public row.
-- **If cleanup fails, the run exits non-zero and prints the surviving id plus the `DELETE` to run by
-  hand.** A `PASS` therefore means both "the shapes agree" and "the row is gone"; a failure
-  mentioning a review id is asking you to remove it, not merely reporting drift.
-- Knobs, all defaulted to the values above so you normally pass none: `--db <uri>`
-  (or `$PARITY_DB_URL`), `--psql <path>` (or `$PARITY_PSQL`; falls back to `psql` on PATH then
-  `C:\Program Files\PostgreSQL\13\bin\psql.exe`), and `--keep` to leave the row deliberately —
-  which says loudly that it did. **Pass `--keep` last**: these scripts read argv in `--flag value`
-  pairs, so a valueless flag in the middle swallows the next argument.
-
-`--db` must name the database the **backend** is using. Point it elsewhere and the delete matches
-nothing, which the harness reports as a failure rather than a clean run.
-
-`conversation-parity.mjs` is often assumed to litter the same way. It does not: its staged chats
-live in `localStorage`, which under Node is an in-memory stub, so they never leave the process. Its
-only database footprint is the login row.
+> The same reasoning retired the `scripts/*-parity.mjs` harnesses. They drove the real http provider
+> against the real dev backend, so they wrote to `draazy` and could not be pointed at a throwaway
+> database without pointing the whole backend at one — and `review-parity.mjs` posted a **public**
+> locality review on every run, four of which accumulated on `/locality/aundh` before the first
+> live-reviews e2e began asserting against them as though they were seed data (tech-debt D100).
+> A check that dirties the database it verifies is a check that has to be cleaned up after. The
+> Playwright live lanes cover the same contracts and own their fixtures.
 
 ## 5. Tests
 

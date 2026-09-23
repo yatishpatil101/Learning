@@ -1,12 +1,12 @@
-# Decision ledger — mock retirement
+# Decision ledger
 
-Every question raised during the migration, and its answer. One line each.
+Every question raised while the platform was built, and its answer. One line each.
 This file records **decisions**, not narrative — the story of each build is `tasks/todo.md`,
-the phase plan is `docs/migration/`, and the coverage claim is `e2e/COVERAGE.md`.
+and the coverage claim is `e2e/COVERAGE.md`.
 
 Rules for this file: a decision gets a row, never a section. When a row's work ships,
 the row stays (it is the record of *why*) and nothing else is written anywhere else.
-Do not restate a decision in `todo.md` or `docs/migration/` — link to the number.
+Do not restate a decision in `todo.md` — link to the number.
 
 ---
 

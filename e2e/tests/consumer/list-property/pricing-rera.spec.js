@@ -1,13 +1,12 @@
 /**
  * Sale-side pricing affordances and the MahaRERA field, against the live backend.
  *
- * Converted from `pricing-rera.spec.js`. Both claims here are client-side derivations — the
- * ₹/sq.ft caption is price ÷ carpet area, and the RERA field's visibility is a branch on deal type
- * and property type — so the arithmetic is not what changes by running live. What changes is the
- * page the arithmetic runs on: the mock version computed it inside a wizard mounted for an account
- * that existed only in localStorage, and could not have noticed the caption going missing because
- * the step it lives on failed to render for a real session. The locality is picked by name rather
- * than by position, so this file does not depend on the order `GET /localities` returns.
+ * Both claims here are client-side derivations — the ₹/sq.ft caption is price ÷ carpet area, and
+ * the RERA field's visibility is a branch on deal type and property type — so the arithmetic is not
+ * what running live buys. What it buys is the page the arithmetic runs on: the wizard mounted for
+ * an account the server registered, so a caption going missing because its step failed to render
+ * for a real session is visible here. The locality is picked by name rather than by position, so
+ * this file does not depend on the order `GET /localities` returns.
  */
 import { test, expect } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
@@ -18,7 +17,7 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
  *
  * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
  * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198) and it
- * gains `.is-portal-open` afterwards. That single frame is what the dropdown sleeps here were for.
+ * gains `.is-portal-open` afterwards. Waiting on that class is what makes the frame observable.
  */
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
@@ -36,9 +35,9 @@ async function pickOption(page, dataErr, label) {
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-/* `.lp-steps` rather than the mock's `.lp-meter`: the meter renders on both the wizard and the
-   listing-limit paywall, so it cannot tell them apart, and a paywalled account would have sailed
-   past this wait and failed later on a missing field. The step rail exists only on the wizard. */
+/* `.lp-steps` rather than `.lp-meter`: the meter renders on both the wizard and the listing-limit
+   paywall, so it cannot tell them apart, and a paywalled account would sail past this wait and
+   fail later on a missing field. The step rail exists only on the wizard. */
 async function gotoForm(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
@@ -57,6 +56,18 @@ async function toPricing(page, type = 'Flat / Apartment') {
     await select.click();
     await menuOpen(page);
     await page.getByRole('option', { name: dataErr === 'floor' ? '9' : '14', exact: true }).click();
+  }
+  /* Land owes its own three answers, and step 1 will not advance without them — which is why this
+     is presence-guarded like the floors above rather than branched on the type: the helper is
+     asked for a type, not told what shape it is. Missing them is not a visible error here, it is a
+     "Next Step" that silently does nothing, so the failure surfaces one wait later as a map that
+     never renders. `Deemed NA` is deliberate (the sanctioned order is the one land answer that
+     demands a document, and this file is not about the upload gate); `buyerEligibility` is asked
+     of a farm-land *sale* only. Kept in step with `land-minimum.spec.js`, which walks the same
+     minimum and is the reason we know the type itself publishes. */
+  for (const [dataErr, label] of [['naStatus', 'Deemed NA'], ['otherRights', 'Clear'],
+    ['buyerEligibility', 'Agriculturist buyer only']]) {
+    if (await page.locator(`[data-err="${dataErr}"]`).count()) await pickOption(page, dataErr, label);
   }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
@@ -97,7 +108,7 @@ test('P2: MahaRERA field is hidden for Farm Land sale', async ({ page }) => {
 test('P2: MahaRERA field is hidden for a rent listing', async ({ page }) => {
   await gotoForm(page);
   // Switch deal to Rent before filling. The pill's own `selected` class (controls.jsx) is the
-  // render signal the old "let the form settle" sleep was approximating.
+  // render signal, so the re-render is waited on rather than slept through.
   const rent = page.locator('.radio-pill', { hasText: 'Rent' }).first();
   await rent.click();
   await expect(rent).toHaveClass(/selected/);

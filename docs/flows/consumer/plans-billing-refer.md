@@ -52,17 +52,19 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 ## 5. Business rules & logic  *(the meat)*
 
 ### Plan catalog (`Plans.jsx`)
-The page renders two hardcoded plan sets (not directly from `plans.json`), priced via `fee()`:
-- **Seeker:** `seeker-free` (Rs 0) and `seeker-plus` (`fee('seekerPlusTopup')` = Rs 199, one-time;
-  "Unlock 15 owner contacts", priority visits, no-spam).
-- **Owner:** `owner-free` (Rs 0, 1 listing), `owner2` (`fee('ownerPlanYearly')` = Rs 999/yr, 5
-  listings + 7-day featuring + unlimited contacts), `owner5` (`fee('ownerProYearly')` = Rs 2499/yr,
+The cards read the live `/plans` catalogue; `fee()` remains only as the fallback when it has not
+resolved, which is why the two tables must agree and are pinned together by
+`PlanPriceMatchesFeeScheduleTest`:
+- **Seeker:** `seeker-free` (Rs 0) and `seeker-plus` (Rs 199/mo; "Unlock 15 owner contacts",
+  priority visits, no-spam).
+- **Owner:** `owner-free` (Rs 0, 1 listing), `owner2` (Rs 999/yr, 5
+  listings + 7-day featuring + unlimited contacts), `owner5` (Rs 2499/yr,
   unlimited listings + always featured + dedicated manager + free rent agreement).
 - The active plan (`getPlan().id`) is marked "Current plan"; a **paid** current plan locks its CTA
   against re-purchase; a free current plan keeps the CTA actionable (default id is `free` for all).
-- `plans.json` (`PL1 Owner Basic`, `PL2 Owner Plus`, `PL3 Owner Pro`, `PL4 Seeker Plus`) is the
-  data-model catalog; note prices there (999/2499/199) match the fee defaults but the runtime plan
-  ids differ (`owner2`/`owner5`/`seeker-plus`).
+- `plans.json` (`PL1 Owner Basic`, `PL2 Owner Plus`, `PL3 Owner Pro`, `PL4 Seeker Plus`) is a
+  leftover mock seed with no importers since the catalogue moved server-side. Its prices
+  (999/2499/199) match, but `PL1` is named "Owner Basic" where the live catalogue says "Owner Free".
 
 ### Platform fees (`store/billing.js`)
 - Single source of truth = admin DB `settings.fees` (read via `rawDb()`), with a legacy
@@ -115,9 +117,8 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   nothing. This replaces the old `lib/store/contactQuota.js` — a `dzContactsUsed:<mobile>` counter
   that the browser wrote, added a locally-minted referral bonus to, and enforced *before* making any
   request. Clearing site data restored it in full and a second device never knew about the first.
-  The old module now lives at `services/providers/mock/contactQuota.js`, where it is the **mock
-  server's** state. It was never importable from the `lib/store.js` barrel, which has itself since
-  been deleted — its last two importers now name the `lib/store/*` slices directly.
+  The `lib/store.js` barrel has itself since been deleted — its last two importers now name the
+  `lib/store/*` slices directly.
 
 ### Checkout (`Checkout.jsx`)
 - Reads `?plan=` (`seeker-plus` | `owner2` | `owner5`); unknown -> `Navigate('/plans')`. Requires
@@ -197,15 +198,9 @@ and reading that file; the constructor check is what states the rule.
 > That described the whole product, and it was the bug. The server mints its own permanent code in
 > `referral_codes` (V23), format `PUNE-AB12`, and `POST /referrals/redeem` resolves only that one —
 > so every link the product produced pointed at a scheme that could not recognise it. `Refer.jsx`
-> now reads `code` and `invited` from `GET /me/referrals`. What is described below is the **mock
-> build's** behaviour, which is also what the mock provider serves.
+> now reads `code` and `invited` from `GET /me/referrals`.
 
-- **Code (mock build):** `referralCode()` = up-to-4 uppercase letters from the user's name (else
-  `PUNE`) + last 4 digits of mobile (or a random 4-digit number), persisted at
-  `dzReferralCode:<mobile>`. Deliberately **not** reshaped to imitate the server's `PUNE-AB12`: on a
-  mock build there is no server to agree with, and a code that passes for real is worse than one
-  that is visibly its own.
-- **Code (live build):** `GET /me/referrals` → `{ code, invited, converted, contactsEarned,
+- **Code:** `GET /me/referrals` → `{ code, invited, converted, contactsEarned,
   contactsPending }`. The page renders nothing in the share card until it resolves, because a Copy
   button that writes `""` and then reports "Copied" is the quiet kind of wrong.
 - **Link:** `referralLink(code)` = `<origin>/signup?ref=<code>` (drives `?ref` capture on signup).
@@ -214,9 +209,8 @@ and reading that file; the constructor check is what states the rule.
   self-referred or already used, none of which the new account holder chose or can fix.
 - **Stats:** the whole progress narrative is the server's since D234. `invited` is
   `ReferralSummaryDto.invited` (people who have redeemed the code), `listed` is `converted` (those
-  that qualified or were approved). `dzReferralStats:<mobile> = { invited, joined, listed }` survives
-  only as the **mock provider's** own state — read by `providers/mock/{contactQuota,referralProvider}`
-  and seeded directly by the e2e harness, written by nothing. Its incrementers are gone:
+  that qualified or were approved). `dzReferralStats:<mobile> = { invited, joined, listed }` is
+  written by nothing. Its incrementers are gone:
   `addReferralInvite` counted button presses under the name "You've invited N", and
   `addReferralJoin` / `addReferralListing` were ungated ways to mint quota that nothing ever called.
 - **Invite counting is honest:** a share opens WhatsApp or the OS sheet and then simply re-reads

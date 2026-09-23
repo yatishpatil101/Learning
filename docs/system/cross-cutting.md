@@ -227,7 +227,7 @@ top-level stages.
 
 Grounded in `src/lib/data/properties-admin.js` and `src/pages/admin/AdminProperties.jsx`.
 
-- **Maker = owner.** Creating a listing (`addListing` in `src/lib/mockApi/properties.js`) stamps
+- **Maker = owner.** Creating a listing stamps
   `status: 'pending'`. The listing is not live.
 - **Checker = admin / manager.** The admin Properties queue
   (`src/pages/admin/AdminProperties.jsx`, guarded by `RoleRoute roles={['admin','manager']}`)
@@ -251,7 +251,7 @@ Grounded in `src/lib/data/properties-admin.js` and `src/pages/admin/AdminPropert
 
 | Context | Maker (proposes) | Checker (approves/rejects) | Approval side-effect | Code |
 |---------|------------------|----------------------------|----------------------|------|
-| Listing verification | owner submits listing | admin/manager | listing `status -> approved`, goes live | `properties-admin.js` `decideReview`, `mockApi/properties.js` `setListingStatus` |
+| Listing verification | owner submits listing | admin/manager | listing `status -> approved`, goes live | `propertyProvider.js` moderation writes |
 | Deal finalization | buyer requests finalize | owner accepts/declines | accept closes the deal (`closeDeal`) and auto-declines the other pending requests for that property | `src/lib/store/deals.js` `requestFinalize` / `acceptFinalize` / `declineFinalize` |
 | Contact reveal | buyer requests contact | owner approves/declines | owner phone unmasks for that buyer (subject to owner privacy prefs) | `src/lib/contact.js` `requestContact` / `setContactStatus` |
 | Document access | buyer requests a doc category | owner grants/declines | on grant, matching uploaded docs are shared (`sharedDocIds`) | `src/lib/data/documents.js` `addDocRequest` / `respondDocRequest` |
@@ -390,10 +390,10 @@ is being withheld.
 
 ### Soft-delete (status flags and archive, not hard delete)
 
-Draazy prefers reversible archival over destructive deletes. The generic helpers live in
-`src/lib/mockApi/core.js`:
+Draazy prefers reversible archival over destructive deletes. The shape is the same wherever it is
+applied:
 
-- `archiveRecord(collection, id, reason)` sets `archived: true`, `archivedAt` (ISO-8601), and
+- Archiving sets `archived: true`, `archivedAt` (ISO-8601), and
   `archiveReason`. The record stays in the store; list views filter out `archived` items.
 - `restoreRecord(collection, id, statusOverride)` sets `archived: false`, stamps `restoredAt`, and
   can reset `status` (listings restore to `pending`, so they re-enter verification).
@@ -416,14 +416,11 @@ add `archivedAt` / `restoredAt`. The future schema standardizes on `created_at` 
 
 ### Audit trail (who / when / what)
 
-`src/lib/mockApi/audit.js`:
+An audit entry is `{ id, at (ISO-8601), who, action, detail }`, `who` resolved from the signed-in
+staff user.
 
-- `logAudit(action, detail)` prepends an entry `{ id, at (ISO-8601), who, action, detail }` to a
-  capped list (`auditLog`, max 200). `who` is resolved from the signed-in user via
-  `currentStaffInfo()`. `listAudit()` / `clearAudit()` read/reset it.
-- `addInternalNote` / `editInternalNote` / `getInternalNotes` are the **mock** half of the
-  `note` domain, reached only through `services/providers/mock/noteProvider.js`. Live, notes are a
-  table of their own (`internal_notes`) behind `GET|POST /admin/notes/{entityType}/{entityId}` and
+- Internal notes are a table of their own (`internal_notes`) behind
+  `GET|POST /admin/notes/{entityType}/{entityId}` and
   `PATCH /admin/notes/{id}`, gated on `notes:read` / `notes:write`. They are **mutable on purpose**
   — a note is retained customer information that goes stale, not a signature — and an edit records
   the previous wording on the audit row while leaving the original author on the note. There is no
@@ -468,19 +465,15 @@ Components never talk to `localStorage` or `fetch` directly. They import from a 
 `src/services/config.js`:
 
 ```
-component  ->  services/xService.js  ->  createProvider('x')  ->  mock | http provider
+component  ->  services/xService.js  ->  createProvider('x')  ->  providers/http/xProvider.js
 ```
 
-- `VITE_API_MODE` selects the backend: `mock` (default, `src/services/providers/mock/*Provider.js`,
-  localStorage) or `http` (`src/services/providers/http/*Provider.js`, future Spring Boot).
-- Swapping mock <-> http is **one env variable**; no component changes. `createProvider(domain)`
+- There is one data source: the live API. `createProvider(domain)`
   resolves and caches the provider via a **lazy** `import.meta.glob`, so it returns a *Promise* of
   the provider module and services await it: `(await provider()).foo(...)`. The glob must stay lazy
   — an eager one reinstates an import cycle that blanks the app at bootstrap (tech-debt D208), and
   `scripts/check-provider-cycle.mjs` fails the build if it comes back.
-- **All service functions return Promises** regardless of provider, so the mock's synchronous
-  localStorage wrappers and the future async HTTP calls are interchangeable (mock providers wrap
-  sync helpers in `Promise.resolve(...)`).
+- **All service functions return Promises**, so a caller never depends on when the answer arrives.
 
 Domains wired today: `property`, `auth`, `deal`, `contact`, `finance` (barrel:
 `src/services/index.js`).
@@ -510,10 +503,10 @@ Because every call is a Promise, each data-driven view handles three states:
 In-app notifications are read from the server through `src/services/notificationService.js`.
 
 > **Historical.** The bullets below describe `src/lib/store/notifications.js`, a per-user seed-once
-> `localStorage` list that **no longer exists** — it was deleted with the mock provider lane. They are
+> `localStorage` list that **no longer exists**. They are
 > kept because the *shape* they describe (stable `id`, `read` flag, `at` timestamp, one list feeding
 > both the page and the bell badge) is still the shape the server returns, and because the seed-once
-> rule explains why a revisit never duplicated entries in the old demo build.
+> rule explains why a revisit never duplicated entries.
 
 - Stored under `dzNotifications:<mobile>` (falls back to `anon`).
 - `getNotifications()` returns the list; `seedNotifsIfEmpty(defaults)` stamps a stable `id`, an
@@ -939,6 +932,17 @@ inline offset parks the pill on top of the mobile tab bar.
 
 Restore-on-mount only lets fields the user actually filled override the form's defaults; empty draft
 values must not wipe smart defaults.
+
+**Changing a form's field shape means renaming its `dzDraft:*` key.** A deploy replaces the code but
+not the browser's storage, so the next visit parses yesterday's draft with today's reader: a
+renamed, retyped or re-scaled field is spread back into the form unchallenged, and — because
+restore only skips *empty* values — a stale one wins over the new default and can be submitted.
+Nothing heals this the way the server heals a stale session, since a draft exists precisely because
+no server has seen it yet. Rename rather than version in place — suffix the key and let the old one
+become unreadable by construction, the way `dz_pob_draft_v1` and `draazyDB_v5` already spell it
+elsewhere. A wrapper would be the alternative, and a worse one: the rent-agreement redaction pass
+reads the raw draft to strip PAN and Aadhaar before `useFormDraft` ever sees it, and would have to
+learn to read through the box. The old blob is left behind for the browser to evict.
 
 ### `lib/useSocietyCatalogue.js`
 

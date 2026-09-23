@@ -802,7 +802,7 @@ from the same flag — but the storage half is the half a script on the page can
 **City copy on the auth panels.** City selection is client state; what the panel *says* about a city is
 not. Pune's inventory count next to "launching in Mumbai soon" is not a cosmetic slip — it is a claim
 about stock that does not exist. These assertions move again when the cities/geo work lands
-(`cities.live` becomes a server fact); recorded in `docs/migration/README.md` under decision 2.
+(`cities.live` becomes a server fact); recorded in `tasks/DECISIONS-NEEDED.md` under decision 2.
 
 **The resend countdown is the server's number.** It was a hardcoded 30s in the browser while a
 deployment enforces a 60s gap, so the button came back while the server still refused and a person who

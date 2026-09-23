@@ -2,8 +2,8 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { LIST_PROPERTY_DRAFT_KEY as DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 
-const DRAFT_KEY = 'dzDraft:list-property';
 const DETAILS = {
   flatNumber: 'C-901', tower: 'North', society: 'Edit Prefill Homes', street: 'Baner Road',
   landmark: 'Near the public library', ownership: 'Freehold', loanAvailable: false,
@@ -491,16 +491,13 @@ async function selectOption(page, trigger, name) {
 test('create through the rental wizard persists exact answers and decimal areas for a fresh edit reload', async ({ page, request }) => {
   const mobile = await signedInAsNew(page);
   const headers = await authHeaders(mobile);
+  const { fixtures: _fixtures, ...residentialDetails } = DETAILS;
   const details = {
-    ...DETAILS, society: `Zztest Prefill ${mobile.slice(-6)}`, ownership: '', loanAvailable: true,
-    lockIn: '6', furniture: ['Wardrobe'], commercialType: '',
-    plotArea: '', floorsInHouse: '', washrooms: '', shellType: '', camCharges: '',
-    gstOnRent: '', fitOutMonths: '', escalationPct: '', tenancyStatus: '', inPlaceRent: '',
-    leaseExpiry: '', seatCount: '', frontage: '', floorLoad: '', clearHeight: '',
-    sanctionedPower: '', dockCount: '',
+    ...residentialDetails, society: `Zztest Prefill ${mobile.slice(-6)}`, ownership: '', loanAvailable: true,
+    lockIn: '6', furniture: ['Wardrobe'], plotArea: '', floorsInHouse: '',
     plotLength: '', plotWidth: '', openSides: '', roadWidth: '', plotZone: '', waterSource: '',
-    pantry: false, cornerPlot: false, boundaryWall: false,
-    naSanctioned: false, electricity: false, roadAccess: false, satbara: false, suitableFor: [],
+    cornerPlot: false, boundaryWall: false, naStatus: '', otherRights: '', transactionType: '',
+    electricity: false, roadAccess: false,
   };
   /* The wizard asks about possession on a sale and nowhere else, so the ABSENCE of the key is the assertion:
      a pre-filled default would claim a handover the owner never stated on a rental. */
@@ -580,6 +577,7 @@ test('create through the rental wizard persists exact answers and decimal areas 
   expect(response.status(), 'only the wizard may create this listing').toBe(201);
   const body = response.request().postDataJSON();
   expect(body.formDetails).toEqual(details);
+  expect(body.formDetails).not.toHaveProperty('buyerEligibility');
   const expected = {
     deal: 'rent', propertyType: 'Flat', area: 875.5, carpetArea: 875.5, builtUpArea: 1000.25,
     areaUnit: 'sqft', bhk: 2, bathrooms: 2, balconies: 0, parking: 0, floor: 0, totalFloors: 15,

@@ -42,8 +42,8 @@
 
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
-> **Runtime note.** The `src/lib/store/*` modules cited below (`notifications.js`, `search.js`) were
-> deleted with the mock provider lane. Saving is now `SavedContext` over the server; searches and
+> **Runtime note.** The `src/lib/store/*` modules cited below (`notifications.js`, `search.js`) have
+> been deleted. Saving is now `SavedContext` over the server; searches and
 > alerts go through `services/savedSearchService.js`; notifications through
 > `services/notificationService.js`. The keys and rules are kept because they document the shape and
 > the edge cases the server behaviour still has to satisfy.
@@ -176,8 +176,6 @@ Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet ho
   catalogue was smaller than a page and would have become a silent ceiling the day it was not. Now
   `SavedSearchService` fills the field on every read of the resource (list, create and update alike,
   so a freshly saved alert never renders a stale zero), and both surfaces read `s.matchCount`.
-  `countMatches` survives as the **mock provider's** implementation of the same three facets, which
-  is honest there because the whole demo catalogue is in memory and there is no page to truncate.
 
 ## 8. Edge cases, validation & error states
 - **Signed-out lead:** alert stored under the mobile they typed, not `anon`, so it re-appears after

@@ -16,7 +16,7 @@
 
 Flow docs link here by entity name; the field-level truth for each is the named OpenAPI schema.
 
-| Domain entity (seed / mock) | OpenAPI schema(s) |
+| Domain entity (seed) | OpenAPI schema(s) |
 |---|---|
 | users | `User`, `UserUpdate`, `Party`, `Role` |
 | properties / listings | `Property`, `PropertySummary`, `ListingCreate`, `ListingUpdate`, `PropertyStatus` |
@@ -68,11 +68,11 @@ Status enums are owned by the OpenAPI spec (SSOT for wire shapes). Canonical, no
 - **Documents**: `pending, granted, declined` (+ `expired`)
 - **Teams**: `rental, legal, loans, interior, packers, valuation`
 
-The React app is currently **mock-only** (localStorage); a few ops/ticket/service tokens use a
-simpler internal vocabulary that never reaches the wire yet. When the `http` provider is built it
-**must map** these UI↔wire pairs:
+The React app reads these tokens from the live API through `services/providers/http/*`. A few
+ops/ticket/service tokens left over from the prototype's internal vocabulary are **not** wire
+values; they must be mapped, never sent:
 
-| Domain | UI (mock) token | Wire token (OpenAPI) |
+| Domain | Legacy UI token | Wire token (OpenAPI) |
 |---|---|---|
 | service request / ticket | `in_progress` | `in-progress` |
 | service request / ticket | `done` | `completed` |
@@ -200,13 +200,13 @@ Recorded so the Postgres schema author reconciles them deliberately:
 
 ## Migration Strategy
 
+Complete. Every domain now runs:
+
 ```
-Phase 1 (Current):  Component -> services/*Service.js -> providers/mock/ -> localStorage
-Phase 2 (Future):   Component -> services/*Service.js -> providers/http/ -> Spring Boot -> PostgreSQL
+Component -> services/*Service.js -> providers/http/ -> Spring Boot -> PostgreSQL
 ```
 
-Switch via `VITE_API_MODE`: `mock` -> localStorage (current); `http` -> real REST API (future).
-Components never change - only the provider implementation swaps.
+Components never changed across the migration - only the provider implementation did.
 
 ## Catalogue entity notes (`Property`)
 

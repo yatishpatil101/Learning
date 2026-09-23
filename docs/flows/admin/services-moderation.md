@@ -29,7 +29,6 @@
 - **Source components:**
   - `src/pages/admin/AdminServices.jsx` - KPIs, filters, table, row actions, modal, CSV export.
   - `src/lib/data/tickets.js` - `TEAMS`, `TEAM_LABEL`, `statusLabel`, `addTicketNote`.
-  - `src/lib/mockApi/tickets.js` - `listTickets`, `updateTicket`, `createServiceRequest`, `syncServiceTicket`.
   - Catalog/pricing surfaces (adjacent): `src/data/services.json`, `AdminSettings.jsx` Move-in Pack + fees.
 
 ## 3. Actors & roles
@@ -40,7 +39,7 @@
   belongs to all teams. Ops teams are the 6 verticals in `OPS_TEAMS` / `TEAMS`.
 - Option flags (`useAdminFlags().optionEnabled`) toggle columns/controls:
   `services.priority`, `services.teamRouting`, `services.staffAssignment` (all seed `true`).
-- Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
+- Guards are UX-only RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
 - [`tickets`](../../system/data-model.md) - **read** and **updated** (`status`, `assignedTo`, appended `notes`).

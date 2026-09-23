@@ -12,8 +12,8 @@
 > **Status:** documented from React source - **Primary role(s):** owner (maker/initiator), tenant
 > (co-filler / invitee), ops "rental" team (checker/drafter)
 
-> **Runtime correction (2026-08-28).** The browser-local `serviceFlow.js` described below was
-> deleted with the mock provider. The current flow is server-owned: the client creates and reads
+> **Runtime correction (2026-08-28).** The browser-local `serviceFlow.js` described below has been
+> deleted. The current flow is server-owned: the client creates and reads
 > requests, creates/claims/accepts co-fill invitations, records identity numbers, withdraws an
 > unanswered invite, and records read receipts through `/service-requests`. Historical sections
 > that name `draazyServiceReq:*`, `draazyRAInvite:*`, or `serviceFlow` explain the migration

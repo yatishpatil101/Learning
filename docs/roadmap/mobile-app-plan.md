@@ -17,9 +17,9 @@ inline. Owner: frontend team. Status: proposed.
 We will **not** rewrite the app. Our React app is a WebView‑ready SPA with a clean service/logic
 separation, so we take the fast, low‑risk path first:
 
-1. **Phase 0 — Backend prerequisite.** Native features (push, camera upload, per‑user data) need a
-   real API. Our service layer (`src/services/`) is already built to flip from `mock` → `http` with
-   one env var. This is the gating dependency for the mobile features that actually matter.
+1. **Phase 0 — Backend prerequisite (satisfied).** Native features (push, camera upload, per‑user
+   data) need a real API. The Spring Boot backend is live and `src/services/` reaches it through the
+   `http` providers, so the gating dependency for the mobile features that actually matter is met.
 2. **Phase 1 — PWA hardening.** Turn the current web app into an installable, offline‑capable,
    fast‑loading Progressive Web App. Benefits mobile web *and* the Capacitor shell in Phase 2.
 3. **Phase 2 — Capacitor packaging.** Wrap the exact same web build in a native Android/iOS shell to
@@ -56,7 +56,7 @@ Our current stack: **React 19 + Vite 6 + React Router 7 + Tailwind 3**, Leaflet 
 jsPDF, with a **provider‑based service layer** and **platform‑agnostic logic** in `src/lib/`.
 
 ### Reuses as‑is (both PWA and Capacitor)
-- **`src/services/**`** — data layer already abstracts mock vs. HTTP behind Promises (`config.js`,
+- **`src/services/**`** — data layer already abstracts the API behind Promises (`config.js`,
   `propertyService.js`, `authService.js`, `dealService.js`, `contactService.js`, `financeService.js`).
 - **`src/lib/**`** — all business/domain logic: `format`, `qualityScore`, `rentReceipt`,
   `serviceFlow`, `freshness`, `groupApplications`, `emi`/calculators, `constants`, `hash`.
@@ -96,30 +96,32 @@ jsPDF, with a **provider‑based service layer** and **platform‑agnostic logic
   **`@capacitor/preferences`** (native storage), **`@capacitor/app`** + **`@capacitor/browser`**
   (deep links / external links), **`@capacitor/status-bar`** + **`@capacitor/splash-screen`**.
 
-**Backend prerequisite (Phase 0):** any REST service (the code comments target Spring Boot at
-`http://localhost:8080/api`). Model entities from the existing mock providers. Set
-`VITE_API_MODE=http` to switch the app over — **zero component changes**.
+**Backend prerequisite (Phase 0) — satisfied:** the Spring Boot API serves the app (in local dev at
+`http://localhost:8080/api`), and `src/services/` reaches it through the `http` providers with no
+component‑level coupling.
 
 ---
 
-## 5. Phase 0 — Backend prerequisite (gating dependency)
+## 5. Phase 0 — Backend prerequisite (satisfied)
 
 Push notifications, camera upload, saved searches, and per‑user data are only meaningful with a real
-backend and real auth. The service layer is already designed for this flip.
+backend and real auth. **That dependency is met:** the Spring Boot API is live, auth is server‑side
+with role guards, and every domain in `src/services/` resolves to an `http` provider — there is no
+other data source in the app.
 
-**Work:**
-- Stand up REST endpoints mirroring the mock providers: listings, users, deals/enquiries, contacts,
-  finance, auth. Keep the same **normalized listing model** (see `real-estate-expert`: `listingType`
-  discriminator, lat/lng always present, gated contact, RERA validation).
-- Implement **real auth** (server session / JWT) + role‑based guards to replace the mock
-  `localStorage` guards (admin vs. staff vs. seeker). Enforce authorization **server‑side**.
-- Provide `/http` provider files under `src/services/providers/http/` matching the mock provider
-  method signatures.
+**The rules the native shells inherit, and must not weaken:**
+- The **normalized listing model** holds (see `real-estate-expert`: `listingType` discriminator,
+  lat/lng always present, gated contact, RERA validation).
+- **Contact details never leak before the auth/approval gate**, and the gate is enforced by the
+  server, not the client.
+- **Roles are enforced server‑side** — a seeker cannot reach admin/ops endpoints whatever the shell
+  renders.
 
-**Acceptance criteria:**
-- With `VITE_API_MODE=http`, the web app runs end‑to‑end against the API with **no component edits**.
-- Contact details never leak before the auth/approval gate (enforced by the server, not the client).
-- Roles enforced server‑side (a seeker cannot hit admin/ops endpoints).
+**Still outstanding before a native shell ships:**
+- Push notifications need device‑token registration and a server‑side send path — confirm what
+  exists today before planning Phase 2 against it.
+- A packaged build needs `VITE_API_BASE` pointed at a real host: the relative `/api` the web app
+  uses depends on the dev/CDN proxy and means nothing from a `capacitor://` origin.
 
 **Primary metric:** % of core flows working against the live API. **Guardrail:** no PII/contact leak
 before gate; auth error rate flat.
@@ -283,8 +285,8 @@ Phase 3 (React Native)  ──▶  FUTURE / OUT OF SCOPE — only if native feel
                              Admin/ops stays web permanently. Reuses src/services + src/lib.
 ```
 
-**Recommended start:** kick off **Phase 0** and **Phase 1** in parallel, then **Phase 2**. The service
-layer (`VITE_API_MODE`) is the seam that makes this safe and reversible.
+**Recommended start:** Phase 0 is done, so **Phase 1** first, then **Phase 2**. The service
+layer's provider seam is what makes this safe and reversible.
 
 ---
 
@@ -327,7 +329,7 @@ because Capacitor already produces native apps from the web code.
 
 ### How to handle real web↔native differences: platform seams (not forks)
 Don't fork the repo — fork **small seams** where behavior genuinely differs, using the **same
-dependency‑inversion pattern already in `src/services/config.js`** (`mock` vs `http`):
+dependency‑inversion pattern already in `src/services/config.js`**:
 - **Persistence** — `persist.js` chooses localStorage (web) vs `@capacitor/preferences` (native) at
   runtime via `Capacitor.isNativePlatform()`. One interface, two implementations.
 - **Native features** (push/camera/geo) — thin wrapper modules that **no‑op or degrade gracefully on
@@ -342,7 +344,7 @@ re‑implement the **UI** natively.
 |---|---|
 | Phase 1 + 2 in this repo? | **Yes — same repo, same build.** |
 | Separate mobile app? | **No** — not until Phase 3, and even then only the UI layer. |
-| Handle web/native differences? | **Runtime platform seams** inside shared code (like `mock`/`http`). |
+| Handle web/native differences? | **Runtime platform seams** inside shared code (like the services provider seam). |
 | Structure? | Web app *is* the mobile app; `/android` + `/ios` are generated output. |
 
 **Mental model:** you are not building a mobile app *alongside* the web app — you are **shipping the
@@ -392,8 +394,10 @@ Everything else is additive or native‑only.
 
 ## 14. Timing & sequencing — when to start, tied to YOUR milestones
 
-Your two anchors: **(1) mobile UI screens are still being reworked after review; (2) backend comes
-after UI freeze.** That dictates the order. **Do not start Capacitor packaging yet.**
+Written against two anchors: **(1) mobile UI screens are still being reworked after review; (2)
+backend comes after UI freeze.** Both have since passed — the backend is live and Phase 0 and Phase 1
+are done — so the sequencing below is kept as the *reasoning*, and the gate it waits on is open.
+**Capacitor packaging is now the next move, not a premature one.**
 
 ### Dependency logic
 - **Phase 2's valuable part (push/camera/geo) depends on the backend** — it can't finish before the
@@ -411,7 +415,7 @@ cheap exception (mobile‑ready design during the rework you're already doing).
 |---|---|---|
 | **Now → UI review & screen rework** | **No packaging.** Just design mobile‑responsive: 360–430px widths, ≥44px tap targets, sticky primary CTA, safe‑area spacing. Keep data in service/lib seams, not hardcoded in components. | This *is* the mobile prep; getting responsive UI right now means Phase 1/2 add almost nothing later. |
 | **UI freeze** ✅ | **Start Phase 1 (PWA hardening).** | Screens stable → caching/splitting/perf work won't be invalidated. |
-| **Backend build (overlaps)** | Continue Phase 1; begin **Phase 0 `http` providers** + real auth. | Phase 1 needs no backend; wiring `VITE_API_MODE=http` overlaps naturally. |
+| **Backend build** ✅ | Phase 0 is complete — the `http` providers and server-side auth are in place. | Phase 1 needed no backend, so the two overlapped naturally. |
 | **Backend live** ✅ | **Start Phase 2 (Capacitor)** + native features (push/camera/geo). | These finally have a real API to talk to. |
 
 ### Visual sequence
@@ -428,11 +432,12 @@ Rework mobile UI    Phase 1 (PWA)          Phase 2 (Capacitor)
 - [ ] Responsive at phone widths (360–430px); safe‑area‑friendly spacing.
 - [ ] Thumb‑reachable, sticky primary CTA (contact / schedule visit / save) above the fold.
 - [ ] Tap targets ≥44px.
-- [ ] Keep new UI inside existing service/lib seams (no hardcoded data) so later `mock→http` and
-      native swaps stay zero‑friction.
+- [ ] Keep new UI inside existing service/lib seams (no hardcoded data) so later native swaps stay
+      zero‑friction.
 
-**Direct answer:** *Start Phase 1 the moment the UI is frozen. Start Phase 2 the moment the backend is
-live.* Until then, the only mobile work is designing screens responsively — which you're doing anyway.
+**Direct answer:** *Phase 1 waited on the UI freeze and Phase 2 waited on the backend. Both gates are
+now open*, so the responsive-design work below is no longer the only mobile work available — it is
+the checklist to confirm before packaging, not a reason to defer it.
 
 ---
 

@@ -2,7 +2,7 @@
 // takes the session with it or lands on the listing-limit paywall.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
-import { pickFloors } from '../../../helpers/listingForm.helper.js';
+import { pickFloors, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 
 // Register a real owner so the whole-place flow is shown. No identity badge — posting does not need one.
 async function gotoFlow(page) {
@@ -41,9 +41,9 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
   /* The autosave is debounced and the read below goes through `page.evaluate`, which does not retry. Polling
      the draft waits for the write itself rather than for a duration somebody timed the debounce at once. */
   await expect
-    .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:list-property')))
+    .poll(async () => page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY))
     .toContain('1050');
-  const draftBefore = await page.evaluate(() => localStorage.getItem('dzDraft:list-property'));
+  const draftBefore = await page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY);
   expect(draftBefore).toContain('1050');
 
   // Open confirm and commit the reset (triggers a full reload).
@@ -58,7 +58,7 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
 
   // A fresh blank draft may be re-persisted — that's the expected "hold on refresh" behaviour — but
   // it must not carry old data.
-  const draftAfter = await page.evaluate(() => localStorage.getItem('dzDraft:list-property'));
+  const draftAfter = await page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY);
   expect(draftAfter ?? '').not.toContain('1050');
   expect(consoleErrors).toHaveLength(0);
 });

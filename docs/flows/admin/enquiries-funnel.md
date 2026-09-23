@@ -43,16 +43,14 @@
 
 ### 5.1 Loading & tab data
 `reload()` fetches `listEnquiries()` always, and `listVisits()` / `listDeals()` only when their flags
-are enabled — all three through `services/enquiryBoardService.js` since D25, so the same screen runs
-over `GET /admin/{enquiries,visits,deals}` live and over the browser store in the demo build. The
+are enabled — all three through `services/enquiryBoardService.js` since D25, so the screen runs over
+`GET /admin/{enquiries,visits,deals}`. The
 active tab picks the base list; `rows` applies status filter, type filter (`deal`, deals only), free-
 text search (`JSON.stringify(r).includes(q)`), and a date-range cutoff over `at`/`when`.
 
-**Contact numbers arrive masked** (`98XXXXX210`) from *both* providers. The mock masks on the way
-out rather than serving the store's raw numbers, so masking is a property of the board rather than of
-the server and the mock suite exercises the screen that ships. See 5.4a.
+**Contact numbers arrive masked** (`98XXXXX210`). See 5.4a.
 
-The enquiry **type** filter is gone. The mock labelled every enquiry `contact`, `chat` or `call`;
+The enquiry **type** filter is gone. It labelled every enquiry `contact`, `chat` or `call`;
 only `contact` is a row in a table, chats have their own moderated surface under
 `conversations:read`, and the platform places no calls — so the picker offered a vocabulary with one
 real value. Deals keep their `buy`/`rent` type filter, which is a column.
@@ -60,35 +58,31 @@ real value. Deals keep their `buy`/`rent` type filter, which is a column.
 ### 5.2 KPIs
 `kpis` memo:
 - **Enquiries** = total enquiry count.
-- **Open leads** = enquiries with `status` in {`new`, `open`}.
+- **Awaiting owner** = enquiries with `status === 'pending'`, counted through `AWAITING_STATUSES`.
+  The tile is labelled *Awaiting owner* rather than *Open leads* because `pending` means awaiting the
+  **owner's** decision, and the only moves out of it (`approved`, `declined`) are the owner's, not
+  this desk's.
 - **Site visits** = visit count.
 - **Deal GMV** = sum of `deal.value`.
 
 ### 5.3 Funnel stages & status vocab
-Two vocabularies coexist while the mock store's rows survive (`enquiries/constants.js` offers the
-union of both, and says why):
-- **Enquiry `status`:** contract `pending | approved | declined`; mock store `new -> open ->
-  responded -> closed`. Type (`kind`) is retired — see 5.1.
+`enquiries/constants.js` carries the status vocabulary the console filters on:
+- **Enquiry `status`:** contract `pending | approved | declined`. Type (`kind`) is retired — see 5.1.
 - **Visit `status`:** contract `scheduled | confirmed | completed | cancelled | no-show`; the console
   previously offered only three of those.
-- **Deal `status`:** contract `active | reserved | closed`; mock store `in_progress -> closed`.
+- **Deal `status`:** contract `active | reserved | closed`.
 
 ### 5.4 Row actions (state transitions)
-The board is **read-only on the server**. Every row action below is a write against the browser
-store and runs only in the demo build; `isHttpDomain('enquiryBoard')` hides them otherwise.
+The board is **read-only on the server**.
 
 `act(col, id, patch, msg, type)` = `updateCollection(col,id,patch)` + `logAudit('Enquiries', msg)` +
 `reload()` + toast.
 | Tab | Action | Guard | Patch |
 |-----|--------|-------|-------|
-| enquiries | Mark responded | status `new`/`open`/`pending` | mock: `{ status: 'responded' }`; **live: an internal note on the listing** |
-| enquiries | Close | mock only, status `new`/`open` | `{ status: 'closed' }` |
-| visits | Completed | mock only, not completed/cancelled | `{ status: 'completed' }` |
-| visits | Reschedule | mock only, not completed/cancelled | `{ when: formatWhen(date, time, mode) }` |
-| visits | Cancel | mock only, not completed/cancelled | `{ status: 'cancelled' }` |
+| enquiries | Mark responded | status `pending` | an internal note on the listing |
 | deals | View | - | read-only detail modal |
 
-"Mark responded" survives against a live backend because the *intent* is real — an operator wants to
+"Mark responded" exists because the *intent* is real — an operator wants to
 record that they acted — but the mechanism changed: `addNote('listing', propertyId, …)` through the
 `note` domain, rather than a status field on a conversation the platform is not party to and the two
 participants cannot see.
@@ -127,11 +121,11 @@ Computed client-side over the (deal + date) filtered sets:
 - **Locality breakdown:** rows carry the listing's real `locality` since D25. It used to be parsed
   out of the listing *title* with `split(' in ')[1]`, which worked on seeded titles shaped
   "2 BHK in Kothrud" and returned "Unknown" for every real listing — so the table was a ranking of
-  one bucket. The title split survives only as a fallback for mock rows with no locality field.
+  one bucket. The title split survives only as a fallback for rows with no locality field.
   Rows aggregate enquiries/visits/deals/GMV and a per-locality conversion %, sorted by enquiries,
   top 10.
 - **Filters:** deal (`buy`/`rent`) and a date-range cutoff (`inRange`). The `|| item.kind ===` arm
-  is gone with `kind`: it matched nothing on live data and noise on mock data.
+  is gone with `kind`: it matched nothing on live data.
 
 ### 5.7 What MUST move server-side
 - Funnel aggregation, conversion rates, GMV, and locality rollups (currently recomputed in the browser
@@ -150,8 +144,9 @@ Computed client-side over the (deal + date) filtered sets:
   [`../consumer/schedule-visit.md`](../consumer/schedule-visit.md) for the maker-checker on visits.
 
 ## 7. State machine
-- **Enquiry:** `new -> open -> responded -> closed` (close is terminal from the desk; actions only
-  offered while `new`/`open`).
+- **Enquiry:** `pending -> approved | declined`, both terminal and both the **owner's** move, not
+  this desk's. The legacy `new -> open -> responded -> closed` chain was a browser-store invention
+  the API never emitted; its options selected nothing and have been dropped from the picker.
 - **Visit:** `scheduled -> completed | cancelled`; reschedule updates `when` and keeps it
   `scheduled`. `completed`/`cancelled` are terminal (no further actions).
 - **Deal:** `in_progress -> closed` (read-only here; closed deals feed GMV and the funnel).

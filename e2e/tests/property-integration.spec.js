@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { uploadPublishablePhotos } from '../helpers/listingPhotos.helper.js';
+import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signIn, signedInAs, signedInAsNew, apiLogin, uniqueMobile, authHeaders, API } from '../helpers/liveAuth.js';
 
@@ -234,8 +235,8 @@ test.describe('LIVE: property domain against the real API', () => {
     await signedInAsNew(page);
 
      // Seed step one because this test starts at the location-dependent address step.
-    await page.addInitScript(() => {
-      localStorage.setItem('dzDraft:list-property', JSON.stringify({
+    await page.addInitScript((key) => {
+      localStorage.setItem(key, JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
         floor: '9', totalFloors: '14', availableFrom: '2026-09-01',
       }));
@@ -243,7 +244,7 @@ test.describe('LIVE: property domain against the real API', () => {
       localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
         necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
       }));
-    });
+    }, LIST_PROPERTY_DRAFT_KEY);
 
     const calls = [];
     watchApiCalls(page, calls);

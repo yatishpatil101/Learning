@@ -145,8 +145,11 @@ advance on any error (scrolling to the first error via `scrollToError`).
   corresponding library/codec sources and integration source under `/third-party/uploads/`.
 
 ### Draft vs submit
-- **New-post draft only:** `useFormDraft` autosaves the form to `dzDraft:list-property`; a
+- **New-post draft only:** `useFormDraft` autosaves the form to `dzDraft:list-property:v2`; a
   restore banner + "start fresh" let the owner resume or wipe. There is no server draft status.
+  The suffix is part of the contract — consent and agreement fields are `omit`ted on write, and
+  `omit` cannot reach a draft an older build already wrote, so the shape change had to rename the
+  key. Specs seed it through `LIST_PROPERTY_DRAFT_KEY` rather than retyping the literal.
   Edits never restore, autosave or clear this draft, including after a successful save. Resetting
   an edit reloads the saved server snapshot, leaving the separate new-post draft untouched.
 - **Saved edit readiness:** `GET /me/listings/{id}` is owner-scoped, followed by the listing's

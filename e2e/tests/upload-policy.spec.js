@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { test, expect } from '../fixtures/live.js';
 import { signedInAsNew } from '../helpers/liveAuth.js';
+import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { PDFDocument, PDFName, PDFString } = requireFrontend('pdf-lib');
@@ -10,13 +11,13 @@ const photoInput = (page) => page.locator('[data-err="photos"] label.upload-zone
 
 async function openPhotos(page) {
   await signedInAsNew(page);
-  await page.evaluate(() => localStorage.setItem('dzDraft:list-property', JSON.stringify({
+  await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({
     deal: 'rent', propertyType: 'flat', carpetArea: '900', bhk: '2', bathrooms: '2',
     // A tower's floors are answered on step 1, so a draft without them never gets past it.
     floor: '9', totalFloors: '14',
     flatNumber: 'M-101', society: 'Media Test Home', pincode: '411045',
     monthlyRent: '23000', deposit: '46000', availableFrom: '2026-12-01',
-  })));
+  })), LIST_PROPERTY_DRAFT_KEY);
   await page.goto('/list-property');
   await expect(page.locator('.lp-steps')).toBeVisible();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -298,9 +299,11 @@ test('wizard caps a batch at ten, keeps the cap across picks and frees a removed
 
 test('wizard shows per-document errors instead of silently retaining a rejected filename', async ({ page }) => {
   await openPhotos(page);
-  await page.locator('.doc-upload input').first().setInputFiles({ name: 'signed.pdf', mimeType: 'application/pdf', buffer: await pdf({ signed: true }) });
-  await expect(page.locator('[data-err] .dz-field-error').filter({ hasText: /unsigned|signed/i })).toBeVisible();
-  await expect(page.locator('.doc-name').filter({ hasText: 'signed.pdf' })).toHaveCount(0);
+  const rejected = await pdf({ incompressible: true });
+  expect(rejected.length).toBeGreaterThan(CAP);
+  await page.locator('[data-err="Electricity Bill"] .doc-upload input').setInputFiles({ name: 'oversized.pdf', mimeType: 'application/pdf', buffer: rejected });
+  await expect(page.locator('[data-err="Electricity Bill"] .dz-field-error').filter({ hasText: /original PDF.*under 1 MB/i })).toBeVisible();
+  await expect(page.locator('.doc-name').filter({ hasText: 'oversized.pdf' })).toHaveCount(0);
 });
 
 test('service-request attachments also compress before the shared server size gate', async ({ page }) => {

@@ -110,3 +110,42 @@ test('Amenities: a user can add a custom amenity not in our list', async ({ page
   await custom.click();
   await expect(page.locator('.furn-tile', { hasText: 'EV Charging' })).toHaveCount(0);
 });
+
+/* The tiles were `<div onClick>`: unreachable by keyboard, announced as neither a control nor a
+   chosen one, and inert under a finger because the app-wide press response selects on roles. A
+   click test passes in all three of those states, so the assertion has to be a key press. */
+test('Furniture: a tile is a real control — keyboard-operable and state-announced', async ({ page }) => {
+  await gotoForm(page);
+  await pickType(page, 'Flat / Apartment');
+  await page.getByText('Furnishing Status').locator('..').getByText('Furnished', { exact: true }).click();
+  await expect(page.getByText("What's included?")).toBeVisible();
+
+  const tile = page.locator('.furn-tile[aria-pressed]').first();
+  await expect(tile).toHaveAttribute('role', 'button');
+  await expect(tile).toHaveAttribute('aria-pressed', 'false');
+
+  // `html { scroll-behavior: smooth }` is on, so a scrolling focus() would still be animating
+  // when the baseline is sampled and the assertion below would blame Space for the difference.
+  await tile.evaluate((el) => el.focus({ preventScroll: true }));
+  const restingY = await page.evaluate(() => window.scrollY);
+  await page.keyboard.press(' ');
+  await expect(tile).toHaveAttribute('aria-pressed', 'true');
+  await expect(tile).toHaveClass(/checked/);
+
+  // Space must not also page down, sliding the grid out from under the tile just chosen.
+  expect(await page.evaluate(() => window.scrollY)).toBe(restingY);
+
+  await page.keyboard.press('Enter');
+  await expect(tile).toHaveAttribute('aria-pressed', 'false');
+
+  // A custom tile is a remove button, so it is named for what activating it does rather than
+  // carrying a pressed state that would read as "this amenity is off".
+  const input = page.getByLabel('Add a custom furniture item');
+  await input.fill('Study Table');
+  await input.press('Enter');
+  const custom = page.locator('.furn-tile[data-custom="true"]', { hasText: 'Study Table' });
+  await expect(custom).toHaveAttribute('aria-label', 'Remove Study Table');
+  await custom.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.furn-tile', { hasText: 'Study Table' })).toHaveCount(0);
+});

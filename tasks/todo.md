@@ -3,7 +3,8 @@
 > **A finished slice gets one index line here, not a narrative.** Git history is the archive; this
 > file is the index into it. Open work gets a bullet, and the bullet is deleted the moment it is
 > fixed or moves into a numbered ledger row. Do not restate a decision here — link to its number in
-> [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md). Compressed 5,294 → 527 → 1,828 → 4,348 → this.
+> [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md). Compressed 5,294 → 527 → 1,828 → 4,348 → 2,893
+> → this.
 
 Where things live:
 
@@ -14,386 +15,275 @@ Where things live:
 | Tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) |
 | Unanswered product questions | [docs/system/open-questions.md](../docs/system/open-questions.md) |
 | The frontend data seam | [docs/system/frontend-data-seam.md](../docs/system/frontend-data-seam.md) |
-| Migration plan and phase status | [docs/migration/README.md](../docs/migration/README.md) |
 | e2e coverage matrix (hard gate) | [e2e/COVERAGE.md](../e2e/COVERAGE.md) |
 
 ---
 
 ## In flight
 
-### Property detail — mobile density pass
+- The flatmates board filtered nothing: `ba52efe1` silently reverted `ee145b75`, leaving
+  `flatmateProvider.feed()` forwarding only `tab`/`locality`/`page`/`size`. Under
+  [D263](DECISIONS-NEEDED.md) the browser predicates that used to re-filter the page were *deleted*,
+  so a facet dropped in the provider is not narrowed late — it is not applied at all. Budget,
+  gender, move-in, habits, sharing, attached-bath, verified-only, proximity, sort and the `me`
+  match facets are restored, along with `signal` (cancels a superseded read) and `verifiedTotal` /
+  `pageCount`, whose absence had made the pager's clamp `NaN`. Found by asking the API directly —
+  `/api/flatmates/rooms?maxBudget=10000` returned 4 of 13 rows, which put the bug entirely on the
+  client in one command; attributed with `git log -L '/export async function feed/,/^}/:<path>'`,
+  which shows a function's own history when `git log --oneline` on the file does not.
+- Two overlays took the scroll lock without announcing themselves — the `/compare` picker and
+  `DashboardReviewModal` now carry `role="dialog" aria-modal="true"` and a name, and the keyboard
+  half of that claim as well: `useModalDialog` (Escape, Tab trap, focus in and back out) was
+  extracted from `Modal.jsx`, which now uses it, rather than copied into two more files. The review
+  modal is named by `aria-labelledby` on its own `<h3>` — a fixed string would have announced a
+  name that appears nowhere on screen, since the heading is the listing's title. Deliberately
+  **not** applied at the other three Escape sites: `MobileNav` and `CategorySwitcher` put `role` on
+  the *backdrop* while their ref is on the inner panel, so the guard would compare a non-dialog and
+  kill Escape outright, and none of the three can stack (`/saved` renders no second dialog;
+  `SocietyLocationModal` is mount-gated and mutually exclusive with its seven siblings).
+  `compare.spec.js`'s `Area (sq.ft.)` assertion was stale, not broken — `ba28fdc0` moved the
+  unit into each cell because a parcel is measured in acres or guntha.
+  `post-on-behalf.spec.js:618` still quotes the old string. Open: `GroupModal`, `PostModal` and
+  `ContactOwnerModal` still hand-roll the Escape half only — adopting `useModalDialog` there would
+  *add* a Tab trap and focus restore, so it is an a11y slice with its own specs, not a refactor.
+- `check-coverage-citations.mjs` had been permanently red, which is the one state a gate must never
+  sit in — a red it is meant to have is a red nobody reads. Two unrelated causes: a spec renamed by
+  `23aa4651` (`mobile/live-wizard-sticky` → `mobile/wizard-actions`, found with
+  `git log --diff-filter=D`), and the closed-items table at the foot of `COVERAGE.md`, which names
+  deliberately deleted specs because recording what each taught is its purpose. Rows the doc marks
+  `(retired …)` are now skipped. Proven still able to fail by appending a bogus citation.
+- Graph communities are named by their hub (`"authHeaders"`) rather than described, because
+  `graphify label` finds no LLM backend on this machine — the `claude` CLI on PATH is not one, it
+  wants `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`. Queries are unaffected. Set a key and run
+  `python -m graphify label . --no-viz` to restore names; note every `label`/`report` run
+  re-clusters, so the community count drifts a little each time.
 
-Mobile-only (`<640px`). Desktop is untouched **by construction**: every rule lands inside
-`@media (max-width: 639.98px)`, and the JSX diff is class hooks plus one `sm:` guard — no DOM
-moves, so the ~20 `consumer/property/live-*` specs keep their selectors.
+### `/reels` mobile platform-layer audit — SHIPPED, three items PENDING VERIFICATION
+Six fixes in `styles/routes/reels.css` (`mobile-native` skill), guarded by
+`e2e/tests/mobile/reels-platform-layer.spec.js` (8 green) with `consumer/live-reels` +
+`consumer/property/live-reels` (14 green) and the four neighbouring mobile specs (48 green)
+unchanged. `overscroll-behavior-y: contain` on `.reel-wrap` — `overscroll-behavior` does not
+inherit, so the root's containment never reached the feed's own scroller and a flick past the last
+reel rubber-banded the document behind it. `.reels-chip:hover` moved behind
+`@media (hover: hover) and (pointer: fine)` with an `:active` scale taking over as the press
+response — ungated, the fake hover left a chip lit and an unselected filter reading as selected.
+Chips lifted to `min-height: 44px`. **The `@media (max-height: 700px)` rail override was a silent
+no-op**: it asked for 42px icons but was declared *before* the base `.rail .ic` rule, and a media
+query contributes no specificity, so it lost on source order and had never applied — moved after
+the base rule and raised to 44px. `env(safe-area-inset-left/right)` on `.rail`, `.reel-info` and
+`.reels-top`, which `viewport-fit=cover` had been putting under the sensor housing in landscape.
+`pointer-events: auto` narrowed from `.reels-top > *` to `.reels-filters`, so the topbar's
+full-width `space-between` gutter stops swallowing taps meant for the play/pause toggle underneath.
+Three same-selector blocks that were each declared twice in the file merged.
 
-Above-the-fold contract, in mobile paint order: hero (price overlaid, already there) → trust
-strip → title → locality → the two decision figures (price/sq.ft, deposit-or-EMI) → zero-brokerage
-→ posted/freshness. Demoted below the collapse cards via CSS `order`, same technique as the
-2026-08-01 home featured-first pass: views, shortlisted, quality score, live-activity — social
-proof, not decision facts.
+- Needs hardware: the landscape inset (emulation reports every `env()` as 0), whether the chip
+  `:active` reads as a press rather than a bounce, and whether the now-44px chips crowd the top
+  overlay at 360×640.
+- **Deferred, not fixed:** the feed mounts up to 24 reels × 5 full-screen background images at
+  once, so every frame is decoded whether or not it is ever swiped to. `content-visibility: auto`
+  with a matching `contain-intrinsic-size` on `.reel` would defer both layout and the fetch, but it
+  creates a containment context on a scroll-snap child and wants a device to confirm the snap
+  geometry survives. Not a platform tell — a weight problem — so it is out of this slice.
+- **Not from this slice, found during it.** `e2e/COVERAGE.md` cites two specs that are not on disk
+  — `consumer/account/live-rent-payment-seam` and `mobile/live-wizard-sticky` — so
+  `scripts/check-coverage-citations.mjs` exits 1. And `tasks/todo.md` carries an uncommitted
+  −2,520/+491 rewrite that predates this work (`tasks/todo.md.bak` holds the HEAD copy); it drops
+  four `PENDING AGENT REVIEW` and three `PARTIAL` markers and must not be committed unreviewed.
 
-Enclosure depth on mobile is capped at one. The stat grid, the two `MobileCollapse` interiors and
-the `.detail-card`/`.amenity-card`/`.highlight-pill` grids lose their per-item surface and become
-hairline-separated ledgers. `.tag-strip` already reads as one tile with flat chips inside — left alone.
+### `/list-property` mobile platform-layer audit — SHIPPED, three items PENDING VERIFICATION
+Eight fixes (`mobile-native` skill) across five files: the route sheet's five ungated `:hover` rules
+moved behind `@media (hover: hover) and (pointer: fine)` with `.upload-zone.drag-over` split out of
+the gate (a drag is not a hover); dead `.thumb-card` rules deleted; `FeatureSelector`'s tiles given
+`role="button"`/`tabIndex`/`aria-pressed` and Enter-Space activation; `Toggle` given `.tap-extend`
+and `[role="switch"]` added to the app-wide `:active` response; `.upload-zone`/`.doc-upload` given
+their own `:active` (they are `<label>`, which that global rule deliberately skips); `.lp-meter`'s
+literal `top: 84px` replaced with `top-[var(--dz-nav-h)]` in the JSX so `.dz-docks-under-nav` owns
+the offset below `lg` unopposed; `.lp-step`'s slide-in gated on `prefers-reduced-motion`; and
+`.radio-pill` lifted to `min-height: var(--control-h)` under 640px — it reads neither `--btn-h` nor
+`--control-h`, so the phone ramp had been missing it. The Enter/Space handler `Pill`, `Toggle` and
+the tiles each carried a copy of moved to `lib/onActivateKey.js` with the auto-repeat guard all
+three were missing. Guarded by `consumer/list-property/custom-features` (3 green) plus the
+`/list-property` route in `mobile/live-tap-targets` and the furnishing-pill geometry test in
+`mobile/wizard-actions`, both already green. Needs hardware: whether the tile lift stops sticking
+after a tap, which `top` wins at runtime for `.lp-meter`, and the feel of the new press feedback on
+the tiles and file pickers.
 
-`HScroll` scrolled on both axes (`overflow-x: auto` forces `overflow-y: auto`; `.dz-detail-tab`'s
-`margin-bottom: -1px` supplies the range). Locked under `@media (pointer: coarse) and
-(max-width: 639.98px)`, with a `data-axis-free` opt-out. All three conditions are load-bearing:
-coarse so the active tab's underline cannot clip for a mouse user; the width so the rails carrying
-an `sm:`/`md:overflow-visible` escape hatch are not clipped on a tablet; the opt-out for `Tabs.jsx`,
-which deliberately stops being a scroll container below `sm` and would be dragged back into one,
-because `overflow-x: visible` beside `overflow-y: hidden` computes to `auto`. `touch-action: pan-x`
-was rejected — it makes the browser discard vertical gestures starting on the rail instead of
-passing them to the page.
+- `services/rent-agreement/StepTerms.jsx:65` carries the identical `<div onClick>` `.furn-tile`
+  pattern and was left out of scope — it ships in the `/services` chunk, not this page.
+  `listings/Card.jsx:54` has its own copy of the activation handler, also unguarded.
+- Three failures seen during that audit's verification run, none of them from it. **(a)**
+  `mobile/wizard-actions.spec.js:83` expects `.lp-meter__cheer` to read the *warmup tier* line on a
+  freshly opened wizard, but `computeProgress` returns `nudge: 'photos'` for any form with fewer
+  than `STRONG_PHOTO_COUNT` photos and `ProgressMeter` renders a nudge in preference to the tier
+  cheer — so on an empty form the assertion cannot pass. Spec and `progress.js` are both clean
+  against HEAD; whichever of the two is wrong belongs to the nudge-priority slice. **(b)**
+  `post-property-sync.spec.js:127` gets `403` from `PATCH /properties/{id}` with
+  `{"status":"approved"}` — server-side, no frontend involvement. **(c)**
+  `mobile/wizard-actions.spec.js:148` times out on `.lp-step-actions` against an a11y snapshot
+  showing a **Sign In** link, i.e. the login never took: session flake, mobile-small only.
 
-Reviewed by `react-reviewer` then `code-reviewer`; `code-simplifier` after. Fixed from that pass:
-the unscoped `pointer: coarse` rule above; a `[data-tip]:focus-visible` override broad enough to
-square the `rounded-full` tag chips it was written to protect; a `scrollHeight` assertion that
-could not be sound (an `overflow: hidden` box is still a scroll container and still reports its
-overflow region — the claim is `overflowY === 'hidden'`); a fold assertion that depended on the
-seed's photo count rather than on the neighbour `order` actually moves it past; the Assured
-report button, ~34px and invisible to the tap sweep because it sits in a collapsed panel.
+### `/listings` mobile platform-layer audit — SHIPPED, three items PENDING VERIFICATION
+Seven fixes across nine files; five are guarded by `e2e/tests/mobile/listings-platform-layer.spec.js`
+(10 green, plus 66 green across the four neighbouring mobile specs). The rest need hardware:
 
-Deferred, deliberately:
+- The three map-sheet fixes — `86dvh`, `.dz-mdp { touch-action: pinch-zoom }` with `pan-y
+  pinch-zoom` handed back to `.dz-mdp-scroll`, `data-no-ptr`, and the grabber dismissing on a
+  downward drag — are unasserted. Reaching `.dz-mdp` at phone width needs the Maps SDK and live
+  pins, and Chromium resolves `dvh` exactly like `vh` and reports every `env(safe-area-inset-*)`
+  as 0, so two have no signature under emulation at all. Confirm pinch still magnifies the sheet.
+- `interactive-widget=resizes-content` is app-wide, not `/listings`-only. Every fixed bottom
+  element now sits *above* the Android keyboard rather than under it: `.dz-bottom-nav` (mounted on
+  every consumer route but chat/auth), the cookie banner, `InstallPrompt`, the assistant FAB. On a
+  halved viewport a 56px capsule above the keys may be worse than the overlay it replaced — decide
+  per element, or hide the tab bar on a `visualViewport` resize. Also confirm one pull-to-refresh
+  spinner on a fast flick, not two.
+- For the concurrent touch-states slice, not this one: (a) `-webkit-tap-highlight-color: transparent`
+  moved to `html`, so being inherited it now suppresses the flash on tappable `<div>`/`<li>` rows
+  with no `:active` replacement; (b) `.dz-lightbox img { touch-action: pinch-zoom }` is inert and its
+  comment claims the opposite — the gesture walk intersects with ancestors up to the first scroll
+  container, and `.dz-lightbox` (`touch-action: none`, no `overflow`) is not one, so the floor plan
+  it was added for is still un-zoomable. Relax the overlay, not the child.
+- `tests/mobile/live-tap-targets` and `tests/mobile/live-flatmates-filter-sheet` fail on the
+  concurrent `FilterGroup` slice's 20px `h4.fg-header` button. Not this diff.
+- Adjacent, deliberately left alone (from the review of this slice):
+  - `usePullToRefresh` gates only on `(prefers-reduced-motion: reduce)`, so the app's own toggle
+    still gets the finger-tracking indicator. Same gap `html.dz-reduce-motion` was added to close.
+  - ~15 call sites pass an explicit `behavior: 'smooth'`, which outranks that rule — `LegalPage`,
+    `ServiceLanding`, `ArticleToc`, `Contact`, `TenantProfile`, `AssistantWidget`,
+    `SocietiesSection`, `Categories`, `HScroll`. Dropping the argument is the fix everywhere:
+    the default `auto` already defers to the computed `scroll-behavior`. Only `Reels` honours it.
+  - The listings drawer has `aria-label` but no `role="dialog" aria-modal="true"`, so it is modal
+    for scroll containment and not for a screen reader. Its `.filter-panel` sibling in
+    `flatmates/FilterBar` already carries both — copy that. Pre-existing, not a regression.
+  - `.filter-panel` is shared with `/flatmates`, so that drawer gained scroll containment too.
+    Desirable, but it is blast radius outside `/listings` and untested there.
 
-- **The block stays in `index.css` (Tier 2), against the route-CSS rule in
-  `docs/system/design-system.md`.** There is no `styles/routes/property.css`, and ~400 lines of
-  property CSS — `.detail-card`, `.tag-strip`, `.dz-detail-tab`, the lightbox — are already here.
-  A new route file holding only the 90 new lines would split the cascade for the same selectors
-  across two files and make the override order a thing to reason about. The extraction is worth
-  doing whole or not at all.
-- **The `-1px` underline overhang is the root cause and survives.** Putting the hairline on the
-  container instead would fix the wobble at source with a one-selector blast radius, but it is a
-  desktop-visible change and this pass is mobile-only.
-- **A focusable rail item with no vertical padding can clip its `focus-visible:ring-2` on a
-  phone** (`dashboard/OverviewPanel.jsx`). Pre-existing shape, newly reachable.
-- **`live-tap-targets.spec.js` does not sweep `div[tabindex="0"][data-tip]` tiles.** Widening `SEL`
-  is the right fix and has unknown fallout across every route in `ROUTES`; its own change.
+### `/flatmates` mobile platform-layer audit — SHIPPED, two items PENDING VERIFICATION
+Four fixes in `styles/routes/flatmates.css` plus the `p-6` removal from `flatmates/FilterBar.jsx`,
+guarded by `e2e/tests/mobile/flatmates-touch-targets.spec.js` (3 green in both phone projects,
+red-checked with the stylesheet stashed). The app-wide baseline needed nothing — viewport meta,
+tap-highlight, `user-select`, `:active` feedback, `100dvh` shell and the `--control-h` ramp were
+already correct, and Tailwind's `hoverOnlyWhenSupported` already gated every `hover:` utility. The
+gaps were all in this route's hand-written CSS.
 
-Verification note (2026-09-18): `live-detail-sale.spec.js`'s earlier desktop red was an
-`ECONNREFUSED` artifact from running the suite through the local backend on port 8080; Playwright's
-default `API_PORT` is 8081. The new density spec scopes the section rail as
-`[role="tablist"]:has(.dz-detail-tab)`, since a second panel tablist makes the generic role locator
-strict-mode ambiguous. The full mobile run had 426 passes and 10 failures; four distinct failures
-reproduced with this task's five source files reset to `HEAD`, while the fifth was a filter-FAB
-timeout that did not reproduce in that control run. The final density spec passed at both mobile
-viewports (8/8), and independent HScroll-consumer spot checks (dashboard, services, notifications)
-passed 15/15. The desktop property suite reached 103/106; its three unrelated reds are commercial
-fit-out copy and two sign-in-gate navigation timeouts. The 390px before/after capture is in
-`e2e/shots/`: fold, complete page, header, and each section exposed by the detail tab strip.
+- **Unasserted: the whole `.dz-sp-*` locality-popup group.** Five hover gates, `overscroll-behavior:
+  contain` on the 306px inner list over a 460px map, and the `var(--btn-h)` floor under
+  `pointer: coarse` for its 30px save and ~26px CTA. `FlatmateMap.jsx:122` early-returns
+  `<MapUnavailable/>` without `GOOGLE_MAPS_API_KEY`, so the popup never renders under e2e. On
+  hardware, confirm the taller rows still read as a compact card over a live map — `.dz-sp-list`'s
+  `max-height: 306px` was chosen against the old row height, so it now shows fewer rows before
+  scrolling. `MAX_ROWS` still caps the list, so this is a look, not a break.
+- **Unasserted: the drawer's top and left insets.** Chromium reports every `env(safe-area-inset-*)`
+  as 0, so only the bottom is provable (driven through `--dz-safe-b`); the other two are read off
+  the CSS declaration via CSSOM, which proves they are *written*, not that they *land*. Confirm on
+  a notched device in both orientations and as an installed PWA — the manifest ships
+  `orientation: any`, so the notch reaches the drawer sideways.
+- `.btn-ghost`'s new height floor is behind `@media (pointer: coarse)` deliberately: `--btn-h` is
+  40px on a mouse rather than unset, so an ungated rule would inflate the deliberately compact
+  `h-8` reissue pill (`RoomCard.jsx:140`), the `h-9` empty-state button (`Empty.jsx:30`) and the
+  `py-2` sort controls (`Results.jsx:59-61`) on desktop. The spec pins the gate, not just the height.
+- `live-flatmates-filter-sheet.spec.js:138` (budget floor) fails identically with this diff stashed.
+  Pre-existing, not this slice.
 
-### Commercial listings — field set and required/optional rules
+### `/flatmates` second pass — SHIPPED, two items PENDING VERIFICATION
+The first sweep read `styles/routes/flatmates.css` and `FilterBar.jsx` and concluded the baseline
+was clean. `.sf-modal` escaped it: it lives in `index.css` but is used by nothing outside this
+route, so neither pass owned it. Chasing that turned up an app-wide defect.
 
-Code, gates and Playwright are green on the services lane.
+- **Every scroll lock in the app was dead.** `index.css:459` gives html `overflow-x: clip`, and
+  body's overflow only propagates to the viewport while the root's own is `visible` — the
+  stylesheet already says so at line 469 about `overscroll-behavior`. So the
+  `document.body.style.overflow = 'hidden'` that 17 overlays carried set a property nothing reads,
+  and the page scrolled behind all of them. All 17 now call `hooks/useScrollLock.js`, which writes
+  the root and reference-counts: overlays nest (a `Select` inside a `Modal`, the owner-consent
+  sheet over the flat-share form), and without the count the inner one's cleanup releases the
+  outer one's lock. Guarded by `e2e/tests/mobile/live-flatmates-modals.spec.js`, red-checked.
+- `.sf-modal` gained `overscroll-behavior: contain` and a `var(--dz-safe-b)` bottom inset, and its
+  gutter moved from `vh` to `dvh`. The submit row is the last of the scroll, so under
+  `viewport-fit=cover` it was landing under the home indicator. Guarded by the same spec.
+- `FlatmateMap`, `PropertyMap` and `SocietyMap` moved from `gestureHandling="greedy"` to
+  `cooperative`: each is embedded in a scrolling document, so a greedy map swallowed the one-finger
+  drag meant for the page and a thumb landing on it could never get past. `LocationPicker` and
+  `MapBoundaryEditor` stay greedy — panning is the task there.
+- The lock fix had two follow-on defects, both caught in review and both now fixed. Giving the two
+  flat-share sheets Escape handlers made one press close the picker *and* the form under it, so
+  both now carry `role="dialog"` and ignore the key unless they are the last one in the DOM, and
+  `Select`/`MultiSelect` stop the event at the menu. And holding the root still takes the scrollbar
+  with it, which reflowed the page behind all ~15 desktop overlays as they opened —
+  `html { scrollbar-gutter: stable }` reserves the track. Both guarded by the same spec.
+- PENDING VERIFICATION, needs hardware: (1) that `cooperative` reads as help rather than
+  obstruction on a real phone — the two-finger hint toast is the tradeoff; (2) the home-indicator
+  clearance on Cancel / Post request, since emulation reports every `env(safe-area-inset-*)` as 0
+  and the spec can only assert the token the rule consumes; (3) that the lock actually stops a
+  thumb on older iOS Safari, where root `overflow: hidden` is not reliably honoured for touch
+  scrolling — the durable technique is `position: fixed` on the body with a scroll-offset restore,
+  which costs a scroll-position round trip and is not worth paying until a device says it is needed.
+- Regression-checked against a stashed baseline rather than by eye. Of 130 failures in the first
+  full mobile run, 122 were one dead backend (its launcher ends in a synchronous `cmd /c`, so the
+  JVM dies with the terminal — start it through `ShellExecute` instead). Of the 8 real ones, 6
+  reproduce with this work stashed and belong elsewhere: the `/listings` and `/flatmates` sweeps
+  both trip on the filter drawer's `fg-header` accordion buttons being under 44px, the budget
+  filter's floor is not dropping an underpriced post, and `.lp-meter__cheer` copy has drifted from
+  what `wizard-actions` expects. The 7th, the home tile's trust row wrapping to two lines, passes
+  in isolation both with and without these changes — cross-test contamination in the shared lane.
+  The 8th was this pass's own new spec, now fixed.
+- `scrollbar-gutter: stable` is a sitewide desktop change, so the desktop lane was run against the
+  same stashed baseline: the 57 geometry-asserting `chromium` specs (`desktop-noleak-guardrails`,
+  `live-filters`, `live-group-join-and-layout`, `interactions-board`) give 50 passed both
+  before and after. Six failures are identical in both runs. The seventh appeared only in the
+  changed run and passes in isolation — a `not stable` / `outside of the viewport` click flake in
+  `live-group-join-and-layout:147`, the same contamination signature as the home tile. No desktop
+  layout assertion moved, which is what the reserved gutter had to be checked against.
 
-Shipped: commercial answers (`shellType`, `washrooms`, `camCharges`, `suitableFor`, `fixtures`,
-`powerBackup`, `pantry`) plus `lockIn`/`noticePeriod` now reach the wire through
-`PropertyResponse.Commercial` and `toViewModel`, so the detail page renders the owner's own fit-out
-instead of falling through to the `COMMERCIAL_INVENTORY.semi` tier (that table is deleted).
-Maintenance collapsed to CAM per sq.ft. Carpet area is the only area a commercial listing states.
-Profile-scoped fields added (GST, fit-out months, escalation, tenancy/in-place rent/lease expiry,
-seat count, frontage, floor load, clear height, sanctioned power, dock count). `shellType` is
-required; `isTowered()` no longer forces floor/totalFloors on a standalone asset; industrial is
-exempt from flat number and project. Server enums mirror `constants.js`; `commercialType` is an
-edit-rules re-moderation trigger. Co-working is withdrawn from the wizard but still accepted on
-read/write so live listings stay editable.
+### Seven more overlays still take no scroll lock at all — FIXED
+All seven now take `useScrollLock`; asserted on the two phone bottom sheets in
+`mobile/live-sheet-scroll-lock`. `Compare`'s picker, `DashboardReviewModal`, the society stack and
+the `AdminSocieties` dialogs are PENDING VERIFICATION — each needs a fixture out of proportion to a
+one-line hook call whose mechanism that spec already proves.
 
-Verified live: `required-fields.spec.js` 14/14 (seven of them commercial, including a rent listing
-read back off its own detail page and a leased sale read back off `/me/listings`), and
-`types.spec.js` 17/17 after its shared commercial walk learned to answer the now-required fit-out
-and its address fill became presence-driven rather than keyed to a list of type labels. The three
-`e2e/COVERAGE.md` rows are `✅`.
+### The `/listings` and `/flatmates` filter accordions are under the thumb floor — FIXED
+`.fg-header { min-height: 44px }` behind `pointer: coarse` in `styles/routes/filters.css`.
 
-Review passes: `code-reviewer` found that the industrial exemption was only half-shipped — the step
-advanced without a unit number or a project, while the labels still carried the required asterisk,
-so the wizard said one thing and did another. Fixed with two asterisk-free label keys and a
-`commercialProfileOf` branch in `LocationStep.jsx`. `security-reviewer` found three worth taking:
-`propertyType` is now `@Size(max = 80)` on both DTOs so the label regex cannot be fed an unbounded
-body, `camCharges` joined `DECIMALS` (it is a money rate that reaches the public page and was
-accepting any 80-char text), and `commercialTypeChanged` dropped its `incoming != null` guard —
-`formDetails` is written by replacement, not merge, so a PATCH that merely omits the key was
-deleting an approved subtype with no re-review. `code-simplifier` trimmed comments to the claim the
-code cannot carry, cut `TYPE_CONFIG.commercial.subtypes` (no readers, and it pointed at the
-co-working-free list while the picker went through `commercialSubtypeOptions`), and had
-`LocationStep.jsx` import the validator's own `isIndustrial` so the asterisk cannot drift from the
-rule it advertises.
-
-The sub-type, not the word "Commercial", now decides which questions exist. `commercialProfileOf`
-returned `'workspace'` unconditionally, so office fixtures, office photo categories and the office
-amenity list were on screen before any sub-type was picked, and a warehouse owner was offered
-Clinic and Gym/Studio; it returns `null` until a sub-type exists and every profile-scoped block is
-gated on that. `suitableForFor` partitions the server's existing eight enum values by profile —
-inventing a label would be a 422. `changeCommercialType` resets fixtures, `suitableFor`, amenities,
-`pantry` and the profile-scoped specs and re-tags staged photos to `Other`; nothing reset before, so
-Office → Warehouse published a Server Room the form could no longer unpick. `age` joins
-`TYPE_SPECIFIC_KEYS` and leaves the commercial branch (`shellType` is the fit-out date being
-priced). The `powerBackup` toggle is deleted — Power Backup is already an amenity in all three
-profile lists — with every read path kept so legacy rows round-trip. Parking is pills on both
-branches, and the deposit shortcut offers 3 / 4 months for commercial.
-
-Two of the brief's premises were false and are recorded here rather than acted on: all five
-"unrendered" commercial fields do reach a consumer surface in live mode (`RentDetails.jsx`,
-`PriceInsights.jsx:95`, `useProperty.js:133,210`), so the progress meter keeps scoring them and
-`fixtures` was added to match residential `furniture`; and `fixtures` was already in
-`TYPE_SPECIFIC_KEYS` — `age` was the key actually missing.
-
-**Open:**
-- **Not ours, but real:** `layout.spec.js` › `Flat/Unit No and Wing/Block share one line on desktop`
-  fails (84px apart; mobile passes). Locality was folded into the same `sm:grid-cols-2` grid, so the
-  pair that `sm:contents` was meant to keep adjacent now straddles a row boundary. The test body and
-  the markup are both byte-identical to HEAD, and this branch's hunks in that spec are nowhere near
-  it. Either give the unit/wing wrapper its own row or take locality back out of the grid.
-- **Not ours, but real:** two residential walks click **Submit Property** and nothing happens — no
-  toast, no dialog, no request, the button still reading "Submit Property" on step 4 with the photo
-  labels correctly applied. `required-fields.spec.js` › `possession is an unanswered required
-  choice` and `rent-maintenance.spec.js` › `Rent "Charged Extra" maintenance amount is saved`, both
-  reproducible in isolation. A silent no-op submit is `submitProperty`'s own
-  `if (!editReady || posting || media.isMediaProcessing()) return` — the media queue is still busy
-  from the document/photo upload one line above. The helper waits on `aria-busy` for photos but the
-  `.doc-upload` set has no settle wait at all. Either extend the wait to documents or make the
-  guard say why it refused.
-
-Maintenance / CAM moved from step 1 to the Price step, taking the slot its residential counterpart
-(`monthlyMaintenance` on sale, `maintenanceCharges` on rent) occupies — one recurring cost asked on
-one screen whatever the vocabulary names it, and one `CamCharges` component so the two branches
-cannot drift. **Suitable For** takes the left column on step 1 and the profile's own measurement
-fills the half CAM vacated. The deposit shortcut drops to 3 / 4 months. **Let room by room** is
-now residential-only: `canSplitIntoRooms` asked `deal === 'rent'` and nothing about the property,
-and the post-success nudge duplicated that half-answer inline, so a shop, a godown and an open plot
-were all offered it on the dashboard card and after publishing. Both sites route through the one
-predicate now. `SEARCH_TYPES.flat` gained the `apartment` token in the same change — `ALIASES`
-already declared `apartment → flat` and the server's `property_type_key` column classifies
-`LIKE '%apartment%'` as a flat, but `matchTypeKey` did not, so a listing stored as "Apartment" was
-absent from its own Flat chip and would have been refused the split.
-
-The desk collects the same commercial answers as the consumer wizard — the question at the bottom of
-this entry is answered "yes". `AdminPostOnBehalf.jsx` and `post-on-behalf/WizardSteps.jsx` gained the
-12 profile-scoped fields, the lease vocabularies (`agreementDuration`/`lockIn`/`noticePeriod`, reset
-on a commercial crossing), profile-gated `suitableFor`, and a rent-branch maintenance
-included/extra — the desk's own Power Backup checkbox went with the consumer one. Two real defects
-fell out: `tenants` was submitted comma-joined where the DTO declares `List<String>`, which 400s the
-whole document before any validator runs, and `transactionType` was collected by **both** wizards and
-stored by **neither**, because the key was absent from `DETAIL_KEYS` — the client was censoring its
-own answer, silently, with no 422 and no log.
-
-That last one is the durable finding. `formDetails` is free-form JSONB in the spec, so its allowlist
-is hand-written twice and the 16 `ListingFormDetailsTest` cases were all green while the key was
-being dropped: every one asks "does the server handle this key correctly", none asks "do the two
-tables hold the same keys", and a per-member test can never see a missing member. `check:enums` now
-scans the Java `Set.of` blocks and asserts set equality against the exported `DETAIL_KEYS`, with a
-`> 40` blindness guard so a refactor that defeats the scanner goes red rather than vacuously green;
-mutation-checked by deleting `rentMaintMode` from the Java table. Row added to `e2e/COVERAGE.md`.
-
-Review passes: `security-reviewer` found no CRITICAL or HIGH and three worth taking — `decimal()`
-now repairs a leading dot (`toDecimal` emits `.5`, which the server regex refuses with a 422 naming
-no field), both uncapped money inputs are bounded at the server's nine digits (`inPlaceRent` by
-slicing digits in `onChange`, since `money()` renders separators and a `maxLength` would truncate at
-about six), and the catch comment no longer claims a `formDetails` 422 names its field. Left alone
-and worth a ruling: the desk autosaves the whole form, `ownerName`/`ownerMobile`/`ownerNotes`
-included, to `localStorage` on every keystroke and clears it only on a successful submit — age it out
-on `savedAt` and drop `ownerNotes`. `code-simplifier` merged duplicated `format.js` imports, cut
-three redundantly-recomputed predicates and a dead `isCommercialType` re-export; its fourth finding
-(dropping the unused `useAuth`) was declined as not zero-diff — it removes an `AuthContext`
-subscription. `post-on-behalf.spec.js` 18/18 after all of it.
-
-Sub-type scoping then reached the desk, and doing it surfaced the durable finding of this pass: a
-transition-time reset is not a boundary. `resumeDraft` restores a saved form verbatim, so every
-`set()` cascade the desk relies on is bypassed by the one path most likely to carry stale keys —
-a draft authored before the rules changed. Both wizards now filter at the **serialization**
-boundary, keyed on property kind and commercial profile, in addition to resetting on transition:
-`submit.js` strips the residential detail keys from a commercial document and the commercial ones
-otherwise, gates `furnishing`/`pets`/`food`/`tenants`/`furniture` on `isResidentialType`, and
-re-checks the staged documents against `docsFor` immediately before the upload loop — without that
-last one a Shop Act licence staged under Retail was uploaded to a warehouse's vault, silently, with
-no confirmation. `editPayload.js` replaces `formDetails` outright when `propertyType` changed rather
-than merging onto the original, so a kind change cannot leave the previous kind's answers behind.
-`AdminPostOnBehalf.jsx` carries the same boundary plus two explicit legacy migrations — a
-`powerBackup: true` draft becomes the `Power Backup` amenity instead of being dropped, and
-`possession: 'available'` (a retired label `writePossession` throws on) maps to `ready` — and
-`handleSubmit` now revalidates steps 1–4 rather than the current one, which is what closed the
-resumed-draft bypass. Desk UI followed the consumer: profile-gated `Suitable For`/`Fixtures`,
-Age/Furnishing hidden for non-home, parking pills, and `pantry` only on the workspace profile.
-`DEPOSIT_MONTHS` moved into the consumer canon and is re-exported to the desk, which had been
-answering the same question with a different table — 6 / 12 months on a commercial rent against the
-consumer's 3 / 4, and a flat 1 / 2 / 3 for everything else, so a plot was offered a month's rent
-where the consumer offers half a year. One three-way table now, because two market norms quoted to
-the same owner for the same property is the drift the shared-constants barrel exists to prevent. Regression test added to `post-property-sync.spec.js`
-asserting the two constants modules agree on profile options and that `INITIAL_FORM` no longer
-carries `powerBackup`; `e2e/COVERAGE.md` row flipped to `✅`. Review loop ran to `APPROVE` with no
-Critical or High.
-
-
-### Open Plot and Farm Land — right fields per flow
-
-Code and gates green; `land-listing.spec.js` 4/4 on the services lane.
-
-The chosen area unit now renders wherever the area does. `fmtArea(area, unit)` and `isSqftUnit(unit)`
-live in `lib/format.js` and are read by the detail page, `MapDetailPanel`, `PropertyMap`, `Compare`
-and the admin listing facts; a 2-acre farm no longer reads "2 sq.ft." Every ₹-per-unit caption is
-gated on `isSqftUnit` — dividing a price by an acreage and captioning it "per sq.ft." is a wrong
-number, not a rounding one — and `Compare` names no winner on the area row when the items do not
-share a unit. The `listings/format.js` sq.ft.-only helper was renamed `fmtAreaSqft` so an
-auto-import cannot put it where the unit-aware one belongs.
-
-The twelve land answers were promoted onto the public wire the way `lockIn`/`noticePeriod` were for
-commercial — `PropertyResponse.Land` + `PropertyMapper.toLand` + a `...(p.land ?? {})` spread in
-`propertyMapper.js` — so the buyer sees the zoning, dimensions, road width, open sides, water source
-and the six yes/no facts they actually decide on. `useProperty.js` no longer reads `p.form`, which is
-a mock-only field the live mapper never emitted; the land Key Details, the zone chip and the
-overview blurb all read the promoted fields, and unanswered rows are filtered out rather than shown
-as dashes.
-
-`properties.land_use` is written for the first time. The column, its CHECK and the whole filter chain
-(HeroSearch → filtersPanel → facetQuery → `PropertySpecs:263`) already existed; nothing ever set it,
-so no wizard-posted plot could match the Land-use filter. `landUse` is now on `ListingCreate` and
-`ListingUpdate`, validated against `catalog/property/LandUse`, mapped from `plotZone` by
-`landUseFor()` on both the consumer wizard and the desk, and defaulted to `agricultural` for farm
-land (which is never asked its zone). `plotZone` joined the `ENUMS` table in `ListingFormDetails` —
-it was accepting any 80-char string into a column whose only consumer is a five-value CHECK.
-`ListingUpdate` also gained `clearLandUse`, because an omitted key means "leave it alone" and the
-column admits no blank, so without a word for it a plot re-typed to a flat keeps its zoning and goes
-on answering the one filter the column exists for.
-
-Facing is asked for land (overlooking and age stay hidden) — the detail page always had a Facing row
-for a plot and it was a permanent dash, and facing is a real price driver for a Pune plot.
-`progress.js` scores it on every type now. Land rentals got their own lease vocabulary: 1/3/5/9/10
-years and "long lease", a 0–36-month lock-in, 1/3/6-month notice and 6/12-month deposit shortcuts,
-because a land lease is not an 11-month tenancy. `PricingStep` reads all three vocabularies from one
-`LEASE_TERMS` table rather than branching on `commercial` alone.
-
-The new spec drives the API rather than the wizard and covers plot and farm in both deals: the unit
-label renders, no `/ sq.ft` caption appears on a non-sq.ft. listing, the promoted facts are on the
-page, and the posted plot comes back from `/listings?landuse=…`. Row added to `e2e/COVERAGE.md`.
-
-OPEN — nothing server-side ties `plotZone` to `landUse`. The translation is the client's
-(`landUseFor`), so a hand-rolled request can state `plotZone: "Agricultural"` alongside
-`landUse: "residential"` and both pass their own validators. `check:enums` section 6 now pins the
-drift half of this — every zone the wizard offers translates into a value the contract accepts, and
-every option the Land-use filter shows is reachable from some zone — but the contradiction itself is
-only refusable server-side, and `@CoherentDimensions` is about arithmetic between numbers, not about
-a `formDetails` string agreeing with a column. Either the server derives `landUse` from `plotZone`
-and stops accepting it from the client, or the rule grows a non-numeric arm. Not decided.
-
-### Open Plot and Farm Land — the Maharashtra answers a buyer cannot proceed without
-
-Land was the one flow where every land-specific field was optional and the defaults were wrong.
-Three title questions are now required on step 1: `naStatus` (agricultural / deemed / sanctioned),
-`otherRights` (the 7/12 other-rights column — clear, mortgage, tenancy, minor, dispute, unknown) and,
-for farm land offered for sale only, `buyerEligibility`. The retired booleans `naSanctioned` and
-`satbara` are read on edit-load and on the detail page purely as a legacy fallback, never written.
-Farm land defaults to `guntha` and a plot to `sq.ft.`, with the area range keyed to the chosen unit;
-`progress.js` no longer scores `areaUnit`, because a pre-filled default was counting as answered.
-Claiming NA now requires the NA Order document on step 3 and auto-opens the records panel that holds
-it. Farm-for-sale carries the four sale restrictions (agriculturist, tribal, ceiling, fragmentation)
-and farm-for-rent carries the Kul tenancy-risk disclosure. `plotZone` gained the eight Zone
-Certificate labels, with the four bare ones kept for listings already published against them. Both
-wizards enforce the same three requirements — consumer and the ops desk.
-
-The three keys needed **five** edits to reach the page, not the one the write allowlist suggests:
-`ListingFormDetails` (write), `draazy-api.yaml` twice, `listingFormDetails.js` — and then
-`PropertyResponse.Land` + `PropertyMapper.LAND_KEYS` + `toLand`, a separate **read** projection that
-the hand-written OpenAPI already described, which is why the gap was invisible until a detail-page
-assertion went looking for a row that was saved and rendered nowhere.
-
-Verified live: `land-requirements.spec.js` 8/8 and `land-listing.spec.js` 6/6 on the
-services lane. Row added to `e2e/COVERAGE.md`.
-
-Neighbouring specs were swept afterwards. `types.spec.js` owed two repairs, both ours: its shared
-`toLocation` walk answers the three new gates presence-driven (a helper that cannot leave step 1
-fails every test downstream of it, in a file none of them own), and its farm-land document test
-asserted the NA Order slot was *absent* — the opposite of what this task deliberately made true.
-The NA Order slot sits inside the collapsed records panel, so that assertion has to follow the
-`<details>` click, not precede it. Land tests there are 5/5. The rest of that file's failures
-belong to the document-picker slice below.
-
-### Open Plot and Farm Land — the minimum a parcel is genuinely able to state
-
-The land wizard was already the shortest in the product, so the remaining effort was not length: it
-was one hard block, two questions asked in a built property's vocabulary, and stale values surviving
-a type switch.
-
-- **Project / layout name is no longer demanded of land.** `validateLocationStep` required
-  `flatNumber` + `society` whenever the stored address could not be decomposed — a farm on a gat
-  number cannot answer it and a plot resold out of a 1990s layout usually cannot either. Commercial
-  already had exactly this relief through `isIndustrial`; land now shares the same guard, so the
-  unit/project pair is asked only where a unit and a project exist. `progress.js` stops scoring
-  `society` for land, and the `legacyLandAddress` string in all three locales dropped its now-false
-  "including the project/layout name" clause.
-- **A farm is not asked for length × width in feet.** The pair implies a rectangle an irregular
-  parcel does not have, and it sat beside an area the owner gave in guntha or acre. Suppressed in
-  `PropertyDetailsWhole.jsx` and in `progress.js` for `isFarm` only; `roadWidth` stays, because
-  width of access prices both types.
-- **`construction` is cleared on a switch into a land type.** It was not in `TYPE_SPECIFIC_KEYS`
-  (every non-land type asks it), so a flat's possession answer survived into a plot and published a
-  claim the land form renders no control for. `age` was already cleared by that list and `facing` is
-  a real land field, so only this one leaked. This is the leak `isPreCompletion`'s land exclusion
-  exists to *survive* rather than to fix — the exclusion stays.
-- **The strength meter no longer docks a land sale for a missing MahaRERA number.** MahaRERA
-  registers the layout, not the individual NA plot an owner resells, and the field is optional for
-  land in the wizard — scoring it made an honest listing look incomplete.
-- **`toEditForm` names land area explicitly.** `carpetArea: land ? vm.area : (vm.carpetArea ?? vm.area)`.
-  A plot has no carpet figure, and its parcel is posted only as `area` in its own unit, so the
-  round-trip no longer rests on a fallback that exists for legacy rows.
-
-Two of the brief's items needed no change and are recorded here so they are not re-opened:
-`progress.js` has no `areaUnit` row (removed earlier in this file), and `PricingStep.jsx` gates the
-collapsed "Standard terms" summary on `leaseKind === 'residential'`, so a land rental already shows
-agreement / lock-in / notice as three controls.
-
-New spec `consumer/list-property/land-minimum.spec.js` drives all four claims through the
-wizard rather than the API, because the claim is about what the form *lets an owner submit*; the
-wire shape of a published parcel stays with `consumer/property/land-listing`. Row added to
-`e2e/COVERAGE.md`, and the suite-size table there was re-derived from the tree — every row had
-drifted (285 → 303 files), which the file's own note says is not maintained by hand.
-
-Verified live: `land-minimum` 7/7, and the six neighbouring list-property specs 61/63. One of
-the two failures was ours by inheritance and is fixed; the other is the pre-existing commercial
-drift already recorded below.
-
-`required-fields.spec.js:206` — `switching a pre-completion flat to land does not strand the owner
-on the pricing step` timed out on `.gm-style`, which reads as a map flake and was not: the a11y
-snapshot showed the page still on **Property details** with `NA Status *` and `Other Rights (7/12) *`
-alerts. The land-requirements slice made both mandatory and swept `types.spec.js` but not this file,
-so the walk could not leave step 1 and the location step never mounted. The test also opened with a
-comment asserting that a type change does *not* clear `construction` — true when it was written and
-false as of this task. Both repaired: the two answers are supplied after the switch, and the comment
-now states that the wizard clears the value while the validator's land exclusion remains the backstop
-for a listing saved before the reset.
-
-Review raised four things left deliberately undone, recorded so they are not mistaken for oversights:
-
-- **A land owner replacing an undecomposable legacy line can now shorten it.** The old rule demanded
-  `society` in exactly that case (`(!land || undecomposed)`), which *is* the project/layout block the
-  brief asked to remove — so its cost comes with it: fill only `street` and `forTheWire` composes
-  `"Sus Road"` over the line the server held. Accepted, not hidden: the banner now says plainly that
-  filling the boxes replaces the address, and locality and pincode are stored apart from it. Revisit
-  only with a rule that does not ask for a name the owner does not have.
-- **Other keys still leak into a land form on a type switch** — `amenities` (a plot can publish "Lift,
-  Gym" it cannot see, while the sibling `changeCommercialType` resets it), `floor`, `totalFloors`,
-  `builtUp`, `superBuiltUp`, and photo categories the land picker cannot offer. Real, but the brief
-  named `construction` and `age`; clearing the rest changes what several other types publish and
-  wants its own spec.
-- **`toEditForm` has no land guard on `construction`**, so an *edit* load can still re-hydrate a
-  possession token onto a parcel. Unproven that any stored land row carries one.
-- **A farm published before this change keeps `plotLength`/`plotWidth`** with no control left to
-  clear them, and the detail page still renders the dimensions.
+### `ContactOwnerModal` → `ContactsExhaustedModal` have the same unguarded Escape pair — FIXED
+Guarded by `lib/isTopDialog.js`, extracted from the three copies now that it is a fourth site.
+`role`/`aria-modal` were already present on both. Covered in `consumer/services/referral-rewards`,
+whose `openListing` helper had to disable `inAppMessaging` first: with it on the phone's sticky CTA
+queues a chat and navigates to `/messages` (`useProperty.handleContact`), so the contact sheet never
+opened and all five of that file's mobile tests were timing out on a button that cannot appear.
+Review caught that `[role="dialog"]` was too wide a population — the cookie bar, install prompt and
+help assistant are non-modal dialogs `ConsumerLayout` renders after the outlet, which left Escape
+dead on all three guarded sheets whenever the bar was up. Narrowed to open `aria-modal` dialogs, and
+the flat-share filter drawer gained `inert={!drawer}` to declare itself closed; covered in
+`mobile/live-flatmates-modals`.
 
 ### The wizard's document slots drifted away from three specs — ONE FIXED, TWO OPEN
-`badgeDocsFor` now opens with `Electricity Bill`, carrying `originalPdf: true`, so that slot accepts
-only the original MSEDCL PDF. Any spec that reaches for `.doc-upload input` with `.first()` and
-hands it an image is refused at the picker, stages nothing, and never posts. `Ownership Proof` is
-no longer a wizard slot at all — it survives only as a dashboard-vault and rent-agreement category.
+`badgeDocsFor` now opens with `Electricity Bill` carrying `originalPdf: true`, so that slot accepts
+only the original MSEDCL PDF: any spec addressing `.doc-upload input` by `.first()` with an image is
+refused at the picker, stages nothing and never posts. `Ownership Proof` is no longer a wizard slot.
 
-- `property-integration.spec.js:233` (D219) — FIXED here: the upload is now addressed to
-  `[data-err="Property Tax Receipt"]`, the other half of the same badge, which accepts a photo, and
-  the assertion names that category. Re-run green.
-- `upload-policy.spec.js:299` — OPEN. Expects a `.dz-field-error` naming a signed PDF; the
-  guidance keys (`PDF_GUIDANCE_KEY`, `DOCUMENT_GUIDANCE_KEY`) were removed from
-  `PropertyDocumentUploads.jsx` in the uncommitted document-card rework. Belongs to that slice.
-- `fees-and-photos.spec.js:180` — OPEN and unrelated to documents: the `/pricing` FAQ answer
-  hardcodes "Owner Plus is ₹2,499 per year and Owner Pro is ₹4,999 per year" while the test seeds
-  ₹999 and asserts the page quotes the database. Product copy drift, owned by the pricing slice.
+- `property-integration.spec.js:233` (D219) — FIXED: the upload is addressed to
+  `[data-err="Property Tax Receipt"]`, the other half of the same badge, which accepts a photo.
+- `upload-policy.spec.js:299` — ~~OPEN. Expects a `.dz-field-error` naming a signed PDF; the guidance
+  keys (`PDF_GUIDANCE_KEY`, `DOCUMENT_GUIDANCE_KEY`) were removed from `PropertyDocumentUploads.jsx`
+  by the uncommitted document-card rework. Belongs to that slice.~~ **Closed 2026-09-22; the recorded
+  cause was wrong.** The guidance keys were never removed — they are still exported from
+  `lib/uploads/policy.js` and read by `DocumentsTab.jsx` and `DocVault.jsx`. The document-card slice
+  had already rewritten the assertion to an oversized PDF on the `Electricity Bill` slot. Whole file
+  re-run: 17 passed, exit 0.
+- `fees-and-photos.spec.js:180` — ~~OPEN and unrelated: the `/pricing` FAQ hardcodes "Owner Plus is
+  ₹2,499 per year and Owner Pro is ₹4,999 per year" while the test seeds ₹999 and asserts the page
+  quotes the database. Product copy drift, owned by the pricing slice.~~ **Fixed 2026-09-22; the
+  recorded cause was wrong twice over.** The FAQ is not hardcoded — `Plans.jsx` interpolates
+  `plansFaq5A` from a resolver — and the test does not seed ₹999, it reads whatever `/pricing`
+  returns. The real defect was that the two tables naming a price for the same plan disagreed:
+  the `plans` catalogue (the row that is **charged**) said 2499 / 4999 where the `fees` schedule
+  (the fallback the page renders until the catalogue lands) said 999 / 2499. Off by exactly one
+  row, so the FAQ answered Owner **Pro** with Owner **Plus**'s real price — a wrong number that read
+  as plausible copy because it was a real price of a real plan. Confirmed against the user: ₹999 and
+  ₹2,499 are the true prices, so the catalogue seed was corrected, not the schedule and not the
+  spec. Also removes a live hazard on the degraded path: `ListingPaywall.jsx:85` falls back to
+  `fee('ownerPlanYearly')`, so a slow or unreachable catalogue quoted ₹999 for a plan that charged
+  ₹2,499. New `PlanPriceMatchesFeeScheduleTest` fails if the two drift apart again.
 
 ### `seam-write.spec.js` never sees an uploaded photo — PRE-EXISTING
 
@@ -405,15 +295,14 @@ the uploader — passes.
 
 ### Editing a listing with no coordinates crashes step 2 — PRE-EXISTING
 
-`edit-policy.spec.js:140` ("a price edit is re-checked but the banner promises the listing
-stays live") dies on the wizard's error boundary: `<gmp-advanced-marker>: Cannot set property
-"position" … in property lat:`. `toEditForm` writes `propLat: vm.lat ?? ''`
+`edit-policy.spec.js:140` ("a price edit is re-checked but the banner promises the listing stays
+live") dies on the wizard's error boundary: `<gmp-advanced-marker>: Cannot set property "position"
+… in property lat:`. `toEditForm` writes `propLat: vm.lat ?? ''`
 (`services/providers/http/propertyMapper.js:247`), the API-seeded listing behind
 `ownerWithLiveListing` carries no coordinates, and `LocationPicker` is handed `''` unconditionally
-(`LocationPricingStep.jsx:66`). Attributed by shelving the three coordinate-persistence files and
-re-running: it fails either way — with them it crashes before the price input mounts, without them
-the input mounts and is detached mid-`fill`. The fix belongs with the map component (refuse to
-place a marker until both coordinates are finite), not with the draft slice.
+(`LocationPricingStep.jsx:66`). Attributed by shelving the three coordinate-persistence files: it
+fails either way. The fix belongs with the map component — refuse to place a marker until both
+coordinates are finite.
 
 ### `edit-prefill.spec.js` seeds a document category the wizard no longer offers — PRE-EXISTING
 
@@ -425,43 +314,37 @@ row below. Nothing in the coordinate-persistence slice touches documents.
 
 ### `types.spec.js:254` expects a removed land-document label — PRE-EXISTING
 
-The focused chromium suite passed the new society debounce assertion but failed `Land offers the
-7/12 Extract as its ownership proof, not Index II`: the existing uncommitted test edit expects
-`Registered Sale Deed`, while the rendered optional-documents panel does not contain it. This
-slice did not change the document picker. Restore the correct UI label or its assertion before
-counting the whole suite green.
+`Land offers the 7/12 Extract as its ownership proof, not Index II` expects `Registered Sale Deed`,
+which the rendered optional-documents panel does not contain. This slice did not change the document
+picker. Restore the correct UI label or its assertion before counting the whole suite green.
 
-### `upload-policy.spec.js` signed-PDF refusal returns no error — PRE-EXISTING
+### ~~`upload-policy.spec.js` signed-PDF refusal returns no error~~ — CLOSED 2026-09-22
 
-`rejects signed, malformed and still-oversized PDFs with actionable errors` reads `.error` as
-`undefined` for the `/Sig`-bearing fixture, so `prepareUpload` is resolving where it should refuse.
-Attributed by stashing the photo-compression slice (`image.worker.js` + this spec) and re-running
-the single test on the unmodified tree: identical failure, three repeats each. Nothing in that
-slice touches `pdf.worker.js` or `prepareUpload.js`. Observed on a frontend-only lane (backend
-down), which is not the spec's normal lane, so confirm against a live run before chasing it —
-`live-seam-write` asserts the byte-for-byte half of the same guarantee and is the better witness.
+~~`rejects signed, malformed and still-oversized PDFs with actionable errors` reads `.error` as
+`undefined` for the `/Sig`-bearing fixture, so `prepareUpload` resolves where it should refuse.~~
+Re-ran the whole file against HEAD: **17 passed, exit 0**, including
+`preserves a small signed PDF but rejects malformed and oversized PDFs` at `:226`. Whatever the
+failure was, it does not reproduce — consistent with its own attribution note, which recorded that
+it was seen on a frontend-only lane (stashing the photo-compression slice reproduced it three times
+there) and warned to confirm against a live run first. This was that live run.
 
 ### `improvements.spec.js:43` "Re-send" contains "Send" — PRE-EXISTING
 
-`sign-up offers exactly one primary action at a time` ends by asserting
-`getByRole('button', {name: /Send OTP/i})).toHaveCount(0)` once the OTP step is up. It resolves to
-**1** — the resend control, labelled `auth.resendOtp` = "**Re**send OTP", which the unanchored
-regex matches as a substring. "Send OTP" really is gone; the spec cannot tell the two apart. The
-e2e profile sets `send-cooldown-seconds=0`, so the button never spends time reading "Resend in
-{{seconds}}s" (which would not match) and the collision is permanent on this lane rather than
-timing-dependent. Attributed by stashing the chunk-failure messaging slice and re-running the
-single test: identical failure on both trees. Fix is to anchor the name (`/^Send OTP$/`) or give
-the two buttons testids — the label varies by state, which is the standing reason to stop locating
-it by name.
+`sign-up offers exactly one primary action at a time` asserts
+`getByRole('button', {name: /Send OTP/i})).toHaveCount(0)` once the OTP step is up, and resolves to
+**1** — the resend control, `auth.resendOtp` = "**Re**send OTP", matched as a substring by the
+unanchored regex. "Send OTP" really is gone. The e2e profile sets `send-cooldown-seconds=0`, so the
+button never reads "Resend in {{seconds}}s" and the collision is permanent on this lane, not
+timing-dependent. Identical failure with the chunk-failure messaging slice stashed. Fix is to anchor
+the name (`/^Send OTP$/`) or give the two buttons testids.
 
 ### `properties-console.spec.js:1279` Verification Queue only — PRE-EXISTING
 
-`the Verification Queue queue is sized by the server` fails on `searchParams.get('archived')`
-being `null`; the other three `QUEUES` rows pass. The wait matches the **first** request whose URL
-contains `q.param`, and for this facet that is a request that does not pin `archived`. Attributed
-by stashing the ownership-panel redesign and re-running: identical failure on both trees, and the
-spec's own comment concedes the wait is delicate. Fix is to narrow the matcher to the queue's own
-fetch rather than any URL containing the substring.
+`the Verification Queue queue is sized by the server` fails on `searchParams.get('archived')` being
+`null`; the other three `QUEUES` rows pass. The wait matches the **first** request whose URL contains
+`q.param`, which for this facet does not pin `archived`. Identical failure with the ownership-panel
+redesign stashed, and the spec's own comment concedes the wait is delicate. Fix is to narrow the
+matcher to the queue's own fetch rather than any URL containing the substring.
 
 ### `edit-prefill.spec.js` seeds a document category the wizard deleted — PRE-EXISTING
 
@@ -476,19 +359,15 @@ seeds at a category `docsFor` still renders.
 `create through the rental wizard persists exact answers and decimal areas for a fresh edit reload`
 fails at `expect(body.formDetails).toEqual(details)` with nineteen keys missing — every commercial
 one (`camCharges`, `clearHeight`, `commercialType`, `dockCount`, `escalationPct`, `fitOutMonths`,
-`fixtures`, `floorLoad`, `frontage`, `gstOnRent`, `inPlaceRent`, `leaseExpiry`, `pantry`) that the
-spec expects present-and-empty on a **Flat**. The cause is the commercial slice's uncommitted
-`formDetailsForPropertyType` in `list-property/submit.js`, which now scopes `formDetails` by
-property type and strips `COMMERCIAL_DETAIL_KEYS` from a residential post — exactly and only the
-observed diff. Neither the function nor `COMMERCIAL_DETAIL_KEYS` exists at HEAD, and the land slice's
-sole line in that file (`landUse:`) sits in hunk `@@ -226,0 +258 @@`, nineteen lines-worth away from
-the scoping block at `@@ -28,0 +29,19 @@`. The spec should stop asserting empty commercial answers
-on a residential listing; that call belongs to the commercial slice.
-
-The other two `edit-prefill` failures in the same run (`:231` sale reload, `:307` legacy address)
-are **flaky, not real** — both are 15s `locator` timeouts on a wizard that had rendered, and all
-three re-runs pass in isolation (`-Grep 'saved proof without verification|postcode, date or
-ownership'` → 3 passed).
+`fixtures`, `floorLoad`, `frontage`, `gstOnRent`, `inPlaceRent`, `leaseExpiry`, `pantry`) the spec
+expects present-and-empty on a **Flat**. Cause is the commercial slice's uncommitted
+`formDetailsForPropertyType` in `list-property/submit.js`, which strips `COMMERCIAL_DETAIL_KEYS`
+from a residential post — exactly and only the observed diff. Neither it nor `COMMERCIAL_DETAIL_KEYS`
+exists at HEAD, and the land slice's sole line in that file (`landUse:`) sits nineteen lines away.
+The spec should stop asserting empty commercial answers on a residential listing; that call belongs
+to the commercial slice. The other two `edit-prefill` failures in the same run (`:231` sale reload,
+`:307` legacy address) are **flaky, not real** — 15s `locator` timeouts on a wizard that had
+rendered; all three re-runs pass in isolation.
 
 ### `npm run check:listing` is red on three backend checks — PRE-EXISTING
 
@@ -498,367 +377,76 @@ both. The checker refuses to be relaxed (D76/Q14): the owner-facing edit banner 
 disagree about what a re-review costs. Confirmed unrelated to the listing-docs copy slice, which
 touches no backend file.
 
-### `ListingSearchTest.emptyTenantsMatchesNoFilter` is red — NOT MINE, needs a ruling
+### `ListingSearchTest.emptyTenantsMatchesNoFilter` — RULED 2026-09-23, inclusive
 
-An uncommitted working-tree edit to `PropertySpecs.java` swapped the tenants facet from `anyJson` to
-a new `anyJsonOrNoPreference`, which deliberately admits listings that stated **no** tenant
-preference (`null` / empty array / `"anyone"`). `ListingSearchTest` is the only written contract for
-that facet and it argues the opposite in a comment: *"admitting it would put an owner who never
-answered in front of a seeker who asked a specific question."* No test defends the new inclusive
-behaviour. The same commit's `petsAllowed` comment takes the exclusive stance for pets — *"to a
-tenant with a dog 'unstated' and 'no' are the same"* — so the two facets now disagree with each
-other. Left untouched: it is in-flight V95 facet work from another slice and picking a side silently
-would either strand that work or ship an unasserted product change. **Decide which facet rule is
-right, then fix whichever side is wrong.** The gendered-bachelor broadening in the same hunk
-(`bachelor-male`/`bachelor-female` also matching the legacy `bachelors`) is unrelated and looks sound.
+The tenants facet keeps `anyJsonOrNoPreference`: a listing stating **no** tenant preference is shown
+to every tenant type, because an empty preference is an answer ("I'll take anyone"), not silence.
+`ListingSearchTest` argued the opposite and was updated to match, as were the two e2e reds below.
+`petsAllowed` deliberately stays exclusive and the two facets do **not** disagree: a null `pets` is
+an owner who never answered a yes/no, and matching it would advertise a permission nobody gave.
+`PropertySpecs.anyJson` was deleted — the ruling settled which method survives.
+
+The gendered-bachelor broadening in the same hunk is unrelated and looks sound.
+
+`listing-attributes.spec.js` `:51` and `:98` were rewritten for the new rule but are **PENDING
+VERIFICATION** — not yet run. `:51` no longer pins an exact slug set, since under the inclusive rule
+the result grows with every silent rental added to the seed; it asserts the rule instead (a stated
+family policy matches, a stated non-family one never does), which still defeats the old hash.
+
+### Two notes left by the filter-correctness review — both deliberately out of that diff
+
+- **`rangeChanged` is reinvented across a seam.** `ResultsArea.jsx` L27-28 hand-writes
+  `f.rent[0] !== RANGE.rent[0] || f.rent[1] !== RANGE.rent[1]`, which is exactly `rangeChanged` in
+  `lib/listings/filterState.js` L68 — unexported, so the results page grew its own copy. Exporting
+  it changes a module's public surface and rewrites two call sites; too large for a
+  no-behaviour-change pass.
+- **The radius is not re-clamped when the near-a-place mode toggles.** `set({ nearMode })` leaves
+  `f.nearRadius` alone. Latent only while `NEAR_MAX_MINUTES` and `NEAR_MAX_RADIUS` are both 25 —
+  which is precisely the coincidence the two constants exist to stop anyone relying on. The moment
+  they diverge, switching km→min can leave a radius above the new ceiling, with the slider pinned at
+  a value the chip does not reflect. A real behaviour change, so it needs its own spec.
+
+### The flatmates twin of the "near a place" radius bug is still live — NOT FIXED, out of scope
+
+The listings fix (see Shipped) held the half-typed radius in component state so the filter can never
+store `''`, and gave the 25 km ceiling one home that the number input, the slider and any radius
+arriving from a shared URL all read. `frontend/src/pages/consumer/flatmates/NearPlaceField.jsx`
+L96-97 still writes `''` through on change and clamps against a hardcoded `25` on blur, and
+`useFlatmateDiscovery.jsx` L51 reads `?nearr` with no clamp at all — so one shared `?nearr=9999`
+link is clamped on Listings and honoured on Flatmates, and a cleared field there still drops the
+centre point while the chip keeps naming the place. Left alone deliberately: the brief was four
+named listings-search bugs, and the flatmates radius has no spec covering it, so a blind port would
+be an untested change to a second surface. **Port `clampNearRadius` / `nearMaxFor` from
+`lib/nearParams.js` and add a spec mirroring `live-near-radius-repair`.**
 
 ### `post-property-sync.spec.js:79` approves its own on-behalf listing — NOT MINE
 
-`PATCH /properties/{id}/status` answers 403 "You cannot approve or review your own listing". The
-cause is the uncommitted `PropertyLifecycle.requireChecker`, which now refuses a checker who is
-either the owner **or** `postedByStaff`. The test posts through the desk as `ACTORS.admin` and then
-approves as the same admin, so the second clause fires — correctly, by the new guard's own intent.
-Not an authorization regression: a PATCH against a nonexistent id still returns 404, so
-`@PreAuthorize(PROPERTIES_WRITE)` passes and the refusal is the business rule. The other four tests
-in the file pass, including the taxonomy drift guard this slice edited. Fix is for the moderation
-slice to decide: either approve as a second staff actor here, or exempt on-behalf listings from the
-`postedByStaff` clause — the desk filing a listing is not the same conflict of interest as a
-staffer approving a home they own. **Do not re-point the spec while that guard is in flight.**
-
-### Approval no longer demands current ownership evidence — DECISION, overrule if wrong
-
-Cluster 1's `ApprovalGate` was written to require both a fully ticked checklist **and** unexpired
-ownership evidence. The second half was removed: `OwnershipGate` already grants the ownership badge
-against exactly that evidence set, and a badge every approved listing necessarily carries
-distinguishes nothing. A listing can be genuine, checked and publishable while its registry extract
-is still being chased — the badge is how the site says so. Requiring registry extracts before any
-sale approval would be an operational product change nobody asked for. Rationale is in the class
-javadoc; say so if you want the stricter rule instead.
-
-### `images` has no minimum on create or update — DECISION
-
-`ListingGalleryPolicyTest` pins `0` as a legal gallery size (`@ValueSource(ints = {0, 10})`), and on
-PATCH an empty list is the only way an owner can clear a gallery — a floor would turn that into a
-422 with no other way to say it. "Not enough photographs to sell this" is judged by the reviewer's
-checklist, which is where a human is already looking at the listing.
-
-### The two approve routes stay separate, but the record now says which ran — DECISION
-
-A listing can be approved from the verification desk (`POST .../verification/decision`, refused by
-`ApprovalGate` until every checklist line is ticked) or from the moderation queue
-(`PATCH .../status`, which the console uses for both single-row and bulk approve and which
-deliberately never opens the case file — opening one seeds a fresh unticked checklist, so the gated
-route would 409 on every row of a bulk).
-
-Collapsing them was considered and rejected: they are genuinely different acts, and forcing forty
-checklists through a table is not a thing anyone would do. What was wrong was not the split but the
-silence — the case file went on reading `pending`, unattributed, beside a listing that was live, so
-the ops queue showed work outstanding on a decision already taken and the audit said nobody had
-approved a listing directly beside a row naming who did. `setStatus` now closes an **existing**
-case file with the actor and a note saying the checklist was skipped.
-
-Two deliberate omissions, both pinned by `ModerationBehaviourTest`: no case file is **created**
-(absence states nothing false; creating one per bulk row files six work items whose content is that
-six pieces of work did not happen), and the checklist is **not ticked** (unticked lines are the
-honest record of what this route skipped — ticking them forges the evidence the gate demands).
-
-### An owner's resubmission needs no cooldown — DECISION, declining a review finding
-
-Flagged as unbounded: an owner's reply to a rejection moves the listing REJECTED → PENDING, with no
-counter. It is bounded, just not locally. The reopen predicate requires `REJECTED`, and the
-resubmission itself sets `PENDING` — so a second reopen needs an intervening **moderator
-rejection**. The loop runs at the desk's pace, not the owner's. Message volume on the same endpoint
-is capped per caller by `WriteRateLimitFilter` like every other write.
-
-What is left is narrow and not what was flagged: every message bumps `lastMessageAt`, which is what
-the ops queue sorts on, so a talkative owner floats up the queue. That is a queue-ordering product
-question (should a case sort on its last message, or its oldest unanswered one?), not a guard, and
-adding an attempt counter would not touch it.
+`PATCH /properties/{id}/status` answers 403 "You cannot approve or review your own listing". Cause is
+the uncommitted `PropertyLifecycle.requireChecker`, which refuses a checker who is either the owner
+**or** `postedByStaff`; the test posts through the desk as `ACTORS.admin` and approves as the same
+admin. Not an authorization regression — a PATCH against a nonexistent id still returns 404, so the
+refusal is the business rule. Fix is for the moderation slice to decide: approve as a second staff
+actor, or exempt on-behalf listings from the `postedByStaff` clause — the desk filing a listing is
+not the conflict of interest a staffer approving their own home is. **Do not re-point the spec while
+that guard is in flight.**
 
 ### Person identity verification — PARTIAL, browser-tested with open defects
 
-**OCR accuracy tuning, 2026-09-15.** User reported Tesseract "not up to the mark" for these
-documents and asked for a more accurate free/open-source engine reading English *and* Devanagari.
+The DigiLocker seam, modal entry points and person-badge vocabulary are replaced across frontend
+copy, i18n ×3, the service seam, admin/ops fields, e2e + COVERAGE.md and ~35 docs, and
+`/verify-identity` / `/ops/kyc-review` are registered in `ROUTE_PATTERNS`. No backend regression
+suite, build, lint, code review or deployment has been run against it, and the consumer capture
+route and staff queue UI are not written. Read-only planner findings still to validate: production
+`_headers` denies camera access, staff decisions require admin-only `users:write`, replacement
+submission appears to delete prior images before all replacements succeed, review decisions appear
+to lack locking, and approval notices target an unregistered `/profile` route.
 
-Researched and settled on **PP-OCRv5 via RapidOCR** (Apache 2.0, code *and* weights; the
-`devanagari` recognition model already includes English, so it is one model and one pass, not two).
-Rejected: EasyOCR (unmaintained, CRAFT+CRNN is Tesseract-era), docTR (no Devanagari), and **Surya —
-its weights are AI Pubs Open RAIL-M, free only under $5M revenue, so it fails "free and open
-source"** however good the benchmarks look. User chose the server-side provider seam, accepting
-that it gives up the abandon-before-submit privacy property.
-
-**PARKED, not cancelled — this machine cannot reach the weights.** `modelscope.cn`,
-`huggingface.co`, and `paddleocr.bj.bcebos.com` all fail the TLS handshake
-(`SEC_E_ILLEGAL_MESSAGE`) while `raw.githubusercontent.com` returns 301 and no proxy is configured:
-a **GitHub-only network allowlist**, not a client TLS bug. There is no GitHub mirror to fall back
-to — every RapidOCR release from v1.4.4 to v3.9.2 ships `assets: []`. Model URLs and SHA256s are
-recorded in `tasks/scratch/ocr-spike/fetch-models.ps1`, which is ready to run the day the hosts are
-allowlisted. **If CI sits on this network, a build-time model fetch dies there too — check before
-committing to that design.** Also unresolved: no maintained JVM PP-OCR pipeline exists, so the DB
-detector post-processing and CTC decode would be hand-written Java.
-
-Shipped instead, in `frontend/src/lib/identity-verification/ocr.js` — three of the four causes are
-tunable without changing engine:
-- **`eng` on a bilingual card.** Half an Aadhaar is Devanagari; the English model transliterates it
-  into confident-looking capitals, which is *exactly* the shape `parseName` hunts for. The fix is
-  not a Hindi model (**the English name is printed on all three document types, so Devanagari is
-  interference, never a data source**) but per-line confidence: `data.blocks` and every confidence
-  score were being thrown away, with only flat `data.text` used. Lines below 60 are now dropped.
-- **No page-segmentation mode**, so it defaulted to AUTO — built for scanned A4, given a card that
-  `capture.js` has already cropped to the guide. Now `SINGLE_COLUMN`.
-- **Digit lookalikes** (`O/0`, `I/1`, `S/5`, `B/8`) were being *stripped* rather than corrected, so
-  an Aadhaar with one misread glyph failed entirely. Repaired per-group, and only in groups already
-  mostly digits, so `SOLO` in a name never becomes `5010`. A char whitelist was considered and
-  rejected: it constrains the engine but cannot fix a misread, and a second pass would double
-  latency against the 45s deadline.
-- **The fourth cause is the engine ceiling and is not tunable.** Tesseract's LSTM is trained on
-  scanned documents; a handheld photo of a glossy laminated card is natural-scene text. That is why
-  PP-OCR is parked rather than dropped.
-
-Also restructured the deadline to span worker startup, not just `recognize` — startup is where
-emscripten's `abort()` hangs, and `createWorker` is now a separate await that could have hung
-outside the old race. Worker is terminated in `finally`, which on the timeout path is the only
-thing reclaiming the core.
-
-Green: identity route spec **8/8** (incl. the real OCR read and the never-finishes fallback),
-`npm run build` clean.
-
-**Accuracy is NOT verified and cannot be here.** Every test drives a canvas drawing of crisp black
-text on flat white — the one input Tesseract was always good at. The confidence floor is known not
-to reject clean text (the PAN still reads back), but whether it admits a real photograph's name line
-and rejects a Devanagari one is **untested**; so is the `SINGLE_COLUMN` choice. Re-check by hand
-with real cards, and treat 60 and `SINGLE_COLUMN` as the first tuning candidates. Sizing note that
-kept this proportionate: **OCR is not a correctness boundary** — the badge is keyed on
-`identity_hash`, set at approval from the reviewer's typed number, so OCR only affects reviewer
-typing effort, early-409 dedup, and prefill quality. **PENDING AGENT REVIEW** (no subagents, per
-the standing instruction): `ocr.js`.
-
-**UI rebuild + liveness gate, 2026-09-15.** User reported after a real-camera session that the
-selfie "passes on the first click, not left and right", and asked for every screen in the flow to
-be rebuilt on the application's own theme. Both were real.
-
-- **The liveness stages were decoration.** The capture button was never bound to `selfieStage`, so
-  a user could capture at stage 0 having done none of the three poses. Compounding it, the counter
-  clamped at `SELFIE_STAGES.length - 1`, so "all three cleared" was not a representable state and a
-  gate added naively would have been unsatisfiable. Fixed by letting the counter reach the count
-  and gating on it. **The release is deliberate, not a loophole:** a client gate stops nobody who
-  can post to the API directly, so its only value is coaxing a usable photo out of an honest user —
-  a permanent block would strand the one person it exists to help (dim room, odd camera, a face the
-  model reads poorly). It therefore unlocks after `LIVENESS_STALL_MS` measured from the last sign
-  of PROGRESS, not from when the camera opened, so a merely slow user is never waved through, and
-  it says on screen that the checks could not be confirmed rather than claiming they passed.
-- **The control panel covered the video.** It was `absolute inset-x-0 bottom-0 … pt-24` inside the
-  `relative` frame, which blankets the shorter `aspect-video` document preview. Controls moved into
-  normal flow below the frame. The guide stays inside it because `guidedRegion` inverts that
-  element's `object-cover` transform to decide which pixels are stored — anything else laid over
-  the video would shift that mapping or hide the frame the user is filling.
-- **All eight screens rebuilt** on the app's real systems: the `.btn` tiers in
-  `styles/components/buttons.css`, `.glass` from `index.css`, and the CSS custom properties. The
-  flow had been carrying its own light palette (`#f3f3f1`, `#2f8082`) invented for it.
-
-Regression, red-checked: `the selfie capture button is held by the liveness stages, and released
-when they stall` asserts the button starts disabled with all three stages `pending`, that the
-fallback releases it, and that nothing claims the checks passed. Red-checked by setting
-`disabled={false}` — it fails; restored and it passes. Two other assertions moved with the copy and
-were spec drift, not defects: `seven days after a decision` now matches the consent checkbox too
-(pinned to the disclosure paragraph), and the desktop heading reads `Continue on your phone`.
-
-Green: identity route spec **8/8**, ops review spec **3/3**, `identity-verification.test.mjs` 4/4,
-`npm run build` clean, every `check:*` gate except the pre-existing `check:listing` (3 of 63, about
-`ListingService.java` — not this feature's, and the checker says not to relax it), eslint clean on
-the identity files. **No subagents were spawned, per the standing instruction** — the redesign and
-the gate are still **PENDING AGENT REVIEW** along with the items below.
-
-Still not covered by automation: every run drives a drawn canvas, so a face is never actually
-detected. The stages are only ever observed *failing* to advance; the passing direction and the
-thresholds in `face.js` rest on manual testing. `box.width < 0.22` rejected a natural laptop
-distance during the live session and is the first tuning candidate if real-camera testing repeats
-it. **Lowered to 0.18 on 2026-09-15** — still unproven by automation, so re-check it by hand.
-
-**Copy and character rewrite, 2026-09-15.** User reported that the screens had been written from
-reference screenshots of a different application and asked for copy in this product's vocabulary
-and, crucially, its *actual functionality* — plus a character of its own rather than the dark-glass
-build the previous pass shipped.
-
-The complaint understated the problem. **Two of the four benefit bullets advertised features this
-product does not have:**
-- *"Unlimited calls, chats, tours and offers"* — contact is L1-only for every signed-in user
-  (ADR-019, `lib/contact.js`), so verification unlocks no quota at all. "Unlimited" is **Seeker
-  Plus, a paid plan** (`ContactsExhaustedModal.jsx`). The intro screen was selling a paid benefit
-  for free, on the one screen whose whole purpose is being believed.
-- *"Get listed in our realtor directory"* — there is no realtor directory anywhere in the product.
-
-Replaced with the three the code actually implements: the badge on profile and listings, the
-ranking lift (`ProfileTab.jsx`), and reaching owners who accept verified contacts only. The
-verify-is-not-a-gate line from `ProfileTab.jsx` is now carried on the intro screen too, so the
-flow cannot be read as a wall. Also: "Driver's License" was the US spelling in an India-first
-product, and every remaining text glyph (`← × › ✓ ⬚ ∞ ⚡`) is now an `<Icon>`.
-
-Character: a **contact sheet** — one frame per photo the chosen document needs, in shooting order,
-filling with the real thumbnail as each is taken. It answers what a step counter cannot (how many
-more photos, and of what), and it appears on the document picker too, because "two frames vs three"
-is the honest difference between a PAN and an Aadhaar. Everything else is deliberately quiet:
-left-aligned, hairline-bordered lists instead of stacked glass cards, and `font-mono tabular-nums`
-reserved for machine output (OCR values, attempt counts, frame indices).
-
-Found while mirroring the copy into the spec:
-- **The retake link was keyed to the wrong photo.** It rendered on `captures.front || captures.back
-  || captures.selfie`, so arriving at the selfie step with a front photo in hand offered to retake
-  a selfie that did not exist — and taking the offer called `resetCapture('selfie')` and reset the
-  stage counter, sending an honest user back through three poses for nothing. Now `captures[activeFrame]`.
-- **A locator trap worth remembering:** "**Re**take the front" *contains* "take the front", so
-  `getByRole('button', { name: /Take the front/i })` matches both the shutter and the retake link.
-  Four tests died of strict-mode violations before the spec was anchored on
-  `data-testid="capture-button"`. Recorded in `e2e/COVERAGE.md`; do not reintroduce name-regex
-  locators for that button.
-
-**PENDING AGENT REVIEW** (no subagents, per the standing instruction): the rewritten copy for
-claim accuracy, `VerifyIdentity.jsx` after the restyle, and the lowered `face.js` threshold.
-
-**Both exits from a decided case were broken, 2026-09-14.** User reported the button on the
-"Sent for review" screen doing nothing. It did nothing exactly: it called `setStep('intro')`, and
-`showStatus` is true on the `intro` step too whenever a case exists, so the only control on the
-screen re-rendered the screen. The user's sole way out was the × in the header.
-
-Pulling that thread found the worse one next to it. Retry on a rejected case jumped to the document
-picker, skipping consent — but `consented` is component state and a rejection arrives from a human
-reviewer hours later, so the user has *always* reloaded by the time they see it. Every real retry
-was therefore submitting `consent=false`, which `IdentityVerificationService.submit` refuses with
-`consent must be true` — **after** the user had retaken every photo. The rejected path was
-unusable in production and green in tests, because the test never clicked the button.
-
-Both now covered: the pending case asserts the button actually leaves to `returnTo`, and the
-rejected case asserts it lands on consent with the checkbox unticked.
-
-Reviewing the diff afterwards turned up a third, unrelated to the button: the contact sheet renders
-inside the document picker's `<button>`, and it was emitting `<ol>/<li>/<p>` there — invalid, since
-a button may only contain phrasing content. It also announced "list, 2 items, 1, 2" to a screen
-reader immediately after the option had already said "One photo of the card, then a selfie" in
-words. The `xs` variant now renders as `aria-hidden` spans; the standalone sheets keep list markup,
-where it is real structure.
-
-**Completion pass, 2026-09-15 — the two confirmed defects are fixed, plus three found while
-fixing them.** User authorized completing the scope, offered a laptop webcam, and instructed that
-**no subagents be spawned**. That overrides AGENTS.md's post-change agent workflow, so the
-`react-reviewer` / `code-reviewer` / `security-reviewer` passes were **NOT** run — review was done
-manually and serially over the diff. **PENDING AGENT REVIEW** on: the identity backend package,
-`VerifyIdentity.jsx`, `OpsIdentityReview.jsx`, both CSP copies, and `check-csp.mjs`.
-
-Fixed this pass beyond the two recorded defects:
-- retake after rejection returned 500 for every rejected user — Hibernate orders pending inserts
-  ahead of pending deletes, so the new rows collided with the old on `UNIQUE (verification_id,
-  kind)`. `files.flush()` in `purgeFiles`; proven by the red run before the fix.
-- a rejected face-landmarker promise was cached for the session, so one bad model fetch disabled
-  selfie guidance permanently and Retry camera could not recover it.
-- the ops Approve/Reject buttons had no in-flight guard; a double click came back 409 on a case
-  the reviewer had just decided correctly, and read as a failure.
-
-Two structural guards went red on the full backend suite because of this work, and both were
-real answers rather than noise:
-- `ArchitectureBoundaryTest` — `identity` (layer 0) imported `documents.vault.DocumentUploads`
-  (layer 2), an upward reference. Resolved by dropping to `common.validation.MediaSignatures`,
-  which both packages already sit above, and stating identity's own policy locally: camera photos
-  only (JPEG/PNG/HEIC), no PDF, declared type and sniffed type must agree. That is *narrower* than
-  the vault's allowlist, which is the correct rule for a capture path — the shared constant was
-  always a slightly wrong fit. All 18 identity endpoint tests still pass.
-- `MigrationChainTest.noTableIsCreatedTwice` — a **false positive**. It counted CREATEs without
-  modelling DROP, so `V23`'s deliberate drop-and-rebuild of `identity_verifications` read as the
-  outage shape, and the message sent the author to edit an applied migration, which is the *other*
-  half of what caused the original outage. The guard now walks CREATE and DROP in chain order and
-  fails only on a CREATE of a table that is still live. Red-checked by adding a bare second
-  `CREATE TABLE otp_codes` with no DROP: it goes red naming that table.
-
-Full backend suite after both: **2537 tests, 2 failures** — the two pre-existing
-`SourceTreeHygieneTest` ones (`tasks/scratch/audit-patch-bundles.mjs` mojibake, and five empty
-files from another session's in-progress flatmates work). Neither is this feature's.
-
-Both late fixes now have red-checked regressions:
-- `identity-route.spec.js` fails the model fetch exactly once and asserts selfie guidance
-  recovers on the next visit to the step — red when the rejected promise is cached again.
-- `identity-review.spec.js` holds the approve response open, force-clicks both decision
-  buttons, and asserts one request, no reject, no error banner — red without the guard. The two
-  buttons carry testids because both read "Saving…" in flight, which is exactly the state
-  an accessible-name locator cannot disambiguate.
-
-Green at this point: identity route spec 7/7, ops review spec 3/3, backend 2537/2 (both known),
-`npm run build` clean, and every `check:*` gate except the pre-existing `check:listing`.
-
-**Completion attempt, 2026-09-14 — BLOCKED before implementation:** user authorized completing
-the remaining scope and offered a laptop webcam for assisted testing. Rechecked identity working
-changes and shared ports; preserved the existing :8084 process. Both the read-only planner and
-security-reviewer failed with upstream-provider high-demand errors. Stopped under AGENTS.md's
-subagent-failure rule; neither produced findings or code. No application changes, new tests,
-dependency changes, or webcam activation in this attempt. Resume with camera/OCR regressions,
-backend safeguards, staff/UI/i18n completion, independent reviews and isolated automated checks,
-then user-assisted local non-uploading webcam checks. All open items below remain open.
-
-**Desktop browser verification, 2026-09-14:** the routes and five identity specs now exist;
-the initial inspection below is historical, not a current inventory. Camera headers now allow
-same-origin capture. This testing pass made no application-code changes.
-
-- [x] Existing identity route/review specs: **5/5 passed in 50.6s**, Chromium, one worker, no retries,
-  app :5191 / API :8096 / `draazy_e2e_sv2`, output `e2e/test-results-identity-desktop`.
-  Covers PAN canvas-camera submission, pending/rejected status, denial instructions, desktop QR,
-  and admin approve/reject. The review specs sign in as admin, so they do not prove staff access.
-- [x] Additional ephemeral browser probes using Chromium's native fake-media device (Pixel 7):
-  PAN front-only and Aadhaar/driving-licence front/back reach selfie; PAN prepared capture,
-  readable previews, retake, and track teardown pass. All three document flows release tracks
-  when returning to document selection. Only synthetic media was used, not a physical webcam.
-- [x] WebKit 26.5 desktop QR passes. iPhone 13-emulated consent/document selection/denial UI
-  passes with an explicitly injected denial API. **Windows WebKit exposes no `mediaDevices` in
-  this mobile context**; its native run correctly shows the phone handoff. This is not evidence
-  for native Safari camera support, and no physical iPhone was tested.
-- [x] **Fixed: Retry camera was a no-op.** The handler set `step` to its unchanged value, so the
-  camera effect never reran. Now a `retryToken` in the effect deps. Regression asserts the browser
-  was asked a second time (`getUserMedia` count 1 → 2), not merely that the error text cleared.
-- [x] **Fixed: OCR worker could not load — and the cause was larger than the worker.** The
-  `importScripts` failure was real but secondary; bundling worker and core exposed the actual
-  defect: **the CSP blocked all WebAssembly**, so the Tesseract core *and* the MediaPipe face
-  landmarker both aborted. `script-src` needed `'wasm-unsafe-eval'` (which permits wasm
-  compilation only, and does not restore JS `eval()`); the policy was not otherwise weakened —
-  it was narrowed, see below. Second, independent defect found while fixing it: emscripten's
-  `abort()` tears the worker down from the inside, so `recognize()` never settles and the
-  `catch` that was supposed to offer manual entry was unreachable code — the screen showed
-  "Reading document…" forever with no error anywhere. A 45s `Promise.race` deadline now delivers
-  that fallback for every cause. Both are covered: one spec asserts the PAN number itself appears
-  on the review screen (the only assertion that separates a real read from a worker that failed
-  to load), one hangs the language-model request and asserts the manual path still arrives.
-  Deadline red-checked by raising it to an hour — the spinner test goes red on its own assertion.
-- [x] **Both model files are now self-hosted, and the CSP is narrower than before.**
-  `cdn.jsdelivr.net` and `storage.googleapis.com` are gone from `connect-src`; they were listed
-  only for these two downloads, and this repo's own CSP notes call the latter an exfiltration
-  target. A third party no longer learns who starts a verification. Licensing and provenance for
-  both binaries are recorded in `frontend/public/third-party/models.txt` with checksums.
-- [x] **CSP drift guard.** The policy is written twice — `frontend/index.html` and
-  `frontend/public/_headers` — and e2e exercises only the dev server, i.e. only the meta copy.
-  A directive added to one and not the other is green in the whole suite and broken in production.
-  `frontend/scripts/check-csp.mjs` diffs them directive-by-directive with an allowlist of genuine
-  deltas; wired into `npm run check`; red-checked against the header copy alone.
-- [x] `/verify-identity` and `/ops/kyc-review` registered in `ROUTE_PATTERNS`. Both were being
-  filed under the 404 bucket: zero reported traffic for the funnel, inflated broken-link count.
 - [ ] Preserve additional probes as durable specs; validate camera absence, interrupted/background
   capture, physical Android/iPhone, production headers, and secure phone QR reachability.
   A localhost QR opens the phone's localhost, not this desktop. **Real face/liveness inference is
   still unasserted against a real face** — a spec now proves the landmarker loads and recovers from
   a failed fetch, but nothing drives it with actual facial geometry, so the stage-advance logic
   (`readSelfieGuidance`) is exercised only by synthetic frames. This needs the physical webcam.
-
-**Harness caveats:** the editor runner first reset the default `draazy_e2e` test DB and failed
-seeding on missing `lifecycle_track`, before browser assertions. The successful run used the
-isolated lane instead. Two initial teardown-probe failures were a PowerShell Unicode selector
-encoding mistake, not app failures; both passed after an ASCII-only selector correction. Ad-hoc
-probe exit 0 is not a pass count: the initial script collected assertion failures in its output.
-No application build/lint, backend regression suite, code/security review or deployment was done
-in this testing pass. Backend startup compiled main and test sources; that is not test execution.
-Coverage-citation validation still fails on the two already-recorded missing rent-payment/sticky
-wizard references; both new identity citations resolve. Documentation diagnostics are clear.
-
-**Initial inspection, 2026-09-13 (superseded where noted above):**
-
-- [x] Read workspace instructions and lessons; inspect the working-tree inventory (334 changed
-  entries at session start). Preserve existing identity, property-verification and lifecycle work.
-- [x] Inspect attached UI references and obtain a read-only frontend implementation plan. No
-  application code, dependencies, database state, or shared processes changed in this session.
 - [ ] Finish backend inspection: the delegated inspection failed with an upstream-provider
   high-demand error. Stopped under AGENTS.md's subagent-failure rule; no partial implementation applied.
 - [ ] Validate backend submission/review contracts, upload/scanning limits, concurrent decisions
@@ -870,1804 +458,592 @@ wizard references; both new identity citations resolve. Documentation diagnostic
   camera-only capture, lazy local OCR/face guidance, prepared uploads and credential-free phone QR.
 - [ ] Implement permission-scoped staff queue/detail/confirmation UI using the existing moderation
   APIs; refresh private image links and handle conflicts and already-decided cases.
-- [x] Replace the old DigiLocker seam/modal entry points and person-badge vocabulary; preserve
-  return navigation and legitimate agreement/property document fields; translate English/Hindi/Marathi.
-  Done across frontend copy + i18n ×3, the service seam and mappers, admin/ops fields, the e2e
-  layer + COVERAGE.md, and ~35 docs. Legitimate Aadhaar-as-a-document references (rent agreement
-  D159, document vault, OCR checksum, owner bank/PAN KYC) deliberately kept, as are the ADR rows
-  marked Superseded/Withdrawn/Amended — those are decision history, not live claims.
 - [ ] Run backend regressions, synthetic-camera browser tests, real inference smoke checks,
   build/lint/i18n/OpenAPI checks and ordered code/security reviews in isolated lanes. Record actual
   results and update coverage; physical iPhone Safari remains a separate verification gate.
 - [ ] Document approved WhatsApp template/configuration, model asset licensing/privacy, camera/CSP
   deployment settings, and any remaining release blockers. Do not commit or deploy.
 
-**Read-only planner findings to validate before implementation:** production `_headers` denies
-camera access; staff decisions require admin-only `users:write`; replacement submission appears to
-delete prior images before all replacements succeed; review decisions appear to lack locking;
-approval notices target an unregistered `/profile` route. The old frontend Aadhaar endpoints remain.
-Use narrowly scoped identity-review permissions, not broader account-administration access. The
-graph reports commit `fd641b76`, behind inspected HEAD `b8e1ddb5`; refresh before further graph use.
-
-**Verification this session:** no tests, builds, lints or runtime camera checks run. Backend
-correctness and production readiness are not established. Project skills named `draazy-frontend`
-and `draazy-backend` were not found in the active/archive paths checked; the two UI design skills
-were read instead. Existing app design and the user's screenshots take precedence over generic style.
-
-### Ownership Verified badge (D190/Q15) — verified, not partial
-
-The previous session recorded this as partial after a model-provider outage. It was not: the
-wizard-side work it listed as pending was already written, only never compiled and never run. What
-the handoff really described was unverified work, and this pass verified it.
-
-- [x] **The Index II sale gate was already correct.** `TITLE_PROOF` is established by `index_ii`
-  alone; `sale_deed` maps to `TITLE_SUPPORT`; `requiredKinds("buy") = [title_proof, address_proof]`.
-  No change needed — an electricity bill plus a registered deed still leaves `missingKinds:
-  ['title_proof']` and the Grant button disabled.
-- [x] **The "static checks passed" claim was wrong.** `OwnershipEvidenceTypesTest` used AssertJ's
-  non-existent `isNotSubsetOf`, a compile error that blocked the *entire* backend test tree. Fixed.
-- [x] **Backend: 136 tests green** (`OwnershipVerificationTest` 18, `OwnershipEvidenceTypesTest` 9,
-  `DocumentUploadsTest` 28, `UploadPolicyEndpointsTest` 45, plus the verification/owner suites).
-  Superseded by the final run below, which adds this pass's five new tests.
-- [x] **Live e2e green**: `property-ownership-review.spec.js` 2 ✅ and
-  `consumer/list-property/seam-write.spec.js` 6 ✅, on the admin lane (:8084, `draazy_e2e_adm2`).
-- [x] **Signed-PDF preservation is now proven, not assumed.** A PDF carrying a real `/Sig`
-  dictionary, `ByteRange` and `AcroForm` goes through the wizard and is compared byte-for-byte with
-  the issued bytes on readback. `pdf.worker.js` forwards a sub-1 MB PDF `unchanged` *before*
-  `rejectSignatureFields` — the branch order is the whole guarantee, and nothing had pinned it.
-- [x] **Found and fixed a real owner-upload bug while writing that test.** The document picker is
-  `disabled` while a photo is still uploading, and `useListingMedia.start()` drops a pick made in
-  that window with no error at all. The wizard treats document failures as non-fatal, so the owner
-  saw "Listed Successfully" with no paper on the listing. The specs had never asserted the document
-  was stored, so both existing tests passed while uploading nothing. They now wait for the picker to
-  be enabled and assert the filename appears.
-- [x] **Two security findings fixed** (from `security-reviewer` on the module):
-  - The case-file read chose its staff projection on **role alone**, so an ops desk with no
-    `properties:write` (packers, loans, interiors) could walk property UUIDs and harvest
-    `{docType: "aadhaar", subjectName: "<name off a government ID>"}`. The projection is now a
-    capability, via `PermissionMap`.
-  - `recordEvidence` validated `issuedAt` against the clock but never against the document, so the
-    same 2019 bill could be re-cited every quarter with today's date and renew the badge forever.
-    A cited document may no longer be dated after the day it was filed. Covered by
-    `anIssueDateCannotPostDateTheUpload`.
-  - `listDocuments` now re-derives authorization from the principal instead of trusting the
-    controller annotation alone — it is the route that mints signed URLs to Aadhaar scans.
-- [x] Accessibility and correctness fixes on `OwnershipEvidencePanel.jsx`: the document link's
-  accessible name now contains its visible text (WCAG 2.5.3); the issue-date picker is capped and
-  submitted against **Pune's** calendar, not UTC's — between 00:00 and 05:30 IST the old code both
-  capped the picker a day short and would have had the server reject today's date as future.
-- [x] **Owner-side wizard UI verified.** The photos step carries a `Get the Verified badge` section
-  distinct from `Other documents — optional, for your records`, with a live `role="status"` reading
-  `publish without a badge` → `ready for staff review — not yet verified`. The bill picker is
-  PDF-only (a scan has no issuer signature left to check) with a property-tax-receipt fallback, and
-  a sale still wants Index II on top of it. Covered by a new COVERAGE row and 3 live tests.
-- [x] **Four findings from `code-reviewer` fixed** (0 CRITICAL, 0 HIGH; the gate arithmetic, expiry
-  boundaries and locking were confirmed correct):
-  - `requiredKinds` **failed open**: `"buy".equals(deal) ? SALE : RENT` sent every unrecognised deal
-    down the one-bill path. A third intent or a renamed wire value would have made every sale-class
-    listing grantable without Index II, with another package's CHECK constraint the only thing
-    holding it up. Now `DealIntent.RENT.equals(deal) ? RENT : SALE` — unknown takes the stricter
-    gate, matching `DealIntent.priceUnitFor`. Pinned by `anUnrecognisedDealTakesTheStricterGate`.
-  - **Withdrawing a lapsed badge was a silent no-op** — no write, no audit row, and a 200 whose body
-    was byte-identical to a real withdrawal. That is exactly the case an investigation needs
-    (forgery discovered after the expiry). Keyed on the stored verdict now, not on whether the badge
-    was still live. Pinned by `aLapsedBadgeCanStillBeWithdrawn`.
-  - **A renewal reset `ownershipVerifiedAt`**, contradicting the method's own javadoc and moving the
-    instant billing holds against the referral credit. A renewal keeps the original grant date.
-    Pinned by `aRenewalKeepsTheOriginalGrantDate`.
-  - `vaultDocument` accepted service-request documents that `listDocuments` hides, so the picker and
-    the citing path disagreed about what this listing's vault contains. Aligned; pinned by
-    `evidenceCannotCiteAServiceRequestDocument`.
-- [x] The revocation `reason` is now length-capped (300). Enforced in the service, not by `@Size` on
-  the `@RequestParam` — no controller in this tree is `@Validated`, so the annotation would have
-  been silently ignored. Pinned by `aWithdrawalReasonIsCapped`.
-- [x] **`live-seam-write` was flaky for a real reason.** `toBeEnabled()` alone can pass in the gap
-  *before* the photo upload flips `isMediaBusy`, so the pick still landed on a disabled input. Gated
-  on the photo appearing **and** `[data-err="photos"]` reporting `aria-busy="false"`.
-- [x] **Repaired mojibake** in `ReferralEndpointsTest.java` and `PropertyPipelineTest.java` via
-  `node e2e/scripts/fix-mojibake.mjs` — `SourceTreeHygieneTest.noMojibakeOrBom` was failing on them.
-
-**Final verification** (all re-run against the rebuilt backend on :8084 / `draazy_e2e_adm2`):
-
-- Backend `Ownership*Test`: **32 green**. Full suite **2533 run, 8 failures — none this module's**
-  (KYC `VerificationEndpointsTest` ×3, flatmate empty files, `IdentityVerificationService` boundary
-  and size, one untracked scratch script's mojibake).
-- Live `property-ownership-review.spec.js`: **2/2**.
-- Live `consumer/list-property/seam-write.spec.js`: **6/6**.
-- `lint` 0 errors, `check:i18n` pass, coverage citations resolve.
-
-**Left for whoever picks this up** (all from the same security review, none blocking):
-
-- [x] `PermissionMap.granted` returns **true** for a staff account with `users.team = NULL`, so such
-  an account passes every atom — including granting the trust badge. Shared code, deliberately not
-  touched here; it needs a decision, not a patch. **Decided: close it at both ends.** The map now
-  denies a caller it cannot name, and `addStaff` refuses to mint a staff account without a known
-  team (422 naming the six), so the state is unreachable rather than merely punished. The asymmetry
-  was the argument: a team that *is* named but emptied holds nothing, while a team-less one held
-  everything — so the way to give a colleague the most authority was to give them no desk, and the
-  console reported a narrowed platform either way. `admin` is unaffected (literal key, no desk) and
-  is now refused a team rather than having one silently dropped. Six fixture classes minted
-  team-less staff and were given one; `AdminTeam.jsx` asks for a team before the request.
-  **And it was hiding a second defect:** `OwnershipVerificationService.reviews()` asked the
-  *team-keyed* `PermissionMap` for `properties:write`, an atom of the *account-keyed*
-  `AccountPermissions` vocabulary that no team document can contain. So the "is this colleague a
-  property reviewer" filter excluded the whole staff, and its only true branch was the fail-open for
-  the unnameable account. Four sibling call sites inject `AccountPermissions`; this was the lone
-  outlier, now corrected, with a counterweight test pinning the refusal side too.
-- [x] `listDocuments` mints signed URLs to identity documents and audits nothing — there is no way to
-  answer "which reviewer opened this person's Aadhaar". **Done:** `property.documents.read` audit
-  row, with a counterweight test proving a refused (403) read writes none.
-- [x] An owner can delete a vault document a live badge cites (`ON DELETE SET NULL`, no audit),
-  destroying the artefact behind the badge. **Done:** `BadgeEvidenceLookup` — 409 while the badge is
-  live, audited when the citation is merely historic.
-- [x] `docType` is never cross-checked against the vault row's `category`, so an "Electricity Bill"
-  upload can be recorded as `index_ii` — the title leg of a sale badge. **Done:**
-  `OwnershipEvidenceTypes.contradicts` refuses the pair.
-- [x] `DOC_TYPES`, `kindOf` and `expiryOf` enumerate the seven document types independently with no
-  compile-time linkage. A type in the table but missing from `kindOf` throws on the **read** path,
-  which is an unhandled 500 on the owner's own case file with no way for them to clear it. Worth
-  deriving all three from one table. **Done:** one `TYPES` table in `OwnershipEvidenceTypes`; the
-  three are now derived views of it.
-- [x] `issuedAt` is an `Instant` on the wire but semantically a date read off paper. The frontend
-  anchors it to IST, so this is closed for our own UI; any other client sending `T00:00:00Z` will
-  trip "cannot be in the future" during the 5h30m window. A `LocalDate` plus an explicit zone would
-  close it properly. **Done:** the field is `issuedOn`, a `LocalDate`, anchored to `PlatformTime.IST`
-  once in the entity — the stored instant is unchanged, so no migration.
-- [x] `OwnershipEvidencePanel.jsx` is ~254 lines around a three-branch ternary; worth splitting into
-  `VerificationSummary` / `UploadedDocuments` / `RecordEvidenceForm` / `WithdrawForm`. **Done:** 170
-  lines, four sections under `review-modal/ownership/`; the withdraw form sits with the grant button
-  in `BadgeDecisions`, because they are one choice seen from either side.
-- [x] Signed URLs are fetched once per mount and never revalidated; a review session outlives the
-  TTL and the reviewer gets a raw 403 page. The panel's "File link unavailable" copy only fires for
-  a *missing* url, so the UI written for this failure can never show. **Done:** links age out inside
-  the server's window and say so. Not a background re-fetch — that route is audited, so a timer
-  would record disclosures nobody made.
-- [x] `prepareUpload` runs twice for every wizard document — once in `useListingMedia.handleDocUpload`
-  and again inside `documentService.uploadDocument`. Harmless (both passes return `unchanged` for a
-  sub-1 MB PDF), redundant, not worth widening this change to fix. **Done, and it was not harmless:**
-  the second pass spawns its own worker with its own 30s timeout and error path, and `submit.js`
-  turns any throw into `documentsFailed` — so a document the owner had already attached successfully
-  could be dropped by the retry of a step with nothing left to do. `uploadDocument` now takes
-  `prepared`; the three vault callers, which hand over a raw file from an input, still prepare.
-
-**Review pass over the split (`react-reviewer`) — acted on:**
-
-- `missingEvidenceId(panelId)` in `ownership/vocabulary.js`. The panel minted `` `${id}-missing` ``
-  and `BadgeDecisions` re-derived the same string across a file boundary; a dangling
-  `aria-describedby` neither throws nor lints, it just stops the disabled Grant button explaining
-  itself, and only to the readers who cannot see why it is disabled.
-- `refresh()` no longer clears the form. The expired-link copy *prescribes* that button, and ten
-  minutes is exactly how long reading a scan takes — the reviewer would lose the date and subject
-  name they had just typed. Re-fetching the same vault rows does not invalidate a choice made from
-  them, and a successful record still clears.
-- `runDecision` asserts the same response shape the load path does. Three sections now dereference
-  `missingKinds`/`evidence`; a short response would blank the modal just after the write committed.
-- The subject-name-clearing rule moved back to the container as `changeDocType`. It is a rule about
-  what a subject name *means*, not markup, and `RecordEvidenceForm` is documented as drawing only.
-- The notice `role="status"` renders only when there is something to announce; it used to sit
-  permanently alongside the loading one, making a bare `getByRole('status')` ambiguous for that
-  window.
-- `SignedLinkLifetimeGuardTest` pins the claim the panel's comment makes: the client withdraws links
-  before R2 or the dev store stops honouring them. Nothing else could see it — the e2e run exercises
-  the dev store's generous TTL, and R2's tight one only exists in production. Red-checked by
-  dropping `URL_TTL` to 5 minutes.
-
-**Review pass — recorded, deliberately not done:**
-
-- The panel guesses the link lifetime; the server knows it. Returning `expiresIn` with the document
-  list (the shape already exists in `draazy-api.yaml`) would delete the guess and the guard both.
-- `RecordEvidenceForm`'s subject-name input has no `id` and uses an implicit wrapping label, unlike
-  its sibling date field; `space-y-3` on the fieldset also gaps a label from the input it names.
-  Pre-existing markup, moved unchanged.
-- *"Link expired — refresh documents."* contains the Refresh button's accessible name. Survives only
-  because the spec uses `exact: true` and a role filter — a near-miss worth knowing about.
-
-**Not this module — flagged, deliberately untouched:**
-
-- `frontend` `check:listing` fails **3 of 63** on `ListingService.update` recheck/revert rules. From
-  the parallel listing-lifecycle session (the `owner.isVerified()` rename and `recordLifecycleMedia()`
-  are in that diff). Confirmed present before and after this work.
-- `backend/src/test/resources/application.properties` gained
-  `draazy.security.identity-hash-secret`. **The KYC session needs to know**: their `IdentityHasher`
-  reads a key whose dev default lives in the *main* properties file, which the test file shadows, so
-  without this line **every** `@SpringBootTest` in the repo fails to start on an unresolved
-  placeholder. One line, test-only.
-- `e2e/scripts/check-seed-coverage.mjs` classifies the KYC session's new
-  `identity_verification_files` as `WAIVED`, mirroring its existing `identity_verifications`
-  sibling. Theirs to confirm — without it the live global setup throws and no spec can run.
-- `check-coverage-citations.mjs` reports two cited-but-missing specs
-  (`consumer/account/live-rent-payment-seam`, `mobile/live-wizard-sticky`). Both pre-existing:
-  identical output from `git show HEAD:e2e/COVERAGE.md`.
-
-
-### Account mock retirement — live APIs only (pay-rent excluded)
-
-- [x] Move dashboard recent-search history behind a server-owned API, then replace and delete
-  `consumer/account/dashboard.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`PUT /me/recent-searches`
-  (`engagement.history`, V121) own the cap, the timestamp and dedupe-by-normalised-URL; the browser
-  key stays only for anonymous visitors, behind `services/recentSearchService.js`. `RecentSearchTest`
-  13 ✅, `recent-searches.spec.js` 4 ✅ — the write on the wire, an API readback, a **second
-  browser context** reading both the Home rail and the dashboard resume card, and the boundary that
-  an anonymous search issues no request at all.
-- [ ] Add live listing-freshness coverage for confirmation and retire
-  `consumer/account/listing-freshness.spec.js`.
-- [ ] Replace and delete `consumer/account/owner-finances.spec.js` using the property-finance API.
-- [x] Move owner rent-receipt tracking off browser storage, replace the Owner Hub mock coverage,
-  and delete `consumer/account/owner-hub.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`POST
-  /me/managed-properties/{id}/rent-receipts` (V120) mint an immutable snapshot with a durable id, so
-  a raised rent no longer rewrites last year's receipts and the tenant's copy keeps one reference.
-  `ManagedRentReceiptTest` 12 ✅, `rent-receipts.spec.js` 2 ✅ (cross-context readback, and the
-  deterministic `409` on a second attempt at the same month). Pay Rent untouched.
-- [ ] Keep `consumer/account/pay-rent.spec.js` unchanged by explicit user direction.
-
-### Phase 5 finish plan
-
-- [x] **Lock the remaining Phase-5 decisions** — done 2026-08-22. Geo/cities is server-owned end to
-      end (register 38); the audit tab stays read-only (39); post-on-behalf stays visible on Staff
-      Activity (40); Sonar is the Phase-5 target and the Checkmarx-vs-CodeQL choice is explicitly
-      deferred past functional close (41).
-- [x] **Finish the real admin migration debt** — done 2026-08-26. Every live-worthy admin spec is
-      converted and only deliberate mock-side keepers are left; see the wave note below for the
-      file-by-file end state.
-- [ ] **Clear the last cross-cutting live runtime pins to mock code** — consumer/service entry
-      points, city propagation/runtime geo, staff login, admin dashboard/topbar helpers, and the app
-      boot path (`main.jsx`) so a live build no longer needs the mock store to exist.
-  - **M3 complete:** the rent-agreement wizard, property duplicate evidence, flatmate dashboard
-    adapters, and legacy chat/service helpers no longer import the mock API or store. The wizard's
-    browser-local `TR…` admin ticket was removed: it looked like an operations hand-off but was
-    visible only in the submitter's browser. **Backend gap:** create the rental-desk ticket from the
-    confirmed payment webhook; until then the paid service request is the authoritative record.
-    Review fixes: abandoned invite URLs cannot accept a party after cleanup; shared links are now
-    absolute; co-fill creation records the owner's identity; and picker-selected listings retain
-    their server UUID until their address identity is edited.
-  - **M4 complete:** `main.jsx` no longer waits for browser-store seeding and `services/boot.js` is
-    deleted. The old mock-only properties spec had already been retired with the provider lane, so
-    its historical boot-seed assertion cannot be re-run; lint and all static frontend gates pass.
-  - **M5 complete:** the Vite mock-persistence endpoint, routed dev seed page, mock API/store,
-    and browser-store flat-split workflow are deleted. The remaining flat-split module contains only
-    pure form validation shared by live screens. The mock seed catalogue and its `npm run seed`
-    entry point, one-off seed maintenance scripts, and seed-data writes in the floor-plan generator
-    are also deleted, as are four unreachable mock analytics modules; static gates and a production
-    bundle build pass. The consumer maintenance gate now reads `GET /flags` through
-    `AppFlagsContext`, not either legacy browser database.
-  - **M6 complete:** four non-live specs remain by design: contact identity masking, connectivity,
-    rent agreement, and city propagation. They are classified against existing live equivalents;
-    no spec was deleted only to make the suite green. All 19 tests passed against the live-only app.
-    - `contact-identity-masking.spec.js` is an obsolete direct test of local contact buckets;
-      live owner/profile and contact-gate specs now prove server masking. Leave it while the legacy
-      suite is quarantined rather than deleting coverage by fiat.
-    - `consumer/connectivity.spec.js` remains valid: it fault-injects live HTTP requests and proves
-      browser offline/unreachable presentation, independent of mock data. Its fault harness now
-      aborts concurrent API hydration calls for unreachable scenarios, so the test proves an
-      unavailable API rather than a timing accident between a failed listing request and an
-      unrelated successful one. The 500 scenario likewise isolates ancillary calls as 500s, so a
-      later unrelated success cannot hide a regression that misclassifies a received server error.
-    - `rent-agreement.spec.js` is mock-only browser-storage coverage. Its real service and co-fill
-      claims are covered by the three live rent-agreement specs; it remains reported, not deleted.
-    - `platform/city-propagation.spec.js` retains only pure default/coming-soon client assertions;
-      server roster mutation and propagation belong to `live-city-roster.spec.js`.
-  - **M7 complete (2026-08-26): browser-storage writes whose API already shipped.** A sweep for the
-    inverse of the earlier milestones — not mock *modules* but mock-shaped *data paths* still living
-    in `localStorage` next to a working endpoint. Four found, all silent, none failing:
-    - **City waitlist was never sent anywhere.** `POST /cities/waitlist` and `city_waitlist` had
-      shipped; `CityContext.requestCity` pushed the ask onto `pnCityRequests` in the shopper's own
-      browser and toasted "You're on the Mumbai waitlist 🎉". Every ask since launch was recorded
-      where nobody at PuneNest could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
-      the route is `security: []`, and the point of a waitlist is that the person is not a user
-      yet), awaited through the modal so the toast follows the 201 and a rejection keeps the shopper
-      on their filled-in form. The form's `name` is gone entirely — not just dropped from the
-      payload. It was a **required** field guarding a value `requestCity` discarded one function
-      later: `CityWaitlistCreateRequest` has no such property and `city_waitlist` has no column, so
-      the modal blocked a shopper on something nothing could ever read. Nor does the new admin read
-      justify adding a column, being aggregate-only by design. A waitlist needs a way to reach you
-      when the city opens and nothing else, so it now asks for exactly that.
-    - **Admin "City Expansion Requests" panel rebuilt on the server's numbers** (`SupplyGapTab`).
-      It had aggregated the same `pnCityRequests` key, so it showed the reading operator the asks
-      *they themselves* had made while browsing — always none on a fresh profile. It was first
-      deleted for want of a read endpoint; that was the wrong call, because the panel was the only
-      demand signal ops had for deciding where to launch next, so deleting it removed the question
-      rather than the wrong answer. The endpoint was built instead: `GET /admin/cities/waitlist`
-      → `CityWaitlistRepository.demandByCity()`, grouped by `lower(city)` (matching
-      `uq_city_waitlist_mobile_city`) and ordered by count desc then recency, returning
-      `CityWaitlistDemandRow{ city, requests, lastRequestedAt }`.
-      **Aggregate-only by construction, not by convention:** `city_waitlist` rows are unverified
-      public mobiles and emails, and the grouping happens in SQL, so no contact detail is ever
-      loaded into the JVM — there is no object on the server that could leak one. `requests` counts
-      people rather than rows only because the unique index makes those identical; the displayed
-      spelling is `min(city)`, a real one somebody typed. No `?days=` window: wanting a city does
-      not decay. Guarded by `DASHBOARD_READ` (staff **or** admin), deliberately looser than the
-      sibling `PATCH /admin/cities/{slug}` — reading where people are asking from is not the same
-      authority as switching a city on.
-      The panel holds the waitlist as `null`-until-loaded rather than `[]`, so a failed read says
-      "Couldn't load city requests" and never "No city requests yet" — the one lie here that would
-      quietly close the expansion queue on the strength of an outage. That state is also
-      **recoverable**: the effect keys off the tab being enabled, which never changes on its own, so
-      a "Try again" bumps an attempt counter in the deps — otherwise the panel would warn the
-      operator not to read the outage as "nobody asked" and then offer no way to find out what it
-      really was. The provider **throws** on a non-array 200 rather than coercing to `[]`, because a
-      resolved `[]` is indistinguishable from an empty waitlist and would defeat that design from
-      below. (`listCities` still coerces, defensibly: an empty roster degrades to the client's Pune
-      default, not to a false claim.)
-      `CityAdminEndpointTest` 10 ✅ including `theReportCarriesNoContactDetail` (raw body contains
-      the city, not the mobile, and not the string `mobile`) and the anonymous-401/buyer-403/staff-200
-      guard. `live-analytics-page` 20 ✅ with two new tests; both mutation-proven with asymmetric
-      red — rendering `c.requests + 1` reddens only the count test, and letting the catch collapse
-      to `[]` reddens only the routed-500 test. The failed-read test then lifts the route fault and
-      clicks Try again, proving recovery by the warning clearing rather than by the button
-      existing — a button that renders without re-fetching would satisfy the weaker assertion.
-      **`react-reviewer` sweep:** no CRITICAL. One HIGH (the provider coercion above) and three
-      MEDIUM fixed — the terminal failed state, the panel announcing nothing to a screen reader
-      (`role="alert"` / `role="status"`), and `CityChrome` validating *and transmitting* an email in
-      the "Request your city" branch that has no email field: `form.email` is seeded from the
-      signed-in account, so a stored address failing the format test refused the submit while
-      pointing at a field that was not on screen. Now `isWaitlist ? form.email.trim() : ''`, read
-      once and used by both the guard and the payload. One LOW fixed (`askedOn(null)` printed a
-      confident "1 Jan 1970" — `new Date(null)` is a *valid* Date at the epoch, so the NaN guard
-      never saw it).
-      **`code-simplifier` sweep (strict no-behaviour-change):** one finding applied — the retry's
-      `useCallback` had no consumer (`SupplyGapTab` is unmemoized and never puts the prop in a dep
-      array), so it was indirection that nothing could observe. Two candidates examined and
-      deliberately kept: `setCityWaitlist(null)` in the catch is provably a no-op today but its
-      proof is a whole-file reachability argument the next edit invalidates silently, and it keeps
-      the five sibling effects in the file byte-identical; and `CityChrome`'s `if (busy) return` is
-      the submit-side half of a documented "every way out is sealed while the POST is in flight"
-      invariant. Backend: nothing — `DASHBOARD_READ` duplicating `SUPPLY_GAP_READ` is the
-      established per-controller convention across ~18 controllers, not copy-paste.
-    - **`puneNestNotifications` was write-only.** Two call sites minted rows the live inbox
-      (`GET /notifications`) has never read, so the bell badge and Notifications page could not show
-      them. `pushNotification` and both writes are gone.
-    - **`pnConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
-      duplicate ask; the live conversation provider queues to `pnPendingRequests` only, which is now
-      the whole check. `pnPendingRequests` and `puneNestCity` are legitimate client state and stay.
-
-    Two live specs asserted the removed behaviour and were corrected rather than deleted:
-    `live-analytics-page` (the panel heading — which had only ever passed on its empty state, and
-    which now asserts a count instead) and `live-interest-doors` (the "announced in the bell"
-    read-back). New coverage:
-    `platform/live-city-waitlist.spec.js` 2 ✅ — the POST on the wire carrying the `city` the form
-    never asks for, and a routed 500 proving the form survives a refusal. `npm run check` and a
-    production build pass.
-
-    Review-driven hardening of the newly-async path: **every** dismissal affordance (Cancel, X,
-    backdrop, Escape) is now gated on `busy`, not just the submit button — the continuation closes
-    over `CityChrome`, which does not unmount with the modal, so a mid-POST Escape used to relocate
-    the shopper and toast success anyway. Liveness is re-read after the await rather than closed
-    over. The error is `role="alert"` because it now arrives seconds after the click with focus on a
-    silenced button. `maxLength={120}` and a loose email check mirror the server's bounds, since the
-    only message this modal can render for a 400 is a generic "try again" — untrue and an
-    unwinnable loop. `requestCity` throws on a blank city instead of resolving silently.
-    **Known gap recorded in `hasLocalThread`:**
-    `drainPendingChats` empties `pnPendingRequests`, after which a repeat `already_interested` 409
-    re-stages an ask beside the real server thread; closing it needs an inbox lookup, not another
-    browser key.
-  - **Security follow-up (existing live endpoint):** a co-fill creation response distinguishes a
-    registered invitee from a pending mobile. The UI no longer places that mobile in the sign-up
-    return URL. Confirm whether the response must retain that distinction; if not, make it neutral
-    server-side. The global write-rate filter already limits request volume, contrary to the review
-    report's claim that the endpoint is unthrottled.
-  - **Co-fill backend gaps:** the document endpoint rejects an unlinked service request, so a direct
-    rent-agreement co-fill submission cannot persist the documents it requires; link a property or
-    add authorised request-scoped document storage. An opened deferred Cashfree session is not
-    returned by later reads and there is no resume/cancel endpoint, so the browser must not offer a
-    checkout it cannot safely recover after reload.
-  - **Security blocker:** request documents currently project bearer download URLs to every accepted
-    co-fill party. Co-fill submissions therefore reject document attachment until the backend adds
-    per-party document ownership/visibility and an integration test that one party cannot obtain
-    the other party's KYC URL. The participant identity-write and completed-paperwork checkout gates
-    belong in that same server slice.
-  - **Existing dependency finding:** `pdfjs-dist` 6.1.200 is vulnerable when opening a malicious
-    PDF. Upgrade it to at least 6.2.108 and verify normal document rendering and malicious-PDF
-    rejection before release.
-- [x] **Burn down the remaining consumer legacy suite by dependency cluster** — done, by arriving at
-      the end of it rather than by a final push. Three specs never converted because conversion
-      would have destroyed their subject, and they are keepers, not residue:
-      `consumer/connectivity` (fault-injects HTTP and asserts the offline/retry transitions — a
-      reachable API removes the thing under test), `contact-identity-masking` and
-      `consumer/services/rent-agreement` (client-side identity and draft rules that never cross the
-      wire). 17 tests, green, now the whole of `playwright.nobackend.config.js`.
-- [x] **Finish the last platform holdout and flip the default config** — both halves landed.
-      - **The holdout.** `platform/city-propagation` reached its second live city by writing
-        `live: true` into the mock's `puneNestDB_v5` roster. Once `providers/mock/cityProvider.js`
-        was deleted that write had no reader, so the file went **green while asserting about a city
-        that never launched** — the failure mode the whole migration exists to remove. Ported to
-        `platform/live-city-propagation.spec.js` (5 tests), which takes Mumbai live through
-        `PATCH /admin/cities/{slug}` and asserts what `live-geo-policy` stops short of: a newly-live
-        city serves an **empty** home and `/listings`, not a relabelled Pune. Two of those are
-        `toHaveCount(0)` leak assertions, so each carries a **positive control in the same test** —
-        without one, a listings route broken for every city would satisfy them perfectly. The
-        `cities` fixture moved to `fixtures/live.js` rather than being copied: two copies would be
-        two writers of one shared row with two independent teardowns.
-      - **The flip.** `git mv` swapped the two configs; 234 citations across 42 files rewritten in
-        one Node pass (PowerShell's cp1252 round-trip would have mangled the em-dashes), verified
-        at 0 mojibake. Removing the no-backend config's `mobile` project was not tidying: its
-        `CROSS_VIEWPORT` list had emptied itself as each spec converted and **moved** its entry, per
-        the rule — leaving `testMatch: []`, which matches nothing, so that project had been
-        **reporting a clean result for zero specs**. Obeying the rule produced exactly the silent
-        loss the rule was written to prevent.
-      - **CI narrowed on purpose.** The runner has no Postgres and no Spring Boot, so the e2e job
-        now runs `npm run test:nobackend` (one project) instead of a three-way viewport matrix
-        against a default config it cannot satisfy. That is a real reduction in signal, recorded
-        here rather than papered over; standing the live lane up in CI is in hardening below.
-      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || punenest_e2e`
-        at the start of every run, so a bare `npm test` wipes whichever database a concurrent
-        session is using. Tolerable while the config was opt-in; named loudly in the config header
-        and `e2e/README.md` now that it is what you get by typing the obvious command. The lane
-        scripts remain the safe entry points.
-      - Verified: default config collects **1935 tests in 283 files**; no-backend collects **17 in
-        3 files** and runs **17 passed**; `npm run check:coverage` green (231 cited, all resolve).
-- [x] **Delete the mock in one controlled cut (P5c)** — the headline deletion had already happened:
-      `services/providers/mock/*`, `lib/mockApi*`, the `lib/data/**` stand-ins and the Vite
-      mock-persistence route all went with the store, and `config.js` kept no switch. What this pass
-      removed is what a deletion of that size leaves behind, and one piece of it was live:
-      - **Dead code, in `e2e/helpers`.** `publishListing`, `approveListing` and `setFlags` each began
-        `JSON.parse(localStorage.getItem('puneNestDB_v5'))` and dereferenced the result on the next
-        line, so every one of them would now throw on `null` rather than fail a readable assertion.
-        None had a caller: `consumer-fixes.spec.js` defines its own `publishListing`, which
-        POSTs `/me/listings` and PATCHes `/properties/{id}/status` as real actors and is a local
-        function on purpose, because it sits below `propertyMapper` and must speak the wire
-        vocabulary. `readRooms`, `readReviews` and `readReferralStats` went with them (0 callers),
-        as did `STORAGE_KEYS.db` (0 references). `readContactsUsed` stays — 1 caller, live key.
-      - **Prose that had become false**, which is the part worth naming. 44 files still described a
-        world with two providers: 39 provider headers pointed at `providers/mock/xProvider.js`, and
-        five docblocks stated in the present tense that a screen "gates on `isHttpDomain(...)`" —
-        `OpsQueue`, `OpsReferrals`, `OpsDraftingDesk`, `/ops/flatmate-review`. The gates are gone
-        and those desks are live, so the comments described a shut screen that is open. Rewritten to
-        past tense, keeping the *reason* each gate existed (D184: a hand-maintained second
-        vocabulary drifts), because that reason still explains why these desks never had a twin.
-      - `appReady`'s docblock justified `data-pn-boot` by a seeding race that no longer exists; the
-        flag stays because the `networkidle` problem it also solves does.
-      - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
-        references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
-        comment.
-      - **Service requests triaged 2026-08-28:** the `serviceFlow.js` localStorage workflow was
-        dead code — 442 lines, one consumer importing only five pure status/URL helpers. Those
-        helpers moved to `serviceRequestStatus.js`; the browser store and its mock-only party-bucket
-        merge were deleted. The tracker has one server list, so an accepted co-fill request is
-        represented once rather than being merged with a second browser bucket. The initial pass
-        almost deleted a real capability: the mapper had hardcoded every message as read, which
-        made the unread badge unreachable even though `POST /service-requests/{id}/read` and
-        `readAt` already existed on the server. Restored the live receipt path and added a browser
-        regression: staff reply → one badge → opening Messages posts 204 → badge clears. Also
-        corrected the service-request section in `docs/system/frontend-data-seam.md` from the old
-        partial-migration state.
-      - **Left open, deliberately:** the remaining docblocks that promise mock-only *capabilities*
-        — including `verificationProvider.js`'s growth perk and `myListings.js` — are not stale
-        cross-references but claims that a feature has no server implementation. Each is either a
-        real gap to file or a dead affordance to delete, and answering that is product work, not a
-        rename. Not folded into a deletion pass.
-      - **Two more classifications (2026-08-28):** `myListings.js` is already fully server-fed:
-        `GET /me/listings` plus the caller's rooms, flatmate posts and groups. Its “demo top-up” is
-        a deleted historical branch, not an absent API. The Aadhaar growth perk is a **dead
-        affordance**, not a server gap: the real start contract deliberately returns a pending
-        DigiLocker handle with `perk: null`; an immediate `{ verified: true, perk }` result existed
-        only in the deleted provider. The remaining immediate-success callbacks can be removed in a
-        focused UI cleanup; do not request a server feature to reproduce a fake ranking boost.
-
-- [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
-      bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
-
-**Admin wave (P5b) — done 2026-08-26.** `tests/ops` needed no wave at all (see below). Every file
-that was ever counted as admin conversion debt is now either converted or carries a written reason
-to stay mock-side; the checkbox above is ticked on that basis. The first pass that sized this wave
-over-counted it badly — `notes`, for one, is a mock spec **as well as** a live one by design,
-because it catches the same validation rules in a seconds-fast suite while `notes` proves the
-seam reaches Postgres and survives a second account.
-
-- ✅ **`analytics` (21 tests) → `admin/live-analytics-page.spec.js`.** Its header claimed Geography
-  and Seasonal both computed in the browser and the file would follow "when they follow"; Geography
-  has been live since register 36 and Seasonal is illustrative **by decision**, so there was no
-  event to wait for. The sibling `live-analytics.spec.js` keeps the endpoint contracts and the two
-  UI discriminators that prove the page is not silently on the mock. 34/34 live, coverage gate
-  clean. The conversion earned its keep immediately: a page-wide "no `0h`" assertion failed,
-  because `0h` is legitimately on the SLA tab from the generated Service Fulfillment and Concierge
-  panels — invisible under the mock, and now scoped to the `Avg time to review` tile.
-  **Superseded by D252** (below): those panels are measured now, Seasonal is deleted, and the
-  page-wide sweep is back and green.
-
-- ✅ **D252 — the two half-mock admin pages, 2026-08-26.** `AdminAnalytics` and `AdminSocieties`
-  were each reading a live service and a browser generator into the same screen. Both are closed.
-  **Analytics:** `/admin/analytics/sla` gained three `Track`s derived from `audit_log` — ticket
-  pickup (4h), service delivery (72h), concierge → live (168h) — replacing figures `slaMetrics()`
-  invented; every average, median and rate is nullable, because a desk that has closed nothing has
-  no compliance record and `0h` would read as instantaneous service. What had no measurable source
-  at all was **deleted rather than labelled**: the Seasonal tab, the six-month price trend, the
-  per-listing price position table, the weekly compliance line, and with them `Card`'s `chip` prop
-  and `SampleTabNotice`. A chart nobody can source does not become sourceable by being labelled,
-  and the label was what made keeping it feel defensible. Deep links to `?tab=seasonal` fall back
-  to Traffic — the page took the URL's tab key as read, so any unknown value (including a tab an
-  operator had switched off in Settings) rendered the strip above an empty panel. **Societies:** a
-  server-side duplicate scan over the real catalogue, and the society's name on the wire for
-  `details` proposals. The scan found a scoring bug the browser version had hidden: dividing shared
-  tokens by `min(len)` scores "Willow Towers" at 1.0 against every "Willow …" in the catalogue, and
-  because RERA rows are verified they sorted above the actual duplicate and pushed it off the list.
-  Jaccard instead. Verified: 75/75 backend (`AdminSlaAnalyticsTest` 23, `SocietyMintTest` 33,
-  `SocietyProposalTest` 19), 54/54 admin analytics + societies live specs, lint at the 0-error
-  baseline.
-
-  **Review pass, same day.** `react-reviewer`, `code-reviewer` and `security-reviewer` over the
-  landed diff, then a strict no-behaviour-change simplification. Security found nothing: the SLA
-  query's `%s` slots take only private constants, both new routes carry the same `@PreAuthorize` as
-  their siblings, and `duplicateScan` already excludes merged-away rows. Three real defects came out
-  of the other two and are fixed: the duplicate column had **three** states for **four** things that
-  can be true, so a failed request recorded `[]` and printed "No obvious match" — the sentence that
-  gets a second copy verified — with only a `console.warn` behind it; `duplicates()` clamped its
-  `limit` with `Math.max(1, …)` instead of refusing out-of-range like `?days=` does two files away;
-  and `SocietyProposalService.decide` tolerated a missing society with `orElse(null)` on the one path
-  where `apply()` has already written to that id, handing the operator "approved" for a change that
-  reached nothing. `queue()`'s null tolerance is deliberate and stays — a page of a hundred rows
-  losing one to a race should degrade, not 500. The `dupes` map is now pruned to the rows on screen,
-  and the compliance-rate ternary and the average-vs-target colour ladder each existed twice.
-  Re-verified: 76/76 backend, 56/56 admin live specs, lint unchanged.
-
-  > **Scaling note, deliberate and open.** `duplicateScan` reads the whole society table and scores
-  > it in Java on every request — ~350 rows today, behind a staff-only route, so it is a few
-  > milliseconds and the `limit` bound is a contract not a guard. It is worth revisiting at roughly
-  > 10k societies, and the shape of the answer is a trigram index (`pg_trgm`) with the scoring pushed
-  > into SQL rather than a cache, since the input is the catalogue itself.
-
-- ✅ **`content` (7 tests) → `admin/live-content-desk.spec.js`.** This desk had live data paths on
-  both halves already — `adminContentService` for banners / FAQs / announcements, and `reviewService`
-  for the Reviews tab — so the mock file was a real gap rather than a deliberate hold-back. The
-  existing `tests/live-admin-content.spec.js` already owned the seam and the two Reviews-tab console
-  decisions, so the conversion split cleanly: the sibling keeps the contract and moderation queue,
-  the new file owns the four-tab shell, the banners counter, the FAQs tab, the create form and the
-  route guards. The run earned its keep immediately: the mock spec's happy-path create filled only a
-  headline and passed, while the live API answered `422 A banners item needs 'image'`; the desk now
-  pins that refusal, names the offending field, and keeps the dialog open. Verified: 17/17 green
-  across both live content specs together.
-
-- ✅ **`properties` / `enquiries` / `listing-freshness` — the five convertible claims, 2026-08-25.**
-  An audit of every remaining mock admin spec found exactly five tests making a claim no live spec
-  made. All five are now live: an enquiry marked responded writing a note onto the case file the
-  moderator opens (`live-enquiries`); the **Unconfirmed (stale)** sub-filter narrowing the queue on
-  the server rather than in the page (`live-properties-console`); the follow-up board's one-click
-  chaser choosing its template from the tier the *server* reports (`live-outreach-console`); and the
-  edit modal's two exits (`properties-moderation`). `admin/listing-freshness.spec.js` is
-  deleted; the `enquiries` and `properties` twins are retired in place with pointers. Two audit
-  items dissolved on inspection rather than converting: **`?review=<id>`** was already covered live
-  by `notes` with a real uuid, and the edit modal's *prefill* by the existing BHK-correction
-  test — so the only genuinely uncovered leg was **Cancel**, which the mock could never have proved
-  (its provider is `Object.assign` over `localStorage`, so the store that would report the unwanted
-  write is the same object the test reads its "before" from; a modal that saved on Cancel would have
-  passed). Live it is a fresh read from the API.
-
-- ⚠️ **A regression I introduced, and mis-certified as pre-existing.** `c1e46ff` moved the console
-  search from a synchronous client-side filter to a 250ms debounce plus a round trip, and deleted
-  the downstream filters. Three tests in `live-outreach-console` began failing. I checked them by
-  stashing and reported them as pre-existing — **wrong, and wrong in a way worth writing down**: the
-  stash removed my *spec* edits while the committed page change stayed in the tree, so it could not
-  have exonerated the commit. A verification that does not vary the suspected cause proves nothing.
-  Restoring the source blob (`git checkout c1e46ff^ -- AdminProperties.jsx`) flipped the file from
-  3-fail/1-pass to 3-pass/1-fail, which is decisive in both directions at once. The mechanism: for a
-  moment after `fill` the unfiltered queue is still on screen, and `expect(one).toBeVisible()` on a
-  locator matching fifteen rows is a **strict mode violation, which aborts instead of retrying** —
-  the 20s budget was never spent (it died at 8s) and the message read as "this listing is no longer
-  pending", sending me to probe the seed and the API, both of which were fine. `toHaveCount` retries.
-  Fixed and green 4/4. The sibling `.first()` call sites were audited and are *not* affected: the
-  console already renders a stale queue inert, which `live-properties-console` L1424 pins.
-
-- ✅ **Two long-standing admin-lane failures, both mis-readable as product defects, D253.**
-  The full live admin gate had been running six red. Three passed in isolation (ordinary cross-test
-  state, left alone deliberately — "fixing" a spec that passes on its own edits the wrong thing).
-  The other two were real and neither was a bug in the console:
-  - `live-outreach:144` expected the WhatsApp chaser's link to carry Playwright's `BASE_URL`, but
-    the server builds it from `punenest.app.base-url`, which `application-e2e.properties:72` defaults
-    to `:5173` because **`E2E_APP_BASE_URL` was set nowhere in the repo**. So the assertion held only
-    on a lane that happens to serve on the default port, and every chaser this lane composed pointed
-    an owner at a port with nothing behind it. That is the failure the spec was written to catch —
-    it was catching it, at the lane rather than at the template. `backend/run-lane-admin.ps1` now
-    exports it beside `E2E_DB_URL`, where the other lane settings already live. 9/9.
-  - `live-consolidation:212` asserted a KPI tile labelled `Open leads`. `63bc0c7` had renamed it to
-    **`Awaiting owner`** on purpose: the tile counts `pending`, which per `ContactRequestStatuses`
-    means awaiting the *owner's* decision, and the only moves out of it are the owner's — calling it
-    an open lead pointed the desk at work it cannot do. The spec's last commit is an ancestor of the
-    rename, so it had been asserting a word that no longer exists rather than anything the page got
-    wrong. Attribution by `git merge-base --is-ancestor <spec> <source>`, which is decisive where a
-    `git stash` is not. 11/11.
-
-**The end state, file by file.** That list read `properties` (39), `consolidation` (14), `finance`
-(14), `post-on-behalf` (12), `post-on-behalf-fixes` (10), `localities` (9), `property-recheck-queue`
-(9), `enquiries` (9), `settings` (7), `finance-disclosure` (7), `societies` (6), `maps-geo` (4),
-`duplicates` (1) — and five of those files no longer exist. Re-derived from disk on 2026-08-26; the
-fourteen mock files left in `tests/admin` are all keepers, in three kinds:
-
-- **Deleted outright**, their claims converted: `analytics`, `content`, `settings`, `societies`,
-  `consolidation`, `property-recheck-queue`, `duplicates`, `listing-freshness`.
-- **Retired in place** — the conversion took the server claims and the file kept the browser ones,
-  with a block comment naming where each moved test went: `properties` (20), `enquiries` (2),
-  `post-on-behalf` (5), `post-on-behalf-fixes` (5), `localities` (2), `maps-geo` (1).
-- **Never conversion work**, and each says why in its own docblock: `finance` (14) and
-  `finance-disclosure` (6) under D251 — the first is entirely claims about the browser, the second's
-  load-bearing claim is *configurability*, which live cannot demonstrate because the flags are
-  server config there; `societies-queues` (6) and `command-palette` (7), which need `page.route`
-  fault injection and a mock-provider build respectively, so they are the halves their `live-` twins
-  structurally cannot hold; `services-moderation` (3), whose subject is the empty state of a
-  live-only domain plus two `RoleRoute` guards; `flatmates` (3), the guards on a retired route's
-  redirect; `flatmate-moderation-reach` (4), a mock-fidelity defect; and `notes` (2), the deliberate
-  dual described above. Eighty tests in all, and none of them a claim about a server.
-
-Nothing here is waiting on an endpoint. The next admin-shaped work is in the cross-cutting item
-above — the runtime pins to mock code that a live build still needs, `admin dashboard/topbar
-helpers` among them — not in `tests/admin`.
-
-**Mock retirement.** All 18 seam domains have live consumers. Phases 0–4 are done; Phase 5 (retiring
-`lib/mockApi.js` and the `lib/data/**` stores) is in progress. Remaining work is enumerated as
-numbered rows in the ledger, in damage order. The consumer-first slice just closed is rent-agreement
-co-fill: deferred checkout, an invite addressable to an **unregistered** mobile, and party-side
-details submission. Written end to end; the live e2e run is the outstanding step.
-
-Two things that are true and are not going to change soon:
-
-- **The Cashfree sandbox-verify gap has no possible e2e.** The mock provider returns no
-  `paymentSessionId`, so no automated run can reach the hosted checkout. It stays manual.
-- **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
-  it. It is set per machine, not in the repo.
-
-### Consumer wave — `account` (18 files / 94 tests) and `flatmates` (27 files / 118 tests)
-
-Sized 2026-08-23 by reading every file rather than by grepping `localStorage.setItem`, which the
-migration README already records as a lower bound. Two corrections to the raw file counts came out
-of that and both *reduce* the queue, so they are stated before the lists:
-
-- **Four `flatmates` files were already converted and were not debt — now deleted.** `filters`,
-  `map-gate`, `map-popup` and `smart-search` were **byte-identical** (SHA-256) to their `live-`
-  twins, created as copies by `aee968b`. The mock config runs the legacy name
-  (`testIgnore: /live-.*/`), the live config runs the `live-` name (`testMatch: /live-.*/`), so each
-  body ran once per suite. They were **P5c deletion residue**, not conversion work: 31 files → 27,
-  140 tests → 118. Cleared 2026-08-23 under the same-commit ruling below — hashes re-verified, all
-  four live twins run green (**22/22 ✅**), none of the four seeds anything (no `setItem`, no
-  `seed()`), so the live copy was already the identical body against the API, and none was a
-  `CROSS_VIEWPORT` entry, so no config moved.
-- **This is a tree-wide pattern, not a flatmates one.** The same sweep found **16 byte-identical
-  legacy/live pairs — 66 duplicated test bodies** across `flatmates` (4), `home` (5), `search` (5),
-  `society` (1) and `services` (1). The flatmates four are gone, leaving **12 pairs / 44 bodies** in
-  `home`, `search`, `society` and `services`. Recorded here so P5c deletes them as one known set
-  instead of rediscovering them folder by folder.
-
-  > **Closed 2026-08-24 — the set is empty, and P5c must not act on the paragraph above.**
-  > Re-hashed every remaining legacy/live name-pair in the tree: **17 pairs, 0 byte-identical.**
-  > The `home` and `search` duplicates went out with their own waves rather than as a batch, and
-  > the rest have since diverged — the surviving legacy file is now a genuinely different body from
-  > its `live-` twin, which is exactly what a converted pair should look like. The paragraph is left
-  > standing because the *finding* was real and the reasoning is worth keeping, but acting on it now
-  > would delete 17 files that carry real coverage on the belief they are copies. **Re-hash before
-  > deleting any pair; never delete on the strength of a matching filename.**
-- **`account/owner-profile.spec.js` (5) is a strict subset of `consumer/owner-profile.spec.js`
-  (11)** — the live twin covers the same header/grid/not-found ground *and* masking, the seven-field
-  wire contract, provenance and the reviews-read failure state. It is a **delete**, not a convert.
-
-  > **Wrong, corrected the same day on reading both files.** The live twin is almost entirely
-  > *contract*: seven of its eleven tests never open a browser, and it carried **no console-error
-  > guard** and no assertion about the rendered header, the trust badges, the listing rail or the
-  > not-found *screen*. Deleting the legacy file would have dropped all of that. It was a
-  > **conversion**, done below.
-
-#### `account` — cheapest first
-
-- [x] `owner-profile` (5) — **converted**, absorbed into `consumer/live-owner-profile` (11 → 16 ✅).
-      Found a dead assertion in the process: the retired spec asserted
-      `getByRole('button', { name: 'Call' }).toHaveCount(0)`, but `Owner.jsx` renders Call and
-      WhatsApp as `tel:` / `wa.me` **anchors**. There is no branch in which Call is a button, so the
-      one guard the file existed for was green against the exact markup it forbade. Now asked by
-      role `link`. Commit `f8a84e6`.
-- [x] `support-tickets` (6) — **converted** to `consumer/account/live-support-tickets` (6 ✅). The
-      customer half of a domain whose desk half was already live (`ops/live-support-queue`). Three
-      mock-shaped premises had to go: the id was asserted as `/SUP-\d+/`, a format only the mock
-      mints (the server sends a UUID and both the list and the thread render `{t.id}` raw, so the
-      spec now fetches the id and compares); the empty state leaned on a seeded actor staying
-      ticket-free, when the seed in fact gives *Priya* a ticket; and creation mutated whoever it
-      signed in as, which outlives the file because the DB resets per run. Both now use throwaway
-      accounts. The conversion also caught that **the name field is empty and required for a real
-      new account** — the retired spec's "name + mobile are prefilled" was true only of the mock's
-      seeded user, and a genuinely new writer meets a required empty field.
-- [x] `messages-inbox` (12) — **converted** to `live-messages-inbox` (3 ✅). The seed now has a
-  named Rahul↔Meera row, but the live test mints a unique buyer thread against Meera's seeded
-  Baner listing so message writes never poison shared fixture state. It owns quick/typed sends,
-  readback after reload, contact visibility, the report modal, and the dashboard hand-off.
-  Staged chat coverage remains in `consumer/property/chat-owner`; auto-replies are mock
-  theatre, and the location card is not live-reachable because the HTTP mapper has no location.
-- [x] `tenant-profile` (6) — **converted** to `live-tenant-profile` (3 ✅). The server-backed
-  profile save/reload, blank-name no-write guard, and score checklist replaced browser-store
-  premises. The DigiLocker completion and changed-mobile cases are owned by the live verification
-  funnel or lack a deterministic provider callback.
-- [x] `contact-request-verified-badge` (1) — **converted** to
-  `live-contact-request-verified-badge` (1 ✅), with isolated verified/unverified buyers and
-  the server-projected `requester.verified` bit before approval.
-- [ ] `photo-requests` (2) — **intentionally mock-only**: requests still live exclusively in
-  `puneNestPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
-  exists yet.
-- [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
-      counterpart was `property-integration.spec.js`, and reading that file confirmed it:
-      `:295` drives the same upload → slot-flips → remove → slot-empty round-trip *and* asserts
-      `POST /me/documents/{propId}` 201 and the `DELETE` on the wire, under a describe block whose
-      `afterEach` carries the console guard. Strictly stronger; nothing was lost.
-- [x] **`doc-requests-grant` (1) — converted** to `live-doc-requests-grant` (1 ✅). Kept rather than
-      folded into `live-buyer-document-access`, because that sibling grants by calling `PATCH
-      /me/documents/requests/{reqId}` directly and therefore cannot fail for the bug this spec
-      exists for — a dashboard that decided the request in the browser's own copy of the inbox and
-      told the server nothing. The PATCH is now asserted on the wire and the row re-read outside the
-      browser.
-- [x] `view-documents-flow` (3) — **converted** to `live-view-documents-flow` (2 ✅): category
-  matching, notification deep-link provenance, view-only rendering, and the granted-without-file
-  state now read the API. `doc-viewer-scheme` stays mock-only because live rows are storage URLs,
-  never inline `data:` payloads; `doc-info` stays mock-only because no live agreement/info-dot
-  fixture reaches that panel.
-- [ ] `listing-freshness` (4) — mock-only until the seed exposes deterministic fresh/stale/dormant
-  `last_confirmed_at` states; live confirmation itself is already covered elsewhere.
-- [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5) — mock cases retained for manual receipt,
-  financial-year clock, multiple/empty tenancy, and payout-removal states that the API cannot
-  currently fixture or express. Their managed/rent live seam coverage already exists.
-
-  > **Wrong on all three counts, corrected 2026-08-24 by reading the backend rather than the note.**
-  > This entry is the reason these files sat still, so the correction is kept beside it.
-  >
-  > - **`owner-finances` — the "financial-year clock the API cannot express" does not exist as a
-  >   gap.** `FinanceService` handles the 1 April Indian FY boundary explicitly, in a comment that
-  >   names the two off-by-one bugs it exists to avoid, and `MeFinancesController` serves
-  >   `SUMMARY`, `CASHFLOW`, `DUES`, `TRANSACTIONS` (+ `BASIS`). All four tests are convertible
-  >   today with no backend work. **CONVERT.**
-  > - **`owner-hub` — already live, and the mock spec is very likely vacuous.**
-  >   `POST /me/managed-properties` has existed since V33, and `e2e/COVERAGE.md` states in words
-  >   that `managed-properties.spec.js` was written because this file "still passes unchanged
-  >   after the port". A spec that cannot notice the seam moving underneath it is not coverage.
-  >   **VERIFY THE VACUITY, THEN DELETE** — do not convert it twice.
-  > - **`pay-rent` — mock-only for a *product* reason, and that reason is now recorded.** Online
-  >   rent payment is concept-only: `onlineRentPayment` stays off and the route really renders
-  >   `PayRentComingSoon`. Ruled 2026-08-24, written up in
-  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The payout-removal gap is real
-  >   (`PayoutAccountUpdateRequest` is `@NotBlank`, no `DELETE /me/payout-account`) and is
-  >   **deliberately not being filled**. This spec retires *with* the mock at P5c; the surviving
-  >   live claim is the coming-soon state. Do not port the fee-breakdown or receipt assertions.
-  >
-  > The general lesson, now three waves old: **"the API cannot express this" is a claim about the
-  > backend and must be checked against the backend.** Twice now it has been recorded from the
-  > shape of the mock spec instead.
-- [ ] `action-center` (4), `deals-offers` (11), `dashboard` (14) — focused live additions now cover
-  API-backed actions in `live-action-center` (2 ✅), `live-deals-offers` (2 ✅), and
-  `live-dashboard` (2 ✅); the mock twins remain for local photo/recent-search and unavailable
-  timestamp/owner-mobile flows.
-
-#### `flatmates` — cheapest first
-
-- [x] `discovery` (10) — **converted** to `live-discovery` (13 ✅ × 2 viewports = 26). Nine tests
-       moved; the tenth is a live capability gap, below. Three of the nine changed subject rather
-       than being ported: the vacant-flat disclosure, the "Master bedroom" chip and the split-price
-       line all read `roomKind` / `priceBasis` / `shareMax`, none of which is on `FlatmateRoomCreate`
-       — they are derived, deliberately, because a client that could name its own `priceBasis` could
-       price a shared bed as a private room. The only writer is `POST /properties/{id}/split`, so the
-       spec performs the act the product actually offers (post a rent listing → Ops approve → split
-       into one master bedroom → moderator publishes) and every field those tests read is then
-       server-derived. Two conversion traps worth remembering: the feeds are HTTP round trips, so
-       reading the cards straight after a navigation counts `[]` and calls it an empty tab (it failed
-       only in file order, not alone); and "Team up" names both the tab and the empty-state rescue
-       CTA, so an unscoped `getByRole` fails strict mode only while the feed is in flight — which
-       surfaced as a mobile-only failure. The `CROSS_VIEWPORT` entry moved to the live config's
-       `mobile` project per the wave-1b rule.
-- [x] **Live e2e test for `/me/flatmate-requests` (host's inbox)** — `consumer/flatmates/live-host-requests-inbox.spec.js`
-       covers the host's flatmate requests inbox: endpoint accessibility, paging structure, status filtering,
-       access control (404 for non-existent, 404 for another host's request). Baseline tests establish the
-       contract before expanding to requester contact details and decision workflows.
-- [x] **Live e2e tests for flatmate groups, interests, alerts, and seat backfill** — Wave 1c (2026-08-23):
-       **COMPLETED: 5 files, 26 tests**
-       - `live-groups` (9 tests) — group creation, discovery, filtering by locality/budget/policy, pagination, access control
-       - `live-interactions` (5 tests) — express interest in room/group, 409 handling for duplicates and full groups, deletion
-       - `live-alerts` (5 tests) — flatmate saved searches via `/me/saved-searches?kind=flatmates`, toggle/delete
-       - `live-backfill` (7 tests) — seat management (`PATCH /flatmates/groups/{id}` with `seatsOpen`), tier persistence, access control
-       - `live-eligibility` (5 tests) — verification tier immutability, verified-only filtering, tier-aware discovery
-       **Ruling applied: 18 mock-side files marked deliberately mock-only keepers (UI routing, form validation):**
-       - `posting` (7) — UI modal routing, kept mock
-       - `video` (1) — full form workflow recording, kept mock
-       - `seeker-verify` (2) — modal display (covered by platform KYC flow), kept mock
-       - `no-gate` (4) — badge-not-gate enforcement, kept mock
-       - `pg-listing-details` (1) — form field conditional rendering, kept mock
-       - `consent` (2) — OTP UI flow, needs live endpoint first, deferred
-- [x] **Gap closed, and the note outlived it by several waves.** This entry used to read "a live
-       seeker cannot be shown their own request", on the grounds that `Routes.Flatmates` had no
-       "my seeker posts" route and the public feed masks `mobile`. **All of it is now false.**
-       `MY_POSTS` (`GET /me/flatmate-posts`) exists at `Routes.java:1304` with a controller
-       (`FlatmateSeekerController:134`), both providers implement `myFlatmatePosts`, and
-       `useFlatmates.jsx:109` reads it into `myPost` — so the banner renders and the own-post
-       exclusion at `useFlatmateDiscovery:112` compares server ids on both sides. Proved live by
-       `live-interactions-board.spec.js:142`, which is stronger than the mock it replaced: it
-       requires other people's cards to render first, so the absence of the seeker's own card is a
-       claim about the filter rather than about an empty board. `discovery.spec.js` deleted.
-       **The lesson is the ledger's, not the code's:** this is the third stale "no endpoint" note
-       this wave — after owner-consent and this one — and each cost an investigation. A note that
-       records a gap needs re-reading against the route table before it is trusted.
-- [x] **`e2e/package.json` offered a script that could not run.** `test:mobile-small` passed
-      `--project=mobile-small` to the *mock* config, which has had no such project since wave 3;
-      it exited 1 with "Project(s) ... not found". Deleted rather than repointed at the live
-      config: that config resets the database named by `E2E_DB_NAME`, so a bare npm script is the
-      exact footgun the lane runners exist to prevent, and `mobile-small` already runs as one of
-      the live config's three projects in any full lane run. `README.md`'s script table and
-      viewport section were describing the pre-wave-3 layout throughout and now describe both
-      configs separately.
-
-- [x] `d97-occupancy-and-reissue` (2) — converted: `live-d97-occupancy-and-reissue.spec.js`.
-- [x] `moderate-before-public` (3) — converted: `moderate-before-public.spec.js`.
-- [x] **The rest of the folder is converted, and the list that used to sit here was stale.** This
-      entry named `my-listings`, `alerts`, `no-gate`, `guardrails`, `backfill`, `groups`,
-      `pg-sharing`, `interactions`, `interest-api`, `posting`, `video`, `pg-listing-details`,
-      `listings`, `seeker-verify` and `full-journey` as pending. **All fifteen files are gone** —
-      retired across earlier waves without this ledger being updated. Verified by listing the
-      directory rather than by reading this list, which is the only way to catch it.
-- [x] `owner-split` (14) — **migrated, not a keeper.** The note above said "0/14 port, and it stays
-      as a mock keeper", and the reason it gave was true and yet not a reason: the dashboard's split
-      UI *was* mock-backed end to end (`MyListingsPanel.jsx:213` calling the mock `splitFlat()`,
-      `ListingCard.jsx:74-77` reading split state from localStorage), and the seam did export
-      `splitProperty`/`unsplitProperty` through both providers with no screen importing either. That
-      described **a wiring gap in the product**, which is a thing to fix, not a property of the test.
-      Wiring it exposed `Number("3 BHK") → NaN` in `SplitFlatModal`: **every 3-BHK owner was offered
-      one room and could not confirm a split.** The mock `splitProperty`/`unsplitProperty` swallowed
-      every refusal, so no mock test could ever have caught it. Now `owner-split.spec.js`, and
-      moved to the live config's `mobile` project with the rest of its `CROSS_VIEWPORT` entry.
-
-**Mock keepers remaining: none. `e2e/tests/consumer/flatmates/` is 100% live.**
-
-The "recurring reason" this ledger recorded — that several consumer-facing labels read
-`getFlatmateReviewStatusMap()` out of localStorage and so "have no browser-readable live source" —
-was a description of a missing server capability, not of an impossibility. It was answered by
-building the capability:
-
-- **`reviewStatus` seam** — `flatmate_reviews` joined server-side into the feed queries and surfaced
-  on the card. Retired `agreement-evidence` (3), `eligibility` (5) and the tier-badge half of
-  `rooms-tiers` (5) into `live-review-status.spec.js` (6 tests).
-- **flatmate saves** — `V124__flatmate_saves.sql` plus `POST/DELETE /flatmates/saves/{kind}/{id}`
-  and `GET /flatmates/saves`. Retired `prefreeze` (1) into `live-flatmate-saves.spec.js` (5 tests).
-  The shortlist stores **keys only** and joins the card at read time, which is what lets two of its
-  assertions be ones localStorage could not make at all: the shortlist appears on a second browser
-  context, and a room repriced after saving shows today's rent rather than the copy taken at tap
-  time. Both failed against the old implementation by construction.
-- `prefill` (4) and `post-modal` (1) converted directly. `post-modal` was hiding an accessibility
-  defect: two `NativeSelect`s rendered with no accessible name, and the mock spec had worked around
-  it with positional selectors rather than reporting it.
-
-**The lesson, and it now has eleven instances:** in this repo a "cannot be migrated / no endpoint"
-note has never once survived being checked against `Routes.java` and the component source. Every
-one of them was a record of what had not been built yet, written in the grammar of a constraint.
-Check the route table, not the ledger.
-
-- [x] **Final sweep of the mock side — two tests retired as redundant, not as coverage.**
-      - `discovery.spec.js` (1 test, whole file deleted). Its single claim — a seeker's own request is
-        announced as theirs rather than offered back as a card — is `live-interactions-board.spec.js:142`
-        live, and *stronger*: that test requires other people's cards to render first, so the absence
-        is a claim about the filter rather than about an empty board.
-      - `post-modal.spec.js` test 2 ("picking a locality via the dropdown and submitting posts the
-        request"). `my-listings.spec.js:121` drives the identical dropdown→submit path against a
-        real server, waits on `POST /flatmates/posts` and asserts **201**, then reads
-        `GET /me/flatmate-posts` back on a connection the page is not holding; its second test owns the
-        "in review" banner. The mock provider stores the client's own object and hands it back, so it
-        could never have produced the failure the live twin catches. Test 1 stays — the two P0 matching
-        selects and the Lifestyle dropdown are form-shape claims no route can testify about.
-      - Mock suite after both: **220 passed, 4 skipped** (was 222 running + 4 skipped).
-
-- [x] **`e2e/COVERAGE.md` dangling citations closed (flatmates half).** `check:coverage` was failing on
-      eight paths; three were flatmates specs retired in earlier waves without their rows being
-      repointed. Traced each to its retiring commit rather than guessing the twin:
-      `interest-api` → `live-interest-doors` (`7442ae6`), `alerts` → `live-alerts-card` (`046da04`),
-      `posting` → `live-posting` (`a8eeb69`, a prose example rather than a row).
-      The ten `interest-api` rows could not simply be repointed: that commit **inverted** four of them.
-      The mock's "second device" family was reachable only because sent-state came from a localStorage
-      map of *this browser's* taps; live, `useFlatmates` restores the CTA from the server outbox
-      (`GET /me/flatmate-interests`) on identity change, so a second device arrives already showing
-      "Interest sent" and the duplicate is unreachable through the UI. The rows now say that, and the
-      409 is cited where it still lives — `live-interactions`, reachable only by a non-UI client.
-      Remaining five dangling paths (`admin/duplicates`, `admin/listing-freshness`,
-      `consumer/account/{dashboard,owner-finances,owner-hub}`) belong to the **parallel admin session**
-      and were deliberately left alone.
-
-- [x] `owner-id-inbox` (1) → `live-host-inbox` — a seeker's interest reaches the host's
-      `/dashboard#enquiries` Flatmate tab and **Accept is read back from `/me/flatmate-requests`
-      with an independent client**, which is the half the mock could not prove. D186's "ownerId
-      bucket, not the mobile bucket" does not port: live scoping is by bearer token, so the defect
-      class is structurally impossible. Mock retired.
-- [x] `consent` (2) → `live-owner-consent`. The "deferred pending confirmation of API endpoints"
-      note in `tasks/flatmates-wave-triage.md` was **stale** — `POST /flatmates/groups/{id}/owner-consent`
-      has existed all along. Mock retired. What the conversion found is below.
-
-- [x] **Owner consent is unreachable from the browser on a live build, and the seam method that
-      would reach it had never run.** Three findings, one dead code path. **Closed** — see the
-      resolution note below the original write-up.
-
-  > **The flow bypasses the seam entirely.** `OwnerConsentModal` runs `useOtpFlow()` against the
-  > mock dispatch and writes `setOwnerConsent()` straight to `localStorage`; it never calls
-  > `flatmateService`. `Flatmates.jsx:133` only flips `consentVerified` on the *form*, and
-  > `useFlatmateSupply.jsx:233` turns that into an `ownerConsent: true` key on the create payload.
-  > The server drops it — `FlatmateMapper.applyTo(FlatmateGroupCreateRequest, …)` is
-  > `@BeanMapping(ignoreByDefault = true)` and names `ownerConsent` as deliberately not
-  > client-settable, which is correct: a tenant who could assert their own landlord's consent would
-  > make the record worthless. The only writer is `FlatmateSupplyService.ownerConsent`, behind a
-  > purpose-scoped OTP (`OtpCode.PURPOSE_OWNER_CONSENT`) and a self-consent refusal. So live, the
-  > tenant completes the OTP, is told "Owner consent recorded", and the group is created with
-  > `ownerConsent = false`: no chip, no `flatmate_owner_consents` row, no audit entry. **Fails
-  > closed, so a broken feature rather than a hole** — but the anti-broker guardrail does not exist
-  > on the live build. Closing it means moving consent *after* group creation (the group id is the
-  > route's path variable, and today consent is collected before the group exists) and putting the
-  > modal on the seam. **Product/architecture call — not taken unilaterally.**
-
-  > **Both providers had the wrong contract, which is what a method nobody calls decays into.**
-  > Fixed, since these are unambiguous. `http/flatmateProvider.js` posted `{ mobile, consent }`
-  > where the server's body is `OwnerConsentRequest(@NotBlank @IndianMobile String ownerMobile,
-  > String otp)` — `ownerMobile` arrived null, so **every call would have been refused at
-  > validation**, and `consent` is a client-asserted boolean the server has no field for. The mock
-  > read `body.mobile` for the same reason and then called `setOwnerConsent(id, mobile, …)` against
-  > a `(ownerMobile, byMobile)` signature, keying the consent map by the digits of the *group id*
-  > and recording the owner as the grantee — the record inverted. Both now speak the server's
-  > two-step shape: no `otp` means "send one", an `otp` records it.
-
-  > The general lesson, and it is the fourth time this wave has produced it: **an export that no
-  > screen calls is not covered by anything, in either provider.** The mock spec passed because the
-  > modal wrote localStorage directly, so neither half of the seam was ever exercised.
-
-  > **Resolved.** The "product/architecture call" above framed the fix as *moving consent after
-  > group creation*, because the route's path variable is a group id. That framing was wrong, and
-  > the schema said so already: V27 keys `flatmate_owner_consents` on `(owner_mobile, granted_by)`
-  > with a **nullable** `group_id`. Consent is a fact about two people, not about one post — so it
-  > can be taken while the form is still open, exactly where the UI already asks for it, and read
-  > back at submit time. Nothing had to move; a second entry point had to exist.
-  >
-  > Added `POST /flatmates/owner-consent` (`Routes.Flatmates.OWNER_CONSENT`) and
-  > `FlatmateOwnerConsentService`, which now owns normalise / send / record / has for both entry
-  > points. `FlatmateSupplyService.createGroup` calls `consentService.has(...)` and sets the flag
-  > server-side, so `ownerConsent` stays non-client-settable and the Ops review entry finally
-  > reflects reality (`saved.isOwnerConsent()` feeds `publication.enqueueReviewIfNeeded`).
-  > `OwnerConsentModal` calls the seam twice instead of `useOtpFlow` + `setOwnerConsent`, and
-  > surfaces send/verify failures rather than succeeding on a timer — a wrong code is now a 401 the
-  > user sees. `FlatmateSupplyService` shrank 880 → 871; the size-guard pin was ratcheted down.
-  > Covered by `FlatmateOwnerConsentEndpointsTest` (6) and a third browser-driven test in
-  > `owner-consent.spec.js` that proves the modal reaches the database.
-  >
-  > **This is the twelfth "cannot be done" note in this migration to be a description of something
-  > nobody had built yet.** It was also the most convincing, because it named a real constraint
-  > (the path variable) — the constraint was just on the wrong route.
-
-- [x] **`uniqueMobile()` could return the same "unique" number twice.** Found by the consent work:
-      the helper was `97 + Date.now().slice(-8)`, so two calls with no `await` between them
-      collided. My spec named a tenant and an owner back to back, got one number, and the server
-      correctly refused the tenant for consenting to themselves — a 400 that pointed nowhere near
-      the helper. Elsewhere it would be worse and quieter: two supposedly-distinct actors would
-      silently be one account. Now clamped to be strictly increasing, so a worker cannot reissue a
-      number, with the format unchanged.
-
-**Ruled 2026-08-23 by the product owner: a converted legacy twin is deleted in the same commit.**
-The question was whether conversion deletes the mock-side file (what the notifications, owner-profile
-and support-tickets slices did, and what waves 1b/1e did) or leaves it to die at P5c (what `aee968b`
-did, producing the 16 byte-identical pairs above). The ruling is the first, stated as *"keep removing
-whatever is done and working perfectly with APIs"* — so the legacy file goes as soon as its live twin
-is green, and the 16 existing duplicate pairs become a backlog to clear rather than a pattern to
-follow. The standing condition is unchanged and is what "working perfectly" means here: the live
-twin must actually cover the behaviour, which is a question to answer by reading both files, not by
-comparing test counts (`owner-profile` looked like a strict subset and was not).
-
-- [x] **Dashboard split UI wired to the seam — done, and it hid a defect.**
-  `MyListingsPanel.jsx` called `splitFlat()` from `lib/data/flatSplit.js` (mock) and
-  `ListingCard.jsx:74-77` read split state from `getRooms()` → localStorage key
-  `puneNestRoomListings`, so a split performed via the server API never reached the card. Both are
-  now on the seam (`flatmateService.js` → `splitProperty`/`unsplitProperty`), which is what
-  `owner-split.spec.js` drives.
-  **The defect this was hiding:** `SplitFlatModal` derived the room ceiling with `Number(bhk)`, and
-  `bhk` arrives as `"3 BHK"`, so `Number("3 BHK")` is `NaN` — **every 3-BHK owner was offered a
-  single room and could not confirm a split at all.** It was invisible because the mock
-  `splitProperty`/`unsplitProperty` swallowed every refusal and returned success regardless, so the
-  one provider a test could reach could not express the failure. An unused seam is uncovered; a
-  *lying* mock is worse, because it makes the coverage look real.
-
-- [ ] **No server-side badge promotion after deferred approval.** `FlatSplitService.split()` (line
-  96-97) sets `verified`/`verificationTier` at creation time based on the parent listing's current
-  status. When a pending parent is later approved, there is no callback or event listener to promote
-  the rooms. The mock has `reconcileSplitVerification()` (`flatSplit.js:177`) for client-side
-  reconciliation — a workaround that has no server equivalent.
-  **Deliberately left as a product gap, not a test gap.** The claim "promotes the rooms once the flat
-  is approved later" describes behaviour the server does not have, so there is nothing to assert;
-  `owner-split.spec.js` states this in its docblock rather than carrying a skipped test. Fixing
-  it means an event on listing approval that re-derives tier for the split children.
-
-### Closed recently
-
-- **A signed-out stranger could type a PAN, an Aadhaar and two permanent addresses into the rent
-  agreement wizard, upload the scans, and only then be asked who they were (D262).** The sign-in
-  bounce dropped the uploads entirely — `captureFormState` never carried them — so the ask arrived
-  after the cost of answering it had been paid twice, and the duplicate-request lock, which is
-  keyed on the account, could not fire for a guest at all. The wizard now opens step 0 only, which
-  is the step that produces the Estimated Total and asks about nothing but a building; steps 1–5
-  are where identity begins and sit behind the line, padlocked in the rail with a banner and a
-  "Sign in to continue" primary button. Crossing the line costs nothing: `useFormDraft` grew a
-  `flush()` the gate calls before it navigates, and the round trip carries `next` back to this page
-  through **both** the sign-in and the sign-up leg. Three specs in
-  `consumer/services/rent-agreement.spec.js` (7 ✅), four `e2e/COVERAGE.md` rows. Three things came
-  out of it that were not the reported bug:
-
-  > **`isIn` is two-state and the guard needed three.** It is `!!user`, so it reads false both for
-  > "signed out" and for "auth has not answered yet" — and four copies of `!isIn` had already
-  > drifted apart on which one they meant. Derived once now as
-  > `gated = mode === 'owner' && !loading && !isIn`, read by the clamp, `next`, the rail, the
-  > banner and the button. Uncovered by test and untestable in Playwright (it needs a browser that
-  > drops `localStorage` while keeping the refresh cookie) — held structurally instead, with the
-  > reason recorded as a ⛔ row.
-
-  > **The autosave was debouncing renders, not changes.** The effect keyed on `form`, which every
-  > caller rebuilds each render, so the 400ms ran from the last *render*; any render cadence under
-  > the debounce would have starved the write forever. It survived on the accident that nothing
-  > re-renders those pages in a loop. Now serialised during render and debounced on the string.
-
-  > **`login()` in that spec had been signing nobody in.** It seeded `draazyUser` alone, which
-  > stopped being a session at the token rework — `AuthContext` finds no token and no session hint,
-  > calls `logoutUser()`, and erases it. Four tests had been running as anonymous visitors while
-  > claiming to be a buyer; none failed, because none asserted anything an account was needed for.
-  > The gate is the first thing in the file to read `isIn`. Pre-existing, found not caused.
-
-- **A host was being told "null is interested in your room in Baner".** The flatmate interest
-  notification built its title by concatenating `users.name`, which is nullable — and null for
-  exactly the person most likely to be sending one, someone who signed in by OTP to answer an ad
-  and never filled in a profile. Java renders an absent reference as the four letters `null`.
-  `FlatmateSupplyService` already knew the field was nullable: the group-join path a hundred lines
-  above carries the null through untouched and explains why (D118 — the schema used to substitute
-  the literal "Member", which showed the host a name the platform had invented). The title now
-  falls back to "Someone", which is what `OfferService` and `ConversationService` already say in
-  the same position: indefinite rather than made up. The body is untouched, because `users.mobile`
-  is the login identity and NOT NULL — an unnamed seeker is still reachable, which is what makes an
-  indefinite title tolerable rather than a dead end. Three tests in a new "The host's notification"
-  nest in `FlatmateEditAndInterestEndpointsTest` read the row the host actually opens; every other
-  test in that file seeds named users, which is how this survived. Found while converting the
-  flatmate e2e specs.
-
-- **`consumer/property` is live, and converting it found that both halves of the duplicate rule
-  had never fired.** Eight mock specs retired for eight `live-` twins — `passport`,
-  `deal-visibility`, `chat-owner`, `scheduled-visits`, `alerts`, `detail`, `dedup`, `dup-modal` —
-  and the folder now runs **87 ✅** against the API. Two server defects came out of it, both in
-  `ListingDuplicateProbe`, both invisible to a mock because a mock stores whatever the client sent
-  and hands it straight back:
-
-  > **The meter arm compared spellings, not meters (V115).** V79 added `electricity_meter_no` on the
-  > reasoning that a meter number "has one spelling". True of the meter, false of the number: it is
-  > copied off a bill that prints it in groups, so one MSEDCL consumer number arrives as
-  > `170012345678`, `1700 1234 5678` and `170-0123-45678`, and both queries compared with `=`. The
-  > cost landed on the arm that is meant to be the *certain* one — an owner who typed spaces in
-  > March and none in April was never told they had already listed it, and two owners fighting over
-  > one flat were never flagged — while the weaker address arm kept working, so the platform
-  > reported no duplicates and everyone believed it. `electricity_meter_key` follows what V79 already
-  > did for `address`: raw column for the human who checks it against a printed bill, derived key
-  > for the comparison, written only by `MeterKey` on the server and never accepted from a client.
-  > The six-digit floor is not tidiness — an optional field collects `0`, `NA`, `1234`, and under
-  > exact equality every owner who typed the same placeholder collides with every other.
-
-  > **The photo arm never left the browser (V116).** The wizard has hashed photos (8×8 average hash,
-  > 64 bits) since it was written, and compared them against `localStorage` — which holds only *this*
-  > browser's own listings, i.e. precisely the case the rule already declines to flag. So the signal
-  > existed, ran on every upload, and could not by construction find the thing it was for.
-  > `property_photo_hashes` stores the hash server-side with four 16-bit generated bands; band
-  > equality is a pigeonhole pre-filter, exact at Hamming d ≤ 3 against a product threshold of 10, so
-  > recall is deliberately partial. That is acceptable *only* because this arm files a case note for
-  > ops and never blocks an owner; it would not be acceptable as a gate.
-
-  Worth keeping from the conversion itself. `live-detail` refused to port two of the mock's cases
-  rather than translating them: `type: undefined` and `createdAt: undefined` are unreachable live
-  (`property_type` is `NOT NULL` per V3, `created_at` is `NOT NULL DEFAULT now()` per V1), so it
-  targets the genuinely nullable `bhk` through seeded `p5124` (Open Plot, Wagholi) and asserts the
-  exact heading *first*, before the four absences — an all-absence spec that renders nothing passes
-  itself. `ConversationOpeningService` was split out of `ConversationService` for the chat-owner
-  conversion, which is also the edit that made the next paragraph expensive.
-
-  > **The wave was already finished and green when the previous session reported it as failing.**
-  > The verification run went against a JVM booted at 16:43 against sources last edited at 18:34 —
-  > including a class that did not exist when the process started. Nothing was wrong with the tree;
-  > restarting the backend on the identical commit turned the same command green. `run-e2e-backend.ps1`
-  > exists so that restart is one command rather than a paragraph in a config docblock.
-
-- **The notification inbox now asserts across the boundary, and the type it really sends is
-  mapped.** `consumer/account/notifications.spec.js` → `live-notifications.spec.js` (7 ✅): the page
-  acts, then a *second* API client reads the inbox back outside the browser, so mark-all and dismiss
-  are asserted at the wire rather than against the array the test itself wrote. The conversion found
-  a live defect — `toUiType` had no entry for `match.saved-search`, the only spelling
-  `SavedSearchService.alert()` ever emits, so the one notification the alerts product exists to
-  deliver rendered as the grey *unrecognised* glyph and matched **no filter chip at all**, reported
-  only by a `console.warn` the runner discards. The seed spells it differently again
-  (`saved.search.match`, `R__zz_dev_demo_data.sql:467`); both are mapped, because a mapper taught
-  only the seed's vocabulary is green in e2e and wrong in production. Proven RED with the two
-  entries commented out and GREEN with them restored. Commit `20ff3dd`.
-
-  > **Follow-up, deliberately not taken in that commit.** `property-integration.spec.js` covers
-  > the same three behaviours against the *owner*, and two of its tests are guarded by a conditional
-  > `test.skip` reading "only flatmate flows write server notifications". That is false — there are
-  > **ten** `notifier.notify` call sites (offer, visit, document, contact, message, listing,
-  > saved-search and three flatmate paths). Those two tests have been silently passing. Left alone
-  > because the file is 2,692 lines and shared by many specs, and changing a shared locator
-  > mid-conversion is how a suite-wide flake is introduced.
-
-- **The ops folder needed no conversion wave, and one of its five specs was pinning a lie.** All
-  five remaining legacy `tests/ops/*.spec.js` are deliberate mock-mode residue — route guards, which
-  are properties of the router, and the "this desk needs the live API" panels, which are mock-mode
-  truths that exist nowhere else. Each carries a header saying so and dies with the mock provider at
-  P5c. What the read *did* find is that `/ops/referrals` justified shutting itself with a
-  disagreement that no longer exists: "pays a perk where the server pays rupees" was reversed by
-  **D31b**, which moved the server onto the browser's unit, so both pay owner contacts now. The
-  claim survived in four places — the operator-facing panel, `http/referralProvider.js`'s header
-  (which contradicted its own next paragraph), `ReferralDto.rewardAmount`'s `@param`, and the mock
-  spec asserting the panel word-for-word, which is what held it in place. All four now state the
-  half that survived: the mock grants a listing slot by looking the referrer up on a phone number
-  the wire no longer carries. Verified: mock ops 14/14, live referrals 5/5, backend compile, lint
-  0 errors, i18n OK.
-
-- **The buyer's half of the document gate is on the server (D123 closed).** Uncommitted at the time
-  of writing; verified below. `POST /documents/requests` now carries the buyer's *whole* category
-  scope in one row, `GET /me/document-requests` is their status source, and the new
-  `GET /me/document-requests/{reqId}/documents` is the signed-in read. The viewer route moved from
-  `/view-documents?o=<owner mobile>&r=<id>` to `/view-documents/:requestId`, and
-  `lib/data/viewDocuments.js` — which read another user's `localStorage` by owner mobile — is
-  deleted.
-
-  > **The bug this closes is a consequence of a masked field, not of a missing endpoint.** The old
-  > path filed the request under `p.ownerMobile`, which on a live detail read is *masked* until the
-  > contact gate is passed, while the owner's dashboard reads its inbox under the real number. Every
-  > live document request was therefore filed where its owner could never see it — and the seeded
-  > mock spec could not notice, because a mock has no reason to mask anything from itself.
-
-  Three things worth knowing before touching it again. (1) **`shareToken` stays owner-facing.** The
-  obvious fix — hand the buyer the token — would have made their own request list a bearer
-  credential; the signed-in route gives them the read with nothing forwardable. (2)
-  **`sharedDocumentCount` counts files, not categories**, because an owner can approve "Sale Deed"
-  before uploading one, and the UI has to tell that honest zero from a usable grant; it is zeroed on
-  the requester projection unless the row is granted. (3) **`expired` is derived at read time** from
-  `expiresAt`, so the status the list shows and the refusal the document read gives cannot disagree.
-
-  A security review (`security-reviewer`) returned no CRITICAL or HIGH and two worth acting on, both
-  applied: `request()` answered a **buyer-facing** POST with the *owner's* projection — not
-  exploitable, since only `grant()` writes a token and it moves the row out of `pending` in the same
-  call, but it made the redaction a property of a status invariant two classes away instead of the
-  by-name projection the mapper's own Javadoc claims; and `myAsks` counted the vault for every row
-  before the mapper discarded the non-granted ones, so it now narrows to granted first. The
-  reviewer's other three findings were verified and left: a nullable `documents.category` with no
-  writer that can produce one, an ASCII-only case-folding difference between the Java count and the
-  SQL read, and the mock provider's `localStorage` scan, which `config.js` cannot reach in http mode.
-
-  **Verified:** backend `DocumentRequestFlowTest` 33/33 and `SpecCoverageTest` 3/3 (contract floor
-  261 → 262); `document-parity.mjs` PASS; `npm run check:i18n` OK (4,484 keys × 3 locales);
-  `npm run lint` at the 0-error baseline; mock e2e `doc-requests-grant` + `view-documents-flow` 4/4;
-  live e2e 6/6 with `live-verification-disclaimer` (which shares the domain) and the
-  `live-property-integration` vault round-trip re-run for fixture collision.
-
-  **Deliberately not done:** the new endpoint is new, so there is no old code for its live spec to
-  go red against — the regression proof is `SpecCoverageTest`'s floor moving, which fails if the
-  route is removed. The **owner** inbox's `sharedDocumentCount` is deliberately *not* status-gated;
-  every file it counts is in a vault that caller owns.
-
-  The `document.granted` notification now points at `/view-documents/{requestId}` rather than at the
-  listing (register 37). It could not before — the viewer route was keyed on the owner's mobile, so
-  the divergence from the mock was forced rather than chosen. The accepted cost is that a
-  notification outlives its grant, so past `GRANT_TTL` the link 404s; the viewer answers that with
-  the neutral "Access not available" and a way out. That copy is deliberately the *same* for all
-  four things the endpoint refuses — pending, lapsed, unknown, foreign — since a screen that tells
-  them apart undoes the shared 404. An earlier draft read "Access has ended", which the stranger
-  test caught: it confesses that something was once there.
-
-  Two stale references were swept for and one was left on purpose. `gen-checklist-xlsx.mjs` now says
-  `/view-documents/:requestId`, matching the `:slug` convention the rest of that table already uses.
-  **`robots.txt` was left alone**: its line is `Disallow: /view-documents.html`, and so are all
-  eleven others — `/dashboard.html`, `/saved.html`, `/signin.html` and the rest. The file is
-  prototype-era in its entirety and there is no `frontend/public/`, so Vite does not ship it; it is a
-  launch-time artifact needing one rewrite against the real SPA routes. Correcting a single line
-  would leave it *more* misleading, by implying the other eleven had been checked.
-
-- Ledger 20 (finance console) is shipped and verified (`023c311`).
-- Ledger 35 (`GET /geo`) is shipped and closed in the decision register.
-- Rent-agreement co-fill (V107) — backend at `b7bc2fa`, frontend seam, wizard and live e2e at
-  `499732d`. Run and green: 5/5 in the live service-request block. The run earned its keep — it
-  caught `http/serviceRequestMapper.toViewModel` dropping `parties` on the wire, which no mock spec
-  could have seen, since the mock builds its own party list.
-- **The three society gaps opened by `87f2d07` are closed on the server.** The cross-society
-  residents queue is `GET /admin/society-residents` (read-only: deciding stays on the per-society
-  route that already owns the one-verified-resident-per-flat rule). Claims carry `registrationNo`
-  and `certificateDocumentId` again (V109). Mint provenance is `mint_origin` (V108), a separate axis
-  from `source` rather than an extension of it, and null on every row minted before it existed —
-  which the candidates chip now renders as nothing rather than guessing.
-- **The society merge and the claim certificate have a server** (`da957af`). Merging is
-  `/admin/society-merges` (V111) and is a pointer rather than a move, which is what makes the undo
-  possible. The certificate is `GET /admin/society-claims/{id}/certificate`, keyed by the claim so
-  that `societies:read` never becomes a key to arbitrary personal documents.
-- **`SocietyMembershipService` is two services.** Adding the certificate read pushed it to 469
-  lines and `ServiceSizeGuardTest` refused the build. It was split by use-case rather than by layer:
-  residency stays in `SocietyMembershipService`, and claiming — `claim`, the ops queue, the
-  certificate and the decision — moved to `SocietyClaimService`. The seam was already there, since
-  "does this person live here" and "does this person speak for the building" are decided by
-  different people on different evidence. The BASELINE escape hatch was deliberately not taken.
+### Split rooms are never promoted when the parent flat is approved later
+
+`FlatSplitService` stamps `verificationTier` once at creation from the parent's status at that moment
+(`identity` while pending, `owner` if already approved), and nothing re-derives it when Ops approves
+the flat afterwards — `setVerificationTier` has five writers and every one is a host write. The class
+javadoc claims the promotion happens, which is what keeps the gap invisible. **A product gap, not a
+test gap:** `owner-split.spec.js` says so in its docblock rather than carrying a skipped test,
+because there is no behaviour to assert. Fixing it means an event on listing approval that re-derives
+tier for the split children.
 
 ## Needs attention
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+- **Seeker Plus has exactly the owner-plan price drift that was just fixed, and is still open.**
+  Found by a review of the owner-plan fix, 2026-09-22. The catalogue seeds Seeker Plus at **299**
+  (`R__DML_seed_reference_data.sql`, the `plans` INSERT); the fee schedule's `seekerPlusTopup` in
+  the same file is **199**, matched by `PlatformSettings.DEFAULT_SEEKER_PLUS_TOPUP`. Both surfaces
+  that quote it fall back to the schedule before the catalogue resolves — `Plans.jsx`
+  `fee('seekerPlusTopup')` and `Checkout.jsx` `fees.seekerPlusTopup` — while the server charges
+  `plan.getPrice()`. So a customer can be shown ₹199 and charged ₹299: the identical defect, on the
+  same page, one card down. Invisible in mock mode because `frontend/src/data/plans.json` says 199,
+  agreeing with the schedule — the same corroboration that decided the owner plans in the schedule's
+  favour. **Needs a product ruling on which number is true before it can be fixed**; the seed is a
+  one-line change either way. `PlanPriceMatchesFeeScheduleTest` deliberately omits the row until
+  then, and says so, rather than pinning a guess. Separately, the two tables also disagree on the
+  billing cycle (seed `monthly`, mock `one-time`) — settle both at once.
+- **Correcting a plan price silently restates revenue that was already booked.** Also from the
+  2026-09-22 review. `subscriptions` stores no amount (`V11__DDL_engagement_billing.sql`), so every
+  finance figure joins the *current* `plans.price`: revenue, the 24-month series, MRR, the plan book
+  and the transactions-ledger `amount` all come from `AdminMetricsRepository` doing `join plans p on
+  p.id = s.plan_id`. The seed is a **repeatable** migration whose upsert ends `price =
+  EXCLUDED.price`, so the next deploy rewrites the live row and every Owner Plus subscription ever
+  sold at ₹2,499 reports as ₹999 — including on the ledger, the one screen where the number is a
+  money question and must match what the gateway captured. Pre-existing schema weakness, but the
+  price fix is the first thing to trigger it. The e2e finance spec cannot catch it: it asserts
+  agreements between figures, never magnitudes. **Real repair is an `amount` column snapshotted at
+  purchase**, which is a migration plus a write plus five query changes — too large to fold into the
+  price fix, hence this entry.
+
+- ~~**Two specs are red against HEAD and belong to no current lane.**~~ Both were proven pre-existing the
+  only way that settles it — by shelving this lane's edits with `git stash push <paths>` and watching
+  each fail identically without them, rather than by reasoning about whether the diff looked related.
+  `platform/auth/signin-otp-session.spec.js:171` ("the refresh token is unreadable by scripts, and the
+  session renews anyway") gets `"still the tampered token"` where it expects `"renewed"`, so the 401
+  recovery never swaps the access token. `consumer/services/rent-agreement-submit.spec.js:105` times
+  out waiting for `POST /service-requests` — the submit never fires, which is upstream of the wizard's
+  mapper, not in it. A third failure in the same batch (`Sign In does not disclose whether a number is
+  registered`) did **not** reproduce alone: contention, not a bug.
+  Resolved 2026-09-22, and the two had nothing in common. **The rent-agreement one was a real fixture
+  bug**: the spec signs in as a brand-new account and then opened the wizard on the first *seeded*
+  listing, which that account does not own. `useRentAgreement` resolves `?listing=` against
+  `myListings` alone, so `propertyId` stayed unset, and because the fixture uploads a document the
+  submit handler's ownership guard took an early `return` — the click landed, no request left the
+  browser, and the failure surfaced as a `waitForResponse` timeout with the button still `[active]`.
+  Fixed by minting a listing the caller owns via `POST /me/listings` (the house pattern from
+  `ops/verification-thread.spec.js`); 3/3 green. **The OTP one was never a bug at all** — it is an
+  artefact of the `E2E_SKIP_RESET=1` workaround the struck item below describes. `OtpSendBudget`
+  meters sign-in sends platform-wide over a rolling hour (`MAX_PURPOSE_SENDS_PER_WINDOW = 100`, of
+  which `MAX_PURPOSE_RESERVE_SENDS_PER_WINDOW = 50` is held back from accounts the server has not
+  seen before — and every spec signs in as a `uniqueMobile()`). `reset-e2e-db.sql` truncates
+  `otp_codes` at run start, so a normal run begins with an empty ledger; skipping the reset let the
+  rows of every earlier run accumulate until mid-file sends were refused, which reads as "the OTP
+  boxes never appeared" and, upstream of that, as a session that never renewed. All three tests in
+  that family pass when run alone (`3 passed (35.5s)`). Worth recording that the stash test could
+  not have caught this: shelving *this lane's edits* controls for the diff, not for a shared hourly
+  ledger the previous run already spent. Confirmed afterwards with a real reset — both files
+  together, `23 passed (2.9m)`, exit 0.
+- ~~**58 of 325 specs are cited by no `COVERAGE.md` row** (`cited: 267`). The gate is one-directional: it
+  fails on a citation naming a spec that does not exist, and says nothing about a spec no row names. So
+  a spec can be deleted *or* written without the matrix noticing, and the second is the quiet one —
+  the coverage claim silently understates what the suite actually protects.~~ Resolved: the real figure
+  was **17**, not 58 — the original count missed that the gate also matches a citation by its bare file
+  name and by a `…/*` glob prefix, so most of the "uncited" were cited all along. `check-coverage-citations.mjs`
+  now runs the reverse check too, against an explicit `UNDOCUMENTED` allowlist, and is **self-cleaning**:
+  an entry that later earns a row turns the gate red until it is removed, so the allowlist cannot decay
+  into permanent suppression. All three branches were mutation-proved to exit 1 and reverted. Two of the
+  seventeen were then closed outright — a `(-registry)` shorthand expanded into two real citations, and
+  five rent-agreement rows repointed to `consumer/services/rent-agreement-submit`, whose assertions they
+  had always described while naming its sibling. Now `cited: 269 / on disk: 325 / undocumented (known): 15`.
+  One further row was **retired** rather than repointed: "the rent-agreement submit raises no
+  browser-only admin ticket" cited a spec that no longer asserts it, and `lib/mockApi` — the module
+  the claim was about — no longer exists anywhere under `frontend/src`, so the write it guarded
+  against cannot be reintroduced without reintroducing the module (the same reasoning as the
+  `loans-team.spec.js` row above it). Two of its supporting details had gone stale and are now
+  corrected in place rather than left standing: `toCreate` forwards `ticketId ?? ticketRef` since
+  D45 instead of refusing a `TR…` ref by name, and the "eight seeded rental tickets" it narrowed
+  against are gone (the seed ships none).
+- ~~**The live suite cannot reset its database while `V36__DDL_help_article_feedback.sql` is
+  uncommitted.**~~ Resolved: `help_article_feedback` is now waived in `check-seed-coverage.mjs`, naming
+  the flow that fills it, which is the right answer rather than a seed row — the table is written only
+  by readers casting verdicts, so a fixture row would assert a reader who never existed. A reset-enabled
+  live run passes (`47/107 populated, 23 known gaps, 40 waived`); `E2E_SKIP_RESET=1` is no longer needed.
+
+- **Help article feedback has a writer and no reader.** `POST /help/feedback` (V36) collects the
+  verdict, the language and the optional reason, and nothing on the platform reads a single row.
+  That is the deliberate order — rows cannot be backfilled, screens can be built whenever — but the
+  table earns nothing until someone builds the screen: helpful-rate per article per language, worst
+  first, with the comments under each. Two obligations come with it and are written into the column
+  comments rather than here, so the person who builds it sees them: a CSV or XLSX export must
+  neutralise a leading `=`, `+`, `-` or `@` in `comment` (formula injection, which React escaping
+  does not cover), and the text is a reader's own words, so it is quoted, never rendered as markup.
+  A third obligation lives here because no column can carry it: **a negative files twice when the
+  reader explains it** — once bare the moment they click No, once more with the prose. That is
+  deliberate (counting only the explained negatives would hide the articles whose readers gave up),
+  but it means the helpful-rate cannot be `count(*) filter (where helpful)` over raw rows. Count
+  verdicts and comments separately, or collapse rows sharing a slug within a few minutes.
+- **The anonymous feedback write is rate-limited only by IP, which mobile NAT makes loose.**
+  `WriteRateLimitFilter` does apply (120/min, `ip:` bucket for signed-out callers), so this is a
+  ceiling rather than an absence — but it is ~172k rows a day from one address, and the thing it
+  would spoil is the helpful-rate the table exists to produce. Impact is metric pollution, not
+  disclosure: there is no read path. The cheap repair is a per-IP-per-slug-per-day cap in
+  `HelpFeedbackService`, keyed against the table the way `TicketService.joinWaitlist` does it so it
+  survives a deploy. Deferred because the abuse is hypothetical and the cap has to be chosen against
+  real traffic; do it before the admin screen makes the number load-bearing. Adding the route to
+  `BotDefenceFilter.CHALLENGED` would also work but breaks the fire-and-forget widget, which sends
+  no Turnstile header.
+- **Nothing bounds the size of a JSON body on any unauthenticated write** — inherited, not new.
+  `BotDefenceFilter` says so itself and caps only the Cashfree callback; Bean Validation's `@Size`
+  runs after Jackson has already parsed the document. `/help/feedback` is simply the newest route to
+  inherit it. A content-length ceiling across JSON writes, or a Jackson
+  `StreamReadConstraints.maxStringLength`, is the platform-wide fix.
+- **`AdminTopbarTools.jsx` hardcodes the runbook palette entries** that the staff help chunk now
+  owns. The titles and paths are duplicated, so renaming a runbook silently breaks the ⌘K link.
+  Deriving them from `virtual:help-content-staff` is the obvious repair and was left alone as
+  unrelated to the split that prompted it.
+- **Three `consumer/list-property` specs are red against HEAD and belong to no current lane.** All
+  three are now resolved — **(a)** and **(c)** were stale assertions, **(b)** was a product call,
+  settled below. Seen on
+  a 164-test `my-listings` + `list-property` sweep (159 passed) and each reproduced when re-run alone,
+  so none is contention. None is caused by the flatmate lane: its only edits to shared wizard modules
+  are `next.homeTypeLabel` in `changePropertyType` and a `pinPlaced` check inside
+  `validateFlatmateStep2`, neither of which the three specs reach. **(a)** ~~`p3.spec.js:109` waits for
+  "All documents are optional for publishing."~~ — commit `46a24a32` (2026-09-19) deliberately rewrote
+  that sentence to "These are optional for publishing." and moved the badge caveat into its own
+  paragraph, but did not update the spec. Stale assertion, not a regression. **Fixed 2026-09-22**:
+  the assertion now matches the optional-ness clause **alone** rather than the whole paragraph,
+  because the sentence preceding it is chosen by `form.deal` ("For sale: Index II plus…" vs "For
+  rent: a current electricity bill…") — pinning the pair would make this buy-only test fail on rent
+  for a reason that has nothing to do with whether a document is required. 1 passed.
+  **(b)** ~~`consumer-fixes.spec.js:75` expects `bhk` to clear when the type
+  switches Open Plot → Flat, but `bhk` is not in `TYPE_SPECIFIC_KEYS` at HEAD either — the cascade
+  reset never covered it, so the spec asserts an intent the code has never held. Decide which is
+  right before touching either.~~ **Settled 2026-09-22 in favour of the code; the spec was rewritten.**
+  Two facts decided it. First, nothing wrong can publish: `submit.js:109` gates `bhkLabel` on
+  `isResidentialType`, and both `bhk` and `bhkNum` derive from it, so a plot cannot carry a bedroom
+  count however stale the form is. The `age` precedent beside it in `TYPE_SPECIFIC_KEYS` does *not*
+  transfer — its comment reads "a residential answer left behind would publish unseen", which is
+  true only because `age: form.age || ''` is forwarded raw. Second, resetting has a real cost:
+  `changePropertyType` fires on residential→residential moves too, so `bhk` in the list would
+  silently wipe a still-valid answer on Flat → Villa, the common edit. (Gating alone is *not* the
+  house rule — `furniture` and `floorsInHouse` are both gated at the wire and reset anyway — which
+  is why this was a product call rather than a code reading.) The old test asserted the cascade
+  through the one field the cascade excludes, so it covered neither thing: it is now split. The
+  cascade test probes `floorsInHouse`, which no other type asks for and which therefore *would*
+  publish unseen; a second test pins the `bhk` trade explicitly so it is not re-litigated from the
+  code. Both green. **(c)** ~~`pricing-rera.spec.js:62` times out waiting for `.gm-style`
+  on the address step of a Farm Land sale, i.e. the Maps overlay never renders; the sibling
+  `land-minimum.spec.js` publishes Farm Land green, so it is the map, not the type.~~ **Fixed
+  2026-09-22, and it was never the map.** The sibling was the evidence, read the other way round:
+  `land-minimum.spec.js` fills three land-only answers (`naStatus`, `otherRights`, and
+  `buyerEligibility` on a farm-land *sale*) that this file's `toPricing` helper never did, having
+  been written for towered types. Step 1 will not advance without them — and a blocked "Next Step"
+  is **silent**, so the failure surfaced one wait later as a map that never rendered, on a step the
+  wizard had never left. Repaired by filling the three the same way the floors above them are
+  handled: presence-guarded rather than branched on the type, since the helper is passed a type
+  rather than told what shape it is. 4 passed. Worth carrying forward: **a `waitForSelector` that
+  times out on step N+1 is evidence about step N** when the control between them fails quietly.
+- **A half-declared agreement is accepted silently, and the host is told nothing.** `declaresAgreement`
+  now requires the flag, the document, the registration number and both dates together. Miss any one
+  and the create still returns **201** — it simply files at `identity` tier, which means pending, which
+  means off the board — and the response names no field, so the host has no way to learn that the one
+  thing they uploaded a document for did not take. The rule is right; only the silence is wrong. A 422
+  naming the missing component is the obvious repair, but it is a product call, not a review finding:
+  a post without an agreement is a *legal* post, so the question is whether *claiming* one and then
+  not evidencing it should block the create or keep degrading quietly as it does now. Costed as small
+  — the validation already computes exactly which components are absent. Found because 14 fixtures
+  sent the bare flag and their failures surfaced three assertions later as an empty feed.
+
+- **`initialForm.homeTypeLabel` defaults to `'Flat'`, so the null the column documents is unreachable
+  through the wizard.** The schema and the mapper both treat a null home type as "the host did not
+  say", and the CHECK permits it, but the form preselects Flat, so every wizard post asserts a
+  building type even when the host never looked at the control. Left alone deliberately: the Flat pill
+  renders visibly selected, so the host is not misled on screen, and `RoomCard.jsx:65` renders nothing
+  for either `'Flat'` or null, so the two are indistinguishable to a seeker today. It becomes real the
+  moment anything *filters* on home type — "Flat" would then include every host who never answered.
+  Decide then whether the wizard should start blank or the null should be retired.
+
+- **`PATCH /flatmates/rooms/{id}` accepts and re-moderates `homeTypeLabel`, and has no caller.** The
+  endpoint takes a full `FlatmateRoomCreateRequest` and `FlatmateEditRules` already lists home type
+  among the fields whose change sends an approved room back for re-check. The frontend has no room
+  edit path at all — `submitFlatmate` short-circuits on `editId` and the dashboard offers only delete
+  — so the seam is dormant rather than broken. Noted because the request is *not* sparse: whoever
+  wires room editing must carry the field through, since omitting it reads as "cleared" and would
+  silently drop a home type the host set at create.
+
+- **The per-caller OTP quota bounds one account; the reserve bounds a crowd of them.** Closed.
+  `MAX_CALLER_SENDS_PER_WINDOW = 5` meant twenty throwaway accounts reached exactly
+  `MAX_PURPOSE_SENDS_PER_WINDOW`: they could never *exceed* the owner-consent family's hourly share
+  but could *exhaust* it, and a first-come share once exhausted refuses everybody — including the
+  tenant whose first code of the hour it would have been. Signup costs an attacker one mobile
+  number, so the crowd is cheap.
+  Neither obvious gate was available. ADR-019 settles that verification is "a badge, not a gate"
+  and that it "blocks nothing, anywhere" (`docs/system/platform-architecture.md:1103`), so gating on
+  `users.verified` is forbidden outright; an account-age rule would wall off precisely the person
+  the flow exists for — a tenant who joined to post their room — and nothing in the backend gates on
+  account age today. Both refuse honest callers to inconvenience an attacker who can wait.
+  So the share stopped being first-come instead. Past it the flow narrows rather than closes:
+  `MAX_PURPOSE_RESERVE_SENDS_PER_WINDOW = 50` stays open to an account that has spent nothing in
+  the window and shut to one already spending. A burst of throwaways is spending by definition, so
+  it buys nothing past the hundred, while a tenant's first code is never refused on somebody else's
+  account. `OtpPurposeReserveTest` asserts both halves, because either alone is satisfied by
+  something useless.
+  The reserve also made the refusal's `Retry-After` the one place that arithmetic could be wrong:
+  every other budget pages exactly to its cap, so the oldest row leaving is always the moment a slot
+  reopens, but this one pages to the ceiling and can hold fifty rows more than the share. It now
+  counts back from the end to the last row whose expiry still matters, so the header cannot promise
+  a moment that would only earn a second refusal.
+
+- `otp_codes.requested_by` is `ON DELETE RESTRICT` as of **V34**, and its index is
+  `(requested_by, created_at) INCLUDE (purpose)`. Both correct V33, which is applied and so cannot
+  be edited in place. `SET NULL` was the one action able to strand a row: null the requester on a
+  third-party code and it matches *neither* erasure predicate — not the subject's mobile, which it
+  never carried, and no longer any account. Unreachable while nothing hard-deletes a user (V11), and
+  `RESTRICT` makes that an assumption the database enforces rather than one the code relies on.
+  V33's index was also unusable by the query it was built for: the budget matches a purpose *family*
+  (`purpose = ? OR purpose LIKE ? || ':%'`), which is not an equality, so `created_at` sitting behind
+  it could serve neither the range nor the `ORDER BY`.
+
+- `OtpService.sendCode(mobile, purpose)` is now `sendSelfServiceCode`. The two-argument overload
+  passes a null requester, so it buys no per-caller quota and takes no caller lock — right for login
+  and signup, where the recipient is the caller, and wrong for any flow where a caller names someone
+  else's number. Named for what it assumes rather than for what it omits, so picking it is a claim a
+  reviewer can check instead of an argument nobody supplied.
+
+- Tenant badge: **done.** V30 keys `flatmate_owner_consents` on `(owner_mobile, granted_by,
+  address_fingerprint)`, so an OTP taken for one flat no longer vouches for an unrelated post, and
+  `PATCH /admin/rent-agreements/{id}` walks the L&L status ladder — the write
+  `FlatmateTrustReconciler#reconcileDraazyAgreements` was sweeping for and nothing could produce.
+  Both halves are covered in `AgreementsAndKycTest`, `FlatmateSupplyEndpointsTest` and
+  `e2e/tests/consumer/flatmates/tenant-badge-consent-and-registration.spec.js`.
+  **Re-verified 2026-09-22**: `-Dtest=Flatmate*Test,AgreementsAndKycTest` 262 green;
+  `Spec*Test,ArchitectureBoundaryTest,ErasureCoverageTest,OtpPurposeSendCapTest` 15 green;
+  the e2e spec 4/4 green on the live lane; `check-coverage-citations.mjs` exit 0. Uncommitted —
+  the slice sits inside a 306-file tree shared with a second session, so it is not separable.
+
+- Wizard draft key bumped to `dzDraft:list-property:v2`, **and the specs that seed it now share one
+  constant**. The tenant-badge slice gave `useFormDraft` an `omit` list (consent mobile, agreement
+  doc and registration fields), which is a field-shape change, and the hook's contract requires
+  renaming the key on one: `omit` is applied on write, so it cannot reach a draft an older build
+  already saved, and restore would hand a stale `ownerConsentMobile` back to a form that no longer
+  persists it. The rename was right; missing the seven specs still seeding the old literal was not.
+  A spec holding a stale key does not fail loudly — it silently seeds nothing and then reports
+  whatever the unseeded step does, which is why this surfaced as "legacy drafts restore a view"
+  and "the draft survives a reload" rather than as anything about a key. They now import
+  `LIST_PROPERTY_DRAFT_KEY` from `e2e/helpers/listingForm.helper.js`, so the next bump is one edit.
+
+- **The flatmates budget sort is ordered on a number the room card never shows.** Standing red:
+  `interactions-board.spec.js` "the sort pill reorders the real feed, low to high". The server
+  is doing exactly what it says — `FlatmateSearchQueries#perPersonPrice` divides a `price_basis =
+  'room'` budget by the headroom the flat has left, so the seeded Balewadi rooms sort 10000/3 =
+  ₹3,333 then 14000/3 = ₹4,667 then a per-person ₹7,500, which is ascending. `RoomCard` renders the
+  raw `r.budget`, so the same three cards read ₹10,000, ₹14,000, ₹7,500 down the page. Both halves
+  are committed (`RoomCard.jsx` @ `ba52efe1`, `perPersonPrice` @ `6df7dde9`) and neither is touched
+  by the tenant-badge slice, so this predates it. It is also not obviously a defect: sorting and the
+  budget *filter* agree, which is deliberate — the card's own comment says a seeker "must never have
+  to work out why an ₹18,000 room appeared under a ₹10,000 budget", and the split price is stated
+  underneath for that reason. What no one decided is what the headline number should be **while an
+  explicit low-to-high sort is on**. Three ways out, needs a product call, not a patch:
+  1. `GroupCard` already renders `inr(perHead(g))`; give `RoomCard` the same treatment via
+     `bestPerPersonRent` so the headline is the sort key. Changes what every room card shows.
+  2. Order by raw `r.budget` when the sort is budget-low. Cheap, but then sort and filter disagree,
+     which is the confusion the filter was built to avoid.
+  3. Keep both and have the test assert the *sort key* rather than the rendered text.
+  Until that is settled the spec stays red and is not a regression to chase.
+
+- Owner-consent OTP **says nothing about which flat**. `OtpSender.send(mobile, code)` carries a code
+  and no context, and the address it gets filed against arrives in the *tenant's* own request body.
+  So V30 pins which post a consent may vouch for, but it does not establish which flat the owner
+  thought they were agreeing to — and `FlatmateGuardrails#fingerprint` falls back to
+  `addr:<title>|<locality>` where the title is host-typed, so a deliberately generic title lets one
+  consent key a succession of different flats (the duplicate guardrail blocks the parallel case, not
+  the sequential one). Until the sender seam carries a purpose and a label, and that label is stored
+  on the consent row, `ownerConsent` is corroboration for a moderator and must not be the sole input
+  to anything automatic.
+
+  **Not closable in code alone.** Meta forbids sending a one-time code as free-form text, and an
+  AUTHENTICATION template takes the code and nothing else — `WhatsAppOtpSender#send` puts it in the
+  body parameter and again in the copy-code button, which is the whole payload the template allows.
+  Its body copy is Meta-authored, so there is no second AUTHENTICATION template that could name the
+  flat: a template carrying an address must be a **UTILITY** one, and a UTILITY template may not
+  carry a one-time code. Naming the flat therefore means *two messages* — a UTILITY send saying
+  which flat is being asked about, then the existing AUTHENTICATION send — which is two approvals
+  and a second billable conversation per consent, plus a `send(mobile, code, context)` seam that
+  sequences them. That is a vendor/ops and unit-cost decision before it is a code one, so it is
+  left stated rather than half-built.
+
+  A review proposed binding the fingerprint at *send* time instead (store it with the issued code,
+  refuse a `record` that names a different flat). **Rejected: it buys nothing.** The tenant composes
+  both steps, so they would simply send under the same false address; nothing about the message the
+  owner receives changes. The binding is only worth building once the template can actually show the
+  owner what they are agreeing to, and then it comes free with it.
+
+- Owner consent, review pass — **closed this round**, all pinned by `FlatmateOwnerConsentEndpointsTest`
+  and `FlatmateSupplyEndpointsTest` (117 green):
+  - `FlatmateGuardrails#fingerprint` now returns null when the locality is blank. Both `addr:`
+    branches suffix it unconditionally and every post carries one (`@NotBlank`), so a consent taken
+    with a society and no locality stored `addr:sai radha|` — an SMS sent, the owner's time spent,
+    and a row that could never match anything. It is refused at the door instead.
+  - A consent taken *after* the post exists now reaches it. `POST /flatmates/owner-consent` re-derives
+    the flag on the caller's own live posts carrying that fingerprint and syncs their queued review.
+    Previously only the group route did, so a host who posted and then rang the owner was stuck
+    forever behind an Ops message promising a "Consent verified" that never arrived.
+  - `record()` is idempotent under concurrency — a single `insert … on conflict do nothing`, then a
+    read that adopts the group id onto a row taken group-less, so the table matches the audit trail.
+    A first attempt caught the unique-index violation and re-read instead; **that cannot work on
+    PostgreSQL.** The failed flush leaves the transaction aborted (`25P02`), so the recovery read
+    fails too, and Hibernate has already called `markRollbackOnly()` — the commit would throw and
+    discard the OTP the owner had just typed. Every other catch of `DataIntegrityViolationException`
+    in this codebase rethrows; none continues to use the persistence context, which is the house
+    precedent. The conflict target must be spelled exactly as V30 declares the index, `coalesce`
+    included, or PostgreSQL cannot infer it.
+  - `FlatmateReview#badgeable()` is now the single statement of what a tenant claim must carry. The
+    moderator gate and the unsupervised sweep consulted separate copies; a third condition added to
+    the human-facing one would have been skipped by the path with no human in it. It reads the
+    null-guarding `getAgreement()` accessor, not the field: Hibernate hydrates an all-null
+    embeddable as a null reference, so every pre-V28 row would have NPE'd — 500ing a moderator and
+    killing the reconciler sweep on its first legacy row.
+  - Both consent routes carry the `BUYER`/`OWNER` guard their sibling creates carry.
+  - The address is now required on the **send** leg too, not just the record. An address the server
+    cannot fingerprint is refused either way, so asking first is what stops the owner being texted
+    for a consent that was never going to be storable (`sendMustNameTheFlatToo` asserts no
+    `otp_codes` row is written). Propagated to `OwnerConsentModal`, to `openConsent`'s pre-flight
+    toast, to en/hi/mr, and to the two live specs that posted a bare `{ownerMobile}`.
+  - Frontend follow-ups from the same pass: the resend button passed React's click event as
+    `ownerMobile` (`onClick={otp.resend}` — `resend` forwards its argument to the dispatch), so
+    resend had never worked in this modal; `prefillGroupFromListing` rewrote the address while
+    leaving `consentVerified` standing, showing a green chip for a flat the consent does not cover;
+    and `locality` was excluded from the group draft while the free-text `title` that usually names
+    it was persisted, so a restored draft described two different flats — which is exactly the pair
+    the consent row is keyed on.
+
+- `POST /flatmates/owner-consent` sends to an arbitrary third-party number, so rotating the
+  recipient defeats every per-mobile budget — each fresh number starts with a fresh one.
+  **Closed.** `OtpSendBudget.MAX_PURPOSE_SENDS_PER_WINDOW = 100` caps any one *non-login* purpose
+  per hour, so the flow can exhaust itself without draining the shared
+  `MAX_PLATFORM_SENDS_PER_WINDOW = 500` pool sign-in draws from (`OtpPurposeSendCapTest`). V33 adds
+  `otp_codes.requested_by`, and `MAX_CALLER_SENDS_PER_WINDOW = 5` charges each send to the account
+  that asked — the one ceiling a caller cannot rotate out of by naming a different number, so it is
+  what stops a single account spending the flow's whole 100/hour (`OtpCallerSendCapTest`). Nullable
+  permanently: login and signup are asked for by somebody with no session, and both are exempt from
+  the quota anyway. The column is swept on erasure, because a consent code the subject requested is
+  addressed to a stranger's number and so is unreachable from their own. The caller lock is *tried*,
+  not waited for (`RateLimitLock#tryHoldUntilCommit`): unlike the per-mobile key it is the one two
+  sends by one account reach at once, and the send holds its transaction across the SMS gateway, so
+  waiting would park each racer on a pooled connection for a round-trip apiece — five in prod
+  (`RateLimitRaceTest`). Every counter on the path is keyed on the family, including the
+  **per-recipient** one, which review caught still counting the whole scoped purpose: that is the
+  limit whose stated job is that "a victim's phone cannot be used as a doorbell", and while it
+  counted the scope, re-typing the same number against a different flat re-armed both it and the
+  60-second cooldown. `enforce` now derives the family once and passes it down, so a fourth counter
+  cannot be added that quietly misses it.
+
+- Auto-approval is gated on **locality agreement only**. `FlatmateTrustReconciler#propertyBehind`
+  now refuses to skip the desk when the claimed `tenancyPropertyId` sits in a different locality
+  from the post, because the id is a tenant's unverifiable claim. **Closed for rooms.** A room and
+  a listing both carry `society_id`, so when the two agree the match is the building rather than
+  the postcode; when either is missing it falls back to locality, because a host who skipped the
+  society picker is not making a false claim and failing closed would retire a working sweep.
+  **Still open for groups**, which carry a title and a locality and no society field at all, so
+  every group post falls back — closing that is a data change (a society on the group), not a
+  predicate.
+
 **Two gates are red before this branch touches them.** Both confirmed pre-existing by re-running
 against `HEAD`; neither is caused by the `live-` rename or the comment sweep.
 
-- `e2e/scripts/check-coverage-citations.mjs` reports 2 CITED BUT MISSING rows. `COVERAGE.md` cites
+- ~~`e2e/scripts/check-coverage-citations.mjs` reports 2 CITED BUT MISSING rows. `COVERAGE.md` cites
   `consumer/account/live-rent-payment-seam` and `mobile/live-wizard-sticky` (L424, L518), whose
   specs were deleted in `f1d549af` and `23aa4651`. The rows overstate coverage: either restore the
-  specs or drop the rows — a product call, so left alone.
-- `frontend/scripts/check-listing-foundation.mjs` fails 6 of 78 with `missing: landUse`, identically
+  specs or drop the rows — a product call, so left alone.~~ Resolved: both rows were since rewritten
+  as **retirement notes** naming the spec in prose instead of citing it, which is the honest form —
+  the claim is recorded as having had a subject that is gone, rather than as coverage that exists.
+  The gate now reports `every cited spec path exists, and every spec is cited` (exit 0).
+- ~~`frontend/scripts/check-listing-foundation.mjs` fails 6 of 78 with `missing: landUse`, identically
   at HEAD. Its `if \(in\.(\w+)\(\)[^{]*\{([^{}]*)\}` cannot parse a block holding a nested `if`, and
   `ListingEditRules.java` `clearLandUse` is exactly that shape. Fix the parser; do not relax it, or
-  it stops seeing genuinely missing keys.
+  it stops seeing genuinely missing keys.~~ **Fixed 2026-09-22, and the parser was never the fault.**
+  The scan does find `landUse` — via the flat `else if (in.landUse() …)` arm beside the nested one —
+  so it was in the *server* set all along and missing from the two that mirror it. The drift was
+  real and user-facing: the server takes a listing off search when `landUse` changes, but `landUse`
+  is nobody's form field. It is derived by `landUseFor(propertyType, plotZone)`, and while
+  `propertyType` was already a warned foundation key, **`plotZone` was in neither tier list**, so
+  `classifyChanges` could not report a zone edit at all. An owner re-zoning a plot lost their search
+  placement with no warning of any kind. Repaired by adding `plotZone` to `TIER_A_FIELDS` and
+  `landUse: ['plotZone']` to `FOUNDATION_OFF_SEARCH_KEYS`, and by naming `landUse` in
+  `ListingFoundationTest#OFF_SEARCH` (it carries no `@RequestParam`, so that test's facet loop can
+  never derive it — it has to be stated).
+  The other 3 failures were the checker itself having gone stale against `23aa4651`, which guarded
+  both reverts by status. Each assertion was rewritten to test the invariant rather than the old
+  code's shape, and each is now *stronger* than what it replaced: the re-moderation branch must name
+  `APPROVED` specifically (the only status where "off search" means anything); `requestRecheck` must
+  survive having every nested block stripped out, which is what "unconditional" actually means, where
+  the old "before the first `if`" was only a proxy for it; and `updateAsModerator` may now re-pend —
+  it does, to reset a lifecycle verification — but only behind a `PENDING` guard, and must still
+  never file a re-check. **86 checks pass.** Worth keeping: the old check-1 comment promised that a
+  brace-nesting block would "fail rather than drop a field", which was false — it drops it silently,
+  and only a flat sibling naming the same field saved this one. That comment now says so.
+  **Coverage note.** The checker's own step 5 asserts `classifyChanges` routes a `plotZone` edit to
+  re-moderation and to neither `staysLive` nor `instant`, so the classification is pinned at build
+  time. The last inch — that the owner actually *sees* the off-search warning when they change the
+  zone on a live listing — is now covered too: `edit-policy.spec.js` grew
+  `P1 — re-zoning a plot is warned about, even though nobody types the field it changes`, which
+  asserts the copy is absent on load and present only after R1 → C-1, so it cannot pass on a prefill
+  that already differs. 6 passed, and there is a `COVERAGE.md` row.
 
-**The owner card moved into the phone contact sheet, and these were left behind it.** Raised by the
-review pass on that change, deliberately outside its diff.
+**Standing constraints.** The Cashfree sandbox-verify gap has no possible e2e — the sandbox returns
+no `paymentSessionId`, so no automated run reaches the hosted checkout and it stays manual.
+`DRAAZY_DEV_MACHINE` is mandatory for the `dev` profile; it is set per machine, not in the repo.
 
-- `ContactOwnerModal` has `aria-modal="true"` with no focus trap, no initial focus and no focus
-  restore. Pre-existing, but the sheet went from 2 interactive controls to 5 and is now the only
-  owner surface a phone has.
-- The `revealed` branch builds `tel:` / `wa.me` from a server-masked string: for an approved
-  non-owner the wire carries `98XXXXX210`, and `digits()` turns that into a 6-digit dial.
-  Truncated, not a leak. Gate the digit-bearing links on `/^\d{10}$/`, and fix `ContactBox` in the
-  same change or the two predicates drift.
+**Sticky-hover gate: one selector left unasserted.** The mobile-baseline pass wrapped every `:hover`
+that moves a *card* in `@media (hover: hover)` — `.property-card`, `.cat-card`, `.feature-card`,
+`.search-btn` in `index.css`, plus the two scoped halves that outranked them in `routes/saved.css`
+and `routes/listings.css`. The property detail page's own leftovers went with the touch-states
+slice (`.icon-btn` and `.main-image-wrapper:hover img` among fifteen), and the last four card lifts
+— `.prop-row`, `.svc`, `.tile` in `index.css` and `.svc-card` in `routes/services-hub.css` — closed
+it out. All four stop at `(hover: hover)` rather than adding `(pointer: fine)`, per the rule stated
+with the tinted shadows: they sit beside `group-hover:` utilities that Tailwind emits under that
+query alone, and a card whose caption tints without its lift is worse than either state. The first
+three ship in the global sheet and are asserted from the property page's CSSOM. `.svc-card` is
+gated but PENDING VERIFICATION: it ships in the `/services` route chunk, which that spec never
+loads, and asserting it means lifting the `mediaWrapping` walker out of
+`mobile/live-touch-states` into a shared helper. Worth doing when a second spec needs the walker,
+not before.
+
+**The home Featured card's hover lift is dead code.** `Featured.jsx` gives it
+`property-card list-reveal`, and `.list-reveal`'s `animation: … both` pins `transform:
+translateY(0)` in the *animation* cascade origin, which outranks any `:hover` declaration on any
+pointer. The lift has never fired there. This is why the hover-gate specs witness on `.cat-card`
+instead — see the comments in `mobile/phase3` and `platform/desktop-noleak-guardrails`.
+Deciding whether Featured should lift is a design call, so the animation is left as-is.
+
+**Anonymous reads have no per-IP budget.** `WriteRateLimitFilter` counts only `POST/PUT/PATCH/DELETE`,
+so `GET /properties` is unmetered. `q` is now bounded at 120 characters and six tokens, but a search
+still runs its spec twice (`findPage` + `countTotals`) and the `societySlug` `@Formula` re-plans per
+textual occurrence. Extending the limiter to this read is the remaining half.
+
+**A typed size is forwarded as free text, not parsed into `f.area`.** "1000 sqft" reaches `?q=`,
+where it matches nothing, rather than the buy-only area range. Visible and removable via the chip,
+so it is a missing feature and not the silent drop smart search was fixed to stop.
+
+**Unverified until the next sandbox deploy.** Cashfree (D4): an order reaching the provider, the
+modal opening on a real `payment_session_id`, the callback arriving at the notify URL, the signature
+verifying, and settlement landing on a subscription and a rent-agreement request —
+`e2e/COVERAGE.md:747` already states that this suite cannot prove money moves. R2: the startup line
+`R2 object storage enabled (…)`, one identity submit, one listing photo, and the one thing nothing
+here can assert — `Access-Control-Allow-Origin` on the public bucket, without which the wizard's
+perceptual hash silently stops flagging duplicate photographs (`docs/DEPLOY.md` §3.2).
+
+**Post-deploy, by hand, in this order.** Put the real `TEST…` / `cfsk_…` values into
+`draazy-sandbox-cashfree-app-id` and `-secret-key` with `printf '%s' "$V" | gcloud secrets versions
+add … --data-file=-`; PowerShell piping appends CRLF and `Out-File` prepends a BOM, either of which
+401s every order **and** breaks the HMAC. Then one rent-agreement payment (it parks at
+`awaiting-payment`, so a silent webhook failure is unmistakable) and one subscription, with the
+console open — the `about:blank` bank-redirect branch is the one CSP surface never seen against a
+live modal, and a violation naming an acquirer domain means widening `form-action`, not
+`script-src`. `backend/tools/cashfree-probe.ps1` is untracked: add it deliberately or leave it out.
+
+**Recorded against the Cashfree work and deliberately not fixed.** `orderRequest` is seven
+positional parameters with five adjacent `String`s, so transposing `reference` / `customerId` /
+`phone` compiles and files the wrong customer id on an order the webhook must later match — it wants
+a parameter object. The webhook body is `@RequestBody String` re-encoded to UTF-8, byte-preserving
+only because Cashfree sends `application/json` (`StringHttpMessageConverter.DEFAULT_CHARSET` is
+ISO-8859-1); `byte[]` would remove the question. The `*.run.app` URL stays directly invocable, so
+the callback route is reachable without the Pages Function (`DEPLOY.md` §6). And
+`ServiceFixtures.deliverSigned` asserts `status().isOk()`, which is also the answer to every refusal.
+
+**The phone contact sheet** — raised by the review pass on that change, deliberately outside its diff.
+
+- `ContactOwnerModal` has `aria-modal="true"` with no focus trap, initial focus or focus restore.
+  Pre-existing, but the sheet went from 2 controls to 5 and is the only owner surface a phone has.
+- The `revealed` branch builds `tel:` / `wa.me` from a server-masked string, turning `98XXXXX210`
+  into a 6-digit dial. Truncated, not a leak. Gate the digit-bearing links on `/^\d{10}$/`, and fix
+  `ContactBox` in the same change or the two predicates drift.
 - `identityVerified` / `anyVerified` / `verifiedLabel` and the badge JSX are byte-identical in
-  `ContactOwnerModal.jsx` and `OwnerCard.jsx`. A pure `(p, t) => {...}` extraction, but it needs a
-  new shared module.
-- `OwnerCard.jsx` is desktop-only now, so its inner `hidden lg:flex` wrappers and its
-  `min-h-[44px] sm:min-h-0` / `text-[13px] sm:text-xs` phone branches are unreachable.
-- `hidden lg:block` hides the card, it does not unmount it, so `ContactBox` still mounts on a phone
-  and fires a second `useContactGate(propId)` request into `display:none` DOM.
-- `PropertyHeader`s `.dz-stat-facts` wrapper keeps its `border-top` when every child is hidden (a
-  buy listing with a non-sq.ft area), leaving a stray hairline above the social block.
-- `e2e/helpers/app.js` `openProperty()` waits on the `Request number` button, which no longer
-  renders on a phone. It has zero callers - delete it next time that file is touched.
-- `queuePendingChat` is not awaited before the sign-in redirect, so it races `drainPendingChats` on
-  the way back. The queue usually wins because the redirect is a navigation, which is exactly why
-  this will surface as a rare lost first message rather than a reproducible bug.
-- The sticky CTA opens the sheet unconditionally, including when the gate state is `owner` - so an
-  owner viewing their own listing is offered a chat with themselves. `isOwner` is already computed
-  at `useProperty.js:106`; the CTA should read it rather than a new predicate.
+  `ContactOwnerModal.jsx` and `OwnerCard.jsx` — a pure `(p, t) =>` extraction needing a shared module.
+- `OwnerCard.jsx` is desktop-only now, so its `hidden lg:flex` wrappers and phone branches are dead;
+  `hidden lg:block` hides without unmounting, so `ContactBox` still fires a second
+  `useContactGate(propId)` request into `display:none` DOM.
+- `PropertyHeader`'s `.dz-stat-facts` keeps its `border-top` when every child is hidden (a buy
+  listing with a non-sq.ft area), leaving a stray hairline above the social block.
+- `e2e/helpers/app.js` `openProperty()` waits on a `Request number` button that no longer renders on
+  a phone, and has zero callers. Delete it next time that file is touched.
+- `queuePendingChat` is not awaited before the sign-in redirect, so it races `drainPendingChats`.
+  It will surface as a rare lost first message, not a reproducible bug.
+- The sticky CTA opens the sheet even when the gate state is `owner`, offering an owner a chat with
+  themselves. `isOwner` is already computed at `useProperty.js:106`.
 - `p.ownerId` is optional on the wire, so the sheet's Profile link renders only for seeds that carry
-  one. The e2e assertion on it passes by seed accident, not by contract - either make the field
-  required in the DTO or assert the link conditionally on the same value the component reads.
-- `MobileCollapse`s `headerClassName` prop is dead: the last caller stopped passing it when the
-  trust tiles were shrunk. Accepted-and-never-read is the write-only-prop shape this codebase has
-  already grown twice, so delete the prop with its call sites rather than leaving it to be re-used.
+  one and the e2e assertion passes by seed accident. Require the field in the DTO, or assert the
+  link conditionally on the same value the component reads.
+- `MobileCollapse`'s `headerClassName` prop is accepted and never read. Delete it with its call sites.
 
-**The price block was cut to one figure per deal type, and these were left beside it.** Raised by
-the review pass on that change.
+**The price block** — raised by the review pass on that change.
 
-- "Zero brokerage — deal direct" is pushed for every listing, but `postedByType` admits
-  `agent` and `builder` (`draazy-api.yaml:11159`). The claim was equally unguarded as the old
-  standalone pill, so this is not a regression — but it now sits in `.tag-strip`, and the tooltip
-  behind it makes the sharper claim "no agent fee — typically one to two months of rent, or 1–2%
-  of a sale price". Either gate the tag on `postedByType === 'owner'` or decide deliberately that
-  the platform charges nothing regardless of who posted, and say so in the tooltip.
+- "Zero brokerage — deal direct" is pushed for every listing, but `postedByType` admits `agent` and
+  `builder` (`draazy-api.yaml:11159`) and the tooltip behind it makes the sharper fee claim. Either
+  gate the tag on `postedByType === 'owner'` or decide the platform charges nothing regardless of
+  who posted, and say so in the tooltip.
 - `PriceInsights` renders for land sales (`PropertyTabs.jsx:138` gates on `!isRent` only) and
   hardcodes "/sq.ft." in three places, so a farm quoted in guntha gets a per-guntha figure under a
-  per-sq.ft caption — the exact error `showPerUnit` now exists to stop in the header. Its EMI is
-  not `isLand`-gated either, while the header line just removed was.
-- No seed carries a non-sqft `area_unit`, so the branch where a buy renders **no** facts tile at
-  all is unreachable from the live lane. The `:empty` border rule that covers it is asserted by
-  nothing. A single guntha farm seed would close this and the two items above at once.
-
-**Cashfree sandbox is wired for the next deploy, and that deploy is the first thing that proves
-it** (closes tech-debt D4). The credentials were verified live against
-`POST /pg/eligibility/payment_methods` — all 16 methods eligible — so the account needed no work;
-what needed work was the two things that would have silently dropped the first real callback.
-
-- **`CASHFREE_WEBHOOK_SECRET` is `x-client-secret`, not a separate dashboard value.** Cashfree PG
-  issues no webhook secret: it signs with the API secret key. `.env.example`, `DEPLOY.md` and
-  `DEPLOY_WALKTHROUGH.md` all instructed the reader to fetch one from Developers ▸ Webhooks, and a
-  real-looking key from the wrong page is non-blank, so it satisfies `WebhookSignature`'s
-  constructor, the boot banner and every startup check, and fails only on the first callback —
-  indistinguishably from the stray-newline corruption `DEPLOY_WALKTHROUGH.md` already warns about.
-  Corrected in all four places; the two Secret Manager entries must now hold the same value.
-- **`WebhookSignature.isFresh` read the timestamp as milliseconds and Cashfree sends seconds.** A
-  genuine callback was ~1.7e12 outside a five-minute window, so `matches` returned false with the
-  HMAC perfectly correct, and the one log line an operator gets says *signature did not verify* —
-  pointing at the secret. Nothing caught it because the signer and the verifier are the same
-  object: `ServiceFixtures.deliverSigned` signs `currentTimeMillis()`, so the suite agreed with
-  itself about a unit neither side had checked. Now accepted in either reading, which does not
-  widen the window — a seconds value read as millis lands in 1970 — and pinned by
-  `WebhookFreshnessTest`, which signs in seconds as Cashfree does.
-- **`order_meta.notify_url` is sent per order** (`CASHFREE_NOTIFY_URL`, blank = use the dashboard
-  endpoint). The dashboard holds one endpoint across every environment, which is the one thing that
-  cannot be shared; `cloudrun-sandbox.yaml` points it at
-  `https://sandbox.draazy.com/api/webhooks/cashfree/payment` — the SPA origin rather than the
-  `*.run.app` URL, because the Pages Function forwards `/api` verbatim and neither
-  `x-webhook-signature` nor `x-webhook-timestamp` is in its untrusted-header list. The value is
-  refused at construction unless it is blank or absolute `https`: Cashfree posts the order id, the
-  payer's phone, the amount and the HMAC to it, so a typo'd scheme is a cleartext disclosure and a
-  typo'd host is a disclosure to a stranger — neither of which announces itself.
-
-A security review of the above found four more things, three fixed and one disproved.
-
-- **The two Secret Manager entries became one.** `CASHFREE_WEBHOOK_SECRET` now reads
-  `draazy-sandbox-cashfree-secret-key` rather than a `-webhook-secret` entry obliged to hold
-  identical bytes. Documenting "keep these equal" does not keep them equal: `key: latest` means a
-  rotation of one lands on the next revision with no deploy and no boot error, and the drifted state
-  is exactly the one the whole fix above is about. Worth naming the cost — that entry now carries
-  order-creation and refund authority as well as signing, because the vendor made one credential do
-  both jobs. `DEPLOY.md` and `DEPLOY_WALKTHROUGH.md` are down from seven secrets to six.
-- **`matches` became `verify`, returning why.** `MISSING_HEADER` / `STALE` / `MALFORMED` /
-  `MISMATCH`, and only the last one means the key is wrong. The undifferentiated line is what made
-  the timestamp bug cost what it did, and fixing the bug without fixing the diagnostic leaves the
-  next cause — a drifted secret, a stray newline, a charset change — presenting identically. `STALE`
-  logs the timestamp, which is safe to interpolate only because an unparsable value is now
-  `MALFORMED` and never reaches the log.
-- **A negative timestamp is refused before the arithmetic**, because `Math.abs(Long.MIN_VALUE)` is
-  negative and compares as inside the window. Unreachable without the secret, so this was never a
-  hole; it is one line and the second branch had duplicated it.
-- **Disproved: the proxy does not strip `Content-Length`.** `WriteRateLimitFilter` 413s a provider
-  callback whose length is undeclared, and no real callback had ever crossed the Pages Function, so
-  "Workers may forward the streamed body chunked" would have meant every webhook rejected before the
-  signature check ran. `POST` to the deployed `/api/webhooks/cashfree/payment` with an invalid
-  signature answers **200** with `x-cloud-trace-context` set — it reached Spring, cleared the length
-  guard, and was refused by the HMAC. The delivery path is proven end to end; only the settlement
-  behind it is not.
-
-Sandbox now deploys with `CASHFREE_ENABLED: 'true'`, so the two `draazy-sandbox-cashfree-*`
-secrets must hold the real `TEST…` / `cfsk_…` values before the next `services replace`: a
-placeholder is non-blank, so the service boots cleanly and every order creation 401s instead. Local
-stays on `MockPaymentGateway` — no tunnel is available on this machine, and a local run against real
-rails would open orders whose callbacks never arrive and park rows at `awaiting-payment` forever.
-
-A Java review of the above found two more things worth the edit, both the same shape as the bug that
-started this.
-
-- **A JVM without HMAC-SHA256 was being reported as the sender's fault.** `verify` caught
-  `IllegalArgumentException | GeneralSecurityException` in one block and returned `MALFORMED` for
-  both — but the first means *your header is bad* and the second means *this JVM cannot do crypto*.
-  Conflated, a provider or FIPS-policy fault drops every payment callback, answers 200 so Cashfree
-  never retries, and logs "not a Cashfree callback at all". That is precisely the misattribution the
-  `Verification` split exists to remove, reintroduced one branch down. `hmac` now throws.
-- **Freshness ran before the HMAC, so `STALE` did not mean what it says.** Anyone could produce it
-  with a garbage signature, which made "clock drift or replay" a guess and made logging the
-  timestamp a decision about attacker-supplied data. Checking the MAC first costs one hash on a
-  request that was going to be refused anyway, and buys a `STALE` that only someone holding the
-  secret can raise. `STALE` now logs at `error` for the reason "matched no subscription" already
-  does: it can be a genuine paid callback going unreconciled, and always-200 means there is no retry
-  to catch it. (`MISMATCH` was `error` too for one round; see the code review below.)
-
-Tests came with it, because the review's sharpest finding was that the new guards had none:
-`requireHttpsOrBlank` was unexecuted (the existing test calls `orderRequest` with a raw string and
-bypasses it entirely), the negative-timestamp guard could be deleted with every test still green,
-and **nothing pinned the MAC's wire format** — reverse the concatenation or switch to hex and the
-whole suite passes while every real callback is refused, the same self-referential blind spot one
-layer down. There is now a known-answer vector computed outside this codebase.
-
-A `code-reviewer` pass over the finished diff returned **BLOCK**, on something none of the backend
-reviews could see:
-
-- **The Content-Security-Policy had no Cashfree origin in it, so the checkout could not have
-  loaded at all.** `@cashfreepayments/cashfree-js` is a *loader*, not the SDK: the npm package
-  injects `https://sdk.cashfree.com/js/v3/cashfree.js` at runtime, which `script-src 'self'` refuses.
-  The origins were taken from the shipped SDK rather than guessed — downloading it (67 KB, HTTP 200)
-  and reading the code gives the exact set and each one's role: `sandbox.cashfree.com` and
-  `api.cashfree.com` are iframe sources *and* XHR hosts, `payments-test.cashfree.com` /
-  `payments.cashfree.com` are XHR only, and `createForm(m, "post", …)` builds a form **in our
-  document**, which is what engages `form-action` despite everything visible being an iframe. Both
-  copies of the policy were updated (`index.html` meta and `public/_headers`); `check-csp.mjs`
-  agrees on all 10 directives. Test and live hosts are both listed because one built artefact serves
-  both environments — `VITE_CASHFREE_MODE` chooses the rails, not the bundle.
-- **`MISMATCH` at `error` was the wrong level, by the same rule that named it.** The route is public
-  and unauthenticated, so any internet scanner can raise `MISMATCH` at will — an `error` there is a
-  pager that fires on background noise. It is now `warn`, and the message states both readings.
-  The case that *would* be urgent (our secret is not the one Cashfree signs with) announces itself
-  far more loudly elsewhere: the webhook secret **is** the API key, so a key that cannot verify a
-  signature also cannot open an order, and the operator meets it as a 401 on the next checkout.
-- **The deployed `notify_url` is now pinned to the route constant.** `SandboxDeploymentManifestTest`
-  parses `cloudrun-sandbox.yaml` and asserts its path equals `/api` + `Routes.Webhooks.CASHFREE_PAYMENT`,
-  and that the two Cashfree secret variables resolve to one Secret Manager entry. Neither fact was
-  checked by anything: a route rename left a green build and a 404 on the settlement path, and two
-  secret entries would have worked until the first rotation and then refused every callback forever.
-
-Recorded and deliberately not fixed:
-
-- `orderRequest` is seven positional parameters with five adjacent `String`s; transposing
-  `reference` / `customerId` / `phone` compiles and produces a body Cashfree accepts, carrying the
-  wrong customer id on an order the webhook later has to match. It wants a parameter object. Out of
-  scope for a configuration pass, and the callers are few.
-- The webhook body is read as `@RequestBody String` and re-encoded to UTF-8 for the HMAC, which is
-  byte-preserving only because Cashfree sends `Content-Type: application/json` —
-  `StringHttpMessageConverter.DEFAULT_CHARSET` is ISO-8859-1 (verified in the Spring 7.0.8 bytecode),
-  so a vendor change to `text/plain` would corrupt every non-ASCII byte and fail closed with a
-  now-correctly-named `MISMATCH`. Taking `byte[]` would remove the question.
-- The `*.run.app` URL remains directly invocable, so the callback route is reachable without the
-  Pages Function — pre-existing and documented in `DEPLOY.md` §6, but it carries more weight now
-  that the route settles money.
-- `ServiceFixtures.deliverSigned` asserts `status().isOk()`, which is also the answer to every
-  refusal. That assertion is vacuous as a verification check and is part of why the unit bug lived
-  as long as it did; the calling tests only catch it through downstream state.
-- **The `sentAt < 0` overflow guard in `isFresh` is covered by reading, not by execution, and the
-  javadoc now says so.** A simplification pass caught the test's own comment claiming otherwise. Both
-  values `negativeIsRefused` uses (`-1` and `Long.MIN_VALUE`) are refused by the arithmetic alone;
-  the guard's only killing value is the single `sentAt` for which `now - sentAt` lands exactly on
-  `Long.MIN_VALUE` — i.e. `now + Long.MIN_VALUE` — and `now` is read inside the verifier, so naming
-  it would be a one-millisecond coin flip that fails at random. A test that fails at random is worse
-  than no test. The guard stays: one value in 2^64 that silently disables a replay check on an
-  attacker-supplied header is not worth saving a comparison for.
-
-**Post-deploy, by hand, in this order** — none of it is assertable from here. Two Secret Manager
-entries need real values first (`draazy-sandbox-cashfree-app-id` = `TEST…`,
-`draazy-sandbox-cashfree-secret-key` = `cfsk_…`), added with `printf '%s' "$V" | gcloud secrets
-versions add … --data-file=-`; PowerShell piping appends CRLF and `Out-File` prepends a BOM, either
-of which 401s every order **and** breaks the HMAC. `draazy-sandbox-cashfree-webhook-secret` is no
-longer referenced. Then: a rent-agreement payment (it parks at `awaiting-payment`, so a silent
-webhook failure is unmistakable) and a subscription. **Open the browser console for the first one** —
-the CSP was derived from the shipped SDK, and the one surface not verified against a live modal is
-the `about:blank` bank-redirect branch; a violation naming an acquirer domain means widening
-`form-action`, not `script-src`. `backend/tools/cashfree-probe.ps1` is a read-only credential probe
-for that session (untracked — `git add` it deliberately or leave it out, not neither).
-
-Unverified until that deploy, and not assertable from here: an order reaching Cashfree, the modal
-opening on a real `payment_session_id`, the callback arriving at the notify URL, the signature
-verifying, and the settlement landing on a subscription and on a rent-agreement request.
-`e2e/COVERAGE.md:747` still states the case correctly — this suite cannot prove money moves.
-
-**Cloudflare R2 is switched on for sandbox, and the next deploy is the first thing that proves
-it.** `MockFileStorage` is `@LocalOnly`, so it is absent under the `sandbox` profile; while
-`STORAGE_ENABLED` was unset, `R2FileStorage` (`havingValue="true"`) was absent too and the bean
-that won was `ObjectStoreFileStorage`, every method of which throws
-`UnsupportedOperationException("Object storage not configured for prod yet")` — so every real
-"Send for review" reached `storeImage` and died. That was the documented safe default
-(`docs/DEPLOY.md` §Optional: fail loudly, not silently) rather than a bug. Buckets, the scoped
-token, the two Secret Manager versions and the four `SANDBOX_R2_*` repo variables now exist, so
-`cloudrun-sandbox.yaml` carries `STORAGE_ENABLED: 'true'` and `deploy.yml` requires the four
-identifiers to be non-blank: past the flip an empty one is a crash loop, not a bad upload. They
-stay in the `envsubst` list for the opposite reason — an unsubstituted `${R2_ENDPOINT}` reaches the
-container as a literal, which is non-blank, which would satisfy `R2FileStorage`'s all-six
-constructor check and convert a loud boot refusal into a runtime failure on the first upload.
-Unverified until a sandbox deploy runs: the startup line `R2 object storage enabled (private bucket
-'…', public bucket '…')`, one identity submit, one listing photo, and — the one nothing here can
-assert — `Access-Control-Allow-Origin` on the public bucket, without which the wizard's perceptual
-hash silently stops flagging duplicate photographs (`docs/DEPLOY.md` §3.2).
+  per-sq.ft caption. Its EMI is not `isLand`-gated either.
+- No seed carries a non-sqft `area_unit`, so the branch where a buy renders **no** facts tile is
+  unreachable from the live lane and the `:empty` border rule that covers it is asserted by nothing.
+  A single guntha farm seed would close all three of these at once.
 
 **The server cannot tell a hand-granted Verified badge from a review-granted one, so it cannot
-refuse the withdrawal.** `users` carries one `verified` boolean and no record of who set it;
-`UserResponse` exposes no identity flag at all. The admin console's withdraw button was guarded by
-`u.verified && u.identityVerified`, a field nothing on the wire has ever sent, so the guard never
-fired and the reason text never appeared — the control has been enabled all along. Guard removed
-rather than left as decoration, and `e2e/tests/admin/users.spec.js` now parks the claim with
-`test.fixme`. The rule itself is right: withdrawing a badge a reviewer granted is unrecoverable,
-since re-running a decided case is a no-op. Real fix is server-side — record the grant's origin (a
-`verified_source` column, or derive it from a decided `identity_verifications` row) and answer 409
-— then unpark the spec.
-
-**`frontend/src/data/referrals.json` was deleted as an orphan, and three doc lines still cite it.**
-`docs/flows/consumer/plans-billing-refer.md` L29, L48 and L209 name the file as the referral
-fixture. Nothing imports it (the ops desk reads `GET /referrals`), and its rows still carried
-`aadhaarVerified`/`aadhaarUnique`, so it was a stale copy of a contract the server had already
-renamed. The doc lines want rewriting to point at the live route.
+refuse the withdrawal.** `users` carries one `verified` boolean and no record of who set it, so the
+console's withdraw guard (`u.verified && u.identityVerified`) read a field the wire has never sent
+and never fired. Guard removed rather than left as decoration and `admin/users.spec.js` parks the
+claim with `test.fixme`. Real fix is server-side: record the grant's origin (a `verified_source`
+column, or derive it from a decided `identity_verifications` row), answer 409, then unpark the spec.
 
 **A room card is titled by `r.society` with no fallback, and a genuinely split flat may not have
-one.** `RoomCard.jsx` renders `{r.society}` as the headline, and reuses the same string for the
-image `alt`, the share label, and the report payload's `ownerName` — four places that read as a
-missing image or an unnamed report rather than as an empty title. That is safe for a room posted
-through `createRoom`, which takes the society text from the host. It is **not** safe for a room
-minted by `FlatSplitService.buildRoom`, which copies the parent listing's `society_id` but never
-its `society` label; a listing whose society is off-registry has the id NULL too, so the rooms come
-out with nothing to render. The dev seed sidesteps this by writing the label onto the split rooms
-by hand — that is a fixture working around a product gap, not a fix. Real fix is one of: have
-`buildRoom` carry the parent's society text across, or give the card a fallback built from the
-facts it does have (`{flatType} in {locality}`). Found while seeding, deliberately left alone so a
-data change stayed a data change.
+one.** `RoomCard.jsx` reuses that string for the headline, the image `alt`, the share label and the
+report payload's `ownerName`. Safe for a room posted through `createRoom`; not safe for one minted
+by `FlatSplitService.buildRoom`, which copies the parent's `society_id` but never its label, so an
+off-registry society leaves the rooms with nothing to render. The dev seed writes the label on by
+hand — a fixture working around a product gap. Fix is to carry the parent's society text across, or
+give the card a fallback built from `{flatType} in {locality}`.
 
-**The phone smart-search bar is now one shape on `/listings` and `/flatmates`, and the work found a
-live bug two components away.** Both bars are pills with the submit as a solid circle floating 4px
-inside the right end. Flatmates got there first; listings had a 44px rounded square butting the
-edge, plus a `pr-[84px]` that was short of its own 98px control stack, so a long placeholder ran
-under the save-search bell. The circle is 36px, under the touch floor, so it carries `.tap-extend`
-— and `.btn-primary` sets no `position`, hence the explicit `relative` beside it. The bell keeps a
-real 44×44 box and lost only its hover plate, which was a third corner radius stacked inside the
-pill. Nothing at ≥640px changed. New spec `mobile/live-search-submit-shape` (16 tests: two pages ×
-two phone projects × four claims), red-checked twice.
+**`frontend/src/data/referrals.json` was deleted as an orphan, and three doc lines still cite it.**
+`docs/flows/consumer/plans-billing-refer.md` L29, L48 and L209 name it as the referral fixture;
+nothing imports it and the ops desk reads `GET /referrals`. Rewrite the lines to point at the route.
 
-The bug: the assistant's `fixed right-4 z-[1300]` layer spans a 240px column of the bottom-right
-corner whether or not anything in it is interactive, and the first-visit nudge appears unprompted.
-On a 360px phone that column reaches the search submit — `elementFromPoint` returned the nudge
-bubble, and once the bubble was muted, the empty flex wrapper holding it. Neither has a handler, so
-a tap on search died silently for the six seconds the nudge lives. Fixed with `pointer-events: none`
-on the layer and `-auto` on the FAB, the nudge's dismiss glyph and the open panel, rather than
-adding the two routes to `NUDGE_MUTED`, which would only move the trap to the next cramped surface.
-Worth knowing this was invisible to every functional test and to the generic 44px sweep; it surfaced
-only because one behavioural test passed at 412 and failed at 360.
+**Left alone on the phone smart-search bar**, all pre-existing and shared by both bars: `onKeyDown`
+fires on Enter mid-IME-composition, so a Gboard Indic transliteration submits a half-typed query
+(it needs `!e.nativeEvent.isComposing`); the only focus indicator is `focus:border-teal-400/50` over
+`border-white/10`, which will not clear WCAG 2.4.13; there is no `aria-label`, so the accessible name
+is a deal-dependent placeholder that disappears the moment you type, and neither page has a
+`role="search"` landmark; and `.btn-primary` without `.btn` inherits no `transition`, so the hover
+lift and brightness on both submits snap rather than ease. Each is one line, and each is a behaviour
+change on a shared control.
 
-Four things read during that work were left alone deliberately, all pre-existing and shared by both
-bars. The smart-search input's `onKeyDown` fires on Enter mid-IME-composition, so a Gboard Indic
-transliteration submits a half-typed query — it needs `!e.nativeEvent.isComposing`. Its only focus
-indicator is `focus:border-teal-400/50` over `border-white/10`, which will not clear WCAG 2.4.13.
-It has no `aria-label`, so its accessible name is the deal-dependent placeholder, which disappears
-the moment you type, and neither page has a `role="search"` landmark. And `.btn-primary` without
-`.btn` inherits no `transition` — `buttons.css` puts it on the `.btn/.btn-teal/.btn-outline/.dz-btn`
-block — so the hover lift and brightness on both submits snap rather than ease. Each is a one-line
-change but each is a behaviour change on a shared control, so none belongs in a restyle.
+**Any control specced at exactly 44px has no tolerance for layout jitter.** `live-tap-targets` now
+re-measures until the list is clean before asserting, which is not a loosening — a genuinely
+undersized control never clears and the poll times out. A design pass could reasonably give
+`.heart-btn` and the `/listings` compare button a pixel of headroom instead.
 
-**`live-tap-targets.spec.js` rounded its failure message and flaked on exactly-44px controls — both
-fixed.** The message did `w: Math.round(box.w)` while the assertion compared `box.w`, so a 43.99px
-control printed as "44" and failed, which reads as an impossible result and invites someone to
-loosen the floor. Now reported to two decimals. The flake underneath it was structural: the poll
-returned as soon as enough elements had rendered and froze whatever `undersized` was true at that
-instant, which could be mid-reflow. Several controls are drawn at exactly `w-11 h-11` — 44.000px
-measured at rest, zero margin against the floor — so a fractional grid-track width while card
-images are still landing reports 43.99. The spec now re-measures until the list is clean (5s cap)
-before asserting. That is not a loosening: a genuinely undersized control never clears, the poll
-times out, and the assertion still fails with the full evidence. Seen on `.heart-btn` and on the
-compare button on `/listings`, both at `mobile-small`. The 44px floor itself is untouched — but
-note that any control specced at exactly 44 has no tolerance for layout jitter, so a future design
-pass could reasonably give these a pixel of headroom rather than relying on the settle.
+**Open after the `lib/useSwipeDismiss.js` review:** whether any *other* control that owns a drag can
+render inside an overlay using this hook. The filter drawer and the `axis: 'y'` consumers
+(Modal/Select/MultiSelect/Menu) were checked and are clean, but that sweep was by grep.
 
-**The swipe-vs-slider guard in `lib/useSwipeDismiss.js` has been reviewed.** `react-reviewer` and
-`code-simplifier` were unavailable when it went in (provider rate limit), so it shipped on a manual
-read; both have since run and raised nothing against it. The fix is four lines: `onPointerDown`
-declines to arm when the press lands inside `input[type="range"]`, because the listings filter
-drawer dismisses on a leftward drag and its price thumb is dragged leftward too — the drawer was
-sliding away after one step of the slider. Verified red-then-green by disabling the guard
-(`mobile/live-sheets-and-actions`, two tests). The open question the review did **not** close, since
-it needs a fresh eye rather than a re-read: whether any *other* control that owns a drag can render
-inside an overlay using this hook. I checked the filter drawer (`overflow-x-hidden`, no horizontal
-scroller, both sliders native) and the `axis: 'y'` consumers (Modal/Select/MultiSelect/Menu — the
-only horizontal gesture near them is the gallery lightbox, a different axis), but that sweep was by
-grep.
-
-**A filter slider used to fetch once per step; it now fetches once per intent** (`lib/
-useCommitOnRelease.js`, wired into `ui/DualRange` and the near-a-place radius). Dragging the budget
-thumb issued **239 requests / 5.2 MB** in one gesture: React aliases a range input's `onChange` to
-the native `input` event, which fires on every step, and each step became a `GET /properties`. The
-page's existing `useDeferredValue` did not help and could not — it deprioritises *rendering*, not
-network. A debounce was rejected twice over: it still fires mid-drag (a four-second drag at 250 ms
-is sixteen requests for one decision), and on the shared query it would have delayed the discrete
-filters that are already one intent each and should feel instant.
-
-The hook holds the in-flight value locally and lifts it when the value **settles**, using the
-platform's own `change` event rather than a list of gestures. That distinction is the whole point:
-the first version listened for `pointerup`/`keyup`, which a VoiceOver slider-adjust fires neither
-of — a screen-reader user would have heard the value change while the results behind it never
-moved. Two things the review caught that the tests had not: every readout must render from the
-hook's value (the radius number, the preset `aria-pressed`, the derived "≈ N km" line and the
-group summary were still on `f.nearRadius`, so they froze while the thumb moved), and dropping
-`keyup` silently reopened the storm for keyboard users, because a range fires `change` on *every*
-key step — auto-repeat across the budget slider is ~80 searches. A 120 ms coalesce window closes
-that; it is not the rejected debounce, since it sits on the control, starts only once the value has
-settled, and a drag never enters it. Verified red-then-green three ways: 9 and 7 searches mid-drag
-without the hook, 8 across a held key without the window. 20 desktop + 9 mobile specs green.
-
-Not done, and worth its own decision rather than a quiet fix: `useListingsSearch` still only
-*discards* superseded responses (a `seq` ref) instead of aborting them, so their bytes are still
-paid for. That mattered at 239 in flight; at one or two it is close to noise, and threading a
-`signal` through the service and provider seams is a real change. Left for when something else
-needs that plumbing.
-
-**Two `consumer/property` mock specs will not be converted, and should not sit in the queue as if
-they will.** Both were read in full and the reason is the same in each case: there is no server
-behaviour behind them to point a live spec at.
-
-- **`dedup.spec.js`** opens a blank page and then `await import('/src/lib/data/propertyIdentity.js')`
-  and `/src/lib/imageHash.js` inside `page.evaluate`. It is a unit test wearing a browser: no route
-  is visited and no request is made, so "converting" it would mean inventing a page for it to run
-  on. The server-side half of the same protection is already covered live by
-  `platform/live-own-duplicate` (COVERAGE.md:264). Its correct home is Vitest, and moving it there
-  is a separate piece of work from this migration.
-- **`detail.spec.js`** exists to prove the detail route survives malformed records — it publishes
-  `{ id: 'P-notype', type: undefined }` and `{ createdAt: undefined }` and checks the page still
-  renders. A validating server cannot return either shape, so live the test would assert that a
-  situation which cannot arise is handled, which is not a fact about the product. Its third test is
-  a pure-function check on `lib/format.js` and belongs with the other two in Vitest.
-
-Recorded here rather than left silent because "not yet converted" and "will not be converted" look
-identical from the outside, and the difference is the whole value of the note.
+**`useListingsSearch` only discards superseded responses instead of aborting them** (a `seq` ref), so
+their bytes are still paid for. That mattered at 239 in flight; at one or two it is close to noise,
+and threading a `signal` through the service and provider seams is a real change. Its own decision.
 
 **Society ops console — what the migration could not finish** (opened by `87f2d07`)
 
-- **Society review reports are not in the society console.** A review is reported as a plain `review`
-  and is indistinguishable on the wire from a property review, so the console filters to
-  `contribution|reply|question|answer|board` and society reviews stay in Admin ▸ Reports. Splitting
-  them needs a target-type the reporter does not currently send.
-- **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass and
-  the `/simplify` pass. The `live-*.spec.js` and its `e2e/COVERAGE.md` row are done
-  (`admin/live-societies`, 9 tests). Verified so far: full lint at the 0-error baseline, and 20/20
-  parity harnesses green.
-- **~~Two~~ No readers on `/admin/societies` are still the client catalogue.** ~~Three~~ ~~Two~~ — the **merge
-  picker** was the load-bearing one and is now fixed: `searchSocieties` moved to the
-  `societyService` seam over `GET /societies?q=`, so an operator can merge one freshly-minted
-  duplicate into another and `live-societies.spec.js` no longer bends around the gap. The **overlay
-  editor** now has a server behind it — V112 gave `societies` an `admin_note` column and `PATCH
-  /admin/societies/{slug}` writes it — and the editor is repointed onto that route, so the edit is
-  real rather than a note this browser keeps to itself. The **Directory tab** pages off `GET
-  /societies` (register 36's envelope) rather than enumerating the bundled 348 rows. And under D252
-  the page stopped importing `lib/store.js` altogether: the last two readers were the **duplicate
-  hints** and the **society name on a `details` proposal**, both of which asked the 28-society
-  bundle about member-added societies it has never held. Duplicates are `GET
-  /admin/society-candidates/{slug}/duplicates` now; the name travels on `SocietyProposalResponse`.
-  `resolveSociety`/`suggestDuplicates` stay in `lib/store/societyAdmin.js` — the consumer society
-  pages and the mock provider are legitimate callers.
+- Society review reports are sent as a plain `review` and are indistinguishable on the wire from a
+  property review, so the console filters to `contribution|reply|question|answer|board` and society
+  reviews stay in Admin ▸ Reports. Splitting them needs a target-type the reporter does not send.
+- Outstanding on `3e53d87` and `87f2d07`: the reviewer-agent pass and the `/simplify` pass.
 - **`societies:write` is bypassable on the residents decision path.** `PATCH
-  /societies/{slug}/residents/{id}` guards on *role* (`isStaff`) rather than on the permission atom,
-  because the other legitimate reviewer is a committee member, who holds no staff permissions at
-  all. The effect is that an ops account granted `societies:read` and deliberately not
-  `societies:write` can still verify and reject residencies. Pre-existing, and a policy call rather
-  than a bug: the fix is either a second atom the committee path can satisfy, or accepting that
-  residency review is role-gated and saying so in `cross-cutting.md`.
-- **`useSocietyHub.js` sends a preview object where a URL is expected.** The photo contribution
-  passes `cForm.photo` — the whole `{name, size, mime, dataUrl}` shape `readEvidenceDoc` produces —
-  as `photoUrl`, which the contribution contract declares as a URL string. Pre-existing and
-  unrelated to the certificate work, but adjacent enough to be worth naming: it needs the same
-  upload-then-reference treatment the certificate just got.
-- **`EvidenceUpload`'s 2 MB inline cap does not match the vault's 10 MB.** A certificate between the
-  two now uploads and is readable by ops, but shows the claimant no preview of what they attached.
-  Two limits with different jobs (one is "how much base64 will we hold in memory", the other is
-  "how large a document will we store") that happen to be visible on the same screen; they should
-  either be reconciled or the gap should be explained in the picker's own words.
-- **`PersonalDocument.sizeBytes` is a nullable `Long`.** Rows predate the column, and the certificate
-  adapter coalesces null to `0` — which renders as "0 bytes" beside a document that is plainly not
-  empty. Worth a backfill from the stored objects rather than a growing pile of coalesces.
-- **Mock vault caps inline bytes at 3 MB.** A larger mock certificate has a null `dataUrl`, so the
-  ops console says the document is stored but cannot be opened here. Honest, and the same answer dev
-  gives when no signing provider is configured — recorded so the next person to see it knows it is
-  the design and not a broken button.
-
-**The 25 red mock-mode e2e specs: 25 fixed, 0 outstanding**
-
-A wide `tests/admin` + `tests/consumer` run reported **29 failed / 821 passed**. A serial re-run of
-just the red files reproduced 27, so they were not worker contention. A worktree at `cd1018c` — the
-commit before the society-console work — running the *same* files produced a failure list identical
-apart from `doc-viewer-scheme.spec.js`, which a targeted re-run showed to be a flake cluster (all
-three of its tests fluctuate between runs). **None of it was a regression**, including the
-`tenant-profile.spec.js:73` failure previously reported here as one: it fails at `cd1018c` too.
-
----
-
-## Owner-supplied floor plans (buy + rent, residential + commercial)
-
-**The control the request asked for already existed.** Every residential and all three commercial
-photo profiles have offered a `Floor Plan` category the whole time, and the category picker is
-deal-agnostic, so Buy and Rent both had it. What was missing sat downstream of the tag:
-
-- **Nothing wrote it.** `submit.js` dropped photo categories on the way to the wire, so
-  `properties.floor_plan` had no writer outside the SQL seed. The tag was decoration.
-- **The detail page invented one.** `FloorPlan.jsx` fell through `p.floorPlan || floorPlanFor(p) ||
-  FLOOR_PLAN_IMG` — a schematic picked from property type and BHK, then a stock image — and
-  presented it under the authoritative heading "Floor Plan". Same defect class as the area
-  breakdown (`area * 0.84` / `area * 0.70` rendered under three labels).
-
-So the work was making the existing mark load-bearing, and stopping the page making a claim the
-owner never made. `floorPlanFor`/`COMMERCIAL_PLAN` are deleted; a missing plan now says so.
-
-**Expect a visible change in screenshot diffs.** Only the ~16 seeded rows genuinely store a plan, so
-most listings now show the "not shared" line where they previously showed a schematic. That is the
-correction, not a regression.
-
-**Land is deliberately untouched.** `PLOT_PHOTO_CATS`/`FARM_PHOTO_CATS` use `Layout Plan`, and
-`PropertyTabs` gates the whole section off for land (`{!isLand ? <FloorPlan p={p} /> : null}`).
-
-### Found by review, after the first pass was already green
-
-The seam tests and the new e2e spec both passed while the wizard's **edit** path was still broken —
-worth recording, because the spec looked like coverage and was not:
-
-- **The edit path never sent the field.** `editPayload` builds its patch from a `FIELD_INPUTS`
-  whitelist, and the tag lives in `photos` rather than in `form`, so it can never be an entry there.
-  Tag, re-tag and untag were all silently dropped on edit while working on create. The e2e spec
-  missed it because its third test PATCHes with raw `fetch`, proving the server honours a blank
-  without ever exercising the code that was supposed to produce one.
-- **Blank does not always mean "withdrawn".** `ListingCreate` documents a stored plan that is not a
-  gallery photo as supported, and the seeded commercial rows are in exactly that state. No thumbnail
-  can carry the tag, so prefill restores none and the payload comes out blank — meaning "never
-  offered", not "removed". Fixing the first bug without this one would have made any unrelated edit
-  silently unpublish those plans. `planWasTaggable` separates the two.
-- **The tag survived a re-type onto land**, which has no such category — harmless while the tag was
-  cosmetic, a write now. `changePropertyType` drops it; the other categories stay, being cosmetic on
-  a type the owner may only be passing through.
-- **A plan could become the search-card cover.** `cover = gallery[0]` and owners often upload the
-  plan first, so the card showed a schematic. Cover now skips the tagged plan unless it is the only
-  photo.
-- **An approved listing could be pointed at an unreviewed image.** Photos, prose and amenities are
-  re-checked when they change, because swapping the evidence re-sells an approval against a property
-  nobody looked at. The plan travelled in its own key, so `PATCH {"floorPlan": "…"}` with no
-  `images` tripped no rule and rendered arbitrary content at full width on a live page. The comment
-  claiming a new plan "arrives with a changed gallery" described the wizard, not the endpoint. The
-  plan must now be one of the listing's own photos (422 otherwise), which routes every genuinely new
-  picture back through `images`, where it is already re-checked; re-tagging a photo the reviewer has
-  seen stays exempt, which was the true part of the original reasoning. Rejecting rather than
-  raising a new re-check key deliberately: `recheckOnly` inside an `if (in.floorPlan())` block makes
-  `floorPlan` a foundation field, which obliges a matching entry in `FOUNDATION_STAYS_LIVE_KEYS`,
-  in `classifyChanges` — which receives no plan argument at all — and in `ListingFoundationTest`.
-
-Locked in by four cases in `frontend/scripts/listing-edit-prefill.test.mjs` — the seam that was
-broken, tested directly, rather than a wizard walk that would be slower and prove less — and a
-fourth e2e case for the evidence rule.
-
-### Not fixed, deliberately
-
-- **The lightbox is gated on `zoom` alone, not `zoom && planImg`.** It cannot open without an image,
-  but could stay open across a back-navigation to a plan-less listing, rendering `<img src={null}>`.
-  Left alone: it is still dismissable by button and backdrop, and the suggested guard would strand
-  the `overflow: hidden` lock unless the effect were changed too — a trap strictly worse than the
-  broken image it prevents.
-- **Nothing constrains Floor Plan to one photo**; `find` takes the first with no feedback. Either
-  the picker should enforce singularity or the rule should be visible. Low, and a product call.
-
-### Verification
-
-Backend `BUILD SUCCESS` (`-DbuildDirName=target-fp`, Zulu 25) with `PropertyMapperImpl` emitting the
-blank→null expression; `ListingFoundationTest` + `SpecCoverageTest` 13 passed. Frontend `npm run
-build`, `check:i18n` (4549 keys × hi/mr) and eslint on every changed file at the 0-error baseline.
-`floor-plan.spec.js` 4 passed; the six neighbouring detail specs 26 passed, 1 failed.
-
-**Four pre-existing failures, none ours, each exonerated by evidence rather than by assertion:**
-
-- `live-detail-sale.spec.js:86` (commercial fit-out) — the parallel commercial-fixtures workstream
-  removed `commercialFitOut()` from `RentDetails.jsx`, a file this work never opened. Already
-  recorded above as blocked on that workstream landing.
-- `listing-edit-prefill.test.mjs:171` ("land is asked for a project name…") — belongs to the same
-  workstream's 152-line `validation.js` change; `git diff -U0` puts every hunk of it outside this
-  work's single hunk at `+31,21`.
-- `npm run check:listing` — reports `landUse` missing from the server's stays-live set. That block
-  was added uncommitted by another workstream with a nested `if`, which the checker's
-  `if \(in\.(\w+)\(\)[^{]*\{([^{}]*)\}` regex cannot parse. `floorPlan` appears in neither the
-  expected nor the actual set, which is the positive confirmation that this work added no drift.
-- `edit-prefill.spec.js:491` — times out clicking a photo-category option that resolves and is then
-  detached. The control lives in `PhotoUploader.jsx` and `styles/index.css`, both being rewritten by
-  the density pass (the latter written at 12:11, between the two runs that reproduced it). No code
-  changed here executes on that path: the payload builders run at submit, and the category reset
-  fires only for types with no Floor Plan category, which a flat is not.
-
-**A stale lane cost a cycle again.** Two of the three original e2e tests failed against a JVM built
-five hours before the column had a writer, which reads exactly like a product bug.
-`run-e2e-backend.ps1` already warns about this in its docblock. Restart the lane before believing a
-live failure — and after any backend change, which the evidence rule above needed.
-
-Almost all of them were one class — a spec whose localStorage seed predates a seam migration,
-asserting against a screen that no longer reads the key it seeds. The repair is the same each time:
-boot the app, wait for `appReady`, then write into the store the app has just seeded (an
-`addInitScript` write is overwritten on first load), reading the existing store rather than starting
-from `{}`.
-
-| Seed key the spec wrote | Specs | Fixed in |
-|---|---|---|
-| `puneNestContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
-| `pnTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
-| `puneNestDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
-| `puneNestDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
-| `puneNestListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
-| `pnSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
-
-Three of them were not stale seeds but real product defects the stale seeds had been hiding:
-
-- **`toRentalCard` was never given the listing** (`e1a7ca6`). Its docblock says a caller holding the
-  listing should pass it in rather than have the function invent one; all three call sites passed
-  nothing, so every tenant's My Rental card, Rent Wallet and Document Vault described their home as
-  "Rented home".
-- **The flatmate tenancy picker could not name its options** (`22bfc94`). Same root, different
-  surface, and worse: `prefillGroupFromTenancy` derives locality from the title, so with every
-  option reading "My tenancy" the prefill filled in nothing.
-- **"Remove content" did not remove the content** (`a72ab70`). `mock/triageReport` ignored
-  `decision.enforcement`, so a moderator got "Content removed & report closed" while the spam stayed
-  on the hub — and the report left the queue, so nobody would come back to it.
-
-Two society specs were stale in the other direction — asserting behaviour that was deliberately
-removed, so fixing them meant changing the assertion, not the product:
-
-- `community-v2:260` asserted a snapshot of the reported text. `ModerationTab` stopped rendering one
-  on purpose: a report carries a target id, and a snapshot taken at report time goes stale the
-  moment the author edits. It now asserts on the target id, keeping both behavioural assertions.
-- `onboarding-p2:52` asserted that verifying a candidate sets `registration` and `conveyance` true.
-  `verifyCommunitySociety` deliberately stopped doing that — an operator confirming a building
-  exists was silently telling every buyer its conveyance deed was done. It now asserts the
-  verification stamp, which is also what the server records (V105).
-
-Known flaky, not red: `doc-viewer-scheme.spec.js` (:56/:68/:86 fluctuate), `owner-hub.spec.js:79`.
-Known red outside this set and untouched: `property-integration.spec.js:689`/`:720` (P6
-deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.spec.js:101`,
-`mobile/phase3.spec.js:157`, `mobile/topbar-scroll.spec.js:61`.
+  /societies/{slug}/residents/{id}` guards on role (`isStaff`) rather than the permission atom,
+  because the other legitimate reviewer is a committee member with no staff permissions — so an
+  account granted `societies:read` and deliberately not `societies:write` can still decide
+  residencies. A policy call: add a second atom, or accept role-gating and say so in
+  `cross-cutting.md`.
+- `useSocietyHub.js` passes `cForm.photo` — the whole `{name, size, mime, dataUrl}` shape — as
+  `photoUrl`, which the contribution contract declares a URL string. It needs the same
+  upload-then-reference treatment the certificate got.
+- `EvidenceUpload`'s 2 MB inline cap does not match the vault's 10 MB, so a certificate between the
+  two uploads and is readable by ops but shows the claimant no preview. Reconcile the two limits, or
+  explain the gap in the picker's own words.
+- `PersonalDocument.sizeBytes` is a nullable `Long` and the certificate adapter coalesces null to
+  `0`, so a document that is plainly not empty renders as "0 bytes". Wants a backfill.
 
 **Data and schema**
 
-- ~~`idx_properties_society_unit` (V79) indexes a column combination nothing queries. Both options —
-  drop it, or `comment on index` explaining why it is kept — cost a new migration, because V79 is
-  applied and editing it breaks its checksum.~~ **Closed 2026-08-22:** dropped by `V113__drop_unused_society_unit_duplicate_index.sql`; the active duplicate probe is meter or `(locality_slug, address_key)` only.
-- `flatmate_rooms.society_id` had the FK-as-409 shape that D218 fixed for `properties`. **Fixed**
-  in `FlatmateSupplyService.requireSociety`, which also closed the worse half nobody had noticed:
-  the mapper's `uuidOrNull` silently turned a malformed id into `null`, so the room was created
-  `201` attached to no society and the host was never told. Now 400 for unparseable, 404 for
-  unknown — the 404 matching D218 deliberately. `FlatmateRoomSocietyTest` pins all three cases.
 - No guard test asserts that a `V__` migration never inserts into a table the e2e reset truncates.
   The V78 `message_template` incident is fixed; the class of bug is not prevented.
-- ~~`confirmListingFresh` writes `freshenedAt` to localStorage and the API has no such column.~~
-  **Stale — this was already built and the entry described the mock.** `V86__properties_last_confirmed_at.sql`
-  added the column; `Property.lastConfirmedAt` has no setter, so `confirmAvailable(Instant)` is the
-  only way in; `MeListingsController.confirmAvailable` serves `POST /me/listings/{id}/confirm-available`
-  (no `@PreAuthorize` by design — `/me/listings/**` authorises by ownership, 404 not 403);
-  `propertyMapper.js:149` maps it to `freshenedAt`. Only the **mock** store writes localStorage,
-  which is correct. The two real readers are `lib/freshness.js:31` and `AdminProperties.jsx:295`.
 
 **Silent failures**
 
@@ -2681,41 +1057,35 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
   are silently dark on live builds. Precondition for ledger 27.
 - `PropertyReviewModal.jsx:391` returns `null` when either the review or the thread fails to load, so
   a failed case-file load is indistinguishable from a dismissed click.
-- **The admin moderation console reads a partial catalogue, and the tripwire is now red.** The
-  e2e catalogue crossed the page ceiling (102 listings against `spring.data.web.pageable.max-page-size=100`),
-  so `warnIfTruncated` fires on both `/admin/properties` reads and `property-integration.spec.js`
-  `:689` and `:720` fail in their shared `afterEach` — their own assertions pass. Confirmed
-  pre-existing, not a Wave C regression. Consumer surfaces are unaffected *today*: the public
-  approved catalogue is 47. Fixing it is a **P6 slice**, deferred there by decision on 2026-08-20:
-  `listForModeration` returns a flat array and four screens aggregate over it client-side
-  (`AdminProperties` tabbed table, per-tab counts and the recheck queue; `AdminDashboard` headline
-  counts; `AdminPostOnBehalf` pending list), so a real fix is a page envelope plus server-side counts
-  plus pushing the table's filters and sort onto `/admin/properties` so the server pages a *filtered*
-  set. Raising `PAGE_SIZE` is not a fix and the server clamps it anyway — that is the mistake the
-  tripwire's own docstring records.
 - The review modal's open effect double-POSTs under StrictMode. Harmless since D221's advisory lock,
   but it is why a real server bug hid for weeks.
+- **The admin moderation console reads a partial catalogue, and the tripwire is red.** The e2e
+  catalogue crossed `spring.data.web.pageable.max-page-size=100` (102 listings), so `warnIfTruncated`
+  fires on both `/admin/properties` reads and `property-integration.spec.js:689`/`:720` fail in their
+  shared `afterEach` while their own assertions pass. Pre-existing, and consumer surfaces are
+  unaffected today (the public approved catalogue is 47). Deferred to **P6** on 2026-08-20 because
+  `listForModeration` returns a flat array four screens aggregate over client-side: the fix is a page
+  envelope, server-side counts, and the table's filters and sort pushed onto `/admin/properties` so
+  the server pages a *filtered* set. Raising `PAGE_SIZE` is not a fix; the server clamps it anyway.
 
 **Content and admin surfaces**
 
 - The three editorial content endpoints shipped empty for three different reasons: `banners` cannot
   round-trip through the admin console, `announcements` and `services` have no admin write routes at
   all, and production answers `[]` for FAQs. Each needs its own decision.
-- The live FAQ list has no `Sort`, so it is heap order; the mock's order was editorial.
+- `FaqRepository.findByArchivedFalse()` takes no `Sort`, so the published FAQ list is heap order —
+  it reads as arbitrary to every visitor and changes under them for no reason they can see.
 - `MyListingsPanel.jsx:258` calls `sendWhatsappTemplate`, which 403s for owners. Either widen the
   guard or drop the control — pinned in place by `admin/live-outreach` test 6.
-- `sendOwnerReminder` has zero callers and dies with the mock.
-- The audit tab needs three small rulings before `logAudit`'s 44 call sites are deleted: whether the
+- The audit tab needs three small rulings before `logAudit`'s 9 call sites are deleted: whether the
   clear button survives, whether the uuid column is shown, and what the detail sentence reads.
 - Flatmates gender filter (`FilterBar.jsx:130`) carries selection only in a CSS class; its four
   siblings all set `aria-pressed`. Accessibility finding, product change.
 - `ui/Modal.jsx:108` builds its close button's label as `` `Close ${title}` `` in English, so a
   Hindi or Marathi reader hears one English word welded to a translated title. Pre-existing, and it
-  now affects every modal in the app rather than a handful. Needs a `common.*` key taking `title`.
+  now affects every modal in the app. Needs a `common.*` key taking `title`.
 - Three surfaces still average reviews in the browser (`useSocietyHub`, `Owner.jsx`,
   `locality/ReviewsBlock`) — D79's aggregate endpoint is property-only.
-- `hasTenancy` in `ReviewsSection` is mock-only, so the "Tenant" reviewer badge cannot render live.
-- The mock `propertyReviewProvider` is missing two D218 behaviours (ordering column, staff-note lane).
 
 **Structure**
 
@@ -2743,21 +1113,15 @@ build or `graphify` during an e2e run.
 density pass; none of it is in that diff.
 
 - `live-detail-sale.spec.js:86` ("owner-declared, sub-type-specific fit-out fixtures") was passing
-  for the wrong reason. The seed writes the sub-type fit-out into `amenities`, so `form_details`
-  carried no `fixtures` at all and `declared` was always empty: the heading only rendered because
-  of `RentDetails`' furnished→shell fallback, and `loading bay / dock` matched off the **amenities**
-  block, a different section. Removing the fallback exposed this, it did not cause it.
-- The fix is to move those three `UPDATE`s into `form_details->'fixtures'`. It cannot be verified
-  yet: `fixtures` is not on `PropertyResponse` at HEAD, so the field is unreachable over the wire
-  until the in-flight backend change lands. Attempted and reverted — landing it early would swap
-  one failing assertion for two.
-- `floor-plan.spec.js:98` and `:131` fail for the same shape. The spec is untracked, it
-  publishes `{ floorPlan }`, and `floorPlan` is absent from `ListingCreate` at HEAD. The third test
-  in the file passes only because it publishes `{}` and asserts absence. **Rebuild the services
-  lane before reading these as product bugs** — on 2026-09-18 it was answering from classes built
-  five hours before the field existed.
-- Check compiled-vs-source timestamps in `backend/target-sv2/classes` when a live lane fails in a
-  way that looks like a missing field. A stale lane and a real regression read identically.
+  for the wrong reason: the seed writes the sub-type fit-out into `amenities`, so `form_details`
+  carried no `fixtures` and `declared` was always empty. The fix moves those three `UPDATE`s into
+  `form_details->'fixtures'` and cannot be verified yet — `fixtures` is not on `PropertyResponse` at
+  HEAD. Attempted and reverted; landing it early swaps one failing assertion for two.
+- `floor-plan.spec.js:98` and `:131` fail for the same shape: the spec is untracked, publishes
+  `{ floorPlan }`, and `floorPlan` is absent from `ListingCreate` at HEAD. **Rebuild the services
+  lane before reading these as product bugs** — on 2026-09-18 it answered from classes built five
+  hours before the field existed. Check compiled-vs-source timestamps in `backend/target-sv2/classes`
+  whenever a live lane fails like a missing field; a stale lane and a real regression read alike.
 
 **A shared handler's blast radius is every surface that calls it.** `useProperty.handleContact` is
 used by the phone sticky CTA *and* the desktop `OwnerCard`/`ContactBox`. Replacing its sign-in
@@ -2767,11 +1131,8 @@ deeper on desktop and turned three `signin-gates` tests red. The same shape live
 
 **PENDING AGENT REVIEW** — the property density diff (`useProperty.js`, `PropertyHeader.jsx`,
 `index.css`, `mobile/property-contact.spec.js`) was reviewed by hand on 2026-09-19 because
-`code-reviewer`, `security-reviewer` and `code-simplifier` were all rate-limited. Manual pass found
-no dangling `emi` reference or orphaned locale key, no drift left between `handleContact` and
-`MapDetailPanel`, `.dz-stat-facts:empty` reachable and correctly scoped to the phone block, and no
-new auth surface (`safeInAppPath` still owns the `next` validation). Re-run the agents when they
-are available; the one thing a human pass is weakest on is the CSS cascade.
+`code-reviewer`, `security-reviewer` and `code-simplifier` were all rate-limited. The manual pass
+found nothing, but it is weakest on the CSS cascade. Re-run the agents when they are available.
 
 **Decided elsewhere** — geo policy → ledger 35 · locality queue → 24 · own-listing dedup → 23 ·
 saved-search count → 33 · society follows → 34 · internal notes → 29 · referral reward → 31b ·
@@ -2779,12 +1140,33 @@ society binding → 19 · pipeline stages → 27 · managed properties → 32 ·
 admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by PuneNest" badge →
 still undecided · `wa-pricing` → resolved.
 
+### Deliberate deviations, open to being overruled
+
+- **Approval no longer demands current ownership evidence.** The gate asks for a document of the
+  right kind rather than a re-upload on every re-review; an approved listing whose evidence predates
+  the latest edit still passes.
+- **`images` has no minimum on create or update.** A listing may be published with none; the wizard
+  asks for photos, the contract does not.
+- **The two approve routes stay separate, but the record now says which one ran**, so a moderator
+  approval and an admin approval are distinguishable after the fact instead of collapsing into one
+  indistinguishable status change.
+- **An owner's resubmission needs no cooldown**, declining a review finding: the queue is the
+  throttle, and a cooldown punishes the owner who fixes the problem fastest.
+
+### Not fixed, deliberately
+
+- **The lightbox is gated on `zoom` alone, not `zoom && planImg`.** It cannot open without an image,
+  but could stay open across a back-navigation to a plan-less listing, rendering `<img src={null}>`.
+  Left alone: it is still dismissable by button and backdrop, and the suggested guard would strand
+  the `overflow: hidden` lock unless the effect were changed too — a trap strictly worse than the
+  broken image it prevents.
+- **Nothing constrains Floor Plan to one photo**; `find` takes the first with no feedback. Either
+  the picker should enforce singularity or the rule should be visible. Low, and a product call.
+
 ## Next up
 
 The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built; the
-queue is now **20 (finance console) then 36 (analytics tabs)**. Clear item 36's analytics trap early:
-`AdminAnalytics.jsx:35` calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on
-it, so deleting the mock hangs the page including its one working tab.
+queue is now **20 (finance console) then 36 (analytics tabs)**.
 
 ---
 
@@ -2794,12 +1176,43 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
-| 2026-09-15 | A failed OTP *send* now says something a user can act on. `useOtpFlow` rendered `err.message` verbatim, so a sandbox phone was shown the services seam's own developer line, `[services] could not load the "auth" provider.` — a stale precached PWA shell asking for chunks the new deploy had replaced, which never reaches the network and no retry can clear. `config.js` tags that failure `chunk_load_failed`; a new `classifyOtpSendError` maps every send refusal to an eager-namespace key (sibling of `classifyOtpVerifyError`), and all four OTP surfaces render it — `OwnerConsentModal` and `StaffLogin` gained a `t` for it. The two `signin-otp-session` specs that asserted the server's English prose were rewritten to require the translated sentence *and* the absence of the server's |
-| 2026-09-14 | The admin "Ownership document checks" panel, from a wall of policy prose into a four-step case file. The verdict is now a tone-switched banner at the top carrying the *Still required* list (it was a plain `text-sm` line halfway down, after ~90 words of rules); the deal-specific requirement moved into a `<details>`; the identity facts became a grid where an absent value reads as absent rather than as a mono string like the real consumer number beside it. Both custom `Select`s had **placeholder-only labels** — no caption on screen, and once a value was picked no label at all — so each gained a visible caption that is a substring of its `ariaLabel` (a `Select` renders a `<button>`, so `htmlFor` can never reach it). The load-bearing fix is structural: `Record evidence` and `Grant ownership verification` were identical-weight buttons a hairline apart, reading as one sequence, which contradicts the panel's own sentence that they are separate decisions — they are now steps 3 and 4 of numbered cards, with the record button carrying "It does not grant the badge". `VerificationSummary` split into `VerdictBanner` + `RecordedEvidence`, and Grant now unmounts when verified instead of rendering permanently disabled. `Select` gained an `ariaDescribedBy` passthrough: it was the only way to reach the sentence explaining why the dropdown is dead when nothing has been uploaded |
-| 2026-09-08 | The flatmates fixture, from 2 rooms and six empty tables to a board that actually exercises the section. Ported from the mock catalogue in `flatmates/constants.js`, which survived the mock-provider retirement with **no readers left** — the port to SQL took the shape and left the content behind, which is why the section read as empty. Rooms 2 → 13, groups 8 → 13, members/reviews/requests/saves/applications/consents 0 → 15/3/4/4/2/1, and the two original rooms backfilled: both had `society = NULL` and RoomCard renders it as the card's headline, so **every room card in dev was untitled**. Every row is a state the server can reach, which constrains more than it sounds like — `createRoom` hard-codes `seats_total = seats_open = 1` and exposes neither `price_basis` nor `room_kind`, so the occupancy model (and with it `occupancy = filling`, `flatMax`, and the whole split-the-rent price block) is reachable **only** through `POST /properties/{id}/split`; p5123 is split three ways to get it. Split target picked by assertion, not taste: p5121 is asserted to *show* the split card before splitting, p5122 is a 1 BHK, p5123's only claims are about the rent benchmark. Two rows were rewritten after the lane caught them, both cases of a fixture that reads richer being a fixture that is wrong: a room seeded into **Aundh**, which `live-discovery` requires bare so its empty-tab rescue has a subject (moved to Hadapsar), and a group given a **`property_id`** to put a group in the move-in tab, which the same spec forbids on the wire — a group is people, a flat you can move into is a room, and that tab holds rooms by design |
-| 2026-09-08 | The Flatmates board's two floating controls, on a phone: the hero "Post" deleted (three posting CTAs became exactly one per width — the bar's `+` below 1024px, the tab-row `Post` above it), and the Filters trigger moved off the top-pinned deck into the same bottom-left `.filter-fab` capsule the listings board uses. Fixed on the way past: the DPDPA consent bar was landing on top of that capsule and eating its taps on **both** routes, so a first-time guest could not open filters at all |
+| 2026-09-22 | `open-questions.md` stopped lying about five of its own entries. The file's lifecycle rule says a question moves to CLOSED when it is answered, but nothing enforces it, so a question stays OPEN forever unless someone remembers — and **an answered question sitting under "blocking specific work" reads as a blocker, which is worse than no ledger**: it invites the work to be re-argued from scratch. Q2 (`hide_number` shipped in V31, then overtaken by `ContactGateService`'s global mask-everyone policy, so the preference is a deliberate no-op) and Q13 (per-account, narrowing-only, over `GET /admin/permission-catalogue`, shipped as D192) were closed outright; both name tech-debt rows that no longer exist in the register, which was the tell. Q14 already said CLOSED but sat in the open section and pointed its SLA residual at **D76, also deleted** — so that residual was tracked nowhere and now says so. Q19 was narrowed: `TenancyRevocationIsForwardOnlyTest` pins retraction as ruled out (option 2 shipped), leaving only the badge-drop and card copy. Q20 was the interesting one — decision 42 decided it on 2026-08-23, but `pendingApprovals()` still maps `this::masked` with no `createdBy`, so it is **decided, not built**, and D206 is correctly still open. Every verdict was checked against the shipped code, not against the prose that claimed it |
+| 2026-09-22 | The report-reason mirror is now enforced rather than asserted. Both sides' docblocks claimed `frontend/scripts/report-parity.mjs` diffed them; that script had been **deleted**, which is worse than never having had one — an unenforced obligation everyone believes is enforced. Folded into `check-enum-vocabulary.mjs` (57 → 67 checks) rather than resurrected as a second script, parsing the four `Set.of(…)` literals with `OTHER` substituted first, since a bare `"([^"]+)"` scan would have reported four identical phantom failures. `FOR_REVIEW` is asserted at size 3 rather than skipped, so building a review picker fails the build and sends you to the pairs above it. Mutation-proven in **both** directions before being trusted — a gate that has never failed proves nothing |
+| 2026-09-22 | Five dead ends removed. `ENQUIRY_STATUS_OPTS` dropped `new`/`open`/`responded`/`closed` (a picker offering four options that select nothing, because the API emits only `pending`/`approved`/`declined`) and `AWAITING_STATUSES` narrowed to `['pending']`; `docs/flows/admin/enquiries-funnel.md` §5.2/§5.4/§7 followed the code. A `!startsWith('TR')` ticket guard went — `Ticket` ids are UUIDs and "TR" is not hex, so the branch was unreachable. A `dz-convs-change` listener pair went, having no emitter anywhere in the repo; the sibling `storage` listener that actually carries the cross-tab signal stays. `mockDispatch` → `inertDispatch`. `frontend/src/data/faqs.json` deleted — FAQs come from the API |
+| 2026-09-22 | Working files de-mocked and pruned. 44 scratch console captures deleted (10.4 MB) and `.gitignore` taught to catch `/backend/*.txt` and `/e2e/*.txt`, which `*.log` never did because the habit is `> run.txt`. 306 stale mock citations swept out of 135 `frontend/src` files — comment-only, proven by comparing acorn token streams against HEAD. `COVERAGE.md` 935 → 869 lines with its spec counts re-derived (322 → 325; flatmates and mobile had both drifted) |
+| 2026-09-22 | Documentation consolidated now the backend migration is done: ~4,300 doc lines retired against ~590 added. `docs/migration/` and `docs/misc/` are gone; `06-code-quality.md` moved to [docs/system/code-quality.md](../docs/system/code-quality.md) and every inbound pointer was repointed first |
+| 2026-09-22 | `homeTypeLabel` reaches the server: a new `FlatmateVocabulary.HOME_TYPE`, a V35 CHECK, the OpenAPI enum and the client `VOCAB` mirror carry the same four tokens, and both pill writers default from one `HOME_TYPE_PILLS` list. 14 fixtures repaired onto a shared `FlatmateAgreementFixture.EVIDENCE` |
+| 2026-09-22 | Two owner-consent residuals: a per-caller OTP quota (`requested_by`, V33, `MAX_CALLER_SENDS_PER_WINDOW = 5`, counted per purpose family) and auto-approval comparing `society_id` rather than the postcode, falling back to locality. Groups still fall back, stated in Needs attention |
+| 2026-09-22 | Flatmate edit re-moderation keys off *what changed*, not off who the host is: `FlatmateEditRules` across all three supply shapes, a `ModerationRecheck` `@Embeddable` (V27), and an Ops queue carrying the room's photos with the host's mobile masked. 21 backend cases, one e2e case |
+| 2026-09-21 | Flatmate trust badges read one verdict: the duplicate `verified` column dropped (V26), tier plus the standing verdict answering filter, card and map, `propertyId` reaching `deriveTier` on both write paths, and an hourly sweep plus `POST /admin/flatmate-reviews/reconcile-owner-tier` re-asking every standing owner claim. Backend 158/158, `live-trust-badges.spec.js` 5/5 |
+| 2026-09-20 | The property detail page's touch behaviour: decorative `:hover` gated on fine pointers, the lightbox on `dvh` with four-sided safe-area padding, and the hero converted to a `snap-x snap-mandatory` scroll container with the request-photos overlay as its last slide. One spec (10 cases), two COVERAGE.md rows |
+| 2026-09-19 | Smart search keeps what the shopper typed: parsed facets merge into the live filters, the unparsed remainder rides as `?q=` and a removable chip, and `publicTextSearch` widened to title + locality + society slug + property type, matched word by word. One e2e spec, three `CatalogEndpointsTest` cases |
+| 2026-09-19 | Four filter-correctness bugs in the property search: an impossible facet sends `PropertyPossession.UNMATCHABLE` instead of returning the whole catalogue, nullable `ageYears`/`floor`/`area` survive a range filter and are counted as `unstatedElements`, a cleared radius keeps its centre, and locality names are escaped. Four specs, three `ListingSearchTest` cases |
+| 2026-09-19 | Owner-supplied floor plans on buy and rent, residential and commercial: the plan reaches `ListingCreate` and the edit wizard's `FIELD_INPUTS`, and a PATCHed plan must already be one of the listing's own photos (422). Four cases in `frontend/scripts/listing-edit-prefill.test.mjs`, one e2e case. Land deliberately untouched |
+| 2026-09-19 | The 25 red mock-mode e2e specs: 25 fixed, 0 outstanding. A wide `tests/admin` + `tests/consumer` run reported 29 failed / 821 passed and a serial re-run reproduced 27, so they were not worker contention — but a worktree at `cd1018c` produced an identical failure list, so **none of it was a regression**, including `tenant-profile.spec.js:73` |
+| 2026-09-19 | Commercial listings — the field set, and the required/optional rules per flow. Code, gates and Playwright green |
+| 2026-09-19 | Open Plot and Farm Land — the right fields per flow. Code and gates green, 4/4 |
+| 2026-09-19 | Open Plot and Farm Land — the Maharashtra answers a buyer cannot proceed without |
+| 2026-09-19 | Open Plot and Farm Land — the minimum a parcel is genuinely able to state |
+| 2026-09-19 | Property detail, mobile density pass |
+| 2026-09-15 | A failed OTP *send* renders a translated sentence rather than `err.message`: `classifyOtpSendError` (sibling of `classifyOtpVerifyError`) on all four OTP surfaces, and the two `signin-otp-session` specs assert the translation instead of the server's English |
+| 2026-09-14 | The admin "Ownership document checks" panel rebuilt as a four-step case file: a tone-switched verdict banner carrying *Still required*, `VerificationSummary` split into `VerdictBanner` + `RecordedEvidence`, captioned `Select`s with an `ariaDescribedBy` passthrough, and Record/Grant as separate numbered steps |
+| 2026-09-14 | Ownership Verified badge (D190/Q15) — verified, not partial. The wizard-side half a previous session had logged as still pending was already written; it had simply never been compiled or run |
+| 2026-09-12 | D262 — the rent-agreement wizard opens step 0 only; steps 1–5 sit behind a sign-in line, with `useFormDraft.flush()` before the gate navigates and `next` carried through both sign-in and sign-up. 7 ✅, four COVERAGE.md rows |
+| 2026-09-12 | Flatmate seed ported from `flatmates/constants.js`: rooms 2 → 13, groups 8 → 13, members/reviews/requests/saves/applications/consents 0 → 15/3/4/4/2/1 |
+| 2026-09-08 | The Flatmates board's two floating controls on a phone: the hero "Post" deleted (one posting CTA per width) and Filters moved into the same bottom-left `.filter-fab` capsule the listings board uses |
 | 2026-09-06 | One posting sheet behind both the bottom-bar `+` and the Flatmates hero "Post" — and the `z-[90]` that had every modal in the app painting under the DPDPA consent bar |
-| 2026-08-24 | `consumer/property` onto the live API — 8 mock specs retired, 87 live tests green; V115 and V116 gave the duplicate probe the two arms that had never fired |
+| 2026-09-01 | The buyer's half of the document gate is on the server (D123 closed): `POST /documents/requests`, `GET /me/document-requests`, the viewer moved to `/view-documents/:requestId`, and `lib/data/viewDocuments.js` deleted. `DocumentRequestFlowTest` 33/33, contract floor 261 → 262. Commit `61015de1` |
+| 2026-09-01 | The `document.granted` notification points at `/view-documents/{requestId}` rather than at the listing (register 37); past `GRANT_TTL` the viewer answers one neutral "Access not available" for all four refusals. `robots.txt` deliberately left alone |
+| 2026-09-01 | The flatmate interest notification no longer reads "null is interested in your room in Baner" — nullable `users.name` falls back to "Someone", as `OfferService` and `ConversationService` already do. Three tests in `FlatmateEditAndInterestEndpointsTest` |
+| 2026-09-01 | The five remaining legacy `tests/ops/*.spec.js` are deliberate mock-mode residue and now say so in their headers; `/ops/referrals` stopped justifying its own shutdown with a disagreement **D31b** had already reversed, in all four places that stated it. Mock ops 14/14, live referrals 5/5 |
+| 2026-09-01 | `SocietyMembershipService` split by use-case after the certificate read pushed it past `ServiceSizeGuardTest` — residency stays, claiming moves to `SocietyClaimService`. The BASELINE escape hatch was deliberately not taken |
+| 2026-09-01 | Ledger 35 (`GET /geo`) shipped and closed in the decision register |
+| 2026-08-23 | `consumer/account/notifications.spec.js` → `live-notifications.spec.js` (7 ✅), asserting the inbox at the wire through a second API client. It found `toUiType` carrying no entry for `match.saved-search`, the only spelling `SavedSearchService.alert()` emits. Commit `20ff3dd` |
+| 2026-08-21 | The society merge and the claim certificate have a server (`da957af`). Merging is `/admin/society-merges` (V111) and is a pointer rather than a move, which is what makes the undo possible. The certificate is `GET /admin/society-claims/{id}/certificate`, keyed by the claim so that `societies:read` never becomes a key to arbitrary personal documents |
+| 2026-08-20 | The three society gaps opened by `87f2d07` are closed on the server: `GET /admin/society-residents` (read-only), `registrationNo` and `certificateDocumentId` back on claims (V109), and `mint_origin` (V108) as a separate axis from `source` |
+| 2026-08-20 | Rent-agreement co-fill (V107) — backend `b7bc2fa`, frontend seam, wizard and live e2e `499732d`, 5/5 green in the live service-request block. The run earned its keep: it caught `http/serviceRequestMapper.toViewModel` dropping `parties` on the wire, which no mock spec could have seen, since the mock builds its own party list |
+| 2026-08-19 | Ledger 20 (finance console) shipped and verified (`023c311`) |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
 | 2026-08-16 | D230–D234, and the closing summary of the autonomous window (`8cecfe5`..`45f9168`) |

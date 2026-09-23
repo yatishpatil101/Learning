@@ -81,6 +81,16 @@ _rollback/
 # Generated patches — share them out-of-band, never commit them
 *.patch
 
+# Console captures from a single Maven or Playwright run, redirected to a file so the
+# interesting twenty lines can be grepped out of the thousands. They accumulate one per
+# attempt — 44 of them reached 10 MB before the first sweep — and every one is a snapshot
+# of a run that no longer reflects the tree. `*.log` above does not catch them because the
+# habit is `> run.txt`. Scoped to the two directories the commands are run from, so
+# `robots.txt` and `frontend/public/third-party/*.txt` stay tracked.
+/backend/*.txt
+/e2e/*.txt
+*.md.bak
+
 # Local, machine-specific DB status snapshot (durable setup docs live in docs/LOCAL_DEV.md).
 backend/LOCAL_DB_STATUS.md
 

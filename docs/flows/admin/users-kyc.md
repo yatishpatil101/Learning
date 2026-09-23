@@ -44,8 +44,8 @@
 ## 5. Business rules & logic  *(the meat)*
 
 ### 5.1 List, filter, search
-- `listUsers(undefined, { includeArchived: true })` loads all accounts including archived
-  (`src/lib/mockApi/users.js`); the page filters client-side (`rows` memo in `AdminUsers.jsx`):
+- `listUsers(undefined, { includeArchived: true })` loads all accounts including archived;
+  the page filters client-side (`rows` memo in `AdminUsers.jsx`):
   - **Role** filter (`owner|buyer|staff|admin`).
   - **Status** filter: `active|suspended|archived`. Choosing `archived` shows only archived rows;
     any other status hides archived rows and matches on `u.status`.
@@ -98,7 +98,7 @@ Gated by the `users.bulkOps` admin flag. Each iterates the selected ids and writ
 Each is confirmed via a modal (`bulkConfirm`) before running.
 
 ### 5.5 Activity timeline (context for a decision)
-`getUserTimeline(userId)` (`src/lib/mockApi/users.js`) builds a newest-first feed by joining on the
+`getUserTimeline(userId)` builds a newest-first feed by joining on the
 user's `mobile` (and `id` for owners):
 1. Account creation (`joinedAt`).
 2. Enquiries sent (`enquiries` where `mobile` matches; labelled visit / callback / enquiry).

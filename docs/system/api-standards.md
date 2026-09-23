@@ -13,8 +13,8 @@ code); where the spec is silent, this doc governs.
   path, verb, request/response shape, status code, `x-roles`, and `security` block.
 - Never invent a divergent shape. If the spec is wrong, silent, or self-contradictory: **stop, flag it,
   amend the spec (with rationale), then implement.** Record the decision in `tasks/todo.md`.
-- The React frontend consumes these shapes through a provider seam; a byte-compatible response is what
-  lets `VITE_API_MODE=mock→http` flip with zero component changes. Treat wire compatibility as a test.
+- The React frontend consumes these shapes through a provider seam, and every mapper behind it is
+  written against the spec rather than against an observed response. Treat wire compatibility as a test.
 
 ### 1.1 How `SpecCoverageTest` enforces it
 

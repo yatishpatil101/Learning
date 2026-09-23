@@ -2,16 +2,13 @@
    quietly assert the opposite of what `live-no-gate` proves. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
-import { pickFloors } from '../../../helpers/listingForm.helper.js';
+import { pickFloors, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 
-// Sign in as a real owner account, then advance to the Location step where the
-// "Pin your property location" map lives.
 async function gotoStep2(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
 
-  // Step 1: minimum required fields, then continue.
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
   /* `count()` does not retry, so guarding this click on it silently skips the choice against a
@@ -75,7 +72,7 @@ test('a pin placed before a reload is still placed after it', async ({ page }) =
   /* A synchronization barrier, not the claim: the autosave is debounced and `evaluate` does not
      retry, so poll for the write rather than for a duration somebody timed the debounce at once. */
   await expect
-    .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:list-property')))
+    .poll(async () => page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY))
     .toContain('"pinPlaced":true');
 
   await page.reload();

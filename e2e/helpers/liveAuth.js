@@ -6,10 +6,7 @@ export const E2E_OTP = process.env.E2E_OTP_CODE || '000000';
 /** The backend the live suite talks to. Matches `playwright.config.js`'s proxy target. */
 export const API = `http://localhost:${process.env.API_PORT || '8081'}/api`;
 
-/**
- * A mobile number no other run will use. The clamp keeps it strictly increasing because
- * `Date.now()` can repeat — see `docs/migration/03-e2e-database-and-users.md`.
- */
+/** A mobile no other run will use; the clamp keeps it increasing because `Date.now()` can repeat. */
 let lastIssued = 0;
 export function uniqueMobile() {
   const now = Date.now();
@@ -17,17 +14,14 @@ export function uniqueMobile() {
   return `97${String(lastIssued).slice(-8)}`;
 }
 
-/**
- * Suppress the DPDPA consent bar, which intercepts clicks on the Verify button.
- * Exported so hand-driven sign-in specs get it too — see `docs/migration/03-e2e-database-and-users.md`.
- */
+/** Suppress the DPDPA consent bar, which intercepts clicks on the Verify button. */
 export const seedConsent = (page) => page.addInitScript(() => {
   localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
     necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
   }));
 });
 
-/** Drive the real two-step sign-in UI as `mobile`; see `docs/migration/03-e2e-database-and-users.md`. */
+/** Drive the real two-step sign-in UI as `mobile`. */
 export async function signIn(page, mobile, { screen = 'consumer', role, next } = {}) {
   const form = SCREENS[screen];
   if (!form) throw new Error(`unknown sign-in screen: ${screen}`);
@@ -117,10 +111,7 @@ export async function signedInAs(page, mobile) {
   });
 }
 
-/**
- * Log in over HTTP and return the `AuthResponse`. Setup only, not for assertions; two calls are the
- * contract — see `docs/migration/03-e2e-database-and-users.md`.
- */
+/** Two calls are the contract: the first issues the OTP, the second redeems it. */
 export async function apiLogin(mobile, { api = API } = {}) {
   const send = async (body) => {
     const res = await fetch(`${api}/auth/login`, {
@@ -151,10 +142,7 @@ export async function authHeaders(mobile, opts) {
   return { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` };
 }
 
-/**
- * Sign in as a brand-new account and return its mobile. Its display name is always `Test Member`,
- * so never assert on it — see `docs/migration/03-e2e-database-and-users.md`.
- */
+/** The new account's display name is always `Test Member`, so never assert on it. */
 export async function signedInAsNew(page, { api = API } = {}) {
   const mobile = uniqueMobile();
   await apiLogin(mobile, { api });
@@ -169,10 +157,7 @@ const TINY_PNG = Buffer.from(
   'base64',
 );
 
-/**
- * Two calls, not one: the simulate endpoint 404s on an account with no pending case, so filing must
- * come first — and a fresh account is the only kind that needs this helper.
- */
+/** Two calls: the simulate endpoint 404s on an account with no pending case, so file one first. */
 export async function grantIdentityBadge(mobile, { api = API } = {}) {
   const { authorization } = await authHeaders(mobile, { api });
 

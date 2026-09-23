@@ -1,6 +1,5 @@
-/* Four minimum-effort land walks, driven through the wizard rather than the API on purpose: the claim is
- * about what the form lets an owner submit, which an API post cannot prove. A NEW owner per listing.
- */
+/* Driven through the wizard rather than the API on purpose: the claim is about what the form lets
+   an owner submit, which an API post cannot prove. A NEW owner per listing. */
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
@@ -113,6 +112,9 @@ for (const [type, profile] of Object.entries(PROFILES)) {
 
       const body = response.request().postDataJSON();
       expect(body.formDetails.society ?? '').toBe('');
+      expect(body.formDetails.buyerEligibility).toBe(
+        type === 'Farm Land' && deal === 'buy' ? 'agriculturist' : undefined,
+      );
       /* The parcel is quoted in the unit the owner chose and posted as `area` alone: `carpetArea`
          is a square-foot carpet figure, which a plot does not have. */
       expect(body.areaUnit).toBe(profile.unit);
@@ -121,6 +123,22 @@ for (const [type, profile] of Object.entries(PROFILES)) {
     });
   }
 }
+
+test('changing a farm sale to rent removes the inapplicable buyer eligibility', async ({ page }) => {
+  await page.goto('/list-property');
+  const patch = await page.evaluate(async () => {
+    const { editPayload } = await import('/src/pages/consumer/list-property/editPayload.js');
+    return editPayload(
+      { deal: 'rent', formDetails: { naStatus: 'agricultural', otherRights: 'clear' } },
+      { deal: 'rent', propertyType: 'farmland' },
+      {
+        form: { deal: 'buy', propertyType: 'farmland' },
+        formDetails: { buyerEligibility: 'agriculturist', naStatus: 'agricultural', otherRights: 'clear' },
+      },
+    );
+  });
+  expect(patch.formDetails).toEqual({ naStatus: 'agricultural', otherRights: 'clear' });
+});
 
 test('switching a flat to a plot posts neither its possession nor its age', async ({ page }) => {
   const ageField = page.locator('div').filter({ has: page.locator('label:text-is("Age of Property")') }).last();

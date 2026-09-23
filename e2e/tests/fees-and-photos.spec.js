@@ -1,8 +1,10 @@
 /* LIVE check for `fees`, `photo` and `pricing` — see `e2e/COVERAGE.md`. Excluded from the default
-   run; needs a backend on :8081 under `local,e2e` against `draazy_e2e`. Run it by filename. */
+   run; needs a backend on :8081 (or `API_PORT`) under `local,e2e` against `draazy_e2e`. Run it by
+   filename. */
 import { test, expect } from '@playwright/test';
 import { appReady } from '../helpers/app.js';
-import { signedInAs, signedInAsNew } from '../helpers/liveAuth.js';
+import { API, signedInAs, signedInAsNew } from '../helpers/liveAuth.js';
+import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
 
 /* The wizard is behind auth and `/me/photos` is scoped by the caller's token, so this must be a
    real seeded account. */
@@ -87,8 +89,8 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
 
     /* Step 1 is seeded through the draft the wizard restores from, because those answers are radio
        buttons and chips that would take a dozen clicks to say nothing interesting. */
-    await page.addInitScript(() => {
-      localStorage.setItem('dzDraft:list-property', JSON.stringify({
+    await page.addInitScript((key) => {
+      localStorage.setItem(key, JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
       // A tower's floors are answered on step 1, so a draft without them never gets past it.
       floor: '9', totalFloors: '14',
@@ -96,7 +98,7 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
         // has to arrive through the draft.
         availableFrom: '2026-09-01',
       }));
-    });
+    }, LIST_PROPERTY_DRAFT_KEY);
     await page.goto('/list-property');
 
     /* `useFormDraft` restores in an effect, so clicking Next straight away races the re-render and
@@ -161,7 +163,10 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
    response rather than asserting a figure. Signed out: `GET /pricing` is `permitAll`. */
 test.describe('Pricing — the product quotes the database, not the bundle (live)', () => {
   test('an anonymous visitor gets the published price list', async ({ request }) => {
-    const res = await request.get('http://localhost:8081/api/pricing');
+    /* Through `API`, not a literal: every other call in this file already honours `API_PORT`, and a
+       hardcoded :8081 here does not fail as a wrong price — it fails as ECONNREFUSED, which reads
+       as "the backend is down" on a lane whose backend is simply somewhere else. */
+    const res = await request.get(`${API}/pricing`);
     expect(res.status(), 'no token, no session').toBe(200);
     const prices = await res.json();
 
@@ -193,8 +198,16 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
        grouping is not every-three-digits (2499 → "2,499"), so format as the provider does. */
     const rupees = (n) => '₹' + Number(n).toLocaleString('en-IN');
 
-    /* The FAQ, not a plan card: a card's price is overridden by the `plans` catalogue, so it can be
-       right while `usePricing()` is broken. It is in a collapsed <details>, so open it first. */
+    /* The FAQ, in a collapsed <details>, so open it first.
+
+       The text assertions below are a cross-check, not the proof — `waitForResponse` above is. They
+       used to be the proof: the FAQ was the one place on this page rendering the fee schedule where
+       every card was overridden by the `plans` catalogue, so it could be right while `usePricing()`
+       was broken. That stopped being true twice over. The FAQ now reads the catalogue too (it had
+       to: the two tables disagreed, so pricing it off the schedule quoted Owner Pro at Owner Plus's
+       real price), and the seed was then corrected so the two agree — which is what these lines are
+       worth keeping for. They now assert that agreement holds on the rendered page, which is the
+       thing `PlanPriceMatchesFeeScheduleTest` pins server-side. */
     const faq = page.locator('details').filter({ hasText: /per year/i }).first();
     await expect(faq).toBeVisible({ timeout: 20000 });
     await faq.locator('summary').click();

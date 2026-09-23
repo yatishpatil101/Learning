@@ -54,6 +54,10 @@
 - **A spec that mutates a seeded actor breaks the next spec's premise.** The live DB resets once per
   run, not per file. One spec verifying an owner republished another spec's unverified control forty
   tests earlier; both passed alone.
+- **A fixture that reads richer is often a fixture that is wrong.** A shared seed is another spec's
+  premise: a room seeded into Aundh took away the empty locality a discovery spec needs for its
+  empty-tab rescue, and a group given a `property_id` put people into a tab that holds rooms by
+  design — a shape the wire forbids. Grep for who depends on a row being bare before enriching it.
 - **A stale-fixture failure and a code failure are identical in the log.** Select a fixture for the
   fields the test asserts on; never take `rows[0]`.
 - **A `@Transactional` test base class cannot see a commit-time bug**, a missing transaction, or a
@@ -309,6 +313,16 @@
   than an error. **A live UI assertion that a mock could also satisfy proves nothing.** Assert a
   value only the database holds — a seeded row's exact figure, a real record's title — and the
   omission announces itself on the first run instead of years later.
+- **A port that carries the shape and leaves the content behind reads as a feature nobody built.**
+  The flatmate tables were ported to SQL from `flatmates/constants.js` while the catalogue inside it
+  stayed behind, so the board served two rooms and six empty tables and nothing failed anywhere.
+  After retiring a mock provider, grep its data module for readers: none left means the content it
+  held is now owed to the seed.
+- **Every seeded row must be a state the server can actually reach.** `createRoom` hard-codes
+  `seats_total = seats_open = 1` and exposes neither `price_basis` nor `room_kind`, so occupancy,
+  `flatMax` and the whole split-the-rent block are reachable only through `POST /properties/{id}/split`.
+  A fixture written past that ceiling demonstrates a screen no user can produce, and the gap then
+  surfaces as a missing feature rather than as a bad fixture.
 
 ## Contracts, mappers and migrations
 
@@ -374,6 +388,13 @@
   exercise a migration its database has already run. Read migrations back in full after editing.
 - **`DELETE`ing a personal-data row beats nulling its identifier column.** A half-erased row leaves
   free-text personal data behind while the classification says it is gone.
+- **When two fields are halves of one answer, list the pairing once and have every writer read it.**
+  A flatmate pill set `propertyType` *and* `homeTypeLabel` because Row House deliberately shares the
+  `independent` type; two other writers moved only the type, so a restored "Villa" could ride out on
+  a `flat`. Nothing type-checks a label against a type, so a second copy of the pairing drifts with
+  no lint and no red. The corollary is the reason to go looking: **starting to write a field promotes
+  every place that was merely displaying it into a writer** — re-audit them the same day, because
+  until now getting them wrong cost nothing.
 
 ## Backend — Spring, JPA, Postgres
 
@@ -575,6 +596,22 @@
   forbidden step and clamping back in a `useEffect` flashes the forbidden panel for a frame — here,
   empty PAN and Aadhaar inputs on the exact surface the gate existed to make unreachable.
   `useLayoutEffect` for guard corrections that follow another effect's `setState`.
+- **A custom `Select` renders a `<button>`, so `htmlFor` can never reach it.** Two admin dropdowns
+  were labelled by placeholder alone — no caption on screen, and once a value was picked, no label
+  at all. Give it a visible caption that is a real substring of its `ariaLabel`, plus an
+  `ariaDescribedBy` passthrough, which is the only way to reach the sentence explaining why the
+  control is dead when nothing has been uploaded.
+- **Two identical-weight buttons a hairline apart read as one sequence, whatever the copy says.** A
+  panel whose own prose called recording evidence and granting a badge separate decisions put them
+  side by side at the same weight; they became numbered steps, with the record button carrying "It
+  does not grant the badge". A control that no longer applies should unmount rather than render
+  permanently disabled — disabled still reads as something you may yet do.
+- **Rendering `err.message` to a user shows them the seam's own developer line.** A failed OTP send
+  displayed `[services] could not load the "auth" provider.` — a stale precached PWA shell asking
+  for chunks the deploy had replaced, which never reaches the network, so "try again" is a lie as
+  well as a sentence nobody can act on. Map every refusal to a key in an eagerly-loaded namespace,
+  render it on all four OTP surfaces, and assert the translated sentence AND the absence of the
+  server's English.
 
 ## Reviews, agents and surveys
 

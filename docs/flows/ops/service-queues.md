@@ -6,7 +6,7 @@
 > **Status:** documented from React source - **Primary role(s):** staff (desk-scoped), admin / manager (all desks)
 
 > **Runtime correction (2026-08-28).** Any remaining `serviceFlow` references below are migration
-> history. The browser-local workflow was deleted with the mock provider; both the consumer tracker
+> history. The browser-local workflow has been deleted; both the consumer tracker
 > and the drafting desk read `service_requests` through `serviceRequestService.js`.
 
 ---
@@ -25,20 +25,19 @@
 > refuses by name — "a state with no decision in it, and therefore not a state". Nothing was
 > ported that the contract declines to model.
 >
-> The repo now has **four** ops surfaces on three data stores:
+> The repo now has **four** ops surfaces:
 > - `OpsQueue.jsx` - the ticket board, on the **live seam** (`ticketService.js` → http provider).
->   Only `/ops/requests` renders it. It has **no mock provider at all** (D184): a board that cannot
->   reach the API says so and shows nothing, rather than showing an empty queue it did not read.
->   Sections 5.1 and 7.1.
+>   Only `/ops/requests` renders it. A board that cannot
+>   reach the API says so and shows nothing, rather than showing an empty queue it did not read
+>   (D184). Sections 5.1 and 7.1.
 > - `OpsDraftingDesk.jsx` - the service-request desk, on the **live seam**
 >   (`serviceRequestService.js` → http provider). Team-scoped by the server, with the D120 document
 >   checklist. Sections 5.1a and 7.2.
 > - `OpsReferrals` - the referral fraud-review desk, documented separately in
->   [`referrals-fraud.md`](./referrals-fraud.md). Still on `lib/mockApi.js`; the backend
->   (`ReferralsController`) is complete and the frontend seam is not yet built.
-> - `OpsFlatmateReview` - the flatmate host-verification desk (section 5.3), still on the
->   `localStorage` review store, with no ticket mirror, no assignment and no SLA. Its backend
->   (`FlatmateModerationController`) is complete; the seam is not yet built.
+>   [`referrals-fraud.md`](./referrals-fraud.md).
+> - `OpsFlatmateReview` - the flatmate host-verification desk (section 5.3), on the **live seam**
+>   across three boards (verification, moderation, applications), and gated by the
+>   `flatmates:read` / `flatmates:write` split. Still with no ticket mirror, no assignment and no SLA.
 
 ## 1. Purpose & user problem
 - **Persona:** an ops staff member on a vertical team (Rent Agreement, Legal, Interior, Packers,
@@ -92,12 +91,12 @@
   Removing it widened nothing (D44, above); the `?denied=` banner on `OpsDashboard` went with it,
   since the guard was its only producer.
 - **Note:** `/ops/requests`, `/ops/referrals` and `/ops/flatmate-review` never had a team guard.
-  `/ops/requests` does not need one — the server scopes the read. `OpsFlatmateReview` still reads
-  `getFlatmateReviews()` unfiltered from the client store. See
+  Neither needs one — the server scopes the read, and `/ops/flatmate-review` is gated by the
+  `flatmates:read` / `flatmates:write` permissions rather than by team. See
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1 for the role/team model.
-- **Trust caveat:** on the two live desks the guard is now a server decision and the client guard is
-  only signposting. On the two surfaces still on `localStorage` (referrals, flatmate review) the
-  caveat stands in full: guards are UX-only over editable storage (section 11).
+- **Trust caveat:** every desk is now on the live seam, so the guard is a server decision and the
+  client guard is only signposting. The UX-only caveat of section 11 survives for the board state
+  each desk still keeps client-side, not for who may open the desk.
 
 ## 4. Entities touched
 Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
@@ -119,7 +118,7 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 - **Document checklist** (derived, `GET /service-requests/{id}/checklist`) - not an entity. Folded
   at read time from the request's own vault documents (D120): no checklist table, no `status`
   column a desk can tick, and therefore no way for "verified" to disagree with "there is a file".
-- **Ticket <-> service-request link** - a mock-era idea. `syncServiceTicket` mirrored a service
+- **Ticket <-> service-request link** - a retired idea. `syncServiceTicket` mirrored a service
   request's workflow status onto a ticket carrying the same `ticketRef`, so that admin dashboards
   counting tickets stayed truthful. **The server does not do this**, and neither does the seam:
   `TicketUpdate` has no `ticketRef` and `ServiceRequestDto` has no ticket field. The two queues are
@@ -131,24 +130,21 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 
 ## 5. Business rules & logic  *(the meat)*
 
-### 5.1 Ticket queue (`OpsQueue`, `/ops/requests`) — **live-only since wave 2c**
+### 5.1 Ticket queue (`OpsQueue`, `/ops/requests`)
 
-The board reads `GET /tickets` through `services/ticketService.js` and has **no mock provider**.
-That is not an oversight, and it is the same call D184 made for the drafting desk: three of the
-mock's words were *wrong* rather than merely different, so a translation table would have had to
-invent facts.
+The board reads `GET /tickets` through `services/ticketService.js`. The contract it works to:
 
-| | mock (`db.tickets`) | server |
-|---|---|---|
-| statuses | `new`, `in_progress`, `done` | `open`, `in-progress`, `waiting`, `resolved`, `closed` |
-| assignment | `assignedTo = user.name`, any string | `assigneeId`, a user id — a name is not one, and an id that is no ops user is a **404** |
-| notes | read-modify-write the whole `notes[]` | `POST /tickets/{id}/notes`, one note |
-| shape | the whole list | paged (`PageResponse`) |
-| team scoping | recomputed in the component | `TicketService.list`, server-side (D44) |
+| | server |
+|---|---|
+| statuses | `open`, `in-progress`, `waiting`, `resolved`, `closed` |
+| assignment | `assigneeId`, a user id — a name is not one, and an id that is no ops user is a **404** |
+| notes | `POST /tickets/{id}/notes`, one note |
+| shape | paged (`PageResponse`) |
+| team scoping | `TicketService.list`, server-side (D44) |
 
-In mock mode the board renders the reason it is shut. An empty queue and a queue nobody can read
+An empty queue and a queue nobody can read
 look identical on screen and only one of them is good news — the defect that retired the five
-per-team desks, so it is stated rather than risked again.
+per-team desks, so the board states the reason it is shut rather than risking it again.
 
 - **Team scoping (data):** none in the component. It passes the `team` prop as given and lets the
   server answer, including the refusal: a staffer asking for another desk gets
@@ -171,8 +167,8 @@ per-team desks, so it is stated rather than risked again.
   directory this portal does not have; free assignment and unassign (`assigneeId: "none"`, D46)
   are both deliberately absent. The name that comes back was resolved by the server, so the
   assignee column can no longer hold a string the browser typed.
-- **A claim does not advance the ticket.** The mock's claim also flipped `new → in_progress`.
-  Putting your name on something and declaring it underway are two decisions, and taking the
+- **A claim does not advance the ticket.** Putting your name on something and declaring it underway
+  are two decisions, and taking the
   second silently is how a board reports work in flight that nobody has started.
 - **Status transitions (actions):** row buttons are status-aware — `open` shows **Claim**,
   `in-progress` shows **Resolve** (→ `resolved`), everything else shows none. The detail drawer
@@ -186,9 +182,9 @@ per-team desks, so it is stated rather than risked again.
   the team name, not real SLA data.
 
 ### 5.2 Drafting desk (`OpsDraftingDesk`, `/ops/drafting-desk`)
-The live replacement for the five per-team desks. It reads the server directly; there is no mock
-mode or browser-local queue to fall back to. A desk that shows an empty table when it simply cannot
-see the real queue is worse than one that fails the request visibly (D184).
+The live replacement for the five per-team desks. It reads the server directly. A desk that shows an
+empty table when it simply cannot see the real queue is worse than one that fails the request
+visibly (D184).
 
 - **Data scope:** `listServiceRequestQueue({type, status, page, size})` →
   `GET /service-requests`. The scope is the **server's**: `ServiceDeskAuthority.deskFilterFor`
@@ -316,15 +312,15 @@ open  --(Claim)-->  open        <- a claim assigns; it does not advance
 open  --(Resolve / Set status)-->  in-progress | waiting | resolved | closed
      \_______________ (Set status in the drawer, any -> any) _______________/
 ```
-- Five values: `open`, `in-progress`, `waiting`, `resolved`, `closed`. The mock's `new`,
+- Five values: `open`, `in-progress`, `waiting`, `resolved`, `closed`. The legacy `new`,
   `in_progress` and `done` do not exist and a client sending them gets a 400.
 - **No transition table.** `PATCH /tickets/{id}` accepts any legal status from any other, unlike
   `ServiceRequestStatus` (7.2) which refuses illegal moves. That is deliberate for a work queue: a
   ticket that turns out to be the wrong desk's, or that a customer replies to after it was closed,
   has to be able to go backwards without an ops person filing a second one.
 - Terminal in practice: `resolved` and `closed`, neither enforced.
-- `waiting` is the value the mock had no way to say. A ticket parked on the customer used to sit in
-  `in_progress` looking like work in flight, which is exactly the reading an SLA report must not
+- `waiting` exists so a ticket parked on the customer does not sit in
+  `in-progress` looking like work in flight, which is exactly the reading an SLA report must not
   make.
 
 ### 7.2 Service request (`ServiceRequestStatus`, server-owned)
@@ -349,10 +345,7 @@ completed, cancelled -> (terminal)
 
 ## 8. Edge cases, validation & error states
 - **Empty queue:** ticket table shows "No tickets in this queue."; the drafting desk distinguishes
-  an empty queue from an unread one and from a mock-mode desk that cannot see at all.
-- **Mock mode:** both live desks render a "needs the live API" panel and no filter row; there is no
-  half-working fallback (D184). The ticket board says the mock "cannot speak its status vocabulary",
-  which is the honest reason — the three words the mock knows are not three of the server's five.
+  an empty queue from an unread one.
 - **Asking for someone else's desk:** on the drafting desk nothing is denied and nothing is hidden
   by the client - the server answers with your own rows (D44), and the picker offers only your desk
   so the result is never a mystery. The ticket board is stricter because `TicketService` is: asking

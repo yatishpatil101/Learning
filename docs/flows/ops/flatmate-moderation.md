@@ -16,9 +16,8 @@
   home. D72 made every flatmate row start invisible; this desk is the only thing that makes it
   visible again, so a backlog here is not a queue getting long - it is a marketplace with no supply.
 
-> **Why this desk exists at all.** `/admin/flatmates`
-> ([`../admin/flatmates-moderation.md`](../admin/flatmates-moderation.md)) already moderated seekers,
-> groups and applications - on the mock. Converting it would have been the smaller change, but it
+> **Why this desk exists at all.** A retired `/admin/flatmates` screen already moderated seekers,
+> groups and applications. Converting it would have been the smaller change, but it
 > only ever knew **one** of the two verdicts a flatmate row carries, has never been able to show a
 > group application (nothing could create one), and cannot see rooms at all. This page is the whole
 > surface, live.
@@ -72,7 +71,7 @@ is designed against:
 | Moderation | may the city see this? | `mod_status` | Moderation |
 
 Approving a verification **does not publish the post**, and publishing a post **grants no badge**.
-Both directions are asserted in `ops/live-flatmate-moderation.spec.js`, because a desk that quietly
+Both directions are asserted in `ops/flatmate-moderation.spec.js`, because a desk that quietly
 did either would look correct on every screenshot.
 
 A group application adds a third column that is not this desk's at all: `status`
@@ -152,7 +151,7 @@ application:   mod_status live --Clear/Flag/Remove--> approved/flagged/removed
 ---
 
 ## 8. Edge cases, validation & error states
-- **Offline / mock mode:** the page renders a panel saying it needs the live API, rather than an
+- **The API is unreachable:** the page renders a panel saying it needs the live API, rather than an
   empty queue. An empty queue and a disconnected queue look identical, and one of them means "the
   backlog is clear".
 - **A decided row leaves its tab.** Every assertion about the *result* of a decision has to follow
@@ -189,17 +188,16 @@ contract does not name:
 | `PATCH /me/group-applications/{id}` | the owner's verdict, deliberately a different path from the admin one so no request is ambiguous about which column it writes |
 | `GET /me/flatmate-groups` | `FlatmateGroupFeedDto` carries no host identity, so "is this group mine?" had no answer in live mode |
 
-This is an **intentional extension**, not drift. Recorded here and in
-[`../../migration/README.md`](../../migration/README.md).
+This is an **intentional extension**, not drift.
 
 ---
 
 ## 11. Test coverage
-- `e2e/tests/ops/live-flatmate-moderation.spec.js` - 7 tests, all three boards plus the retired
+- `e2e/tests/ops/flatmate-moderation.spec.js` - 7 tests, all three boards plus the retired
   `/admin/flatmates` route, live.
 - `e2e/tests/ops/flatmate-review.spec.js` - 1 test: the offline panel, which is the only claim that
-  can only be checked in mock mode. The three consumer-facing verification cues moved to
-  `e2e/tests/consumer/flatmates/live-review-status.spec.js`, where each label is earned through a
+  has to be checked with the API unreachable. The three consumer-facing verification cues moved to
+  `e2e/tests/consumer/flatmates/review-status.spec.js`, where each label is earned through a
   real Ops decision rather than seeded.
 - `e2e/tests/consumer/flatmates/live-group-apply.spec.js` - 2 tests, the consumer loop that fills
   the third board.

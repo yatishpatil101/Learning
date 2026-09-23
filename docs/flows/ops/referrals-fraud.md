@@ -12,8 +12,7 @@
 > **The identity gate is the server's rule now.** Until wave 2c it existed only as a greyed-out
 > button in the browser, under the banner above calling it mandatory, while
 > `POST /referrals/{id}/approve` released the money to anyone who called it. `ReferralService.approve`
-> now refuses with a 409 naming the reason, and the button is a mirror. This is the only *backend*
-> change the mock-retirement migration has made.
+> now refuses with a 409 naming the reason, and the button is a mirror.
 
 ---
 
@@ -36,16 +35,7 @@
 - **Source components:**
   - `src/pages/ops/OpsReferrals.jsx` - the entire queue (stats, tabs, table, actions, export).
   - Data: `src/services/referralService.js` → `providers/http/referralProvider.js` → `GET /referrals`
-    and the three decision endpoints. **The desk is live-only**: the mock provider's four desk
-    methods throw, and the page renders an explanatory panel instead of a queue when `referral` is
-    not in `VITE_API_DOMAINS`. The mock store disagreed with the server about what a referral *is*
-    (see §5.7), so translating it would have meant maintaining a second fraud vocabulary by hand.
-
-    > **Corrected (D233).** This bullet used to say "**Live-only**: there is no mock provider."
-    > There is one now — `providers/mock/referralProvider.js` — but it carries only the *consumer*
-    > half of the resource (`GET /me/referrals`, `POST /referrals/redeem`), which
-    > `ReferralsController` calls out as the second audience on it. None of the three disagreements
-    > in §5.7 is about "what is my code"; all three are about the desk, and all three still hold.
+    and the three decision endpoints.
 
   - **The funnel had no entrance until D233.** `POST /referrals/redeem` had shipped and nothing in
     the product called it: `Refer.jsx` minted its own code in the browser, so the codes users
@@ -87,10 +77,7 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
   from the referrals that justify it on every read (`count(qualified or rewarded) ×
   settings.fees.referralContactBonus`). There is no balance column and no grant ledger, which is
   precisely what makes **clawback** whole: reversing the referral reverses the contacts, with nothing
-  to un-increment by hand. The mock's device-local perk counters
-  (`services/providers/mock/contactQuota.js`, `dzContactsUsed:<mobile>`) are the *mock server's*
-  equivalent of the same arithmetic; see §5.5.
-- **Audit log** - decisions are audited server-side (`referral.approve` / `.reject` / `.clawback`).
+to un-increment by hand.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -171,13 +158,13 @@ at the reward layer where money is at risk.
   this reason: its generic "Referral is pending and cannot be rewarded" is right for an illegal
   transition but actively misleading for the identity refusal, since `pending` *is* the state
   approve works from.
-- `handledBy` and `handledAt` are stamped server-side, closing the mock's reviewer-attribution gap.
+- `handledBy` and `handledAt` are stamped server-side.
 - After any action the list reloads, moving the row into its new tab.
 
-### 5.5 Reward release - what the mock could not do
-- The mock's Approve called `creditReferrer({ mobile: r.referrerMobile, ... })` to grant a listing
-  slot or +15 contacts. That call is gone: `referrerMobile` is masked and there is no unmasked read,
-  so the desk cannot address a referrer by phone number and must not try.
+### 5.5 Reward release
+- **The desk cannot address a referrer by phone number.** `referrerMobile` is masked and there is no
+  unmasked read, so a reward grant keyed on the referrer's mobile is not available here and must not
+  be attempted.
 - **Corrected by D31b.** This section used to end "the server models the reward as money, not as a
   perk", and recorded the perk grant as intentionally dropped. That was the wrong half to drop. The
   perk was the product — owner contacts are what the scheme advertises — and the ₹500 of platform
@@ -189,17 +176,6 @@ at the reward layer where money is at risk.
 ### 5.6 Export
 CSV of the current tab's rows including all six signals, the reward amount and the redeemed date
 (`draazy-referrals.csv`).
-
-### 5.7 What the mock disagreed about
-Three disagreements, not three formatting differences — which is why this desk is live-only:
-
-| | mock (`lib/mockApi.js`) | server |
-|---|---|---|
-| statuses | `pending`, `flagged`, `qualified`, `rewarded`, `rejected` | `pending`, `qualified`, `rewarded`, `rejected`, `clawed-back` |
-| mobiles | both in full | both masked, no unmasked read |
-| approve pays | a perk, device-locally | owner contacts, on the account (D31b) |
-| clawback leaves | `rejected` | `clawed-back` |
-| identity gate | the button | the endpoint |
 
 ## 6. Maker-checker / approval
 Applicable - this queue is a checker gate. See
@@ -226,14 +202,12 @@ Applicable - this queue is a checker gate. See
 - **States:** `pending`, `qualified`, `rewarded`, `rejected`, `clawed-back` (`ReferralStatuses`).
 - **Reviewable:** `pending` and `qualified` offer Approve + Reject. Only `rewarded` offers
   Clawback. `rejected` and `clawed-back` are terminal (no action - shows a dash).
-- **`clawed-back` is not `rejected`.** The mock wrote `rejected` for both and lost the one
-  distinction a fraud desk needs: a reward that was never paid, versus one that was paid and
+- **`clawed-back` is not `rejected`.** A fraud desk needs the one
+  distinction between a reward that was never paid and one that was paid and
   recovered. `Badge` gives it its own tone for the same reason.
 - Any other transition is a 409 naming the current status.
 
 ## 8. Edge cases, validation & error states
-- **Not live:** an explanatory panel replaces the queue, naming the three disagreements (§5.7),
-  rather than a table of referrals the desk could not stand behind.
 - **Read failed:** "The queue could not be read." plus the server's message and a Try again button.
   A fraud queue that renders a failed read as "no referrals here" is worse than one that says it
   could not look.

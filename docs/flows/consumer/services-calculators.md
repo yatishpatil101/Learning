@@ -53,7 +53,7 @@
 ## 4. Entities touched
 Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service ticket** - `createServiceRequest({ team, service, customer, mobile, detail, value, ref })`
-  in `mockApi` -> admin/ops services queue. Created by every lead form (legal/packers/valuation/
+  -> admin/ops services queue. Created by every lead form (legal/packers/valuation/
   interior/rent-agreement/move-in-pack + waitlist).
 - **Service workflow request** - a server `service_requests` record for the customer tracker
   (valuation, rent agreement). See section 5 and [`./rent-agreement.md`](./rent-agreement.md).
@@ -156,10 +156,6 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   still created, unlinked — a failed lead must not also cost the customer their request. The
   confirmation is optimistic because it acknowledges the enquiry the customer just made, not a round
   trip they cannot see.
-- **There is deliberately no mock-mode fallback for the `ticket` domain.** The mock store knows three
-  ticket statuses where the desk knows nine, so `/admin/services` tells an operator the queue needs
-  the API rather than rendering one that cannot be worked. A lead filed where no desk can read it is
-  a record of somebody being missed.
 - `serviceRequestMapper.toCreate` refuses to forward a browser-minted `TR…` ref — the seam's
   statement that such a pairing is not a server id — and the flatmate and rent-agreement flows can
   still hand it one.

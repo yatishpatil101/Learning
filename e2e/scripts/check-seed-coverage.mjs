@@ -38,6 +38,7 @@ const WAIVED = new Map([
   ['property_ownership_evidence', 'written by the evidence upload'],
   // Rollup outputs may remain empty during a short suite; seeding them would fake the job's result.
   ['page_views', 'the collector writes one per navigation; every spec that opens a page fills it'],
+  ['help_article_feedback', 'the help widget writes one per verdict; platform/help/article-feedback casts several'],
   ['page_view_daily', 'output of the hourly `PageViewRollup`; seeding it would fake the job'],
   ['page_view_daily_paths', 'ditto - the per-path rollup'],
   ['page_view_daily_referrers', 'ditto - the per-channel rollup'],

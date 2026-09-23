@@ -13,11 +13,10 @@
 >
 > **Companion docs (do not duplicate):**
 > - [`package-structure.md`](./package-structure.md) — the 11 bounded contexts → packages → schemas.
-> - [`frontend-data-seam.md`](./frontend-data-seam.md) — the React app's `mock→http` seam.
+> - [`frontend-data-seam.md`](./frontend-data-seam.md) — how the React app reaches the API.
 > - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact gate, maker-checker, audit.
 > - [`data-model.md`](./data-model.md) — ER map + persistence design.
 > - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) — the REST contract (SSOT for wire shapes).
-> - [`../roadmap/build-roadmap.md`](../roadmap/build-roadmap.md) — phased backend build order.
 >
 > **Design principles (early-stage):** decide every component on **Performance · Security · Cost ·
 > Operational simplicity**. Prefer **managed services** when they save meaningful ops effort; keep a
@@ -28,8 +27,8 @@
 
 ## 1. React application boundary (what the UI already assumes)
 
-The React SPA is **complete** and talks only to `src/services/*Service.js`, which resolve to a
-`mock` (localStorage) or `http` provider via `VITE_API_MODE`. The frontend therefore already
+The React SPA is **complete** and talks only to `src/services/*Service.js`, which resolve to their
+`providers/http/*` implementation over the live API. The frontend therefore already
 dictates the backend surface. Reading the code + flow docs, the UI implies these external needs:
 
 | UI capability (evidence) | Backend/platform component it implies |

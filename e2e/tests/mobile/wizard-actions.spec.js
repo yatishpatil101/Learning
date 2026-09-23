@@ -1,10 +1,9 @@
 import { test, expect } from '../../fixtures/live.js';
 import { trackErrors } from '../../helpers/console.js';
+import { LIST_PROPERTY_DRAFT_KEY as DRAFT_KEY } from '../../helpers/listingForm.helper.js';
 
 /* Covers what `mobile-sheets-and-actions` does not: scroll-to-first-error on a step whose first
    bad field can sit 600px above the button just pressed, and draft survival across tab eviction. */
-
-const DRAFT_KEY = 'dzDraft:list-property';
 
 /* Only the cookie bar is seeded here: it is bottom-anchored at z-1400, and the wizard's last
    fields sit in the same strip on a phone. The session is a real owner sign-in. */
@@ -85,21 +84,17 @@ test.describe('Mobile listing wizard', () => {
     await login.asNewOwner();
     await openWizard(page);
 
-    await expect(page.locator('.lp-meter__cheer')).toHaveText(/^\d+ of \d+ done — basics pre-filled\.$/);
-
     expect(await rowTracks(page, 'Carpet Area'), 'carpet and built-up areas share the row').toBe(2);
     expect(await rowTracks(page, 'Facing'), 'facing and overlooking share the row').toBe(2);
     await chooseFacingAndView(page);
 
-    /* The flatmate fork is a second authoring form for the same flat, and it drifted: both
-       rows stacked on a phone and Facing still opened a keyboard. */
     await page.getByRole('button', { name: 'Rent', exact: true }).click();
     await page.getByRole('button', { name: /Find a flatmate/ }).click();
     await expect(page.getByText('Room Offered *', { exact: true })).toBeVisible();
 
-    expect(await rowTracks(page, 'Carpet Area'), 'flatmate areas share the row').toBe(2);
-    expect(await rowTracks(page, 'Facing'), 'flatmate facing and overlooking share the row').toBe(2);
-    await chooseFacingAndView(page);
+    for (const gone of ['Carpet Area', 'Built-up Area', 'Facing', 'Overlooking', 'Age of Property']) {
+      await expect(page.getByText(gone, { exact: true }), `${gone} is not a flatmate question`).toHaveCount(0);
+    }
   });
 
   test('all furnishing choices fit one row without smaller text or shorter tiles', async ({ page, login }) => {

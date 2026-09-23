@@ -70,8 +70,8 @@
   (`AdminProperties.jsx`). Archived listings are excluded.
 - A listing lands in `pending` in three ways:
   1. **Owner posts** via the list-property wizard (see
-     [`../consumer/list-property-wizard.md`](../consumer/list-property-wizard.md)). `addListing`
-     (`src/lib/mockApi/properties.js`) stamps `status: 'pending'`, `real: true`, and
+     [`../consumer/list-property-wizard.md`](../consumer/list-property-wizard.md)). Creating a listing
+     stamps `status: 'pending'`, `real: true`, and
      `pipelineStage: postedByAdmin ? 'listed' : 'info_collected'`.
   2. **Concierge / post-on-behalf** (`postedByAdmin`) - same `pending`, plus completion trackers
      (`claimLinkSent`, `photosUploaded: false`, `identityVerified: false`). The `identityVerified`
@@ -129,13 +129,12 @@ flipped separately by the handler (`setListingStatus`) so the two writes are pai
 exact spot a server transaction must own atomically.
 
 ### 5.4 Visibility (the trust boundary)
-- Only `status === 'approved'` listings are returned to buyers. Public reads filter on it, e.g.
-  `getLocality` returns `listings.filter(l => l.status === 'approved')`
-  (`src/lib/mockApi/collections.js`), and the public property provider excludes non-approved / archived.
+- Only `status === 'approved'` listings are returned to buyers. `GET /properties` is hard-floored to
+  approved + non-archived server-side, so `?status=pending` returns an empty page rather than a
+  privileged one, and locality reads filter the same way.
 - `pending`, `rejected`, `flagged`, and `archived` listings are never shown to buyers. Approval is
   literally what makes a listing exist for the public.
-- `setPipelineStage(id,'live')` also self-heals the status to `approved` if it drifted
-  (`src/lib/mockApi/properties.js`).
+- `setPipelineStage(id,'live')` also self-heals the status to `approved` if it drifted.
 
 ### 5.5 Anti bait-and-switch (owner edits after approval)
 - **Foundation fields** are the searchable facets a buyer can filter on, which is the shape a
@@ -525,6 +524,12 @@ Rationale relocated from `OwnerOutreachService` Javadoc.
   listings nobody posted on behalf of, such as a stale listing whose owner has gone quiet.
 - **Unresolved placeholders are left standing.** A visible gap in the preview gets noticed; a
   silently truncated sentence does not.
+- **The ledger and the count answer different questions, deliberately.** Outreach may be written for
+  any listing with an owner mobile, but the count that surfaces it is narrowed to staff-posted
+  listings. Both rules are individually sound; together they mean a chaser sent on an owner-posted
+  listing is recorded, audited, and never counted. Any surface showing "chased N times" has to read
+  the ledger rather than the count, and the live outreach spec asserts exactly that so the
+  disagreement cannot drift further.
 - **`market_rate` resolves from `localities.rate_per_sqft`** - the same figure
   `GET /localities/{slug}` publishes to buyers, so the owner is quoted neither an invented nor a
   secret number. Most seeded localities carry no rate; those resolve to nothing and the key survives

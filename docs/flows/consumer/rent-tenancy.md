@@ -61,7 +61,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **HRA receipt** - `generateSingle(...)` receipt doc (downloadable, `receiptId`).
 - **Tenant profile** - `tenant_profiles` (occupation/income/occupants/prior landlord/about). Read
   and written through `GET|PUT /me/tenant-profile`; the score is computed server-side from these
-  fields (section 5.5). The `dzTenantProfile:<mobile>` key is the mock provider's store only.
+  fields (section 5.5).
 - **Fees config** - `getFees()` -> `gstPercent` (18). There is no rent-payment percentage: the key
   `fees.rentPayPercent` was deleted with the rail.
 
@@ -144,7 +144,7 @@ Any network request originating from that route is a regression.
 Online rent payment was first ruled **concept-only**: the flag stayed off, the route's real behaviour
 was already the coming-soon page, and the engine behind the flag existed to demonstrate an idea
 rather than to move money. That state was unstable — wired-but-dormant code has to be kept honest by
-tests, parity harnesses and reviewers, and it earns nothing while it waits. So it went: the
+tests and reviewers, and it earns nothing while it waits. So it went: the
 controller, the fee calculator, the payment/mandate/payout DTOs and the three tables
 (`rent_payments`, `rent_mandates`, `payout_accounts`) were deleted, along with `fees.rentPayPercent`,
 the `onlineRentPayment` app flag, the `finance.rentPay` admin flag and every admin-finance figure
@@ -219,8 +219,8 @@ would be grading the very signal owners rely on. `score` is recomputed on every 
 stored fields; `verified` mirrors the identity badge from `identity.verification` and is
 never written from this feature.
 
-Score weights preserve the mock formula (`lib/store/rent.js`) exactly so a tenant's number
-does not move when the UI stops reading its mock. Verified identity is worth more than every
+Score weights preserve exactly the formula the UI used to compute client-side, so a tenant's number
+did not move when the server took the calculation over. Verified identity is worth more than every
 other field except occupation because it is the one fact a third party confirmed; everything
 else is self-reported.
 
@@ -249,7 +249,7 @@ badges nobody would notice. Each distinct mobile is resolved once regardless of 
 **Batch badge read by user id (`verifiedAmong`, same D114 bug).** Callers projecting offers or
 finalizations hold the user id and only a masked mobile (D5, `98XXXXX210`). Masking is lossy,
 so the mobile-keyed question there is guaranteed to answer `false` for every party — the bug
-D114 records: a badge that worked against a mock and could never appear against the server. No
+D114 records: a badge that could never appear against the server. No
 relationship guard here, and that is deliberate: the ids come from rows the caller is already a
 participant on, so the server chose the subject and entitlement was settled upstream. Adding a
 guard would only blank the badge on the one screen it exists for.

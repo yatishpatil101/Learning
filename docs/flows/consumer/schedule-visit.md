@@ -39,12 +39,12 @@
 There are **two parallel visit stores** (a known duplication - see section 8):
 
 - [`visits`](../../system/data-model.md) - the global visits collection (seed
-  `src/data/visits.json`, ids `V8###`), read/written by `scheduleVisit` / `updateVisit` in
-  `src/lib/mockApi/staff.js`. This feeds the owner dashboard calendar and the admin visits view.
+  `src/data/visits.json`, ids `V8###`), read/written by `scheduleVisit` / `updateVisit`.
+  This feeds the owner dashboard calendar and the admin visits view.
   Statuses: `scheduled | confirmed | completed | cancelled | no-show`. **Created** on booking,
   **updated** on owner actions.
 - `property_visit_requests` - owner-mobile-keyed store `draazyPropVisitReqs:<ownerDigits>` in
-  `src/lib/store/visits.js` (**deleted** with the mock provider lane; visits are now served by
+  `src/lib/store/visits.js` (**deleted**; visits are now served by
   `services/visitService.js`). Statuses: `requested | completed` (plus whatever `setVisitStatus`
   writes). **Created** by `addVisitRequest`, read by the review-eligibility gate. This is what
   unlocks the "Visited" review.

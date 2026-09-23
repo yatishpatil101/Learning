@@ -25,7 +25,6 @@
   - `src/pages/admin/AdminSettings.jsx` + `settings/AppFlagsPanel.jsx`, `AdminFlagsPanel.jsx`, `MapsGeoPanel.jsx`.
   - `src/pages/admin/AdminTeam.jsx` (members + the permission grid); `src/lib/adminModules.js`,
     `src/services/permissionsService.js`.
-  - Persistence `src/lib/mockApi/collections.js` (`getSettings`, `updateSettings`), `src/lib/mockApi/team.js`.
 
 ## 3. Actors & roles
 - **Administrators only.** `/admin` is `RoleRoute roles={['admin']}`, and both `team` and `settings`

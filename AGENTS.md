@@ -12,11 +12,12 @@ Default: **read no skill file** — answering, explaining, and mechanical edits 
 | Backend code — Spring Boot + PostgreSQL conventions, data model, Flyway, JWT/role guards, contact gate, provider seams, frontend `http` wiring | `draazy-backend` |
 | Listing/search/filter/map/wizard/contact-gate/alert **behaviour**; SEO for property pages | `real-estate-expert` |
 | Scope, priority, tradeoffs, success metrics for a new feature | `senior-product-manager-realestate` |
+| Mobile/touch UI — phone viewport, bottom sheet, carousel, tap/scroll feel, safe areas, PWA | `mobile-native` |
 | New UI surface or visual redesign | `ui-ux-pro-max`, then `frontend-design` |
 | Render/data/bundle performance | `react-performance` |
 | A skill named by the user | that skill |
 
-Conflicts: `draazy-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope. Missing from `~/.copilot/skills/` → try `~/.copilot/skills-archive/<name>/SKILL.md`; in neither place, report it.
+Conflicts: `draazy-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope, `mobile-native` on touch/viewport behaviour (`ui-ux-pro-max` still owns layout, density and colour). Every skill named above is versioned in **`.agents/skills/`** in this repo — edit it there, never a personal copy in `~/.copilot` or `~/.claude`. Named but not in `.agents/skills/` → report it rather than guessing.
 
 **Simplicity rule.** Prefer no change > existing code > stdlib/native > one-line addition > new dependency > new abstraction; ship the shortest diff that fully solves it. Read `ponytail` only when named or asked for an over-engineering audit.
 
@@ -33,11 +34,13 @@ On conflict, rules rank: safety/correctness > task-type routing > planning/check
 **Ask via `vscode_askQuestions`, never by halting** — options + a recommended default. Questions are non-blocking: ask, then keep executing anything the answer cannot invalidate. Stop only if *every* remaining path depends on the answer, and say so. Never end a turn with a prose question and no tool call.
 
 ### Execution
+- **Session start** — read `tasks/NOW.md` (capped at 60 lines) and nothing else to orient. It names the lane, the queue, the open-work pointers with their sizes, and the standing constraints. Open `tasks/todo.md`, `tasks/lessons.md` or `tasks/DECISIONS-NEEDED.md` only once a pointer sends you there, and grep them rather than reading whole.
+- **Session end** — run `/now` before the context fills, not after. It rewrites `tasks/NOW.md` so the next session starts cold. Do not use ECC's `/save-session`: it writes to a global `~/.claude/session-data` file that the second session sharing this repo cannot see.
 - **Planning** — plan mode for features/architectural changes with real tradeoffs. If it goes sideways, STOP and re-plan; if a full re-plan also fails, report the specific obstacle. Bug fixes: just fix it from the logs/errors/failing tests.
 - **Elegance** — any change touching more than one function or adding an abstraction: ask whether something simpler works. Skip for mechanical edits.
 - **Subagents** — only when >150 new lines, >3 files, or independent parallel workstreams AND no single targeted fix solves it. One responsibility each; on failure, stop and report — never apply partial output, record it in `tasks/todo.md` as PARTIAL.
-- **Lessons** — record every user correction in `tasks/lessons.md`; read it at session start. This file beats a conflicting lesson: quote both, then follow this file.
-- **Tasks** — plan to `tasks/todo.md` as checkable items, tick them as you go. Create either file with a header if missing.
+- **Lessons** — record every user correction in `tasks/lessons.md`. It is 873 lines, so grep it for the symptom rather than reading it whole; `tasks/NOW.md` carries the pointer. This file beats a conflicting lesson: quote both, then follow this file.
+- **Tasks** — plan to `tasks/todo.md` as checkable items, tick them as you go. Create either file with a header if missing. A finished slice gets **one index line** there, never a narrative — git is the archive.
 - **Principles** — simplest change that fully solves it · fix root causes, no temporary hacks · touch only what's necessary.
 
 ## Comments You Write — the default is NONE
@@ -62,7 +65,7 @@ Never write:
 
 Scan the **whole file** you touched, not just your diff, and fix both rots below in the same change. Scope is the files already in your diff — never open new files to clean.
 
-1. **Comments — hold existing ones to the rule above**, and delete changelog prose (dates, ticket ids, "previously / now / was", before-after narration, docblocks git history already holds). **Do not touch:** an already-applied Flyway `V*.sql` (checksummed — a comment edit alone breaks the next boot); security rationale protected by `docs/migration/06-code-quality.md`; docblocks a script greps by path. Grep the file's bare name before deleting anything a tool may read.
+1. **Comments — hold existing ones to the rule above**, and delete changelog prose (dates, ticket ids, "previously / now / was", before-after narration, docblocks git history already holds). **Do not touch:** an already-applied Flyway `V*.sql` (checksummed — a comment edit alone breaks the next boot); security rationale protected by `docs/system/code-quality.md`; docblocks a script greps by path. Grep the file's bare name before deleting anything a tool may read.
 2. **Redundancy scan.** Apply the simplicity rule to code already there: reinvented stdlib/native behaviour, dead flexibility, predicates duplicated across a seam, unreachable branches, wrappers with one caller. Remove only what is **provably behaviour-preserving**; anything larger goes to `tasks/todo.md` as a note, not into the diff.
 
 Shrinking a Java service that holds a `ServiceSizeGuardTest` `BASELINE` entry to at-or-under the limit fails `baselineStaysHonest` — delete its entry in the same commit.

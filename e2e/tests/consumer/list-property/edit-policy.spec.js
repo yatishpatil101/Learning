@@ -1,19 +1,11 @@
 /**
  * The edit-policy banner and the free-plan paywall, driven by real listings.
  *
- * Converted from `edit-policy.spec.js`. The original had to build its own world twice over: a
- * `draazyListings:<mobile>` mirror, then a second init script splicing the listing into the
- * browser catalogue after boot, with a long comment explaining that the first of those was already
- * dead weight. Both existed to answer one question the server now answers directly — how many
- * listings does this owner have, and is the one being edited live.
- *
- * What that bought in fidelity is the part worth stating. The paywall test asserted a quota
- * decision the browser had made about a listing the browser had invented; the allowance itself came
- * from the same place. Here the listing is posted through `POST /me/listings` and the ceiling comes
- * from `GET /me/entitlements`, so the test can no longer agree with itself by construction. And the
- * two tier tests turn on `editApproved`, which `useListProperty.js:155` derives from the *status of
- * the fetched listing* — seeded as `approved` in the mock, moderated to `approved` by an admin here.
- * An edit flow that silently stopped reading the server's status would have kept passing before.
+ * Nothing here is seeded into the browser. The listing is posted through `POST /me/listings` and
+ * the ceiling comes from `GET /me/entitlements`, so the paywall test cannot agree with itself by
+ * construction. The two tier tests turn on `editApproved`, which `useListProperty.js:155` derives
+ * from the *status of the fetched listing*, moderated to `approved` by an admin here — so an edit
+ * flow that stopped reading the server's status fails.
  *
  * Each test mints its own owner. That is not tidiness: the free tier allows exactly one listing, so
  * a shared account would make the paywall test depend on the order the others ran in.
@@ -65,11 +57,12 @@ async function api(method, path, headers, body) {
  * flag that decides which of the two banners renders — is read off that status. Posting alone would
  * have exercised the wrong branch.
  */
-async function ownerWithLiveListing(page) {
+async function ownerWithLiveListing(page, overrides) {
   const mobile = await signedInAsNew(page);
   const res = await api('POST', '/me/listings', await authHeaders(mobile), {
     ...BASE_LISTING,
     title: `Zztest edit-policy ${Date.now()}`,
+    ...overrides,
   });
   expect(res.status).toBe(201);
   created.add(res.body.id);
@@ -137,10 +130,9 @@ test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', asy
   await expect(page.getByText(/need a re-check/i)).toBeVisible({ timeout: 15000 });
 
   // … and, because this is a field buyers search on, says so: the listing comes OFF
-  // SEARCH rather than staying live. Asserting the plain "Update under review" chip here
-  // is what let the banner drift — it renders for both outcomes, so it cannot tell the
-  // owner-visible difference between an edit that keeps the listing earning and one that
-  // takes it down.
+  // SEARCH rather than staying live. The plain "Update under review" chip is not enough to
+  // assert on — it renders for both outcomes, so it cannot tell the owner-visible difference
+  // between an edit that keeps the listing earning and one that takes it down.
   await expect(page.getByText(/comes off search while we re-check it/i)).toBeVisible();
   await expect(page.getByText('Under review — off search')).toBeVisible();
 });
@@ -152,9 +144,9 @@ test('P1 — a price edit is re-checked but the banner promises the listing stay
 
   // Price sets `recheckOnly` rather than `remoderationRequired` in ListingEditRules.apply (Q14): a
   // cheaper 2 BHK is still the same 2 BHK, so the listing keeps earning while staff confirm the
-  // number. This test is the complement of the one above and the pair is the point — the previous
-  // banner said "comes off search" for both, which is a broken promise in one direction and a
-  // deterrent against honest price cuts in the other.
+  // number. This test is the complement of the one above and the pair is the point — one banner
+  // for both outcomes is a broken promise in one direction and a deterrent against honest price
+  // cuts in the other.
   //
   // Price lives on the third step; the banner renders above the wizard on every step, so advancing
   // does not change what is being asserted. The details and address are already valid from the
@@ -175,4 +167,35 @@ test('P1 — a price edit is re-checked but the banner promises the listing stay
   await expect(page.getByText('Live — being re-checked')).toBeVisible();
   await expect(page.getByText(/comes off search while we re-check it/i)).toHaveCount(0);
   await expect(page.getByText('Under review — off search')).toHaveCount(0);
+});
+
+test('P1 — re-zoning a plot is warned about, even though nobody types the field it changes', async ({ page }) => {
+  /* The zone is the only foundation edit the owner cannot see the name of. `landUse` is what the
+     server takes a listing off search for, but no form asks for it — `submit.js` derives it from
+     `landUseFor(propertyType, plotZone)`. `propertyType` was already a warned field; `plotZone` was
+     in neither tier, so `classifyChanges` could not report a re-zone at all and the owner lost their
+     search placement in silence. Asserting through the zone picker rather than through the tier list
+     is the point: the mapping from the answer to the column is what broke, and only the UI crosses it. */
+  const { id } = await ownerWithLiveListing(page, {
+    propertyType: 'Open Plot',
+    area: 12,
+    areaUnit: 'guntha',
+    landUse: 'residential',
+    bhk: undefined,
+    formDetails: { plotZone: 'Residential (R1)' },
+  });
+  await page.goto(`/list-property?edit=${id}`);
+  await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 20000 });
+  /* Before the edit, so this cannot pass on a prefill that already differs from the stored row —
+     which is the way a test of a *newly* classified field fails silently rather than red. */
+  await expect(page.getByText('Under review — off search')).toHaveCount(0);
+
+  // R1 → C-1 moves `landUse` residential → commercial, which is a different Land-use filter.
+  await page.getByText('Residential (R1)', { exact: true }).click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.locator('.dz-dropdown__option', { hasText: 'Commercial (C-1)' }).first().click();
+
+  await expect(page.getByText(/need a re-check/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/comes off search while we re-check it/i)).toBeVisible();
+  await expect(page.getByText('Under review — off search')).toBeVisible();
 });

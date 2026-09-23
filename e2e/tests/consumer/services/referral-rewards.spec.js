@@ -1,51 +1,5 @@
-/* Referral rewards — the "earn it instead of buying it" route, against the live API.
- *
- * Replaces `consumer/services/referral-rewards.spec.js`, whose own docblock was the argument for
- * converting it. It said, of D31b: *"On this (mock) build the numbers still come from the same
- * localStorage keys, because the mock provider **is** the server — which is why `seed()` still sets
- * them and `readContactsUsed()` still reads them."* Seventeen tests then agreed with themselves. The
- * fake stored the client's own vocabulary and handed it back, so `contactsUsed: 15` went in and a
- * blocked seeker came out — arithmetic that, after D31b, no longer happens anywhere near the browser.
- *
- * What is asserted here is the part that was never provable on a mock build:
- *
- *  1. **The modal is a reaction to a refusal, not a decision.** Before D31b the browser counted, and
- *     an exhausted press made no request at all. Now the press goes out, comes back
- *     `422 contact_quota_exhausted`, and *that* opens the modal (`ContactBox.jsx:55`). The mock could
- *     not tell those apart — both end with a modal on screen — so the round trip is asserted on the
- *     wire, in both directions: the refusal happens, and the press that is allowed is not refused.
- *  2. **The countdown on the property page is the server's number**, checked against
- *     `GET /me/entitlements` read outside the browser rather than against a constant.
- *  3. **`referralRewards` is a server document.** `PUT /admin/settings` writes it, public `GET /flags`
- *     serves it, and the consumer screens read it from there. The mock asserted this by reading
- *     `draazyDB_v5` out of localStorage, which is a claim about a browser key.
- *
- * Ownership, so nothing here restates a claim that already has a home:
- *  · The quota arithmetic itself — allowance, the derived `used`, idempotent repeat requests, the 422
- *    and its cost — is `consumer/live-entitlements`, at the API. This file is the screen half only,
- *    and deliberately does not re-count.
- *  · `/refer`'s code, share link and invite count are `live-refer`. The **balance panel** and its flag
- *    gating are not, and are here.
- *  · The listing paywall appearing at all is `live-listing-quota`.
- *  · `platform/live-feature-flags` covers nine flags; `referralRewards` is not one of them.
- *
- * Four mock tests are deliberately **not** ported:
- *  · "spends exactly one", "a repeat request does not burn quota again", "Seeker Plus lifts the
- *    ceiling", "a referred friend buys back 15" — arithmetic, owned by `live-entitlements`, and its
- *    fixtures (`seed({ contactsUsed })`) do not exist server-side.
- *  · "earned slots do not buy premium tools" imported `/src/lib/store.js` into the page and called
- *    `isPaidOwnerPlan()` — a test of a module the live build does not consult.
- *  · **"off — already-earned bonus contacts stop applying" and "off — an earned listing slot is
- *    withdrawn" assert behaviour that does not hold live**, which is a product gap rather than test
- *    debt and is filed as such in `tasks/DECISIONS-NEEDED.md`. Measured: with `referralRewards:false`
- *    on the server, a referrer holding one approved referral still reads
- *    `{allowance: 30, referralBonus: 15}` from `GET /me/entitlements` — the string `referralRewards`
- *    appears nowhere in `backend/src/main/java`, so no server path can consult it. The flag withdraws
- *    the *routes* (this file proves that) and not the *entitlement*, while the admin panel describes
- *    it as "Off = paid plans are the only way past a quota" (`AppFlagsPanel.jsx:52`). Pinning the
- *    current behaviour here would bake the contradiction into the suite and turn the eventual fix
- *    red, so it is documented instead of asserted.
- */
+/* The screen half only — quota arithmetic is `consumer/live-entitlements`, the /refer code and share
+ * link are `live-refer`. Withdrawal of already-earned bonuses is filed in `tasks/DECISIONS-NEEDED.md`. */
 import { expect, test, ACTORS } from '../../../fixtures/live.js';
 import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 
@@ -57,13 +11,8 @@ const FREE_LIMIT = 15;
 const entitlements = (token) =>
   fetch(`${API}/me/entitlements`, { headers: auth(token) }).then((r) => r.json());
 
-/**
- * Listings from the seeded catalogue to spend contacts against.
- *
- * Borrowed rather than minted: this file needs sixteen of them and has no opinion about any of them
- * beyond existing and belonging to somebody else. `live-contact-badge-not-gate` mints its own because
- * its subject *is* the listing's owner policy; here the listing is only a door to knock on.
- */
+/* Borrowed from the seeded catalogue rather than minted: this file has no opinion about the
+ * listings beyond existing and belonging to somebody else. */
 async function someListings(count) {
   const res = await fetch(`${API}/properties?size=${count}`);
   expect(res.status).toBe(200);
@@ -75,14 +24,8 @@ async function someListings(count) {
 const askFor = (token, propertyId) =>
   fetch(`${API}/contacts/request`, { method: 'POST', headers: auth(token), body: JSON.stringify({ propertyId }) });
 
-/**
- * A signed-in buyer with every free contact spent, and one unspent listing left to press on.
- *
- * Spent over HTTP rather than by clicking fifteen times: the subject is the sixteenth press, and
- * driving the first fifteen through the browser would be fifteen chances to fail for reasons this
- * file is not about. A fresh account each time because spending a quota mutates it — the seeded
- * actors publish their state as an invariant and this would break the next spec's premise.
- */
+/* Spent over HTTP rather than by clicking fifteen times — the subject is the sixteenth press. A
+ * fresh account each time, because the seeded actors publish their quota state as an invariant. */
 async function exhaustedBuyer(page) {
   const mobile = uniqueMobile();
   const { accessToken } = await apiLogin(mobile);
@@ -95,19 +38,20 @@ async function exhaustedBuyer(page) {
   return { mobile, accessToken, untouched: listings[FREE_LIMIT] };
 }
 
-/* The button is rendered in two places — the desktop sidebar card and the contact sheet — and this
-   file has no opinion about which one answered, so it is reached by role and `.first()`, the same
-   anchor `live-contact-badge-not-gate` uses. `getByTestId` would not help: the testid is on the
-   countdown, not the button. */
+/* The button renders in both the desktop sidebar card and the contact sheet and this file has no
+   opinion about which answered, so it is reached by role and `.first()`. */
 const requestBtn = (page) => page.getByRole('button', { name: /Request number/i }).first();
 
-async function openListing(page, ref) {
+async function openListing(page, ref, flags) {
+  /* Below `lg` the sidebar card is `display:none`, so the sticky CTA's contact sheet is the only
+     surface carrying the button. An unset viewport is a maximised window, i.e. the desktop branch. */
+  const phone = (page.viewportSize()?.width ?? 1024) < 1024;
+  /* With `inAppMessaging` on, that CTA queues a chat and navigates to /messages instead of opening
+     the sheet. Written before the page loads — live, the flag is a row, not a localStorage key. */
+  if (phone) await flags.disable('inAppMessaging');
   await page.goto(`/property/${ref}`, { waitUntil: 'networkidle' });
   await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
-  /* This file runs under `chromium` and `mobile` both. Below `lg` the sidebar card is `display:none`,
-     so the sticky CTA's contact sheet is the only surface carrying the button. An unset viewport is
-     a maximised window, i.e. the desktop branch. */
-  if ((page.viewportSize()?.width ?? 1024) < 1024) {
+  if (phone) {
     await page.locator('.dz-sticky-cta').getByRole('button', { name: /contact owner/i }).click({ timeout: 20000 });
   }
   await requestBtn(page).waitFor({ timeout: 20000 });
@@ -125,13 +69,12 @@ async function pressAndCatch(page) {
 }
 
 test.describe('the free-contact wall, on screen', () => {
-  test('an exhausted press is refused by the server, and it is the refusal that opens the upsell', async ({ page }) => {
+  test('an exhausted press is refused by the server, and it is the refusal that opens the upsell', async ({ page, flags }) => {
     const { untouched } = await exhaustedBuyer(page);
-    await openListing(page, untouched.ref);
+    await openListing(page, untouched.ref, flags);
 
-    /* The whole point of the conversion. A modal on screen is equally consistent with a browser that
-       decided locally and never asked — which is what this screen used to do, and what D31b removed.
-       Only the wire tells them apart. */
+    /* A modal on screen is equally consistent with a browser that decided locally and never asked;
+       only the wire tells them apart. */
     const refused = await pressAndCatch(page);
     expect(refused.status(), 'the press left the browser and was turned away by the server').toBe(422);
     expect((await refused.json()).error).toBe('contact_quota_exhausted');
@@ -139,9 +82,9 @@ test.describe('the free-contact wall, on screen', () => {
     await expect(exhaustedModal(page)).toBeVisible();
   });
 
-  test('the upsell offers the free route beside the paid one, and points at /refer', async ({ page }) => {
+  test('the upsell offers the free route beside the paid one, and points at /refer', async ({ page, flags }) => {
     const { untouched } = await exhaustedBuyer(page);
-    await openListing(page, untouched.ref);
+    await openListing(page, untouched.ref, flags);
     await pressAndCatch(page);
 
     await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toBeVisible();
@@ -149,24 +92,43 @@ test.describe('the free-contact wall, on screen', () => {
     await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveAttribute('href', '/refer');
   });
 
-  test('the countdown on the page is the number the server is holding', async ({ page }) => {
+  test('dismissing the upsell returns to the contact form rather than closing both', async ({ page, viewport, flags }) => {
+    /* The two sheets only stack below `lg`. On desktop the press comes from the sidebar card, which
+       is not a dialog, so there is no pair for one keypress to collapse. */
+    test.skip((viewport?.width ?? 1024) >= 1024, 'the contact form is a dialog only below lg');
+    const contactForm = page.getByRole('dialog', { name: /contact the owner/i });
+    const { untouched } = await exhaustedBuyer(page);
+    await openListing(page, untouched.ref, flags);
+    await pressAndCatch(page);
+    await expect(exhaustedModal(page)).toBeVisible();
+
+    /* The upsell mounts *inside* the contact form and both register a document-level Escape handler,
+       so without the top-most-dialog guard one keypress runs both and loses the typed message. */
+    await page.keyboard.press('Escape');
+    await expect(exhaustedModal(page)).toHaveCount(0);
+    await expect(contactForm).toBeVisible();
+
+    // The second press still works, which a guard that never released would break.
+    await page.keyboard.press('Escape');
+    await expect(contactForm).toHaveCount(0);
+  });
+
+  test('the countdown on the page is the number the server is holding', async ({ page, flags }) => {
     const mobile = uniqueMobile();
     const { accessToken } = await apiLogin(mobile);
     const [first, second] = await someListings(2);
 
     expect((await askFor(accessToken, first.id)).status).toBe(200);
 
-    /* Read from outside the browser, and asserted against that rather than against `FREE_LIMIT - 1`.
-       A literal would keep passing if the page stopped asking and started counting again — which is
-       precisely the regression D31b exists to prevent. */
+    /* Read outside the browser and asserted against that rather than `FREE_LIMIT - 1`: a literal
+       would keep passing if the page stopped asking and started counting again. */
     const { contacts } = await entitlements(accessToken);
     expect(contacts.used, 'the fixture spent exactly one').toBe(1);
 
     await signedInAs(page, mobile);
-    await openListing(page, second.ref);
-    /* `:visible`, not `.first()`: the sheet and the sidebar card both render this countdown and only
-       one of them is on screen per viewport — and `toContainText` reads `textContent` right through
-       a `display:none` parent, so an unscoped locator passes on a number nobody can see. */
+    await openListing(page, second.ref, flags);
+    /* `:visible`, not `.first()`: both surfaces render this countdown, and `toContainText` reads
+       `textContent` right through a `display:none` parent. */
     const countdown = page.locator('[data-testid="contacts-left"]:visible');
     await expect(countdown).toHaveCount(1);
     await expect(countdown).toContainText(String(contacts.remaining));
@@ -177,7 +139,7 @@ test.describe('referralRewards is a server document', () => {
   test('with it off, the upsell drops the free route and keeps the paid one', async ({ page, flags }) => {
     const { untouched } = await exhaustedBuyer(page);
     await flags.disable('referralRewards');
-    await openListing(page, untouched.ref);
+    await openListing(page, untouched.ref, flags);
     await pressAndCatch(page);
 
     await expect(exhaustedModal(page)).toBeVisible();
@@ -192,12 +154,8 @@ test.describe('referralRewards is a server document', () => {
     await flags.disable('referralRewards');
     await page.goto('/refer', { waitUntil: 'networkidle' });
 
-    /* Asserted **first**, and it is not decoration. `toHaveCount(0)` is satisfied the instant it is
-       asked on a page that has not finished rendering, so a premature negative passes whether the
-       flag works or not — proven the hard way: with the gating mutated out, the two lines below still
-       went green until this wait was moved above them. The rent-agreement reward belongs to the base
-       referral programme rather than to this feature, so it both has to survive the flag and is the
-       right thing to wait for. */
+    /* Asserted **first**: `toHaveCount(0)` is satisfied the instant it is asked on a page that has
+       not finished rendering, so the two negatives below need something real to wait behind. */
     await expect(page.getByText(/free rent agreement/i).first()).toBeVisible();
 
     await expect(page.getByTestId('refer-balance')).toHaveCount(0);
@@ -232,9 +190,7 @@ test.describe('referralRewards is a server document', () => {
     await expect(row).toHaveAttribute('aria-checked', 'true');
 
     /* Confirmation-gated: the switch alone must not commit. Read back through the public `GET /flags`
-       — the same route the consumer screens use — rather than out of a browser key, so an optimistic
-       toggle that never reached the server cannot satisfy it. The mock twin read `draazyDB_v5`
-       from localStorage, which on a live build is not where the answer lives. */
+       so an optimistic toggle that never reached the server cannot satisfy it. */
     await row.click();
     await expect(page.getByText('Disable Referral Rewards?')).toBeVisible();
     const midFlight = await (await fetch(`${API}/flags`)).json();
@@ -244,8 +200,7 @@ test.describe('referralRewards is a server document', () => {
     await expect(row).toHaveAttribute('aria-checked', 'false');
 
     /* Polled: the switch flips from optimistic local state, so `aria-checked` settles a turn before
-       the write is on the wire, and a one-shot read here would be asserting on a moment with no
-       meaning about half the time. */
+       the write is on the wire. */
     await expect
       .poll(async () => (await (await fetch(`${API}/flags`)).json()).referralRewards,
         { message: 'the disable never reached the settings document' })

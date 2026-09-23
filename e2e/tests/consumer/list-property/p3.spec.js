@@ -106,7 +106,10 @@ test('ownership proof is optional to post', async ({ page }) => {
 
   // The label is the document's own name; the sentence beside it is what makes it optional.
   await expect(page.locator('[data-err="Index II"]').getByText('Index II', { exact: true })).toBeVisible();
-  await expect(page.getByText('All documents are optional for publishing.')).toBeVisible();
+  /* Matched on the optional-ness clause alone, not the whole paragraph: the sentence before it is
+     chosen by `form.deal`, so pinning the pair would make this buy-only assertion fail on rent for
+     a reason that has nothing to do with whether a document is required. */
+  await expect(page.getByText('These are optional for publishing.')).toBeVisible();
 
   // Submitting with no document raises no document error — photos are the only hard requirement.
   await page.getByRole('button', { name: /Submit Property/i }).click();

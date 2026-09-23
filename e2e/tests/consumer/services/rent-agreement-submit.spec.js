@@ -85,11 +85,25 @@ async function fileUnpaidRequest(mobile) {
   return { status: res.status, body: await res.json().catch(() => ({})), accessToken };
 }
 
-/** The first seeded listing, so the wizard can be opened the way an owner reaches it from a flat. */
-async function firstPropertyId() {
-  const res = await fetch(`${API}/properties?size=1`);
-  const body = await res.json().catch(() => ({}));
-  return (body.content || [])[0]?.id;
+/* One listing belonging to the caller. It has to be *theirs*: the wizard resolves `?listing=` against
+   `myListings`, so a flat this account does not own prefills nothing and leaves `propertyId` unset. */
+async function createOwnListing(token) {
+  const res = await fetch(`${API}/me/listings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      title: '2BHK in Baner',
+      deal: 'rent',
+      propertyType: 'apartment',
+      price: 30000,
+      bhk: 2,
+      locality: 'Baner',
+      city: 'Pune',
+      floor: 4,
+    }),
+  });
+  if (res.status >= 400) throw new Error(`POST /me/listings → ${res.status} ${await res.text()}`);
+  return (await res.json()).id;
 }
 
 /** Read this owner's requests from outside the browser. */
@@ -103,14 +117,17 @@ async function ownRequests(accessToken) {
 
 test.describe('Rent Agreement — the priced desk, live', () => {
   test('submitting the wizard files a request the SERVER priced and parked, and the owner is told payment is outstanding rather than that it is done', async ({ page }) => {
-    /* The longest journey in the suite — four wizard steps and a review submit — and it now also
-       waits out the post-checkout status poll. Triple the budget rather than trimming the flow. */
+    /* The longest journey in the suite — four wizard steps, a review submit, and the post-checkout
+       status poll. Triple the budget rather than trimming the flow. */
     test.slow();
     const mobile = await signedInAsNew(page, { api: API });
-    const propertyId = await firstPropertyId();
-    expect(propertyId, 'a seeded listing to open the wizard from').toBeTruthy();
+    const { accessToken: ownerToken } = await apiLogin(mobile, { api: API });
+    const propertyId = await createOwnListing(ownerToken);
+    expect(propertyId, 'a listing of this owner to open the wizard from').toBeTruthy();
     /* `POST /service-requests/{id}/docs` refuses a request with no `propertyId` (409), so a cold
-       `/services/rent-agreement` can never carry the papers the wizard demands. */
+       `/services/rent-agreement` can never carry the papers the wizard demands. The wizard only
+       resolves that id from the owner's *own* listings, which is why the flat is minted above
+       rather than borrowed from the seed. */
     await page.goto(`${BASE}/services/rent-agreement?listing=${propertyId}`, { waitUntil: 'networkidle' });
 
     await fillProperty(page);

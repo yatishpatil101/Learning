@@ -1,19 +1,19 @@
 /**
  * Reverse-geocoding on step 2 of the posting wizard, against the live backend.
  *
- * Converted from `geocode.spec.js`. The geocoder itself stays stubbed — `stubGeo` replaces
- * `window.google.maps.Geocoder` so the address a search resolves to is fixed rather than whatever
- * Google returns today, which is the only way these assertions can name a pincode. What changes is
- * everything underneath: the wizard is mounted for an account the server registered, and the
- * locality dropdown these tests assert on is populated by the API rather than by a fixture.
+ * The geocoder itself is stubbed — `stubGeo` replaces `window.google.maps.Geocoder` so the address
+ * a search resolves to is fixed rather than whatever Google returns today, which is the only way
+ * these assertions can name a pincode. Everything underneath is live: the wizard is mounted for an
+ * account the server registered, and the locality dropdown these tests assert on is populated by
+ * the API.
  *
- * The draft-restore test keeps its `dzDraft:list-property` seed. That key is a real browser-side
+ * The draft-restore test keeps its `LIST_PROPERTY_DRAFT_KEY` seed. That key is a real browser-side
  * draft, not a stand-in for the server, and the bug it reproduces — a returning owner whose stale
  * address refuses to refresh — only exists because the draft is client-owned.
  */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
-import { pickFloors } from '../../../helpers/listingForm.helper.js';
+import { pickFloors, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 
 /* Reverse-geocode auto-fill, forward society search, and pin-first ordering on
    List Property → Location. The Google Places library + Geocoder are
@@ -96,10 +96,9 @@ async function gotoStep2(page) {
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
-     necessary: `count()` does not retry, so against a portalled menu still one frame from open
-     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
-     through a test that appeared to have chosen one. */
+  /* Wait for the portalled menu rather than guarding the click with `count()`: `count()` does not
+     retry, so one frame from open (Select.jsx:178) it returns 0, the click is skipped, and the
+     wizard carries its default type through a test that appears to have chosen one. */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
@@ -197,18 +196,18 @@ test('a search updates address fields restored from a saved draft (not just fres
   // Reproduces the real-world bug: the owner returns to a draft whose address was filled
   // in a PRIOR session, so nothing is tracked in memory as "auto-filled". A new area
   // search MUST still refresh the stale values — restored draft fields aren't sacred
-  // (only fields the owner edits in THIS session are). Old value-comparison ownership
-  // saw the pre-filled fields as "not ours" and refused to touch them → the exact bug.
+  // (only fields the owner edits in THIS session are). Deciding ownership by comparing
+  // values reads the pre-filled fields as "not ours" and refuses to touch them.
   await signedInAsNew(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('dzDraft:list-property', JSON.stringify({
+  await page.addInitScript((key) => {
+    localStorage.setItem(key, JSON.stringify({
       carpetArea: '1050', propertyType: 'flat',
       // A tower's floors are answered on step 1, and a draft that predates the question
       // would strand its owner there — which is not the bug this test is about.
       floor: '9', totalFloors: '14',
       locality: 'Hinjawadi', society: 'Aspiria', pincode: '411057', street: 'Nirmitee Road',
     }));
-  });
+  }, LIST_PROPERTY_DRAFT_KEY);
   await page.goto('/list-property');
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
   // carpetArea + propertyType are restored from the draft — just advance to step 2.

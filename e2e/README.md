@@ -44,7 +44,7 @@ cannot assert anything about the product. The files swapped names.
 
 1. **Postgres up**, with the database created once: `psql -U postgres -c "create database draazy_e2e"`.
    It is deliberately not `draazy` (a run would wipe hand-made work) and not `draazy_test` (the Java
-   suite requires that one to stay empty). See `docs/migration/03-e2e-database-and-users.md`.
+   suite requires that one to stay empty). See [`docs/system/profiles.md`](../docs/system/profiles.md) §2.
 2. **`DRAAZY_DEV_MACHINE` set in the environment the backend is launched from.** `LocalProfileGuard`
    requires it as positive proof the JVM is on a developer's machine rather than a container that
    inherited `local` from a copied environment file. It is in no committed file on purpose:

@@ -470,6 +470,25 @@ it lives with the flow it serves.
   when the user ticks the filter the badge invited them to tick. A group with no members listed is
   not vacuously verified, hence the `exists` alongside the `not exists`. The `verifiedOnly` filter
   reuses the same expression the row projects, so filter and badge cannot disagree.
+- **What earns a room the verified pill** is the same shape, minus the members: the host's tier —
+  owner outright, tenant once Ops approved the agreement. It is **derived on every read**, in the
+  JPQL `verifiedOnly` clause, in `FlatmateSearchQueries.roomVerified()` and in
+  `FlatmateMapper.hostVerified`, and there is no `flatmate_rooms.verified` column for them to drift
+  from (dropped in V26). There was one, written once at post time, and `reopenAfterEdit` could not
+  reach it: an edited post kept passing the Verified-only filter with its own card badge already
+  gone. A split room needs no special case — its tier is `owner` exactly when the parent listing is
+  Ops-approved, so the badge still cannot appear on a flat nobody has checked.
+- **Owner tier is re-asked, not granted once.** `deriveTier` runs only on a host-initiated write, so
+  a listing archived or sent back to pending afterwards used to leave its rooms badged with nobody
+  able to take it back: owner tier never enters the Ops queue, so there was no lever. An hourly
+  sweep (`FlatmateModerationService.reconcileOwnerTier`) re-asks the question of every standing
+  claim and demotes the ones whose listing has stopped standing — to `tenant` if the host also
+  declared an agreement, else `identity`, either way unbadged until Ops says otherwise. It is a
+  sweep rather than a hook on each status change because seven places across four modules write a
+  property status, and the eighth that forgets would be silent. Ops can also run the same pass on
+  demand — `POST /admin/flatmate-reviews/reconcile-owner-tier`, which answers how many posts it
+  demoted — for the case the hourly cadence is too slow for: a listing pulled precisely *because*
+  its owner turned out not to own it. It is idempotent, so two people working the queue is safe.
 - **Sorting.** Every branch ends in `id desc`: without a total order two rows sharing a timestamp or
   a price may come back in either order from page to page, and the boundary row is then shown twice
   or skipped. A null price sorts `nulls last` in both directions, because "we do not know" is neither
@@ -556,10 +575,14 @@ it lives with the flow it serves.
 
 ### Owner consent before the group exists (`FlatmateOwnerConsentService`)
 
-`flatmate_owner_consents` (V27) is keyed `UNIQUE (owner_mobile, granted_by)` with a **nullable**
-`group_id`, which is the schema saying consent is a fact about two people rather than about one post:
-a tenant who reopens the form must not be made to re-OTP an owner who already agreed, and a consent
-may exist before the group it will be attached to does.
+`flatmate_owner_consents` (V13) is keyed `UNIQUE (owner_mobile, granted_by,
+coalesce(address_fingerprint, ''))` since V30, with a **nullable** `group_id` — the schema saying a
+consent is a fact about two people *and one flat*, rather than about one post: a tenant who reopens
+the form must not be made to re-OTP an owner who already agreed about that flat, and a consent may
+exist before the group it will be attached to does. V13's original two-column key said nothing about
+*what* was agreed to, so one honest OTP silently vouched for every later post the same tenant made.
+The `coalesce` stands in for `NULLS NOT DISTINCT`, which arrived in PostgreSQL 15 and this schema's
+13 floor does not have: without it the legacy rows V30 could not backfill would be freely duplicable.
 
 That nullable column is why `POST /flatmates/owner-consent` exists alongside the group-scoped twin.
 The form asks for consent *while the group is being written*, so the browser had no route to call at
@@ -846,6 +869,6 @@ calendar-day distance exact.
 
 **Two ledgers on one table (`FlatmateRoom`).** Standalone spare rooms use the seat model (`seatsTotal`/`seatsOpen`) — one seat by construction because the poster describes one vacancy. Split rooms use the occupancy model (`occupants`/`maxOccupants`) — the ceiling belongs to the whole flat and is enforced across sibling rooms sharing `propertyId`. They never mix: DB CHECK constraints and the service (`not_seat_based`) refuse a split room with a seat count. `verificationTier` on a split room tracks the parent listing's Ops approval, so a badge never appears on an unchecked flat. `priceBasis` distinguishes per-person from whole-room quotes — mixing them silently makes a shared bed look pricier than a private room. `flatCommitted`, `flatMax`, `shareMax` and `perHead` are derived, never stored, because they are properties of the flat; storing them would let sibling rooms hold disagreeing copies of one shared truth. `flatCommitted` on anonymous views must be real, not zero: it drives `occupancyOf` and `shareMax`, so a fake zero would publish a wrong occupancy label. `shareMax` is 1 for per-person prices — sharing is not something a per-head quote can express.
 
-**Interest ledger and dedupe.** `V27`'s `(kind, target_id, requester_id)` unique index enforces one request per person per target. `record` locks the per-requester budget (shared with `FlatmateSeekerService.express` — one ten-per-hour budget across both doors), re-reads AFTER the lock (under READ COMMITTED the loser of a double press sees the winner's row), then relies on the unique index as the backstop for repeatable-read sessions; only that index is translated to `already_interested`, other integrity violations propagate as 500 rather than being dressed up as the system working. `users.name` is nullable (OTP sign-in with no profile), so notifications fall back to "Someone" rather than the literal string "null"; the member card renders its own fallback for the absent case. `ownerConsent` for a group is (owner mobile, tenant)-keyed so reopening the form doesn't re-OTP an owner who already agreed; `noRollbackFor` on `ownerConsent` prevents an outer advice from refunding a send budget on a route whose recipient is a stranger's number.
+**Interest ledger and dedupe.** V13's `uq_flatmate_requests_target_requester` — `(kind, target_id, requester_id)` — enforces one request per person per target. `record` locks the per-requester budget (shared with `FlatmateSeekerService.express` — one ten-per-hour budget across both doors), re-reads AFTER the lock (under READ COMMITTED the loser of a double press sees the winner's row), then relies on the unique index as the backstop for repeatable-read sessions; only that index is translated to `already_interested`, other integrity violations propagate as 500 rather than being dressed up as the system working. `users.name` is nullable (OTP sign-in with no profile), so notifications fall back to "Someone" rather than the literal string "null"; the member card renders its own fallback for the absent case. `ownerConsent` for a group is (owner mobile, tenant)-keyed so reopening the form doesn't re-OTP an owner who already agreed; `noRollbackFor` on `ownerConsent` prevents an outer advice from refunding a send budget on a route whose recipient is a stranger's number.
 
 **`OutboundMessage` and `MessageTemplate`.** `OutboundMessage` is a ledger, not a queue: it exists so a second staff member can see the first already chased the owner, and so pipeline counts come from rows rather than counters. `recipientMobile` and rendered `body` are captured at send time so an owner's later mobile change or a template edit does not retroactively rewrite the log. Not a `BaseEntity`: the base's `created_at` would duplicate the row's `prepared_at`. `MessageTemplate.render` leaves unknown placeholders as literal text rather than blanking them, so a typo lands loudly in front of the staff member reviewing the preview; templates use `\w+`-only placeholders because anything richer is a template engine editable from an admin screen. Template ids are slugs, not surrogate uuids, because they are named in code and audit rows.

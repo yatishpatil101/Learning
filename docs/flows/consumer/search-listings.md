@@ -35,7 +35,7 @@
   `alertCriteria.js`, `format.js`, `geo.js`.
   The search vocabulary itself lives **outside the page**, in `src/lib/listings/`
   (`filterState.js`, `filterRelevance.js`, `facetQuery.js`, `facetMatch.js`, `facetRank.js`,
-  `enrichRent.js`) because the mock provider has to speak it too and a service must not import
+  `enrichRent.js`) because a service must not import
   from a page directory.
 - **Mobile filter FAB:** filtering is the most-repeated action in the search journey, but the
   controls bar is pinned to the top of the page - the hardest place to reach one-handed. A `lg:hidden`
@@ -86,9 +86,8 @@
 
 ### The filter vocabulary (`toFacetQuery` in `lib/listings/facetQuery.js`)
 The filter state is translated once into a wire query and answered by `ListingFacets` +
-`PropertySpecs` server-side. Mock mode answers the **same query** through `matchesFacetQuery`
-(`lib/listings/facetMatch.js`), so the mock is a fake of the endpoint rather than a second
-implementation of the page - which is what let the two modes drift in the first place.
+`PropertySpecs` server-side. The vocabulary is defined in one place and the page never re-implements
+it, which is what stops the controls and the query from drifting apart.
 
 Axes, and the column each resolves to:
 1. **Base:** `deal` + `status = 'approved'` (the approved floor is the provider's, mirroring the
@@ -116,16 +115,32 @@ Axes, and the column each resolves to:
    filter rather than keeping a badge it no longer earns.
 8. **Construction / availability**, **age**, **floor**, **pets**, **tenant preference**,
    **availability window** (`now`/`15`/`30`, cumulative).
-9. **Near-a-place:** `nearLat`/`nearLng`/`nearRadiusKm`; radius is `nearRadius` km, or
-   `nearRadius * 0.4` km when `nearMode === 'min'` (minutes-to-km heuristic).
+9. **Security deposit:** `minDeposit`/`maxDeposit`, rent-side only - a sale has no deposit to
+   narrow on, so the client never sends the pair on `deal=buy` (the server does not gate it, and
+   would answer such a request with every sale listing, all of them unstated).
+10. **Near-a-place:** `nearLat`/`nearLng`/`nearRadiusKm`; radius is `nearRadius` km, or
+    `nearRadius * 0.4` km when `nearMode === 'min'` (minutes-to-km heuristic).
+11. **Posted by:** `postedByOwner=true` - the "no brokerage" search, on both deals. Matched by
+    **equality** on `posted_by_type`, so a listing that never recorded who posted it is excluded
+    rather than assumed to be an owner; `false` is never sent, and is a no-op the server cannot
+    distinguish from an absent parameter, because narrowing *to* a broker's stock is not a search
+    anyone comes here to run. The self-serve wizard hard-codes `owner`, so a
+    listing is a broker's or a builder's exactly when a concierge operator said so on the call.
+    The same fact gates the *copy*: the "deal direct with the owner" half of the zero-brokerage
+    claim is withdrawn on an agent's or a builder's listing, via `isBrokered` in `lib/contact.js`.
+    Draazy's own nil fee is a platform claim and stays unconditional everywhere.
 - **Relevance-gated filters:** each optional filter is wrapped in `rel(section)`
   (`sectionVisible`), so a filter hidden as irrelevant for the current property types never narrows
   results.
 
 **Where the browser and the server disagreed, the server wins** - these are behaviour changes, not
 implementation details:
-- An **unstated** value is excluded from a narrowed range rather than coerced to zero. An unknown
-  age used to read as "brand new".
+- A **range facet admits the listings that state nothing** on the column it narrows - area, age,
+  floor and deposit - and reports how many in `unstatedElements`, rather than deleting them the way
+  a bare `cb.ge` on a NULL column would. Most of the catalogue states no age or floor, and most
+  rentals state no deposit, so excluding them hides the majority the moment a thumb moves. Still
+  not a coalesce: unstated is disclosed as unstated, never read as zero the way an unknown age once
+  read as "brand new".
 - **"Under Construction" excludes unstated possession**, because SQL `IN` never matches NULL.
 - A **tenant filter excludes listings that state no preference**, the same way the pets and move-in
   filters always have. Ticking "family" asks for owners who said yes to families, and an owner who
@@ -183,7 +198,20 @@ implementation details:
   (`buildAlertRecord`) and `addSavedSearch(...)`; a typed query is parsed first so the label and
   criteria agree.
 - **Smart search (`parseSmartQuery`):** parses a free-text box into a filter set + deal, applies it,
-  and toasts the parsed parts.
+  and toasts what it understood. Reads BHK, 1 RK / studio, property type, locality (incl. `near X`),
+  furnishing, amenities, pets, ready / under-construction, owner-only, and money in every phrasing
+  the box gets — `under 80 lakh`, `50-80 lakh`, `above 1 cr`, and a bare `25k`.
+- **It merges, it does not reset.** The parse clones the filters already on screen and adds to them,
+  so a typed phrase refines the search the user has been building. Only a change of deal resets,
+  exactly as the Rent/Buy toggle does.
+- **The deal can be inferred from the amount.** With no `rent`/`buy` word, an amount above the rent
+  slider's ceiling is a sale price and switches to Buy; anything at or below it is a rent. Clamping
+  instead would land on the slider default and filter nothing at all. A figure trailed by a land
+  unit (`1000 sqft`, `2 acre`) is a size and is never read as money.
+- **Unparsed words become `?q=`.** A society, a builder or a landmark is exactly what a shopper
+  types and none is a facet, so the remainder is forwarded to the free-text match (§ 9.2) rather
+  than dropped. It renders as the first active chip, which is the only control that removes it. A
+  facet the other journey's panel does not offer goes back to the remainder for the same reason.
 
 ### Locality demand telemetry (`recordSignal`)
 - **Keyed on the slug, not the display name.** The server joins to `localities` on the slug and
@@ -254,11 +282,19 @@ Data issues a separate `COUNT` query for the page total and neither is valid the
 
 ### 9.2 Two text searches, never one with a flag
 
-`publicTextSearch` matches title and locality. `adminTextSearch` adds the owner's name, the owner's
-mobile and the listing id. They are separate methods for the same reason `adminSearch` is separate:
-what a flag would buy an attacker is `?q=98234` against a widened public search answering "which
-landlords' numbers start 98234, and exactly what do they own", from an endpoint needing no login.
-Listing pages mask the mobile precisely so that cannot be assembled.
+`publicTextSearch` matches title, locality, society and property type - the four things a name typed
+into the search box can be, and each already printed on the card the query returns. The term is
+matched **word by word**, every word required in one of those four columns: it arrives from smart
+search as the words it could not turn into a facet, so it is routinely a builder and a project split
+across two columns, and society is on the row only as its `name-builder-locality` slug - nobody
+types it in that order. The term is bounded at 120 characters, words are capped at six and `%`/`_`
+are escaped, so on a route needing no login a pasted paragraph cannot become a predicate per word
+and `?q=%` cannot return the whole catalogue while reading as a narrowing. `adminTextSearch` adds
+the owner's name,
+the owner's mobile and the listing id. They are separate methods for the same reason `adminSearch` is
+separate: what a flag would buy an attacker is `?q=98234` against a widened public search answering
+"which landlords' numbers start 98234, and exactly what do they own", from an endpoint needing no
+login. Listing pages mask the mobile precisely so that cannot be assembled.
 
 Mobile is the one key a desk always has, because the caller is on the phone; name alone is not,
 since Indian names are transliterated inconsistently enough that "Rajesh"/"Rajeshh" is an ordinary
@@ -331,10 +367,13 @@ it deterministically.
 - **Stated policy only.** A listing that stated no tenant policy matches no tenant chip. "Unknown"
   is not a value a filter can match: answering a `family` tick with owners who said nothing is the
   same fabrication as defaulting the field to a guess. `pets` and `availableFrom` read silence the
-  same way, and so does `possession` - an unrecorded possession is not a promise. An unstated age
-  is excluded from an age search rather than read as zero (`cb.ge` on a null column is already
-  false; it is stated so nobody "fixes" it into a coalesce and floats every silent listing to the
-  top of a brand-new-homes search).
+  same way, and so does `possession` - an unrecorded possession is not a promise. **This is a rule
+  about token facets, and the range facets deliberately do the opposite** (see `unstatedFiltered`):
+  a tenant chip is a claim the owner either made or did not, while a silent `age_years` or
+  `deposit` is a gap in the data on a column most of the catalogue never fills, so excluding it
+  deletes the majority rather than answering the question. Ranges therefore admit the silent rows
+  and disclose the count. Neither rule is a coalesce - nothing is ever read as zero, which would
+  float every silent listing to the top of a brand-new-homes search.
 - **Trust flags only ever narrow.** `false` means "I did not ask", not "show me the unverified
   ones" - there is no surface that searches for absent trust.
 - **BHK is a union with an open top chip.** "3+" is a bound, not a value; rendering it as equality

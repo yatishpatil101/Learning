@@ -27,7 +27,7 @@ is the one that survives.
 That mechanism is still what `local,e2e` is built on, and it is still what makes one combination
 dangerous:
 
-- `local,e2e` — `e2e` is a *delta* on `local`. It keeps the mock providers and the demo seed, and
+- `local,e2e` — `e2e` is a *delta* on `local`. It keeps the demo seed, and
   overrides only what a test run needs differently: its own database, a fixed OTP code, and rate
   limits raised out of the way. Running `e2e` alone gets you the production stubs, which throw.
 - `prod,local` — the dangerous one. It resolves `local`'s insecure-cookie setting *over* `prod`'s,
@@ -182,6 +182,24 @@ A delta on `local` for the Playwright suite. What it changes and why:
   `workers: 1` and makes the suite serial.
 - **Rate limits raised to 100000.** The real budgets exist to stop humans; a test suite is not one,
   and hitting them produces failures that look like product bugs.
+
+### Keeping a persistent database honest
+
+Rows commit here and survive restarts — that is the point, since a user registered by a spec must
+still be able to log in after the backend is bounced. But a database that never rolls back drifts,
+so three rules hold it together:
+
+1. **Reset the baseline at run START, not teardown.** `globalSetup` re-applies the idempotent seed,
+   which repairs whatever a previous run mutated without deleting independently-registered users.
+   Teardown-based cleanup loses the persistence the profile exists to provide.
+2. **Assert against fixture invariants, never global counts.** *"Meera owns 4 listings"* survives a
+   hundred runs; *"there are 38 listings"* does not. Global counts belong to `draazy_test`, which
+   `TestDatabaseIsolationTest` keeps empty precisely so they can be exact there.
+3. **Mutating specs mint their own uniquely-named data** — a unique mobile or slug per run — and
+   assert on that, so repeat and parallel lane runs never collide.
+
+For a hard reset after a schema or seed change, drop and recreate the database and re-migrate. That
+is the only time persistent users are intentionally cleared.
 
 ## 3. `sandbox`
 

@@ -78,8 +78,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   `addSocietyQuestion` / `addSocietyAnswer`.
 - **Follows** - `context/FollowContext.jsx`, over `societyService.listFollowedSocieties` /
   `followSociety` / `unfollowSociety`. Server-backed since **D227**: `PUT`/`DELETE
-  /me/societies/{slug}/follow` and `GET /me/societies/following`, with `dzFollowedSocieties` now
-  only the mock provider's backing store.
+  /me/societies/{slug}/follow` and `GET /me/societies/following`.
 
   Before D227 this was that localStorage array read directly by five surfaces, so following on a
   laptop did not follow on a phone and the Hub's follower count - which the server computes from

@@ -55,7 +55,7 @@ export default defineConfig({
       use: { ...devices['Pixel 7'] },
       testMatch: [
         MOBILE,
-        '**/consumer/flatmates/live-discovery.spec.js',
+        '**/consumer/flatmates/discovery.spec.js',
         /* The whole flow runs inside `SplitFlatModal`, and a modal at phone width is the control
            most likely to clip its own confirm button — a desktop run passes with it off-screen. */
         '**/consumer/flatmates/owner-split.spec.js',

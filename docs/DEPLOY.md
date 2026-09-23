@@ -249,10 +249,11 @@ by the backend job — the `${…}` tokens are the only per-environment inputs a
 deliberate literal, reviewable here rather than guessed at deploy time. `replace` makes that file the
 whole truth: anything a console click added out of band is removed on the next deploy.
 
-Five settings in it encode consequences that are invisible from the console:
+Six settings in it encode consequences that are invisible from the console:
 
 | Setting | Value | Why not the default |
 |---|---|---|
+| `autoscaling.knative.dev/minScale` | `1` | The only setting here that costs money whether or not anyone uses the service: one instance held warm is ~$8/month, billed at the *idle* rate because `cpu-throttling` stays on. Bought to remove the JVM boot plus Spring context refresh from the first request after an idle period, and from every redeploy cutover. The trap is reading it as "the backend is now running": CPU is still throttled to ~0 between requests, so the `@Scheduled` sweeps remain frozen. It satisfies one of ADR-011 Option C's two preconditions; ShedLock and `cpu-throttling: 'false'` are the other half, and that half is the 6× bill. |
 | `autoscaling.knative.dev/maxScale` | `4` | Each instance opens up to 5 Postgres connections (`spring.datasource.hikari.maximum-pool-size`), so the ceiling multiplies straight into Supabase's budget: 4 × 5 = 20, which the free-tier pooler absorbs. At the default of 100 the same arithmetic gives 500 and the database refuses connections under a spike — arriving as scattered 500s on unrelated endpoints, never as anything naming the pool. It is also the runaway-cost stop: a crawler cannot cost more than four instances' compute. |
 | `containerConcurrency` | `40` | Tomcat accepts 200 by default and then parks 195 of them on Hikari until its 30-second connection timeout expires, which surfaces as slow 500s rather than honest backpressure. Forty keeps the queue short enough that Cloud Run scales out instead. |
 | `timeoutSeconds` | `120` | Well past any normal request; short enough that a hung one releases its database connection rather than holding it for the platform default of five minutes. The only legitimate slow request is a 13 MB multipart upload (`spring.servlet.multipart.max-request-size`) over a slow mobile uplink. |
@@ -574,8 +575,6 @@ free tier entirely.
   and explicitly deferred native `@Scheduled` until `min-instances=1` *and* ShedLock; the code took
   the mechanism without either precondition. `platform-architecture.md` §4.3 / ADR-021 costs the
   alternative that removes the problem instead of working around it.
-- **The frontend still seeds its mock store** into every visitor's `localStorage` from `main.jsx`,
-  including on a fully-live build.
 - **Backups.** Supabase's free tier has limited backups and no PITR. A scheduled logical dump to R2
   is the stopgap until Pro is justified.
 - **The anonymous rate limiter is bypassable until §4 is decided.** Not a boot failure and not

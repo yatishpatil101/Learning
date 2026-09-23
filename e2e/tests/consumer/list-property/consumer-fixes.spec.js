@@ -60,8 +60,28 @@ async function pickType(page, label) {
 test('switching property type clears the previous type-specific answers (cascade reset)', async ({ page }) => {
   await signedInAsNew(page);
   await page.goto('/list-property');
-  /* `.lp-steps` rather than the mock's `.lp-meter`: the meter renders on the listing-limit paywall
-     as well as on the wizard, so it cannot tell the two branches apart. */
+  /* `.lp-steps` rather than `.lp-meter`: the meter renders on the listing-limit paywall as well as
+     on the wizard, so it cannot tell the two branches apart. */
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+
+  /* `floorsInHouse` rather than `bhk`, which is deliberately absent from `TYPE_SPECIFIC_KEYS` —
+     see the sibling test below. A house floor count is the right probe because no other type asks
+     for one, so a stale answer would publish on a form that never shows it, which is the precise
+     harm the reset exists to prevent. */
+  await pickType(page, 'Independent House');
+  const gPlus2 = page.locator('.radio-pill', { hasText: 'G+2' });
+  await gPlus2.click();
+  await expect(gPlus2).toHaveClass(/selected/);
+
+  // Bounce to a plot, which has no storeys at all, and back - the pick must not survive.
+  await pickType(page, 'Open Plot');
+  await pickType(page, 'Independent House');
+  await expect(page.locator('.radio-pill', { hasText: 'G+2' })).not.toHaveClass(/selected/);
+});
+
+test('a bedroom count survives a detour through a non-residential type', async ({ page }) => {
+  await signedInAsNew(page);
+  await page.goto('/list-property');
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
 
   await pickType(page, 'Flat / Apartment');
@@ -69,10 +89,16 @@ test('switching property type clears the previous type-specific answers (cascade
   await threeBhk.click();
   await expect(threeBhk).toHaveClass(/selected/);
 
-  // Bounce to a plot, which has no BHK at all, and back - the pick must not survive.
+  /* The inverse of the cascade above, and deliberate: `bhk` is not a `TYPE_SPECIFIC_KEY`. It cannot
+     leak onto a plot, because `submit.js` gates both `bhk` and `bhkNum` behind `isResidentialType`
+     and publishes an empty label otherwise — so the reset would buy no data correctness. It would
+     cost something, though: `changePropertyType` fires on residential-to-residential moves too, so
+     resetting would silently drop a still-valid answer on Flat -> Villa, the common edit. This
+     asserts the trade rather than leaving it to be re-litigated from the code. */
   await pickType(page, 'Open Plot');
   await pickType(page, 'Flat / Apartment');
-  await expect(page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' })).not.toHaveClass(/selected/);});
+  await expect(page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' })).toHaveClass(/selected/);
+});
 
 test('detail page shows the owner’s real furnishing and floor, not a value derived from BHK', async ({ page }) => {
   const slug = await publishListing({
