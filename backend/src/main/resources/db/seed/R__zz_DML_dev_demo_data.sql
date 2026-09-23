@@ -403,7 +403,7 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Trust'),
   ('fa900001-0000-4000-8000-00000000f003',
    'How do I contact an owner or schedule a visit?',
-   'Open any listing and tap ''Contact owner'' to get their number, or use ''Schedule visit'' to pick a date and time slot. You''ll see the owner''s response in Messages and get an SMS update — no broker sits in between.',
+   'Open any listing and tap ''Contact owner'' to send a contact request — the owner approves it and their number is revealed then, usually the same day. ''Schedule visit'' lets you pick a date and slot the same way. You''ll see the response in Messages and get an SMS update — no broker sits in between.',
    'Seekers'),
   ('fa900001-0000-4000-8000-00000000f004',
    'Can I list my property for free?',
@@ -663,7 +663,7 @@ UPDATE public.properties SET age_years = 2 WHERE slug = 'p5130';
 -- p5010 (villa) is left entirely unstated on purpose. Do not fill it in.
 
 -- Rent: letting policy, availability and the flat-share distinction. p5033 and p5122 invert the
--- old coin flip so neither chip can pass by accident.
+-- coin flip so neither chip can pass by accident.
 UPDATE public.properties SET age_years = 5,  tenants = '["family"]'::jsonb, available_from = 'now', pets = false WHERE slug = 'p5121';
 UPDATE public.properties SET age_years = 12, tenants = '["bachelor-male"]'::jsonb, available_from = '15', pets = true, room = 'single' WHERE slug = 'p5122';
 UPDATE public.properties SET age_years = 7,  tenants = '["family", "company"]'::jsonb, available_from = '30', pets = false WHERE slug = 'p5123';
@@ -697,6 +697,72 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
 -- The boost fixture: p5145 is surrounded by nine siblings the ranker cannot tell it from, and the
 -- window is relative so it never expires — `boost` in docs/system/fixture-registry.md.
 UPDATE public.properties SET boosted_until = now() + interval '7 days' WHERE slug = 'p5145';
+
+
+-- Stock for controls that would otherwise never answer: a filter returning nothing is
+-- indistinguishable from a broken one. `deadFilterStock` in docs/system/fixture-registry.md.
+
+-- `bhk` and `possession` stay NULL per V10's land rule; `land_use` is stated rather than left to
+-- `landUseOf()`'s type inference, for the reason `landUse` in the registry gives.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005160', 'p5160', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Alandi', 'buy', 'Farm Land', 9200000, 'total', true, 2, 'acre', 'agricultural', 'Alandi', 'alandi', 'Pune', 18.6773, 73.8983, 'Farm Land available on sale in Alandi, Pune. Borewell on site, 7/12 clear, zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 2, 37, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005161', 'p5161', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Manjari', 'buy', 'Farm Land', 21000000, 'total', false, 3, 'acre', 'agricultural', 'Manjari', 'manjari', 'Pune', 18.5049, 73.9745, 'Farm Land available on sale in Manjari, Pune. Canal-fed, approach road on the east boundary, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 3, 52, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Farm land to rent — the half of the Farm Land chip that would otherwise have no stock at all.
+-- One row is in guntha so the unit is not a constant the detail page can hard-code.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, deposit, negotiable, area, area_unit, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005162', 'p5162', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for rent in Khadakwasla', 'rent', 'Farm Land', 28000, 'per-month', 84000, true, 1, 'acre', 'agricultural', 'Khadakwasla', 'khadakwasla', 'Pune', 18.4412, 73.7683, 'Farm Land available on rent in Khadakwasla, Pune. Backwater side, borewell and shed on the plot. Zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 2, 44, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005163', 'p5163', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for rent in Marunji', 'rent', 'Farm Land', 45000, 'per-month', 135000, false, 2, 'acre', 'agricultural', 'Marunji', 'marunji', 'Pune', 18.6019, 73.7133, 'Farm Land available on rent in Marunji, Pune. Fenced, drip lines laid, three-phase supply. Zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 3, 61, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005164', 'p5164', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for rent in Charholi Budruk', 'rent', 'Farm Land', 18000, 'per-month', 54000, true, 30, 'guntha', 'agricultural', 'Charholi Budruk', 'charholi-budruk', 'Pune', 18.6367, 73.8899, 'Farm Land available on rent in Charholi Budruk, Pune. Open field, well on the adjoining survey number. Zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, false, 1, 23, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- `share_type` is derived here, on Flats whose type does not imply it. None sets `available_from`
+-- 'now', `pets`, or `family` — exact-set assertions in `consumer/search/listing-attributes`.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, deposit, maintenance, negotiable, area, area_unit, carpet_area, furnishing, floor, total_floors, facing, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, age_years, room, tenants, available_from, pets, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005165', 'p5165', 'f1c70000-0000-4000-8000-000000000010', 'Shared room in a 2 BHK Flat in Undri', 'rent', 'Flat', 2, 11000, 'per-month', 22000, 900, true, 880, 'sqft', 720, 'semi-furnished', 6, 13, 'North', 'ready-to-move', 'Undri', 'undri', 'Pune', 18.4637, 73.9024, 'One bed in a shared room in a 2 BHK Flat in Undri, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power"]', '["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70', '/floorplans/2bhk.svg', 'owner', 'approved', true, true, true, 6, 'shared', '["bachelor-female"]'::jsonb, '15', false, 2, 88, 5, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005166', 'p5166', 'f1c70000-0000-4000-8000-000000000010', 'Private room in a 3 BHK Flat in Undri', 'rent', 'Flat', 3, 16000, 'per-month', 32000, 1400, false, 1240, 'sqft', 1010, 'furnished', 9, 13, 'West', 'ready-to-move', 'Undri', 'undri', 'Pune', 18.4651, 73.9038, 'A room of your own in a 3 BHK Flat in Undri, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym"]', '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70', '/floorplans/3bhk.svg', 'owner', 'approved', true, true, true, 6, 'single', '["bachelor-male"]'::jsonb, '30', false, 3, 112, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005167', 'p5167', 'f1c70000-0000-4000-8000-000000000010', 'Shared room in a 2 BHK Flat in Baner', 'rent', 'Flat', 2, 14000, 'per-month', 28000, 1200, true, 940, 'sqft', 770, 'semi-furnished', 4, 11, 'East', 'ready-to-move', 'Baner', 'baner', 'Pune', 18.5634, 73.7758, 'One bed in a shared room in a 2 BHK Flat in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "club"]', '["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70', '/floorplans/2bhk.svg', 'owner', 'approved', true, true, true, 4, 'shared', '["company"]'::jsonb, '30', false, 2, 96, 6, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005168', 'p5168', 'f1c70000-0000-4000-8000-000000000010', 'Private room in a 3 BHK Flat in Kharadi', 'rent', 'Flat', 3, 15500, 'per-month', 31000, 1300, true, 1180, 'sqft', 960, 'furnished', 7, 15, 'South', 'ready-to-move', 'Kharadi', 'kharadi', 'Pune', 18.5512, 73.9481, 'A room of your own in a 3 BHK Flat in Kharadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym", "pool"]', '["https://images.unsplash.com/photo-1493809842364-78817add7ffb?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1493809842364-78817add7ffb?auto=format&fit=crop&w=800&q=70', '/floorplans/3bhk.svg', 'owner', 'approved', true, true, false, 9, 'single', '["bachelor-male", "bachelor-female"]'::jsonb, '15', false, 1, 74, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- A second row per chip, so neither resolves to one listing. Neither is in Baner: a second Baner
+-- villa would collide with p5150's unique ₹2.73Cr marker label (`mapDrawer` in the registry).
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, age_years, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005169', 'p5169', 'f1c70000-0000-4000-8000-000000000010', '4 BHK Independent House for sale in Dhayari', 'buy', 'Independent House', 4, 14200000, 'total', true, 2200, 'sqft', 1810, 'unfurnished', 'ready-to-move', 'Dhayari', 'dhayari', 'Pune', 18.4553, 73.8003, '4 BHK Independent House available on sale in Dhayari, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "security", "power", "garden"]', '["https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 7, 3, 66, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, deposit, maintenance, negotiable, area, area_unit, carpet_area, furnishing, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, age_years, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005170', 'p5170', 'f1c70000-0000-4000-8000-000000000010', '4 BHK Villa for rent in Bavdhan', 'rent', 'Villa', 4, 85000, 'per-month', 255000, 4000, false, 2650, 'sqft', 2180, 'semi-furnished', 'ready-to-move', 'Bavdhan', 'bavdhan', 'Pune', 18.5099, 73.7712, '4 BHK Villa available on rent in Bavdhan, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "security", "power", "garden", "club"]', '["https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 5, 2, 58, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Bound by slug, not id (societies are minted with `gen_random_uuid()`), and must stay after the
+-- round-robin `WITH soc` block — that assignment is positional, so pre-binding shifts its siblings.
+UPDATE public.properties p SET society_id = s.id
+  FROM public.societies s
+ WHERE s.slug = 'palm-court-panchshil-undri' AND p.slug IN ('p5165', 'p5166');
+
+UPDATE public.properties p SET society_id = s.id
+  FROM public.societies s
+ WHERE s.slug = 'golden-springs-panchshil-baner' AND p.slug IN ('p5167', 'p5013');
+
+-- Gives the RERA filter stock and makes its +80 in `PropertySpecs.relevanceFirst` observable.
+-- Shaped as the API accepts (`P` + eleven digits) so seeded and wizard-entered values match.
+UPDATE public.properties SET rera_id = 'P52100012345' WHERE slug = 'p5120';
+UPDATE public.properties SET rera_id = 'P52100027845' WHERE slug = 'p5013';
+UPDATE public.properties SET rera_id = 'P52100031162' WHERE slug = 'p5008';
+UPDATE public.properties SET rera_id = 'P52100019478' WHERE slug = 'p5023';
+UPDATE public.properties SET rera_id = 'P52100024503' WHERE slug = 'p5021';
+UPDATE public.properties SET rera_id = 'P52100041706' WHERE slug = 'p5133';
+
+-- Half the Wagholi flats stated, so `unstated-range-disclosure` has both halves to count. Never
+-- p5145: it is the `boost` fixture and must stay below its rivals on merit (`quality_score` +4 each).
+UPDATE public.properties SET age_years = 11, floor = 3,  total_floors = 11 WHERE slug = 'p5140';
+UPDATE public.properties SET age_years = 6,  floor = 7,  total_floors = 12 WHERE slug = 'p5142';
+UPDATE public.properties SET age_years = 2,  floor = 1,  total_floors = 7  WHERE slug = 'p5144';
+UPDATE public.properties SET age_years = 8,  floor = 10, total_floors = 14 WHERE slug = 'p5146';
+UPDATE public.properties SET age_years = 4,  floor = 5,  total_floors = 9  WHERE slug = 'p5148';
+
 
 -- Society residency the hub spec can only read, never create. Two societies, so the ops branch of
 -- the queue rule has a fixture at all — `societyMembership` in docs/system/fixture-registry.md.
@@ -819,7 +885,7 @@ cross join (values
      'Visitor parking fills up by 8pm on weekends. The far end of the B wing is usually free.',
      null::text, null::text, null::text,
      now() - interval '9 days'),
-    -- A trusted pick, with a number. This is the single most useful thing on the page and was
+    -- A trusted pick, with a number: the most useful thing on the page.
     ('f1c7a302-0000-4000-8000-000000000001'::uuid,
      '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,
      'pick', 'services',
@@ -968,16 +1034,21 @@ on conflict (mobile) do nothing;
 
 -- Owner Plus (limit 2), so exactly one slot stays free and the listing below is the only thing
 -- between him and the ceiling. Seeded `active`, since a paid plan bought through the API is not.
-insert into public.subscriptions (id, user_id, plan_id, status, started_at, renews_at)
+-- `amount` is read from the plan rather than written out: since V37 a subscription records what it
+-- was sold for, and a literal here would be a second statement of the catalogue price that a
+-- reprice would leave behind. The join is safe because `zz` sorts this seed after the reference
+-- data that creates the plan.
+insert into public.subscriptions (id, user_id, plan_id, status, amount, started_at, renews_at)
 select 'd0000000-0000-4000-8000-000000000091'::uuid, u.id,
-       'b1000000-0000-4000-8000-000000000002'::uuid,  -- Owner Plus, listing_limit 2
-       'active', now() - interval '30 days', now() + interval '335 days'
+       p.id,  -- Owner Plus, listing_limit 2
+       'active', p.price, now() - interval '30 days', now() + interval '335 days'
 from public.users u
+join public.plans p on p.id = 'b1000000-0000-4000-8000-000000000002'::uuid
 where u.mobile = '9700000090'
 on conflict (id) do nothing;
 
 -- The listing the guard collides with. The raw meter number is spaced and `electricity_meter_key`
--- is not, on purpose: nothing re-derives the key for a seeded row, and that gap is what V115 fixes.
+-- is not, on purpose: nothing re-derives the key for a seeded row, and V115's guard must cover that.
 insert into public.properties
     (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit,
      area, area_unit, furnishing, locality, locality_slug, city, address, pincode,
@@ -1031,14 +1102,14 @@ UPDATE public.flatmate_rooms
 
 INSERT INTO public.flatmate_rooms
     (id, host_id, room_type, attached_bath, budget, deposit, seats_total, seats_open,
-     host_role, verification_tier, verified, agreement_declared, mod_status,
+     host_role, verification_tier, agreement_declared, mod_status,
      society, locality, localities, lat, lng, bhk, flat_type, home_type_label,
      gated_community, furnishing, move_in, available_from, gender, food, tags, note, photos,
      created_at, updated_at)
 VALUES
  ('f1c7000b-0000-4000-8000-000000000003', 'f1c70000-0000-4000-8000-000000000031',
   'Private room', 'attached', 14000, 28000, 1, 1,
-  'tenant', 'identity', false, false, 'approved',
+  'tenant', 'identity', false, 'approved',
   'Skyline Heights', 'Baner', '["Baner"]', 18.5590, 73.7770, '2', '2 BHK', 'Flat',
   true, 'semi', 'now', DATE '2026-09-10', 'female', 'veg',
   '["Non-smoker", "Working professional", "Vegetarian"]',
@@ -1048,7 +1119,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000004', 'f1c70000-0000-4000-8000-000000000032',
   'Private room', 'shared', 16000, 32000, 1, 1,
-  'tenant', 'tenant', false, true, 'live',
+  'tenant', 'tenant', true, 'live',
   'Lodha Belmondo', 'Hinjawadi', '["Hinjawadi"]', 18.5913, 73.7389, '3', '3 BHK', 'Flat',
   true, 'furnished', '15', DATE '2026-09-25', 'male', 'any',
   '["Non-veg ok", "Working professional", "Fitness"]',
@@ -1058,7 +1129,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000005', 'f1c70000-0000-4000-8000-000000000033',
   'Shared room', 'shared', 9000, 18000, 1, 0,
-  'tenant', 'identity', false, false, 'approved',
+  'tenant', 'identity', false, 'approved',
   'Gera World of Joy', 'Kharadi', '["Kharadi"]', 18.5515, 73.9435, '2', '2 BHK', 'Flat',
   false, 'semi', '30', DATE '2026-10-05', 'any', 'any',
   '["Student", "Non-smoker"]',
@@ -1068,7 +1139,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000006', 'f1c70000-0000-4000-8000-000000000034',
   'Private room', 'attached', 15000, 30000, 1, 1,
-  'tenant', 'tenant', false, true, 'live',
+  'tenant', 'tenant', true, 'live',
   'Rohan Iris', 'Wakad', '["Wakad"]', 18.5980, 73.7620, '2', '2 BHK', 'Flat',
   true, 'furnished', 'now', DATE '2026-09-12', 'female', 'veg',
   '["Vegetarian", "Early riser", "Pet-friendly"]',
@@ -1078,7 +1149,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000007', 'f1c70000-0000-4000-8000-000000000035',
   'Private room', 'shared', 18000, 36000, 1, 1,
-  'tenant', 'identity', false, false, 'approved',
+  'tenant', 'identity', false, 'approved',
   'Kumar Princeville', 'Viman Nagar', '["Viman Nagar"]', 18.5679, 73.9143, '3', '3 BHK', 'Flat',
   false, 'semi', '15', DATE '2026-09-28', 'any', 'nonveg',
   '["Non-veg ok", "Night owl", "Working professional"]',
@@ -1088,7 +1159,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000008', 'f1c70000-0000-4000-8000-000000000036',
   'Private room', 'attached', 13000, 26000, 1, 1,
-  'tenant', 'identity', false, false, 'approved',
+  'tenant', 'identity', false, 'approved',
   'Green Meadows Bungalow', 'Kothrud', '["Kothrud"]', 18.5074, 73.8077, '3', '3 BHK', 'Independent House',
   true, 'furnished', '30', DATE '2026-10-08', 'female', 'veg',
   '["Vegetarian", "Non-smoker", "Working professional"]',
@@ -1099,7 +1170,7 @@ VALUES
  -- Keep Aundh free of rooms so the empty move-in state remains available.
  ('f1c7000b-0000-4000-8000-000000000009', 'f1c70000-0000-4000-8000-000000000031',
   'Shared room', 'shared', 7500, 15000, 1, 1,
-  'tenant', 'identity', false, false, 'approved',
+  'tenant', 'identity', false, 'approved',
   'Sai Sankul', 'Hadapsar', '["Hadapsar"]', 18.5018, 73.9364, '1', '1 BHK', 'Flat',
   false, 'unfurnished', 'now', DATE '2026-09-09', 'any', 'any',
   '["Student", "Early riser"]',
@@ -1109,7 +1180,7 @@ VALUES
 
  ('f1c7000b-0000-4000-8000-000000000010', 'f1c70000-0000-4000-8000-000000000035',
   'Private room', 'attached', 12000, 24000, 1, 1,
-  'tenant', 'identity', false, false, 'pending',
+  'tenant', 'identity', false, 'pending',
   'Nyati Elysia', 'Hadapsar', '["Hadapsar"]', 18.5089, 73.9260, '4', '4 BHK', 'Flat',
   true, 'semi', '60', DATE '2026-11-01', 'male', 'nonveg',
   '["Non-veg ok", "Fitness", "Night owl"]',
@@ -1122,7 +1193,7 @@ VALUES
 INSERT INTO public.flatmate_rooms
     (id, host_id, property_id, room_kind, room_type, attached_bath, price_basis,
      budget, deposit, occupants, max_occupants, seats_total, seats_open,
-     host_role, verification_tier, verified, agreement_declared, mod_status,
+     host_role, verification_tier, agreement_declared, mod_status,
      society, locality, localities, lat, lng, bhk, flat_type, home_type_label,
      gated_community, furnishing, move_in, available_from, gender, food, tags, note, photos,
      created_at, updated_at)
@@ -1130,7 +1201,7 @@ VALUES
  ('f1c7000b-0000-4000-8000-000000000011', 'f1c70000-0000-4000-8000-000000000010',
   'f1c70000-0000-4000-8000-000000005123', 'master', 'Private room', 'attached', 'room',
   18000, 36000, 1, 4, NULL, NULL,
-  'owner', 'owner', true, true, 'approved',
+  'owner', 'owner', true, 'approved',
   'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
   true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
   '["Working professional", "Non-smoker"]',
@@ -1141,7 +1212,7 @@ VALUES
  ('f1c7000b-0000-4000-8000-000000000012', 'f1c70000-0000-4000-8000-000000000010',
   'f1c70000-0000-4000-8000-000000005123', 'bedroom', 'Private room', 'shared', 'room',
   14000, 28000, 0, 4, NULL, NULL,
-  'owner', 'owner', true, true, 'approved',
+  'owner', 'owner', true, 'approved',
   'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
   true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
   '["Working professional"]',
@@ -1152,7 +1223,7 @@ VALUES
  ('f1c7000b-0000-4000-8000-000000000013', 'f1c70000-0000-4000-8000-000000000010',
   'f1c70000-0000-4000-8000-000000005123', 'living', 'Shared room', 'shared', 'room',
   10000, 20000, 0, 4, NULL, NULL,
-  'owner', 'owner', true, true, 'approved',
+  'owner', 'owner', true, 'approved',
   'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
   true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
   '["Student", "Working professional"]',
@@ -1371,3 +1442,21 @@ SET lifecycle_track = CASE WHEN posted_by_admin THEN 'staff' ELSE 'owner' END,
 WHERE lifecycle_track <> CASE WHEN posted_by_admin THEN 'staff' ELSE 'owner' END
     OR (status = 'approved' AND NOT archived AND lifecycle_stage IS DISTINCT FROM 'live')
     OR ((status NOT IN ('pending', 'approved') OR archived) AND lifecycle_stage IS NOT NULL);
+
+-- The only non-owner stock, so `Owner only` can be shown to exclude something (`postedBy` in
+-- docs/system/fixture-registry.md). UPDATEs, so no count assertion moves; must follow every INSERT.
+UPDATE public.properties SET posted_by_type = 'builder',
+    description = '2 BHK Flat available on sale in Wagholi, Pune. Posted by the developer. Draazy charges no brokerage of its own.'
+    WHERE slug = 'p5147';
+UPDATE public.properties SET posted_by_type = 'builder',
+    description = '3 BHK Flat available on sale in Wagholi, Pune. Posted by the developer. Draazy charges no brokerage of its own.'
+    WHERE slug = 'p5149';
+UPDATE public.properties SET posted_by_type = 'agent',
+    description = 'Farm Land available on sale in Manjari, Pune. Canal-fed, approach road on the east boundary. Posted by an agent acting for the owner. Draazy charges no brokerage of its own.'
+    WHERE slug = 'p5161';
+UPDATE public.properties SET posted_by_type = 'agent',
+    description = 'Farm Land available on rent in Marunji, Pune. Fenced, drip lines laid, three-phase supply. Posted by an agent acting for the owner. Draazy charges no brokerage of its own.'
+    WHERE slug = 'p5163';
+UPDATE public.properties SET posted_by_type = 'agent',
+    description = '4 BHK Villa available on rent in Bavdhan, Pune. Posted by an agent acting for the owner. Draazy charges no brokerage of its own.'
+    WHERE slug = 'p5170';

@@ -4,6 +4,7 @@ import com.draazy.api.catalog.locality.LocalityResolver;
 import com.draazy.api.catalog.property.AddressKey;
 import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.MeterKey;
+import com.draazy.api.catalog.property.PostedByType;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyMapper;
 import com.draazy.api.catalog.property.PropertyRepository;
@@ -11,12 +12,12 @@ import com.draazy.api.catalog.property.PropertySort;
 import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.common.trust.ListingCaseNotes;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
-import com.draazy.api.security.Roles;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -27,10 +28,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Owner write side of the catalogue: every read and mutation is keyed by the server-resolved
- * principal, so cross-owner access is a {@code 404}. docs/flows/consumer/list-property-wizard.md 9.
- */
+/** Every read and mutation is keyed by the server-resolved principal, so cross-owner access is a {@code 404}. */
 @Service
 public class ListingService {
 
@@ -72,10 +70,7 @@ public class ListingService {
                 .orElseThrow(() -> NotFoundException.of("Listing"));
     }
 
-    /**
-     * The owner confirms a listing is still available. What this deliberately leaves alone, and why
-     * there is no audit row: docs/flows/consumer/list-property-wizard.md section 9.5.
-     */
+    /** No audit row by design: docs/flows/consumer/list-property-wizard.md section 9.5. */
     @Transactional
     public Property confirmAvailable(UUID userId, String idOrSlug) {
         Property p = resolveOwned(userId, idOrSlug)
@@ -84,10 +79,7 @@ public class ListingService {
         return properties.save(p);
     }
 
-    /**
-     * Take the caller's own listing down (contract {@code archiveListing}). Soft and idempotent,
-     * with a server-owned reason: docs/flows/consumer/list-property-wizard.md section 9.5.
-     */
+    /** Soft and idempotent, with a server-owned reason: docs/flows/consumer/list-property-wizard.md 9.5. */
     @Transactional
     public Property archive(UUID userId, String idOrSlug) {
         Property p = resolveOwned(userId, idOrSlug)
@@ -98,22 +90,21 @@ public class ListingService {
         return properties.save(p);
     }
 
-    /**
-     * Create a listing. The trust-critical fields are server-set, so a listing cannot be born
-     * approved or attributed to someone else: docs/flows/consumer/list-property-wizard.md 9.1.
-     */
+    /** Trust-critical fields are server-set, so a listing cannot be born approved or attributed to someone else. */
     @Transactional
     public Property create(UUID userId, ListingCreate in) {
         quota.require(userId);
-        return createOnBehalf(userId, in);
+        return createOnBehalf(userId, in, PostedByType.OWNER);
     }
 
-    /**
-     * The same creation without the freemium ceiling - back-office concierge desk only, and a
-     * separate method rather than a flag: docs/flows/consumer/list-property-wizard.md section 9.2.
-     */
+    /** Creation without the freemium ceiling - back-office concierge desk only, deliberately a separate method. */
     @Transactional
-    public Property createOnBehalf(UUID userId, ListingCreate in) {
+    public Property createOnBehalf(UUID userId, ListingCreate in, String postedByType) {
+        // Checked here and not only on the request DTO, so a caller that skipped Bean Validation
+        // meets the column's CHECK constraint as a 422 rather than as a 500 from the flush.
+        if (!PostedByType.ALL.contains(postedByType)) {
+            throw new ValidationException("postedByType must be one of " + PostedByType.ALL);
+        }
         User owner = users.findById(userId)
                 .orElseThrow(() -> NotFoundException.of("Owner"));
         Property p = new Property(owner, in.title(), in.deal(), in.propertyType(),
@@ -123,10 +114,10 @@ public class ListingService {
         propertyMapper.applyTo(in, p);
         p.setSocietySlug(editRules.requireSociety(in.societyId()));
 
-        // Everything it may not. These three are why a listing cannot be born approved or
-        // attributed to someone else.
+        // The poster type records who was on the other end of the call, so it is the caller's to
+        // state and never the request body's.
         p.setStatus(PropertyStatus.PENDING);
-        p.setPostedByType(Roles.Wire.OWNER);
+        p.setPostedByType(postedByType);
         p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
         // Inherited from the owner, never claimed by the client: approval back-fills existing
         // listings and this stamps new ones. See list-property-wizard.md section 9.1.
@@ -146,10 +137,7 @@ public class ListingService {
         return p;
     }
 
-    /**
-     * "Have I already listed this?" (contract {@code checkOwnDuplicate}) - the key is derived on the
-     * same path a create takes, so the pre-check and the write cannot disagree. Writes nothing.
-     */
+    /** The key is derived on the same path a create takes, so the pre-check and the write cannot disagree. */
     @Transactional(readOnly = true)
     public ListingDuplicateVerdict duplicateCheck(UUID userId, ListingDuplicateCheck in) {
         String localitySlug = localities.resolve(in.locality(), in.lat(), in.lng());
@@ -161,10 +149,7 @@ public class ListingService {
                 addressKey, localitySlug);
     }
 
-    /**
-     * Partial update of an owned listing (contract {@code updateListing}). Which edits earn a revert
-     * and which a re-check: docs/flows/consumer/list-property-wizard.md section 9.3.
-     */
+    /** Which edits earn a revert and which a re-check: docs/flows/consumer/list-property-wizard.md 9.3. */
     @Transactional
     public Property update(UUID userId, String idOrSlug, ListingUpdate in) {
         Property p = resolveOwned(userId, idOrSlug)
@@ -207,10 +192,7 @@ public class ListingService {
         return p;
     }
 
-    /**
-     * Field-level correction of <em>anyone's</em> listing by staff or admin. Audited, and its
-     * deliberate non-effects are in docs/flows/consumer/list-property-wizard.md section 9.3.
-     */
+    /** Staff correction of anyone's listing; deliberate non-effects: docs/flows/consumer/list-property-wizard.md 9.3. */
     @Transactional
     public Property updateAsModerator(AuthPrincipal principal, String idOrSlug, ListingUpdate in) {
         UUID id = parseUuid(idOrSlug);

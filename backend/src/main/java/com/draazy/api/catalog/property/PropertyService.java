@@ -14,10 +14,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Read side of the catalogue: anonymous search, the featured strip, and single-listing detail. Every
- * method serves {@code security: []}, so the approved + non-archived floor is enforced in the query.
- */
+/** Every method serves {@code security: []}, so the approved + non-archived floor is enforced in the query. */
 @Service
 public class PropertyService {
 
@@ -30,10 +27,7 @@ public class PropertyService {
         this.properties = properties;
     }
 
-    /**
-     * Faceted public search - the page <em>and</em> both totals, which describe the whole match rather
-     * than the page. Ranking and {@code newestOnly}: search-listings.md sections 9.3, 9.7.
-     */
+    /** Ranking and {@code newestOnly}: search-listings.md sections 9.3, 9.7. */
     @Transactional(readOnly = true)
     public SearchResult searchWithTotals(PropertySearchQuery filters, ListingFacets extra,
             Pageable pageable, boolean newestOnly) {
@@ -52,23 +46,19 @@ public class PropertyService {
         }
 
         List<Property> rows = properties.findPage(ordered, exec);
-        PropertySearchFragment.Totals totals = properties.countTotals(match, PropertySpecs.anyVerified(now));
+        PropertySearchFragment.Totals totals = properties.countTotals(
+                match, PropertySpecs.anyVerified(now), PropertySpecs.unstatedFiltered(extra));
         // `exec`, not `safe` — the page must carry the pageable its rows were actually read with, or
         // a client reading `sort` off the response would be told about an order that was overridden.
-        return new SearchResult(new PageImpl<>(rows, exec, totals.total()), totals.subset());
+        return new SearchResult(new PageImpl<>(rows, exec, totals.total()), totals.verified(),
+                totals.unstated());
     }
 
-    /**
-     * A page of search results and the verified count over the whole match - the second of which a
-     * {@link Page} has no room for.
-     */
-    public record SearchResult(Page<Property> page, long verifiedTotal) {
+    /** The two counts describe the whole match, not the page, so neither fits in a {@link Page}. */
+    public record SearchResult(Page<Property> page, long verifiedTotal, long unstatedTotal) {
     }
 
-    /**
-     * Moderation search: the same facets with <strong>no visibility floor</strong>, guarded only by
-     * {@code @PreAuthorize} on its single controller method. Any new caller must carry its own.
-     */
+    /** <strong>No visibility floor</strong>, guarded only by {@code @PreAuthorize} on its single caller; a new caller must carry its own. */
     @Transactional(readOnly = true)
     public Page<Property> searchForModeration(PropertySearchQuery filters, ModerationFacets mod,
             Pageable pageable) {
@@ -83,10 +73,7 @@ public class PropertyService {
                 PropertyStatus.APPROVED, PageRequest.of(0, FEATURED_CAP));
     }
 
-    /**
-     * Single public listing by slug-or-id. Missing, archived or unapproved is a {@code 404}, except
-     * for the owner and a checker; see docs/flows/consumer/search-listings.md#98-public-reads.
-     */
+    /** Missing, archived or unapproved is a {@code 404}, except for the owner and a checker. */
     @Transactional(readOnly = true)
     public Property getPublic(String idOrSlug, UUID viewerId, boolean staff) {
         Property p = resolve(idOrSlug).orElseThrow(() -> NotFoundException.of("Property"));

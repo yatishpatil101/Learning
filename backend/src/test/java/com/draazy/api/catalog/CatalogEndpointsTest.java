@@ -21,22 +21,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Contract + behavior proof for the public reference catalogue: cities, localities, societies, reels
- * and fees.
- *
- * <p><strong>What this slice is at risk of is different from every slice before it.</strong> Nothing
- * here is owner-scoped, so there is no cross-tenant leak to test for. The exposures are instead
- * enumeration, unbounded reads and per-row queries on endpoints anyone can call without a token —
- * so the load-bearing assertions below are the page-size cap, the sort whitelist, the computed
- * counters, and the fact that every route answers without authentication.
- *
- * <p>Runs against the live Flyway'd Postgres, so the seeded reference rows
- * ({@code R__DML_seed_reference_data.sql} — generated from the frontend catalogue, so its size grows the
- * next time the catalogue is regenerated) are real data, not fixtures. Test-local rows are added on
- * top and rolled back. The count- and order-bearing assertions read the live counts from the DB
- * rather than hard-coding a seed size, so they don't re-rot when the catalogue regenerates (D145).
- */
+/** Nothing here is owner-scoped, so the exposures are enumeration and unbounded anonymous reads.
+ *  Count-bearing assertions read live counts rather than hard-coding a regenerable seed size. */
 class CatalogEndpointsTest extends AbstractApiTest {
 
     @Autowired
@@ -46,15 +32,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
     @PersistenceContext
     EntityManager em;
 
-    /**
-     * Make the next read a real SELECT.
-     *
-     * <p>These tests share one transaction with the controller they call, so a row saved here is
-     * still managed when the handler asks for it and comes back as the same instance. That is fine
-     * for columns, which the writer set, and wrong for {@code Property.societySlug}, which is a
-     * {@code @Formula} and therefore only ever populated by a query. Without this the assertion
-     * would be reading back the object the test built, which proves nothing about the mapping.
-     */
+    /** Forces a real SELECT: the test shares a transaction with the handler, and
+     *  {@code Property.societySlug} is a {@code @Formula} only ever populated by a query. */
     private void detach() {
         em.flush();
         em.clear();
@@ -84,16 +63,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
         return jdbc.queryForObject("select id from societies where slug = ?", UUID.class, slug);
     }
 
-    // ---------------- public reachability (the whole tag is `security: []`) ----------------
-
-    /**
-     * Every catalogue route answers with no Authorization header.
-     *
-     * <p>This is the route-constant/security-matcher agreement check for the slice: a route mapped in
-     * a controller but missed in {@code SecurityConfig} would 401 here, which is precisely the bug a
-     * per-endpoint test would not catch because each endpoint's own test could be written with a
-     * token.
-     */
+    /** A route mapped in a controller but missed in {@code SecurityConfig} 401s here — which a
+     *  per-endpoint test would miss, since each could be written with a token. */
     @Test
     void everyCatalogueRouteIsReachableWithoutAToken() throws Exception {
         mvc.perform(get("/fees")).andExpect(status().isOk());
@@ -106,9 +77,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/properties/trust-stats")).andExpect(status().isOk());
     }
 
-    // ---------------- GET /fees ----------------
-
-    /** Spec fix S24: an array, because the table is keyed by deal and one object cannot say which. */
+    /** An array, because the table is keyed by deal and one object cannot say which. */
     @Test
     void feesReturnsOneEntryPerDealIntent() throws Exception {
         mvc.perform(get("/fees"))
@@ -120,21 +89,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[1].platformFee").value(1999));
     }
 
-    /**
-     * Neither deal publishes a flat stamp duty, because neither has one.
-     *
-     * <p>The {@code buy} row was seeded {@code 0} and V52 left it there on purpose, naming it as a
-     * separate untruth. Zero is not "unknown": on a public page beside a zero-brokerage promise it
-     * reads as the state waiving the single largest cost of buying a home. Maharashtra charges 5-7%
-     * of the higher of agreement value and ready reckoner rate — several lakh rupees on a typical
-     * flat — and no figure in this table can be right, because the table has never seen the value it
-     * is a percentage of.
-     *
-     * <p>So the assertion is {@code doesNotExist}, not {@code value(0)}. Registration stays present
-     * for {@code buy}: 1% capped at ₹30,000 is a genuinely published cap, and a figure that exists
-     * should be sent. The distinction being pinned is exactly that — absent means uncomputable, not
-     * free — and it is what stops a client summing a false zero into a quote.
-     */
+    /** {@code doesNotExist}, not {@code value(0)}: absent means uncomputable, not free — no figure
+     *  here can be right, since the table never sees the value stamp duty is a percentage of. */
     @Test
     void neitherDealPublishesAFlatStampDuty() throws Exception {
         mvc.perform(get("/fees"))
@@ -146,16 +102,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[1].stampDuty").doesNotExist());
     }
 
-    // ---------------- GET /cities ----------------
-
-    /**
-     * The city's listing count is computed, not read from {@code cities.listing_count}.
-     *
-     * <p>This is the D7.2 regression test, and it is deliberately built so that the stored column and
-     * the truth disagree: the seeded column says 0, three properties exist, and only two of them are
-     * approved and unarchived. A count of 0 means somebody started trusting the column again; a count
-     * of 3 means the "live" predicate was dropped.
-     */
+    /** The stored column and the truth are made to disagree: 0 means the column is trusted again,
+     *  3 means the live predicate was dropped, 2 is correct. */
     @Test
     void cityListingCountIsComputedFromLiveListings_notTheStoredColumn() throws Exception {
         User o = owner("9820000001");
@@ -175,8 +123,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].listingCount").value(2));
     }
 
-    // ---------------- POST /cities/waitlist ----------------
-
     @Test
     void waitlistAcceptsASignup() throws Exception {
         mvc.perform(post("/cities/waitlist")
@@ -190,13 +136,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 Integer.class, "9830000001", "Nashik")).isEqualTo(1);
     }
 
-    /**
-     * Asking twice is the same as asking once — 201 both times, one row.
-     *
-     * <p>Enforced by {@code uq_city_waitlist_mobile_city}, not by a service-side existence check: two
-     * concurrent submissions would both pass a check and both insert. A 409 on the second call would
-     * also turn a signup form into a membership oracle on a public endpoint.
-     */
+    /** Enforced by {@code uq_city_waitlist_mobile_city}, not a service-side check two concurrent
+     *  submissions would both pass. A 409 would also make a public form a membership oracle. */
     @Test
     void waitlistIsIdempotentPerMobileAndCity() throws Exception {
         String body = """
@@ -261,8 +202,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    // ---------------- GET /localities ----------------
-
     @Test
     void localitiesListIsAlphabeticalAndCarriesComputedCounts() throws Exception {
         User o = owner("9840000001");
@@ -270,10 +209,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
         listing(o, "Archived in Aundh", "aundh", null, "approved").archive("test");
         properties.flush();
 
-        // Data-driven so the assertion survives the next catalogue regeneration (D145): the seed is
-        // generated from the frontend, so its size and its alphabetically-first row are not constants
-        // to be re-typed here — they are read from the same rows the endpoint serves. The computed
-        // count is proven by pinning it to the one locality we seeded a listing into.
+        // Data-driven so a catalogue regeneration cannot red this: the seed's size and its
+        // alphabetically-first row are read from the same rows the endpoint serves.
         int activeLocalities = jdbc.queryForObject(
                 "select count(*) from localities where active", Integer.class);
         String firstByName = jdbc.queryForObject(
@@ -287,8 +224,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[?(@.slug=='aundh')].listingCount", contains(1)));
     }
 
-    // ---------------- GET /localities/{slug} ----------------
-
     @Test
     void localityDetailCarriesTheNarrativeFields() throws Exception {
         mvc.perform(get("/localities/koregaon-park"))
@@ -300,15 +235,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.priceTrends").isArray());
     }
 
-    /**
-     * The detail path computes its count too — the D7.2 guard for {@code forLocalitySlug}.
-     *
-     * <p>The city test above covers the grouped accessor over a column seeded to 0. This one covers
-     * the single-key accessor and poisons the stored column with a value that is both non-zero and
-     * impossible, so a pass cannot be a coincidence: reading {@code localities.listing_count} yields
-     * 999, dropping the "approved and unarchived" predicate yields 2, and only computing it correctly
-     * yields 1.
-     */
+    /** The stored column is poisoned with an impossible 999, so a pass cannot be coincidence:
+     *  trusting the column gives 999, dropping the live predicate gives 2, computing it gives 1. */
     @Test
     void localityDetailListingCountIsComputed_notTheStoredColumn() throws Exception {
         User o = owner("9820000077");
@@ -322,13 +250,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.listingCount").value(1));
     }
 
-    /**
-     * The {@code price_trends} jsonb actually round-trips into the contract's element shape.
-     *
-     * <p>Worth its own test because every seeded row has {@code '[]'} there: without writing a real
-     * value, "the mapping works" would be an untested claim that only fails the day somebody authors
-     * content.
-     */
+    /** Every seeded row has {@code '[]'} there, so without writing a real value "the mapping works"
+     *  would only fail the day somebody authors content. */
     @Test
     void localityPriceTrendsDeserializeFromJsonb() throws Exception {
         jdbc.update("""
@@ -355,9 +278,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
     /** A retired locality is gone from the site, not merely delisted — otherwise search keeps it. */
     @Test
     void localityDetailIs404ForARetiredLocality() throws Exception {
-        // Pick the slug to retire from the DB rather than naming one (D145): a hard-coded slug that a
-        // future catalogue regeneration ships inactive (or drops) would turn the UPDATE into a silent
-        // no-op, the count would not move, and this would red again — the exact drift D145 removes.
+        // Picked from the DB rather than named: a hard-coded slug a future regeneration ships
+        // inactive would make the UPDATE a silent no-op and red this.
         int activeBefore = jdbc.queryForObject(
                 "select count(*) from localities where active", Integer.class);
         String slug = jdbc.queryForObject(
@@ -369,14 +291,10 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.length()").value(activeBefore - 1));
     }
 
-    // ---------------- GET /societies ----------------
-
     @Test
     void societiesBrowseIsPagedAndAlphabeticalByDefault() throws Exception {
-        // Data-driven for the same reason as the localities list (D145): the total and the first row
-        // are read from the seed, not re-typed, so a catalogue regeneration can't red the suite. The
-        // paging envelope and the presence of the trust fields (source/claimStatus) are the invariants
-        // this test actually owns.
+        // Data-driven for the same reason as the localities list; the invariants this test owns are
+        // the paging envelope and the presence of the trust fields.
         int totalSocieties = jdbc.queryForObject(
                 "select count(*) from societies", Integer.class);
         String firstByName = jdbc.queryForObject(
@@ -393,7 +311,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].claimStatus").isString());
     }
 
-    /** S25: {@code security} is free text. A boolean could not have carried this. */
+    /** {@code security} is free text. A boolean could not have carried this. */
     @Test
     void societySecurityIsDescriptiveText() throws Exception {
         mvc.perform(get("/societies?q=Amanora"))
@@ -418,12 +336,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].localitySlug").value("kharadi"));
     }
 
-    /**
-     * An unknown sort field is dropped rather than passed to the database.
-     *
-     * <p>{@code claim_status} is a real column, which is what makes it the right probe: the test
-     * fails if the whitelist is removed, not merely if the column name is wrong.
-     */
+    /** {@code claim_status} is a real column, so this fails if the whitelist is removed rather than
+     *  merely if the column name is wrong. */
     @Test
     void societiesBrowseIgnoresASortFieldOutsideTheWhitelist() throws Exception {
         mvc.perform(get("/societies?sort=claimStatus,desc"))
@@ -438,21 +352,14 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.sort").value("occupancy,desc"));
     }
 
-    /**
-     * A hostile page size is clamped to the contract's maximum.
-     *
-     * <p>Spring's own default ceiling is 2000. On an endpoint that needs no token, that is a free
-     * amplification: one request, two thousand rows. The contract published 100; the server now
-     * enforces it.
-     */
+    /** Spring's own ceiling is 2000, which on a tokenless endpoint is free amplification; the
+     *  contract publishes 100. */
     @Test
     void societiesBrowseClampsAHostilePageSize() throws Exception {
         mvc.perform(get("/societies?size=5000"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.size").value(100));
     }
-
-    // ---------------- GET /societies/{slug} ----------------
 
     @Test
     void societyDetailListsItsLiveHomesOnly() throws Exception {
@@ -470,13 +377,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.homes[0].status").value("approved"));
     }
 
-    /**
-     * Reviews are honestly absent rather than dishonestly zero.
-     *
-     * <p>{@code reviews.target_id} is untyped text and nothing has decided whether a society review
-     * keys on the id or the slug, so an aggregate here would be a guess presented as a fact.
-     * {@code avgRating} is null, not {@code 0.0}: no rating is not a rating of zero.
-     */
+    /** {@code reviews.target_id} is untyped text and nothing has decided whether a society review
+     *  keys on id or slug, so an aggregate would be a guess presented as a fact. */
     @Test
     void societyDetailReportsNoReviewsRatherThanAZeroRating() throws Exception {
         mvc.perform(get("/societies/amanora-park-hadapsar"))
@@ -493,23 +395,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("not_found"));
     }
 
-    // ---------------- society on the listing itself (D19) ----------------
-
-    /**
-     * A bound listing names its society by slug, on the card and on the detail read.
-     *
-     * <p>The slug and not {@code society_id}: the client's society catalogue is indexed by slug,
-     * every society route takes a slug, and the hub link routes on one, so a response carrying only
-     * the UUID would be telling a browser that a society exists while giving it nothing it could do
-     * with the fact. That gap is what the property page papered over for a long time by choosing a
-     * society with {@code fnvHash(listing.id) % pool.length} and printing that building's builder,
-     * towers, units, year and occupancy under this listing — a page of checkable claims about a
-     * named third party, wrong for all but one listing in twenty-eight by construction.
-     *
-     * <p>Asserted on the summary as well as the detail because a society filter and a "homes in
-     * this building" count are computed over a page of results, and a field that only appears after
-     * the click cannot answer either.
-     */
+    /** The slug, not {@code society_id}: every society route takes a slug. Asserted on the summary
+     *  too, since a field appearing only after the click cannot drive a filter or a count. */
     @Test
     void aBoundListingCarriesItsSocietySlugOnTheCardAndOnDetail() throws Exception {
         User o = owner("9850000021");
@@ -527,14 +414,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].societySlug").value("amanora-park-hadapsar"));
     }
 
-    /**
-     * An unbound listing says nothing rather than something.
-     *
-     * <p>{@code NON_NULL} drops the key entirely, which is the point: absent has to read as "we do
-     * not know which building this is", and the client renders no society section at all rather
-     * than an emptied one. A section present but blank still asserts that this listing belongs to a
-     * society, which is the same claim in a quieter font.
-     */
+    /** {@code NON_NULL} drops the key entirely: a present-but-blank society section still asserts
+     *  the listing belongs to one, which is the same claim in a quieter font. */
     @Test
     void anUnboundListingClaimsNoSociety() throws Exception {
         User o = owner("9850000022");
@@ -546,14 +427,53 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.societySlug").doesNotExist());
     }
 
-    /**
-     * {@code followedByMe} is false for an anonymous reader and true for the follower — on the same
-     * public route.
-     *
-     * <p>This is decision D7.4 in one test: {@code permitAll} does not reject a valid token, so the
-     * principal is populated when one is present and null when it is not. If the route had been
-     * secured to make this field possible, the anonymous call would 401 instead of answering false.
-     */
+    /** The query is deliberately out of slug order and shares no word with the title. The second
+     *  call pins the words as AND: an OR would read as a search that widened when more was typed. */
+    @Test
+    void publicSearchMatchesASocietyNameWordByWordAndAndsTheWords() throws Exception {
+        User o = owner("9850000031");
+        listing(o, "Corner unit", "hadapsar", societyId("amanora-park-hadapsar"), "approved");
+        listing(o, "Elsewhere unit", "kothrud", null, "approved");
+        detach();
+
+        mvc.perform(get("/properties").param("q", "park amanora"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Corner unit"));
+
+        mvc.perform(get("/properties").param("q", "amanora elsewhere"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    /** Unescaped, {@code %} matches every row while still reading as a narrowing — the one failure
+     *  mode of a text search that looks like success. */
+    @Test
+    void publicSearchTreatsALikeWildcardAsText() throws Exception {
+        User o = owner("9850000032");
+        listing(o, "Wildcard 100% cotton awning", "baner", null, "approved");
+        listing(o, "Ordinary unit", "baner", null, "approved");
+        detach();
+
+        mvc.perform(get("/properties").param("q", "%"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Wildcard 100% cotton awning"));
+    }
+
+    /** The six-token cap bounds the predicates but not the input reaching {@code split}, and this
+     *  route needs no login. */
+    @Test
+    void publicSearchRefusesATermLongerThanTheContractDeclares() throws Exception {
+        mvc.perform(get("/properties").param("q", "a".repeat(121)))
+                .andExpect(status().isUnprocessableEntity());
+
+        mvc.perform(get("/properties").param("q", "a".repeat(120)))
+                .andExpect(status().isOk());
+    }
+
+    /** {@code permitAll} does not reject a valid token, so the principal is populated when one is
+     *  present. Securing the route to make this field possible would 401 the anonymous call. */
     @Test
     void followedByMeReflectsTheCallerAndDefaultsToFalseWhenAnonymous() throws Exception {
         User follower = owner("9850000002");
@@ -589,8 +509,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[1].followedByMe").value(false));
     }
 
-    // ---------------- GET /reels ----------------
-
     @Test
     void reelsFeedIsNewestFirstAndCarriesTheContractShape() throws Exception {
         mvc.perform(get("/reels"))
@@ -619,13 +537,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                         .value(org.hamcrest.Matchers.lessThanOrEqualTo(100)));
     }
 
-    /**
-     * An unrequested {@code ?sort=} cannot reach the query.
-     *
-     * <p>The contract offers no sort on this feed, but Spring binds one from the query string
-     * regardless and would hand an unknown property straight to Spring Data — a 500 that any
-     * anonymous caller could trigger by guessing. The feed's own order stands instead.
-     */
+    /** The contract offers no sort here, but Spring binds one anyway and would hand an unknown
+     *  property to Spring Data — a 500 any anonymous caller could trigger by guessing. */
     @Test
     void reelsFeedIgnoresAnUnrequestedSortParameter() throws Exception {
         mvc.perform(get("/reels?sort=dropTable,desc"))

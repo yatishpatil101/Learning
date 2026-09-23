@@ -605,14 +605,25 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- Stable catalogue IDs support cross-environment references and repeatable updates.
 -- `unlimited_contacts`, not `contact_limit`, is the enforced contact entitlement.
+-- The priced plans here must equal their `fees` counterparts above — `ownerPlanYearly`,
+-- `ownerProYearly`, `seekerPlusTopup`. They are two tables because one is back-office config and
+-- the other is the product, but they answer the same question — "what does Owner Plus cost" — and
+-- only this one is charged. Drift puts a live mis-quote on `/plans`: the FAQ reads the fee
+-- schedule, so Owner **Pro** is answered with Owner **Plus**'s real price, directly beneath a card
+-- quoting a third number, and a seeker is shown the schedule's figure while being billed this one.
+--
+-- `PlanPriceMatchesFeeScheduleTest` fails if these two *seeded* blocks drift apart. It does NOT
+-- cover the runtime path: `PUT /admin/settings` deep-merges the fees block with no plans write and
+-- no cross-check, so an operator repricing a plan from the Fees panel recreates the bug in
+-- production with every test green. Reprice here, not there.
 INSERT INTO plans (id, name, audience, price, billing_cycle, listing_limit, contact_limit, unlimited_contacts, features) VALUES
     ('b1000000-0000-4000-8000-000000000001', 'Owner Free',  'owner',     0, 'yearly',    1, NULL, false,
      '["1 live listing", "Verified owner badge", "Unlimited enquiries"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000002', 'Owner Plus',  'owner',  2499, 'yearly',    2, NULL, true,
+    ('b1000000-0000-4000-8000-000000000002', 'Owner Plus',  'owner',   999, 'yearly',    2, NULL, true,
      '["2 live listings", "Self-serve boosts", "Priority support"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000003', 'Owner Pro',   'owner',  4999, 'yearly',    5, NULL, true,
+    ('b1000000-0000-4000-8000-000000000003', 'Owner Pro',   'owner',  2499, 'yearly',    5, NULL, true,
      '["5 live listings", "Self-serve boosts", "Rent agreement included", "Dedicated manager"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000004', 'Seeker Plus', 'tenant',  299, 'monthly', NULL, NULL, true,
+    ('b1000000-0000-4000-8000-000000000004', 'Seeker Plus', 'tenant',  199, 'monthly', NULL, NULL, true,
      '["Unlimited owner contacts", "Instant alerts", "Saved-search priority"]'::jsonb)
 ON CONFLICT (id) DO UPDATE SET
     name               = EXCLUDED.name,

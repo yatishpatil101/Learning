@@ -3,10 +3,7 @@ package com.draazy.api.catalog.property;
 import java.math.BigDecimal;
 import java.util.List;
 
-/**
- * The buyer-facing facets of the listings search; every component means "do not filter" when
- * absent. Semantics: docs/flows/consumer/search-listings.md#94-facet-semantics.
- */
+/** Every component means "do not filter" when absent: docs/flows/consumer/search-listings.md#94-facet-semantics. */
 public record ListingFacets(
         List<String> types,
         List<String> commercialUses,
@@ -26,29 +23,27 @@ public record ListingFacets(
         Boolean rera,
         Boolean societyVerified,
         Boolean conveyanceDone,
+        Boolean postedByOwner,
         BigDecimal minArea,
         BigDecimal maxArea,
         Integer minAge,
         Integer maxAge,
         Integer minFloor,
         Integer maxFloor,
+        Long minDeposit,
+        Long maxDeposit,
         Double nearLat,
         Double nearLng,
         Double nearRadiusKm) {
 
-    /**
-     * The all-absent instance: filter on none of this. Used by the moderation search, which shares
-     * the facet builder but offers none of these controls.
-     */
+    /** Filter on none of this: the moderation search shares the facet builder but offers no controls. */
     public static final ListingFacets NONE = new ListingFacets(
             null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null,
+            null, null, null);
 
-    /**
-     * The move-in buckets this request accepts, widest-first, or empty when unfiltered. Kept on the
-     * record so the cumulative rule is stated once, next to the field it governs.
-     */
+    /** Widest-first, or empty when unfiltered; kept here so the cumulative rule sits next to the field. */
     public List<String> availableFromBuckets() {
         if (availableFrom == null || availableFrom.isBlank()) {
             return List.of();
@@ -69,10 +64,7 @@ public record ListingFacets(
                 && nearLat >= -90 && nearLat <= 90 && nearLng >= -180 && nearLng <= 180;
     }
 
-    /**
-     * The radius to actually search, clamped to {@value #MAX_RADIUS_KM} km: an unbounded radius
-     * sizes a bounding box spanning the planet, a full-table scan on an anonymous endpoint.
-     */
+    /** Clamped to {@value #MAX_RADIUS_KM} km: an unbounded radius is a full-table scan on an anonymous endpoint. */
     public double effectiveRadiusKm() {
         return Math.min(nearRadiusKm, MAX_RADIUS_KM);
     }

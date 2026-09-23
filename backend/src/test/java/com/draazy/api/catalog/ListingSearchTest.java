@@ -5,7 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.catalog.property.PostedByType;
 import com.draazy.api.catalog.property.Property;
+import com.draazy.api.catalog.property.PropertyPossession;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.identity.user.User;
@@ -102,8 +104,8 @@ class ListingSearchTest extends AbstractApiTest {
         void coverImageIsAPhoto() {
             Property p = rent("Cover only");
             p.setCoverImage("https://example.test/cover.jpg");
-            // 8 for a single photo and nothing else. The browser scored `gallery` and ignored the
-            // cover entirely, so a listing with exactly one usable image scored as if it had none.
+            // 8 for a single photo and nothing else: scoring `gallery` alone would give a listing
+            // with exactly one usable image the same score as one with none.
             assertThat(persist(p).getQualityScore()).isEqualTo((short) 8);
         }
 
@@ -194,14 +196,22 @@ class ListingSearchTest extends AbstractApiTest {
     class NewFacets {
 
         private long count(String query) throws Exception {
+            return number(query, "totalElements");
+        }
+
+        private long unstated(String query) throws Exception {
+            return number(query, "unstatedElements");
+        }
+
+        private long number(String query, String field) throws Exception {
             String body = mvc.perform(get("/properties?" + query))
                     .andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
-            return Long.parseLong(body.replaceAll("(?s).*\"totalElements\"\\s*:\\s*(\\d+).*", "$1"));
+            return Long.parseLong(body.replaceAll("(?s).*\"" + field + "\"\\s*:\\s*(\\d+).*", "$1"));
         }
 
         @Test
-        @DisplayName("an owner who stated no tenant preference matches no tenant filter")
+        @DisplayName("an owner who stated no tenant preference matches every tenant filter")
         void emptyTenantsMatchesNoFilter() throws Exception {
             Property silent = rent("No preference stated");
             Property picky = rent("Family only");
@@ -212,10 +222,11 @@ class ListingSearchTest extends AbstractApiTest {
             persist(picky);
             persist(other);
 
-            // "Unknown" is not a matchable value: admitting it would put an owner who never
-            // answered in front of a seeker who asked a specific question.
-            assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(1);
-            assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(1);
+            // An owner who named no preference is open to anyone, so every tenant search admits
+            // them. Unlike `pets`, where null means the owner never answered a yes/no and matching
+            // it would advertise a fact nobody gave, an empty preference IS the answer.
+            assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(2);
+            assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(2);
         }
 
         @Test
@@ -262,17 +273,117 @@ class ListingSearchTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("a listing that never stated its age is not treated as brand new")
-        void unstatedAgeIsNotZero() throws Exception {
+        @DisplayName("the reserved construction token matches nothing, not everything")
+        void unmatchableConstructionMatchesNothing() throws Exception {
+            Property ready = rent("Ready to move");
+            ready.setPossession(PropertyPossession.READY_TO_MOVE);
+            persist(ready);
+            persist(rent("Possession unstated"));
+
+            // `PATTERN` is composed from the three possession constants, so admitting a fourth
+            // state spelled this way fails here first.
+            assertThat(PropertyPossession.UNMATCHABLE.matches(PropertyPossession.PATTERN)).isFalse();
+
+            // Omitting the param instead means "not filtered", and `construction=` cannot say it:
+            // an absent list param binds to an empty list too.
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("construction=" + PropertyPossession.READY_TO_MOVE + owner)).isEqualTo(1);
+            assertThat(count("construction=" + PropertyPossession.UNMATCHABLE + owner)).isZero();
+        }
+
+        @Test
+        @DisplayName("an age bound keeps listings that never stated an age, and says how many")
+        void anAgeBoundKeepsTheSilent() throws Exception {
             Property silent = rent("Age unstated");
             Property known = rent("Five years old");
             known.setAgeYears(5);
             persist(silent);
             persist(known);
 
+            // Most of the catalogue never states an age, so a bound that deleted the silent rows
+            // would discard the inventory it meant to narrow. They are kept and counted out instead.
             String owner = "&owner=" + seller.getId();
-            assertThat(count("minAge=0&maxAge=10" + owner)).isEqualTo(1);
-            assertThat(count("maxAge=3" + owner)).isZero();
+            assertThat(count("minAge=0&maxAge=10" + owner)).isEqualTo(2);
+            assertThat(count("maxAge=3" + owner)).isEqualTo(1);
+            assertThat(unstated("maxAge=3" + owner)).isEqualTo(1);
+            // Nobody asked about age, so nothing is unstated with respect to the question.
+            assertThat(unstated("owner=" + seller.getId())).isZero();
+        }
+
+        @Test
+        @DisplayName("a floor bound keeps listings that never stated a floor, and says how many")
+        void aFloorBoundKeepsTheSilent() throws Exception {
+            Property silent = rent("Floor unstated");
+            Property known = rent("Third floor");
+            known.setFloor(3);
+            persist(silent);
+            persist(known);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("minFloor=5" + owner)).isEqualTo(1);
+            assertThat(unstated("minFloor=5" + owner)).isEqualTo(1);
+            // Both columns asked: the subset is their union over the match, not their sum - the
+            // silent row is silent on both and must still be counted once.
+            assertThat(count("minFloor=1&maxAge=3" + owner)).isEqualTo(2);
+            assertThat(unstated("minFloor=1&maxAge=3" + owner)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("an area bound keeps listings that never stated an area, and says how many")
+        void anAreaBoundKeepsTheSilent() throws Exception {
+            Property silent = rent("Area unstated");
+            silent.setArea(null);
+            Property known = rent("Nine hundred");
+            known.setArea(new BigDecimal("900"));
+            persist(silent);
+            persist(known);
+
+            // The column is nullable and `ListingCreate.area` carries no `@NotNull`, so a silent
+            // row is a real stored state and must answer a NULL as age and floor do.
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("minArea=1000" + owner)).isEqualTo(1);
+            assertThat(unstated("minArea=1000" + owner)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("a deposit bound keeps rentals that never stated a deposit, and says how many")
+        void aDepositBoundKeepsTheSilent() throws Exception {
+            Property silent = rent("Deposit unstated");
+            Property known = rent("Two lakh deposit");
+            known.setDeposit(200000L);
+            persist(silent);
+            persist(known);
+
+            // A rental silent on the deposit has not thereby offered a zero, so it survives a
+            // low-deposit search rather than being counted as the cheapest thing on the page.
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("maxDeposit=100000" + owner)).isEqualTo(1);
+            assertThat(unstated("maxDeposit=100000" + owner)).isEqualTo(1);
+            assertThat(count("minDeposit=150000&maxDeposit=250000" + owner)).isEqualTo(2);
+            // Bounds that exclude the only stated deposit leave the silent row and nothing else.
+            assertThat(count("minDeposit=900000" + owner)).isEqualTo(1);
+            assertThat(unstated("owner=" + seller.getId())).isZero();
+        }
+
+        @Test
+        @DisplayName("owner-only drops both the broker's stock and the listing that never said")
+        void postedByOwnerExcludesSilence() throws Exception {
+            Property own = rent("Posted by the owner");
+            own.setPostedByType(PostedByType.OWNER);
+            Property broker = rent("Posted by an agent");
+            broker.setPostedByType(PostedByType.AGENT);
+            Property silent = rent("Nobody recorded who posted this");
+            persist(own);
+            persist(broker);
+            persist(silent);
+
+            // Equality, not a negation: "no brokerage" is a claim about who answers the phone, and
+            // a blank column cannot back it, so the silent row is dropped rather than disclosed.
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("postedByOwner=true" + owner)).isEqualTo(1);
+            assertThat(unstated("postedByOwner=true" + owner)).isZero();
+            // Unticked is "I did not ask", which is the whole catalogue including the silent row.
+            assertThat(count("postedByOwner=false" + owner)).isEqualTo(3);
         }
 
         @Test
@@ -449,7 +560,7 @@ class ListingSearchTest extends AbstractApiTest {
             persist(dear);
             persist(cheap);
 
-            // The same rule D59 already applied to paid placement, extended to merit: a control
+            // The same rule paid placement obeys, extended to merit: a control
             // that silently does something other than what it says is worse than no control.
             assertThat(titles("owner=" + seller.getId() + "&sort=price,asc"))
                     .containsExactly("Cheap and plain", "Dear and featured");

@@ -14,6 +14,7 @@ import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
@@ -26,10 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The public catalogue surface at {@code /properties} plus the authenticated archive/restore actions,
- * which are authorized in the service. Thin by design: bind, delegate, map to contract records.
- */
+/** Public catalogue surface plus the authenticated archive/restore actions, which are authorized in the service. */
 @RestController
 public class PropertyController {
 
@@ -51,10 +49,7 @@ public class PropertyController {
         this.permissions = permissions;
     }
 
-    /**
-     * {@code GET /properties} - faceted public search; the visibility floor is enforced in the service.
-     * Facet binding and why {@code rank} is not a {@code sort}: search-listings.md section 9.7.
-     */
+    /** Facet binding and why {@code rank} is not a {@code sort}: search-listings.md section 9.7. */
     @GetMapping(Routes.Properties.BASE)
     public PropertySearchResponse<PropertySummary> search(
             @RequestParam(required = false) String deal,
@@ -65,7 +60,7 @@ public class PropertyController {
             @RequestParam(required = false) Long maxPrice,
             @RequestParam(required = false) String furnishing,
             @RequestParam(required = false) String possession,
-            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @Size(max = 120) String q,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String rank,
@@ -77,7 +72,8 @@ public class PropertyController {
         PropertyService.SearchResult result =
                 propertyService.searchWithTotals(filters, facets, pageable, "newest".equals(rank));
         return PropertySearchResponse.of(
-                PageResponse.of(result.page(), propertyMapper::toSummary), result.verifiedTotal());
+                PageResponse.of(result.page(), propertyMapper::toSummary), result.verifiedTotal(),
+                result.unstatedTotal());
     }
 
     /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */
@@ -86,19 +82,13 @@ public class PropertyController {
         return propertyService.featured().stream().map(propertyMapper::toSummary).toList();
     }
 
-    /**
-     * {@code GET /properties/trust-stats} - the verified share of the live catalogue, counted by the
-     * database rather than the browser: docs/flows/consumer/search-listings.md section 9.8.
-     */
+    /** Counted by the database rather than the browser: docs/flows/consumer/search-listings.md section 9.8. */
     @GetMapping(Routes.Properties.TRUST_STATS)
     public TrustStatsResponse trustStats(@RequestParam(required = false) String locality) {
         return listingCounts.trustStats(locality);
     }
 
-    /**
-     * {@code GET /properties/{id}} - single listing detail by slug-or-id; {@code 404} when missing or
-     * not publicly visible, except to the owner and to a checker. A {@code null} viewer masks the contact.
-     */
+    /** {@code 404} when not publicly visible, except to the owner and a checker; a {@code null} viewer masks the contact. */
     @GetMapping(Routes.Properties.BY_ID)
     public PropertyResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         UUID viewerId = principal != null ? principal.userId() : null;
@@ -109,20 +99,14 @@ public class PropertyController {
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 
-    /**
-     * Whether this caller may open a listing the public cannot. The grant and not the bare role: a
-     * moderator whose {@code properties:read} has been revoked has had this door closed too.
-     */
+    /** The grant and not the bare role: a moderator whose {@code properties:read} was revoked loses this door too. */
     private boolean mayPreview(AuthPrincipal principal) {
         return principal != null
                 && (Roles.Wire.STAFF.equals(principal.role()) || Roles.Wire.ADMIN.equals(principal.role()))
                 && permissions.granted(principal, BackOfficePermissions.PROPERTIES_READ);
     }
 
-    /**
-     * {@code PATCH /properties/{id}/archive} - soft-delete a listing (owner or staff/admin). Contact
-     * masked and private fields hidden even from the owner: search-listings.md section 9.8.
-     */
+    /** Contact masked and private fields hidden even from the owner: search-listings.md section 9.8. */
     @PatchMapping(Routes.Properties.ARCHIVE)
     public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestBody(required = false) ReasonRequest body) {
@@ -132,10 +116,7 @@ public class PropertyController {
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 
-    /**
-     * {@code PATCH /properties/{id}/restore} — un-archive a listing (owner or staff/admin); status is
-     * reset to {@code pending} for re-moderation. Masked contact, as for archive.
-     */
+    /** Status is reset to {@code pending} for re-moderation; masked contact, as for archive. */
     @PatchMapping(Routes.Properties.RESTORE)
     public PropertyResponse restore(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return propertyMapper.toResponse(

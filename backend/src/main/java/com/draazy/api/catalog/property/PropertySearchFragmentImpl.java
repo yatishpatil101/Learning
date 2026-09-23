@@ -12,10 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
-/**
- * Criteria implementation of {@link PropertySearchFragment}. Found by Spring Data through the
- * {@code Impl} suffix, so the name is not cosmetic.
- */
+/** Found by Spring Data through the {@code Impl} suffix, so the name is not cosmetic. */
 class PropertySearchFragmentImpl implements PropertySearchFragment {
 
     private final EntityManager em;
@@ -49,7 +46,8 @@ class PropertySearchFragmentImpl implements PropertySearchFragment {
     }
 
     @Override
-    public Totals countTotals(Specification<Property> spec, Specification<Property> subset) {
+    public Totals countTotals(Specification<Property> spec, Specification<Property> verified,
+            Specification<Property> unstated) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         CriteriaQuery<Tuple> cq = cb.createTupleQuery();
         Root<Property> root = cq.from(Property.class);
@@ -57,12 +55,15 @@ class PropertySearchFragmentImpl implements PropertySearchFragment {
         if (where != null) {
             cq.where(where);
         }
-        // JPA has no `FILTER (WHERE ...)`, so the conditional count is spelled as a sum over a CASE.
-        // Same thing to the planner, and it keeps both aggregates in one pass over one predicate.
-        Predicate inSubset = subset.toPredicate(root, cq, cb);
-        cq.multiselect(cb.count(root), cb.sum(cb.<Long>selectCase().when(inSubset, 1L).otherwise(0L)));
+        // JPA has no `FILTER (WHERE ...)`, so each conditional count is spelled as a sum over a CASE.
+        // Same thing to the planner, and it keeps all three aggregates in one pass over one predicate.
+        Predicate isVerified = verified.toPredicate(root, cq, cb);
+        Predicate isUnstated = unstated.toPredicate(root, cq, cb);
+        cq.multiselect(cb.count(root),
+                cb.sum(cb.<Long>selectCase().when(isVerified, 1L).otherwise(0L)),
+                cb.sum(cb.<Long>selectCase().when(isUnstated, 1L).otherwise(0L)));
         Tuple row = em.createQuery(cq).getSingleResult();
-        return new Totals(toLong(row.get(0)), toLong(row.get(1)));
+        return new Totals(toLong(row.get(0)), toLong(row.get(1)), toLong(row.get(2)));
     }
 
     private static List<Order> orders(Sort sort, Root<Property> root, CriteriaBuilder cb) {
@@ -72,10 +73,7 @@ class PropertySearchFragmentImpl implements PropertySearchFragment {
                 .toList();
     }
 
-    /**
-     * Aggregates arrive as whatever numeric type the dialect picked, and {@code SUM} over zero rows
-     * is {@code NULL} - an empty search would otherwise be an NPE on the path hardest to notice.
-     */
+    /** {@code SUM} over zero rows is {@code NULL}, and the dialect picks the numeric type. */
     private static long toLong(Object value) {
         return value instanceof Number n ? n.longValue() : 0L;
     }

@@ -9,7 +9,9 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -18,11 +20,12 @@ import org.hibernate.query.criteria.JpaExpression;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
 
-/**
- * Composes the public search predicate, always pinning {@code archived = false AND status = 'approved'};
- * {@link #adminSearch} is a separate method, never a flag. docs/flows/consumer/search-listings.md 9.1.
- */
+// Always pins `archived = false AND status = 'approved'`; adminSearch is a separate method, never a flag.
 final class PropertySpecs {
+
+    private static final char LIKE_ESCAPE = '\\';
+    /** A bound on the free-text term, so a pasted paragraph cannot become a predicate per word. */
+    private static final int MAX_Q_TOKENS = 6;
 
     private PropertySpecs() {
     }
@@ -49,10 +52,7 @@ final class PropertySpecs {
         };
     }
 
-    /**
-     * Ordering-only: floats currently-promoted listings to the top. <strong>Filters nothing</strong>,
-     * and applied only when the buyer expressed no order - a boost buys position, never visibility.
-     */
+    /** Ordering only - <strong>filters nothing</strong>; a boost buys position, never visibility. */
     static Specification<Property> boostedFirst(Instant now) {
         return (root, query, cb) -> {
             // Spring Data issues a separate COUNT query for the page total. An ORDER BY there is
@@ -71,10 +71,7 @@ final class PropertySpecs {
         };
     }
 
-    /**
-     * Default order for the results page: paid placement first, then editorial merit. <strong>Filters
-     * nothing</strong>; the score table and the freshness tiers are in search-listings.md 9.3.
-     */
+    /** Ordering only - <strong>filters nothing</strong>; score table and freshness tiers: search-listings.md 9.3. */
     static Specification<Property> relevanceFirst(Instant now) {        return (root, query, cb) -> {
             if (query != null && !Long.class.equals(query.getResultType())) {
                 Expression<Instant> since = cb.coalesce(root.get("lastConfirmedAt"), root.get("createdAt"));
@@ -111,10 +108,7 @@ final class PropertySpecs {
         return cb.<Integer>selectCase().when(when, points).otherwise(0);
     }
 
-    /**
-     * The moderation search: the same facets with <strong>no visibility floor</strong>, so
-     * {@code status} widens rather than narrows. <strong>Staff/admin routes only.</strong>
-     */
+    /** <strong>No visibility floor</strong>, so {@code status} widens rather than narrows: staff/admin routes only. */
     static Specification<Property> adminSearch(PropertySearchQuery filters, ModerationFacets mod) {
         return (root, query, cb) -> {
             // Only this search maps rows to the full PropertyResponse, which embeds the LAZY owner;
@@ -160,10 +154,7 @@ final class PropertySpecs {
         };
     }
 
-    /**
-     * The facets both searches share. Status, {@code q} and the {@link ModerationFacets} axes stay at
-     * the call sites because that is exactly where the public and moderation reads must differ.
-     */
+    /** Status, {@code q} and the {@link ModerationFacets} axes stay at the call sites: that is where the two reads must differ. */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb) {
         List<Predicate> where = new ArrayList<>();
@@ -204,25 +195,39 @@ final class PropertySpecs {
         return where;
     }
 
-    /**
-     * The free-text term as a <em>shopper</em> may ask it: title and locality, nothing else. A
-     * separate method from {@link #adminTextSearch}, never a flag - search-listings.md 9.2.
-     */
+    /** Matches only what is printed on the card; a separate method from {@link #adminTextSearch}, never a flag. */
     private static void publicTextSearch(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb, List<Predicate> where) {
         if (!StringUtils.hasText(filters.q())) {
             return;
         }
-        String like = "%" + filters.q().trim().toLowerCase() + "%";
-        where.add(cb.or(
-                cb.like(cb.lower(root.get("title")), like),
-                cb.like(cb.lower(root.get("locality")), like)));
+        Expression<String> title = cb.lower(root.get("title"));
+        Expression<String> locality = cb.lower(root.get("locality"));
+        // The bound society reaches the row as its slug, so a name matches it word by word or not
+        // at all: the slugs are name-builder-locality and nobody types them in that order.
+        Expression<String> society = cb.lower(root.get("societySlug"));
+        Expression<String> type = cb.lower(root.get("propertyType"));
+        /* Every word must appear somewhere rather than the whole phrase in one column: smart search
+           sends the words it could not facet, routinely a builder and a project in two columns. */
+        Arrays.stream(filters.q().trim().toLowerCase(Locale.ROOT).split("\\s+"))
+                .filter(token -> !token.isEmpty())
+                .limit(MAX_Q_TOKENS)
+                .forEach(token -> {
+                    String like = "%" + escapeLike(token) + "%";
+                    where.add(cb.or(
+                            cb.like(title, like, LIKE_ESCAPE),
+                            cb.like(locality, like, LIKE_ESCAPE),
+                            cb.like(society, like, LIKE_ESCAPE),
+                            cb.like(type, like, LIKE_ESCAPE)));
+                });
     }
 
-    /**
-     * The same term as a <em>moderator</em> asks it, adding owner name, owner mobile and the id as
-     * text. The id cast must be {@link HibernateCriteriaBuilder#cast}: search-listings.md 9.2.
-     */
+    /** Unescaped, a search for {@code 100%} returns the whole catalogue while reading as a narrowing. */
+    private static String escapeLike(String token) {
+        return token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /** Adds owner name, mobile and the id as text; the id cast must be {@link HibernateCriteriaBuilder#cast}. */
     private static void adminTextSearch(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb, List<Predicate> where) {
         if (!StringUtils.hasText(filters.q())) {
@@ -242,20 +247,16 @@ final class PropertySpecs {
                 cb.like(idAsText, like)));
     }
 
-    /**
-     * The buyer-facing facets from the listings results page, applied only by {@link #publicSearch}.
-     * Filtering here and not client-side: a predicate the database cannot see cannot page correctly.
-     */
+    /** Applied only by {@link #publicSearch}: a predicate the database cannot see cannot page correctly. */
     private static void listingFacets(ListingFacets f, Root<Property> root, CriteriaBuilder cb,
             List<Predicate> where) {
         if (f == null) {
             return;
         }
-        // --- unions: any of the selected values matches ---
         // Canonical key column, not the free-text label; share-aware (only PG/Flatmates admit shares).
         typeFacet(f.types(), root, cb, where);
-        // The commercial sub-filter: every commercial label collapses to `commercial` in the type
-        // key, so "Warehouse / Godown" needs its own. Only ever narrows within commercial.
+        // Every commercial label collapses to `commercial` in the type key, so "Warehouse / Godown"
+        // needs its own facet. Only ever narrows within commercial.
         inLowerValues(f.commercialUses(), root.get("commercialUseKey"), cb, where);
         in(f.furnishings(), root.get("furnishing"), cb, where);
         in(f.localities(), root.get("localitySlug"), cb, where);
@@ -285,7 +286,6 @@ final class PropertySpecs {
             where.add(cb.or(any.toArray(Predicate[]::new)));
         }
 
-        // --- jsonb array facets ---
         // Amenities AND. The empty-after-clean guard matters: an empty loop adds no predicate at all.
         List<String> amenities = clean(f.amenities());
         if (amenities.isEmpty()) {
@@ -303,8 +303,8 @@ final class PropertySpecs {
         anyJsonOrNoPreference(tenantFilters.isEmpty() ? f.tenants() : tenantFilters,
             root.get("tenants"), cb, where);
 
-        // --- trust flags: only ever narrow. `false` means "I did not ask", not "show me the
-        // unverified ones" — there is no surface that searches for absent trust. ---
+        // Trust flags only ever narrow: `false` means "I did not ask", not "show me the unverified
+        // ones" - there is no surface that searches for absent trust.
         if (Boolean.TRUE.equals(f.ownerVerified())) {
             where.add(cb.isTrue(root.get("ownerVerified")));
         }
@@ -324,27 +324,37 @@ final class PropertySpecs {
         if (Boolean.TRUE.equals(f.rera())) {
             where.add(cb.isNotNull(root.get("reraId")));
         }
+        // Equality, so a listing that never said who posted it is excluded rather than assumed to
+        // be an owner: "no brokerage" is a claim, and silence cannot back it.
+        if (Boolean.TRUE.equals(f.postedByOwner())) {
+            where.add(cb.equal(root.get("postedByType"), PostedByType.OWNER));
+        }
 
-        // --- ranges ---
+        // A bare bound, which SQL evaluates as false against NULL, would delete every listing silent
+        // on these optional columns; they stay in the match and are counted by `unstatedFiltered`.
         if (f.minArea() != null) {
-            where.add(cb.ge(root.get("area"), f.minArea()));
+            where.add(cb.or(root.get("area").isNull(), cb.ge(root.get("area"), f.minArea())));
         }
         if (f.maxArea() != null) {
-            where.add(cb.le(root.get("area"), f.maxArea()));
+            where.add(cb.or(root.get("area").isNull(), cb.le(root.get("area"), f.maxArea())));
         }
-        // An unstated age is excluded from an age search rather than read as zero. `cb.ge` on a null
-        // column is already false; said here so nobody "fixes" it into a coalesce.
         if (f.minAge() != null) {
-            where.add(cb.ge(root.get("ageYears"), f.minAge()));
+            where.add(cb.or(root.get("ageYears").isNull(), cb.ge(root.get("ageYears"), f.minAge())));
         }
         if (f.maxAge() != null) {
-            where.add(cb.le(root.get("ageYears"), f.maxAge()));
+            where.add(cb.or(root.get("ageYears").isNull(), cb.le(root.get("ageYears"), f.maxAge())));
         }
         if (f.minFloor() != null) {
-            where.add(cb.ge(root.get("floor"), f.minFloor()));
+            where.add(cb.or(root.get("floor").isNull(), cb.ge(root.get("floor"), f.minFloor())));
         }
         if (f.maxFloor() != null) {
-            where.add(cb.le(root.get("floor"), f.maxFloor()));
+            where.add(cb.or(root.get("floor").isNull(), cb.le(root.get("floor"), f.maxFloor())));
+        }
+        if (f.minDeposit() != null) {
+            where.add(cb.or(root.get("deposit").isNull(), cb.ge(root.get("deposit"), f.minDeposit())));
+        }
+        if (f.maxDeposit() != null) {
+            where.add(cb.or(root.get("deposit").isNull(), cb.le(root.get("deposit"), f.maxDeposit())));
         }
 
         if (f.hasNearPoint()) {
@@ -352,10 +362,7 @@ final class PropertySpecs {
         }
     }
 
-    /**
-     * "Within N km of this point", without PostGIS: an indexable bounding box first, then an exact
-     * great-circle test on the survivors, compared as cosines. search-listings.md section 9.6.
-     */
+    /** "Within N km" without PostGIS: an indexable bounding box, then an exact great-circle test on the survivors. */
     private static Predicate withinRadius(Root<Property> root, CriteriaBuilder cb,
             double lat, double lng, double radiusKm) {
         double latRad = Math.toRadians(lat);
@@ -392,26 +399,14 @@ final class PropertySpecs {
         return cb.function(name, Double.class, arg);
     }
 
-    /**
-     * {@code jsonb_exists(column, token)} - the function spelling of Postgres's {@code ?} operator,
-     * which JDBC would otherwise rewrite as a bind placeholder.
-     */
+    /** The function spelling of Postgres's {@code ?} operator, which JDBC would rewrite as a bind placeholder. */
     private static Predicate jsonContains(Expression<?> column, String token, CriteriaBuilder cb) {
         return cb.isTrue(cb.function("jsonb_exists", Boolean.class, column, cb.literal(token)));
     }
 
-    private static void anyJson(List<String> values, Expression<?> column, CriteriaBuilder cb,
-            List<Predicate> where) {
-        List<String> tokens = clean(values);
-        if (tokens.isEmpty()) {
-            unmatchableIfAsked(values, cb, where);
-            return;
-        }
-        List<Predicate> any = new ArrayList<>();
-        tokens.forEach(t -> any.add(jsonContains(column, t, cb)));
-        where.add(cb.or(any.toArray(Predicate[]::new)));
-    }
-
+    /** An empty preference is an answer, not silence: an owner who named no tenant type will take
+     * anyone, so every tenant search admits them. Contrast {@code pets}, where null means the owner
+     * never answered and matching it would advertise a permission nobody gave. */
     private static void anyJsonOrNoPreference(List<String> values, Expression<?> column,
             CriteriaBuilder cb, List<Predicate> where) {
         List<String> tokens = clean(values);
@@ -427,10 +422,7 @@ final class PropertySpecs {
         where.add(cb.or(any.toArray(Predicate[]::new)));
     }
 
-    /**
-     * Ownership verification that has <em>not lapsed</em> as of {@code now}; a null expiry means
-     * "does not lapse". The bare column would let the facet and the card badge disagree.
-     */
+    /** A null expiry means "does not lapse"; the bare column would let the facet and the card badge disagree. */
     private static Predicate ownershipLive(Root<Property> root, CriteriaBuilder cb, Instant now) {
         return cb.and(
                 cb.isTrue(root.get("ownershipVerified")),
@@ -439,12 +431,32 @@ final class PropertySpecs {
                         cb.greaterThan(root.get("ownershipVerifiedUntil"), now)));
     }
 
-    /**
-     * "Carries a trust badge a buyer can see", behind the {@code verifiedElements} count - the same
-     * disjunction the cards draw their badges from, reusing {@link #ownershipLive}.
-     */
+    /** The same disjunction the cards draw their badges from, so the count and the badge cannot disagree. */
     static Specification<Property> anyVerified(Instant now) {
         return (root, query, cb) -> cb.or(cb.isTrue(root.get("ownerVerified")), ownershipLive(root, cb, now));
+    }
+
+    /** Rows silent on a filtered column: the bounds admit them, so this count stops that reading as a match. */
+    static Specification<Property> unstatedFiltered(ListingFacets f) {
+        return (root, query, cb) -> {
+            if (f == null) {
+                return cb.disjunction();
+            }
+            List<Predicate> any = new ArrayList<>();
+            if (f.minArea() != null || f.maxArea() != null) {
+                any.add(root.get("area").isNull());
+            }
+            if (f.minAge() != null || f.maxAge() != null) {
+                any.add(root.get("ageYears").isNull());
+            }
+            if (f.minFloor() != null || f.maxFloor() != null) {
+                any.add(root.get("floor").isNull());
+            }
+            if (f.minDeposit() != null || f.maxDeposit() != null) {
+                any.add(root.get("deposit").isNull());
+            }
+            return any.isEmpty() ? cb.disjunction() : cb.or(any.toArray(Predicate[]::new));
+        };
     }
 
     private static void in(List<String> values, Expression<String> column, CriteriaBuilder cb,
@@ -457,10 +469,7 @@ final class PropertySpecs {
         where.add(column.in(tokens));
     }
 
-    /**
-     * Case-insensitive {@code IN} that lowercases the <em>values</em> and leaves the column bare:
-     * {@code lower(property_type_key)} is not the expression {@code idx_properties_type_key} covers.
-     */
+    /** Lowercases the <em>values</em> and leaves the column bare: {@code idx_properties_type_key} does not cover {@code lower(...)}. */
     private static void inLowerValues(List<String> values, Expression<String> column,
             CriteriaBuilder cb, List<Predicate> where) {
         List<String> tokens = clean(values);
@@ -474,10 +483,7 @@ final class PropertySpecs {
     /** The one type chip that names a share rather than a kind of building. */
     private static final Set<String> SHARE_KEYS = Set.of("flatmates");
 
-    /**
-     * The type chips, answered by two columns: {@code flatmates} against {@code share_type},
-     * every other chip against {@code property_type_key} plus the absence of a share type. Chips OR.
-     */
+    /** Two columns: {@code flatmates} against {@code share_type}, every other chip against {@code property_type_key}. */
     private static void typeFacet(List<String> values, Root<Property> root, CriteriaBuilder cb,
             List<Predicate> where) {
         List<String> tokens = clean(values);
@@ -502,10 +508,8 @@ final class PropertySpecs {
         where.add(cb.or(anyChip.toArray(new Predicate[0])));
     }
 
-    /**
-     * Distinguish "this facet was not used" from "it was used and nothing survived sanitising": the
-     * latter must contribute a false predicate, or an unmatchable filter returns the whole catalogue.
-     */
+    // "Used and nothing survived sanitising" must contribute a false predicate, or an unmatchable
+    // filter returns the whole catalogue. Emptiness is the test: an absent list param binds empty.
     private static void unmatchableIfAsked(List<String> values, CriteriaBuilder cb,
             List<Predicate> where) {
         if (values != null && !values.isEmpty()) {
@@ -513,10 +517,7 @@ final class PropertySpecs {
         }
     }
 
-    /**
-     * Drop blanks and anything outside the shape these vocabularies use. A filter, not validation:
-     * these values reach {@code cb.literal} inside a JSON function, so the guard is local by design.
-     */
+    /** A local filter, not validation: these values reach {@code cb.literal} inside a JSON function. */
     private static List<String> clean(List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
