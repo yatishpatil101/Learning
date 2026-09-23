@@ -165,8 +165,9 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
         return """
                 {"bhk":"2","roomType":"Private room","locality":"Baner",
                  "society":"Outlook House","rentShare":15000,"agreementDeclared":true,
-                 "photos":["https://cdn.example/room.jpg"]%s}
-                """.formatted(fields.isEmpty() ? "" : "," + fields);
+                 "photos":["https://cdn.example/room.jpg"],%s%s}
+                """.formatted(FlatmateAgreementFixture.EVIDENCE,
+                fields.isEmpty() ? "" : "," + fields);
     }
 
     private void assertStoredAndReadable(String id, String facing, String overlooking) throws Exception {

@@ -20,33 +20,16 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Letting a whole-flat rent listing room by room.
- *
- * <p><strong>The whole-flat listing keeps existing.</strong> A split adds per-room supply beside it
- * rather than converting it, so the share market never cannibalises core rental inventory — the
- * owner is offering the same flat two ways and the market decides which sells.
- *
- * <p><strong>The badge is inherited, never asserted.</strong> Rooms from a split start at
- * {@code identity} tier and unbadged while the parent listing is pending; they are promoted to
- * {@code owner} tier when Ops approves the flat. Splitting is an act the owner performs on their own
- * listing — it proves nothing that was not already proven about the parent, so it grants nothing.
- *
- * <p><strong>Occupancy, not seats.</strong> Split rooms track real people against a ceiling that
- * belongs to the whole flat ({@code maxOccupants}), because a society's cap is a fact about the flat
- * rather than about any one room. See {@link FlatmateRoom} for why the two models never mix.
- */
+/** Letting a whole-flat rent listing room by room. The whole-flat listing keeps existing, the badge
+ * is inherited from the parent's Ops approval, and split rooms track occupancy rather than seats. */
 @Service
 public class FlatSplitService {
 
     /** People allowed in one room, anywhere on the platform. Above this it is a dormitory. */
     private static final int MAX_PER_ROOM = 3;
 
-    /**
-     * Lettable rooms are bedrooms plus the hall, so a partitioned living room is the budget option.
-     * Unbounded when {@code bhk} is {@code "4"}, which means 4+ — there is no ceiling to compute
-     * from, so only the flat's occupancy cap binds.
-     */
+    /** Lettable rooms are bedrooms plus the hall. Unbounded when {@code bhk} is {@code "4"} (4+):
+     * there is no ceiling to compute from, so only the flat's occupancy cap binds. */
     private static final int HALL = 1;
 
     private final PropertyRepository properties;
@@ -90,9 +73,8 @@ public class FlatSplitService {
         validateRoomCount(parent, specs.size());
         validateOccupancy(body.maxOccupants(), specs.size());
 
-        // The same guardrails every other supply-side create runs. An owner splitting their own
-        // Ops-approved flat is exempt from the CAP but never from the address dedupe -- two people
-        // claiming one flat is exactly what the fingerprint exists to catch.
+        // An owner splitting their own Ops-approved flat is exempt from the CAP but never from the
+        // address dedupe -- two people claiming one flat is what the fingerprint exists to catch.
         boolean approved = PropertyStatus.APPROVED.equals(parent.getStatus());
         String tier = approved ? FlatmateVocabulary.TIER_OWNER : FlatmateVocabulary.TIER_IDENTITY;
         var address = new FlatmateGuardrails.Address(propertyId, null, parent.getLocality(), null);
@@ -107,9 +89,11 @@ public class FlatSplitService {
         List<FlatmateRoomDto> created = new ArrayList<>();
         for (FlatSplitRequest.RoomSpec spec : specs) {
             FlatmateRoom room = buildRoom(caller, parent, spec, body.maxOccupants(), tier,
-                    approved, eligibility.fingerprint(), eligibility.flagForReview());
+                    eligibility.fingerprint(), eligibility.flagForReview());
             created.add(mapper.toDto(rooms.saveAndFlush(room), new FlatmateMapper.RoomView(
-                    0, owner.getName(), owner.getMobile())));
+                    // No verdict to read: the tier here is owner or identity (never tenant), so the
+                    // badge is already decided by the parent listing's own Ops approval.
+                    0, owner.getName(), owner.getMobile(), null)));
         }
 
         audit.record(caller, "property.split", "property", propertyId.toString(),
@@ -119,13 +103,8 @@ public class FlatSplitService {
                 created);
     }
 
-    /**
-     * {@code DELETE /properties/{id}/split} — stop letting room by room.
-     *
-     * <p>Refused once anyone has moved in. Deleting the rooms would erase a live tenancy: the
-     * occupancy ledger is the only record that those people are there, and an owner should not be
-     * able to make their tenants disappear by pressing undo.
-     */
+    /** Refused once anyone has moved in: the occupancy ledger is the only record those people are
+     * there, and an owner should not make their tenants disappear by pressing undo. */
     @Transactional
     public void unsplit(AuthPrincipal caller, UUID propertyId) {
         Property parent = properties.findById(propertyId)
@@ -154,7 +133,7 @@ public class FlatSplitService {
     }
 
     private FlatmateRoom buildRoom(AuthPrincipal caller, Property parent,
-            FlatSplitRequest.RoomSpec spec, int maxOccupants, String tier, boolean approved,
+            FlatSplitRequest.RoomSpec spec, int maxOccupants, String tier,
             String fingerprint, boolean flagged) {
         String kind = FlatmateVocabulary.require(
                 spec.roomKind(), FlatmateVocabulary.ROOM_KIND, "room kind");
@@ -163,11 +142,10 @@ public class FlatSplitService {
                 caller.userId(), "Private room", parent.getLocality(), spec.rent());
         room.setPropertyId(parent.getId());
         room.setRoomKind(kind);
-        // A master bedroom's private bathroom is implied, so the owner is never asked the same
-        // question twice; every other kind shares.
+        // A master bedroom's private bathroom is implied, so the owner is never asked twice.
         room.setAttachedBath("master".equals(kind) ? "attached" : "shared");
-        // Per ROOM, not per person: this is the whole room's rent, divided by whoever takes it.
-        // The distinction is what stops a shared bed looking pricier than a private room.
+        // Per ROOM, not per person — this is what stops a shared bed looking pricier than a private
+        // room.
         room.setPriceBasis("room");
         room.setDeposit(spec.deposit() == null ? spec.rent() * 2 : spec.deposit());
         room.setMaxOccupants(maxOccupants);
@@ -177,7 +155,6 @@ public class FlatSplitService {
         room.setSeatsOpen(null);
         room.setHostRole(FlatmateVocabulary.ROLE_OWNER);
         room.setVerificationTier(tier);
-        room.setVerified(approved);
         room.setSocietyId(parent.getSocietyId());
         room.setLocalities(List.of(parent.getLocality()));
         room.setLat(parent.getLat());
@@ -189,13 +166,8 @@ public class FlatSplitService {
         return room;
     }
 
-    /**
-     * Lettable rooms = bedrooms + hall.
-     *
-     * <p>A listing's {@code bhk} is a {@link BigDecimal} because half-rooms are real (2.5 BHK); the
-     * ceiling floors it, since half a room is not a second lettable room. Unbounded at 4 or more,
-     * where the contract's room enum saturates and only the occupancy cap binds.
-     */
+    /** Lettable rooms = bedrooms + hall. {@code bhk} is a {@link BigDecimal} because half-rooms are
+     * real (2.5 BHK); the ceiling floors it. Unbounded at 4 or more, where the room enum saturates. */
     private static void validateRoomCount(Property parent, int requested) {
         BigDecimal bhk = parent.getBhk();
         if (bhk == null || bhk.compareTo(BigDecimal.valueOf(4)) >= 0) {
@@ -210,11 +182,8 @@ public class FlatSplitService {
         }
     }
 
-    /**
-     * The parent's numeric {@code bhk} as the room contract's enum: {@code 1}-{@code 4}, where
-     * {@code 4} means 4+. Floored and clamped, because a room card says "in a 3 BHK" rather than
-     * quoting a decimal.
-     */
+    /** The room contract's enum: {@code 1}-{@code 4}, where {@code 4} means 4+. Floored and clamped,
+     * because a room card says "in a 3 BHK" rather than quoting a decimal. */
     private static String bhkLabel(BigDecimal bhk) {
         if (bhk == null) {
             return null;
@@ -223,12 +192,8 @@ public class FlatSplitService {
         return String.valueOf(Math.clamp(whole, 1, 4));
     }
 
-    /**
-     * The flat cap must sit in {@code [roomCount, roomCount x 3]}.
-     *
-     * <p>Below the room count it would advertise rooms nobody may live in; above three per room it
-     * exceeds the platform-wide per-room ceiling however the people are distributed.
-     */
+    /** Below the room count it would advertise rooms nobody may live in; above three per room it
+     * exceeds the platform-wide per-room ceiling however the people are distributed. */
     private static void validateOccupancy(int maxOccupants, int roomCount) {
         int floor = roomCount;
         int ceiling = roomCount * MAX_PER_ROOM;

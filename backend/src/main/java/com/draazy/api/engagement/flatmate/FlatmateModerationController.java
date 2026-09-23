@@ -18,24 +18,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The Ops and admin side of the flatmates market (contract tag {@code Moderation}).
- *
- * <p>Every route here is staff/admin, matching the contract's {@code x-roles}. The two axes are kept
- * on separate routes deliberately — see {@link FlatmateModerationService} for why verification and
- * moderation must not collapse into one another.
- *
- * <p><strong>Per-account atoms narrow the same routes again</strong> (tech debt D192/D13):
- * {@code flatmates:read} for the four queues, {@code flatmates:write} for the four decisions. The
- * split is the one that matters on a queue somebody is being trained on — watching the work is not
- * the same permission as doing it. Both are {@code and}-ed onto {@link #STAFF_OR_ADMIN}, so neither
- * can admit a caller the role guard refused.
- */
+/** Staff/admin side of the flatmates market. Verification and moderation stay on separate routes —
+ * see {@link FlatmateModerationService} for why they must not collapse into one another. */
 @RestController
 public class FlatmateModerationController {
 
@@ -47,18 +37,16 @@ public class FlatmateModerationController {
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_FLATMATES_WRITE;
 
     private final FlatmateModerationService service;
+    private final FlatmateTrustReconciler reconciler;
 
-    public FlatmateModerationController(FlatmateModerationService service) {
+    public FlatmateModerationController(FlatmateModerationService service,
+            FlatmateTrustReconciler reconciler) {
         this.service = service;
+        this.reconciler = reconciler;
     }
 
-    /**
-     * {@code GET /admin/flatmate-reviews} (contract {@code listFlatmateReviews}) — paged.
-     *
-     * <p>Was a bare array, and was the wrong one: it read every row of a platform-wide table with
-     * no scoping and no cap, while every other admin queue in the API pages. See
-     * {@link FlatmateModerationService#queue}.
-     */
+    /** {@code GET /admin/flatmate-reviews} (contract {@code listFlatmateReviews}) — paged, because
+     * this is a platform-wide table with no scoping. */
     @GetMapping(Routes.Moderation.FLATMATE_REVIEWS)
     @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateReviewDto> queue(@RequestParam(required = false) String status,
@@ -76,13 +64,8 @@ public class FlatmateModerationController {
         return service.decideReview(principal, id, body.decision(), body.note());
     }
 
-    /**
-     * {@code GET /admin/flatmates/moderation} — the queue D72 created.
-     *
-     * <p>Oldest first by default: a moderation queue served newest-first starves the person who has
-     * been waiting longest, which is the one outcome that turns "we moderate posts" into "we lose
-     * posts".
-     */
+    /** {@code GET /admin/flatmates/moderation}. Oldest first by default: newest-first starves the
+     * person who has been waiting longest. */
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
     @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateModerationQueueDto> moderationQueue(
@@ -93,13 +76,8 @@ public class FlatmateModerationController {
         return PageResponse.of(service.moderationQueue(kind, modStatus, pageable), dto -> dto);
     }
 
-    /**
-     * {@code PATCH /admin/flatmates/{id}/moderation} (contract {@code moderateFlatmatePost}).
-     *
-     * <p>200 with no body: the contract declares no response schema, and the client already knows
-     * what it set. Echoing the post back would invite a client to re-render a row it should be
-     * refetching from the queue it is working through.
-     */
+    /** {@code PATCH /admin/flatmates/{id}/moderation}. 200 with no body: the contract declares no
+     * response schema, and a client should refetch the queue rather than re-render a row. */
     @PatchMapping(Routes.Moderation.FLATMATE_MODERATION)
     @PreAuthorize(FLATMATES_WRITE)
     @ResponseStatus(HttpStatus.OK)
@@ -108,11 +86,20 @@ public class FlatmateModerationController {
         service.moderate(principal, id, body.modStatus(), body.note());
     }
 
-    /**
-     * Contract schema {@code DecisionRequest} as this queue uses it: {@code approved} or
-     * {@code rejected}, with a reason that is mandatory on a rejection (checked in the service, and
-     * again by the database).
-     */
+    /** {@link #FLATMATES_WRITE}, not read: it demotes posts. Idempotent — it re-asks a question
+     * rather than applying a delta, so a second click finds nothing left to do. */
+    @PostMapping(Routes.Moderation.FLATMATE_OWNER_TIER_RECONCILE)
+    @PreAuthorize(FLATMATES_WRITE)
+    public ReconcileResponse reconcileOwnerTier(@CurrentUser AuthPrincipal principal) {
+        return new ReconcileResponse(reconciler.reconcileOwnerTier(principal));
+    }
+
+    /** How many posts the pass demoted. Zero is the healthy answer, not an error. */
+    public record ReconcileResponse(int demoted) {
+    }
+
+    /** Contract schema {@code DecisionRequest}: {@code approved} or {@code rejected}, with a reason
+     * mandatory on a rejection (checked in the service, and again by the database). */
     public record DecisionRequest(@NotBlank String decision, @Size(max = 600) String note) {
     }
 
@@ -128,12 +115,8 @@ public class FlatmateModerationController {
         return PageResponse.of(service.applications(pageable), dto -> dto);
     }
 
-    /**
-     * {@code PATCH /admin/group-applications/{id}} (contract {@code decideGroupApplication}).
-     *
-     * <p>Named "decide" by the contract, but it writes the <em>moderation</em> axis only — the
-     * owner's accept/decline is theirs alone. See {@link FlatmateModerationService}.
-     */
+    /** Named "decide" by the contract, but it writes the <em>moderation</em> axis only — the owner's
+     * accept/decline is theirs alone. See {@link FlatmateModerationService}. */
     @PatchMapping(Routes.Moderation.GROUP_APPLICATION_BY_ID)
     @PreAuthorize(FLATMATES_WRITE)
     public GroupApplicationDto moderateApplication(@CurrentUser AuthPrincipal principal,

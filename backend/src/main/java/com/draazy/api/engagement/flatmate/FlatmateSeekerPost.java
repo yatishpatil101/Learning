@@ -2,6 +2,7 @@ package com.draazy.api.engagement.flatmate;
 
 import com.draazy.api.common.persistence.AuditedEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -14,21 +15,8 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/**
- * A person looking for flatmates who has no address yet — the {@code team-up} feed (V27
- * {@code flatmate_seeker_posts}).
- *
- * <p><strong>What is published here is a person, not a place</strong>, and every difference from
- * {@link com.draazy.api.catalog.property.Property} follows from that. There is no address to
- * moderate, no owner to verify, nothing to visit and no price to negotiate — only a budget, a
- * shortlist of localities and a description of how someone lives. It is also why
- * {@link #verifiedContactOnly} exists at all: on a listing the thing being protected is a phone
- * number, here it is the person themselves.
- *
- * <p>One live post per identity, enforced by a partial unique index rather than by a service check.
- * Archiving frees the slot, so somebody who found a flat last year and is looking again is not
- * blocked by their own history.
- */
+/** A person looking for flatmates who has no address yet — the {@code team-up} feed (V27). One live
+ * post per identity, enforced by a partial unique index; archiving frees the slot. */
 @Entity
 @Table(name = "flatmate_seeker_posts")
 @Getter
@@ -57,23 +45,24 @@ public class FlatmateSeekerPost extends AuditedEntity {
     @Setter
     private Long budget;
 
+    /** The top of the range. Null means {@link #budget} is both ends, not that there is no ceiling. */
+    @Column(name = "budget_max")
+    @Setter
+    private Long budgetMax;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "localities", nullable = false)
     @Setter
     private List<String> localities = new ArrayList<>();
 
-    /**
-     * The literal {@code now}, a legacy day bucket ({@code 15}/{@code 30}/{@code 60}) or an ISO
-     * date. Kept as the caller wrote it so a client renders back exactly what the seeker chose.
-     */
+    /** Kept as the caller wrote it — the literal {@code now}, a legacy day bucket or an ISO date —
+     * so a client renders back exactly what the seeker chose. */
     @Column(name = "move_in")
     @Setter
     private String moveIn;
 
-    /**
-     * {@link #moveIn} parsed to a date, so "available within 30 days" is an index range scan rather
-     * than a string parse per row. Null means now, or unparseable — both are immediately available.
-     */
+    /** {@link #moveIn} parsed, so "within 30 days" is an index range scan rather than a per-row
+     * parse. Null means now, or unparseable — both are immediately available. */
     @Column(name = "move_in_at")
     @Setter
     private LocalDate moveInAt;
@@ -100,11 +89,8 @@ public class FlatmateSeekerPost extends AuditedEntity {
     @Setter
     private boolean verifiedContactOnly = false;
 
-    /**
-     * The seeker's L2 badge as it stood when the post was written (ADR-009a). Snapshotted rather
-     * than joined live, because the badge on a card is a claim about post time — recomputing it
-     * would silently rewrite history on every read.
-     */
+    /** Snapshotted rather than joined live: the badge on a card is a claim about post time, so
+     * recomputing it would silently rewrite history on every read. */
     @Column(name = "verified", nullable = false)
     @Setter
     private boolean verified = false;
@@ -112,6 +98,9 @@ public class FlatmateSeekerPost extends AuditedEntity {
     @Column(name = "mod_status", nullable = false)
     @Setter
     private String modStatus = FlatmateVocabulary.MOD_PENDING;
+
+    @Embedded
+    private ModerationRecheck recheck = new ModerationRecheck();
 
     @Column(name = "lat")
     @Setter
@@ -139,10 +128,8 @@ public class FlatmateSeekerPost extends AuditedEntity {
         this.budget = budget;
     }
 
-    /**
-     * Soft-delete. Backs both "Delete" and "Mark filled" — the contract gives them one operation
-     * because they are the same fact about the world, differing only in how the seeker feels.
-     */
+    /** Backs both "Delete" and "Mark filled" — the contract gives them one operation because they
+     * are the same fact about the world. */
     void archive(String reason) {
         this.archived = true;
         this.archivedAt = Instant.now();
@@ -152,5 +139,13 @@ public class FlatmateSeekerPost extends AuditedEntity {
     /** Visible on a consumer surface: neither archived nor awaiting/denied by a moderator. */
     public boolean isVisible() {
         return !archived && FlatmateVocabulary.isPublic(modStatus);
+    }
+
+    /** Never null — see {@code FlatmateRoom#getRecheck} for why the field alone is not enough. */
+    public ModerationRecheck getRecheck() {
+        if (recheck == null) {
+            recheck = new ModerationRecheck();
+        }
+        return recheck;
     }
 }

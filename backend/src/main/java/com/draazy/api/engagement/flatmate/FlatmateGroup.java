@@ -3,6 +3,7 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.persistence.AuditedEntity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
@@ -18,14 +19,12 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/**
- * People teaming up ({@code flatmate_groups}). The address is nullable because "we have a flat" is a
- * state a group passes through, not a kind — column reasoning: docs/system/data-model.md.
- */
+/** People teaming up ({@code flatmate_groups}). The address is nullable because "we have a flat" is
+ * a state a group passes through, not a kind — column reasoning: docs/system/data-model.md. */
 @Entity
 @Table(name = "flatmate_groups")
 @Getter
-public class FlatmateGroup extends AuditedEntity {
+public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
 
     @Column(name = "host_id", nullable = false, updatable = false)
     private UUID hostId;
@@ -48,14 +47,33 @@ public class FlatmateGroup extends AuditedEntity {
     @Setter
     private Long rent;
 
+    @Column(name = "deposit")
+    @Setter
+    private Long deposit;
+
+    /** Null means the host did not state it, which is not the same as a term of zero. */
+    @Column(name = "notice_period_days")
+    @Setter
+    private Integer noticePeriodDays;
+
+    @Column(name = "lock_in_months")
+    @Setter
+    private Integer lockInMonths;
+
+    @Column(name = "maintenance_billing")
+    @Setter
+    private String maintenanceBilling;
+
+    @Column(name = "electricity_billing")
+    @Setter
+    private String electricityBilling;
+
     @Column(name = "seats_total", nullable = false)
     @Setter
     private int seatsTotal = 2;
 
-    /**
-     * What one member pays: {@code round(rent / seatsTotal)}, maintained by the database and
-     * read-only here — a second writer would be a second answer to the only price a member sees.
-     */
+    /** {@code round(rent / seatsTotal)}, maintained by the database and read-only here — a second
+     * writer would be a second answer to the only price a member sees. */
     @Column(name = "per_head", insertable = false, updatable = false)
     private Long perHead;
 
@@ -79,10 +97,8 @@ public class FlatmateGroup extends AuditedEntity {
     @Setter
     private boolean agreementDeclared = false;
 
-    /**
-     * True only once the flat's owner confirmed by OTP. Never client-asserted: the entire value of
-     * the record is that the owner themselves acted.
-     */
+    /** True only once the flat's owner confirmed by OTP. Never client-asserted: the entire value of
+     * the record is that the owner themselves acted. */
     @Column(name = "owner_consent", nullable = false)
     @Setter
     private boolean ownerConsent = false;
@@ -103,10 +119,11 @@ public class FlatmateGroup extends AuditedEntity {
     @Setter
     private String modStatus = FlatmateVocabulary.MOD_PENDING;
 
-    /**
-     * Where the group's flat is, null while it has no address. Null means <em>unknown</em>, never
-     * {@code 0} — (0,0) is open ocean; radius search excludes null instead.
-     */
+    @Embedded
+    private ModerationRecheck recheck = new ModerationRecheck();
+
+    /** Null means <em>unknown</em>, never {@code 0} — (0,0) is open ocean; radius search excludes
+     * null instead. */
     @Column(name = "lat")
     @Setter
     private Double lat;
@@ -134,10 +151,8 @@ public class FlatmateGroup extends AuditedEntity {
     @Column(name = "archive_reason")
     private String archiveReason;
 
-    /**
-     * Members, owned by the group. Cascaded and orphan-removing because a member has no meaning
-     * outside its group — a genuine composition, not an association.
-     */
+    /** Cascaded and orphan-removing because a member has no meaning outside its group — a genuine
+     * composition, not an association. */
     @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true,
             fetch = FetchType.LAZY)
     @OrderBy("createdAt asc")
@@ -169,18 +184,22 @@ public class FlatmateGroup extends AuditedEntity {
         return !archived && FlatmateVocabulary.isPublic(modStatus);
     }
 
-    /**
-     * A group holding an address belongs in {@code move-in}. A parent listing is the only way it can
-     * express one — naming a society it has no listing for is a claim, not a place.
-     */
+    /** Never null — see {@code FlatmateRoom#getRecheck} for why the field alone is not enough. */
+    public ModerationRecheck getRecheck() {
+        if (recheck == null) {
+            recheck = new ModerationRecheck();
+        }
+        return recheck;
+    }
+
+    /** A parent listing is the only way a group can express an address — naming a society it has no
+     * listing for is a claim, not a place. */
     public boolean hasAddress() {
         return propertyId != null;
     }
 
-    /**
-     * Seats genuinely open. Falls back to {@code seatsTotal - members} for legacy rows predating the
-     * explicit column, which is the best answer available for them.
-     */
+    /** Falls back to {@code seatsTotal - members} for legacy rows predating the explicit column,
+     * which is the best answer available for them. */
     public int openSeats() {
         if (seatsOpen != null) {
             return Math.max(0, Math.min(seatsTotal, seatsOpen));

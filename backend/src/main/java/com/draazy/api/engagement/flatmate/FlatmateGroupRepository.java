@@ -12,38 +12,8 @@ import org.springframework.data.repository.query.Param;
 /** Reads over {@code flatmate_groups} (V27). */
 public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UUID> {
 
-    /**
-     * Live groups, newest first, filtered server-side by locality plus the two group facets the
-     * page offers: join policy and per-flat rent range. Null-tolerant like the room feed, and
-     * {@code policy} matches an {@code any}/open group as well as an exact hit, mirroring the mock.
-     *
-     * <p>{@code left join fetch} on members: every card renders them, and without it a page of
-     * twenty groups is twenty-one queries. Left, not inner, because a group with no members yet is
-     * still a group — an inner join would silently hide every brand-new one.
-     *
-     * <p><strong>Why {@code cast(:locality as string)}.</strong> With a bare {@code :locality}
-     * Hibernate cannot infer the parameter type when the value is {@code null}, so it binds it as
-     * {@code bytea} — and PostgreSQL has no {@code lower(bytea)}. The result is a 500 on the
-     * <em>unfiltered</em> feed, which is the default page load. See
-     * {@link FlatmateRoomRepository#feed} for why this is defensive rather than load-bearing on the
-     * current stack, and why no test can prove it.
-     *
-     * <p><strong>{@code verifiedOnly} reproduces the board's own predicate, in full.</strong>
-     * The page counts a group as verified when its host holds owner tier, or when every member
-     * carries a badge, or when the host holds tenant tier and Ops has approved the post. That third
-     * branch used to be omitted here, and the omission was correct at the time: it read its verdict
-     * out of {@code getFlatmateReviewStatusMap()}, which was {@code localStorage}, so against a live
-     * API the map was empty and the branch unreachable — reproducing it server-side would have
-     * <em>widened</em> the filter relative to what users actually saw. The verdict now travels on
-     * the wire ({@link FlatmateReviewStatuses}), the branch is reachable on both sides, and the
-     * clause is whole. That closes the defect the {@code hostVerifiedFor} note in {@code helpers.js}
-     * describes: an Ops-approved tenant-tier group can finally read as verified.
-     *
-     * <p>{@code exists} rather than counting members: "every member is verified" is the absence of an
-     * unverified one, and phrasing it that way lets the row stop at the first counter-example.
-     * {@code members is not empty} carries the {@code g.members.length > 0} half of the same
-     * predicate \u2014 a group with nobody in it vacuously satisfies "all verified" and must not.
-     */
+    /** {@code cast(:locality as string)} is required: with a bare parameter Hibernate binds a null as
+     * {@code bytea} and PostgreSQL has no {@code lower(bytea)}, 500ing the unfiltered feed. */
     @Query(value = """
             select distinct g from FlatmateGroup g
             left join fetch g.members
@@ -106,20 +76,22 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
 
     List<FlatmateGroup> findByAddressFingerprintAndArchivedFalse(String fingerprint);
 
-    /** The moderation queue (D72) — see {@code FlatmateSeekerPostRepository} for the same finder. */
+    /** The group twin of {@link FlatmateRoomRepository#findOwnerTierClaims}, same prefix, same why. */
+    @Query("""
+            select g from FlatmateGroup g
+            where g.archived = false and g.verificationTier = 'owner'
+              and g.addressFingerprint like 'prop:%'
+            """)
+    List<FlatmateGroup> findOwnerTierClaims();
+
+    /** The moderation queue — see {@code FlatmateSeekerPostRepository} for the same finder. */
     Page<FlatmateGroup> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
 
-    /**
-     * Groups this caller started — {@code GET /me/flatmate-groups}.
-     *
-     * <p>Unfiltered by {@code modStatus}, unlike {@link #feed}: a host must be able to see their own
-     * group while it is still waiting on moderation, or D72 would look to them like the post having
-     * silently failed. The public feed's filter is about what strangers may see, and this is not a
-     * stranger.
-     *
-     * <p>{@code left join fetch} on members for the same reason {@link #feed} has it — every caller
-     * of this renders the member list, and without it a host with four groups pays five queries.
-     */
+    /** The re-check queue — see {@code FlatmateRoomRepository} for why it ignores {@code modStatus}. */
+    Page<FlatmateGroup> findByRecheckRequestedAtNotNullAndArchivedFalse(Pageable pageable);
+
+    /** Unfiltered by {@code modStatus}, unlike {@link #feed}: a host must see their own group while
+     * it is still pending, or it would look to them like it had silently failed. */
     @Query(value = """
             select distinct g from FlatmateGroup g
             left join fetch g.members

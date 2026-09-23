@@ -5,10 +5,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Contract schema {@code FlatmateRoom}; {@code ownerMobile} is host-only, capacity fields derived.
- * Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
- */
+/** Contract schema {@code FlatmateRoom}; {@code ownerMobile} is host-only. Rationale:
+ * docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc. */
 public record FlatmateRoomDto(
         UUID id,
         String type,
@@ -19,6 +17,10 @@ public record FlatmateRoomDto(
         String priceBasis,
         Long budget,
         Long deposit,
+        Integer noticePeriodDays,
+        Integer lockInMonths,
+        String maintenanceBilling,
+        String electricityBilling,
         String occupancy,
         int occupants,
         int maxOccupants,

@@ -24,31 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The four things a flatmate host or seeker could not do before, and the rule that put their posts
- * on the board without waiting for Ops.
- *
- * <p>Four routes and one behaviour change, tested together because they are one wave and they share
- * their traps:
- *
- * <ol>
- *   <li><strong>Auto-publish.</strong> Every post used to be written {@code pending} and nothing
- *       ever published one, so the board filled only at the speed Ops clicked. The tier ladder now
- *       decides.</li>
- *   <li><strong>Editing.</strong> {@code PATCH} on a room and a group, so fixing a typo stops
- *       meaning delete-and-repost — which cost the host every reply they had already received,
- *       because the interest rows pointed at the dead id.</li>
- *   <li><strong>The seeker's outbox.</strong> What this account has asked for, read from the table
- *       that holds it instead of from {@code localStorage}.</li>
- *   <li><strong>Withdrawal.</strong> An interest that can be taken back while it is still
- *       unanswered.</li>
- * </ol>
- *
- * <p>The assertions worth reading twice are {@link Editing#anEditByAHostAtTheCapIsNotAConflict} and
- * {@link Editing#anOwnerTierEditStaysOnTheBoard}. Both pin decisions that the obvious
- * implementation gets wrong, and both would pass silently in the wrong direction — the first as a
- * 409 nobody can explain, the second as a queue that refills itself.
- */
+/** The two worth reading twice are {@link Editing#anEditByAHostAtTheCapIsNotAConflict} and
+ *  {@link Editing#anOwnerTierEditStaysOnTheBoard}: the obvious implementation gets both wrong. */
 @DisplayName("Flatmates — publishing, editing, and taking an interest back")
 class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
 
@@ -83,17 +60,12 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                 """.formatted(locality, society, rentShare);
     }
 
-    /**
-     * A room that is actually on the board.
-     *
-     * <p>Declaring an agreement is what makes this tenant tier, and tenant tier is what publishes.
-     * Almost every test below needs that, because a pending room is invisible and
-     * {@code POST .../interest} answers {@code 404} for it — correctly, and confusingly, since the
-     * host can still see it perfectly well in their own dashboard.
-     */
+    /** Evidence-backed agreement makes this tenant tier, and tenant tier is what publishes. A
+     *  pending room is invisible and {@code POST .../interest} answers 404 for it. */
     private static String liveRoomBody(String locality, String society, long rentShare) {
         return roomBody(locality, society, rentShare)
-                .replace("\"bhk\"", "\"agreementDeclared\":true,\"bhk\"");
+                .replace("\"bhk\"",
+                        "\"agreementDeclared\":true," + FlatmateAgreementFixture.EVIDENCE + ",\"bhk\"");
     }
 
     private static String groupBody(String title, String locality, String policy,
@@ -102,8 +74,9 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
         // unpublished group cannot be joined: `findVisible` answers 404 for it.
         return """
                 {"title":"%s","locality":"%s","policy":"%s","rent":40000,"agreement":true,
-                 "seats":%d,"seatsOpen":%d,"name":"Host","tags":["Vegetarian"]}
-                """.formatted(title, locality, policy, seats, seatsOpen);
+                 "seats":%d,"seatsOpen":%d,"name":"Host","tags":["Vegetarian"],%s}
+                """.formatted(title, locality, policy, seats, seatsOpen,
+                FlatmateAgreementFixture.EVIDENCE);
     }
 
     private static String idOf(String json) {
@@ -144,8 +117,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             String id = createRoom(host, "Baner", "Sunrise Heights");
 
             // The anonymous feed is the test that matters: a host can always see their own post,
-            // so asserting on the host's view would have passed throughout the months this was
-            // broken. What was broken is that nobody else could see it.
+            // so asserting on the host's view would pass even when nobody else can see it.
             mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Baner").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.hasItem(id)));
@@ -162,9 +134,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString());
 
-            // Signed in and nothing more is exactly the population the gate is for, and it is the
-            // cheapest identity for a broker to mint. This is the half of the ladder that still
-            // holds, and it has to keep holding or auto-publish is just "publish".
+            // Signed in and nothing more is the population the gate is for, and the cheapest
+            // identity for a broker to mint.
             mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Kothrud").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.not(Matchers.hasItem(id))));
@@ -227,9 +198,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.seatsTotal").value(4));
 
-            // Shrinking below the member count is not an edit, it is an eviction, and no route
-            // means that. 400 rather than 422 because the number is well-formed; it is the group
-            // it would be applied to that makes it impossible.
+            // Shrinking below the member count is an eviction, and no route means that. 400 rather
+            // than 422: the number is well-formed, the group it applies to makes it impossible.
             mvc.perform(patch(Routes.Flatmates.GROUP_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -245,10 +215,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             createRoom(host, "Kothrud", "Beta Towers");
             createRoom(host, "Wakad", "Gamma Towers");
 
-            // Three live posts is the cap, so `evaluate` now answers "blocked" for this host —
-            // and it answers "duplicate" for this address, because the address is a duplicate of
-            // itself. Honouring either on an edit, which is what copying the create path gives
-            // you, makes every edit by a productive host a 409 nobody can explain.
+            // At the cap `evaluate` answers "blocked", and "duplicate" for this address, because it
+            // is a duplicate of itself. Copying the create path makes every edit here a 409.
             mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, first)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -269,10 +237,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .content(liveRoomBody("Aundh", "Delta Court", 15500)))
                     .andExpect(status().isOk());
 
-            // The rule is "an edit sends the post back for review", and it does — for the tier
-            // whose visibility a human granted. This post's visibility came from what the host
-            // staked, not from a moderator reading the copy, so there is no approval for the edit
-            // to invalidate. Sending it back would rebuild the queue auto-publish exists to drain.
+            // This post's visibility came from what the host staked, not from a moderator reading
+            // the copy, so there is no approval for the edit to invalidate.
             mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Aundh").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.hasItem(id)));
@@ -294,9 +260,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
 
-            // The title is the assertion. The join this read shares with the host inbox resolved
-            // seeker posts only, so a room row arrived with a null title and rendered as "this is
-            // gone" — invisible on the inbox, where rooms are rare, and unmissable here.
+            // The title is the assertion: the shared join resolves seeker posts unless it also
+            // resolves rooms, and a room row with a null title renders as "this is gone".
             mvc.perform(get(Routes.Flatmates.MY_INTERESTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isOk())
@@ -345,20 +310,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * What the host is actually told when the interest lands.
-     *
-     * <p>The outbox tests above read the seeker's own copy. This reads the other end — the row in
-     * {@code notifications} the host opens — because the two are composed by different code and
-     * only one of them had ever been asserted.
-     *
-     * <p><strong>Why the nameless case gets its own test.</strong> {@code users.name} is nullable
-     * and is most often null for precisely the person who ends up here: someone who signed in by
-     * OTP to answer an ad and has not filled in a profile (D118). The title was built by
-     * concatenating that field, so Java rendered the absent name as the four letters {@code null}
-     * and the host was told "null is interested in Sunrise Heights". A test that only ever seeds
-     * named users — which is every other test in this file — passes straight through that.
-     */
+    /** {@code users.name} is nullable and most often null for the person who ends up here, so a
+     *  concatenated title would tell the host "null is interested in Sunrise Heights". */
     @Nested
     @DisplayName("The host's notification")
     class HostNotification {
@@ -383,9 +336,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isCreated());
 
             // Asserted positively first: without this, the nameless test below would still pass
-            // against a title that had stopped mentioning the seeker at all. The target half is
-            // the host's own phrasing of the room ("your room in <locality>") rather than the
-            // society name — the host is being told about their own listing.
+            // against a title that had stopped mentioning the seeker at all.
             assertThat(titleFor(host)).isEqualTo("Priya Kulkarni is interested in your room in Baner");
         }
 
@@ -400,10 +351,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
 
-            // "Someone" is indefinite on purpose. The alternative the schema used to force was a
-            // made-up name shown to the host as this person's, and absent is not the same claim as
-            // "called Member". The target still has to be named, or the host cannot tell which of
-            // their rooms this is about.
+            // "Someone" is indefinite on purpose: the alternative is a made-up name shown to the
+            // host as this person's, and absent is not the same claim as "called Member".
             assertThat(titleFor(host)).isEqualTo("Someone is interested in your room in Baner");
         }
 
@@ -451,9 +400,8 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty());
 
-            // The reason the row is deleted rather than flagged withdrawn: the table is unique on
-            // (kind, target_id, requester_id), so a retained row would refuse the next ask forever
-            // and turn an undo into a lockout. This is that invariant, stated as behaviour.
+            // The table is unique on (kind, target_id, requester_id), so a retained row would refuse
+            // the next ask forever and turn an undo into a lockout.
             mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
@@ -513,11 +461,10 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             String verifiedRoom = createRoom(badged, "Hinjewadi", "Verified Court");
             String plainRoom = createRoom(plain, "Hinjewadi", "Unverified Court");
 
-            // The badge is set by the create path only for owner tier, and by Ops afterwards for
-            // everyone else -- FlatmateModerationService.applyBadge. Neither is what this test is
-            // about, so it puts the badge on directly and asks the one question it came to ask:
-            // does the *server* drop the other row.
-            jdbc.update("update flatmate_rooms set verified = true where id = ?::uuid", verifiedRoom);
+            // Reaching owner tier honestly needs a property, an owner and an approval, none of
+            // which this test is about; the question is only whether the *server* drops the other row.
+            jdbc.update("update flatmate_rooms set verification_tier = 'owner' where id = ?::uuid",
+                    verifiedRoom);
 
             // The board filtered a single 200-row page in the browser, which is correct until a
             // locality has 201 rooms and then silently wrong.

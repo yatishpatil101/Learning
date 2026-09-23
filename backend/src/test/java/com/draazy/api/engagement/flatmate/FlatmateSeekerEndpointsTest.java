@@ -24,26 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Contract and behaviour proof for flatmate seeker posts and the host inbox.
- *
- * <p>These replace {@code ShareFlatEndpointsTest}, retired with its controller in V28. The
- * invariants it protected are the same ones that matter here, because the contact model is
- * unchanged — it is still the one surface on the platform where contact travels opposite to
- * everywhere else:
- *
- * <ol>
- *   <li><strong>The public feed publishes no contact at all.</strong> Not masked — absent. There is
- *       no caller to gate against on an anonymous endpoint, so a masked number there is just a
- *       published number with five digits removed.</li>
- *   <li><strong>Expressing interest releases the <em>requester's</em> number to the host.</strong>
- *       Pressing the button is the affirmative act the gate exists to require, and it is the
- *       requester's own number they are handing over.</li>
- *   <li><strong>Nothing flows back.</strong> The host's number is never revealed by the reply.</li>
- *   <li><strong>Resending edits rather than re-notifies</strong>, because a button that alerts
- *       somebody else's phone on every press is a harassment tool.</li>
- * </ol>
- */
+// Contact moves the opposite way here to everywhere else: the anonymous feed carries none at all,
+// expressing interest releases the requester's own number to the host, and nothing flows back.
 @DisplayName("Flatmates — seeker posts, and the contact that moves across them")
 class FlatmateSeekerEndpointsTest extends AbstractApiTest {
 
@@ -92,15 +74,8 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
         return publish(id);
     }
 
-    /**
-     * Let a freshly created post out of the moderation queue (D72).
-     *
-     * <p>Since D72 a seeker post is born {@code pending} and is invisible until a moderator decides.
-     * The tests below are about the feed — filtering, contact masking, the one-live-post rule — and
-     * none of them is about moderation, so they seed published supply deliberately rather than
-     * inheriting visibility from a default. The default itself is asserted in
-     * {@link FlatmateModerationGateTest}.
-     */
+    // A seeker post is born pending and invisible; no test below is about moderation, so they seed
+    // published supply rather than inherit it. The default is pinned in FlatmateModerationGateTest.
     private String publish(String id) {
         jdbc.update("update flatmate_seeker_posts set mod_status = 'approved' where id = ?::uuid", id);
         return id;
@@ -120,7 +95,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             mvc.perform(get(Routes.Flatmates.POSTS).param("locality", "Baner"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].name").value("Anita"))
-                    // The whole point of S62, carried forward: absent, not masked.
+                    // Absent, not masked.
                     .andExpect(jsonPath("$.content[0].mobile").doesNotExist());
         }
 
@@ -255,11 +230,12 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     String.class, host.getId().toString());
             assertThat(body).contains("9810000021");
 
-            // ...and the requester is told nothing about the host's.
-            Integer toRequester = jdbc.queryForObject(
-                    "select count(*) from notifications where user_id = ?::uuid",
-                    Integer.class, requester.getId().toString());
-            assertThat(toRequester).isZero();
+            // Asserted as "the host's digits are absent" rather than "no row exists": the release
+            // is the thing under test, not the count.
+            List<String> toRequester = jdbc.queryForList(
+                    "select body from notifications where user_id = ?::uuid",
+                    String.class, requester.getId().toString());
+            assertThat(toRequester).isNotEmpty().noneMatch((b) -> b.contains("9810000020"));
         }
 
         @Test
@@ -275,17 +251,15 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                             .content("{\"message\":\"First try.\"}"))
                     .andExpect(status().isCreated());
 
-            // No race, no concurrency — just the same person pressing again. This used to answer
-            // 201 and rewrite the pitch while the simultaneous version of the same press answered
-            // 409, which is two contract-visible answers to one action.
+            // Answering 201 here while the simultaneous version of the same press answers 409
+            // would be two contract-visible answers to one action.
             mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(requester))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"message\":\"Better pitch.\"}"))
                     .andExpect(status().isConflict())
-                    // Ends with, not contains: the client routes on a marker anchored to the end of
-                    // the message, so a full stop or a trace hint appended after it is a silent
-                    // break (D182). FlatmateConflictsTest pins the same rule at the source.
+                    // Ends with, not contains: the client routes on a marker anchored to the end
+                    // of the message, so anything appended after it is a silent break.
                     .andExpect(jsonPath("$.message",
                             Matchers.endsWith("(already_interested)")));
 
@@ -325,8 +299,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             User requester = user("9810000026", "Omkar");
 
             // Set through the API rather than by raw SQL: a JDBC update is invisible to the
-            // persistence context this test shares with the service, so the service would read a
-            // stale entity. Going through the real write path is the honester test regardless.
+            // persistence context this test shares with the service, which would read a stale row.
             String json = mvc.perform(post(Routes.Flatmates.POSTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -392,18 +365,8 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content[0].status").value("pending"));
         }
 
-        /**
-         * D77 paged this inbox. The three things a paged read can silently get wrong are all
-         * asserted here: that an unspecified page still answers (so no existing caller had to
-         * change), that {@code totalElements} counts the whole inbox rather than the slice
-         * returned, and that {@code ?status=} narrows *before* the page rather than filtering the
-         * twenty rows that happened to come back.
-         *
-         * <p>Would fail if: the controller lost its {@code @PageableDefault} and 400'd on a bare
-         * request; the service returned {@code new PageImpl<>(dtos)} without the total, making the
-         * count read as the page size; or the filter moved into the mapper, which would report the
-         * unfiltered total beside a filtered list.
-         */
+        // Guards the three silent paging faults: a lost @PageableDefault 400ing on a bare request,
+        // a PageImpl without the total, and a filter in the mapper reporting an unfiltered count.
         @Test
         @DisplayName("is paged, counts the whole inbox, and filters by status before the page")
         void inboxIsPagedAndFiltersBeforePaging() throws Exception {
@@ -418,7 +381,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                         .andExpect(status().isCreated());
             }
 
-            // No page asked for: the whole inbox, as before paging.
+            // No page asked for: the whole inbox.
             mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
@@ -471,10 +434,12 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.status").value("accepted"))
                     .andExpect(jsonPath("$.decidedAt").isNotEmpty());
 
-            Integer told = jdbc.queryForObject(
-                    "select count(*) from notifications where user_id = ?::uuid",
-                    Integer.class, requester.getId().toString());
-            assertThat(told).isOne();
+            // Two rows by now — the notice sent when the interest went out, and the verdict.
+            // The verdict is the one this test is about, so it is named rather than counted.
+            List<String> told = jdbc.queryForList(
+                    "select type from notifications where user_id = ?::uuid",
+                    String.class, requester.getId().toString());
+            assertThat(told).contains("flatmate.request.accepted");
         }
 
         @Test
@@ -504,12 +469,8 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * D116 — the seeker feed filters on every facet the page offers, server-side. One live post per
-     * identity, so each row here needs its own author. Gender and room preference are exact on this
-     * side (a "women only" seeker is not a candidate for a male searcher), which is the crisp
-     * difference from the room feed, where an {@code any} room is a candidate for everyone.
-     */
+    // One live post per identity, so each row here needs its own author. Gender and room preference
+    // are exact on this side, unlike the room feed where an `any` room matches everyone.
     @Nested
     @DisplayName("server-side facets (D116)")
     class Facets {

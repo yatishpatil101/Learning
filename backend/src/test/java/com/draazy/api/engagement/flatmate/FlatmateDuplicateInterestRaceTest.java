@@ -18,42 +18,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/**
- * A double press on one post is refused, not answered with a 500.
- *
- * <p><strong>A different race from the one {@link FlatmateInterestRaceTest} covers.</strong> That
- * one is about the hourly <em>budget</em> — many targets, one counter — and D73 closed it with an
- * advisory lock. This one is about a single target being asked twice, which the lock orders but does
- * not by itself decide: the loser waits, and what it finds when it wakes up is the whole question.
- * The existence check now runs <em>after</em> {@code holdUntilCommit} (D175), so the loser takes a
- * fresh snapshot, sees the winner's row and is refused with the same 409 a leisurely second press
- * gets — the sequential half of that claim lives in {@code FlatmateSeekerEndpointsTest} and
- * {@code FlatmateSupplyEndpointsTest}. Behind it {@code uq_flatmate_requests_target_requester} is
- * still the thing that cannot be raced past, and until its violation was caught that refusal escaped
- * as a raw {@code DataIntegrityViolationException} — the requester told the server had broken, for
- * pressing a button twice on a flaky connection. This test holds both halves down: whichever of the
- * two refuses the loser, the answer has to be the same one.
- *
- * <p><strong>Not on {@code AbstractApiTest}, and not by oversight.</strong> That base class is
- * {@code @Transactional} and rolls back, so its writes are never visible to another connection and a
- * commit-time race cannot be observed from it — see {@link Races} for the full argument, and D90 for
- * the defect that survived the whole suite because of it. Everything here commits, so
- * {@link #cleanUp()} is what keeps the rest of the suite's exact-count assertions honest.
- */
+/** Either the existence check or {@code uq_flatmate_requests_target_requester} may refuse the loser,
+ *  and both must answer the same 409. Commits, so it cannot extend {@code AbstractApiTest}. */
 @SpringBootTest
 @DisplayName("Two interests in the same post, sent together")
 class FlatmateDuplicateInterestRaceTest {
 
-    /**
-     * How many racers. Two, and the ceiling is the connection pool rather than the scenario.
-     *
-     * <p>The test datasource is capped at four connections deliberately (see
-     * {@code src/test/resources/application.properties}) and the winning thread needs <em>two</em>
-     * at once: its own transaction, plus the {@code REQUIRES_NEW} one that writes the interest's
-     * audit row. The loser, parked on the advisory lock, holds a third. A third racer would take the
-     * peak to the whole pool and the failure would arrive as a connection timeout rather than as the
-     * defect under test.
-     */
+    /** Two, capped by the 4-connection test pool: the winner needs two (its own plus the
+     *  {@code REQUIRES_NEW} audit write) and the parked loser a third. */
     private static final int RACERS = 2;
 
     @Autowired FlatmateSeekerService seekers;
@@ -88,7 +60,6 @@ class FlatmateDuplicateInterestRaceTest {
         }
         if (host != null) {
             jdbc.update("delete from flatmate_requests where host_id = ?", host.getId());
-            jdbc.update("delete from notifications where user_id = ?", host.getId());
         }
         // The interest audit row commits in its own REQUIRES_NEW transaction, so it outlives
         // everything else here and has to be removed by hand.
@@ -102,6 +73,9 @@ class FlatmateDuplicateInterestRaceTest {
         }
         for (User user : new User[] { requester, host }) {
             if (user != null) {
+                // Both sides are notified — the host gets the pitch, the requester gets the notice
+                // that their number went with it — so both need sweeping ahead of the FK.
+                jdbc.update("delete from notifications where user_id = ?", user.getId());
                 jdbc.update("delete from users where id = ?", user.getId());
             }
         }
@@ -126,15 +100,8 @@ class FlatmateDuplicateInterestRaceTest {
         return n == null ? 0 : n;
     }
 
-    /**
-     * The claim, made once so both tests can state it in a line.
-     *
-     * <p>All three parts are needed. Nothing may come back that is not either success or the
-     * business refusal — a {@code DataIntegrityViolationException} here is the 500 this class exists
-     * to stop. Exactly one racer must be refused, because the host's inbox has room for exactly one
-     * of them. And exactly one row may survive, because a guard that answers the right number of
-     * callers while writing the wrong number of rows has still failed.
-     */
+    /** Nothing may come back that is not success or the business refusal; exactly one racer is
+     *  refused, and exactly one row survives. */
     private void assertOneWinnerAndOneRefusal(List<Throwable> outcomes, String kind, UUID target) {
         for (Throwable outcome : outcomes) {
             if (outcome != null && !(outcome instanceof ConflictException)) {
@@ -156,9 +123,6 @@ class FlatmateDuplicateInterestRaceTest {
                 .isEqualTo(1);
     }
 
-    /**
-     * One account, one post, two presses released together.
-     */
     @Test
     @DisplayName("a seeker post: the loser is refused with a 409 rather than a 500")
     void concurrentInterestsInOnePostLeaveOneRow() {
@@ -171,13 +135,8 @@ class FlatmateDuplicateInterestRaceTest {
         assertOneWinnerAndOneRefusal(outcomes, "flatmate", postId);
     }
 
-    /**
-     * The same press through the other door.
-     *
-     * <p>{@code FlatmateSupplyService.record} writes the same table against the same index, and
-     * carries its own copy of the catch because it is a different method on a different service.
-     * Covered separately for exactly that reason: "the code is identical" is a claim about today.
-     */
+    /** {@code FlatmateSupplyService.record} writes the same table against the same index and carries
+     *  its own copy of the catch, so it is covered separately. */
     @Test
     @DisplayName("a room: the loser is refused with a 409 rather than a 500")
     void concurrentInterestsInOneRoomLeaveOneRow() {

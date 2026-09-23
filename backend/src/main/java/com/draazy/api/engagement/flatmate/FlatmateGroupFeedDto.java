@@ -4,16 +4,19 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Contract schema {@code FlatmateGroupFeed} — the anonymous card projection of a group; what it
- * omits is the guarantee. Fields and why: docs/flows/consumer/flatmates.md §5.
- */
+/** Contract schema {@code FlatmateGroupFeed} — the anonymous card projection of a group; what it
+ * omits is the guarantee. Fields and why: docs/flows/consumer/flatmates.md §5. */
 public record FlatmateGroupFeedDto(
         UUID id,
         String title,
         String locality,
         String policy,
         Long rent,
+        Long deposit,
+        Integer noticePeriodDays,
+        Integer lockInMonths,
+        String maintenanceBilling,
+        String electricityBilling,
         Long perHead,
         int seatsTotal,
         int seatsOpen,

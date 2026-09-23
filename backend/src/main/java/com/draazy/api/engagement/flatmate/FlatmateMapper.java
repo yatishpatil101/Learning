@@ -12,18 +12,12 @@ import org.mapstruct.MappingTarget;
 import org.mapstruct.Named;
 import org.mapstruct.ReportingPolicy;
 
-/**
- * Entity→wire mapper for the flatmates market (api-standards §8.1). Hand-written contact, derived
- * capacity and seats stay outside the generator; see docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
- */
+/** Entity→wire mapper for the flatmates market (api-standards §8.1). Hand-written contact, derived
+ * capacity and seats stay outside the generator; see docs/flows/consumer/flatmates.md. */
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface FlatmateMapper {
 
-    // Rooms
-
-    /**
-     * @param view what the caller joined or decided — never derivable from the room row alone
-     */
+    /** @param view what the caller joined or decided — never derivable from the room row alone */
     @Mapping(target = "type", constant = "flatmate")
     @Mapping(target = "flatCommitted", expression = "java(view.flatCommitted())")
     @Mapping(target = "owner", expression = "java(view.ownerName())")
@@ -32,13 +26,11 @@ public interface FlatmateMapper {
     @Mapping(target = "flatMax", expression = "java(flatMax(room))")
     @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
     @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
+    @Mapping(target = "verified", expression = "java(hostVerified(room, view.reviewStatus()))")
     FlatmateRoomDto toDto(FlatmateRoom room, @Context RoomView view);
 
-    /**
-     * Card-sized room projection; nine fewer fields than {@link FlatmateRoomDto}.
-     *
-     * @param view what the caller joined or decided — never derivable from the room row alone
-     */
+    /** Card-sized room projection; nine fewer fields than {@link FlatmateRoomDto}.
+     * @param view what the caller joined or decided — never derivable from the room row alone */
     @Mapping(target = "type", constant = "flatmate")
     @Mapping(target = "flatCommitted", expression = "java(view.flatCommitted())")
     @Mapping(target = "owner", expression = "java(view.ownerName())")
@@ -46,17 +38,28 @@ public interface FlatmateMapper {
     @Mapping(target = "flatMax", expression = "java(flatMax(room))")
     @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
     @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
+    @Mapping(target = "verified", expression = "java(hostVerified(room, view.reviewStatus()))")
     FlatmateRoomFeedDto toFeedDto(FlatmateRoom room, @Context RoomView view);
+
+    /** Must agree with {@code FlatmateRoomRepository.feed}'s {@code verifiedOnly} clause and
+     * {@code FlatmateSearchQueries.roomVerified()}, or a trust-first list sorts an unbadgeable card first. */
+    default boolean hostVerified(FlatmateRoom room, String reviewStatus) {
+        String tier = room.getVerificationTier();
+        return FlatmateVocabulary.TIER_OWNER.equals(tier)
+                || (FlatmateVocabulary.TIER_TENANT.equals(tier)
+                        && FlatmateVocabulary.STATUS_APPROVED.equals(reviewStatus));
+    }
 
     /** "Will I have flatmates from day one?" — derived from the flat's ledger, orthogonal to tier. */
     default String occupancyOf(FlatmateRoom room, int flatCommitted) {
         if (room.isSeatBased()) {
-            // A seat-model room has no flat ledger to read, so its own seats are the whole answer.
+            // A seat-model room's seats say nothing about the flat around it, so the ledger answers
+            // the question the seeker asked.
             int open = room.getSeatsOpen() == null ? 0 : room.getSeatsOpen();
-            if (open >= room.getSeatsTotal()) {
-                return "empty";
+            if (open <= 0) {
+                return "occupied";
             }
-            return open > 0 ? "filling" : "occupied";
+            return flatCommitted > 0 ? "filling" : "empty";
         }
         if (flatCommitted <= 0) {
             return "empty";
@@ -69,10 +72,8 @@ public interface FlatmateMapper {
         return room.isSplitRoom() ? room.getMaxOccupants() : null;
     }
 
-    /**
-     * The most people who could still take this room. Always 1 for per-person prices — a per-head
-     * quote cannot express sharing.
-     */
+    /** The most people who could still take this room. Always 1 for per-person prices — a per-head
+     * quote cannot express sharing. */
     default int shareMax(FlatmateRoom room, int flatCommitted) {
         if ("person".equals(room.getPriceBasis())) {
             return 1;
@@ -81,8 +82,6 @@ public interface FlatmateMapper {
         int flatHeadroom = room.getMaxOccupants() - flatCommitted;
         return Math.max(0, Math.min(roomHeadroom, flatHeadroom));
     }
-
-    // Groups
 
     @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
     @Mapping(target = "perHead", expression = "java(perHead(group))")
@@ -93,10 +92,8 @@ public interface FlatmateMapper {
     @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateGroupDto toDto(FlatmateGroup group, @Context PartyView view);
 
-    /**
-     * Card-sized group projection; {@code seatsOpen}/{@code perHead}/{@code ownerName} re-declared here — {@code FlatmateGroupShapeTest} guards drift.
-     * @param view what the caller joined or decided — never derivable from the group row alone
-     */
+    /** Card-sized group projection; {@code seatsOpen}/{@code perHead}/{@code ownerName} re-declared
+     * here — {@code FlatmateGroupShapeTest} guards drift. */
     @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
     @Mapping(target = "perHead", expression = "java(perHead(group))")
     @Mapping(target = "ownerName", expression = "java(view.ownerName())")
@@ -111,17 +108,10 @@ public interface FlatmateMapper {
         return group.getSeatsTotal() > 0 ? group.getRent() / group.getSeatsTotal() : group.getRent();
     }
 
-    // Seeker posts
-
     @Mapping(target = "mobile", expression = "java(view.mobile())")
     FlatmateSeekerPostDto toDto(FlatmateSeekerPost post, @Context SeekerView view);
 
-    // Request → entity
-
-    /**
-     * Copy the client-settable half of a room post onto a room the service already constructed.
-     * {@code ignoreByDefault = true} is an allowlist: trust fields absent here can't be client-set.
-     */
+    /** {@code ignoreByDefault = true} is an allowlist: trust fields absent here cannot be client-set. */
     @BeanMapping(ignoreByDefault = true)
     @Mapping(target = "attachedBath", source = "attachedBath", qualifiedByName = "attachedBathOrShared")
     @Mapping(target = "furnishing", source = "furnishing", qualifiedByName = "furnishingOrNull")
@@ -130,28 +120,44 @@ public interface FlatmateMapper {
     @Mapping(target = "gender", source = "lookingFor", qualifiedByName = "genderOrAny")
     @Mapping(target = "food", source = "foodPref", qualifiedByName = "foodOrAny")
     @Mapping(target = "bhk", source = "bhk", qualifiedByName = "bhkOrNull")
+    @Mapping(target = "homeTypeLabel", source = "homeTypeLabel", qualifiedByName = "homeTypeOrNull")
     @Mapping(target = "deposit", source = "deposit")
+    @Mapping(target = "noticePeriodDays", source = "noticePeriodDays")
+    @Mapping(target = "lockInMonths", source = "lockInMonths")
+    @Mapping(target = "maintenanceBilling", source = "maintenanceBilling", qualifiedByName = "billingOrNull")
+    @Mapping(target = "electricityBilling", source = "electricityBilling", qualifiedByName = "billingOrNull")
     @Mapping(target = "society", source = "society", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "societyId", source = "societyId", qualifiedByName = "uuidOrNull")
     @Mapping(target = "flatNumber", source = "flatNumber", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "availableFrom", source = "availableFrom")
     @Mapping(target = "tags", source = "lifestyle", qualifiedByName = "stringsOrEmpty")
-    @Mapping(target = "photos", source = "photos")
+    // Empty, never null: the gallery is optional so a host can photograph the flat later, and
+    // `photos` is a NOT NULL column that the publication gate reads before the insert.
+    @Mapping(target = "photos", source = "photos", qualifiedByName = "stringsOrEmpty")
     @Mapping(target = "note", source = "note", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "lat", source = "lat")
     @Mapping(target = "lng", source = "lng")
+    // Normalised here so the stored value, the OTP and the consent row agree on the same ten digits.
+    // The `ownerConsent` boolean beside it is never mapped: only the service may set it.
+    @Mapping(target = "ownerConsentMobile", source = "ownerConsentMobile",
+            qualifiedByName = "mobileNormaliseOrNull")
     // The single-locality list the feed filters on, derived from the one the poster typed.
     @Mapping(target = "localities", expression = "java(java.util.List.of(body.locality().strip()))")
     void applyTo(FlatmateRoomCreateRequest body, @MappingTarget FlatmateRoom room);
 
-    /**
-     * Same allowlist treatment for a group. {@code propertyId} arrives in the request but is only
-     * honoured after {@code deriveTier} confirms owner tier, so the service writes it, not this.
-     */
+    /** Same allowlist treatment for a group. {@code propertyId} arrives in the request but is only
+     * honoured after {@code deriveTier} confirms owner tier, so the service writes it, not this. */
     @BeanMapping(ignoreByDefault = true)
     @Mapping(target = "policy", source = "policy", qualifiedByName = "policyOrWomen")
+    @Mapping(target = "deposit", source = "deposit")
+    @Mapping(target = "noticePeriodDays", source = "noticePeriodDays")
+    @Mapping(target = "lockInMonths", source = "lockInMonths")
+    @Mapping(target = "maintenanceBilling", source = "maintenanceBilling", qualifiedByName = "billingOrNull")
+    @Mapping(target = "electricityBilling", source = "electricityBilling", qualifiedByName = "billingOrNull")
     @Mapping(target = "seatsTotal", source = "seats", qualifiedByName = "seatsOrTwo")
-    @Mapping(target = "seatsOpen", source = "seatsOpen", qualifiedByName = "seatsOpenOrOne")
+    // Null stays null so FlatmateGroup.openSeats() derives the count from the seats and the members.
+    // Defaulting to 1 got it wrong for a group of four.
+    @Mapping(target = "seatsOpen", source = "seatsOpen")
     @Mapping(target = "tags", source = "tags", qualifiedByName = "stringsOrEmpty")
     @Mapping(target = "note", source = "note", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "ownerConsentMobile", source = "consentMobile", qualifiedByName = "mobileNormaliseOrNull")
@@ -194,15 +200,23 @@ public interface FlatmateMapper {
                 value, FlatmateVocabulary.POLICY, "women", "policy");
     }
 
+    @Named("billingOrNull")
+    default String billingOrNull(String value) {
+        return FlatmateVocabulary.optional(value, FlatmateVocabulary.BILLING, "billing");
+    }
+
+    @Named("homeTypeOrNull")
+    default String homeTypeOrNull(String value) {
+        return FlatmateVocabulary.optional(value, FlatmateVocabulary.HOME_TYPE, "home type");
+    }
+
     @Named("trimmedOrNull")
     default String trimmedOrNull(String value) {
         return FlatmateVocabulary.blankToNull(value);
     }
 
-    /**
-     * Canonicalises the owner-consent number to the ten-digit shape so {@code +91}-prefixed values
-     * pass the column CHECK. Null-safe.
-     */
+    /** Canonicalises the owner-consent number to ten digits so {@code +91}-prefixed values pass the
+     * column CHECK. Null-safe. */
     @Named("mobileNormaliseOrNull")
     default String mobileNormaliseOrNull(String value) {
         return MobileMask.normalise(value);
@@ -224,17 +238,8 @@ public interface FlatmateMapper {
         return value == null ? 2 : value;
     }
 
-    @Named("seatsOpenOrOne")
-    default Integer seatsOpenOrOne(Integer value) {
-        return value == null ? 1 : value;
-    }
-
-    // Trust carve-outs
-
-    /**
-     * Masks the flat owner's number ({@code 98XXXXX210}); belongs to a third party.
-     * {@code @Named} keeps MapStruct from mask-ing every String field on the payload.
-     */
+    /** Masks the flat owner's number ({@code 98XXXXX210}). {@code @Named} keeps MapStruct from
+     * masking every String field on the payload. */
     @Named("maskMobile")
     default String maskMobile(String mobile) {
         return MobileMask.mask(mobile);
@@ -245,26 +250,12 @@ public interface FlatmateMapper {
         return value == null ? null : value.toString();
     }
 
-    /**
-     * @param flatCommitted people living across every sibling room of this flat
-     * @param ownerMobile   {@code null} on any anonymous surface — the caller decides
-     */
+    /** {@code reviewStatus} is the standing Ops verdict — a caller that cannot supply one is telling
+     * every tenant-tier room it is unbadged. {@code ownerMobile} is null on anonymous surfaces. */
     record RoomView(int flatCommitted, String ownerName, String ownerMobile, String reviewStatus) {
 
-        /** Back-compat arity for the surfaces that render no trust badge — the host's own reads. */
-        RoomView(int flatCommitted, String ownerName, String ownerMobile) {
-            this(flatCommitted, ownerName, ownerMobile, null);
-        }
-
-        /**
-         * Anonymous projection: no contact, and the real flat ledger — a fake zero would publish
-         * a wrong occupancy label ({@code empty}) on public reads while the host saw {@code occupied}.
-         */
-        static RoomView anonymous(int flatCommitted, String ownerName) {
-            return new RoomView(flatCommitted, ownerName, null, null);
-        }
-
-        /** As {@link #anonymous(int, String)}, carrying the Ops verdict a card badge reads. */
+        /** No contact, and the real flat ledger — a fake zero would publish {@code empty} on public
+         * reads while the host saw {@code occupied}. */
         static RoomView anonymous(int flatCommitted, String ownerName, String reviewStatus) {
             return new RoomView(flatCommitted, ownerName, null, reviewStatus);
         }
@@ -278,11 +269,7 @@ public interface FlatmateMapper {
             this(ownerName, ownerMobile, null);
         }
 
-        static PartyView anonymous(String ownerName) {
-            return new PartyView(ownerName, null, null);
-        }
-
-        /** As {@link #anonymous(String)}, carrying the Ops verdict a card badge reads. */
+        /** Anonymous projection: no contact, carrying the Ops verdict a card badge reads. */
         static PartyView anonymous(String ownerName, String reviewStatus) {
             return new PartyView(ownerName, null, reviewStatus);
         }

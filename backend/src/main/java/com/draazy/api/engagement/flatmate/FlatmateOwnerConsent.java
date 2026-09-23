@@ -8,15 +8,8 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 
-/**
- * A flat owner's OTP-confirmed acknowledgement that a sitting tenant is seeking a replacement
- * (V27 {@code flatmate_owner_consents}).
- *
- * <p><strong>Keyed on the owner's mobile, not a user id</strong>, because the owner very often has
- * no Draazy account — they are a landlord, not a user of the product. Requiring them to sign up
- * before they could say "yes, I know about this" would mean the consent was never recorded at all,
- * and the feature's entire purpose is to turn a tenant's claim into something auditable.
- */
+/** Keyed on the owner's mobile, not a user id: a landlord very often has no Draazy account, and
+ * requiring one would mean no consent was ever recorded (V27 {@code flatmate_owner_consents}). */
 @Entity
 @Table(name = "flatmate_owner_consents")
 @Getter
@@ -32,15 +25,26 @@ public class FlatmateOwnerConsent extends AuditedEntity {
     @Column(name = "group_id")
     private UUID groupId;
 
+    /** Scopes the consent to one flat ({@link FlatmateGuardrails#fingerprint} form, V30). Without it
+     * a single OTP would vouch for every post the tenant ever made. Null on pre-V30 rows. */
+    @Column(name = "address_fingerprint", updatable = false)
+    private String addressFingerprint;
+
+    /** Today the column default fills this; the initializer stands by for the day a JPA {@code save}
+     * path exists, since that would send an explicit null instead. */
     @Column(name = "granted_at", nullable = false)
     private Instant grantedAt = Instant.now();
 
+    /** Hibernate's, and there is no other: rows are written only by
+     * {@link FlatmateOwnerConsentRepository#insertIfAbsent}'s {@code ON CONFLICT DO NOTHING}. */
     protected FlatmateOwnerConsent() {
     }
 
-    FlatmateOwnerConsent(String ownerMobile, UUID grantedBy, UUID groupId) {
-        this.ownerMobile = ownerMobile;
-        this.grantedBy = grantedBy;
-        this.groupId = groupId;
+    /** One-way on purpose: re-pointing an existing consent at a second group would reopen the
+     * address-scoping hole V30 closed. */
+    void adoptGroup(UUID groupId) {
+        if (groupId != null && this.groupId == null) {
+            this.groupId = groupId;
+        }
     }
 }

@@ -49,7 +49,7 @@ class FlatmateRoomOutlookMapperTest {
     }
 
     private void assertOutlook(FlatmateRoom room, String facing, String overlooking) {
-        var view = FlatmateMapper.RoomView.anonymous(0, "Host");
+        var view = FlatmateMapper.RoomView.anonymous(0, "Host", null);
         for (Object dto : new Object[]{mapper.toDto(room, view), mapper.toFeedDto(room, view)}) {
             JsonNode tree = json.valueToTree(dto);
             assertThat(tree.has("facing")).isTrue();

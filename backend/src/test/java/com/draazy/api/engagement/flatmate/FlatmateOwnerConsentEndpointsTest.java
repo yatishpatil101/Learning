@@ -23,10 +23,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Consent is a fact about two people, not about one post, so it is granted before the group exists
- * and read back at submit time. {@code ownerConsent} is never client-settable.
- */
+// Consent is a fact about two people, not about one post, so it is granted before the group exists
+// and read back at submit time. ownerConsent is never client-settable.
 @DisplayName("Flatmates — owner consent, granted before the group exists")
 class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
 
@@ -60,16 +58,22 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         return saved;
     }
 
-    /**
-     * The real code is only ever logged, so the stored hash is forced to one this test knows.
-     * {@code em.clear()} is required or Hibernate verifies against the instance it already holds.
-     */
+    // The real code is only ever logged, so the stored hash is forced to one this test knows;
+    // em.clear() is required or Hibernate verifies against the instance it already holds.
     private void sendAndForceCode(User tenant, String ownerMobile) throws Exception {
+        sendAndForceCode(tenant, ownerMobile, "Replacement flatmate", "Baner");
+        }
+
+        private void sendAndForceCode(User tenant, String ownerMobile, String title, String locality)
+            throws Exception {
         usedMobiles.add(ownerMobile);
         mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerMobile\":\"%s\"}".formatted(ownerMobile)))
+                        .content("""
+                            {"ownerMobile":"%s","title":"%s",
+                             "locality":"%s"}
+                            """.formatted(ownerMobile, title, locality)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.consentRecorded").value(false))
                 // Owner consent spends the same send budget as login, so the resend gap is the
@@ -84,11 +88,17 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         em.clear();
     }
 
-    private void record(User tenant, String ownerMobile) throws Exception {
+    // The verify step names the flat the consent is about (V30): a row stored without an address
+    // would vouch for every post the tenant later makes.
+    private void record(User tenant, String ownerMobile, String title, String locality)
+            throws Exception {
         mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerMobile\":\"%s\",\"otp\":\"424242\"}".formatted(ownerMobile)))
+                        .content("""
+                                {"ownerMobile":"%s","otp":"424242",
+                                 "title":"%s","locality":"%s"}
+                                """.formatted(ownerMobile, title, locality)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.consentRecorded").value(true))
                 // Nothing left to resend once consent is stored, so the field is omitted.
@@ -117,9 +127,9 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         // The code is scoped to its own purpose: it can never be presented at /auth/login.
         String purpose = jdbc.queryForObject(
                 "select purpose from otp_codes where mobile = '9830000402'", String.class);
-        assertThat(purpose).isEqualTo("owner-consent");
+        assertThat(purpose).startsWith("owner-consent:");
 
-        record(tenant, "9830000402");
+        record(tenant, "9830000402", "Replacement flatmate", "Baner");
 
         Integer grouplessRows = jdbc.queryForObject("""
                 select count(*) from flatmate_owner_consents
@@ -133,10 +143,10 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
     void consentIsReadBackAtCreateTime() throws Exception {
         User tenant = user("9830000403", "Tenant");
         sendAndForceCode(tenant, "9830000404");
-        record(tenant, "9830000404");
+        record(tenant, "9830000404", "Replacement flatmate", "Baner");
 
-        // The modal asks while the form is open, so the group cannot be named yet; the row keyed on
-        // (owner, tenant) is what carries consent across.
+        // The modal asks while the form is open, so the group cannot be named yet: the title and
+        // locality below must be the pair the consent row was keyed under.
         mvc.perform(post(Routes.Flatmates.GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -174,13 +184,82 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerMobile\":\"9830000408\",\"otp\":\"000000\"}"))
+                        .content("""
+                                {"ownerMobile":"9830000408","otp":"000000",
+                                 "title":"Replacement flatmate","locality":"Baner"}
+                                """))
                 .andExpect(status().isUnauthorized());
 
         Integer rows = jdbc.queryForObject(
                 "select count(*) from flatmate_owner_consents where owner_mobile = '9830000408'",
                 Integer.class);
         assertThat(rows).isZero();
+    }
+
+    @Test
+    @DisplayName("a code presented without naming a flat records nothing")
+    void consentMustNameTheFlat() throws Exception {
+        User tenant = user("9830000411", "Tenant");
+        sendAndForceCode(tenant, "9830000412");
+
+        // A row with no address vouches for every post the tenant ever makes. The correct code is
+        // deliberately used: it is the address that is missing.
+        mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerMobile\":\"9830000412\",\"otp\":\"424242\"}"))
+                .andExpect(status().isBadRequest());
+
+        Integer rows = jdbc.queryForObject(
+                "select count(*) from flatmate_owner_consents where owner_mobile = '9830000412'",
+                Integer.class);
+        assertThat(rows).isZero();
+    }
+
+    @Test
+    @DisplayName("a send that names no flat costs the owner no SMS")
+    void sendMustNameTheFlatToo() throws Exception {
+        User tenant = user("9830000415", "Tenant");
+
+        // The refusal the verify step makes, made one step earlier: otherwise the owner has been
+        // texted and the tenant has bought a cooldown for a consent that could never be stored.
+        mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerMobile\":\"9830000416\"}"))
+                .andExpect(status().isBadRequest());
+
+        Integer codes = jdbc.queryForObject(
+                "select count(*) from otp_codes where mobile = '9830000416'", Integer.class);
+        assertThat(codes).isZero();
+    }
+
+    @Test
+    @DisplayName("consent granted after the group exists still reaches it")
+    void consentTakenLaterReachesThePostItNames() throws Exception {
+        User tenant = user("9830000413", "Latecomer");
+
+        // The commoner sequence: post first, then ring the owner. Without re-reading the consent
+        // table for an existing post the flag stays false and Ops cannot approve it.
+        mvc.perform(post(Routes.Flatmates.GROUPS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Late consent","locality":"Baner","rent":40000,
+                                 "name":"Latecomer","role":"tenant","consentMobile":"9830000414"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.ownerConsent").value(false));
+
+        sendAndForceCode(tenant, "9830000414", "Late consent", "Baner");
+        record(tenant, "9830000414", "Late consent", "Baner");
+
+        // Scoped to the address the consent was taken under, so it lands on that post and no other.
+        Integer consented = jdbc.queryForObject("""
+                select count(*) from flatmate_groups
+                 where host_id = ?::uuid and owner_consent = true""",
+                Integer.class, tenant.getId().toString());
+        assertThat(consented).isEqualTo(1);
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.draazy.api.engagement.flatmate;
 
 import com.draazy.api.common.persistence.AuditedEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -14,22 +15,18 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/**
- * A room inside a flat that actually exists (V27 {@code flatmate_rooms}); two ledgers on one table.
- * Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
- */
+/** A room inside a flat that actually exists (V13 {@code flatmate_rooms}); two ledgers on one
+ * table. Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc. */
 @Entity
 @Table(name = "flatmate_rooms")
 @Getter
-public class FlatmateRoom extends AuditedEntity {
+public class FlatmateRoom extends AuditedEntity implements FlatmateSupplyPost {
 
     @Column(name = "host_id", nullable = false, updatable = false)
     private UUID hostId;
 
-    /**
-     * The parent rent listing when this room came from a split; null for a standalone spare room.
-     * This is the key that ties sibling rooms into one occupancy ledger and one joint agreement.
-     */
+    /** The parent rent listing when this room came from a split; null for a standalone spare room.
+     * This key ties sibling rooms into one occupancy ledger and one joint agreement. */
     @Column(name = "property_id")
     @Setter
     private UUID propertyId;
@@ -59,6 +56,23 @@ public class FlatmateRoom extends AuditedEntity {
     @Setter
     private Long deposit;
 
+    /** Null means the host did not state it, which is not the same as a term of zero. */
+    @Column(name = "notice_period_days")
+    @Setter
+    private Integer noticePeriodDays;
+
+    @Column(name = "lock_in_months")
+    @Setter
+    private Integer lockInMonths;
+
+    @Column(name = "maintenance_billing")
+    @Setter
+    private String maintenanceBilling;
+
+    @Column(name = "electricity_billing")
+    @Setter
+    private String electricityBilling;
+
     /** People living in THIS room. Emergent — the tenants decide, the host only records it. */
     @Column(name = "occupants", nullable = false)
     @Setter
@@ -85,17 +99,18 @@ public class FlatmateRoom extends AuditedEntity {
     @Setter
     private String verificationTier = FlatmateVocabulary.TIER_IDENTITY;
 
-    /**
-     * The Verified pill. On a split room this tracks the <em>parent</em> listing's Ops approval, so
-     * a badge can never appear on a flat nobody has checked.
-     */
-    @Column(name = "verified", nullable = false)
-    @Setter
-    private boolean verified = false;
-
     @Column(name = "agreement_declared", nullable = false)
     @Setter
     private boolean agreementDeclared = false;
+
+    /** True only once the flat's owner confirmed by OTP — the twin of {@link FlatmateGroup}'s. */
+    @Column(name = "owner_consent", nullable = false)
+    @Setter
+    private boolean ownerConsent = false;
+
+    @Column(name = "owner_consent_mobile")
+    @Setter
+    private String ownerConsentMobile;
 
     @Column(name = "address_fingerprint")
     @Setter
@@ -108,6 +123,9 @@ public class FlatmateRoom extends AuditedEntity {
     @Column(name = "mod_status", nullable = false)
     @Setter
     private String modStatus = FlatmateVocabulary.MOD_PENDING;
+
+    @Embedded
+    private ModerationRecheck recheck = new ModerationRecheck();
 
     @Column(name = "society_id")
     @Setter
@@ -228,6 +246,14 @@ public class FlatmateRoom extends AuditedEntity {
 
     public boolean isVisible() {
         return !archived && FlatmateVocabulary.isPublic(modStatus);
+    }
+
+    /** Hibernate materialises an all-null {@code @Embedded} as null, which is every unedited row. */
+    public ModerationRecheck getRecheck() {
+        if (recheck == null) {
+            recheck = new ModerationRecheck();
+        }
+        return recheck;
     }
 
     /** True when this room came from splitting a parent listing, and so uses the occupancy ledger. */

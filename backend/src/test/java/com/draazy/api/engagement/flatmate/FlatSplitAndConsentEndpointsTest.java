@@ -393,9 +393,10 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.consentRecorded").value(false));
 
             // The code is scoped to its own purpose: it can never be presented at /auth/login.
+            // The `:<address>` suffix (V32) narrows it further, to the one flat it was asked about.
             String purpose = jdbc.queryForObject(
                     "select purpose from otp_codes where mobile = '9830000021'", String.class);
-            assertThat(purpose).isEqualTo("owner-consent");
+            assertThat(purpose).startsWith("owner-consent:");
 
             Boolean consented = jdbc.queryForObject(
                     "select owner_consent from flatmate_groups where id = ?::uuid",

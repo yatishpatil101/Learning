@@ -21,7 +21,8 @@ class FlatmateRoomShapeTest {
     // Public fields must serve a card, filter, map or flat ledger; host-only data stays below.
     private static final List<String> FEED_FIELDS = List.of(
             "id", "type", "propertyId", "roomKind", "roomType", "attachedBath", "priceBasis",
-            "budget", "deposit", "occupancy", "occupants", "maxOccupants", "flatCommitted",
+            "budget", "deposit", "noticePeriodDays", "lockInMonths", "maintenanceBilling",
+            "electricityBilling", "occupancy", "occupants", "maxOccupants", "flatCommitted",
             "flatMax", "shareMax", "seatsTotal", "seatsOpen", "hostRole", "verificationTier",
             "verified", "reviewStatus", "society", "flatNumber", "locality", "localities", "lat",
             "lng", "bhk", "flatType", "homeTypeLabel", "gatedCommunity", "furnishing", "moveIn",
@@ -87,7 +88,7 @@ class FlatmateRoomShapeTest {
             // Each projection wires its own derivations; matching field names cannot prove parity.
             FlatmateRoom room = splitRoomInAPartlyOccupiedFlat();
             FlatmateMapper mapper = new FlatmateMapperImpl();
-            FlatmateMapper.RoomView view = new FlatmateMapper.RoomView(2, "Asha", "9876543210");
+            FlatmateMapper.RoomView view = new FlatmateMapper.RoomView(2, "Asha", "9876543210", null);
 
             FlatmateRoomFeedDto feed = mapper.toFeedDto(room, view);
             FlatmateRoomDto detail = mapper.toDto(room, view);

@@ -28,10 +28,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Rooms and groups — the supply side (contract tag {@code Engagement}). Lists are public, writes
- * authenticated; creates are consumer-role-gated because a host is somebody who lives there.
- */
+/** Rooms and groups — the supply side (contract tag {@code Engagement}). Lists are public, writes
+ * authenticated; creates are consumer-role-gated because a host is somebody who lives there. */
 @RestController
 public class FlatmateSupplyController {
 
@@ -43,8 +41,6 @@ public class FlatmateSupplyController {
         this.service = service;
         this.consentService = consentService;
     }
-
-    // ---- rooms ----
 
     /** {@code GET /flatmates/rooms} (contract {@code listFlatmateRooms}) — public. */
     @GetMapping(Routes.Flatmates.ROOMS)
@@ -75,10 +71,8 @@ public class FlatmateSupplyController {
         return service.createRoom(principal, body);
     }
 
-    /**
-     * {@code PATCH /flatmates/rooms/{id}} (contract {@code updateFlatmateRoom}). Same role guard as
-     * the create: an account that may not write a flatmate ad may not rewrite one.
-     */
+    /** Same role guard as the create: an account that may not write a flatmate ad may not rewrite
+     * one. */
     @PatchMapping(Routes.Flatmates.ROOM_BY_ID)
     @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
     public FlatmateRoomDto updateRoom(@CurrentUser AuthPrincipal principal,
@@ -100,10 +94,8 @@ public class FlatmateSupplyController {
         return service.setOccupants(principal, id, body.occupants());
     }
 
-    /**
-     * {@code POST /flatmates/rooms/{id}/agreement/reissue} (contract
-     * {@code reissueJointAgreement}) — 202, because the reissue is an errand rather than a record.
-     */
+    /** Contract {@code reissueJointAgreement} — 202, because the reissue is an errand rather than a
+     * record. */
     @PostMapping(Routes.Flatmates.ROOM_AGREEMENT_REISSUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public void reissue(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
@@ -119,8 +111,6 @@ public class FlatmateSupplyController {
                 body == null ? null : body.share(),
                 body == null ? null : body.message());
     }
-
-    // ---- groups ----
 
     /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public, cards. */
     @GetMapping(Routes.Flatmates.GROUPS)
@@ -152,10 +142,8 @@ public class FlatmateSupplyController {
         service.deleteGroup(principal, id);
     }
 
-    /**
-     * {@code PATCH /flatmates/groups/{id}} (contract {@code updateFlatmateGroup}) — the whole group.
-     * {@link #setGroupSeats} stays: one-tap "a seat just went" should not resend title, rent, policy.
-     */
+    /** Contract {@code updateFlatmateGroup}. {@link #setGroupSeats} stays: one-tap "a seat just
+     * went" should not resend title, rent, policy. */
     @PatchMapping(Routes.Flatmates.GROUP_BY_ID)
     @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
     public FlatmateGroupDto updateGroup(@CurrentUser AuthPrincipal principal,
@@ -179,56 +167,45 @@ public class FlatmateSupplyController {
                 body == null ? null : body.message());
     }
 
-    /**
-     * {@code POST /flatmates/groups/{id}/owner-consent} (contract {@code requestOwnerConsent}). 200
-     * for both calls; the body says which happened, since the client renders a different next step.
-     */
+    /** 200 for both calls; the body says which happened. Role-guarded like the creates it serves:
+     * the consent flow spends a send budget against a third party's number. */
     @PostMapping(Routes.Flatmates.GROUP_OWNER_CONSENT)
+    @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
     public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody OwnerConsentRequest body) {
-        boolean recorded = service.ownerConsent(principal, id, body.ownerMobile(), body.otp());
+        boolean recorded = consentService.ownerConsent(principal, id, body.ownerMobile(), body.otp());
         return recorded ? ConsentResult.recorded() : ConsentResult.sent(resendAfterSeconds());
     }
 
-    /**
-     * {@code POST /flatmates/owner-consent} (contract {@code requestStandaloneOwnerConsent}) — the
-     * group-less twin of {@link #ownerConsent}: docs/flows/consumer/flatmates.md §5.
-     */
+    /** The group-less twin of {@link #ownerConsent}: docs/flows/consumer/flatmates.md §5. */
     @PostMapping(Routes.Flatmates.OWNER_CONSENT)
+    @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
     public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody OwnerConsentRequest body) {
-        String mobile = consentService.normalise(principal, body.ownerMobile());
-        if (body.otp() == null || body.otp().isBlank()) {
-            consentService.send(mobile);
-            return ConsentResult.sent(resendAfterSeconds());
-        }
-        consentService.record(principal, mobile, body.otp(), null);
-        return ConsentResult.recorded();
+        boolean recorded = consentService.ownerConsent(principal, body.title(), body.society(),
+                body.locality(), body.ownerMobile(), body.otp());
+        return recorded ? ConsentResult.recorded() : ConsentResult.sent(resendAfterSeconds());
     }
 
-    /**
-     * The gap before another code may be sent. Reported rather than guessed: a timer the client
-     * picks is wrong in every environment whose cooldown differs.
-     */
+    /** Reported rather than guessed: a timer the client picks is wrong in every environment whose
+     * cooldown differs. */
     private int resendAfterSeconds() {
         return consentService.resendCooldownSeconds();
     }
 
-    /**
-     * Contract's inline owner-consent body. {@code otp} absent means "send one"; present means
-     * "record the consent".
-     */
+    /** {@code otp} absent means "send one". The address fields are deliberately not {@code @NotBlank}:
+     * the rule is about the composed address, enforced in {@code FlatmateGuardrails.fingerprint}. */
     public record OwnerConsentRequest(
             @NotBlank
             @IndianMobile
             String ownerMobile,
-            @Size(min = 6, max = 6) String otp) {
+            @Size(min = 6, max = 6) String otp,
+            @Size(max = 120) String title,
+            @Size(max = 120) String society,
+            @Size(max = 80) String locality) {
     }
 
-    /**
-     * @param consentRecorded false when a code was just sent, true once the owner confirmed
-     * @param resendAfterSeconds null once consent is recorded — nothing left to resend
-     */
+    /** @param resendAfterSeconds null once consent is recorded — nothing left to resend */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ConsentResult(boolean consentRecorded, Integer resendAfterSeconds) {
 

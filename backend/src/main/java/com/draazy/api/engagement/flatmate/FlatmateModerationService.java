@@ -3,6 +3,7 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -13,31 +14,19 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Ops and admin moderation of the flatmates market.
- *
- * <p><strong>Two independent axes, and keeping them independent is the whole job of this
- * class.</strong>
- *
- * <ul>
- *   <li><strong>Verification</strong> ({@link #decideReview}) — has this host proved what they
- *       claimed? Ops answers it by reading a document. Approving grants the badge; rejecting
- *       withholds it and tells the host why.</li>
- *   <li><strong>Moderation</strong> ({@link #moderate}) — should this post be visible at all? Admin
- *       answers it, and a flagged or removed post must <em>disappear</em> from every consumer
- *       surface rather than merely render a different label.</li>
- * </ul>
- *
- * <p>They are not interchangeable. An unverified post is a legitimate post without a badge; a
- * removed post is one nobody should see. Collapsing them would mean either hiding honest supply or
- * showing abuse with a caveat.
- */
+/** Two independent axes, kept independent: verification ({@link #decideReview}) asks whether a host
+ * proved their claim, moderation ({@link #moderate}) whether a post may be seen at all. */
 @Service
 public class FlatmateModerationService {
+
+    /** A {@code modStatus} value that names a board rather than a state — see {@link #moderationQueue}. */
+    static final String SELECTOR_RECHECK = "recheck";
 
     private final FlatmateReviewRepository reviews;
     private final FlatmateGroupApplicationRepository applications;
@@ -45,6 +34,7 @@ public class FlatmateModerationService {
     private final FlatmateGroupRepository groups;
     private final FlatmateSeekerPostRepository posts;
     private final UserRepository users;
+    private final FlatmateBadges badges;
     private final GroupApplicationHydrator applicationHydrator;
     private final Notifier notifier;
     private final AuditService audit;
@@ -52,7 +42,8 @@ public class FlatmateModerationService {
     public FlatmateModerationService(FlatmateReviewRepository reviews,
             FlatmateGroupApplicationRepository applications, FlatmateRoomRepository rooms,
             FlatmateGroupRepository groups, FlatmateSeekerPostRepository posts,
-            UserRepository users, GroupApplicationHydrator applicationHydrator,
+            UserRepository users, FlatmateBadges badges,
+            GroupApplicationHydrator applicationHydrator,
             Notifier notifier, AuditService audit) {
         this.reviews = reviews;
         this.applications = applications;
@@ -60,24 +51,14 @@ public class FlatmateModerationService {
         this.groups = groups;
         this.posts = posts;
         this.users = users;
+        this.badges = badges;
         this.applicationHydrator = applicationHydrator;
         this.notifier = notifier;
         this.audit = audit;
     }
 
-    /**
-     * {@code GET /admin/flatmate-reviews} — the queue, oldest first, paged.
-     *
-     * <p><strong>Paged because it is platform-wide.</strong> This read had no caller scoping, no
-     * filter requirement, no cap and no {@code Pageable} — it returned every row of
-     * {@code flatmate_reviews}, a table that grows with every tenant-tier host who lists a room, at
-     * 15 fields a row including an unmasked host mobile. {@code api-standards.md} §5.1's test is
-     * growth, and this grows with the platform; every other admin queue in the API already pages.
-     *
-     * <p>Both filters now run in the query. They used to pick one of three finders and, when both
-     * were supplied, re-filter in Java — which paging would have turned into short pages and a
-     * wrong {@code totalElements}. See {@link FlatmateReviewRepository#findForQueue}.
-     */
+    /** Both filters run in the query rather than being re-applied in Java, which paging would turn
+     * into short pages and a wrong {@code totalElements}. */
     @Transactional(readOnly = true)
     public Page<FlatmateReviewDto> queue(String status, Boolean flagged, Pageable pageable) {
         String filter = FlatmateVocabulary.optional(
@@ -98,14 +79,8 @@ public class FlatmateModerationService {
         });
     }
 
-    /**
-     * {@code PATCH /admin/flatmate-reviews/{id}} — decide a host verification.
-     *
-     * <p>Approving promotes the post to the tenant tier <em>and grants the badge</em>, which is the
-     * only path by which a tenant-tier post ever earns one. Rejecting requires a reason, because a
-     * host who is told "no" without being told why cannot fix anything — and the DB enforces that
-     * too, so the rule holds whatever the write path.
-     */
+    /** Approving is the only path by which a tenant-tier post earns a badge, so it additionally
+     * requires the owner's OTP-backed consent — see {@link #requireConsentToApprove}. */
     @Transactional
     public FlatmateReviewDto decideReview(AuthPrincipal caller, UUID reviewId, String status,
             String reason) {
@@ -120,11 +95,12 @@ public class FlatmateModerationService {
 
         FlatmateReview review = reviews.findById(reviewId)
                 .orElseThrow(() -> NotFoundException.of("Flatmate review"));
+        requireConsentToApprove(review, verdict);
         review.decide(verdict, why, caller.userId());
         reviews.saveAndFlush(review);
 
         boolean approved = "approved".equals(verdict);
-        applyBadge(review, approved);
+        badges.apply(review, approved);
         tellHost(review, approved, why);
 
         audit.record(caller, "flatmate.review." + verdict, "flatmateReview",
@@ -136,52 +112,52 @@ public class FlatmateModerationService {
                 host == null ? null : host.getMobile());
     }
 
-    /**
-     * {@code GET /admin/flatmates/moderation} — the backlog D72 created.
-     *
-     * <p>Making posts start invisible is only defensible if somebody can see the queue; without
-     * this read, "moderated before public" would in practice mean "never public", which is a worse
-     * outcome for honest supply than the unmoderated board was.
-     *
-     * <p>One {@code kind} per call. Posts, rooms and groups are three tables with three shapes, and
-     * a merged board would have to page across all of them — which means either loading every
-     * pending row to sort it in memory, or reporting a {@code totalElements} that is true of one
-     * table and false of the screen. Both are worse than asking the caller which board they want.
-     *
-     * <p>Defaults to {@code pending} because that is the queue. Any other {@code MOD_STATUS} is
-     * accepted so an admin can review their own past decisions — "what did we remove last week" is
-     * a question a moderation team has to be able to answer about itself.
-     */
+    /** One {@code kind} per call: three tables with three shapes cannot share a page count.
+     * {@code recheck} is a selector, not a seventh {@code MOD_STATUS} — a re-checked post stays visible. */
     @Transactional(readOnly = true)
     public Page<FlatmateModerationQueueDto> moderationQueue(String kind, String modStatus,
             Pageable pageable) {
-        String state = FlatmateVocabulary.orDefault(modStatus, FlatmateVocabulary.MOD_STATUS,
-                FlatmateVocabulary.MOD_PENDING, "modStatus");
+        boolean recheck = SELECTOR_RECHECK.equals(FlatmateVocabulary.blankToNull(modStatus));
+        String state = recheck ? null : FlatmateVocabulary.orDefault(modStatus,
+                FlatmateVocabulary.MOD_STATUS, FlatmateVocabulary.MOD_PENDING, "modStatus");
+        Pageable order = recheck ? byWorkItemAge(pageable) : pageable;
 
         return switch (FlatmateVocabulary.require(kind == null ? "" : kind.strip(),
                 java.util.Set.of(FlatmateModerationQueueDto.KIND_POST,
                         FlatmateModerationQueueDto.KIND_ROOM,
                         FlatmateModerationQueueDto.KIND_GROUP), "kind")) {
             case FlatmateModerationQueueDto.KIND_POST -> {
-                Page<FlatmateSeekerPost> page =
-                        posts.findByModStatusAndArchivedFalse(state, pageable);
+                Page<FlatmateSeekerPost> page = recheck
+                        ? posts.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
+                        : posts.findByModStatusAndArchivedFalse(state, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateSeekerPost::getUserId).toList());
                 yield page.map(p -> FlatmateModerationQueueDto.of(p, names.get(p.getUserId())));
             }
             case FlatmateModerationQueueDto.KIND_ROOM -> {
-                Page<FlatmateRoom> page = rooms.findByModStatusAndArchivedFalse(state, pageable);
+                Page<FlatmateRoom> page = recheck
+                        ? rooms.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
+                        : rooms.findByModStatusAndArchivedFalse(state, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateRoom::getHostId).toList());
                 yield page.map(r -> FlatmateModerationQueueDto.of(r, names.get(r.getHostId())));
             }
             default -> {
-                Page<FlatmateGroup> page = groups.findByModStatusAndArchivedFalse(state, pageable);
+                Page<FlatmateGroup> page = recheck
+                        ? groups.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
+                        : groups.findByModStatusAndArchivedFalse(state, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateGroup::getHostId).toList());
                 yield page.map(g -> FlatmateModerationQueueDto.of(g, names.get(g.getHostId())));
             }
         };
+    }
+
+    /** Oldest work item first, overriding the caller's sort: on the re-check board the SLA is the age
+     * of the edit, not of the post, so {@code createdAt} would invert the queue. */
+    private static Pageable byWorkItemAge(Pageable pageable) {
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                Sort.by(Sort.Direction.ASC, "recheck.requestedAt"));
     }
 
     /** Author names for one page, in one query rather than one per row. */
@@ -194,13 +170,8 @@ public class FlatmateModerationService {
                 .collect(Collectors.toMap(User::getId, User::getName));
     }
 
-    /**
-     * {@code PATCH /admin/flatmates/{id}/moderation} — the moderation axis.
-     *
-     * <p>The id may name a seeker post, a room or a group; the contract has one operation for all
-     * three because moderation asks the same question of each. Tried in turn rather than requiring
-     * the caller to say which — an admin acting on an abuse report has an id, not a taxonomy.
-     */
+    /** The id may name a post, a room or a group; tried in turn because an admin acting on an abuse
+     * report has an id, not a taxonomy. Any pending re-check is dropped whatever the verdict. */
     @Transactional
     public void moderate(AuthPrincipal caller, UUID targetId, String modStatus, String note) {
         String verdict = FlatmateVocabulary.require(
@@ -210,18 +181,21 @@ public class FlatmateModerationService {
         String kind;
         if (posts.findById(targetId).map(p -> {
             p.setModStatus(verdict);
+            p.getRecheck().clear();
             posts.saveAndFlush(p);
             return true;
         }).orElse(false)) {
             kind = "flatmateSeekerPost";
         } else if (rooms.findById(targetId).map(r -> {
             r.setModStatus(verdict);
+            r.getRecheck().clear();
             rooms.saveAndFlush(r);
             return true;
         }).orElse(false)) {
             kind = "flatmateRoom";
         } else if (groups.findById(targetId).map(g -> {
             g.setModStatus(verdict);
+            g.getRecheck().clear();
             groups.saveAndFlush(g);
             return true;
         }).orElse(false)) {
@@ -235,16 +209,8 @@ public class FlatmateModerationService {
                 "modStatus", verdict + (note == null ? "" : " — " + note));
     }
 
-    /**
-     * {@code GET /admin/group-applications} — the admin board, newest first, paged.
-     *
-     * <p>Paged for the same reason as {@link #queue}: it read the whole table with no scoping and
-     * no cap, and {@link #hydrate} does a listing/group/applicant lookup per batch — so the cost of
-     * an unpaged read grew with the platform on both axes at once.
-     *
-     * <p>Titles, rent and member counts are joined in rather than stored on the row, so the screen
-     * never shows a price that stopped being true when the owner edited their listing.
-     */
+    /** Titles, rent and member counts are joined in rather than stored on the row, so the screen
+     * never shows a price that stopped being true when the owner edited their listing. */
     @Transactional(readOnly = true)
     public Page<GroupApplicationDto> applications(Pageable pageable) {
         Page<FlatmateGroupApplication> page = applications.findByOrderByCreatedAtDesc(pageable);
@@ -252,15 +218,8 @@ public class FlatmateModerationService {
         return new PageImpl<>(hydrated, page.getPageable(), page.getTotalElements());
     }
 
-    /**
-     * {@code PATCH /admin/group-applications/{id}} — moderate one application.
-     *
-     * <p><strong>Writes {@code modStatus} only.</strong> The owner's {@code status} is theirs: an
-     * admin removing a spam application must not thereby decline it on the owner's behalf, because
-     * "we took this down" and "the owner said no" are different facts and only one of them is true.
-     * {@link FlatmateGroupApplication#moderate} cannot reach {@code status} at all, so the rule holds
-     * even if a future caller forgets it.
-     */
+    /** Writes {@code modStatus} only: "we took this down" and "the owner said no" are different
+     * facts. {@link FlatmateGroupApplication#moderate} cannot reach {@code status} at all. */
     @Transactional
     public GroupApplicationDto moderateApplication(AuthPrincipal caller, UUID applicationId,
             String modStatus, String note) {
@@ -278,28 +237,24 @@ public class FlatmateModerationService {
         return applicationHydrator.hydrateOne(application);
     }
 
-    /**
-     * Grant or withhold the badge on the reviewed post.
-     *
-     * <p>Only the badge moves. The post stays visible either way: failing verification means an
-     * unproven claim, not abuse, and hiding it here would silently merge the two axes this class
-     * exists to keep apart.
-     */
-    private void applyBadge(FlatmateReview review, boolean approved) {
-        if (review.getRoomId() != null) {
-            rooms.findById(review.getRoomId()).ifPresent(room -> {
-                room.setVerified(approved);
-                room.setFlagForReview(false);
-                rooms.saveAndFlush(room);
-            });
-        } else if (review.getGroupId() != null) {
-            groups.findById(review.getGroupId()).ifPresent(group -> {
-                group.setVerificationTier(approved
-                        ? FlatmateVocabulary.TIER_TENANT : FlatmateVocabulary.TIER_IDENTITY);
-                group.setFlagForReview(false);
-                groups.saveAndFlush(group);
-            });
+    /** A sub-let without the owner's written consent is a ground for eviction under the Maharashtra
+     * Rent Control Act 1999, so the badge is withheld — 422, because nothing about the caller fixes it. */
+    private static void requireConsentToApprove(FlatmateReview review, String verdict) {
+        boolean grantsBadge = FlatmateVocabulary.STATUS_APPROVED.equals(verdict)
+                && FlatmateVocabulary.TIER_TENANT.equals(review.getTier());
+        if (!grantsBadge || review.badgeable()) {
+            return;
         }
+        // Which of badgeable()'s conditions failed, purely to say so. The decision was made above.
+        if (!review.isOwnerConsent()) {
+            throw new ValidationException(
+                    "The flat's owner has not confirmed this sub-let, so the Tenant-verified badge"
+                            + " cannot be granted. Ask the host to send the owner a consent OTP;"
+                            + " the row will say Consent verified once it is done.");
+        }
+        throw new ValidationException(
+                "The registered agreement number, registration date and validity date are "
+                        + "required before the Tenant-verified badge can be granted.");
     }
 
     private void tellHost(FlatmateReview review, boolean approved, String reason) {

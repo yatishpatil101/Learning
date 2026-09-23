@@ -4,10 +4,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Card-sized projection of a room. Trust-forensics and unread fields are omitted so anonymous
- * reads can't leak them. See docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
- */
+/** Card-sized projection of a room. Trust-forensics and unread fields are omitted so anonymous
+ * reads can't leak them. See docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc. */
 public record FlatmateRoomFeedDto(
         UUID id,
         String type,
@@ -18,6 +16,10 @@ public record FlatmateRoomFeedDto(
         String priceBasis,
         Long budget,
         Long deposit,
+        Integer noticePeriodDays,
+        Integer lockInMonths,
+        String maintenanceBilling,
+        String electricityBilling,
         String occupancy,
         int occupants,
         int maxOccupants,

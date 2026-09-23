@@ -9,10 +9,8 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
-/**
- * The flatmate board as one searchable list — a {@code UNION ALL} narrowed, ordered, counted and
- * paged by PostgreSQL. Why the database, and the binding rules: docs/flows/consumer/flatmates.md §5.
- */
+/** The flatmate board as one searchable list — a {@code UNION ALL} narrowed, ordered, counted and
+ * paged by PostgreSQL. Why the database, and the binding rules: docs/flows/consumer/flatmates.md §5. */
 @Component
 public class FlatmateSearchQueries {
 
@@ -24,10 +22,8 @@ public class FlatmateSearchQueries {
     /** One degree of latitude, in km. A degree of longitude shrinks with the cosine of latitude. */
     private static final double KM_PER_DEGREE = 111.045;
 
-    /**
-     * The space before an appended clause. A text block strips common indentation, so {@code "    and
-     * (...)"} contributes no leading space and fuses with the token before it ({@code nulland}).
-     */
+    /** A text block strips common indentation, so an appended {@code "    and (...)"} contributes
+     * no leading space and fuses with the token before it ({@code nulland}). */
     private static final String SEP = "\n ";
 
     private final EntityManager em;
@@ -40,10 +36,7 @@ public class FlatmateSearchQueries {
     public record Ref(String kind, UUID id) {
     }
 
-    /**
-     * @param total every row matching the query, not just this page
-     * @param verifiedTotal how many of those are verified, counted over the same set
-     */
+    /** @param verifiedTotal counted over every matching row, not just this page */
     public record Result(List<Ref> refs, long total, long verifiedTotal) {
     }
 
@@ -94,14 +87,8 @@ public class FlatmateSearchQueries {
                 ((Number) totals[1]).longValue());
     }
 
-    // -------------------------------------------------------------------------------------
-    // Ordering
-    // -------------------------------------------------------------------------------------
-
-    /**
-     * The board's sort. Every branch ends in {@code id desc}: without a total order the boundary row
-     * of a page is shown twice or skipped. Only literals chosen here are concatenated.
-     */
+    /** Every branch ends in {@code id desc}: without a total order the boundary row of a page is
+     * shown twice or skipped. Only literals chosen here are concatenated. */
     private static String orderBy(FlatmateSearchQuery f, Map<String, Object> params) {
         // A null price sorts last in both directions: "we do not know" is neither free nor dearest.
         return switch (f.sort()) {
@@ -116,10 +103,8 @@ public class FlatmateSearchQueries {
         };
     }
 
-    /**
-     * "Best match" — the one ranking about the searcher rather than the row, kept term for term with
-     * the browser's {@code matchScore}. Terms and why: docs/flows/consumer/flatmates.md §5.
-     */
+    /** Kept term for term with the browser's {@code matchScore}. Terms and why:
+     * docs/flows/consumer/flatmates.md §5. */
     private static String matchOrder(FlatmateSearchQuery f, Map<String, Object> params) {
         if (!f.scoresAgainstMe()) {
             return "order by created_at desc, id desc\n";
@@ -155,10 +140,6 @@ public class FlatmateSearchQueries {
         return "order by (" + score + ") desc, created_at desc, id desc\n";
     }
 
-    // -------------------------------------------------------------------------------------
-    // The union
-    // -------------------------------------------------------------------------------------
-
     private static String matchesCte(FlatmateSearchQuery f, Map<String, Object> params) {
         if (f.movingIn()) {
             return roomLedgerCte() + ", matches as (\n"
@@ -170,10 +151,8 @@ public class FlatmateSearchQueries {
                 + "\n)\n";
     }
 
-    /**
-     * People living across each flat, computed over every unarchived room BEFORE any facet applies —
-     * otherwise a budget filter would move the very price it compares against.
-     */
+    /** Computed over every unarchived room BEFORE any facet applies — otherwise a budget filter
+     * would move the very price it compares against. */
     private static String roomLedgerCte() {
         return """
                 with room_ledger as (
@@ -186,19 +165,15 @@ public class FlatmateSearchQueries {
                 )""";
     }
 
-    /**
-     * The last date a "within N days" search accepts, closing the surrounding parenthesis. IST, not
-     * the session's timezone: {@code move_in_at} is written in IST and would filter a day out.
-     */
+    /** Closes the surrounding parenthesis. IST, not the session's timezone: {@code move_in_at} is
+     * written in IST and would filter a day out. */
     private static String moveInHorizon() {
         return "(cast((now() at time zone 'Asia/Kolkata') as date)"
                 + " + cast(:moveInDays as integer)))";
     }
 
-    /**
-     * A room's per-person price, which no column holds and none can — the headroom it divides by
-     * belongs to the FLAT. Divisor floored at 1, matching the browser's {@code perPersonRent}.
-     */
+    /** No column holds this — the headroom it divides by belongs to the FLAT. Divisor floored at 1,
+     * matching the browser's {@code perPersonRent}. */
     private static String perPersonPrice() {
         return """
                 round(cast(r.budget as numeric) / case when r.price_basis = 'person' then 1
@@ -206,24 +181,28 @@ public class FlatmateSearchQueries {
                       end)""".formatted(ROOM_SHARE_MAX);
     }
 
-    /**
-     * The moderation floor, from the one place that defines it — a SQL literal per branch would
-     * leave four copies of a rule whose whole purpose is to be a single closed list.
-     */
+    /** From the one place that defines it — a SQL literal per branch would leave four copies of a
+     * rule whose whole purpose is to be a single closed list. */
     private static String publicRows(String alias, Map<String, Object> params) {
         params.put("modPublic", FlatmateVocabulary.MOD_PUBLIC);
         return "where %1$s.archived = false and %1$s.mod_status in (:modPublic)".formatted(alias);
     }
 
+    /** The projected column and the {@code verifiedOnly} filter both ask, and must agree. Same rule
+     * as {@link FlatmateRoomRepository#feed} and {@code FlatmateMapper.hostVerified}. */
+    private static String roomVerified() {
+        return """
+                (r.verification_tier = 'owner'
+                 or (r.verification_tier = 'tenant'
+                     and exists (select 1 from flatmate_reviews fr
+                                 where fr.room_id = r.id and fr.status = 'approved')))""";
+    }
+
     private static String roomSelect(FlatmateSearchQuery f, Map<String, Object> params) {
         StringBuilder sql = new StringBuilder("""
                 select 'room' as kind, r.id as id, r.created_at as created_at,
-                       (r.verified or r.verification_tier = 'owner'
-                        or (r.verification_tier = 'tenant'
-                            and exists (select 1 from flatmate_reviews fr
-                                        where fr.room_id = r.id and fr.status = 'approved')))
-                       as verified,
                 """);
+        sql.append(roomVerified()).append(" as verified,\n");
         sql.append(perPersonPrice()).append(" as price,\n");
         sql.append("""
                        to_jsonb(array[r.locality]) as locs,
@@ -271,19 +250,13 @@ public class FlatmateSearchQueries {
         appendHabits(sql, "r", f, params);
         appendRadius(sql, "r", f, params);
         if (f.verifiedOnly()) {
-            sql.append(SEP).append("""
-                    and (r.verified or r.verification_tier = 'owner'
-                         or (r.verification_tier = 'tenant'
-                             and exists (select 1 from flatmate_reviews fr
-                                         where fr.room_id = r.id and fr.status = 'approved')))""");
+            sql.append(SEP).append(" and ").append(roomVerified());
         }
         return sql.toString();
     }
 
-    /**
-     * What earns a group the verified pill, in one place because three readers ask. Two independent
-     * routes, and dropping either is a visible contradiction: docs/flows/consumer/flatmates.md §5.
-     */
+    /** Three readers ask, via two independent routes; dropping either is a visible contradiction:
+     * docs/flows/consumer/flatmates.md §5. */
     private static String groupVerified() {
         return """
                 (g.verification_tier = 'owner'
@@ -295,10 +268,8 @@ public class FlatmateSearchQueries {
                                      where gm.group_id = g.id and gm.verified = false)))""";
     }
 
-    /**
-     * Groups, on whichever tab they have reached. The address is a predicate here rather than two
-     * tables, because the same row moves between tabs as its search progresses.
-     */
+    /** The address is a predicate rather than two tables, because the same row moves between tabs
+     * as its search progresses. */
     private static String groupSelect(FlatmateSearchQuery f, Map<String, Object> params,
             boolean housed) {
         StringBuilder sql = new StringBuilder("""
@@ -410,14 +381,8 @@ public class FlatmateSearchQueries {
         return sql.toString();
     }
 
-    // -------------------------------------------------------------------------------------
-    // Shared predicates
-    // -------------------------------------------------------------------------------------
-
-    /**
-     * "Non-smoker AND early riser", one containment test per habit. {@code @>} against a scalar is
-     * what the GIN {@code jsonb_path_ops} indexes answer; {@code ?} is also JDBC's bind placeholder.
-     */
+    /** One containment test per habit. {@code @>} against a scalar is what the GIN
+     * {@code jsonb_path_ops} indexes answer; {@code ?} is also JDBC's bind placeholder. */
     private static void appendHabits(StringBuilder sql, String alias, FlatmateSearchQuery f,
             Map<String, Object> params) {
         List<String> habits = f.habits();
@@ -429,10 +394,8 @@ public class FlatmateSearchQueries {
         }
     }
 
-    /**
-     * "Within N km of this point" without PostGIS — bounding box, then the exact great-circle test,
-     * with a locality-centroid fallback: docs/flows/consumer/flatmates.md §5.
-     */
+    /** "Within N km of this point" without PostGIS — bounding box, then the exact great-circle test,
+     * with a locality-centroid fallback: docs/flows/consumer/flatmates.md §5. */
     private static void appendRadius(StringBuilder sql, String alias, FlatmateSearchQuery f,
             Map<String, Object> params) {
         if (!f.hasNearPoint()) {
@@ -472,10 +435,7 @@ public class FlatmateSearchQueries {
                 + " + :sinLat * sin(radians(%1$s.lat))) >= :cosRadius").formatted(alias);
     }
 
-    /**
-     * Whether a row with no coordinates sits in a locality whose centroid is in range. A seeker
-     * names a <em>shortlist</em>, so any entry landing in the circle answers yes.
-     */
+    /** A seeker names a <em>shortlist</em>, so any entry landing in the circle answers yes. */
     private static String nearByLocality(String alias) {
         String source = "p".equals(alias)
                 ? "jsonb_array_elements_text(coalesce(p.localities, '[]'::jsonb)) as e(v)"
@@ -487,19 +447,15 @@ public class FlatmateSearchQueries {
                 .formatted(source, match, within("loc"));
     }
 
-    /**
-     * Free text against the ELEMENTS of a jsonb text array, not its serialization — otherwise JSON
-     * punctuation becomes matchable and a pattern can span an element boundary.
-     */
+    /** Against the ELEMENTS of a jsonb text array, not its serialization — otherwise JSON
+     * punctuation becomes matchable and a pattern can span an element boundary. */
     private static String jsonbTextLike(String column) {
         return ("exists (select 1 from jsonb_array_elements_text(coalesce(%s, '[]'::jsonb)) as e(v)"
                 + " where lower(e.v) like :q)").formatted(column);
     }
 
-    /**
-     * A contains-match. Binding stops the statement being rewritten but leaves {@code %} a wildcard,
-     * so the escape happens here — backslash first, or it would escape the escapes.
-     */
+    /** Binding stops the statement being rewritten but leaves {@code %} a wildcard, so the escape
+     * happens here — backslash first, or it would escape the escapes. */
     private static String like(String q) {
         String escaped = q.toLowerCase()
                 .replace("\\", "\\\\")
