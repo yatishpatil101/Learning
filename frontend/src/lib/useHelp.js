@@ -1,13 +1,7 @@
-/* React bindings for the help centre data layer.
- *
- * Every help page needs the same three things — the signed-in user (for staff
- * gating), the active language, and the resulting content tree. Without this
- * hook each page repeats that wiring, and it only takes one page forgetting to
- * pass `i18n.language` for a Marathi reader to get an English section heading
- * with Marathi articles under it.
- */
+/* The one place that decides a reader may have the staff runbooks — lib/help.js takes that content
+   as an argument rather than looking the role up itself. */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
@@ -15,49 +9,71 @@ import {
   searchHelp,
   featuredArticles,
   recentArticles,
+  articleNeighbours,
+  isStaff,
+  loadStaffContent,
+  getStaffContent,
+  onStaffContent,
 } from './help.js';
-import { helpPath } from './helpUrl.js';
+import { helpPath, normalizeHelpLang } from './helpUrl.js';
 
-/** The active help language, normalised to one the content layer knows. */
+/* i18next leaves a region tag in `language` ('en-US') while resolving resources against the bare
+   code, so the raw value is not one of the three the content layer and URL builder accept. */
 export function useHelpLang() {
   const { i18n } = useTranslation();
-  return i18n.language || 'en';
+  return normalizeHelpLang(i18n.resolvedLanguage || i18n.language);
 }
 
-/**
- * Build help URLs in the active language.
- *
- * Every internal help link goes through this. Hand-writing `/help/a/x` inside a
- * component drops a Marathi reader back into English on click, and that bug is
- * invisible in English-only testing — which is why the raw path never appears in
- * a component.
- */
+/* Every internal help link goes through this: hand-writing `/help/a/x` in a component drops a
+   Marathi reader back into English on click, and that is invisible in English-only testing. */
 export function useHelpPath() {
   const lang = useHelpLang();
   return useCallback((path) => helpPath(path, lang), [lang]);
 }
 
-/** Sections, categories and articles visible to the current user, in their language. */
-export function useHelpTree() {
+/** `staff` is the empty set until the chunk arrives, so a staff account's first paint is public. */
+function useHelpAudience() {
   const { user } = useAuth();
   const lang = useHelpLang();
-  return useMemo(() => helpTree(user, lang), [user, lang]);
+  const staff = useSyncExternalStore(onStaffContent, getStaffContent, getStaffContent);
+  const staffReader = isStaff(user);
+
+  useEffect(() => {
+    if (staffReader) loadStaffContent();
+  }, [staffReader]);
+
+  return {
+    lang,
+    staff: staffReader ? staff : undefined,
+    pending: staffReader && !staff.loaded,
+  };
+}
+
+/* `pending` is true only while a staff account waits for its chunk. Pages that would otherwise
+   render "no such article" must honour it, or a runbook link reads as broken for half a second. */
+export function useHelpTree() {
+  const { lang, staff, pending } = useHelpAudience();
+  const tree = useMemo(() => helpTree(lang, staff), [lang, staff]);
+  return { ...tree, pending };
 }
 
 export function useHelpSearch(query, limit) {
-  const { user } = useAuth();
-  const lang = useHelpLang();
-  return useMemo(() => searchHelp(query, user, { lang, limit }), [query, user, lang, limit]);
+  const { lang, staff } = useHelpAudience();
+  return useMemo(() => searchHelp(query, { lang, limit, staff }), [query, lang, limit, staff]);
 }
 
 export function useFeaturedArticles(limit) {
-  const { user } = useAuth();
-  const lang = useHelpLang();
-  return useMemo(() => featuredArticles(user, lang, limit), [user, lang, limit]);
+  const { lang, staff } = useHelpAudience();
+  return useMemo(() => featuredArticles(lang, limit, staff), [lang, limit, staff]);
 }
 
 export function useRecentArticles() {
-  const { user } = useAuth();
-  const lang = useHelpLang();
-  return useMemo(() => recentArticles(user, lang), [user, lang]);
+  const { lang, staff } = useHelpAudience();
+  return useMemo(() => recentArticles(lang, staff), [lang, staff]);
+}
+
+/** Previous/next within the article's own category. */
+export function useArticleNeighbours(article) {
+  const { lang, staff } = useHelpAudience();
+  return useMemo(() => articleNeighbours(article, lang, staff), [article, lang, staff]);
 }

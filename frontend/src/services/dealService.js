@@ -7,31 +7,23 @@
  *   `/me/offers` · `/finalization/{propId}/request|status` · `/me/finalization-requests` ·
  *   `/finalization/requests/{id}/accept|decline`
  *
- * ## Why every signature here dropped its first argument
- *
- * The store this replaces took `ownerMobile` everywhere — `isDealClosed(owner, propId)`,
- * `getOffers(owner)`, `acceptFinalize(owner, reqId)`. That parameter is not a detail: it is the
- * caller *naming whose data to read*. localStorage has no identity, so the reader supplies one, and
- * any reader could supply any owner's.
- *
- * The server has no such parameter and no such possibility. `/me/deals` is the caller's listings;
- * `/offers/mine` is the caller's offers. Keeping `ownerMobile` in the seam would preserve a
- * signature that promises something the API will never do, and every call site would have to be
- * rewritten again the day someone noticed. It is gone.
+ * No function here takes an owner identifier. `/me/deals` is the caller's listings and
+ * `/offers/mine` the caller's offers, so there is no parameter naming *whose* data to read and no
+ * way for one caller to ask for another's.
  *
  * ## Two things this domain cannot do, and does not pretend to
  *
- * **A buyer learns a listing's deal state from the listing itself (D110).** {@code dealStatus} is
+ * **A buyer learns a listing's deal state from the listing itself.** {@code dealStatus} is
  * mirrored onto the property payload (active|reserved|closed), and a closed sale flips the
  * property's own status to the terminal {@code sold}/{@code rented} that drops it from search.
- * {@code dealStatusForBuyer(property)} reads that mirror — the wire field in http mode, the client
- * deal store in mock mode — so a buyer on a sold listing sees it is closed rather than a live offer
- * form. The server still refuses a stale offer with 409 as the backstop.
+ * {@code dealStatusForBuyer(property)} reads that mirror, so a buyer on a sold listing sees it is
+ * closed rather than a live offer form. The server still refuses a stale offer with 409 as the
+ * backstop.
  *
  * **A buyer cannot accept the owner's counter.** Accept and decline are the owner's decision alone
  * (403 otherwise), because otherwise a buyer could mark a price agreed with no owner involvement
  * and unmask a mobile through the status-driven reveal. Counter is the two-sided action; a buyer
- * who wants to agree counters at the owner's number. Both providers enforce this.
+ * who wants to agree counters at the owner's number.
  *
  * Both are raised as backend gaps rather than smoothed over.
  */
@@ -39,7 +31,6 @@ import { createProvider } from './config.js';
 
 const provider = createProvider('deal');
 
-/* ─── Deals (owner-scoped) ──────────────────────────────────────────────────────────────────── */
 
 /** Every deal on the caller's own listings. Empty for a signed-out caller. */
 export const myDeals = async () => (await provider()).myDeals();
@@ -51,10 +42,9 @@ export const myDeals = async () => (await provider()).myDeals();
 export const getDeal = async (propId) => (await provider()).getDeal(propId);
 
 /**
- * What a non-owner can learn about a listing's deal state, read from the listing itself (D110):
+ * What a non-owner can learn about a listing's deal state, read from the listing itself:
  * {@code active}, {@code reserved} (under offer, still takes offers) or {@code closed}. Takes the
- * property view-model so each provider can resolve it without a second fetch — http off the wire
- * {@code dealStatus}, mock off its client deal store.
+ * property view-model so the wire's {@code dealStatus} can be resolved without a second fetch.
  */
 export const dealStatusForBuyer = async (property) => (await provider()).dealStatusForBuyer(property);
 
@@ -76,7 +66,6 @@ export const addParty = async (propId, party) => (await provider()).addParty(pro
 /** Remove by party **id** — not by array position, which is not an identity. */
 export const removeParty = async (propId, partyId) => (await provider()).removeParty(propId, partyId);
 
-/* ─── Offers ────────────────────────────────────────────────────────────────────────────────── */
 
 /**
  * Open a negotiation on a listing. 409 when the caller already has a live offer on it, so the
@@ -103,7 +92,6 @@ export const myOffers = async () => (await provider()).myOffers();
 /** Offers on the caller's own listings. */
 export const offersOnMine = async () => (await provider()).offersOnMine();
 
-/* ─── Finalization (maker/checker) ──────────────────────────────────────────────────────────── */
 
 /** Propose to close. Requires the counterparty's mobile and a positive agreed price. */
 export const requestFinalization = async (propId, body) => (await provider()).requestFinalization(propId, body);

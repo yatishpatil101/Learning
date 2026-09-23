@@ -15,10 +15,10 @@
  * the naive conversion — `await` in each of six places — means six requests to draw one dashboard
  * and six copies of the answer that drift the moment one of them changes.
  *
- * The listing quota used to be on that list too (`listingLimit()`, `canPostListing()`). It is not
- * served from here, because the ceiling is not a property of the plan alone — referrals raise it,
- * and the count it is measured against lives in the listings table, not in this browser. Both
- * halves come from `GET /me/entitlements` and `GET /me/listings` via `lib/data/listingQuota.js`.
+ * The listing quota is deliberately **not** served from here: the ceiling is not a property of the
+ * plan alone — referrals raise it, and the count it is measured against lives in the listings
+ * table, not in this browser. Both halves come from `GET /me/entitlements` and `GET /me/listings`
+ * via `lib/data/listingQuota.js`.
  *
  * So the plan is fetched once and held in `context/PlanContext.jsx`, and the sync questions are
  * answered from memory. This is the same shape `SavedContext` uses for the shortlist and
@@ -31,17 +31,16 @@
  * only the signature-verified payment webhook moves it to `active`. A free plan is active at once,
  * because there is no money to wait for.
  *
- * The mock granted instantly at first and was corrected before it was deleted (P5c), so that no
- * call site could be written against "pay, then you have it" and then break on the day this went
- * live. `Checkout.jsx` reads the returned status and says what actually happened.
+ * No call site may be written against "pay, then you have it". `Checkout.jsx` reads the returned
+ * status and says what actually happened.
  *
  * ## Shape
  *
  *   { subscriptionId, id, name, status, pendingSlug, paymentRef,
  *     startedAt, renewsAt, isPaidOwner, listingLimit }
  *
- * `id` and `name` keep the vocabulary `getPlan()` always returned (`'owner2'`, `'Owner Plus'`), so
- * the pricing card, the billing panel and the checkout guard read unchanged. `id` is `'free'` for
+ * `id` and `name` carry the pricing vocabulary (`'owner2'`, `'Owner Plus'`), which the pricing
+ * card, the billing panel and the checkout guard all read. `id` is `'free'` for
  * an unsubscribed, pending, lapsed or unrecognised plan — the free tier is the floor, never an
  * error state.
  */
@@ -53,8 +52,7 @@ const provider = createProvider('plan');
  * The plan catalogue. **Public** — this is the pricing page, which has to render for the
  * signed-out visitor it exists to convert.
  *
- * Prices differ between providers by design: the mock reads the back-office Fees panel, which ops
- * can change at runtime; the server's plan row is itself the price. Both are right for their world.
+ * The server's plan row is itself the price — it is not read from the back-office Fees panel.
  *
  * @returns {Promise<{id, slug, name, audience, price, billingCycle, features}[]>}
  */

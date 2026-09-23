@@ -1,9 +1,7 @@
 /**
  * HTTP support provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `supportService.js` is the
- * only contract between them and `Support.jsx` may not care which one is active. Shape translation
- * lives in `supportMapper.js`.
+ * Shape translation lives in `supportMapper.js`.
  *
  * Thin by design: six requests and no client-side state. The caller's own list is a **bare array**,
  * not a `PageResponse` — the contract keeps it unpaged because it grows with one person's own
@@ -19,7 +17,7 @@ export async function listTickets() {
 }
 
 /**
- * The platform-wide support queue — staff/admin (D51).
+ * The platform-wide support queue — staff/admin.
  *
  * `GET /admin/support-tickets`, a genuinely different operation from `listTickets` rather than a
  * role-widened version of it: a paged envelope of thread-less summaries, where the caller's own
@@ -56,14 +54,6 @@ export async function createTicket(ticket) {
   return toViewModel(await post('/support/tickets', toTicketCreate(ticket)));
 }
 
-/**
- * Reply.
- *
- * `images` is accepted and ignored, matching the mock's signature so the seam holds — there is no
- * upload surface behind it and the contract drops the field rather than storing a client-supplied
- * URL nothing can render. The page does not offer the control in http mode, so this is a
- * belt-and-braces no-op rather than a silent loss.
- */
 export async function replyToTicket(id, text) {
   return toMessage(
     await post(`/support/tickets/${encodeURIComponent(id)}/messages`, { body: String(text || '').trim() }),

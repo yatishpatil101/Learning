@@ -45,7 +45,7 @@
     "name": "Seeker Plus",
     "audience": "seeker",
     "price": 199,
-    "period": "one-time",
+    "period": "month",
     "features": [
       "Unlock 15 owner contacts",
       "Priority visit slots",

@@ -30,16 +30,16 @@ const TYPE_PREFIXES = [
   // A saved-search alert is the server's counterpart to the inbox's "New Matches" chip, and it is
   // spelled two different ways by two writers that both reach a real inbox:
   //   - `SavedSearchService.alert()` emits `match.saved-search` — the only spelling production ever
-  //     produces, and until this entry existed it fell through to the grey `system` glyph and
-  //     matched no filter chip at all. That is the exact failure this whole map exists to prevent,
-  //     landing on the one notification the alerts product is built to deliver.
+  //     produces, and without this entry it falls through to the grey `system` glyph and matches no
+  //     filter chip at all. That is the exact failure this whole map exists to prevent, landing on
+  //     the one notification the alerts product is built to deliver.
   //   - `R__zz_DML_dev_demo_data.sql` seeds `saved.search.match` on the demo buyer. The seed's
   //     vocabulary disagrees with the emitter's; both are mapped rather than one being "fixed",
   //     because a mapper that only understood the seed would be green in e2e and wrong in
   //     production, which is the direction that ships.
   ['match.saved-search', 'match'],
   ['saved.search', 'match'],
-  // Someone wants to team up as a flatmate — the "users" family, same as the mock's flatmate seed.
+  // Someone wants to team up as a flatmate — the "users" family.
   ['flatmate.interest', 'share'],
   ['flatmate.request', 'share'],
   // A moderation outcome on the user's own post is a platform decision, not a lead.
@@ -69,9 +69,9 @@ const TYPE_PREFIXES = [
   // Access to a document was granted. Identity mapping, stated for the same dotted-type reason as
   // `visit` above.
   ['document', 'document'],
-  // A message landed in a conversation. `message.received` predates the rest of this list and has
-  // been falling through to the grey `system` row since the notification page shipped — it is an
-  // enquiry thread from the reader's point of view, which is the chip they would reach for.
+  // A message landed in a conversation. `message.received` is an enquiry thread from the reader's
+  // point of view, which is the chip they would reach for; without this entry it falls through to
+  // the grey `system` row.
   ['message', 'enquiry'],
   // Our services team shared a draft for the customer to approve (`service.draft-shared`). Identity
   // mapping onto the UI's own `service` member, stated for the same dotted-type reason as `visit`
@@ -137,6 +137,6 @@ export function toViewModel(n) {
   };
 }
 
-/** Wire page (or bare array) → the plain array the mock returns. */
+/** Wire page (or bare array) → a plain array. */
 export const toViewModelList = (payload) =>
   (Array.isArray(payload) ? payload : payload?.content ?? []).map(toViewModel).filter(Boolean);

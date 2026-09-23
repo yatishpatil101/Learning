@@ -21,6 +21,8 @@ export function pickListingFormDetails(form = {}) {
     .filter(([key, value]) => DETAIL_KEYS.has(key) && value != null));
 }
 
+export const canStateBuyerEligibility = (form = {}) => form.propertyType === 'farmland' && form.deal === 'buy';
+
 export function hasStoredAddress(form = {}) {
   return Boolean(String(form.existingAddress ?? '').trim())
     && !ADDRESS_PARTS.some((key) => String(form[key] ?? '').trim());

@@ -1,12 +1,5 @@
-// Society entities — first-class, Pune-first. Single source of truth for the
-// Society Hub (consumer profile page + property Society section).
-//
-// Data is curated/deterministic (no backend). The record shape is intentionally
-// "ownership-ready": `claimStatus`, `adminId` and `members` are reserved for Phase 2
-// (society claim + admin edit) and Phase 3 (Society OS SaaS) and are unused in Phase 1.
-
-// water: 'Corporation' | '24x7 Corp + Borewell' | 'Tanker + Borewell'
-// power: backup coverage. petPolicy/vegPolicy: 'Allowed' | 'Not allowed' | 'Common areas only' | 'Mixed'
+// Curated Pune societies. `claimStatus`, `adminId` and `members` are reserved for society claim
+// and the Society OS SaaS, and are unused today.
 export const SOCIETIES = [
   { id: 'S01', slug: 'skyline-heights-baner', name: 'Skyline Heights', builder: 'Kolte-Patil', localitySlug: 'baner', lat: 18.5602, lng: 73.7861, year: 2018, towers: 5, units: 420, occupancy: 92, maintenancePerSqft: 3.2, water: '24x7 Corp + Borewell', power: 'Full DG backup', parkingRatio: 1.4, lifts: 12, security: '3-tier + CCTV', petPolicy: 'Allowed', vegPolicy: 'Mixed', rera: 'P52100012345', registration: true, conveyance: true, amenities: ['pool', 'gym', 'clubhouse', 'garden', 'kids', 'security', 'ev', 'jogging'] },
   { id: 'S02', slug: 'green-meadows-baner', name: 'Green Meadows', builder: 'Gera Developments', localitySlug: 'baner', lat: 18.5571, lng: 73.7902, year: 2016, towers: 3, units: 260, occupancy: 95, maintenancePerSqft: 2.9, water: 'Corporation', power: 'Lifts + common areas', parkingRatio: 1.2, lifts: 6, security: '2-tier + CCTV', petPolicy: 'Allowed', vegPolicy: 'Mixed', rera: 'P52100011876', registration: true, conveyance: true, amenities: ['gym', 'clubhouse', 'garden', 'kids', 'security', 'jogging'] },
@@ -38,29 +31,8 @@ export const SOCIETIES = [
   { id: 'S28', slug: 'aditya-shagun-kothrud', name: 'Aditya Shagun', builder: 'Aditya Builders', localitySlug: 'kothrud', lat: 18.5081, lng: 73.8211, year: 2013, towers: 3, units: 210, occupancy: 98, maintenancePerSqft: 3.1, water: 'Corporation', power: 'Full DG backup', parkingRatio: 1.2, lifts: 6, security: '2-tier + CCTV', petPolicy: 'Allowed', vegPolicy: 'Mixed', rera: '', registration: true, conveyance: true, amenities: ['gym', 'clubhouse', 'garden', 'security', 'indoor'] },
 ];
 
-// Verified catalogue = 28 curated demo societies + the MahaRERA bulk import.
-// Both are lookup-/search-visible immediately. Neither is a *fallback* pool: a
-// listing is in a society because it says so (`societySlug`), never because a
-// hash of its id landed on one — see societyForListing.
-//
-// D129: the bulk import is 182 KB of generated data and it used to be a static
-// import, which put it on the critical path of every route — including the ones
-// that never name a society. Code-splitting could not help, because the cost was
-// not the import graph's *shape*: `CATALOGUE` was computed at module scope, so
-// evaluating this module evaluated that one. So the work is now behind a memoised
-// accessor and the bulk rows behind `import()`.
-//
-// The consequence is that the catalogue is *eventually* complete rather than
-// complete on the first synchronous read. Every accessor below stays synchronous
-// and returns the curated rows immediately, kicking the fetch off on first touch;
-// a surface that renders the full directory must therefore wait for
-// `ensureSocietyCatalogue()` before it can claim to be showing everything, or it
-// will paint 28 societies and never correct itself. That is a real obligation and
-// it is why the function is exported rather than left as a private detail.
-//
-// React callers discharge it through `lib/useSocietyCatalogue.js`, which owns the
-// subscribe-and-re-render half; that hook's docblock lists which surfaces make the
-// claim and which deliberately do not. This module stays React-free.
+// The bulk MahaRERA rows are behind `import()` — 182 KB that would otherwise sit on every route.
+// Accessors stay synchronous, so a surface showing the whole directory must await `ensureSocietyCatalogue()`.
 let RERA_SOCIETIES = [];
 let reraPromise = null;
 let CATALOGUE = null;
@@ -76,12 +48,8 @@ export function ensureSocietyCatalogue() {
       RERA_SOCIETIES = m.RERA_SOCIETIES;
       invalidateCatalogue();
     }).catch((err) => {
-      // A rejected promise is still truthy, so caching it would make `if (!reraPromise)`
-      // false forever: one failed chunk fetch (flaky network, a stale hashed filename
-      // after a deploy) would leave every accessor permanently answering with the 28
-      // curated rows, with no retry and no way to tell that from a complete catalogue.
-      // Clearing the cache makes the next caller retry; re-throwing keeps the failure
-      // visible to the render gate instead of resolving a lie.
+      // A rejected promise is still truthy, so caching it would leave every accessor permanently
+      // answering with the curated rows only. Clearing it makes the next caller retry.
       reraPromise = null;
       throw err;
     });
@@ -93,13 +61,8 @@ export function ensureSocietyCatalogue() {
 export const societyCatalogueLoaded = () => RERA_SOCIETIES.length > 0;
 
 function catalogue() {
-  // Fire-and-forget kick-off: this is the synchronous path, so it answers with whatever
-  // is loaded now and lets the fetch complete in the background. The `.catch` is not
-  // optional — without a handler on THIS reference, a failed chunk becomes an unhandled
-  // rejection even when no React consumer is mounted. Callers that need to know about
-  // the failure hold their own reference via the render gate; here it is genuinely
-  // nothing to act on, and `ensureSocietyCatalogue` has already cleared its cache so
-  // the next call retries.
+  // The `.catch` is not optional — without a handler on THIS reference a failed chunk becomes an
+  // unhandled rejection even when no React consumer is mounted. The render gate holds its own.
   ensureSocietyCatalogue().catch(() => {});
   if (!CATALOGUE) CATALOGUE = SOCIETIES.concat(RERA_SOCIETIES);
   return CATALOGUE;
@@ -113,9 +76,8 @@ function byId() {
   return BY_ID;
 }
 
-// Merge map (ops dedup): a duplicate society's slug → its canonical slug. Kept
-// here (dependency-free) so every lookup transparently redirects a merged-away
-// society to its canonical row. store.js calls registerSocietyMerges() on load.
+// A merged-away society's slug → its canonical slug. Kept here, dependency-free, so every lookup
+// redirects transparently; store.js calls registerSocietyMerges() on load.
 const MERGES_BY_SLUG = {};
 export function registerSocietyMerges(map) {
   Object.entries(map || {}).forEach(([from, to]) => { if (from && to) MERGES_BY_SLUG[from] = to; });
@@ -126,10 +88,8 @@ const resolveMergedSlug = (slug) => {
   return cur;
 };
 
-// Community societies — user-minted from the listing flow (tier: 'community').
-// They live in localStorage (see store.js) but are registered here at runtime so
-// every lookup (by slug / by id / for a listing) transparently resolves them
-// alongside the curated catalogue. societies.js stays dependency-free.
+// User-minted societies (tier: 'community'). They live in localStorage but are registered here at
+// runtime so every lookup resolves them alongside the catalogue; this file stays dependency-free.
 const COMMUNITY = [];
 const COMMUNITY_BY_SLUG = {};
 const COMMUNITY_BY_ID = {};
@@ -138,8 +98,8 @@ export function registerCommunitySocieties(list) {
     if (!s || !s.slug) return;
     const existing = COMMUNITY_BY_SLUG[s.slug];
     if (existing) {
-      // Update in place so a tier upgrade (ops verify) reflects immediately in the
-      // live lookup maps — the array + both maps share this same reference.
+      // Update in place so a tier upgrade reflects immediately: the array and both maps share
+      // this same reference.
       Object.assign(existing, s);
       COMMUNITY_BY_ID[existing.id] = existing;
       return;
@@ -166,36 +126,12 @@ export const societyById = (id) => {
   return merged === rec.slug ? rec : (bySlug()[merged] || COMMUNITY_BY_SLUG[merged] || rec);
 };
 export const societiesInLocality = (localitySlug) => SOCIETIES.filter((s) => s.localitySlug === localitySlug);
-// Full catalogue (curated + RERA + community), minus societies merged away by ops
-// — used by the society search/typeahead so duplicates disappear after a merge.
+// Minus societies merged away by ops, so duplicates disappear from search after a merge.
 export const allSocieties = () =>
   catalogue().concat(COMMUNITY).filter((s) => !MERGES_BY_SLUG[s.slug]);
 
-// Map a listing to the society it is actually in, or to nothing (D19).
-//
-// This used to end in a fallback: when a listing had no `societyId`, pick one from its locality
-// with `fnvHash(listing.id) % pool.length`. The comment above it called that "id-stable" and
-// "honest", and it was neither. Nothing set `societyId` — not one row in `db.json`, and not one of
-// the 38 listings in the database, where `society_id` was null on every row. The explicit branch
-// had never once been taken. The fallback was not a fallback; it was the whole function.
-//
-// What made that worse than an ordinary placeholder is what `SocietySection` does with the result:
-// it prints the society's name and builder, its unit count, tower count, year built and occupancy,
-// and a verified badge. Every one of those is a checkable claim about a real, named building in
-// Pune, and it was being made about a listing that was not in it — wrong for all but one listing in
-// twenty-eight by construction, and wrong in the direction that a reader can act on.
-//
-// Both halves of the fix are now real. The wizard has asked for the society since SocietySelect
-// landed, the server carries the binding back on `societySlug` (the slug rather than the UUID,
-// because the UUID matches nothing in this catalogue), and the dev seed binds the demo listings so
-// the feature is visible rather than theoretical. So this returns null when a listing is unbound,
-// and the section disappears — which is the correct thing for a page to say about a building it
-// does not know.
-//
-// `societySlug` first because it is the server's answer and the only one live data carries;
-// `societyId` second because mock records and community societies still key on the synthetic `S01`
-// ids. A slug that names no society in the catalogue also lands here as null rather than being
-// invented: an unrecognised MahaRERA row is a gap in the catalogue, not a licence to guess.
+// Returns null for an unbound listing rather than guessing, because SocietySection prints checkable
+// claims. `societySlug` first (the server's answer); `societyId` second for synthetic `S01` ids.
 export function societyForListing(p) {
   if (!p) return null;
   if (p.societySlug) {
@@ -209,21 +145,7 @@ export function societyForListing(p) {
   return null;
 }
 
-// All listings that map to a given society, keyed by **slug**.
-//
-// The slug rather than the id, since D243. The id here is a synthetic `S01` minted by this file
-// (or an `SC…` minted by the community store), and the server has never seen either: it keys
-// societies by UUID and publishes the slug as the public alias. Every caller therefore had to
-// resolve a slug through the catalogue *first* just to obtain an id to pass back in, and the one
-// that forgot would hand over a server UUID and silently match nothing — not an error, just a
-// society that appears to have no homes. Three call sites carried a comment warning about exactly
-// that, which is the sign of a signature working against its callers rather than a subtlety worth
-// documenting. Keyed on the slug the trap cannot be sprung: it is the one identifier both the
-// catalogue and the server agree on.
-//
-// Still routed through `societyForListing` rather than comparing `l.societySlug` directly, because
-// a listing may carry only the synthetic `societyId` (mock records and community societies do) and
-// resolving it is what makes those rows count. The mapping in, not the key out, is where the
-// legacy id belongs.
+// Keyed by **slug**, not id: the ids here are synthetic (`S01`, `SC…`) and the server has never seen
+// them. Still routed through `societyForListing` because a community listing may carry only `societyId`.
 export const listingsInSociety = (listings, socSlug) =>
   (listings || []).filter((l) => { const s = societyForListing(l); return s && s.slug === socSlug; });

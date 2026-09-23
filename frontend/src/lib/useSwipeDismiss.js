@@ -18,11 +18,10 @@ const SLOP = 4;
    one is never "dismiss". Matched on the target so the gesture never arms rather than racing. */
 const DRAG_HANDLES = 'input[type="range"]';
 
-/**
- * Drag-to-dismiss for the app's mobile overlays (`'y'` bottom sheet, `'x'` side drawer). Pointer
- * capture waits for the first qualifying *move*: on pointerdown it would break every button inside.
- */
-export default function useSwipeDismiss(onDismiss, { axis = 'y' } = {}) {
+/* Pointer capture waits for the first qualifying *move*: on pointerdown it would break every button
+   inside. `query` is the width at which the caller is actually an overlay — the map detail panel
+   stays a sheet up to 767px and passes its own, or its grabber would be decoration in between. */
+export default function useSwipeDismiss(onDismiss, { axis = 'y', query = MOBILE } = {}) {
   const drag = useRef(null);
 
   const distance = useCallback((e) => (axis === 'y'
@@ -30,11 +29,11 @@ export default function useSwipeDismiss(onDismiss, { axis = 'y' } = {}) {
     : drag.current.x - e.clientX), [axis]);
 
   const onPointerDown = useCallback((e) => {
-    if (!window.matchMedia(MOBILE).matches) return;
+    if (!window.matchMedia(query).matches) return;
     if (e.target?.closest?.(DRAG_HANDLES)) return;
     if (axis === 'y' && e.clientY - e.currentTarget.getBoundingClientRect().top > HANDLE_ZONE) return;
     drag.current = { x: e.clientX, y: e.clientY, active: false };
-  }, [axis]);
+  }, [axis, query]);
 
   const onPointerMove = useCallback((e) => {
     if (!drag.current) return;

@@ -4,47 +4,24 @@
  * `GET /admin/analytics/{pricing,sla,traffic,engagement,surfers}` and `GET /admin/dashboard`, all
  * staff/admin.
  *
- * ## What this replaces, and what it deliberately does not
+ * **This module is only ever measured data.** Where a card has no server source it is absent rather
+ * than sampled behind a chip: six-month price trends and per-listing price position need history
+ * and per-listing market estimates nothing records, the weekly SLA compliance line needs weekly
+ * snapshots nothing writes, and a Seasonal tab needs years of demand history collection is too
+ * young to have. A chip is not enough — an invention sits in the same grid and the same typeface as
+ * a measurement, so where the data ends the card ends too. Traffic, engagement and anonymous-surfer
+ * figures are answerable only because `POST /page-views` collects them and an hourly rollup
+ * aggregates them; see `services/pageViewService.js`.
  *
- * Seven of the eight Analytics tabs were computed in the browser by `lib/data/analytics-extra.js`
- * from a seeded LCG. Four of them were describing things Postgres already knew, or could be made to
- * know, and got wrong in ways an operator could not see:
+ * **Every function rejects rather than resolving empty.** Each backs a screen whose entire purpose
+ * is its figures, and zeroes on an outage would claim no listing is mispriced, no review has
+ * breached and nobody visited — a more expensive lie than an empty tab. The page catches per tab,
+ * so one failure does not blank the other seven.
  *
- * - **Pricing** fell back to the locality's curated market rate whenever it had no listings to
- *   average, so the deviation it printed was exactly zero. A locality Draazy has never listed a
- *   single home in rendered as the best-priced place in Pune, indistinguishable from one that is
- *   genuinely well served — which is the one distinction the report exists to draw.
- * - **SLA** drew every turnaround from `rng(314159)`. The "average approval time" on the screen was
- *   a constant: it did not move when the moderation team got faster, and it did not move when they
- *   stopped reviewing altogether. The same generator drew ticket pickup, service delivery and the
- *   concierge pipeline; all three are served from `audit_log` now, alongside listing review.
- * - **Traffic, Engagement and Anonymous surfers** were not merely wrong, they were unanswerable:
- *   the platform recorded no page views at all. They are measured now because `POST /page-views`
- *   collects them and an hourly rollup aggregates them — see `services/pageViewService.js`.
- *
- * **This module is only ever the measured data**, and as of the SLA tracks it is now the whole of
- * both tabs. The cards that had no server source are deleted rather than kept behind a `Sample`
- * chip: six-month price trends and per-listing price position needed history and per-listing market
- * estimates that nothing records, the weekly SLA compliance line needed weekly snapshots nothing
- * writes, and the Seasonal tab needed one to three years of demand history that collection started
- * far too recently to have. A chip was not enough — the figures sat in the same grid, in the same
- * typeface, beside measurements, and they never moved. Mixing a measurement and an invention behind
- * one function is how the old page became untrustworthy in the first place, so where the data ends
- * the card ends too.
- *
- * ## Every function rejects rather than resolving empty
- *
- * Each backs a screen whose entire purpose is its figures. Resolving to zeroes on an outage would
- * render a page claiming no listings are mispriced, no review has ever breached and nobody visited
- * the site, which is a far more expensive lie than an empty tab. The page catches per tab, so one
- * failure does not blank the other seven.
- *
- * ## Rates are null when nothing was measured; counts are not
- *
- * A bounce rate of 0% claims every visitor read on, and a 0% anonymous share claims every visitor
- * signed in. Both are assertions about a week nobody visited. So every `*Pct` and every average
- * arrives nullable and must render as "—", while every count arrives as a number because zero
- * sessions is a measurement. This is the same rule `localityPricing` follows one report over.
+ * **Rates are null when nothing was measured; counts are not.** A 0% bounce rate claims every
+ * visitor read on and a 0% anonymous share claims every visitor signed in, both assertions about a
+ * week nobody visited. Every `*Pct` and every average arrives nullable and must render as "—";
+ * every count arrives as a number, because zero sessions is a measurement.
  */
 import { createProvider } from './config.js';
 
@@ -55,7 +32,8 @@ const provider = createProvider('analytics');
  *
  * **Every derived figure is nullable and null means "not measurable", never zero.** A locality with
  * no approved buy listings reports `avgActualRatePerSqft: null`; render it as "no data" and do not
- * fall back to `marketRatePerSqft`, which is the exact bug this replaced.
+ * fall back to `marketRatePerSqft`, which would rank a locality Draazy has never listed in as the
+ * best-priced place in Pune.
  *
  * `buyCount` and `rentCount` count all approved listings including those whose area is missing and
  * which therefore contributed nothing to the averages. Supply and the sample an average was drawn
@@ -86,8 +64,7 @@ export const dashboardKpis = async () => (await provider()).dashboardKpis();
  *
  * **Nulls mean the queue has not been worked, and must render as such.** `avgHoursToReview` of 0
  * would read as instantaneous review and `slaRatePct` of 100 as a perfect record, both claims about
- * a team that has decided nothing. The mock returned exactly those two figures, so a fresh
- * deployment reported flawless compliance.
+ * a team that has decided nothing — a fresh deployment reporting flawless compliance.
  *
  * `pendingCount` and `pendingBreachingCount` ignore `days` on purpose: a backlog is a present-tense
  * fact, and windowing it would drop the oldest rows, which are the ones worth surfacing.
@@ -144,8 +121,8 @@ export const traffic = async (opts) => (await provider()).traffic(opts);
  * mean of seven daily rates, which would weight a four-session Tuesday the same as a
  * four-thousand-session Saturday.
  *
- * `topPages[].views` are real counts. The card this replaced plotted a 0-100 index pinned at 100 for
- * the leader, so the top page looked equally dominant however far traffic fell.
+ * `topPages[].views` are real counts, not a 0-100 index pinned at 100 for the leader — an index
+ * leaves the top page looking equally dominant however far traffic falls.
  *
  * @param {{days?: number}} [opts] window in days, 1-400; defaults to 90 server-side
  * @returns {Promise<{days: number, from: string, to: string,
@@ -159,8 +136,8 @@ export const engagement = async (opts) => (await provider()).engagement(opts);
  * How much of the audience browses without an account, and where it leaves.
  *
  * **`anonSharePct` and `conversionRatePct` are null when there were no sessions**, and both arrive
- * as numbers rather than pre-formatted strings — the version this replaces returned `.toFixed()`
- * output, which the KPI tiles beside it then called `.toLocaleString('en-IN')` on.
+ * as numbers rather than pre-formatted strings — the KPI tiles beside them call
+ * `.toLocaleString('en-IN')`, which `.toFixed()` output does not survive.
  *
  * `pages[]` reports anonymous views against total views per page. It carries **no per-page signup
  * rate**: attributing a signup to a page needs a landing page recorded against a new account, which

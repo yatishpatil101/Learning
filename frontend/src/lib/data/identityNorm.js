@@ -1,11 +1,5 @@
-/* Shared identity normalisers.
- *
- * The single source of truth for how we canonicalise the raw strings that feed
- * every dedup fingerprint (property listings AND flatmate groups/rooms). Kept
- * dependency-free (no localStorage / mockApi) so it is trivial to reason about
- * and to unit-test in pure Node, and so both `propertyIdentity.js` and
- * `flatmates.js` derive their keys from the exact same primitives.
- */
+/* `propertyIdentity.js` and `flatmates.js` must derive their dedup fingerprints from these exact
+   primitives. Kept dependency-free so it unit-tests in pure Node. */
 
 /* Strip everything but digits — used for phone/meter/pincode comparisons. */
 export const digits = (m) => String(m || '').replace(/\D/g, '');
@@ -17,9 +11,8 @@ export const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, 
 /* A pincode is only meaningful when it is a full 6-digit Indian PIN. */
 export const pin = (p) => (digits(p).length === 6 ? digits(p) : '');
 
-/* Stable, non-reversible token (FNV-1a). Lets us store a dedup key derived from
-   a private identifier (electricity meter / tax number) without ever persisting
-   the raw value. Same input -> same base-36 token, so keys still compare equal. */
+/* Stable, non-reversible token (FNV-1a), so a dedup key derived from a private identifier
+   (electricity meter / tax number) can be stored without persisting the raw value. */
 export const hashToken = (s) => {
   const str = String(s);
   let h = 0x811c9dc5;

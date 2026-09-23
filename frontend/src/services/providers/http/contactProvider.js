@@ -6,8 +6,8 @@
  * only translation left is unwrapping Spring's page envelope. A mapper module here would be a file
  * of identity functions.
  *
- * The gate is keyed on the listing and the owner is derived server-side, so — unlike the mock —
- * nothing in this file ever sees or needs an owner's phone number to answer a permission question.
+ * The gate is keyed on the listing and the owner is derived server-side, so nothing in this file
+ * ever sees or needs an owner's phone number to answer a permission question.
  */
 import { get, patch, post, unwrapPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
@@ -20,16 +20,16 @@ import { NO_CONTACT_GATE } from '../../../lib/contact.js';
  * owner", and someone with no session has by definition made no request — the server can only ever
  * say 401, so asking is a round trip whose answer we already have. It is not free either: the
  * property page mounts this hook from several places, so a signed-out visitor to a public listing
- * fired four doomed requests and painted four red 401s in the console, which is the sort of noise
- * that hides a real failure.
+ * would fire four doomed requests and paint four red 401s in the console, which is the sort of
+ * noise that hides a real failure.
  *
  * The 401 branch below is still kept, because the check above is a fast path and not a guarantee:
  * a token can expire between the read and the response, and that must land on "no gate" too.
  *
  *   401 — not signed in. Semantically this is `status: 'none'`; they have made no request. Letting
  *         it throw would blank a public page for exactly the visitor we want to convert.
- *   404 — no such listing, which the mock also reports as "no gate". The page's own not-found
- *         handling owns that message; the gate has no opinion to add.
+ *   404 — no such listing, which is also "no gate". The page's own not-found handling owns that
+ *         message; the gate has no opinion to add.
  */
 export async function contactStatus(propertyId) {
   if (!propertyId) return NO_CONTACT_GATE;
@@ -59,7 +59,7 @@ export async function myContactRequests({ page = 0, size = 20 } = {}) {
   const res = await get('/me/contact-requests', { page, size });
   // `total` is `totalElements` — the whole result set, not this page — which is what the badge
   // and any "N enquiries" label depend on. See `unwrapPage` for why `page` is not read from
-  // Spring's `number`, and why falling back to the *requested* page was the original bug.
+  // Spring's `number`.
   return unwrapPage(res, { page, size });
 }
 
@@ -67,7 +67,7 @@ export async function respondToContactRequest(reqId, status) {
   return patch(`/me/contact-requests/${encodeURIComponent(reqId)}`, { status });
 }
 
-/** Counted server-side, so it stays correct past the first page (D78). */
+/** Counted server-side, so it stays correct past the first page. */
 export async function pendingContactCount() {
   const res = await get('/me/contact-requests/pending-count');
   return res?.pending ?? 0;

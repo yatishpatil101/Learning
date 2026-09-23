@@ -74,7 +74,6 @@ export function toRoomViewModel(row) {
     id: row?.id || '',
     kind: 'room',
     propertyId: row?.propertyId || null,
-    // The room itself
     roomKind: row?.roomKind || 'bedroom',
     roomType: row?.roomType || 'Private room',
     attachedBath: row?.attachedBath || 'shared',
@@ -92,7 +91,13 @@ export function toRoomViewModel(row) {
     // 'room' inverts the meaning and hides the owner's seat stepper. Pass it through untouched.
     priceBasis: row?.priceBasis || null,
     deposit: Number(row?.deposit) || 0,
-    // Occupancy. Never derived: the host sets these.
+    /* Null all the way through, because "the host did not say" is a real answer and rendering it
+       as a stated zero would invent a term. Zero notice is a term; no notice period is silence. */
+    noticePeriodDays: row?.noticePeriodDays == null ? null : Number(row.noticePeriodDays),
+    lockInMonths: row?.lockInMonths == null ? null : Number(row.lockInMonths),
+    maintenanceBilling: row?.maintenanceBilling || null,
+    electricityBilling: row?.electricityBilling || null,
+    // Occupancy is never derived: the host sets these.
     occupancy: row?.occupancy || '',
     occupants: Number(row?.occupants) || 0,
     maxOccupants: Number(row?.maxOccupants) || 0,
@@ -101,7 +106,6 @@ export function toRoomViewModel(row) {
     shareMax: Number(row?.shareMax) || 0,
     seatsTotal: row?.seatsTotal == null ? null : Number(row.seatsTotal),
     seatsOpen: row?.seatsOpen == null ? null : Number(row.seatsOpen),
-    // Where
     society: row?.society || '',
     societyId: row?.societyId || null,
     // The flat's opaque identity, used only to group sibling rooms into one occupancy ledger
@@ -112,7 +116,6 @@ export function toRoomViewModel(row) {
     localities: row?.localities || [],
     lat: row?.lat == null ? null : Number(row.lat),
     lng: row?.lng == null ? null : Number(row.lng),
-    // Who, and how far they are trusted
     hostRole: row?.hostRole || 'tenant',
     verificationTier: row?.verificationTier || null,
     verified: !!row?.verified,
@@ -129,7 +132,6 @@ export function toRoomViewModel(row) {
     flagForReview: !!row?.flagForReview,
     // The anti-broker signal: the same flat advertised from two accounts shares a fingerprint.
     addressFingerprint: row?.addressFingerprint || '',
-    // Preferences
     gender: row?.gender || 'any',
     food: row?.food || 'any',
     moveIn: row?.moveIn || '',
@@ -154,6 +156,8 @@ export function toSeekerPostViewModel(row) {
     occupation: row?.occupation || '',
     // What they will pay — genuinely a budget here.
     budget: Number(row?.budget) || 0,
+    // The top of the range, null when they quoted a single number rather than a span.
+    budgetMax: row?.budgetMax == null ? null : Number(row.budgetMax),
     localities: row?.localities || [],
     moveIn: row?.moveIn || '',
     flatPref: row?.flatPref || 'any',
@@ -189,6 +193,11 @@ export function toGroupViewModel(row) {
     locality: row?.locality || '',
     policy: row?.policy || 'any',
     rent: Number(row?.rent) || 0,
+    deposit: Number(row?.deposit) || 0,
+    noticePeriodDays: row?.noticePeriodDays == null ? null : Number(row.noticePeriodDays),
+    lockInMonths: row?.lockInMonths == null ? null : Number(row.lockInMonths),
+    maintenanceBilling: row?.maintenanceBilling || null,
+    electricityBilling: row?.electricityBilling || null,
     perHead: perHeadOf(row),
     seatsTotal: Number(row?.seatsTotal) || 0,
     seatsOpen: Number(row?.seatsOpen) || 0,
@@ -202,7 +211,7 @@ export function toGroupViewModel(row) {
     agreementDeclared: !!row?.agreementDeclared,
     /* Owner consent is the anti-broker guardrail: a *tenant* subletting seats needs the flat
        owner's acknowledgement. `ownerConsent` is whether it was given; `ownerConsentMobile` is who
-       gave it. A group without it is not blocked, it is flagged \u2014 the server decides, not this. */
+       gave it. A group without it is not blocked, it is flagged — the server decides, not this. */
     ownerConsent: !!row?.ownerConsent,
     ownerConsentMobile: row?.ownerConsentMobile || '',
     addressFingerprint: row?.addressFingerprint || '',
@@ -259,6 +268,7 @@ export const VOCAB = {
   priceBasis: ['room', 'person'],
   furnishing: ['unfurnished', 'semi', 'furnished'],
   bhk: ['1', '2', '3', '4'],
+  homeType: ['Flat', 'Independent House', 'Villa', 'Row House'],
   hostRole: ['owner', 'tenant'],
   share: ['solo', 'bring', 'match'],
   tab: ['move-in', 'team-up'],

@@ -4,17 +4,16 @@
  * `GET|POST /support/tickets`, `GET /support/tickets/{id}`,
  * `POST /support/tickets/{id}/messages`, `POST /support/tickets/{id}/read`.
  *
- * Five operations, one page (`pages/consumer/Support.jsx`), and a near-perfect one-to-one mapping
- * onto the mock's five functions. The wiring is routine. What is not routine is that **three
- * controls on that page have no server behind them**, and this module is where that is written down
- * rather than discovered.
+ * Five operations, one page (`pages/consumer/Support.jsx`). The wiring is routine. What is not
+ * routine is that **three controls on that page have no server behind them**, and this module is
+ * where that is written down rather than discovered.
  *
  * ## Identity is the session, not the form
  *
- * The form collects `name` and `mobile` and validates the mobile with `/^[6-9]\d{9}$/`. The mock
- * keyed tickets on that typed mobile; the server takes the raiser from the authenticated caller and
- * `SupportTicketCreate` has no identity field at all — deliberately, since a body field would let
- * anyone file a ticket in someone else's name and then read the reply from their own list.
+ * The form collects `name` and `mobile` and validates the mobile with `/^[6-9]\d{9}$/`. The server
+ * takes the raiser from the authenticated caller and `SupportTicketCreate` has no identity field at
+ * all — deliberately, since a body field would let anyone file a ticket in someone else's name and
+ * then read the reply from their own list.
  *
  * `/support` is a `ProtectedRoute`, so there is always a session. The fields therefore stay as
  * prefilled contact details the *human* reads, and stop being the key anything is stored under.
@@ -27,10 +26,9 @@
  * | **Image attachments** (up to 4, base64) | `MessageCreate` is `{ body }` only; the contract notes attachments are "accepted and dropped rather than stored as a client-supplied URL nothing can render" |
  *
  * Both are surfaced through the provider rather than hidden: the mapper reports what the server
- * actually said, and the page is responsible for not offering a control that cannot work. The status
- * vocabulary is now shared — the mock opens tickets `open` and moves them to `in-progress`, matching
- * the server — so there is no longer a mock-only `new` to reconcile. See `supportMapper.js` for the
- * status pass-through and `Support.jsx` for how the offered controls are gated.
+ * actually said, and the page is responsible for not offering a control that cannot work. See
+ * `supportMapper.js` for the status pass-through and `Support.jsx` for how the offered controls are
+ * gated.
  *
  * ## Shape
  *
@@ -61,7 +59,7 @@ export const listTickets = async () => (await provider()).listTickets();
 export const getTicket = async (id) => (await provider()).getTicket(id);
 
 /**
- * The platform-wide support queue, paged — **staff and admin only** (D51).
+ * The platform-wide support queue, paged — **staff and admin only**.
  *
  * `GET /admin/support-tickets`. The second operation in this domain with a different audience from
  * the rest, following the reports queue: a consumer session gets a 403, which is the endpoint
@@ -95,7 +93,7 @@ export const replyToTicket = async (id, text) => (await provider()).replyToTicke
 /**
  * Clear the "unread" flag on the caller's own side of the thread. Idempotent on both providers.
  *
- * Two-sided (D50): the raiser's call clears "support replied", a staff call clears the desk's own
+ * Two-sided: the raiser's call clears "support replied", a staff call clears the desk's own
  * signal, and neither touches the other. Which side the caller is on is derived from the session,
  * never passed in — a parameter here would let one side clear the other's flag.
  */

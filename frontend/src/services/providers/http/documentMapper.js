@@ -8,21 +8,18 @@
  *
  * ## 1. Vault file — signed URL, not a data URL
  *
- * The mock stores each file's bytes as a base64 `dataUrl` in `localStorage`; the contract returns a
- * short-lived signed `url` minted at read time (never stored, not stable between two reads). The
- * dev backend points that URL at `mock.storage.local`, which does not resolve in the browser, so
- * the *rendered file* degrades in dev exactly as the service-request draft does (D120). The view
- * model therefore carries **both** `dataUrl` (base64, mock) and `url` (signed, http) and leaves the
- * other null — a viewer opens whichever is present rather than assuming one storage model.
+ * The contract returns a short-lived signed `url` minted at read time (never stored, not stable
+ * between two reads). The dev backend points that URL at `mock.storage.local`, which does not
+ * resolve in the browser, so the *rendered file* degrades in dev exactly as the service-request
+ * draft does.
  *
  * ## 2. Request category — one string vs a list
  *
- * The mock models a request as a single `docType`; the contract carries a `categories[]` array (a
- * buyer can ask for several at once). The inbox view keys on `docType`, so the first category
- * becomes `docType` and the whole list is preserved as `categories` for a surface that wants it.
- * A multi-category server request thus renders under its first category — documented rather than
- * hidden, because inventing N view rows from one request would fabricate acknowledgements the buyer
- * only gave once.
+ * The contract carries a `categories[]` array (a buyer can ask for several at once) while the inbox
+ * view keys on `docType`, so the first category becomes `docType` and the whole list is preserved
+ * as `categories` for a surface that wants it. A multi-category server request thus renders under
+ * its first category — documented rather than hidden, because inventing N view rows from one
+ * request would fabricate acknowledgements the buyer only gave once.
  *
  * ## 3. Requester mobile is masked, always
  *
@@ -32,16 +29,9 @@
  *
  * ## 4. Share token / expiry are read-only owner affordances
  *
- * On grant the server mints a `shareToken` (and an `expiresAt`); the mock computes `sharedDocIds`
- * client-side and writes the buyer a cross-user notification instead. The token and expiry are
- * surfaced so an owner can re-send the link they issued; the mock leaves them null. Neither is the
- * signed-in buyer's credential — that read is requester-scoped by the session.
- *
- * ## 5. Time is epoch ms
- *
- * The mock timestamps are `Date.now()` numbers and the lists sort on them, so every ISO instant
- * (`uploadedAt`, `createdAt`) becomes epoch ms here — 0 for a missing date, so a sort never yields
- * NaN.
+ * On grant the server mints a `shareToken` (and an `expiresAt`), surfaced so an owner can re-send
+ * the link they issued. Neither is the signed-in buyer's credential — that read is requester-scoped
+ * by the session.
  */
 
 /** ISO instant → epoch ms. 0 for a missing date, so a sort never produces NaN. */
@@ -54,9 +44,8 @@ function epoch(iso) {
 /**
  * One wire `Document` → the vault view model the owner surfaces render.
  *
- * `dataUrl` is null in http mode (the bytes live behind the signed `url`, not inline); a viewer
- * that finds no `dataUrl` falls back to `url`. Keys mirror the mock's `addDocument` shape exactly so
- * a migrated consumer reads the same object from either provider.
+ * `dataUrl` is null here (the bytes live behind the signed `url`, not inline); a viewer that finds
+ * no `dataUrl` falls back to `url`.
  */
 export function toDoc(dto) {
   if (!dto) return null;

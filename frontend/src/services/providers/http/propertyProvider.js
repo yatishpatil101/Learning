@@ -32,8 +32,9 @@ export async function listProperties(filters = {}, sort = 'newest') {
 }
 
 /**
- * One real page plus `total`/`verifiedTotal`, which cannot be derived from `items.length`. Separate
- * from {@link listProperties} on purpose; `signal` cancels superseded reads (`http.isAbort`).
+ * One real page plus `total`/`verifiedTotal`/`unstatedTotal`, none of which can be derived from
+ * `items.length`. Separate from {@link listProperties} on purpose; `signal` cancels superseded reads
+ * (`http.isAbort`).
  */
 export async function searchListings(query = {}, { page = 1, size = 24, signal } = {}) {
   const res = await get(
@@ -45,6 +46,7 @@ export async function searchListings(query = {}, { page = 1, size = 24, signal }
     items: toViewModelList(res),
     total: res?.totalElements ?? 0,
     verifiedTotal: res?.verifiedElements ?? 0,
+    unstatedTotal: res?.unstatedElements ?? 0,
     pageCount: res?.totalPages ?? 0,
   };
 }
@@ -98,8 +100,7 @@ export async function getProperty(id) {
 }
 
 export async function featuredProperties(limit = 6) {
-  // The contract endpoint takes no limit — the strip is server-curated — so the cap is applied here
-  // to keep the mock's signature meaningful.
+  // The contract endpoint takes no limit — the strip is server-curated — so the cap is applied here.
   const list = await get('/properties/featured', null, { auth: false });
   return toViewModelList(list).slice(0, limit);
 }
@@ -309,7 +310,7 @@ export async function updateListingAsModerator(id, patchBody) {
   return toViewModel(await patch(`/properties/${encodeURIComponent(id)}/admin`, toListingUpdate(patchBody)));
 }
 
-/** Soft-delete. The mock's `deleteListing` is also non-destructive, so the semantics already match. */
+/** Soft-delete. Nothing is destroyed — "delete" is the owner's word for archiving. */
 export const deleteListing = (id) => archiveListing(id);
 
 /**
@@ -329,12 +330,10 @@ export async function archiveListing(id, reason) {
   return toViewModel(await patch(`/properties/${encodeURIComponent(id)}/archive`, body));
 }
 
-/** Un-archive. The server resets status to `pending` for re-moderation, as the mock does. */
+/** Un-archive. The server resets status to `pending` for re-moderation. */
 export async function restoreListing(id) {
   return toViewModel(await patch(`/properties/${encodeURIComponent(id)}/restore`, {}));
 }
-
-// ─── Admin moderation ──────────────────────────────────────────────────────────────────────────
 
 /**
  * All four decisions resolve with **no value** — the contract declares a bare 200/204 and the UI
@@ -379,7 +378,6 @@ export async function setPipelineStage(id, stage) {
   await post(`/properties/${encodeURIComponent(id)}/pipeline`, { stage });
 }
 
-// ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
 function warnUnsupported(filters) {
   const dropped = unsupportedFilters(filters);

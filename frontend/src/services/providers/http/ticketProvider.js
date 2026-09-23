@@ -1,21 +1,13 @@
 /**
  * HTTP ticket provider — the ops work board (`/ops/requests`), live against `GET|POST /tickets`.
  *
- * **There was never a second implementation, and that was the design.** The board's four operations
- * could not be expressed by the mock ticket store without inventing a translation layer: the store
- * knew three statuses where the server knows five, assigned by display name where the server
- * assigns by user id, and returned everything at once where the server pages. D184 already refused
- * exactly that translation for the drafting desk — a second vocabulary that has to be kept in step
- * by hand is a bug with a release date — so `OpsQueue` showed an offline panel rather than a board
- * it could not work. The store and that panel are both gone (P5c).
- *
- * ## Team scoping is the server's, again
+ * ## Team scoping is the server's
  *
  * `TicketService.list` narrows a staff caller to their own desk and **403s** a staffer who names
- * somebody else's, exactly as `ServiceDeskAuthority` does for service requests (D44). The board
- * used to compute `team || (role === 'admin' ? undefined : myTeam)` in the component, which was a
- * client-side restatement of a server rule and therefore a place for the two to disagree. It now
- * sends what the user asked for and lets the server answer.
+ * somebody else's, exactly as `ServiceDeskAuthority` does for service requests. Computing
+ * `team || (role === 'admin' ? undefined : myTeam)` in the component would be a client-side
+ * restatement of a server rule and therefore a place for the two to disagree. The board sends what
+ * the user asked for and lets the server answer.
  *
  * ## What is deliberately absent
  *
@@ -23,7 +15,7 @@
  * self-claim — the same shape as the drafting desk's *Take*. Handing work to a named stranger
  * needs a staff directory the ops portal does not have, and a rule for what happens when
  * re-teaming a ticket removes it from the assigner's own view (which `TicketService.update`
- * warns it routinely does). Neither was worth inventing to preserve a mock button.
+ * warns it routinely does).
  */
 import { get, patch, post } from '../../http.js';
 import { toClaim, toCreate, toNote, toViewModel, toViewModelPage, toWireStatus } from './ticketMapper.js';
@@ -65,8 +57,8 @@ export async function setTicketStatus(id, status) {
 /**
  * Append an internal note — `POST /tickets/{id}/notes`, 201.
  *
- * An append, not a rewrite. The board used to send the whole `notes` array back, which quietly
- * discards anything a colleague added between the read and the write; the endpoint exists so that
+ * An append, not a rewrite. Sending the whole `notes` array back would quietly
+ * discard anything a colleague added between the read and the write; the endpoint exists so that
  * two people taking notes on one ticket both keep theirs.
  *
  * Returns the new note alone — the server does not re-send the ticket — so the caller pushes it
@@ -104,8 +96,8 @@ export async function createTicket(data) {
  * so an anonymous caller cannot put a lead on the legal desk. Passing a ticket-shaped object here
  * would suggest those fields mean something, and they are ignored.
  *
- * Errors propagate, and the caller must wait for this one before telling anybody they are on a list.
- * The failure this replaces was a success message shown for a lead that went nowhere.
+ * Errors propagate, and the caller must wait for this one before telling anybody they are on a
+ * list — otherwise a success message is shown for a lead that went nowhere.
  *
  * @param {{service:string, name?:string, mobile:string}} data `service` is a slug the server knows
  *   (`move-in-pack`); an unknown one is a 400. `mobile` is ten digits; malformed is a 422. Too many

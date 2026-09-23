@@ -6,13 +6,12 @@
  * ## Why the seam is one method wide
  *
  * The server also exposes `GET /localities/{slug}`, and nothing here calls it. The locality landing
- * page reads `data/localities.js` and `data/localityIntel.js` — bundled editorial modules, not the
- * mock API — so it sits on a different migration entirely, and pointing it at the server would be a
- * content decision (whose "about" copy wins) rather than a provider swap. Adding a `getLocality`
- * that no caller uses would suggest the page had already been considered and moved.
+ * page reads `data/localities.js` and `data/localityIntel.js` — bundled editorial modules — so it
+ * sits on a different migration entirely, and pointing it at the server would be a content decision
+ * (whose "about" copy wins) rather than a provider swap. Adding a `getLocality` that no caller uses
+ * would suggest the page had already been considered and moved.
  *
- * The mock's `getLocality(slug)` also returns a `listingsList`, and the server deliberately does
- * not: `LocalityDetailResponse` says so in as many words, because the page fetches listings
+ * `LocalityDetailResponse` also carries no `listingsList`, deliberately: the page fetches listings
  * separately anyway and an unpaged property array inside an unauthenticated response is a different
  * kind of endpoint. That difference is another reason not to pre-build the method.
  *
@@ -26,12 +25,11 @@
  * provider that dropped fields would have to be revisited by the first caller that wanted a price
  * signal, at which point the trimming would look deliberate.
  *
- * ## What the server promises that the mock did not
+ * ## What the server promises
  *
  * **Only active localities, and the counts are real.** The server filters `active = true` and
- * computes `listingCount` on read (D7.2), where the mock returned every row it had and carried a
- * stored count that nothing ever wrote — three of fifteen were already wrong when it was last
- * checked. The order is alphabetical by name, and here that *is* promised: it is
+ * computes `listingCount` on read rather than serving a stored count nothing writes. The
+ * order is alphabetical by name, and here that *is* promised: it is
  * `findByActiveTrueOrderByNameAsc()`, not an accident of insertion.
  */
 import { createProvider } from './config.js';
@@ -57,10 +55,6 @@ export const listLocalities = async () => (await provider()).listLocalities();
  * When an owner types an area the resolver does not recognise, the server declines to invent a slug
  * and leaves `localitySlug` null. Until a human files it, the listing is absent from locality search
  * facets, from `/locality/{slug}`, from saved-search alerts and from its society's home list.
- *
- * The queue this replaces read one browser's `localStorage`, so a listing waiting on a decision was
- * invisible to every operator but the one whose machine had seen it. Whether there is work to do is
- * a fact about the marketplace, not about the device the console is open on.
  *
  * `total` is separate from `listings.length` because the array is capped at 200 server-side. Render
  * `total`, or a console clearing 200 rows a day out of 900 shows a number that never moves.

@@ -1,32 +1,22 @@
 /**
  * Wire ↔ seam translation for the transaction domain: deals, offers and finalization.
  *
- * This is the widest gap between the mock and the server the seam has had, and every translation
- * here exists because the two disagree about something structural rather than cosmetic.
+ * ## 1. Every read is keyed on the caller
  *
- * ## 1. The mock is keyed by the owner; the server is keyed by the caller
+ * `/me/deals` is the caller's own listings, `/offers/mine` is the offers the caller made,
+ * `/me/finalization-requests` is what awaits the caller's decision. The token decides; there is
+ * nothing to pass.
  *
- * Every mock function takes `ownerMobile` as its first argument — `isDealClosed(owner, propId)`,
- * `getOffers(owner)`, `pendingFinalizeFor(owner, propId)`. A localStorage bucket has no notion of
- * who is asking, so the caller names the bucket they want to read, and *any* caller can name *any*
- * owner.
+ * So the seam takes no `ownerMobile`. That is not a simplification — it is the security property,
+ * and the seam must not offer a signature implying a caller may name an owner and read the offers
+ * made to them.
  *
- * The server has no such parameter. `/me/deals` is the caller's own listings, `/offers/mine` is the
- * offers the caller made, `/me/finalization-requests` is what awaits the caller's decision. The
- * token decides; there is nothing to pass.
+ * ## 2. `from` never moves on the wire
  *
- * So the seam drops `ownerMobile` entirely. That is not a simplification — it is the security
- * property. Under the mock, a buyer could read every offer any other buyer had made on a listing
- * by naming the owner; against the server they cannot, and the seam must not offer a signature
- * that implies they can.
+ * `OfferDto.from` is the **buyer who opened the negotiation** and never changes; who moved last is
+ * the final `history[].by`.
  *
- * ## 2. `from` flips in the mock; on the wire it never moves
- *
- * The mock stores one `from` field and flips it between `'buyer'` and `'owner'` on each counter,
- * so `o.from` means "who moved last". `OfferDto.from` is the **buyer who opened the negotiation**
- * and never changes; who moved last is the final `history[].by`.
- *
- * Reading the wire's `from` as the mock's would invert the UI's read of every countered offer —
+ * Reading `from` as "who moved last" would invert the UI's read of every countered offer —
  * "you countered" and "buyer countered" would swap. `lastActorOf` is the real equivalent.
  */
 
@@ -58,17 +48,17 @@ export function toOfferViewModel(row) {
     // `from` keeps the vocabulary the panel already reads ("did I move last, or they?"), but it is
     // derived from history rather than taken from the wire's `from`, which means something else.
     from: lastActorOf(history),
-    // The offer's author, which is what the wire's `from` actually is. Named unambiguously so a
-    // future call site cannot mistake it for the mock's flipping field.
+    // The offer's author, which is what the wire's `from` actually is — not the field named `from`
+    // above, which answers "who moved last".
     buyerId: row?.from?.id || '',
     buyerName: row?.from?.name || 'Buyer',
     // Contact-gated server-side: arrives masked until the owner approves. Passed through as-is —
     // masking is the server's decision, and a client that "helpfully" unmasked would defeat it.
     buyerMobile: row?.from?.mobile || '',
-    // The Verified Tenant badge, stated by the server (D114). It has to be, because the only other
+    // The Verified Tenant badge, stated by the server. It has to be, because the only other
     // thing the panel could key it on is `buyerMobile` above — which is masked for every viewer but
-    // the buyer themselves, and `98XXXXX210` matches no real number, so the badge was permanently
-    // absent in live. Read the flag; never re-derive it from the digits the mask destroyed.
+    // the buyer themselves, and `98XXXXX210` matches no real number, so the badge would be
+    // permanently absent. Read the flag; never re-derive it from the digits the mask destroyed.
     buyerVerified: row?.from?.verified === true,
     history: history.map((h) => ({
       amount: Number(h?.amount) || 0,
@@ -76,24 +66,23 @@ export function toOfferViewModel(row) {
       at: h?.at ? Date.parse(h.at) : null,
     })),
     createdAt: row?.createdAt ? Date.parse(row.createdAt) : Date.now(),
-    // The buyer's preferred possession date (D112). `OfferDto` now carries it as an ISO `date`
-    // string; passed through as-is (empty when the buyer named none), matching the mock's shape.
+    // The buyer's preferred possession date. `OfferDto` carries it as an ISO `date`
+    // string; passed through as-is (empty when the buyer named none).
     moveIn: row?.moveIn || '',
   };
 }
 
 /**
- * ## 3. Only the owner may accept or decline — and the mock let either side
+ * ## 3. Only the owner may accept or decline
  *
  * `OfferService.respond` is explicit: accept and decline are the owner's decision alone, and a
  * non-owner attempting either gets **403** (not 404 — the buyer is a legitimate participant who may
  * read the offer, they just may not decide it). Counter is the one two-sided action; that is what
  * makes this a negotiation rather than a form submission.
  *
- * The mock allowed `respondOffer(owner, id, 'accept')` from anybody, which is what the property
- * page's "Accept ₹X" button did when the *owner* had countered and the *buyer* wanted to agree.
- * That button cannot work against the server. Without this predicate it would fail as an
- * unexplained 403 after the toast had already said the deal was agreed.
+ * So the property page's "Accept ₹X" button cannot be offered to the *buyer* when the *owner* has
+ * countered. Without this predicate it fails as an unexplained 403 after the toast has already said
+ * the deal was agreed.
  *
  * @param {string} action `accept` | `decline` | `counter`
  * @param {boolean} isOwner whether the caller owns the listing
@@ -117,7 +106,7 @@ export function toDealViewModel(row) {
     propId: row?.propertyId || '',
     propertyId: row?.propertyId || '',
     // `deal` is the intent (buy/rent), carried from the property. Distinct from `status`, which is
-    // the lifecycle. The mock conflated the two in `closeDeal`'s third argument.
+    // the lifecycle.
     deal: row?.deal || 'buy',
     status,
     agreedPrice: row?.agreedPrice == null ? null : Number(row.agreedPrice),
@@ -134,10 +123,9 @@ export const isReserved = (status) => status === 'reserved';
 /**
  * ## 4. Parties are identified by id, not by array index
  *
- * `removeUnderOfferParty(owner, propId, idx)` spliced by position. `DELETE .../parties/{partyId}`
- * takes a server id. Position is not a stable identity — two owners removing concurrently, or a
- * soft-deleted row filtered out of a refetch, and an index removes the wrong person. The seam
- * carries `id` and the call sites pass it.
+ * `DELETE .../parties/{partyId}` takes a server id. Position is not a stable identity — two owners
+ * removing concurrently, or a soft-deleted row filtered out of a refetch, and an index removes the
+ * wrong person. The seam carries `id` and the call sites pass it.
  */
 export function toPartyViewModel(row) {
   return {
@@ -152,7 +140,7 @@ export function toPartyViewModel(row) {
 /**
  * Wire `FinalizationRequestDto` → the seam's shape.
  *
- * ## 5. Terminal requests are readable, so `declined` is a status the buyer can observe (D111)
+ * ## 5. Terminal requests are readable, so `declined` is a status the buyer can observe
  *
  * `GET /finalization/{propId}/status` returns the caller's <em>most recent</em> request on the
  * property, whatever its status — not pending only. So a declined or cancelled request is returned
@@ -160,7 +148,7 @@ export function toPartyViewModel(row) {
  *
  * The property page has a third branch on exactly that distinction: a buyer whose request was
  * turned down sees "the owner didn't confirm — you can ask again". `finalizeStatusOf` returns the
- * row's real status (`declined`), so that branch is now reachable against the server.
+ * row's real status (`declined`), which is what makes that branch reachable.
  */
 export function toFinalizationViewModel(row) {
   if (!row || !row.id) return null;
@@ -175,7 +163,7 @@ export function toFinalizationViewModel(row) {
     // buyer. `buyerName` keeps the name the existing markup reads.
     buyerName: row.initiator?.name || 'Buyer',
     buyerMobile: row.initiator?.mobile || '',
-    // As on an offer (D114): the initiator's number is masked at every finalization status, so the
+    // As on an offer: the initiator's number is masked at every finalization status, so the
     // badge can only come from the server's own flag.
     buyerVerified: row.initiator?.verified === true,
     counterpartyId: row.counterparty?.id || '',

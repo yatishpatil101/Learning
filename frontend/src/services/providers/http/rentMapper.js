@@ -8,10 +8,9 @@
  *
  * ## 1. Nothing here moves rent
  *
- * There were mappers for a rent payment, an auto-pay mandate and an owner payout account. That rail
- * was withdrawn and the endpoints are gone from the contract, so the mappers went with them rather
- * than sitting here translating a shape the server can no longer send. `/pay-rent` is a static
- * coming-soon page.
+ * There is no mapper for a rent payment, an auto-pay mandate or an owner payout account: that rail
+ * is not in the contract, so translating a shape the server cannot send would be dead weight.
+ * `/pay-rent` is a static coming-soon page.
  */
 
 /**
@@ -46,15 +45,14 @@ export function toTenancyViewModel(row) {
 }
 
 /**
- * Wire `TenancyDeclaration` → the seam's shape (D194).
+ * Wire `TenancyDeclaration` → the seam's shape.
  *
  * ## 3a. `propId` carries the identifier the page already holds
  *
  * Named `propId` and set from the wire's `propertyId` for the same reason `toTenancyViewModel`
- * carries both: the property page compares it against `p.uuid || p.id`, which is the listing's UUID
- * against this API and its slug under the mock. That single resolution is what keeps the comparison
- * true on both providers — the tenancy half of review eligibility was dead for a year because one
- * side of it compared a slug to a UUID and quietly matched nothing (D194).
+ * carries both: the property page compares it against `p.uuid || p.id`, and the listing's UUID is
+ * what this API speaks. Hold a slug on either side of that comparison and the tenancy half of
+ * review eligibility silently matches nothing.
  *
  * `status` is the only field with authority here. `pending` is somebody's unopposed assertion,
  * `revoked` is one the owner took back, and only `confirmed` proves a stay — so callers must branch
@@ -80,13 +78,13 @@ export function toTenancyDeclarationViewModel(row) {
  *
  * ## 3. The tenant score is the server's, and `verified` is not `idVerified`
  *
- * The client scored a profile itself (`tenantScore`) from how many fields were filled in. The
- * server returns `score`, so the client's arithmetic is no longer the answer — two different
- * numbers for one profile is worse than one number somebody disagrees with.
+ * The score is the server's `score`, never re-derived in the browser from how many fields are
+ * filled in — two different numbers for one profile is worse than one number somebody disagrees
+ * with.
  *
- * `verified` also means something narrower than the mock's `idVerified`: it is the server's
- * verification state, not "this browser once ticked a box". The rename is deliberate so a call site
- * cannot read the old field and silently get `undefined` (falsy, so it fails closed — but silently).
+ * `verified` is the server's verification state, not "this browser once ticked a box", so it is
+ * deliberately not named `idVerified`: a call site reading `idVerified` gets `undefined` (falsy,
+ * so it fails closed — but silently).
  */
 export function toTenantProfileViewModel(row) {
   if (!row || (!row.mobile && !row.name)) return null;
@@ -103,8 +101,6 @@ export function toTenantProfileViewModel(row) {
     verified: !!row.verified,
   };
 }
-
-/* ─── Property finances ─────────────────────────────────────────────────────────────────────── */
 
 /** Wire `TransactionDto` → the seam's shape. Dates stay ISO `YYYY-MM-DD`, as the ledger renders them. */
 export function toTransactionViewModel(row) {
@@ -150,12 +146,12 @@ export function toRentalViewModel(row) {
 }
 
 /**
- * ## 4. The summary, the cashflow and the dues are the server's arithmetic now
+ * ## 4. The summary, the cashflow and the dues are the server's arithmetic
  *
- * `financeSummary`, `cashflowByMonth` and `getDues` were client-side reductions over the whole
- * transaction list. Three endpoints now answer them directly, which matters for a reason beyond
- * tidiness: the client versions could only ever be right about transactions the client had
- * downloaded, and the ledger is paged.
+ * `financeSummary`, `cashflowByMonth` and `getDues` each have their own endpoint rather than being
+ * reduced from the transaction list in the browser, which matters for a reason beyond tidiness: a
+ * client-side reduction could only ever be right about transactions the client had downloaded, and
+ * the ledger is paged.
  *
  * A reduction over page one of a paged list is not a summary — it is a summary of page one, quietly
  * mislabelled.

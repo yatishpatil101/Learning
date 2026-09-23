@@ -1,5 +1,5 @@
 /**
- * Users — the back office's view of everybody who is not a colleague (D210/V77).
+ * Users — the back office's view of everybody who is not a colleague.
  *
  * `teamService.js` is the neighbouring seam and the distinction is worth stating, because the two
  * sit on the same `/users` routes: **Team & Access administers colleagues** (create a staff account,
@@ -7,12 +7,7 @@
  * and tenants — plus the four decisions taken about them. Splitting them keeps each screen's
  * provider readable and matches how the console is actually navigated.
  *
- * The page behind this called `lib/mockApi.js` directly until D210, which meant five row actions
- * were writing to the browser's copy of the database. Four of them had no server behind them at
- * all; the conversion forced the choice between recording the loss and building them, and V77
- * built them.
- *
- * Endpoints behind the http provider:
+ * Endpoints behind the provider:
  *
  *   listUsers        GET   /users?role=&status=&flagged=&q=&archived=   (paged, mobiles masked)
  *   getUserTimeline  GET   /users/{id}/timeline                         (capped at 50, newest first)
@@ -23,9 +18,8 @@
  *
  * ## Two shapes the server will not produce, and are therefore not invented here
  *
- * - **`listings`** — the mock's per-row listing count. `User` carries `listingsCount`, so this one
- *   survives; it is named here only because the column header says "Listings" and the two spellings
- *   differ.
+ * - **`listings`** — the per-row listing count is `listingsCount` on `User`. Named here only
+ *   because the column header says "Listings" and the two spellings differ.
  * - **`city`** — absent from the contract's `User` on consumer accounts more often than not. The
  *   provider passes through whatever is there and the page renders an em-dash for the rest, rather
  *   than guessing from the listings.

@@ -4,7 +4,7 @@
    three groups that actually differ in what a buyer needs to see: residential, commercial, land. */
 
 const RESIDENTIAL = new Set(['flat', 'house', 'villa', 'flatmates']);
-const LAND = new Set(['plot', 'openplot', 'farmland']);
+const LAND = new Set(['plot', 'farmland']);
 
 export function typeGroups(types) {
   const g = new Set();

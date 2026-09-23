@@ -1,6 +1,6 @@
 /**
- * Service layer configuration. The live API is the only data source: no mock provider, no
- * per-domain allow-list, nothing that can route a domain anywhere but the server.
+ * Service layer configuration. The live API is the only data source — every domain resolves to
+ * `./providers/http/{domain}Provider.js` and nothing can route one elsewhere.
  */
 
 /* Relative `/api` keeps requests same-origin, so CORS does not arise in dev and the page's
@@ -11,7 +11,8 @@ export const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 // Warn, not throw: a cross-origin base is legitimate once CORS and CSP match, but in dev it is
 // almost always a mistake whose only clue is a console entry behind a generic "login failed".
-// Guarded on `window` because the parity harness loads this module under Vite's SSR loader.
+// Guarded on `window` because this module is also loaded under Vite's SSR loader, where there is
+// none.
 if (
   import.meta.env.DEV
   && typeof window !== 'undefined'
@@ -58,7 +59,7 @@ export function createProvider(domain) {
 function loadProvider(domain) {
   const load = registry[`./providers/http/${domain}Provider.js`];
   if (!load) {
-    /* Throws rather than degrades: with no mock to fall back to, the alternative to a screen that
+    /* Throws rather than degrades: with nothing to fall back to, the alternative to a screen that
        fails loudly is a screen serving data from nowhere. */
     throw new Error(
       `[services] No provider for domain "${domain}" `
@@ -74,10 +75,9 @@ function loadProvider(domain) {
   });
 }
 
-// ─── Provider registry ────────────────────────────────────────────────────────────────────────
-// Must stay lazy: `{ eager: true }` reinstates the `http.js → config.js → providers → http.js`
-// cycle and a blank-page bootstrap no build or lint can see. `check-provider-cycle.mjs` asserts it.
-
+// The registry must stay lazy: `{ eager: true }` reinstates the `http.js → config.js → providers
+// → http.js` cycle and a blank-page bootstrap no build or lint can see. `check-provider-cycle.mjs`
+// asserts it.
 const registry = import.meta.glob('./providers/http/*Provider.js');
 
 /* Keys are available synchronously even though the modules are not, which is what lets the throw

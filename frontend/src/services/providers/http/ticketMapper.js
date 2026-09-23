@@ -1,9 +1,9 @@
 /**
  * Wire `Ticket` ⇄ the ops board's view model.
  *
- * The board is `OpsQueue`, rendered by `/ops/requests`. Its vocabulary predates the server by
- * months, and three of its words turned out to be wrong rather than merely different — which is
- * the reason this file exists at all instead of the provider passing `TicketDto` straight through.
+ * The board is `OpsQueue`, rendered by `/ops/requests`. Three of its words are wrong rather than
+ * merely different, which is why this file exists at all instead of the provider passing
+ * `TicketDto` straight through.
  *
  * ## `assignedTo` is a name on the way in and an id on the way out
  *
@@ -11,27 +11,24 @@
  * the user up), so the read needs no work. The write is the asymmetric half: `TicketUpdate` takes
  * an `assigneeId`, and `TicketService.update` answers an id that does not resolve to an ops user
  * with a 404 — "assigning work to somebody who does not exist is a mistake, not a preference".
- * The board's old `updateTicket(id, { assignedTo: user.name })` therefore cannot be ported at all;
- * a name is not an id and no amount of mapping makes it one. `toClaim` takes the caller's own id
- * and nothing else.
+ * `updateTicket(id, { assignedTo: user.name })` therefore cannot work at all; a name is not an id
+ * and no amount of mapping makes it one. `toClaim` takes the caller's own id and nothing else.
  *
- * ## The status vocabulary is the server's, and it is bigger
+ * ## The status vocabulary is the server's
  *
- * The mock knew three words (`new`, `in_progress`, `done`). `TicketStatuses` knows five (`open`,
- * `in-progress`, `waiting`, `resolved`, `closed`). There is no honest translation: `waiting` and
- * `closed` have no mock equivalent to map onto, and collapsing them would make a ticket parked on
- * a customer look identical to one nobody has picked up. So the board adopted the server's five
- * and this mapper does **not** translate — the same call D184 made for the drafting desk, for the
- * same reason. The one thing it does is normalise `in_progress` to `in-progress` on the way out,
- * because that underscore is spelled into old fixtures and query strings and a silent 400 is a
- * poor way to find out.
+ * `TicketStatuses` knows five words (`open`, `in-progress`, `waiting`, `resolved`, `closed`) and
+ * the board adopts all five, so this mapper does **not** translate. Collapsing any of them would
+ * make a ticket parked on a customer look
+ * identical to one nobody has picked up. The one thing it does is normalise `in_progress` to
+ * `in-progress` on the way out, because that underscore is spelled into old fixtures and query
+ * strings and a silent 400 is a poor way to find out.
  *
  * ## Notes are not a field you write
  *
  * `TicketDto.notes` is readable and `TicketUpdate` has no `notes` member, because appending is a
- * `POST /{id}/notes`. The board used to read-modify-write the whole array, which is how two people
- * taking notes on the same ticket lose one of them. Not mapped, not writable, and `toNote` exists
- * only to give the append response the shape the list is already rendering.
+ * `POST /{id}/notes`. Read-modify-writing the whole array is how two people taking notes on the
+ * same ticket lose one of them. Not mapped, not writable, and `toNote` exists only to give the
+ * append response the shape the list is already rendering.
  */
 
 /** Wire timestamps are ISO; the board sorts and formats on epoch millis. */
@@ -52,8 +49,8 @@ export const toNote = (dto) => toNoteRow(dto);
 /**
  * `TicketDto` → one board row.
  *
- * `assignedTo` keeps the board's name for the field because forty-odd call sites read it, but it
- * now holds what the server resolved rather than whatever string the last claim wrote.
+ * `assignedTo` keeps the board's name for the field because forty-odd call sites read it, and it
+ * holds what the server resolved rather than whatever string the last claim wrote.
  * `value` is a rupee amount or `null`; `notes` is always an array, so the drawer can map it
  * without first proving the ticket had any.
  */

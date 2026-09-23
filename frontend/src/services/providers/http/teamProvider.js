@@ -1,23 +1,21 @@
 /**
  * HTTP team provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `teamService.js` is the
- * only contract between them. Shape translation lives here rather than in a `teamMapper.js`: the
- * provider registries are globbed eagerly, so both files sit on the critical path and a third one
- * would too — `visitProvider` and `savedProvider` fold their mapping in for the same reason.
+ * Shape translation is folded in here rather than split into a `teamMapper.js`, as in
+ * `visitProvider` and `savedProvider`: it is a single projection with one caller.
  *
  * ## The wire shape
  *
  * `User` (contract) carries `{ id, name, mobile, email, role, team, status, createdAt, … }`.
  * The console's `TeamMember` carries `{ …, roleId, moduleAccess[], teams[] }`. The last three have
- * no server representation at all (D67), so they map to null/empty here and stay console-local.
+ * no server representation at all, so they map to null/empty here and stay console-local.
  * `status` collapses `archived` onto the console's `suspended`, which is the same state under two
  * names — archive *is* the suspension, and it is the only removal the contract offers.
  *
  * ## Where this provider refuses instead of calling
  *
  * Two console affordances have no route behind them, and posting an approximation of either would
- * be the exact failure D205 exists to remove — a success message for something that did not happen.
+ * produce a success message for something that did not happen.
  *
  * - **Creating a `manager`.** The contract's `Role` enum is `buyer|owner|staff|admin` and says so:
  *   "Admin RBAC labels (e.g. manager/member) are permissions, not roles, and are not modelled
@@ -32,7 +30,7 @@
  * mobile reveal, so every save would file an access record nobody asked for.
  */
 import { ApiError, get, patch, post, unwrapFullPage } from '../../http.js';
-// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+// Leaf module, no imports of its own — see its header. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 
 /** The contract's `Role` values a back-office account may hold. `manager` is not one of them. */
@@ -124,7 +122,7 @@ export async function setTeamMemberStatus(id, status) {
 /**
  * Unpaged and oldest-first by contract, so neither is imposed here.
  *
- * The queue cannot say *who* created each account: `User` has no `createdBy` field (D206), and the
+ * The queue cannot say *who* created each account: `User` has no `createdBy` field, and the
  * approval record that holds it is not projected onto any response. `createdAt` answers "since
  * when", and the screen says plainly that the other half is unavailable rather than guessing.
  */

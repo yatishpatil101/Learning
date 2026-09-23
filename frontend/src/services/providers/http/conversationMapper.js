@@ -5,9 +5,8 @@
  * `propertyMapper.js` and `notificationMapper.js` use, and for the same reason: a hand-written
  * mapping is exactly the thing that should not be trusted on assertion alone.
  *
- * The gap here is wider than in any previous domain, because the mock's conversation is a **richer
- * document than the server's**, not merely a differently-named one. Each divergence is handled by
- * degrading visibly rather than by inventing data.
+ * Where the view model wants more than the wire carries, each divergence is handled by degrading
+ * visibly rather than by inventing data.
  */
 
 /**
@@ -15,13 +14,13 @@
  *
  * **Keyed on `authorId`, never on `author`.** The wire carries both, and the display name is the
  * tempting one — but two users may share a name, and the failure mode is that a stranger's message
- * renders on the reader's own side of the thread, styled as theirs. `authorId` was added to the
- * contract for this; if it is ever absent, fall back to "them", because misattributing someone
- * else's words *to* the reader is the worse of the two errors.
+ * renders on the reader's own side of the thread, styled as theirs. If `authorId` is ever absent,
+ * fall back to "them", because misattributing someone else's words *to* the reader is the worse of
+ * the two errors.
  */
 const senderOf = (m, viewerId) => (m?.authorId && viewerId && m.authorId === viewerId ? 'me' : 'them');
 
-/** Wire `Message` → the mock's message shape. */
+/** Wire `Message` → the view model's message shape. */
 export function toMessage(m, viewerId) {
   if (!m) return null;
   return {
@@ -51,7 +50,7 @@ export function toViewModel(c, viewerId) {
     id: c.id,
     propertyId: c.propertyId ?? undefined,
 
-    // ── the property: title is all the wire carries ────────────────────────────────────────────
+    // The property card: `title` is all the wire carries.
     // `price`, `loc` and `img` are absent. Resolving them would be one property read per row —
     // an inbox-sized N+1 to decorate a list — so the card renders its title and omits the rest.
     //
@@ -66,7 +65,6 @@ export function toViewModel(c, viewerId) {
       img: undefined,
     },
 
-    // ── the counterparty ──────────────────────────────────────────────────────────────────────
     party: {
       name,
       avatar: initialsOf(name),
@@ -94,7 +92,7 @@ export function toViewModel(c, viewerId) {
      *
      * A server thread cannot exist before an approved contact request, so there is no waiting or
      * incoming condition for it to be in — those describe the contact gate, one layer up. `staged`
-     * is the one distinction the wire supports (D52): a row the server holds, or a row the seam is
+     * is the one distinction the wire supports: a row the server holds, or a row the seam is
      * still holding back. Staged rows are minted by {@link stagedToViewModel}, not here.
      *
      * Emitted explicitly rather than left undefined, because the inbox branches on it directly and
@@ -109,7 +107,7 @@ export function toViewModel(c, viewerId) {
   };
 }
 
-/** Wire page (or bare array) → the plain array the mock returns. */
+/** Wire page (or bare array) → a plain array. */
 export const toViewModelList = (payload, viewerId) =>
   (Array.isArray(payload) ? payload : payload?.content ?? [])
     .map((c) => toViewModel(c, viewerId))

@@ -1,41 +1,10 @@
-/* Connectivity state for the whole app — one module-level store, two honest signals.
- *
- * D128: the app had no connectivity state at all (`navigator.onLine` returned zero matches across
- * `src/`). The service worker serves a cached shell, so on a dropped connection the app rendered
- * normally and every data call failed silently — the user got an empty page rather than an
- * explanation. On the target device (mid-range Android, patchy 4G) that is the common case, not
- * the edge case.
- *
- * Two signals, deliberately kept apart, because conflating them is how a UI starts lying:
- *
- *   offline      The OS says no interface is up — `navigator.onLine === false`, kept current by
- *                the window `online`/`offline` events. Confident: nothing is going to work.
- *
- *   unreachable  The OS says we are online but a request never reached the server.
- *                `navigator.onLine === true` only means *an interface exists*, not that the
- *                internet is behind it: a captive portal, a dead uplink, or a lapsed data pack all
- *                report online. So this verdict is a hedge, and the copy hedges with it — the
- *                banner says "can't reach Draazy", never "you are offline".
- *
- * What is NOT a connectivity failure: any answer from the server. A 500, a 404 or a 422 all mean
- * the request arrived, so painting a confident offline banner over one would be a *wrong*
- * explanation, which is only marginally better than none. Only {@link NetworkError} — thrown by
- * `services/http.js` when `fetch` itself rejects — counts.
- *
- * There is no heartbeat. Polling a health endpoint to keep this fresh would burn battery and data
- * on exactly the device this exists for, so the store is nudged by traffic the app was making
- * anyway: a request that fails to reach the server sets `unreachable`, a request that succeeds
- * clears it, and an `online` event clears it too (the interface is back, so the old verdict is
- * stale).
- *
- * That nudge now arrives from exactly one producer: `services/http.js`, which every provider call
- * passes through, via the {@link observeReachability} inversion at the bottom of this file (D166).
- * It used to be wired at call sites, which meant the two surfaces built on `useAsyncList` fed the
- * store and the other dozen did not — a dropped connection was explained on the document vault and
- * nowhere else. {@link noteNetworkFailure} / {@link noteNetworkSuccess} stay exported because they
- * are the store's write API and a non-http producer (a future WebSocket, say) would use them; they
- * are simply no longer something a call site has to remember.
- */
+/* Two signals kept apart: `offline` is the OS saying no interface is up, `unreachable` is a request
+   that never arrived while `navigator.onLine` still claims true — a captive portal or a dead uplink
+   both report online, so the banner hedges with "can't reach Draazy".
+
+   Any answer from the server, 500 included, means the request arrived and is not a connectivity
+   failure. There is no heartbeat: the store is nudged by traffic the app was making anyway, from
+   the single {@link observeReachability} producer at the bottom of this file. */
 import { useSyncExternalStore } from 'react';
 import { NetworkError, observeReachability } from '../services/http.js';
 
@@ -49,7 +18,8 @@ let snapshot = { status: 'online' };
 const listeners = new Set();
 
 function readStatus() {
-  // `navigator` is guarded for the parity harnesses, which load app modules under Node.
+  // `navigator` is absent wherever this module is loaded outside a browser, so the guard is what
+  // keeps an import from throwing rather than a statement about connectivity.
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
   return unreachable ? 'unreachable' : 'online';
 }
@@ -87,25 +57,13 @@ function subscribe(onChange) {
 
 const getSnapshot = () => snapshot;
 
-/**
- * True when a rejected promise means "the request never reached the server", as opposed to "the
- * server answered and said no". Exported so a caller can branch on the same rule the banner uses
- * instead of re-deriving it — the two disagreeing is how a 500 would end up captioned "offline".
- *
- * @param {unknown} err
- * @returns {boolean}
- */
+/* True when a rejected promise means the request never reached the server, as opposed to the
+   server answering and saying no. Exported so a caller branches on the rule the banner uses. */
 export function isReachabilityFailure(err) {
   return err instanceof NetworkError;
 }
 
-/**
- * Tell the store a request just failed. Non-network failures (an `ApiError` of any status, a bug
- * in a mapper) are ignored, so a server error never paints a connectivity banner.
- *
- * @param {unknown} err the rejection value
- * @returns {boolean} whether it counted as a reachability failure
- */
+/* Non-network failures are ignored, so a server error never paints a connectivity banner. */
 export function noteNetworkFailure(err) {
   if (!isReachabilityFailure(err)) return false;
   unreachable = true;
@@ -120,25 +78,14 @@ export function noteNetworkSuccess() {
   publish();
 }
 
-/**
- * Subscribe to connectivity.
- *
- * @returns {{ status: 'online' | 'offline' | 'unreachable' }}
- */
+/** @returns {{ status: 'online' | 'offline' | 'unreachable' }} */
 export function useConnectivity() {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-/* The one wire between the HTTP client and this store, registered on import rather than by a
-   component, so the store is already listening before the first provider call — several fire from
-   Context effects that mount above the banner. Importing this module is enough; nothing has to
-   remember to switch it on.
-
-   `err` is the rejection http.js is about to throw, or null for "the server answered", and it is
-   run through the same {@link isReachabilityFailure} rule every other producer uses. Repeats are
-   free: both writes below are latches that publish only on a real change, so the second report of
-   a 401-recovered call (original attempt + replay) settles on the verdict the first one already
-   reached. */
+/* Registered on import rather than by a component, so the store is listening before the first
+   provider call — several fire from Context effects that mount above the banner. Repeats are free:
+   both writes are latches that publish only on a real change. */
 observeReachability((err) => {
   if (err) noteNetworkFailure(err);
   else noteNetworkSuccess();

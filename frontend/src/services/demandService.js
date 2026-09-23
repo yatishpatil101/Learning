@@ -3,14 +3,6 @@
  *
  * `POST /demand-signals` (public), and the admin aggregate `GET /admin/supply-gap`.
  *
- * ## What this replaces
- *
- * Three call sites used to append to localStorage arrays (`searchIntents`, `demandAlerts`,
- * `propertyViews`) and the admin Supply Gap tab read them back out again. Nothing was seeded, so
- * the report described the searches performed by whichever administrator was reading it, in that
- * browser, since storage was last cleared. Demand is the one figure that means nothing unless it
- * aggregates across everybody, and it was the figure that could least afford to be per-browser.
- *
  * ## Fire-and-forget, and that is the whole contract
  *
  * `recordSignal` never rejects. A search page, a property page and a "notify me" card each call it
@@ -28,8 +20,8 @@
  * session does exist the server attaches the user id from the token; the client neither knows nor
  * needs to know whether that happened.
  *
- * No contact detail is sent. The mock used to attach a mobile number to every alert signal; the
- * server has no column for it, deliberately, because the only reader is a count.
+ * No contact detail is sent: the server has no column for it, deliberately, because the only
+ * reader is a count.
  */
 import { createProvider } from './config.js';
 

@@ -1,21 +1,19 @@
-/**
- * HTTP client for the live Draazy API — the only `fetch` in the service layer.
- * Transport contract and the reasoning behind it: docs/system/frontend-data-seam.md
- */
+// The only `fetch` in the service layer. Transport contract and the reasoning behind it:
+// docs/system/frontend-data-seam.md
 import { API_BASE } from './config.js';
 import {
   localStorageWritable, logoutUser, readAccessToken, sessionRemembered, writeTokens,
 } from '../lib/auth.js';
 
 const TRACE_HEADER = 'X-Trace-Id';
+/** Opaque id of the build that answered. Set by the backend's `BuildStampFilter`. */
+const BUILD_HEADER = 'X-Draazy-Build';
 const REFRESH_PATH = '/auth/refresh';
 /** Name of the cross-tab Web Lock that serialises token refreshes. */
 const REFRESH_LOCK = 'draazy:auth-refresh';
 
-/**
- * A failed API call, normalised. Branch on `code`, the backend's stable machine-readable string —
- * never on `message`, which is human-facing and may be reworded at any time.
- */
+// Branch on `code`, the backend's stable machine-readable string — never on `message`, which is
+// human-facing and may be reworded at any time.
 export class ApiError extends Error {
   constructor({ code, message, status, traceId, fields, attemptsRemaining, retryAfterSeconds }) {
     super(message || code || `HTTP ${status}`);
@@ -48,27 +46,30 @@ export class NetworkError extends Error {
   }
 }
 
-/**
- * True for the rejection `fetch` produces when its `AbortSignal` fires — never a failure.
- * Why it must not reach the reachability observer: docs/system/frontend-data-seam.md
- */
+// True for the rejection `fetch` produces when its `AbortSignal` fires — never a failure. Why it
+// must not reach the reachability observer: docs/system/frontend-data-seam.md
 export const isAbort = (err) => err?.name === 'AbortError';
 
 /** The single reachability listener, or null when nobody is watching. @see observeReachability */
 let reachabilityObserver = null;
 
-/**
- * Watch whether requests reach the server: one listener, called once per HTTP attempt.
- * Contract (a 500 counts as "answered") and why it is an inversion: docs/system/frontend-data-seam.md
- */
+// One listener, called once per HTTP attempt. Contract (a 500 counts as "answered") and why it is
+// an inversion: docs/system/frontend-data-seam.md
 export function observeReachability(fn) {
   reachabilityObserver = fn;
 }
 
-/**
- * Perform an API request. Opts: `method`, `body`, `query`, `headers`, `auth`, `withStatus`, `signal`.
- * Their exact semantics, and what `withStatus` is for: docs/system/frontend-data-seam.md
- */
+/** The single build-stamp listener, or null when nobody is watching. @see observeBuildStamp */
+let buildStampObserver = null;
+
+// Called once per HTTP attempt with `X-Draazy-Build`, or `null`. Inverted like
+// `observeReachability`: importing the consumer here would reinstate the provider import cycle.
+export function observeBuildStamp(fn) {
+  buildStampObserver = fn;
+}
+
+// Opts: `method`, `body`, `query`, `headers`, `auth`, `withStatus`, `signal`. Their exact
+// semantics, and what `withStatus` is for: docs/system/frontend-data-seam.md
 export async function request(path, opts = {}) {
   const { auth = true, withStatus = false } = opts;
   const res = await send(path, opts, auth ? readAccessToken() : null);
@@ -94,16 +95,12 @@ export const patch = (path, body, opts) => request(path, { ...opts, method: 'PAT
 export const put = (path, body, opts) => request(path, { ...opts, method: 'PUT', body });
 export const del = (path, opts) => request(path, { ...opts, method: 'DELETE' });
 
-/**
- * POST a `multipart/form-data` body — the one content type the JSON path above cannot carry.
- * Why it is a thin sibling of {@link post} rather than a branch: docs/system/frontend-data-seam.md
- */
+// The one content type the JSON path above cannot carry. Why it is a thin sibling of `post` rather
+// than a branch: docs/system/frontend-data-seam.md
 export const postMultipart = (path, form, opts) => request(path, { ...opts, method: 'POST', body: form });
 
-/**
- * Read a `PageEnvelope` response into the shape the seam uses — one place to be wrong.
- * Field precedence (never fall back to the requested page): docs/system/frontend-data-seam.md
- */
+// Read a `PageEnvelope` into the shape the seam uses — one place to be wrong. Field precedence
+// (never fall back to the requested page): docs/system/frontend-data-seam.md
 export function unwrapPage(res, requested = {}) {
   // A bare array is a legitimate response from the endpoints that are deliberately unpaged
   // (bounded reads, e.g. a property's reviews), so normalise rather than treating it as malformed.
@@ -119,16 +116,12 @@ export function unwrapPage(res, requested = {}) {
   };
 }
 
-/**
- * Re-exported so existing importers keep working; the value itself lives in `./apiLimits.js`,
- * outside the provider import cycle. New provider code imports it from there — see that header.
- */
+// Re-exported so existing importers keep working; the value lives in `./apiLimits.js`, outside the
+// provider import cycle. New provider code imports it from there.
 export { MAX_PAGE_SIZE } from './apiLimits.js';
 
-/**
- * Read a paged endpoint that the UI consumes as a plain list, and say so out loud when it overflows.
- * Why `?size=100` is honest and why the warning names the caller: docs/system/frontend-data-seam.md
- */
+// Read a paged endpoint the UI consumes as a plain list, saying so out loud when it overflows. Why
+// `?size=100` is honest and why the warning names the caller: docs/system/frontend-data-seam.md
 export function unwrapFullPage(res, label) {
   if (Array.isArray(res)) return res;
   const rows = res?.content ?? [];
@@ -141,8 +134,6 @@ export function unwrapFullPage(res, label) {
   }
   return rows;
 }
-
-// ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
 /** True for a `multipart/form-data` body: the platform owns its `Content-Type` (boundary and all). */
 const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
@@ -170,10 +161,13 @@ async function send(path, { method = 'GET', body, query, headers: extra, signal 
     // The server answered — whatever its status, the connection is demonstrably working, so clear
     // any standing "can't reach" verdict: a 500 is as much proof of reachability as a 200.
     reachabilityObserver?.(null);
+    // Read from every answer, statuses included: a deploy that moved the contract shows up as a 4xx,
+    // so the response most in need of explaining is the one watching only successes would skip.
+    buildStampObserver?.(res.headers.get(BUILD_HEADER));
     return res;
   } catch (cause) {
-    /* An abort is the caller's own decision: neither an error to normalise nor evidence about the
-       network, so it is rethrown unchanged and reported to nobody. */
+    // An abort is the caller's own decision: neither an error to normalise nor evidence about the
+    // network, so it is rethrown unchanged and reported to nobody.
     if (isAbort(cause)) throw cause;
     const err = new NetworkError(cause);
     reachabilityObserver?.(err);
@@ -225,10 +219,8 @@ async function parseBody(res) {
   }
 }
 
-/**
- * Refresh the access token, coalescing concurrent callers **within and across tabs**.
- * Why both layers are load-bearing, and where the lock degrades: docs/flows/consumer/auth.md
- */
+// Coalesces concurrent callers within and across tabs. Why both layers are load-bearing, and where
+// the lock degrades: docs/flows/consumer/auth.md
 let refreshInFlight = null;
 
 function refreshAccessToken() {
@@ -240,10 +232,8 @@ function refreshAccessToken() {
   return refreshInFlight;
 }
 
-/**
- * Run `fn` under a cross-tab lock where supported, degrading to inline execution rather than
- * rejecting — a raw `SecurityError` would escape the ApiError/NetworkError normalisation.
- */
+// Degrades to inline execution rather than rejecting — a raw `SecurityError` would escape the
+// ApiError/NetworkError normalisation.
 function exclusively(fn) {
   if (!navigator.locks) {
     console.warn('[http] navigator.locks unavailable (non-secure context?) — refresh is not '
@@ -288,28 +278,22 @@ async function doRefresh(entryToken) {
   }
 }
 
-/**
- * Mark an error as the renewal's rather than the caller's, so a rate limit on `/auth/refresh` is
- * not reported as one on saved properties. Only the message moves — docs/flows/consumer/auth.md.
- */
+// Marks an error as the renewal's rather than the caller's, so a rate limit on `/auth/refresh` is
+// not reported as one on saved properties. Only the message moves — docs/flows/consumer/auth.md.
 function fromRefresh(err) {
   err.duringRefresh = true;
   err.message = `Could not renew your session — ${err.message}`;
   return err;
 }
 
-/**
- * Turn a surviving refresh cookie back into a session, once, at cold boot; callers must have
- * checked `sessionHinted()`. Why it is not folded into the 401 path: docs/flows/consumer/auth.md
- */
+// Once, at cold boot; callers must have checked `sessionHinted()`. Why it is not folded into the
+// 401 path: docs/flows/consumer/auth.md
 export function restoreSession() {
   return refreshAccessToken();
 }
 
-/**
- * Store the access token, preserving the tier the session lives in and demoting when localStorage
- * is unwritable. Why the two questions must not be one boolean: docs/flows/consumer/auth.md
- */
+// Preserves the tier the session lives in and demotes when localStorage is unwritable. Why the two
+// questions must not be one boolean: docs/flows/consumer/auth.md
 export function persistTokens({ accessToken }, remember) {
   const choice = remember ?? sessionRemembered();
   writeTokens({ accessToken }, choice && localStorageWritable());

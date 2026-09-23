@@ -22,9 +22,7 @@
    *anonymous* rail, which has no account to attach to and no second device to reach. The service is
    what decides between the two; nothing else should read the functions below directly.
 
-   These stay client-local permanently. They live here rather than in `lib/store/` so that deleting
-   the prototype's mock database does not take them with it; unlike everything in there, none of
-   this is standing in for a server table.
+   These stay client-local permanently — none of it is standing in for a server table.
 
    Storage keys are unchanged and must stay that way — existing browsers hold data under them, and
    the e2e suite asserts against them by name.
@@ -32,13 +30,9 @@
 
 import { myMobile } from './contact.js';
 
-/* Read/write helpers, deliberately local rather than shared with the mock store's: these keys
-   outlive it. The `pn:store` broadcast is kept because the navbar and the notification provider
-   both listen for it, and the native `storage` event only fires in *other* tabs.
-
-   What is not kept is the store's debounced disk snapshot. That is a dev-only convenience which
-   sweeps up every `pn*` key whenever anything writes, so these entries still land in it; a browsing
-   history is also the last thing worth mirroring to disk for its own sake. */
+/* Read/write helpers, deliberately local. The `pn:store` broadcast is kept because the navbar and
+   the notification provider both listen for it, and the native `storage` event only fires in
+   *other* tabs. */
 const read = (key, fallback) => {
   try {
     const v = JSON.parse(localStorage.getItem(key));
@@ -100,11 +94,9 @@ export const pushRecentProp = (id) => {
 };
 
 /* The device-local rail. Reached through `services/recentSearchService.js`, which sends signed-in
-   visitors to the server instead — so on the live path the `<mobile>` bucket is now only ever
-   `anon`. In mock mode it is still written under a real mobile, because the mock provider has
-   nowhere else to put an account's rail. The per-account key is kept for both reasons, and so that
-   a browser still holding a signed-in trail from before the migration keeps it separate rather
-   than merging it into the anonymous one.
+   visitors to the server instead — so the `<mobile>` bucket is now only ever `anon`. The
+   per-account key is kept so that a browser still holding a signed-in trail from before the
+   migration keeps it separate rather than merging it into the anonymous one.
 
    Dedupe is by **url**, matching the server. By label was wrong and was quietly losing searches:
    "3 BHK in Baner" typed once with a budget filter and once without produces the same label and two

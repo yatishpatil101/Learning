@@ -1,10 +1,9 @@
 /**
  * `Report` (wire) ↔ the view models the report modal and the ops queue use.
  *
- * Three vocabularies to reconcile, and each one has a wrong answer that ships silently because the
- * mock store accepts whatever it is handed.
+ * Three vocabularies to reconcile, and each one has a wrong answer that ships silently.
  *
- * ## 1. `kind` → `targetType`, and the flatmates bug
+ * ## 1. `kind` → `targetType`, and the flatmates trap
  *
  * The client says "kind", the wire says "targetType", and they are not just renamed:
  *
@@ -14,12 +13,11 @@
  * | `user` | `user` | `OWNER_REPORT_REASONS` |
  * | `share` | **`post`** | `SHARE_REPORT_REASONS` |
  *
- * **`Flatmates.jsx` passed `kind='user'` with `SHARE_REPORT_REASONS`.** The server validates the
- * reason *against* the target type — `FOR_USER` is
+ * The server validates the reason *against* the target type — `FOR_USER` is
  * `impersonation|fraud|brokerage|abuse|spam|fakelistings|other`, and `filled` is not something you
- * can say about a person — so every flatmate report would have been a 400. On mocks it stored fine
- * and landed in the ops queue under the wrong tab. Fixed at the call site; the mapping table here
- * is what makes the mistake impossible to repeat silently, because an unknown kind now warns.
+ * can say about a person — so pairing a flatmate reason set with `kind='user'` is a 400 on every
+ * report. The mapping table is what makes that mistake impossible to make silently, because an
+ * unknown kind warns.
  *
  * ## 2. Status
  *
@@ -31,20 +29,19 @@
  * | `actioned` | `actioned` | ✅ |
  * | `dismissed` | `dismissed` | ✅ |
  *
- * `resolved` was the queue's word for "reviewed, no action needed", which is what `dismissed`
+ * `resolved` is the queue's word for "reviewed, no action needed", which is what `dismissed`
  * means. It is translated on the way *out* (a triage of `resolved` sends `dismissed`) rather than
  * on the way in, so the queue never displays a status the server did not actually record.
  *
  * **Terminal is terminal.** `actioned` and `dismissed` cannot move. The queue's "Reopen" button
  * would 409, so `canTriage` exists to let the UI stop offering it rather than fail on click.
  *
- * ## 3. The denormalised display fields are gone
+ * ## 3. There are no denormalised display fields
  *
- * The mock froze a snapshot of the target at report time — `targetTitle`, `targetOwner`,
- * `ownerMobile`, `reportedBy`, `url`. The contract declares none of them, deliberately: three are
- * joins the admin UI can make for itself, and **`reporterId` is withheld on purpose** — "the queue
- * tells a moderator what was complained about and why, not who complained: naming the reporter to
- * every member of ops is how a complaint becomes a reprisal".
+ * The contract declares no `targetTitle`, `targetOwner`, `ownerMobile`, `reportedBy` or `url`,
+ * deliberately: three are joins the admin UI can make for itself, and **`reporterId` is withheld on
+ * purpose** — "the queue tells a moderator what was complained about and why, not who complained:
+ * naming the reporter to every member of ops is how a complaint becomes a reprisal".
  *
  * So they degrade rather than being invented:
  *
@@ -64,14 +61,13 @@ import {
 /**
  * Client `kind` → wire `targetType`.
  *
- * The five `society_*` entries are the society hub's five UGC surfaces. The client has always
- * called them by the bare word — `societyMod.js` has shipped `REPORT_TYPES` as
- * `contribution|reply|review|question|answer|board` since the hub was browser-only — so the bare
+ * The five `society_*` entries are the society hub's five UGC surfaces. The client calls them by
+ * the bare word — `societyMod.js` ships `REPORT_TYPES` as
+ * `contribution|reply|review|question|answer|board` — so the bare
  * word is what arrives here, and the prefixed form is what the wire wants.
  *
  * `review` is in that client list and is deliberately **not** prefixed: a society review is
- * reported as an ordinary `review` and taken down through `PATCH /reviews/{id}/status`. It was
- * already mapped above and stays there.
+ * reported as an ordinary `review` and taken down through `PATCH /reviews/{id}/status`.
  */
 const KIND_TO_TARGET = {
   listing: 'property',
@@ -133,27 +129,22 @@ export function toTargetType(kind) {
 /**
  * Reason code → the words the reporter actually read, indexed by what they were reporting.
  *
- * This used to be one flat table, hand-copied from the three modal vocabularies, with a note
- * claiming the colliding keys "genuinely mean the same thing". They do not, and the table was wrong
- * in two separate ways because of it.
+ * Not one flat table keyed on the code alone, for two reasons.
  *
- * *Wrong by drift:* `abuse` was written here as "Abusive or offensive behaviour" while the modal
- * offered "Abusive or harassing behaviour", and `fakelistings` as "Posting fake listings" against
- * the modal's "Listings are fake or unavailable". A moderator filtering the queue and a reporter
- * filing the complaint were reading different words for one code. Two copies of a vocabulary drift;
- * that is what copies do.
+ * *Drift:* a second hand-copied vocabulary means a moderator filtering the queue and a reporter
+ * filing the complaint read different words for one code.
  *
- * *Wrong by design:* four codes are shared across vocabularies **under different wording**, because
- * they describe different things. `spam` from an owner is a stream of irrelevant messages, on a
- * listing a duplicate listing, on a flatmate post a duplicate post. A flat table has to pick one,
- * so a spammy flatmate post was labelled "Spam or duplicate listing" in the ops queue — the wrong
- * noun for what the reporter clicked. Same for `fake`, `broker` and `unavailable`.
+ * *Collision:* four codes are shared across vocabularies **under different wording**, because they
+ * describe different things. `spam` from an owner is a stream of irrelevant messages, on a listing
+ * a duplicate listing, on a flatmate post a duplicate post. A flat table has to pick one, so a
+ * spammy flatmate post reads as "Spam or duplicate listing" — the wrong noun for what the reporter
+ * clicked. Same for `fake`, `broker` and `unavailable`.
  *
  * The label is therefore a function of `(reason, targetType)`, exactly as validity is — see
  * `ReportReasons.java`, which rejects a reason that is not legal for the target type. `toViewModel`
  * has the target type in hand, so there is no reason to resolve on the code alone.
  *
- * Derived from `lib/reportReasons.js`. It cannot drift from the modal any more, because it *is* the
+ * Derived from `lib/reportReasons.js`. It cannot drift from the modal, because it *is* the
  * modal's data.
  */
 const LABELS_BY_TARGET = {
@@ -164,7 +155,7 @@ const LABELS_BY_TARGET = {
      `fake`/`abuse`/`other`, and all three collide with vocabularies whose wording is about a
      listing or a person: a review reported as `fake` would otherwise read "Fake photos or
      misleading info", which is the wrong noun for a review and the exact class of mislabelling
-     this table was restructured to remove. There is no modal to derive these from — reviews are
+     this table exists to prevent. There is no modal to derive these from — reviews are
      reported from the review card, not a picker — so they are written out here. */
   review: {
     fake: 'Fake or dishonest review',
@@ -236,7 +227,7 @@ export function toViewModel(r) {
     reasonLabel: reasonLabel(r.reason, r.targetType),
     details: r.details || '',
     status: r.status || 'open',
-    // Mock-only free text: the server keeps the moderator's words in the audit log, not on the row.
+    // Not on the wire: the server keeps the moderator's words in the audit log, not on the row.
     actionTaken: '',
     at: epoch(r.createdAt),
     // No `handledAt` on the wire either — the audit entry carries when, and who.
@@ -244,7 +235,7 @@ export function toViewModel(r) {
   };
 }
 
-/** A `PageResponse<Report>` → the `{ items, total, page, size }` both providers return. */
+/** A `PageResponse<Report>` → the `{ items, total, page, size }` the queue reads. */
 export function toViewModelPage(res, fallback = {}) {
   const rows = Array.isArray(res?.content) ? res.content : [];
   return {

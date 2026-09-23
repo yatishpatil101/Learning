@@ -11,15 +11,12 @@
  * named `…TicketQueue` / `…TicketNote` so that an import list makes it obvious which one is in
  * play.
  *
- * ## Live-only, and why
+ * ## The board is live, and an unreachable server is an error
  *
- * There is one implementation, and there was only ever going to be one. The mock store that stood
- * beside this domain spoke three statuses to the server's five, assigned by display name where the
- * server assigns by user id, and returned the whole board where the server pages. Reconciling that
- * needed a translation table, which D184 refused for the drafting desk on the grounds that a second
- * vocabulary maintained by hand drifts. `OpsQueue` therefore gated itself shut and said so, rather
- * than rendering an empty board that looked like good news. The store is gone (P5c) and the gate
- * went with it: the board is live, and an unreachable server surfaces as an error, not as calm.
+ * `OpsQueue` renders what the server sends or it fails visibly. It may not answer from a local
+ * store: three statuses against the server's five, assignment by display name against assignment
+ * by user id, and a whole board against a paged one would need a translation table — a second
+ * vocabulary maintained by hand, which drifts. An empty board looks like good news.
  *
  * ## The rules that are no longer this layer's business
  *
@@ -52,7 +49,7 @@ export const listTicketQueue = async (opts) => (await provider()).listTicketQueu
  * choice: assigning to somebody else needs a staff directory the ops portal has never had, and
  * `TicketService.update` warns that re-teaming a ticket routinely removes it from the assigner's
  * own view — a footgun worth a deliberate decision rather than a dropdown. Unassigning likewise
- * has a reserved word on the server (`"none"`, debt D46) and no button here.
+ * has a reserved word on the server (`"none"`) and no button here.
  *
  * Does not change the status. Claiming is putting your name on something; deciding it is in
  * progress is a separate act.
@@ -65,9 +62,9 @@ export const setTicketStatus = async (id, status) => (await provider()).setTicke
 /**
  * Append an internal note — an append, never a rewrite.
  *
- * Returns the note, not the ticket. The old board sent the whole `notes` array back on every
- * addition, so whichever of two colleagues saved second silently erased the other; there is a
- * dedicated endpoint precisely so that cannot happen.
+ * Returns the note, not the ticket. A board that sent the whole `notes` array back on every
+ * addition would let whichever of two colleagues saved second silently erase the other; the
+ * dedicated endpoint exists precisely so that cannot happen.
  *
  * @returns {Promise<{by:string, text:string, at:string|null}>}
  */
@@ -82,10 +79,10 @@ export const createTicket = async (data) => (await provider()).createTicket(data
 /**
  * Join the waitlist for a service that has not launched — `POST /service-waitlist`, 201, no body.
  *
- * **The only export here that works without a signed-in caller.** It exists because the coming-soon
- * panels used to write their leads to browser storage and then congratulate the customer, so the
- * failure mode was invisible: a person who believed they were on a list nobody had. The lead now
- * lands on the same ops board the live Book flow uses, which is where the follow-up call comes from.
+ * **The only export here that works without a signed-in caller.** A coming-soon panel that wrote
+ * its leads to browser storage and then congratulated the customer would fail invisibly — a person
+ * who believed they were on a list nobody had. The lead lands on the same ops board the live Book
+ * flow uses, which is where the follow-up call comes from.
  *
  * Resolves to nothing. `await` it before showing a confirmation — that is the whole point.
  *

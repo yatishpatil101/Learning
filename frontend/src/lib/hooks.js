@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-/* Shared form helpers: inline validation, mobile input, and draft autosave. */
-
 // Marks EVERY failing field red, scrolls to + focuses the first via `data-err`, and returns the
 // first message for a single toast.
 export function useFieldErrors(formRef) {
@@ -30,7 +28,6 @@ export function useFieldErrors(formRef) {
     setErrors(next);
     if (!firstName) return true;
     if (toast) toast(firstMsg, 'error');
-    // Scroll to + focus the first invalid field on the next frame.
     if (typeof window !== 'undefined') {
       window.requestAnimationFrame(() => {
         const root = (formRef && formRef.current) || document;
@@ -50,7 +47,6 @@ export function useFieldErrors(formRef) {
   return { errors, check, clear, clearAll, cx, has: (n) => !!errors[n], msg: (n) => errors[n] || '' };
 }
 
-// ---- useValidation: mark required fields, return whether all pass ----
 export function useValidation() {
   const [errors, setErrors] = useState({});
 
@@ -74,7 +70,6 @@ export function useValidation() {
   return { errors, validate, clearField, clearAll, hasError: (n) => !!errors[n] };
 }
 
-// ---- useMobileInput: 10-digit Indian mobile, +91, strips non-digits ----
 const IN_PATTERN = /^[6-9]\d{9}$/;
 export function useMobileInput(initial = '') {
   const [value, setRaw] = useState(() => String(initial).replace(/\D/g, '').slice(0, 10));
@@ -86,7 +81,6 @@ export function useMobileInput(initial = '') {
 
 export const isValidMobile = (v) => IN_PATTERN.test(String(v || '').replace(/\D/g, ''));
 
-// ---- useAutosave: persist a form-state object to localStorage (debounced) ----
 export function useAutosave(key, initialState, { debounce = 400 } = {}) {
   const [restored, setRestored] = useState(false);
   const [state, setState] = useState(() => {
@@ -138,8 +132,8 @@ export function useAutosave(key, initialState, { debounce = 400 } = {}) {
   return { state, setState, update, clear, restored };
 }
 
-// ---- useFormDraft: autosave/restore an EXTERNAL form-state object ----
-// Keys are `dzDraft:*`. Snapshot-keyed debounce and `flush()`: docs/system/cross-cutting.md
+// Keys are `dzDraft:*`. Snapshot-keyed debounce, `flush()` and the rule that changing a form's
+// field shape means RENAMING its key: docs/system/cross-cutting.md
 function draftHasContent(obj, ignore) {
   return Object.keys(obj || {}).some((k) => {
     if (ignore && ignore.includes(k)) return false;
@@ -150,6 +144,15 @@ function draftHasContent(obj, ignore) {
     if (typeof v === 'boolean') return v;
     return v != null && v !== '';
   });
+}
+
+// Drop keys that must never reach disk — a verified-consent flag, an eligibility choice, a server
+// id. Distinct from `ignore`, whose named fields are still saved and still restored.
+function omitKeys(obj, omit) {
+  if (!omit || !omit.length) return obj;
+  const out = {};
+  for (const k in obj) if (!omit.includes(k)) out[k] = obj[k];
+  return out;
 }
 
 function flashDraftSaved() {
@@ -172,7 +175,7 @@ function flashDraftSaved() {
   s._t = setTimeout(() => { s.classList.remove('is-on'); }, 1400);
 }
 
-export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['name', 'mobile'], enabled = true } = {}) {
+export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['name', 'mobile'], omit = [], enabled = true } = {}) {
   const [restored, setRestored] = useState(false);
   const firstRun = useRef(true);
   const cleared = useRef(false);
@@ -202,10 +205,10 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
   }, [key]);
 
   /* Serialise during render and debounce on the RESULT: every caller rebuilds `form` each render,
-     so keying on its identity would re-arm the timer forever and never write the draft. */
-  const snapshot = enabled ? JSON.stringify(form) : null;
+     so keying on its identity would re-arm the timer forever and never write the draft. `omit` is
+     applied HERE, at the only point anything reaches disk. */
+  const snapshot = enabled ? JSON.stringify(omitKeys(form, omit)) : null;
 
-  // Debounced save on form change.
   useEffect(() => {
     if (!enabled) return undefined;
     if (firstRun.current) { firstRun.current = false; return undefined; }
@@ -213,7 +216,9 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       try {
-        if (draftHasContent(form, ignore)) { localStorage.setItem(key, snapshot); flashDraftSaved(); }
+        // Judge the snapshot, not the form: a draft whose only content sits in an omitted field
+        // would otherwise be written empty and then announce "Draft saved" over nothing.
+        if (draftHasContent(omitKeys(form, omit), ignore)) { localStorage.setItem(key, snapshot); flashDraftSaved(); }
         else localStorage.removeItem(key);
       } catch {
         /* quota — non-blocking */
@@ -236,7 +241,7 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     if (!enabled || cleared.current) return;
     clearTimeout(timer.current);
     try {
-      if (draftHasContent(form, ignore)) localStorage.setItem(key, snapshot);
+      if (draftHasContent(omitKeys(form, omit), ignore)) localStorage.setItem(key, snapshot);
       else localStorage.removeItem(key);
     } catch { /* quota — same non-blocking posture as the debounced save */ }
   };

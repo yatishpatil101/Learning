@@ -3,15 +3,10 @@
  *
  * ## One visit, two surfaces
  *
- * The mock kept **two** parallel stores: a global `visits` collection in `mockApi`, and per-owner
- * `draazyPropVisitReqs:<mobile>` buckets in `lib/store`. Booking wrote to both, and each surface
- * read a different one — the dashboard calendar read the collection, the review gate read the
- * bucket. Two records for one real-world event, free to disagree the moment either was updated
- * alone.
- *
- * The server has one table behind two endpoints (backend D3: `POST /visits` and
- * `POST /visit-requests` share a create path). This seam matches that: one shape, one write,
- * and two *reads* that differ only in which side of the visit the caller is on.
+ * The server has one table behind two endpoints (`POST /visits` and `POST /visit-requests` share a
+ * create path). This seam matches that: one shape, one write,
+ * and two *reads* that differ only in which side of the visit the caller is on. Two client-side
+ * records for one real-world event would be free to disagree the moment either was updated alone.
  *
  *   listVisits()        visits I booked            → GET /visits
  *   myVisitRequests()   visits on listings I own   → GET /me/visit-requests
@@ -46,10 +41,9 @@ export const myVisitRequests = async () => (await provider()).myVisitRequests();
 /**
  * Book a visit.
  *
- * **Not idempotent, and the two providers disagree about that.** The mock moves the slot of an
- * existing live visit; the server rejects a second live visit on the same property with a 409. The
- * mock now matches the server (it throws the same `ApiError`), because the alternative — silently
- * moving a slot the owner has already confirmed — is a worse failure than a visible one.
+ * **Not idempotent.** The server rejects a second live visit on the same property with a 409
+ * rather than moving the existing slot — silently moving a slot the owner has already confirmed is
+ * a worse failure than a visible one.
  *
  * @param {{propertyId: string, when?: string, dateIso?: string, time?: string, mode?: string,
  *          note?: string, listing?: string}} req
@@ -69,7 +63,7 @@ export const updateVisitStatus = async (id, status) => (await provider()).update
 /**
  * Reschedule to a new slot, returning the visit to `scheduled` so the other party re-confirms.
  *
- * Served by `PATCH /visits/{id}/slot` (D87): the seam converts the dashboard's human `when` string
+ * Served by `PATCH /visits/{id}/slot`: the seam converts the dashboard's human `when` string
  * to the ISO instant the server stores. Either participant may reschedule a *live* visit; the
  * server rejects a terminal one (completed/cancelled/no-show) with a 409, so this does not
  * second-guess it client-side.

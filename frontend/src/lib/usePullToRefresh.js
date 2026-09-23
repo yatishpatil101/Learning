@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-/* Pull-to-refresh belongs to any touch device, not just phone layouts — which is why this
-   gates on the pointer rather than on the width the way `useSwipeDismiss` does. That hook
-   guards a bottom sheet, and the sheet itself only exists below 640px; a list that can be
-   refreshed exists at every width, so a tablet gets the gesture too. Mouse and wheel are
-   excluded for free: nothing here listens for either. */
+/* Gates on the pointer rather than on width the way `useSwipeDismiss` does: a refreshable list
+   exists at every width, so a tablet gets the gesture too. */
 const TOUCH = '(hover: none) and (pointer: coarse)';
 
 const REDUCED = '(prefers-reduced-motion: reduce)';
@@ -24,19 +21,12 @@ const SLOP = 6;
    working against something, or the indicator arrives before the user has decided. */
 const RESISTANCE = 0.5;
 
-/* A mock-backed refresh settles in single-digit milliseconds, which would show as a flicker
-   rather than as feedback. Hold the spinner this long at minimum; the promise is still what
-   ends it whenever it takes longer. */
+/* A refresh that resolves from cache settles in single-digit milliseconds, which would read as a
+   flicker rather than as feedback. The promise still ends it whenever it takes longer. */
 const MIN_SPIN_MS = 350;
 
-/**
- * Is the surface under the finger already scrolled to its top?
- *
- * That is the only state in which a downward drag means "refresh" rather than "scroll up".
- * The walk starts at the touched node so an inner scroller — the Messages conversation list,
- * a filter panel — answers for itself instead of the document answering on its behalf, and
- * falls through to the document for the pages that scroll the window.
- */
+/* Is the surface under the finger already scrolled to its top — the only state in which a downward
+   drag means "refresh"? Starts at the touched node so an inner scroller answers for itself. */
 function atScrollTop(target, root) {
   for (let n = target; n instanceof Element; n = n.parentElement) {
     if (n.scrollHeight > n.clientHeight + 1) {
@@ -48,16 +38,8 @@ function atScrollTop(target, root) {
   return (document.scrollingElement || document.documentElement).scrollTop <= 0;
 }
 
-/**
- * Does the touched node sit inside a region that has opted out of the gesture?
- *
- * `atScrollTop` answers "is this scrolled to the top", and for a region that does not scroll at
- * all — a map, a canvas, a carousel that pans itself — the honest answer is yes, which is the
- * wrong answer: a downward drag there belongs to the region, and arming the pull would both
- * `preventDefault` the region's own gesture and fire a refetch the user never asked for. Nothing
- * about the DOM distinguishes "not scrollable, so the page scrolls" from "not scrollable, because
- * it handles the drag itself", so the region has to say so with `data-no-ptr`.
- */
+/* A region that does not scroll at all — a map, a canvas, a carousel that pans itself — looks "at
+   the top", and nothing in the DOM distinguishes that, so it has to say so with `data-no-ptr`. */
 function optedOut(target, root) {
   for (let n = target; n instanceof Element; n = n.parentElement) {
     if (n.hasAttribute('data-no-ptr')) return true;
@@ -66,36 +48,12 @@ function optedOut(target, root) {
   return false;
 }
 
-/**
- * Pull-to-refresh for the app's list surfaces.
- *
- * Touch only, and only from a surface that is already at its top — anywhere else a downward
- * drag is a scroll and stays one. The hook owns the gesture and the in-flight flag; the
- * caller owns both the refetch and whatever it draws with `pullDistance` / `isRefreshing`,
- * so nothing here assumes a particular indicator.
- *
- * A gesture that is travelling more sideways than down when it crosses the slop is left alone,
- * so swipe-to-dismiss cards and horizontal chip rails inside the surface keep working. Anything
- * that handles its own drag without scrolling — a map, a canvas — has to say so with a
- * `data-no-ptr` attribute, because the DOM cannot be asked.
- *
- * Listeners are attached by hand rather than returned as React props because the one place
- * this legitimately needs `preventDefault` is `touchmove`, and React registers that one
- * passively at the root — a `preventDefault` from an `onTouchMove` prop is a no-op plus a
- * console warning. The call is also guarded on `e.cancelable`: once the browser has committed
- * to a scroll the event is no longer cancellable and cancelling it anyway is another warning.
- *
- * `prefers-reduced-motion` keeps the affordance but drops the travel: the indicator appears in
- * place once the threshold is passed instead of tracking the finger down the page.
- *
- * @param {() => (Promise<unknown> | void)} onRefresh Awaited; the gesture stays in its
- *   refreshing state until it settles, and a rejection ends it the same way a resolve does.
- * @param {{ enabled?: boolean, threshold?: number }} [options] `enabled: false` unbinds
- *   entirely — for a surface that has nothing to refetch yet.
- * @returns {{ ref: React.RefObject<HTMLElement>, pullDistance: number, progress: number,
- *   isRefreshing: boolean }} `ref` goes on the element the gesture is read from; `progress` is
- *   `pullDistance` as a 0–1 fraction of the threshold, so callers don't restate it.
- */
+/* Touch only, and only from a surface already at its top. Anything that handles its own drag
+   without scrolling needs a `data-no-ptr` attribute.
+
+   Listeners are attached by hand rather than returned as React props because the one legitimate
+   `preventDefault` here is on `touchmove`, which React registers passively at the root — from an
+   `onTouchMove` prop it is a no-op plus a console warning. */
 export default function usePullToRefresh(onRefresh, { enabled = true, threshold = THRESHOLD } = {}) {
   const ref = useRef(null);
   const [pullDistance, setPullDistance] = useState(0);
@@ -137,20 +95,16 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
         /* An upward move is the user scrolling. Stand down for the rest of the gesture
            rather than waiting for them to come back past the origin. */
         if (delta < 0) { drag = null; return; }
-        /* A sideways move is somebody else's gesture — a swipe-to-dismiss card, a chip rail.
-           Those travel horizontally but rarely purely so, and without this the few pixels of
-           downward drift that come with any real thumb swipe would arm the pull and
-           `preventDefault` the swipe out of existence. Whichever axis is winning at the moment
-           the slop is crossed owns the gesture, and it is decided once: a pull that wanders
-           sideways later is still a pull. */
+        /* A sideways move is somebody else's gesture — a swipe-to-dismiss card, a chip rail — and
+           those carry a few pixels of downward drift that would otherwise arm the pull and
+           `preventDefault` the swipe out of existence. Decided once, at the slop crossing. */
         if (Math.abs(sideways) > Math.abs(delta)) { drag = null; return; }
         if (delta < SLOP) return;
         drag.active = true;
       }
 
-      /* The hook's only preventDefault, and only now that the gesture is unambiguously a
-         downward pull from the top: it keeps the browser's own overscroll and native
-         pull-to-refresh from running underneath this one. */
+      /* The hook's only preventDefault, now that the gesture is unambiguously a downward pull
+         from the top: it keeps the browser's native pull-to-refresh from running underneath. */
       if (e.cancelable) e.preventDefault();
 
       drag.pull = Math.min(MAX_PULL, (delta - SLOP) * RESISTANCE);
@@ -178,9 +132,8 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
         }, wait);
       };
 
-      /* `Promise.resolve().then` rather than a bare call so a callback that throws
-         synchronously ends the gesture the same way a rejected promise does — otherwise the
-         spinner would be stuck on forever with nothing left to end it. */
+      /* `Promise.resolve().then` rather than a bare call so a callback that throws synchronously
+         ends the gesture the same way a rejection does, instead of stranding the spinner. */
       Promise.resolve()
         .then(() => latest.current?.())
         .then(settle, settle);
@@ -194,12 +147,9 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
-      /* `alive`, `drag` and `timer` are locals of THIS effect run, but `isRefreshing` and
-         `pullDistance` are React state and outlive it. If `enabled` or `threshold` changes
-         between touchend and settle, the in-flight `settle` correctly declines to touch a
-         torn-down instance (`if (!alive) return`) — and nothing else ever resets the state,
-         so the spinner stays on screen forever. Same for a re-bind mid-drag, which strands a
-         partial pull. Clearing here is the only place that can see both. */
+      /* `alive`, `drag` and `timer` are locals of THIS effect run but the state outlives it, so a
+         re-bind between touchend and settle would leave the spinner on forever — the in-flight
+         `settle` correctly declines to touch a torn-down instance, and nothing else resets it. */
       setIsRefreshing(false);
       setPullDistance(0);
       el.removeEventListener('touchstart', onStart);

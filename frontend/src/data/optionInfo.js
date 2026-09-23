@@ -26,6 +26,9 @@ export const OPTION_INFO = {
   'tag.rera': { title: 'RERA Approved', body: 'Registered under the Real Estate Regulatory Authority — the project is legally accountable for timelines, carpet area and quality.' },
   'tag.furnishing': { title: 'Furnishing', body: 'Unfurnished, Semi-furnished (usually wardrobes and fittings) or Furnished (adds beds, sofa and appliances).' },
   'tag.zeroBrokerage': { title: 'Zero brokerage', body: 'Draazy charges no commission on this deal. You talk to the owner directly, so there is no agent fee — typically one to two months of rent, or 1–2% of a sale price — on top of what you agree with them.' },
+  /* The half that survives when an agent or a developer posted the listing: Draazy still takes
+     nothing, but we cannot promise the person answering is the owner, so we do not. */
+  'tag.zeroBrokerageOnly': { title: 'Zero brokerage', body: 'Draazy charges no commission on this deal. This listing was put up by an agent or a developer rather than the owner, so ask them directly whether they charge a fee of their own.' },
 
   // ---- Overview: floor plan ----------------------------------------------------
   'floorplan.carpet': { title: 'Carpet area', body: 'The actual usable floor space inside your walls — what you can lay a carpet on. This is the RERA-mandated figure to compare.' },
@@ -61,6 +64,7 @@ export const OPTION_INFO = {
 
   // ---- Owner card --------------------------------------------------------------
   'owner.noBrokerage': { title: 'Zero brokerage', body: 'You deal directly with the owner — no agent, no brokerage fee (typically ~1\u20132% of price/rent that other portals charge).' },
+  'owner.noBrokerageFee': { title: 'Zero brokerage', body: 'Draazy charges you nothing (other portals typically take ~1\u20132% of price/rent). This listing was posted by an agent or a developer, so ask them whether they charge a fee of their own.' },
   'owner.numberProtected': { title: 'Number protected', body: "The owner's phone stays hidden until they approve your request, so listings don't attract spam calls." },
 };
 

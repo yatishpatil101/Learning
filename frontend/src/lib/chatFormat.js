@@ -1,19 +1,5 @@
-/* Conversation presentation helpers — epoch→display formatting, the property→messages link, and
-   the contact gate that decides whether a thread may show the other party's number.
-
-   **Split out of `lib/chat.js` so that product code stops importing the mock store.** `chat.js` is
-   the localStorage demo backend for conversations, and it reaches the mock database (`rawDb`) to
-   read one admin flag. Seven product modules — the property page, the owner page, the map detail
-   panel, the inbox and the chat primitives — wanted nothing from that store; they imported this
-   handful of pure functions and got the entire `lib/mockApi/` module graph evaluated alongside
-   them, in a build whose only data source is the live API.
-
-   Nothing here touches `dzConversations`, `rawDb`, or any mock module. The one dependency is
-   `contactService`, which is the seam — a real service call, not a store read. That is the point of
-   the boundary: a component needing a timestamp formatted should not thereby load a demo database.
-
-   `chat.js` imports `lastAt` back from here rather than keeping a second copy, so the sort order
-   the store applies and the "last message at" the inbox renders cannot drift apart. */
+/* Pure presentation only, so a component needing a timestamp formatted does not thereby pull in a
+   data layer. The one dependency is `contactService`, which is a real service call. */
 
 import { contactStatus } from '../services/contactService.js';
 
@@ -22,8 +8,6 @@ const now = () => Date.now();
 
 /** Epoch of a conversation's most recent message, falling back to the thread's own timestamp. */
 export const lastAt = (c) => (c.messages[c.messages.length - 1]?.at) || c.at || 0;
-
-/* ---------- time helpers (epoch → display) ---------- */
 
 export function formatTime(at, fallback = '') {
   if (!at) return fallback;
@@ -50,17 +34,8 @@ export function relTime(at, fallback = '') {
   return new Date(at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-/* ---------- contact-gate for in-thread Call/WhatsApp ---------- */
-
-// The buyer may only see the owner's number once the owner has approved contact —
-// the same privacy gate the rest of the app enforces. When you are the owner in a
-// thread, the buyer reached out to you, and their number is visible because the thread
-// exists at all: a conversation the server holds implies an approved contact request in
-// one direction or the other. A row the seam is still staging is not that, so it is refused.
-//
-// Async on the buyer side because the gate is a server read now. The owner side stays
-// synchronous-in-spirit — it is decided by the row already in hand — but the function
-// returns a promise either way so callers have one shape to await.
+// A thread the server holds implies an approved contact request in one direction, so the owner side
+// is decided by the row in hand; the buyer side must ask the gate. Promise either way, for one shape.
 export async function canRevealParty(conv) {
   if (!conv) return false;
   if (conv.youAre !== 'buyer') return !conv.staged;
@@ -68,7 +43,5 @@ export async function canRevealParty(conv) {
   const { status } = await contactStatus(conv.propertyId);
   return status === 'approved' || status === 'owner';
 }
-
-/* ---------- property → chat link ---------- */
 
 export const messagesLinkForProp = (p) => `/messages?openProp=${encodeURIComponent(String(p?.id || ''))}`;

@@ -5,15 +5,14 @@
  *
  * ## Why this domain exists
  *
- * The rent-agreement wizard used to price itself: stamp duty from the Maharashtra Art. 36A formula,
- * registration from a ₹500/₹1000 rule, service fee from the mock back-office panel. The server bills
- * from its `platform_fees('rent')` row — `platformFee + stampDuty + registration + gst` — so two
- * pieces of code computed a price from two different data sources and agreed only by coincidence
- * (D9, D150). A checkout that meets a different number than the sidebar promised is not a rounding
- * bug; it is the customer being quoted one price and charged another.
+ * The server bills from its `platform_fees('rent')` row — `platformFee + stampDuty + registration
+ * + gst`. The rent-agreement wizard must not price itself from the Maharashtra Art. 36A formula
+ * and a ₹500/₹1000 registration rule: two pieces of code computing a price from two data sources
+ * agree only by coincidence, and a checkout that meets a different number than the
+ * sidebar promised is not a rounding bug, it is the customer being quoted one price and charged
+ * another.
  *
- * So the sidebar reads *this*, and the figure it shows is the figure the server adds up. Nothing
- * about that is a coincidence any more.
+ * So the sidebar reads *this*, and the figure it shows is the figure the server adds up.
  *
  * ## Shape
  *
@@ -50,8 +49,7 @@ export const listFees = async () => (await provider()).listFees();
  * Derived here rather than in each provider: the endpoint returns the whole (two-row) table in one
  * response, so a per-deal provider method would be a second request for data the first one already
  * carried. `null` is the honest answer for an unpublished deal — the caller has to render a pending
- * or unavailable state, and giving it a fabricated all-zero row instead would hand it a confident
- * wrong number, which is the failure this whole domain was created to remove.
+ * or unavailable state, and a fabricated all-zero row would hand it a confident wrong number.
  *
  * @param {string} deal `rent` | `buy`
  */

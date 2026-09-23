@@ -137,6 +137,8 @@ export function toViewModel(p) {
     verified: p.verified ?? false,
     ownerVerified: p.ownerVerified ?? false,
     ownershipVerified: p.ownershipVerified ?? false,
+    // Null is "nobody recorded who posted this", which is not the same as "the owner did".
+    postedByType: p.postedByType ?? null,
     views: p.views ?? 0,
     enquiries: p.enquiries ?? 0,
     docsCount: p.docsCount ?? 0,
@@ -172,7 +174,8 @@ export function toViewModel(p) {
     room: p.room ?? null,
     tenants: Array.isArray(p.tenants) ? p.tenants : [],
     availableFrom: p.availableFrom ?? null,
-    // Null stays null: the detail page renders it as a question, and `?? false` said "not allowed".
+    // Null stays null: the detail page renders it as a question, and `?? false` would publish the
+    // owner's silence as "not allowed".
     pets: p.pets ?? null,
     societyVerified: p.societyVerified ?? false,
     conveyanceDone: p.conveyanceDone ?? false,

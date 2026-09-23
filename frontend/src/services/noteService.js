@@ -1,27 +1,16 @@
 /**
- * Note Service — the internal notes staff keep on a case (D29).
- *
- * ## What this replaces
- *
- * Four moderation handlers used to call `addInternalNote(...)` from `lib/mockApi/audit.js` in the
- * same breath as a real API call: approve a listing and the decision went to the server while the
- * reasoning went to `db.internalNotes` in this browser's localStorage. The colleague who opened the
- * same listing the next morning saw the outcome and no explanation, and nothing about the screen
- * said anything was missing — a note that was never stored and a case nobody annotated render
- * identically. The read side was worse than useless: `lib/mockApi/users.js` returned `[]` for every
- * person, because nothing had ever written a `user:` key.
+ * Note Service — the internal notes staff keep on a case.
  *
  * ## `property`, not `listing`
  *
  * Every call site in this app says `listing`. The contract says `property`, as it does everywhere
  * else — `/properties`, `ReportTargetTypes.PROPERTY`, `PropertyResponse`. Rather than rename forty
- * call sites or bend the API to one client's vocabulary, the http provider's mapper bridges the two
- * words once, in one place. Callers keep saying `listing`; the wire keeps saying `property`. The
- * mock provider does the same so both halves of the seam accept the same argument.
+ * call sites or bend the API to one client's vocabulary, the provider's mapper bridges the two
+ * words once, in one place. Callers keep saying `listing`; the wire keeps saying `property`.
  *
  * ## Notes are retained customer information, not scratch
  *
- * That decision (2026-08-17) is what makes this domain look unlike the audit log next to it:
+ * That is what makes this domain look unlike the audit log next to it:
  *
  * - **Mutable.** `editNote` exists. A note that recorded the wrong flat number should be corrected,
  *   not contradicted three notes later. The previous wording survives in the audit log, so mutable
@@ -60,8 +49,8 @@ export const listNotes = async (entityType, entityId) =>
  *
  * @param {'listing'|'user'|'review'|'report'} entityType
  * @param {string} entityId
- * @param {string} text required and non-blank — the old store saved a note with an action label and
- *   no text, which rendered as an empty bullet under somebody's name
+ * @param {string} text required and non-blank — an action label with no text renders as an empty
+ *   bullet under somebody's name
  * @param {string} [action] the decision this note was filed beside, e.g. `Approved`. Recorded once
  *   and not editable afterwards: it describes what happened, not what somebody thinks about it.
  * @returns {Promise<object>} the stored note, in the same shape `listNotes` returns

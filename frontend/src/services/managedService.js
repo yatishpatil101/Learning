@@ -25,10 +25,8 @@
  * - **`deal` is `sale` here, `buy` on the wire.** The owner hub has said `sale` since the prototype
  *   and says it in conditionals, not only in copy. Callers keep using `sale`; the mapper swaps it.
  *   Passing `buy` into `register` still works — it is normalised — but `sale` is the vocabulary.
- * - **Ids are opaque.** The mock mints `MP…`; the server mints a UUID. Nothing may parse or
- *   construct one, and in particular nothing may assume an id is stable across providers. The
- *   document vault is keyed by this id, which is why porting the vault and this domain in the same
- *   slice was not optional.
+ * - **Ids are opaque.** The server mints a UUID; nothing may parse or construct one. The document
+ *   vault is keyed by this id.
  *
  * ## Shape
  *
@@ -113,9 +111,9 @@ export const publishManaged = async (id) => (await provider()).publishManaged(id
  * and a rent tracker like a Rent-o-meter save does.
  *
  * The publish path runs record-first; this is the other direction, and it is why
- * `ManagedPropertyCreate` accepts a `publishedListingId` at all (D32). **Callers must dedup first**
- * against the list they already hold — this is not free, and calling it per listing per render is
- * the bug the ledger flagged. Resolves to `null` when the listing is not eligible (a flatmate post)
+ * `ManagedPropertyCreate` accepts a `publishedListingId` at all. **Callers must dedup first**
+ * against the list they already hold — this is not free, and calling it per listing per render is a
+ * bug. Resolves to `null` when the listing is not eligible (a flatmate post)
  * or when the race was lost and a record already exists.
  *
  * @param {object} listing a listing the caller has verified they own
@@ -132,8 +130,8 @@ export const ensureManagedForListing = async (listing) =>
  * stands now. Render and print these values; do not re-derive them from the record you are holding,
  * or last March's receipt reprints at this March's rent after a tenant change.
  *
- * `id` is the durable receipt reference and belongs on the PDF. It replaced a `'RCPT' + Date.now()`
- * minted at print time, which gave the same month a different reference on every download.
+ * `id` is the durable receipt reference and belongs on the PDF — a reference minted at print time
+ * would give the same month a different one on every download.
  *
  * @param {string} propertyId
  * @param {number} [months] how many months back to return; the server clamps it to 1–24

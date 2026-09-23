@@ -9,7 +9,7 @@
  * `listReports` and `triageReport` will 403 for a consumer, by design, and no consumer surface
  * calls them.
  *
- * ## Target types, and the one the client was getting wrong
+ * ## Target types
  *
  * The server accepts four: `property`, `user`, `review`, `post`. The client calls them "kinds" and
  * ships three reason vocabularies. They line up like this:
@@ -20,17 +20,16 @@
  * | `OWNER_REPORT_REASONS` | `user` | owner profile |
  * | `SHARE_REPORT_REASONS` | **`post`** | flatmates |
  *
- * `Flatmates.jsx` passed `kind='user'` with `SHARE_REPORT_REASONS`. The mock stores whatever it is
- * handed, so nothing complained — but the server validates the reason *against the target type*,
- * and `filled` is not a thing you can say about a person. Every flatmate report would have been a
- * 400. See `reportMapper.js`.
+ * A flatmate report is `post`, not `user`: the server validates the reason *against the target
+ * type*, and `filled` is not a thing you can say about a person, so a mismatched pair is a 400.
+ * See `reportMapper.js`.
  *
  * ## Status vocabulary
  *
  * Server: `open → reviewing → actioned | dismissed`. **Terminal is terminal** — a decided report
- * cannot be reopened, because that erases the record that somebody judged it. The admin queue had a
- * `resolved` status the server has never heard of and a "Reopen" button the server refuses; both are
- * reconciled in the mapper and the queue rather than silently failing.
+ * cannot be reopened, because that erases the record that somebody judged it. The admin queue's
+ * `resolved` status and its "Reopen" button have no server counterpart and are reconciled in the
+ * mapper and the queue rather than silently failing.
  *
  * ## Shape
  *

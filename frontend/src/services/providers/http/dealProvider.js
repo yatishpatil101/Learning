@@ -10,11 +10,11 @@
  *   counterparty GET /me/finalization-requests · POST /finalization/requests/{id}/accept|decline
  * ```
  *
- * ## Every read here is caller-scoped, and that is the whole difference
+ * ## Every read here is caller-scoped
  *
- * The mock took `ownerMobile` and handed back that owner's bucket, so a buyer could enumerate a
- * stranger's offer book by naming them. Nothing here takes an owner: the token decides. See the
- * note at the top of `dealMapper.js`.
+ * Nothing here takes an owner: the token decides. A signature that accepted one would imply a
+ * buyer could enumerate a stranger's offer book by naming them. See the note at the top of
+ * `dealMapper.js`.
  *
  * ## Two operations the API cannot serve
  *
@@ -23,7 +23,7 @@
  * one that is absent.
  */
 import { del, get, post, unwrapFullPage } from '../../http.js';
-// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+// Leaf module, no imports of its own — see its header. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
@@ -40,7 +40,7 @@ const signedIn = () => !!readAccessToken();
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
 
 /**
- * The four owner/buyer collections below are paged on the wire (D77) and read as plain lists here.
+ * The four owner/buyer collections below are paged on the wire and read as plain lists here.
  *
  * Every screen that consumes them — the dashboard's listing cards, the property page's deal panel —
  * filters and totals the rows client-side, so none of them has a pager to drive. `size=100` is the
@@ -53,20 +53,17 @@ const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
  * deliberately so (`/me/deals/{propId}/parties` is bounded by the parties to one deal).
  *
  * A function rather than a constant, kept that way on purpose. `config.js` globs every provider in
- * this directory eagerly and `http.js` imports `config.js` for `API_BASE`, so whenever a page
- * reaches `http.js` first this module is evaluated *inside* `http.js`'s own evaluation. When
- * `MAX_PAGE_SIZE` still lived in `http.js`, reading it here at module scope threw `Cannot access
- * 'MAX_PAGE_SIZE' before initialization` and blanked the whole app, from a file the failing screen
- * never used. It now comes from the import-free `apiLimits.js` (D208), which is always evaluated
- * first, so the module-scope form would be safe again — but the cycle itself is still there, and
- * deferring the read to call time keeps this module out of its critical section regardless of what
- * else `http.js` grows.
+ * this directory and `http.js` imports `config.js` for `API_BASE`, so whenever a page
+ * reaches `http.js` first this module is evaluated *inside* `http.js`'s own evaluation. Reading a
+ * `MAX_PAGE_SIZE` that lived in `http.js` at module scope would throw `Cannot access
+ * 'MAX_PAGE_SIZE' before initialization` and blank the whole app, from a file the failing screen
+ * never used. It comes from the import-free `apiLimits.js` instead, which is always evaluated
+ * first — but the cycle itself is still there, and deferring the read to call time keeps this
+ * module out of its critical section regardless of what else `http.js` grows.
  */
 const paged = () => ({ size: MAX_PAGE_SIZE });
 
-/* ─── Deals (owner-scoped) ──────────────────────────────────────────────────────────────────── */
-
-/** `GET /me/deals` — every deal on the caller's own listings. Paged (D77). */
+/** `GET /me/deals` — every deal on the caller's own listings. Paged. */
 export async function myDeals() {
   if (!signedIn()) return [];
   return unwrapFullPage(await get('/me/deals', paged()), 'deal').map(toDealViewModel);
@@ -88,9 +85,9 @@ export async function getDeal(propId) {
 }
 
 /**
- * The buyer's view of whether a listing is closed — read from the property itself (D110).
+ * The buyer's view of whether a listing is closed — read from the property itself.
  *
- * The state now rides on the property payload: {@code dealStatus} mirrors the owner-scoped deal
+ * The state rides on the property payload: {@code dealStatus} mirrors the owner-scoped deal
  * (active|reserved|closed), and a closed sale also flips the property's own status to the terminal
  * {@code sold}/{@code rented}. The caller already holds the property view-model from the page load,
  * so this reads its {@code dealStatus} rather than spending a redundant fetch. The server still
@@ -146,26 +143,23 @@ export async function addParty(propId, party = {}) {
 /**
  * `DELETE /me/deals/{propId}/parties/{partyId}` — soft-delete a party. 204.
  *
- * Takes the party's **id**. The mock spliced by array index, which is not an identity: a refetch
- * that filters out a soft-deleted row shifts every position after it, and the next remove takes
- * the wrong person.
+ * Takes the party's **id**, never an array index: a refetch that filters out a soft-deleted row
+ * shifts every position after it, and the next remove takes the wrong person.
  */
 export async function removeParty(propId, partyId) {
   await del(`/me/deals/${encodeURIComponent(propId)}/parties/${encodeURIComponent(partyId)}`);
 }
 
-/* ─── Offers ────────────────────────────────────────────────────────────────────────────────── */
 
 /**
  * `POST /offers` — the buyer opens a negotiation. 201.
  *
  * 409 when a closed deal blocks the listing or the caller already has a live offer on it. That is
- * not smoothed over: the mock raises the same conflict, so a call site cannot be written against
- * the gentler behaviour and break on the day this went live.
+ * surfaced rather than smoothed over: a call site written against gentler behaviour would break the
+ * first time a buyer double-submitted.
  *
- * `moveIn` is a real field now (D112). `OfferCreateRequest` carries it as an optional `date`, so the
- * buyer's preferred possession date travels as its own value — filterable and shown as a field, not
- * buried in `message` prose the way it once was.
+ * `OfferCreateRequest` carries `moveIn` as an optional `date`, so the buyer's preferred possession
+ * date travels as its own value — filterable and shown as a field, not buried in `message` prose.
  */
 export async function submitOffer(req = {}) {
   return toOfferViewModel(await post('/offers', {
@@ -201,25 +195,23 @@ export async function respondOffer(id, action, counterAmount, opts = {}) {
   });
 }
 
-/** `GET /offers/mine` — offers the caller **made**, newest first. Paged (D77). */
+/** `GET /offers/mine` — offers the caller **made**, newest first. Paged. */
 export async function myOffers() {
   if (!signedIn()) return [];
   return unwrapFullPage(await get('/offers/mine', paged()), 'offer').map(toOfferViewModel);
 }
 
-/** `GET /me/offers` — offers **on** the caller's own listings, newest first. Paged (D77). */
+/** `GET /me/offers` — offers **on** the caller's own listings, newest first. Paged. */
 export async function offersOnMine() {
   if (!signedIn()) return [];
   return unwrapFullPage(await get('/me/offers', paged()), 'offer').map(toOfferViewModel);
 }
 
-/* ─── Finalization (maker/checker) ──────────────────────────────────────────────────────────── */
-
 /**
  * `POST /finalization/{propId}/request` — the buyer proposes to close.
  *
- * `counterpartyMobile` and a positive `agreedPrice` are both required. The mock asked for neither,
- * which is why the property page's "Request to finalize" button has to supply them now.
+ * `counterpartyMobile` and a positive `agreedPrice` are both required, which is why the property
+ * page's "Request to finalize" button has to supply them.
  */
 export async function requestFinalization(propId, { counterpartyMobile, agreedPrice } = {}) {
   return toFinalizationViewModel(
@@ -239,7 +231,7 @@ export async function requestFinalization(propId, { counterpartyMobile, agreedPr
  * it surface would put a 404 in the console on every property page view. It is caught and mapped to
  * `null`.
  *
- * Terminal rows (declined/cancelled/accepted) are now returned, not pending only (D111): the newest
+ * Terminal rows (declined/cancelled/accepted) are returned too, not pending only: the newest
  * request wins, so a turned-down buyer reads `declined` rather than the same blank state as a buyer
  * who never asked.
  */
@@ -274,8 +266,7 @@ export async function myFinalizationRequests() {
  * `POST /finalization/requests/{reqId}/accept` — the counterparty agrees.
  *
  * One call does three things server-side: accepts this request, auto-declines every sibling on the
- * same property, and closes the deal. The mock did the same, which is the one place the two already
- * agreed.
+ * same property, and closes the deal.
  */
 export async function acceptFinalization(reqId) {
   await post(`/finalization/requests/${encodeURIComponent(reqId)}/accept`, {});

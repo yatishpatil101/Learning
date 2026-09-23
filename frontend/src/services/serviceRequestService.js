@@ -33,16 +33,15 @@
  * | **take a request** (staff/admin) | `PATCH /service-requests/{id}/status` → `assigned` |
  * | **read the parties' identity numbers** (assignee only) | `GET /service-requests/{id}/identities` |
  *
- * The last three are the drafting desk's slice (D173) and belong to `pages/ops/OpsDraftingDesk.jsx`.
+ * The last three are the drafting desk's slice and belong to `pages/ops/OpsDraftingDesk.jsx`.
  * They are in this module rather than a second service because they are the same resource on the
  * same domain — a `serviceRequestOps` service would have needed its own provider pair over the
  * identical endpoints, which is how two sources of truth start.
  *
- * **Those three never had a second implementation behind them (D184).** The desk filters on
- * `?status=` in the server's vocabulary; the mock's rows carried the stepper's, so its queue read
- * answered most filters with an empty page — a work queue that lied about being idle. A translation
- * table between the two was rejected as a second vocabulary to keep in sync, so the desk gated
- * itself shut instead. Both the mock and that gate are gone (P5c) and the desk is simply live.
+ * The desk filters on `?status=` in the server's vocabulary, not the customer stepper's. A
+ * translation table between the two would be a second vocabulary to keep in sync, and a queue read
+ * through a stale one answers most filters with an empty page — a work queue that lies about being
+ * idle.
  *
  * ## Deliberately unavailable in the customer tracker
  *
@@ -60,7 +59,7 @@
  *   { id, type, service, status, details, docs, draft, finalDoc, draftDecision,
  *     messages: [{ id, from, text, at, read }], timeline, assignedTo, createdAt, updatedAt }
  *
- * `details` round-trips as the structured object the form sent (D119) — `{}` when the request
+ * `details` round-trips as the structured object the form sent — `{}` when the request
  * carried none; `docs` is `[]` against the API rather than absent, because the view reads them with
  * optional chaining and a missing key would render as `undefined`.
  */
@@ -80,7 +79,7 @@ export const listServiceRequests = async (typeFilter) => (await provider()).list
 export const getServiceRequest = async (id) => (await provider()).getServiceRequest(id);
 
 /**
- * The whole queue, paged — **staff and admin only** (D173).
+ * The whole queue, paged — **staff and admin only**.
  *
  * `GET /service-requests` again, with no `/admin` twin: the endpoint's scope is role-derived, so a
  * customer session calling this reads their own requests and nothing tells them apart. That is the
@@ -104,7 +103,7 @@ export const listServiceRequestQueue = async (opts) => (await provider()).listSe
 export const takeServiceRequest = async (id) => (await provider()).takeServiceRequest(id);
 
 /**
- * Read the parties' PAN and Aadhaar — the assigned operator's read (D151/D173).
+ * Read the parties' PAN and Aadhaar — the assigned operator's read.
  *
  * `GET /service-requests/{id}/identities`. The counterpart to
  * {@link recordServiceRequestIdentities}: the customer writes, exactly one operator reads, every
@@ -127,13 +126,13 @@ export const takeServiceRequest = async (id) => (await provider()).takeServiceRe
 export const readServiceRequestIdentities = async (id) => (await provider()).readServiceRequestIdentities(id);
 
 /**
- * The paperwork this request asks for, and what has arrived — `GET /{id}/checklist` (D120).
+ * The paperwork this request asks for, and what has arrived — `GET /{id}/checklist`.
  *
  * **Derived on read, never stored.** There is no checklist table and no `status` column a desk can
  * tick, so there is no way for "verified" to disagree with "there is a file". That also means there
  * is nothing here to write: the only way to move an item is for somebody to upload the document.
  * A desk operation that marked paperwork verified would be inventing a second source of truth for
- * the same fact, which is why the retired ops desks' "Mark all verified" did not come with them.
+ * the same fact.
  *
  * `ready`/`total` come off the envelope rather than being counted here, so every surface that shows
  * "3 of 5" shows the server's count and not its own.
@@ -142,8 +141,7 @@ export const readServiceRequestIdentities = async (id) => (await provider()).rea
  * checklist: "nothing has been filed" is a fact about the customer, and getting it wrong sends a
  * desk chasing documents it already has.
  *
- * Reads from the server, like the rest of the desk. The mock store had no notion of the server's
- * document catalogue, so `OpsDraftingDesk` gated itself shut rather than answer from it (D184).
+ * Read from the server's document catalogue, never derived locally.
  *
  * @param {string} id
  * @returns {Promise<{ready:number,total:number,items:{id:string,name:string,done:boolean,
@@ -151,7 +149,7 @@ export const readServiceRequestIdentities = async (id) => (await provider()).rea
  */
 export const readServiceRequestChecklist = async (id) => (await provider()).readServiceRequestChecklist(id);
 
-/** Create a request from a service form. Structured `details` round-trip to the server (D119). */
+/** Create a request from a service form. Structured `details` round-trip to the server. */
 export const createServiceRequest = async (data) => (await provider()).createServiceRequest(data);
 
 /** Create a deferred co-fill request and invite the counterparty (rent-agreement only). */
@@ -183,11 +181,11 @@ export const addServiceRequestDoc = async (id, doc) =>
   (await provider()).addServiceRequestDoc(id, doc);
 
 /**
- * Hand the parties' PAN and Aadhaar to the drafting desk (D151).
+ * Hand the parties' PAN and Aadhaar to the drafting desk.
  *
  * `PUT /service-requests/{id}/identities`. These numbers are deliberately absent from `details` —
- * that object is echoed verbatim to every staff read of the ops queue, which is what made carrying
- * them there a bulk identity dump — and absent from the autosave and the co-fill payload for the
+ * that object is echoed verbatim to every staff read of the ops queue, so carrying them there is a
+ * bulk identity dump — and absent from the autosave and the co-fill payload for the
  * same reason. This is the one channel that carries them, and it goes to exactly the operator the
  * request is assigned to.
  *

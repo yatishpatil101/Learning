@@ -14,8 +14,8 @@ const ROAD_FACTOR = 1.35;     // crow-flight → by-road
 const FREE_SPEED_KMH = 24;    // free-flow city speed
 const mem = new Map();
 
-// FNV-1a (same algorithm as lib/hash.js and the Java MockRoutesClient) so the
-// congestion factor is identical wherever it's computed.
+// FNV-1a, the same algorithm as lib/hash.js, so the congestion factor is identical wherever it is
+// computed.
 function fnv1a(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i += 1) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -69,7 +69,7 @@ export function getCommute(lat, lng) {
   const hit = read(pin);
   if (hit) return hit;
   // Backdate fetchedAt deterministically (1–6 h) so the "updated Xh ago" pill reads
-  // like a real cached feed rather than always "just now". ponytail: mock affordance.
+  // like a real cached feed rather than always "just now".
   const agoH = (fnv1a(pin) % 6) + 1;
   const entry = { hubs: computeLegs(lat, lng), source: 'live', fetchedAt: Date.now() - agoH * 3600e3 };
   write(pin, entry);

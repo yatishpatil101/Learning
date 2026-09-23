@@ -1,6 +1,4 @@
-/* Draazy — Documents data module for Dashboard.
-   Manages property documents (owner), buyer document requests, and the home-loan checklist.
-   Uses the same localStorage keys as the HTML prototype for data interop. */
+/* localStorage keys match the HTML prototype's, for data interop. */
 
 import { digits } from '../contact.js';
 
@@ -15,11 +13,8 @@ export { DOC_CATEGORIES };
 
 export const ALL_DOC_TYPES = Object.values(DOC_CATEGORIES).flat().concat(['Other']);
 
-/* Plain-language "what is this & why do I need it?" copy for each document, shown via <Tip> on the
-   Documents tab (hover on desktop, tap on mobile). Voice: help a first-time Pune owner/tenant
-   understand each paper's significance. Keyed by the exact slot name used in the tab. */
+/* Keyed by the exact slot name used on the Documents tab. */
 export const DOC_INFO = {
-  // ---- Title & Ownership ------------------------------------------------------
   'Sale Deed': { title: 'Sale Deed', body: 'The core legal proof that ownership was transferred to you. Registered at the sub-registrar, it is the single most important document a buyer or bank will ask to see.' },
   'Agreement to Sale': { title: 'Agreement to Sale', body: 'The contract recording the agreed price and terms before the final sale. It shows the transaction history and any conditions between buyer and seller.' },
   'Mother Deed / Title Chain': { title: 'Mother Deed / Title Chain', body: 'Traces ownership back through every past owner. Buyers and banks use it to confirm the title is unbroken and dispute-free.' },
@@ -29,13 +24,11 @@ export const DOC_INFO = {
   'Encumbrance Certificate': { title: 'Encumbrance Certificate (EC)', body: 'Lists all registered loans, mortgages or claims on the property over a period. A clean EC assures buyers and banks that the property is free of dues.' },
   'Legal Title Search Report': { title: 'Legal Title Search Report', body: 'A lawyer\u2019s report confirming the title is clear and marketable. Banks often insist on it before sanctioning a home loan.' },
 
-  // ---- Society ----------------------------------------------------------------
   'Society Registration Certificate': { title: 'Society Registration Certificate', body: 'Proof the housing society is legally registered. It establishes the body that issues your NOC and share certificate.' },
   'Society NOC': { title: 'Society NOC', body: 'A No-Objection Certificate confirming you have no pending dues and the society allows the sale/transfer. Buyers cannot complete a flat purchase without it.' },
   'Share Certificate': { title: 'Share Certificate', body: 'Proof you own shares in the housing society, i.e. membership tied to your flat. It is transferred to the buyer on sale.' },
   'Maintenance Receipt': { title: 'Maintenance Receipt', body: 'Shows society maintenance is paid up to date. It reassures buyers there are no outstanding society dues to inherit.' },
 
-  // ---- Approvals & Plans ------------------------------------------------------
   'Sanctioned Building Plan': { title: 'Sanctioned Building Plan', body: 'The layout approved by the municipal authority. It proves the building was constructed legally and matches its permit.' },
   'Floor Plan': { title: 'Floor Plan', body: 'The layout of your specific unit. Helps buyers understand the space and confirm it matches what was sanctioned.' },
   'Commencement Certificate': { title: 'Commencement Certificate (CC)', body: 'Municipal permission to begin construction. Its absence signals an unauthorised build \u2014 a serious red flag for buyers.' },
@@ -44,18 +37,15 @@ export const DOC_INFO = {
   'RERA Certificate': { title: 'RERA Certificate', body: 'Registration under the Real Estate Regulatory Authority, holding the project accountable for carpet area, timelines and quality. A strong trust signal for buyers.' },
   'NA Order (Non-Agricultural)': { title: 'NA Order (Non-Agricultural)', body: 'Government order converting farmland to non-agricultural use. Without it, you cannot legally build a home on the plot.' },
 
-  // ---- Purchase & Payments ----------------------------------------------------
   'Allotment Letter': { title: 'Allotment Letter', body: 'The builder\u2019s letter allotting a specific unit to you, with price and payment plan. Key evidence in an under-construction purchase.' },
   'Possession Letter': { title: 'Possession Letter', body: 'The builder\u2019s handover confirming the date you took possession. It marks when the property became yours to occupy.' },
   'Builder Payment Receipts': { title: 'Builder Payment Receipts', body: 'Proof of instalments paid to the builder. They establish your payment record and are needed for loan disbursal and resale.' },
   'Stamp Duty & Registration Receipt': { title: 'Stamp Duty & Registration Receipt', body: 'Proof you paid the state stamp duty and registration charges. Without it the sale is not legally registered.' },
   'Property Valuation Report': { title: 'Property Valuation Report', body: 'A valuer\u2019s estimate of the property\u2019s market worth. Banks use it to decide how much loan they will sanction.' },
 
-  // ---- Tax & Utilities --------------------------------------------------------
   'Property Tax Receipt': { title: 'Property Tax Receipt', body: 'Shows municipal property tax is paid up to date. Buyers check it to confirm no tax arrears carry over.' },
   'Electricity Bill': { title: 'Electricity Bill', body: 'A recent paid bill doubles as address proof and shows utility dues are clear. Often asked for during KYC and transfers.' },
 
-  // ---- Identity & KYC ---------------------------------------------------------
   'Aadhaar Card': { title: 'Aadhaar Card', body: 'Your primary government identity and address proof. Needed for rent agreements, ownership verification and most transactions.' },
   'PAN Card': { title: 'PAN Card', body: 'Your tax identity. Mandatory for property purchases above set limits, TDS, and any transaction the tax department tracks.' },
   'Passport Photo': { title: 'Passport Photo', body: 'A recent passport-size photograph required on agreements, registration forms and KYC.' },
@@ -65,7 +55,6 @@ export const DOC_INFO = {
 export function docInfo(category) { return DOC_INFO[category] || null; }
 
 
-// Home-loan checklist items (common docs required by banks)
 export const HOME_LOAN_CHECKLIST = [
   'Sale Deed', 'Agreement to Sale', 'Index II', 'Encumbrance Certificate',
   'Property Tax Receipt', 'Society NOC', 'Sanctioned Building Plan',
@@ -83,7 +72,6 @@ function set(k, v) {
   return v;
 }
 
-/* ---- Documents (keyed by property) ---- */
 export function getAllDocs(mobile) { return get(docsKey(mobile), {}); }
 export function getDocsForProp(mobile, propId) { return getAllDocs(mobile)[propId] || []; }
 
@@ -113,7 +101,6 @@ export function deleteDocument(mobile, propId, docId) {
   return all[propId] || [];
 }
 
-/* ---- Buyer Document Requests ---- */
 export function getDocRequests(mobile) { return get(docReqKey(mobile), []); }
 export function setDocRequests(mobile, reqs) { return set(docReqKey(mobile), reqs); }
 
@@ -150,10 +137,8 @@ export function respondDocRequest(mobile, reqId, decision) {
   if (req) {
     req.status = decision === 'granted' ? 'granted' : 'declined';
     req.respondedAt = Date.now();
-    // On grant, resolve which uploaded files the buyer may see: the actual documents
-    // the owner uploaded for this property whose category is in the request's full scope.
-    // (The buyer requests by category; the owner uploads by category, so this is exact scope —
-    // no separate "pick which docs" step needed.) Cleared on decline.
+    // Buyer requests by category and owner uploads by category, so the category match is
+    // exact scope — no separate "pick which docs" step is needed.
     if (req.status === 'granted') {
       const categories = new Set(req.categories || [req.docType]);
       req.sharedDocIds = getDocsForProp(mobile, req.propId)
@@ -167,18 +152,14 @@ export function respondDocRequest(mobile, reqId, decision) {
   return req;
 }
 
-/* ---- Checklist progress ---- */
-/* Pure: derive the home-loan checklist from an already-loaded document list. It takes the docs
-   rather than re-reading localStorage so a seam consumer (http or mock) can compute progress from
-   what it fetched through `documentService` — the store is empty in http mode and would report a
-   false 0/N (tech-debt D124 blocker 4). */
+/* Takes the docs rather than re-reading localStorage, which holds nothing the seam fetched
+   and would report a false 0/N. */
 export function checklistFromDocs(docs) {
   const uploadedCategories = new Set((docs || []).map((d) => d.category));
   const ready = HOME_LOAN_CHECKLIST.filter((c) => uploadedCategories.has(c));
   return { ready: ready.length, total: HOME_LOAN_CHECKLIST.length, items: HOME_LOAN_CHECKLIST.map((c) => ({ name: c, done: uploadedCategories.has(c) })) };
 }
 
-/* ---- Format helpers ---- */
 export function formatSize(bytes) {
   if (!bytes) return '';
   if (bytes < 1024) return bytes + ' B';

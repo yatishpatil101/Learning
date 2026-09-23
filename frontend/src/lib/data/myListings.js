@@ -113,9 +113,8 @@ export async function loadMyListings(user) {
     getMyFlatmatePosts(),
     getMyFlatmateGroups(),
   ]);
-  /* A "demo top-up" stood here: a seeded owner with nothing of their own was given the three
-     newest listings in the catalogue so a walkthrough never opened an empty dashboard. It was
-     mock-only on purpose — against the real catalogue those are *other people's* listings shown
-     under My Properties, which is worse than an honest empty state. */
+  /* No "demo top-up" here: seeding an empty dashboard with the newest listings in the catalogue
+     shows *other people's* listings under My Properties, which is worse than an honest empty
+     state. */
   return [...flatmatePosts, ...flatmateGroups, ...rooms, ...mine];
 }

@@ -22,7 +22,7 @@
  *
  * ## `If-Match` is not sent
  *
- * The contract offers an optional precondition (D66) that turns two admins editing the same block
+ * The contract offers an optional precondition that turns two admins editing the same block
  * into a 412 instead of a silent last-write-wins. It is not wired here, and that is a gap rather
  * than a decision: honouring it means holding the ETag from the last GET, surfacing the 412 as a
  * "someone else changed this, re-read" prompt, and re-applying the edit — i.e. UI work in
@@ -48,13 +48,9 @@ export async function getSettings() {
  */
 export async function updateSettings(patch) {
   const doc = await put('/admin/settings', patch);
-  /* Same in-tab refresh signal the mock provider raises from inside `lib/mockApi`.
-
-     It is dispatched here rather than in `settingsService.js` so that exactly one of the two
-     providers raises it per write — hoisting it to the service would make the mock path fire
-     twice. It is not an artefact of the mock: `AdminFlagsContext` listens on it so that saving a
-     flag on the Settings screen re-gates the admin nav without a reload, and a `storage` event
-     cannot do that job because it only fires in *other* tabs. */
+  /* In-tab refresh signal: `AdminFlagsContext` listens on it so that saving a flag on the Settings
+     screen re-gates the admin nav without a reload, and a `storage` event cannot do that job
+     because it only fires in *other* tabs. */
   window.dispatchEvent(new CustomEvent('draazy-settings-change'));
   return doc && typeof doc === 'object' ? doc : {};
 }

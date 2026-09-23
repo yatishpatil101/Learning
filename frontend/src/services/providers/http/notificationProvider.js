@@ -1,11 +1,9 @@
 /**
  * HTTP notification provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `notificationService.js`
- * is the only contract between them and no page may care which one is active. Shape translation
- * lives in `notificationMapper.js`.
+ * Shape translation lives in `notificationMapper.js`.
  *
- * The server offers three endpoints: list, mark-read, and now delete (dismiss). The one behaviour
+ * The server offers three endpoints: list, mark-read, and delete (dismiss). The one behaviour
  * with no endpoint — client-derived alerts, which have no server row — is handled here rather than
  * being dropped or thrown, and is confined to this file so the page cannot tell.
  */
@@ -32,11 +30,11 @@ const DISMISSED_KEY = 'dzDismissedNotifs';
 /**
  * Read the tombstone set.
  *
- * Keyed only by name, not by mobile, unlike the mock's `dzNotifications:<mobile>`: these ids are
- * already unique, so a shared key cannot collide. Sharing it also means the set does not have to be
- * rebuilt when the signed-in user changes. Since `DELETE /notifications/{id}` exists, this now only
- * holds client-derived rows (saved-search matches etc.) that have no server home — real server rows
- * are dismissed on the server and never reach this set.
+ * Keyed only by name, never by mobile: these ids are already unique, so a shared key cannot
+ * collide, and the set does not have to be rebuilt when the signed-in user changes. Because
+ * `DELETE /notifications/{id}` exists, this holds only client-derived rows (saved-search
+ * matches etc.) that have no server home — real server rows are dismissed on the server and never
+ * reach this set.
  */
 function dismissedIds() {
   try {
@@ -63,12 +61,11 @@ function rememberDismissed(id) {
 /**
  * The inbox: server rows, minus dismissed ones, plus client-derived ones, newest first.
  *
- * **`extra` is merged but deliberately not persisted.** The mock writes merged rows to localStorage
- * because localStorage is the only store it has. Doing the same here would mint a notification that
- * exists on one device, in one browser, that the server has never heard of — the user is told they
- * have an alert and can never see it again from their phone. So the derived rows are recomputed on
- * each read by the caller, which is where the inputs (saved searches, saved properties) already
- * live. That is the same split the anonymous-alert case took (D85).
+ * **`extra` is merged but deliberately not persisted.** Writing merged rows to localStorage would
+ * mint a notification that exists on one device, in one browser, that the server has never heard
+ * of — the user is told they have an alert and can never see it again from their phone. So the
+ * derived rows are recomputed on each read by the caller, which is where the inputs (saved
+ * searches, saved properties) already live. That is the same split the anonymous-alert case takes.
  */
 export async function listNotifications(extra = []) {
   const page = await get('/notifications', { size: PAGE_SIZE });
@@ -117,14 +114,13 @@ export async function markAllRead() {
  * Dismiss a notification.
  *
  * A real server row is removed with `DELETE /notifications/{id}`, so the dismissal is permanent and
- * **syncs across the user's devices** (this replaced the local-tombstone-only behaviour that was
- * recorded as debt D93).
+ * **syncs across the user's devices**.
  *
  * A **client-derived** alert (a saved-search match, a saved-property availability nudge) has no
  * server row, so the server answers its id with a 404 (or a 400 for a non-UUID). That is expected,
  * not a failure: fall back to a local tombstone for exactly those, which is the only store they can
- * have. The consequence is unchanged and worth stating — a dismissed derived row is device-local
- * and returns if site data is cleared — but it now applies only to rows the server never owned.
+ * have. The consequence is worth stating — a dismissed derived row is device-local and returns if
+ * site data is cleared — but it applies only to rows the server never owned.
  *
  * Any other error (5xx, offline) propagates: the row was already removed optimistically by the
  * caller and simply reappears on the next read, the same tolerance `markRead` documents.
@@ -156,7 +152,7 @@ function warnIfTruncated(page) {
 /**
  * The caller's delivery preferences, from the server.
  *
- * `NotificationPreferencesDto` is field-for-field the object the browser has always kept in
+ * `NotificationPreferencesDto` is field-for-field the object the browser keeps in
  * localStorage — `{ email, sms, whatsapp, matchAlerts, quietHours: { enabled, start, end },
  * language }`, nesting included — so there is no mapper here and deliberately so. Its own Javadoc
  * says why the server chose that shape: renaming `matchAlerts` or flattening `quietHours` "would
@@ -180,9 +176,8 @@ export async function getNotificationPreferences() {
  * field is a 422 naming the field.
  *
  * The merge that turns a one-switch toggle into a whole document therefore happens in
- * `notificationService.js`, above this file, so the mock cannot quietly accept a partial write that
- * this would reject. Nothing here re-merges: if a partial document reaches this function the 422 is
- * the correct outcome and swallowing it would hide the bug in demo mode only.
+ * `notificationService.js`, above this file. Nothing here re-merges: if a partial document reaches
+ * this function the 422 is the correct outcome, and swallowing it would hide the bug.
  *
  * The response is the server's view of what was just written, which is what the caller reconciles
  * its optimistic local state against.

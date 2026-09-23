@@ -11,46 +11,36 @@
  *
  * ## There is no rent payment here
  *
- * There used to be: `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and
- * `/me/payout-account` moved money between a tenant and an owner. That rail was withdrawn — the
- * tables are dropped and the endpoints are gone from the contract — and `/pay-rent` is now a static
- * coming-soon page that calls nothing.
- *
- * Named here rather than deleted silently, because the absence is the surprising part: this file is
- * called `rentService` and a reader looking for "where does paying rent happen" needs to find the
- * answer *nowhere*, rather than assume they are reading the wrong file and go on looking.
+ * No endpoint in this domain moves money between a tenant and an owner: the tables are dropped, the
+ * endpoints are gone from the contract, and `/pay-rent` is a static coming-soon page that calls
+ * nothing. Named rather than left silent, because the absence is the surprising part — a reader
+ * looking for "where does paying rent happen" needs to find the answer *nowhere*, rather than
+ * assume they are reading the wrong file and go on looking.
  *
  * `/me/rentals` is emphatically not that rail wearing a new name. It stores what a tenant *tells*
  * us they pay someone else, so that a tenant who found their home off-platform has a dashboard and
  * an HRA figure at all. Nothing on it settles, and nothing it returns may reach the Rent Passport.
  *
- * ## Whose money is it — the argument that had to go
+ * ## Whose money is it
  *
- * `getTenanciesFor(mobile)` took *whose data to read* as a parameter, because localStorage has no
- * identity so the reader supplies one. Any reader could supply anyone's. The server scopes by
- * token, so that parameter is gone.
- *
- * `tenantProfileFor(mobile)` is the deliberate exception and reads as one: an owner screening an
+ * Nothing here takes *whose data to read* as a parameter: the server scopes by token.
+ * `tenantProfileFor(mobile)` is the deliberate exception and reads as one — an owner screening an
  * applicant is what a tenant profile exists for, and the server decides what a stranger may see.
  *
- * ## Three sums that are now the server's
+ * ## Three sums that are the server's
  *
- * `summary`, `cashflow` and `dues` were client-side reductions over the transaction list. They are
- * endpoints now — not for tidiness, but because the ledger is **paged**, so a reduction over what
- * the client had downloaded was a summary of page one wearing the label of a summary.
+ * `summary`, `cashflow` and `dues` are endpoints rather than client-side reductions over the
+ * transaction list — not for tidiness, but because the ledger is **paged**, so a reduction over
+ * what the client had downloaded would be a summary of page one wearing the label of a summary.
  */
 import { createProvider } from './config.js';
 
 const provider = createProvider('rent');
 
-/* ─── Tenancies ─────────────────────────────────────────────────────────────────────────────── */
-
 /** Tenancies where the caller is the tenant. */
 export const myTenancies = async () => (await provider()).myTenancies();
 /** Tenancies on the caller's own listings, where they are the owner. */
 export const ownerTenancies = async () => (await provider()).ownerTenancies();
-
-/* ─── Tenancy declarations (D194) ───────────────────────────────────────────────────────────── */
 
 /**
  * The other way a stay gets proved.
@@ -62,9 +52,8 @@ export const ownerTenancies = async () => (await provider()).ownerTenancies();
  * `status` is `pending` until then, and only `confirmed` opens the review door. Read `status`, never
  * the row's existence.
  *
- * `propId` is the listing's UUID against the live API and its slug under the mock — resolve it as
- * `p.uuid || p.id`, the same value the review routes take. Comparing the wrong one of those two is
- * the bug this whole surface exists to close.
+ * `propId` is the listing's **UUID** — resolve it as `p.uuid || p.id`, the same value the review
+ * routes take. Passing the slug instead is the bug this whole surface exists to close.
  */
 export const listTenancyDeclarations = async (propId) => (await provider()).listTenancyDeclarations(propId);
 /** Claim a past stay. 409 if you own the listing, already have a tenancy on it, or already claimed. */
@@ -82,12 +71,11 @@ export const saveTenantProfile = async (profile) => (await provider()).saveTenan
 export const tenantProfileFor = async (mobile) => (await provider()).tenantProfileFor(mobile);
 
 /**
- * Which of these people carry the Verified Tenant badge — **one call for a whole list** (D114).
+ * Which of these people carry the Verified Tenant badge — **one call for a whole list**.
  *
  * The verified tick renders beside every row of a list: every offer on a property, every applicant,
  * every reviewer. `tenantProfileFor` answers for one person, so asking it per row is an N+1 on a
- * render path — which is why this badge sat on localStorage for so long, and why it was wrong for
- * anyone whose profile this browser had never seen.
+ * render path.
  *
  * Takes an array of mobiles and resolves to a **`Set` of normalised 10-digit numbers** that are
  * verified. Ask with `set.has(digits(mobile).slice(-10))`.
@@ -102,8 +90,6 @@ export const tenantProfileFor = async (mobile) => (await provider()).tenantProfi
  * unchanged, so this cannot be used to obtain a number — see the endpoint's own note.
  */
 export const tenantsVerified = async (mobiles) => (await provider()).tenantsVerified(mobiles);
-
-/* --- Self-declared rentals (tenant) --- */
 
 /**
  * The homes the caller says they rent, including ones Draazy was never involved in.
@@ -122,7 +108,6 @@ export const addRental = async (rental) => (await provider()).addRental(rental);
 export const updateRental = async (rentalId, patch) => (await provider()).updateRental(rentalId, patch);
 export const deleteRental = async (rentalId) => (await provider()).deleteRental(rentalId);
 
-/* ─── Property finances (owner, per property) ───────────────────────────────────────────────── */
 
 /** The property's ledger. Paged. */
 export const listTransactions = async (propId, page, size) => (await provider()).listTransactions(propId, page, size);
@@ -139,8 +124,8 @@ export const setBasis = async (propId, basis) => (await provider()).setBasis(pro
  * Server-computed income/expense/net/occupancy — not a reduction over the page the client holds.
  *
  * `period` is one of `all` | `month` | `quarter` | `year` and is **the same vocabulary the period
- * selector uses**, so the KPI strip and the transaction table below it answer the same question
- * (D178). Omitting it used to mean the card silently reported all-time next to a filtered table.
+ * selector uses**, so the KPI strip and the transaction table below it answer the same question.
+ * Omit it and the card reports all-time next to a filtered table.
  */
 export const financeSummary = async (propId, period) => (await provider()).financeSummary(propId, period);
 /** The monthly series the chart draws. */

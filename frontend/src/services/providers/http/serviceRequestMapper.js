@@ -16,7 +16,7 @@
  * | `assigned`        | `docs_review`    | ops picked it up |
  * | `in-progress`     | `docs_review`    | ops are working the request |
  * | `draft-shared`    | `draft_shared`   | the draft is out for the customer's decision |
- * | `changes-requested` | `changes_requested` | the customer rejected the draft; the server has had this state since V75 (D121) |
+ * | `changes-requested` | `changes_requested` | the customer rejected the draft |
  * | `approved`        | `approved`       | customer approved; awaiting the final document |
  * | `completed`       | `completed`      | |
  * | `cancelled`       | `cancelled`      | |
@@ -26,8 +26,8 @@
  *
  * ## 2. `details` — a structured object, round-tripped
  *
- * `ServiceRequestCreate` accepts a `details` **object** and `ServiceRequestDto` echoes it back
- * (D119). The tracker's detail line (`details.property` / `details.from`) reads the same shape the
+ * `ServiceRequestCreate` accepts a `details` **object** and `ServiceRequestDto` echoes it back.
+ * The tracker's detail line (`details.property` / `details.from`) reads the same shape the
  * form sent, so `toCreate` passes the object through untouched and `toViewModel` reads `dto.details`.
  * A missing `details` becomes `{}` on read so the view's optional chaining stays safe; nested
  * objects survive, because the wire field is `jsonb`, not a flat string.
@@ -36,10 +36,10 @@
  *
  * Both live in `documents[]`, keyed by `category`: newest `draft` is the current version (their
  * count is the version number — the contract has no version field), `final-document` is the
- * registered copy. Their `url` is a short-lived signed URL, not the base64 `dataUrl` the mock mints,
- * so it shares the vault dev-storage limitation (the dev backend points at `mock.storage.local`,
- * which does not resolve locally). The workflow state, thread and approve/reject decision are fully
- * live; only the rendered *file* degrades in dev, exactly as it does for the documents slice.
+ * registered copy. Their `url` is a short-lived signed URL, so it shares the vault dev-storage
+ * limitation (the dev backend points at `mock.storage.local`, which does not resolve locally). The
+ * workflow state, thread and approve/reject decision are fully live; only the rendered *file*
+ * degrades in dev, exactly as it does for the documents slice.
  *
  * ## 4. Author role and time
  *
@@ -70,8 +70,8 @@ const STATUS = {
   'draft-shared': 'draft_shared',
   // The customer's rejection of a shared draft. Only `POST /{id}/draft-decision` reaches it —
   // `PATCH /{id}/status` cannot — so it is the one status ops never set. Without this entry the
-  // raw hyphenated key reached a stepper that only knows underscored step names, and a rejection
-  // rendered as an unknown state instead of the rose "Changes requested" step.
+  // raw hyphenated key reaches a stepper that only knows underscored step names, and a rejection
+  // renders as an unknown state instead of the rose "Changes requested" step.
   'changes-requested': 'changes_requested',
   approved: 'approved',
   completed: 'completed',
@@ -89,7 +89,7 @@ const STATUS = {
  * <strong>Why this one alias is load-bearing.</strong> The server prices a request by matching the
  * type string exactly: only `rent-agreement` is charged (platform fee + stamp duty + registration +
  * GST from the `rent` fee row), and anything else is a free desk that goes straight into the ops
- * queue. `ServiceRequestCreate.type` is now a closed enum, so forgetting this alias is a loud 400
+ * queue. `ServiceRequestCreate.type` is a closed enum, so forgetting this alias is a loud 400
  * rather than a silently unpaid rent agreement — but the alias still has to exist, and it lives here
  * rather than at a call site that could forget it.
  */
@@ -179,12 +179,12 @@ export function toViewModel(dto) {
     type,
     service: serviceName(type),
     status,
-    // Structured on the wire and round-tripped (D119); `{}` for a request that carried none, so the
+    // Structured on the wire and round-tripped; `{}` for a request that carried none, so the
     // tracker's optional chaining stays safe rather than reading `undefined`.
     details: dto.details && typeof dto.details === 'object' ? dto.details : {},
     // The customer's own uploads are on `dto.documents`, but not in the shape this field wants and
     // not with the names the customer was asked for — the catalogue of *required* paperwork lives
-    // on the server. `GET /service-requests/{id}/checklist` is the read representation (D120); see
+    // on the server. `GET /service-requests/{id}/checklist` is the read representation; see
     // `toChecklist`. Left empty here rather than half-filled from `documents`, because a list that
     // shows what arrived and cannot show what is missing is the wrong list.
     docs: [],
@@ -253,7 +253,7 @@ export function toViewModelPage(res, fallback = {}) {
 }
 
 /**
- * One wire `ServiceRequestIdentity` → the row the drafting desk reads from (D151/D173).
+ * One wire `ServiceRequestIdentity` → the row the drafting desk reads from.
  *
  * Returned unmasked, because a masked PAN cannot be typed into a Leave & License. What makes that
  * safe is the route, not this shape — assignee-only, audited on both outcomes, purged when the
@@ -284,7 +284,7 @@ export function toIdentityList(rows) {
 }
 
 /**
- * The wire `ServiceRequestChecklist` → the desk's checklist (D120).
+ * The wire `ServiceRequestChecklist` → the desk's checklist.
  *
  * Near enough to a pass-through that the mapping is only defence: the contract already speaks the
  * renderer's vocabulary, because the checklist is *computed* for reading rather than stored. What
@@ -293,8 +293,8 @@ export function toIdentityList(rows) {
  * response had a shape.
  *
  * `ready`/`total` are taken from the envelope rather than recounted from `items`. Recounting would
- * agree today and is exactly the drift D120 wrote the counts onto the envelope to prevent: the
- * server's fold is the fold, and a second one here is a second answer waiting to differ.
+ * agree today; the server's fold is the fold, and a second one here is a second answer waiting to
+ * differ.
  *
  * `documentId` is carried through unread. It is an id, never a URL — this endpoint mints no
  * download credential — so it is useful for keying a row and nothing else until something on the
@@ -311,24 +311,17 @@ export function toChecklist(dto) {
 /**
  * The create form → `ServiceRequestCreate`.
  *
- * `details` is a structured object the server stores as-is and echoes back (D119), so it is passed
+ * `details` is a structured object the server stores as-is and echoes back, so it is passed
  * through untouched — nested fields and all. `propertyId` is only sent when it is a real backend id
  * — the server validates it exists (404) or is malformed (400). The frontend often carries a
  * free-text address in `details.property` instead, which stays in the details object; sending it as
  * `propertyId` would fail the request.
  *
- * ## `ticketId` — the link that was being dropped
- *
- * `ServiceRequestCreate.ticketId` (D45) records the ops enquiry a request came off, and it was not
- * being sent. The consequence was not cosmetic: `ServiceLanding` raises a lead ticket and then a
- * flow request for the same customer in the same submit, and without the link an operator opening
- * either one had no way to reach the other. `TicketMirror` on the server refuses a ticket that is
- * not the caller's own and answers 404 rather than 403, so passing one through is safe — the worst
- * a wrong id can do is fail the create it was attached to.
- *
- * Sent only when it looks like a server id. The mock seam mints refs of the form `TR1739...` to
- * pair a browser-local ticket with a browser-local request, and forwarding one of those would turn
- * a working mock-mode submit into a 404 from a server that has never heard of it.
+ * `ticketId` records the ops enquiry a request came off. `ServiceLanding` raises a lead ticket and
+ * then a flow request for the same customer in the same submit, so without the link an operator
+ * opening either one has no way to reach the other. `TicketMirror` on the server refuses a ticket
+ * that is not the caller's own and answers 404 rather than 403, so passing one through is safe —
+ * the worst a wrong id can do is fail the create it was attached to.
  */
 export function toCreate(data) {
   const type = toWireType(data?.type || 'rental');
@@ -336,6 +329,6 @@ export function toCreate(data) {
   const out = { type, details };
   if (data?.propertyId) out.propertyId = String(data.propertyId);
   const ticket = data?.ticketId ?? data?.ticketRef;
-  if (ticket && !String(ticket).startsWith('TR')) out.ticketId = String(ticket);
+  if (ticket) out.ticketId = String(ticket);
   return out;
 }

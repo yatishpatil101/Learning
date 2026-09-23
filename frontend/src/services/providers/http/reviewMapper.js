@@ -2,20 +2,17 @@
  * `Review` (wire) → the review view model the pages render.
  *
  * The two vocabularies are close but not identical, and the differences are all in the same
- * direction: the wire names the thing precisely, the UI named it whatever the first component
+ * direction: the wire names the thing precisely, the UI names it whatever the first component
  * needed.
  *
  *   author    → user   the display name. Not an id: a review is a public document and the reader
  *                      needs a human to attribute it to, so nothing else about the author is on the
  *                      wire — in particular no mobile, which is why this never touches the gate.
  *   body      → text
- *   createdAt → at     ISO instant → `YYYY-MM-DD`. The card renders `{r.at}` raw, and that is the
- *                      shape the mock store already held. Formatting here rather than in the card
- *                      keeps the two providers' output identical, which is the property the parity
- *                      harness checks.
+ *   createdAt → at     ISO instant → `YYYY-MM-DD`. The card renders `{r.at}` raw, so the formatting
+ *                      happens here rather than in the card.
  *
- * `rating`, `categories`, `recommend` and `context` are already the same word on both sides — the
- * property page was written against this contract even while it was reading localStorage.
+ * `rating`, `categories`, `recommend` and `context` are already the same word on both sides.
  *
  * ## `context` is passed through untouched, and may be null
  *
@@ -36,16 +33,16 @@ function displayDate(iso) {
 }
 
 /**
- * The product's order for the per-aspect rows, which is *not* the order either provider emits.
+ * The product's order for the per-aspect rows, which is *not* the order the server emits.
  * See `toSummaryViewModel`. Anything outside the target's set is dropped: it matches the server's
  * closed key vocabulary, so a key the API would reject cannot reach the page from any other source.
  *
  * **Two vocabularies, and picking the wrong one renders an empty grid rather than an error.** A
  * society is rated on Safety/Maintenance/Management/Amenities/Connectivity; a listing, a locality
  * and an owner on locality/condition/value/owner/accuracy. This mirrors `ReviewCategories.forTarget`
- * on the server and `categoryKeysFor` in the mock provider — three copies of one list, because the
- * alternative is the client importing a server enum or the seam learning the review domain. They
- * are keys, not labels: renaming one orphans every rating already stored under the old id.
+ * on the server — a second copy of one list, because the alternative is the client importing a
+ * server enum or the seam learning the review domain. They are keys, not labels: renaming one
+ * orphans every rating already stored under the old id.
  */
 const PROPERTY_CATEGORY_ORDER = ['locality', 'condition', 'value', 'owner', 'accuracy'];
 const SOCIETY_CATEGORY_ORDER = ['Safety', 'Maintenance', 'Management', 'Amenities', 'Connectivity'];
@@ -74,7 +71,7 @@ export function toViewModel(r) {
 /**
  * A bare `Review[]` → the same `{ items, total, page, size }` the paged route yields.
  *
- * `GET /properties/{propId}/reviews` is unpaged by ruling D8.6 and answers with an array, not an
+ * `GET /properties/{propId}/reviews` is unpaged by design and answers with an array, not an
  * envelope. Reporting it as one whole page keeps `reviewService`'s single documented return shape
  * true for both routes, so no caller has to know which of the two it asked.
  */
@@ -95,13 +92,11 @@ export function toViewModelPage(res, fallback = {}) {
 }
 
 /**
- * `ReviewSummary` (wire) → the aggregate the property page's rating block renders (D79).
+ * `ReviewSummary` (wire) → the aggregate the property page's rating block renders.
  *
- * The page computed all four of these in the browser by reducing the whole review array, which is
- * why `listReviews` was not allowed to be paged: three visible numbers were correct only for as
- * long as the array stayed whole. They now come from SQL, and the shape below is deliberately the
- * one the page already had — `count`, `avg`, `dist`, `catAvg` — so the swap is a data-source change
- * rather than a rewrite of the markup that reads it.
+ * All four numbers come from SQL rather than from reducing the review array in the browser, which
+ * is what lets `listReviews` be paged at all: a client-side reduction is correct only for as long
+ * as the array stays whole. The shape — `count`, `avg`, `dist`, `catAvg` — is the page's own.
  *
  * Two renames worth stating, because both have a wrong answer that renders without complaining:
  *
@@ -122,9 +117,7 @@ export function toViewModelPage(res, fallback = {}) {
  * `entityType` selects which vocabulary those keys are drawn from and defaults to the property one,
  * which is what every caller but the society hub wants. Passing nothing for a society is not a
  * degraded rendering but an empty one: none of the five society keys survives the property
- * allowlist, so `catAvg` comes back `{}` and the aspect grid draws nothing at all, on every society,
- * for ever. That was live behaviour until D197 — invisible only because the hub was blending in a
- * fabricated baseline, so the bars looked populated whether or not a single key had survived.
+ * allowlist, so `catAvg` comes back `{}` and the aspect grid draws nothing at all, on every society.
  *
  * There is no `recommend` field here and that is not an omission: "% would recommend" has no server
  * aggregate, and the page still derives it from the list. See `ReviewsSection.jsx`.
@@ -133,12 +126,11 @@ export function toSummaryViewModel(s, entityType) {
   const dist = ['1', '2', '3', '4', '5'].map((star) => Number(s?.distribution?.[star]) || 0);
   const catAvg = {};
   /* Iterate a fixed order rather than the wire's. The page renders these rows with
-     `Object.keys(catAvg).map`, so insertion order *is* row order — and the two providers do not
-     agree on it: the server's aggregate ends `order by c.key`, which is alphabetical (Accuracy,
-     Condition, Locality, Owner, Value), while the mock inserts in the product's order. That made
-     the e2e suite and every screenshot prove a layout production does not render. Ordering here,
-     rather than at either edge, makes the row order provider-independent; only present keys are
-     copied, so the sparseness the server is careful about survives. */
+     `Object.keys(catAvg).map`, so insertion order *is* row order — and the server's aggregate ends
+     `order by c.key`, which is alphabetical (Accuracy, Condition, Locality, Owner, Value) and not
+     the order the product reads them in. Ordering here, rather than at either edge, keeps row order
+     under this module's control; only present keys are copied, so the sparseness the server is
+     careful about survives. */
   categoryOrderFor(entityType).forEach((k) => {
     const n = Number(s?.categoryAverages?.[k]);
     // Guarded because these are BigDecimals on the server: JSON gives us a number, but a
@@ -169,8 +161,7 @@ export function toSummaryViewModel(s, entityType) {
  * `target` is composed here rather than sent. The wire carries `targetType` and `targetId`
  * separately, which is the right shape for a machine and the wrong one for a moderator scanning a
  * table: they need to know *what* is being reviewed before they can judge whether the review is
- * fair. The old browser store held a pre-composed display string (`"Locality: Wakad"`), so this
- * keeps the column reading the same way while the data behind it changes hands.
+ * fair. The column reads `"Locality: Wakad"`.
  *
  * `targetId` is a slug for localities and societies and a UUID for properties and owners. The UUID
  * is not useful to a human and not truncated either — a moderator who cannot tell two rows apart

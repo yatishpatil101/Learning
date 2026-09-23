@@ -1,5 +1,5 @@
 /**
- * Enquiry board — the demand-side console (D25).
+ * Enquiry board — the demand-side console.
  *
  * Three lists and three reveals, all against `/admin/…`:
  *
@@ -30,9 +30,9 @@
  * sentence somebody will read, rather than flipping a status field the two people in the
  * conversation cannot see and did not agree to.
  *
- * `kind` is also absent. The mock board labelled every enquiry `contact`, `chat` or `call`; only
- * `contact` was ever a row in a table. Chats have their own moderated surface and the platform
- * places no calls, so the enquiry "type" filter was a picker over a vocabulary with one real value.
+ * `kind` is also absent. Of `contact`, `chat` and `call`, only `contact` is a row in a table: chats
+ * have their own moderated surface and the platform places no calls, so an enquiry "type" filter
+ * would be a picker over a vocabulary with one real value.
  */
 import { createProvider } from './config.js';
 

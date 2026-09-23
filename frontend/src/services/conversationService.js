@@ -2,8 +2,8 @@
  * Conversation Service — public API for in-app messaging.
  *
  * The `/messages` inbox, the property→chat bridge and the navbar unread badge all read through
- * here, so the feature can never fork into two schemas again — the same reason `lib/chat.js` was
- * written, one layer down.
+ * here, so the feature cannot fork into two schemas — the same reason `lib/chat.js` exists, one
+ * layer down.
  *
  * ## What the server does and does not model
  *
@@ -14,20 +14,19 @@
  * > contact request in one direction or the other (`ConversationService.related`). There is nothing
  * > to accept, because the contact gate already did the accepting.
  *
- * The prototype modelled that as an `active` / `incoming` / `pending` `state` the contract has no
- * field for. It is gone (D52). `incoming` (they asked, I have not accepted) described a negotiation
- * that happens one layer up, in the contact gate, and the accept/decline buttons that acted on it
- * have been removed with it.
+ * There is no conversation lifecycle — no `active` / `incoming` / `pending` state. An "incoming"
+ * thread (they asked, I have not accepted) would describe a negotiation that happens one layer up,
+ * in the contact gate, so there are no accept/decline buttons here.
  *
- * What survives is a **client-side staging queue** (`dzPendingRequests`) — a chat the user has
+ * There is a **client-side staging queue** (`dzPendingRequests`) — a chat the user has
  * composed but which cannot be sent until the gate opens — and the view model says so with a single
- * boolean, `staged`. That is the same split the anonymous saved-search capture took (D85): stage
+ * boolean, `staged`. That is the same split the anonymous saved-search capture takes: stage
  * locally, submit when the server can accept it, and never write a local record that pretends to be
  * a server one. `startConversation` drains it.
  *
  * ## Shape gaps, each degraded rather than faked
  *
- * | Mock field | Server | What happens |
+ * | View-model field | Server | What happens |
  * |---|---|---|
  * | `staged` | — | `false` on every live thread; `true` only for a row held in the local queue |
  * | `youAre` | — | derived from `counterpartyRole` |

@@ -1,9 +1,7 @@
 /**
  * HTTP review provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `reviewService.js` is the
- * only contract between them and no page may care which one is active. Shape translation lives in
- * `reviewMapper.js`.
+ * Shape translation lives in `reviewMapper.js`.
  *
  * This is one of the thinner providers — four requests and no client-side state — because the
  * server already models reviews the way the UI wanted them. The interesting decisions were made in
@@ -22,7 +20,7 @@ import {
 /**
  * One large page rather than real paging — for the *entity* routes only.
  *
- * No longer load-bearing for the numbers: the locality, society and owner surfaces read their
+ * Not load-bearing for the numbers: the locality, society and owner surfaces read their
  * average, count and per-aspect means from `getEntityReviewSummary`, which aggregates in SQL over
  * every published review. What is still at stake is the *cards*, and neither surface has paging
  * controls to reach page 2 with — so a truncated fetch means reviews nobody can ever read.
@@ -38,12 +36,10 @@ const PAGE_SIZE = 100;
 /**
  * Reviews of one listing — `GET /properties/{propId}/reviews`, unpaged, a bare array.
  *
- * **This used to request `/reviews/property/{id}`, which is not a route.** That URI matches
- * `GET /reviews/{entityType}/{entityId}`, whose `entityType` is `enum: [society, locality, owner]`,
- * so `ReviewTargetKey` rejected `property` and every live read 404'd. The property page catches a
- * failed review read and renders an unreviewed listing, so the whole thing presented as "no reviews
- * yet" — a correct-looking page, on every listing, for as long as it went unnoticed. Nothing caught
- * it because `review-parity.mjs` exercises only the entity route, where reviews need no eligibility.
+ * **Not `/reviews/property/{id}`.** That URI matches `GET /reviews/{entityType}/{entityId}`, whose
+ * `entityType` is `enum: [society, locality, owner]`, so `ReviewTargetKey` rejects `property` and
+ * the read 404s. The property page catches a failed review read and renders an unreviewed listing,
+ * so the failure presents as "no reviews yet" — a correct-looking page, on every listing.
  *
  * `propertyId` must be the listing's **UUID**: this path binds `@PathVariable UUID propId`, and the
  * seam's `p.id` is the slug. Callers resolve that with `p.uuid || p.id` — see `ReviewsSection.jsx`.
@@ -53,12 +49,12 @@ export async function listPropertyReviews(propertyId) {
 }
 
 /**
- * The server-computed rating summary for one listing (D79).
+ * The server-computed rating summary for one listing.
  *
  * The point of the endpoint is that it does not load a single review: the average, the star
  * distribution and the per-aspect averages come from two aggregate queries. Reducing the list to
- * get them — which is what the page did, and why the list may not be paged — meant downloading
- * every review of a listing to draw one number next to a star.
+ * get them would mean downloading every review of a listing to draw one number next to a star,
+ * and would forbid paging the list.
  */
 export async function getPropertyReviewSummary(propertyId) {
   return toSummaryViewModel(
@@ -92,18 +88,18 @@ export async function createEntityReview(entityType, entityId, review) {
 }
 
 /**
- * The server-computed rating summary for a society, locality or owner (D79, entity half).
+ * The server-computed rating summary for a society, locality or owner.
  *
  * Note the route shape: `/reviews/{entityType}/{entityId}/summary`, built the same way
- * `listEntityReviews` builds its path. That similarity is deliberate — the property routes once
- * pointed at `/reviews/property/{id}`, which *looks* like this pattern but matches
- * `/reviews/{entityType}/{entityId}` with an `entityType` the server rejects, so every live
- * property-review read 404'd for weeks while the page rendered "no reviews yet". Here `entityType`
+ * `listEntityReviews` builds its path. That similarity is deliberate — `/reviews/property/{id}`
+ * *looks* like this pattern but matches
+ * `/reviews/{entityType}/{entityId}` with an `entityType` the server rejects, so a property-review
+ * read down that path 404s while the page renders "no reviews yet". Here `entityType`
  * really is one of `society | locality | owner`, and anything else is a 404 the caller must show as
  * unavailable rather than swallow.
  *
- * This is the read that fixes the actual bug: `listEntityReviews` is paged at 20 server-side, so
- * every caller reducing it has been averaging page one.
+ * `listEntityReviews` is paged at 20 server-side, so a caller reducing it is averaging page one;
+ * this is the read that answers over the whole corpus.
  */
 export async function getEntityReviewSummary(entityType, entityId) {
   return toSummaryViewModel(
@@ -159,7 +155,7 @@ export async function setReviewStatus(id, status, reason) {
  * that gets *more* likely the more the platform succeeds, and the one nobody reproduces because it
  * needs a hundred reviews to appear.
  *
- * No page on the client computes an aggregate from this list any more: the property page reads
+ * No page on the client computes an aggregate from this list: the property page reads
  * `getPropertyReviewSummary` and the three entity surfaces read `getEntityReviewSummary`, both of
  * which aggregate in SQL over every published review rather than over whatever was fetched.
  */

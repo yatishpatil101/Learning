@@ -23,13 +23,12 @@
  * `context` is the "Verified resident" / "Visited" badge. It is **derived from the author's visit
  * and tenancy history** and is `readOnly` in the contract — `ReviewCreateRequest` has no such field.
  *
- * That matters because the badge is the only reason a stranger's opinion is worth reading. The mock
- * write path used to send `context: 'visit'` as a literal on every submission, and the mock stored
- * what it was told, so a review's standing was whatever the browser claimed. Against the API that
- * field is ignored and the server answers the question from data the user cannot edit. The write
- * shape here therefore has no `context` — not "it is optional", but "it is not yours to send".
+ * That matters because the badge is the only reason a stranger's opinion is worth reading. Sending
+ * `context: 'visit'` as a literal would make a review's standing whatever the browser claimed; the
+ * server answers the question from data the user cannot edit and ignores the field. The write shape
+ * here therefore has no `context` — not "it is optional", but "it is not yours to send".
  *
- * The same reasoning applies to the society hub's `resident` flag, which was computed client-side
+ * The same reasoning applies to the society hub's `resident` flag: it is not computed client-side
  * from `isVerifiedResident(slug)` and stored alongside the review.
  *
  * ## Shape
@@ -40,28 +39,27 @@
  *
  *   { id, user, rating, text, at, categories, recommend, context }
  *
- * `at` is a display date (`YYYY-MM-DD`), which is what the mock stored and what the card renders
- * raw. `categories` is always an object and `recommend` is `null` when the author did not answer —
- * distinct from `false`, and the summary counts it as "did not say" rather than "would not".
+ * `at` is a display date (`YYYY-MM-DD`), which is what the card renders raw. `categories` is always
+ * an object and `recommend` is `null` when the author did not answer — distinct from `false`, and
+ * the summary counts it as "did not say" rather than "would not".
  *
- * ## What is not live yet, and why
+ * ## Keying an entity review
  *
  * An entity review is only as live as the entity it points at, because the target id has to be one
  * the server recognises:
  *
- *   - `locality` — the frontend and the database agree on the slug (`baner`). Live.
- *   - `society`  — they agree on the *slug* (`green-meadows-baner`) but not the id: the mock's
- *                  `soc.id` is a synthetic `S01`. Callers must key on `soc.slug`, which is what the
- *                  rest of the hub already does; reviews were the one place still keyed on `id`.
- *   - `owner`    — live, and the id agreement turned out to be a non-problem. The route param the
- *                  profile is opened with (`/owner/:id`) is the same id the rest of the page
- *                  already hands to `ownerProfile()` and `getEntityReviewSummary('owner', …)`, so
- *                  passing it unchanged to `listEntityReviews` keeps the cards and the aggregate
- *                  keyed on one identifier rather than two. The mock store was the side that
- *                  disagreed, and it is no longer consulted. An id the server does not recognise
- *                  404s, and the page distinguishes that failure from a genuinely empty list —
- *                  "we could not load the reviews" is a different sentence from "no reviews yet",
- *                  and showing the second when the first is true is how a page invents a fact.
+ *   - `locality` — the frontend and the database agree on the slug (`baner`).
+ *   - `society`  — key on `soc.slug` (`green-meadows-baner`), which is what the rest of the hub
+ *                  already does. A synthetic `soc.id` is not an identifier the server knows.
+ *   - `owner`    — the route param the profile is opened with (`/owner/:id`) is the same id the
+ *                  rest of the page hands to `ownerProfile()` and
+ *                  `getEntityReviewSummary('owner', …)`, so passing it unchanged to
+ *                  `listEntityReviews` keeps the cards and the aggregate keyed on one identifier
+ *                  rather than two.
+ *
+ * An id the server does not recognise 404s, and the page distinguishes that failure from a
+ * genuinely empty list — "we could not load the reviews" is a different sentence from "no reviews
+ * yet", and showing the second when the first is true is how a page invents a fact.
  */
 import { createProvider } from './config.js';
 
@@ -81,10 +79,9 @@ export const listPropertyReviews = async (propertyId, opts) =>
  * The rating aggregate for one listing: `{ count, avg, dist, catAvg }`.
  *
  * A separate read from `listPropertyReviews`, not a field on it, and that separation is the whole
- * point (D79). The property page used to reduce the full review array to get these four values,
- * which made "never page that endpoint" a correctness constraint rather than a preference — page it
- * and the stars would go on rendering, now silently describing page one. It also meant downloading
- * every review of a listing to draw one number.
+ * point: reducing the full review array to get these four values makes "never page that endpoint"
+ * a correctness constraint rather than a preference — page it and the stars go on rendering, now
+ * silently describing page one — and it downloads every review of a listing to draw one number.
  *
  * `avg` is **null**, not 0, on an unreviewed listing: no rating is not a rating of zero. `dist` is a
  * 0-based five-slot array (`dist[0]` is the one-star count) and is always five entries long.
@@ -124,12 +121,9 @@ export const listEntityReviews = async (entityType, entityId, opts) =>
 /**
  * The rating aggregate for one society, locality or owner: `{ count, avg, dist, catAvg }`.
  *
- * The same shape `getPropertyReviewSummary` returns, and the urgent half of D79 rather than the
- * insurance half. `listEntityReviews` has been **paged at 20 since S27**, so the society hub, the
- * owner profile and the locality reviews block were not averaging their reviews — they were
- * averaging page one and printing it as the rating. Any target past twenty reviews has been showing
- * a wrong number, today, on a live page. The property equivalent prevented a defect; this one fixes
- * one.
+ * The same shape `getPropertyReviewSummary` returns, and for a sharper reason: `listEntityReviews`
+ * is **paged at 20**, so a society hub, owner profile or locality block that averaged its own list
+ * would be averaging page one and printing it as the rating for any target past twenty reviews.
  *
  * `avg` is **null**, not 0, when `count` is 0 — no rating is not a rating of zero. `dist` is a
  * 0-based five-slot array and is always five entries long. `catAvg` is sparse: an aspect nobody
@@ -137,9 +131,8 @@ export const listEntityReviews = async (entityType, entityId, opts) =>
  *
  * **A rejected promise here means "we do not know the rating", never "there are no reviews".** The
  * distinction is the whole reason this is a separate read: an entity id the server does not
- * recognise 404s, and a caller that catches that into a zero-shaped summary re-creates the outage
- * that hid behind "no reviews yet" on every property page for weeks. Callers must render a
- * failed read as unavailable, not as unreviewed.
+ * recognise 404s, and a caller that catches that into a zero-shaped summary renders an outage as
+ * "no reviews yet". Callers must render a failed read as unavailable, not as unreviewed.
  *
  * @param {'society'|'locality'|'owner'} entityType
  * @param {string} entityId slug or id for society, slug for locality, user id for owner
@@ -178,12 +171,11 @@ export const listReviewsForModeration = async (opts) =>
  * `status` is `published` or `rejected` — nothing else. `pending` is the intake state rather than a
  * verdict, and there is no route back to "undecided" once a human has looked at it.
  *
- * **There is no archive, and that omission is the design.** The console used to offer Archive and
- * Restore alongside these two, writing an `archived` flag the browser store invented. Against the
- * live table it would have created a second, weaker notion of "taken down" that the rating
- * aggregate does not honour: the review would vanish from the admin table while still dragging the
- * society's average down, which is the failure a moderator archives a review to prevent. Rejecting
- * is the one verdict that both hides the text and removes it from the maths.
+ * **There is no archive, and that omission is the design.** An `archived` flag beside these two
+ * would be a second, weaker notion of "taken down" that the rating aggregate does not honour: the
+ * review would vanish from the admin table while still dragging the society's average down, which
+ * is the failure a moderator archives a review to prevent. Rejecting is the one verdict that both
+ * hides the text and removes it from the maths.
  *
  * `reason` is optional, is never shown to the author, and reaches the audit log — it is the only
  * record of why a review came down.

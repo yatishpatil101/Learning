@@ -4,30 +4,32 @@ import { sectionVisible } from './filterRelevance.js';
 import { RANGE } from './filterState.js';
 
 /* UI possession shorthand → the vocabulary the `construction` facet matches. Duplicated rather than imported
-   from the http mapper: this module is provider-agnostic. */
-const CONSTRUCTION_TO_WIRE = {
+   from the http mapper: this module is provider-agnostic.
+
+   Prototype-less, as are the two tables below, because each is indexed with a key read straight out of the
+   URL: on a plain object `?constr=toString` would resolve to `Object.prototype`'s member and survive the
+   `filter(Boolean)` meant to drop unknown keys. */
+const CONSTRUCTION_TO_WIRE = Object.assign(Object.create(null), {
   ready: 'ready-to-move',
   new: 'new-launch',
   under: 'under-construction',
-};
+});
 
 /* UI furnishing key → the vocabulary the `furnishings` facet matches; they differ on exactly one member.
    Duplicated from the http mapper because this module is provider-agnostic. */
-const FURNISHING_TO_WIRE = {
+const FURNISHING_TO_WIRE = Object.assign(Object.create(null), {
   unfurnished: 'unfurnished',
   semi: 'semi-furnished',
   furnished: 'furnished',
-};
+});
 
 /* "Availability" is a coarser cut of the same column as "Construction Status": `uc` is the other two
    statuses together. Expressed as a set so the two controls can be intersected below. */
-const AVAIL_TO_CONSTRUCTION = {
+const AVAIL_TO_CONSTRUCTION = Object.assign(Object.create(null), {
   ready: ['ready'],
   uc: ['new', 'under'],
-};
+});
 
-/* `flatmates` resolves against `share_type` while every other chip requires `share_type IS NULL`, so the two
-   narrow against disjoint sets. The cross-sell card discloses that gap rather than widening the search. */
 const list = (set) => (set && set.size ? [...set] : undefined);
 
 /* The ceiling reads as "and above" and a range still at its defaults reads as unfiltered, returning
@@ -40,10 +42,8 @@ function bounds(range, defaults) {
   return [lo === dLo ? undefined : lo, hi === dHi ? undefined : hi];
 }
 
-/**
- * Filter state → the query object for `GET /properties`. `opts.dropLocalities` drives the "showing
- * nearby instead" relaxation as a second request; `undefined` values are dropped downstream.
- */
+/* `opts.dropLocalities` drives the "showing nearby instead" relaxation as a second request;
+   `undefined` values are dropped downstream. */
 export function toFacetQuery(df, opts = {}) {
   const { sort = 'relevance', q, dropLocalities = false } = opts;
   const rel = (section) => sectionVisible(section, df.types);
@@ -53,8 +53,11 @@ export function toFacetQuery(df, opts = {}) {
   const [minPrice, maxPrice] = isBuy
     ? bounds(df.budget, RANGE.budget)
     : bounds(df.rent, RANGE.rent);
-  // Area is a buy-side control; a rent search has no area slider to have moved.
-  const [minArea, maxArea] = isBuy ? bounds(df.area, RANGE.area) : [undefined, undefined];
+  const [minArea, maxArea] = bounds(df.area, RANGE.area);
+  // The deposit is a rent-side control; a sale has no deposit column to narrow on.
+  const [minDeposit, maxDeposit] = isBuy
+    ? [undefined, undefined]
+    : bounds(df.deposit, RANGE.deposit);
   const [minAge, maxAge] = rel('age') ? bounds(df.age, RANGE.age) : [undefined, undefined];
   const [minFloor, maxFloor] = rel('floor') ? bounds(df.floor, RANGE.floor) : [undefined, undefined];
 
@@ -95,6 +98,9 @@ export function toFacetQuery(df, opts = {}) {
     rera: verified.rera && rel('verifRera') ? true : undefined,
     societyVerified: verified.society && rel('verifSociety') ? true : undefined,
     conveyanceDone: verified.conveyance && rel('verifSociety') ? true : undefined,
+    // Never sent as `false`: that would narrow to listings a broker posted, which is the one
+    // search nobody comes here to run.
+    postedByOwner: df.ownerOnly || undefined,
 
     minPrice,
     maxPrice,
@@ -104,12 +110,20 @@ export function toFacetQuery(df, opts = {}) {
     maxAge,
     minFloor,
     maxFloor,
+    minDeposit,
+    maxDeposit,
     ...near,
   };
 }
 
-/* Both controls narrow the same column, so both set means their intersection — an empty list when they
-   contradict, which is a genuinely empty result. Unstated possession is excluded, as SQL would exclude it. */
+/* The wire spelling of "this facet was used and nothing can satisfy it". A reserved token rather than `[]`,
+   because `buildQuery` omits an empty array and Spring binds an absent list param to an empty list too — so
+   present-but-empty would answer an impossible filter with the entire catalogue. Frozen: handed out by
+   reference, unlike every other array here. */
+const UNMATCHABLE = Object.freeze(['no.such.possession']);
+
+/* Both controls narrow the same column, so both set means their intersection — which can be empty when
+   they contradict, and that is a genuinely empty result, not an absent filter. */
 function constructionFacet(df, rel) {
   const fromAvail = df.avail && rel('availability') ? AVAIL_TO_CONSTRUCTION[df.avail] : null;
   const fromChecks = df.constr?.size && rel('construction') ? [...df.constr] : null;
@@ -117,7 +131,8 @@ function constructionFacet(df, rel) {
   const chosen = fromAvail && fromChecks
     ? fromAvail.filter((k) => fromChecks.includes(k))
     : fromAvail || fromChecks;
-  return chosen.map((k) => CONSTRUCTION_TO_WIRE[k]).filter(Boolean);
+  const wire = chosen.map((k) => CONSTRUCTION_TO_WIRE[k]).filter(Boolean);
+  return wire.length ? wire : UNMATCHABLE;
 }
 
 /* A centre and a radius are one question, so all three params travel together or none do. 0.4 km per minute

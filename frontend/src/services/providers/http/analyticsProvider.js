@@ -12,8 +12,7 @@
  * figure on a supply-gap row is a `count(*)`, so zero is a measurement and a missing key is a bug
  * worth flattening. Here the opposite holds. Most of these fields are averages over a set that can
  * legitimately be empty, and the server sends an explicit `null` to say so — `|| 0` would convert
- * "we could not measure this" into "we measured this and it was nothing", reinstating the fallback
- * the endpoints were built to remove.
+ * "we could not measure this" into "we measured this and it was nothing".
  *
  * So `num` preserves null and only the genuine counts are coerced. The distinction is the contract.
  */
@@ -78,9 +77,9 @@ const toTrack = (t) => (t == null ? null : {
   breachedCount: num(t.breachedCount),
   slaRatePct: num(t.slaRatePct),
   outstandingCount: count(t.outstandingCount),
-  // Nullable, unlike the count beside it: a backlog item's age is known, so this is normally a
-  // number — but a provider that cannot date its work (the mock) must be able to say "how many are
-  // late is unknowable" rather than answer 0, which is the most flattering figure available.
+  // Nullable, unlike the count beside it: a backlog item's age is normally known, but a provider
+  // that cannot date its work must be able to say "how many are late is unknowable" rather than
+  // answer 0, which is the most flattering figure available.
   outstandingBreachingCount: num(t.outstandingBreachingCount),
 });
 
@@ -105,8 +104,8 @@ export async function reviewSla(opts = {}) {
     // Present tense and deliberately unwindowed, so these are counts and coerce like counts.
     pendingCount: count(s?.pendingCount),
     pendingBreachingCount: count(s?.pendingBreachingCount),
-    // A row whose wait did not parse is dropped, not defaulted — mirroring the mock provider. `|| 0`
-    // here would render a listing as "0h, on track" at the top of a queue sorted by longest wait.
+    // A row whose wait did not parse is dropped, not defaulted. `|| 0` here would render a listing
+    // as "0h, on track" at the top of a queue sorted by longest wait.
     worstPending: (Array.isArray(s?.worstPending) ? s.worstPending : [])
       .map((p) => ({
         id: String(p?.id || ''),
@@ -114,7 +113,7 @@ export async function reviewSla(opts = {}) {
         hoursWaiting: num(p?.hoursWaiting),
       }))
       .filter((p) => p.hoursWaiting != null),
-    // The three tracks the seeded generator used to draw. See `toTrack`.
+    // The three turnaround tracks. See `toTrack`.
     ticketPickup: toTrack(s?.ticketPickup),
     ticketDelivery: toTrack(s?.ticketDelivery),
     conciergeToLive: toTrack(s?.conciergeToLive),
@@ -130,16 +129,16 @@ export async function reviewSla(opts = {}) {
  *
  * ## Why this exists at all, when the dashboard already fetches collections
  *
- * Every field here is a `count(*)` over the whole catalogue. The screen's tiles used to be derived
- * in the browser from lists it had fetched for other reasons, and those lists are **paged** — the
- * enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. So "Total Users"
- * counted a page while reading as a fact about the platform. That is the same defect the listings
- * console fixed by having the server send `total` alongside `items`, and it is fixed the same way.
+ * Every field here is a `count(*)` over the whole catalogue. Deriving the screen's tiles
+ * in the browser from lists it fetched for other reasons does not work, because those lists are
+ * **paged** — the enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. So
+ * "Total Users" would count a page while reading as a fact about the platform. The listings console
+ * avoids the same defect by having the server send `total` alongside `items`.
  *
  * ## The one field that is not a count
  *
  * **`revenue30d` must stay nullable.** The server withholds revenue from a `staff` caller by sending
- * `null` (`AdminKpis` javadoc, spec fix S61). Running it through `count` would render "₹0" to that
+ * `null` (`AdminKpis` javadoc). Running it through `count` would render "₹0" to that
  * caller — not a redaction but a false figure, and one the finance console would contradict the
  * moment an admin opened it. Null is the caller's signal to omit the tile, which is what it does.
  *
@@ -166,12 +165,11 @@ export async function dashboardKpis() {
   };
 }
 
-// ─── Page-view reports ───────────────────────────────────────────────────────────────────────────
-//
-// Verified against `admin/AdminAnalyticsTraffic.java`, `AdminAnalyticsEngagement.java` and
-// `AdminAnalyticsSurfers.java`. The same split applies as above and matters more here, because
-// these three reports are almost entirely rates: every `*Pct`, every average and every share is
-// null on an empty window, and every session, view, signup and exit is a count.
+// Page-view reports. Verified against `admin/AdminAnalyticsTraffic.java`,
+// `AdminAnalyticsEngagement.java` and `AdminAnalyticsSurfers.java`. The same split applies as above
+// and matters more here, because these three reports are almost entirely rates: every `*Pct`, every
+// average and every share is null on an empty window, and every session, view, signup and exit is a
+// count.
 
 /** Only send `days` when the caller asked for one; the server owns the default. */
 const window_ = (opts) => (opts?.days ? { days: opts.days } : undefined);
@@ -248,7 +246,7 @@ export async function surfers(opts = {}) {
     anonSessions: count(s?.anonSessions),
     signedInSessions: count(s?.signedInSessions),
     signups: count(s?.signups),
-    // Numbers, not the `.toFixed()` strings the generator returned. The KPI tiles beside these call
+    // Numbers, not `.toFixed()` strings. The KPI tiles beside these call
     // `.toLocaleString('en-IN')` on their values, which a string does not have.
     anonSharePct: num(s?.anonSharePct),
     conversionRatePct: num(s?.conversionRatePct),

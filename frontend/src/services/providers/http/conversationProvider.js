@@ -1,5 +1,3 @@
-/* Mirrors the mock's method names, argument order and return shapes — `conversationService.js` is the only
-   contract between them. The staging queue below is this file's one piece of real logic. */
 import { get, post } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import {
@@ -85,7 +83,7 @@ export async function queuePendingChat(property, { firstMessage, active = false 
       loc: property.locality ? `${property.locality}, Pune` : 'Pune',
       img: property.image || property.img || '',
     },
-    // The owner's mobile is deliberately NOT copied: under D5 the raw number is revealed only to the owner,
+    // The owner's mobile is deliberately NOT copied: the raw number is revealed only to the owner,
     // so it is masked here in every state. The drain addresses the thread by `propertyId` instead.
     party: { name: property.owner || 'Owner', role: 'Owner' },
     firstMessage: firstMessage
@@ -94,7 +92,7 @@ export async function queuePendingChat(property, { firstMessage, active = false 
   writeQueue(queue);
 }
 
-/* Addressed by `propertyId` alone — the server derives the owner — because under D5 the unmasked mobile is
+/* Addressed by `propertyId` alone — the server derives the owner — because the unmasked mobile is
    never readable here. An entry the server still refuses stays queued: the gate may open later. */
 export async function drainPendingChats() {
   const queue = readQueue();
@@ -117,7 +115,6 @@ export async function drainPendingChats() {
   return { sent, blocked: remaining.length };
 }
 
-// ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
 /* `null` is survivable: the mapper then treats every message as the counterparty's, which is the safer
    direction than claiming a stranger's words are the reader's. */

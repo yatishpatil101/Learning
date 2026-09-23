@@ -1,9 +1,8 @@
 /**
  * HTTP managed-property provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `managedService.js` is
- * the only contract between them. Shape translation lives in `managedMapper.js`, which is where the
- * `sale`/`buy` and label/number disagreements are paid for.
+ * Shape translation lives in `managedMapper.js`, which is where the `sale`/`buy` and label/number
+ * disagreements are paid for.
  *
  * | Operation          | Endpoint                                    |
  * |--------------------|---------------------------------------------|
@@ -33,9 +32,9 @@ export async function listManaged() {
 /**
  * One record, or null when it is not the caller's.
  *
- * The mock returns null for a missing id and several callers branch on that rather than catching,
- * so a 404 is translated back into null here instead of surfacing as a throw the owner hub has no
- * handler for. Any other status still throws — a 500 is not "no such property".
+ * Several callers branch on a null result rather than catching, so a 404 is translated back into
+ * null here instead of surfacing as a throw the owner hub has no handler for. Any other status
+ * still throws — a 500 is not "no such property".
  */
 export async function getManaged(id) {
   try {
@@ -46,7 +45,7 @@ export async function getManaged(id) {
   }
 }
 
-/** Register a new private record. Resolves to the created record, as the mock does. */
+/** Register a new private record. */
 export async function registerManaged(data) {
   return toManaged(await post('/me/managed-properties', toCreateRequest(data)));
 }
@@ -72,8 +71,7 @@ export async function listRentReceipts(id, months = 6) {
  * Record a month as received.
  *
  * Only the month crosses the wire. Amount, tenant, landlord and address are composed server-side
- * from the owned property, so a browser cannot mint a receipt for a rent that was never agreed —
- * which is exactly what the `localStorage` ledger this replaced allowed.
+ * from the owned property, so a browser cannot mint a receipt for a rent that was never agreed.
  *
  * A repeat month answers 409 and that is deliberately **not** swallowed here: the caller has a
  * second receipt on screen that it should not have, and the honest response is to re-read rather
@@ -94,9 +92,9 @@ export async function recordRentReceipt(id, rentMonth) {
  *
  * The server is idempotent — a record already carrying a `publishedListingId` comes back unchanged
  * with no second listing spawned — but it says so only by returning the same record, with no
- * `already` marker on the wire. The mock's callers branch on `already` to decide between "submitted
- * for review" and "already published", so the flag is reconstructed here from what the record
- * looked like before the call. That read is the reason this is not a one-liner.
+ * `already` marker on the wire. Callers branch on `already` to decide between "submitted for
+ * review" and "already published", so the flag is reconstructed here from what the record looked
+ * like before the call. That read is the reason this is not a one-liner.
  */
 export async function publishManaged(id) {
   const before = await getManaged(id);
@@ -109,7 +107,7 @@ export async function publishManaged(id) {
  * Attach a managed record to a listing the caller already owns, so the owner hub can show it a
  * passport, a vault and a rent tracker.
  *
- * Deduped by the caller against the list it has already loaded (D32 decision C) — this is only
+ * Deduped by the caller against the list it has already loaded — this is only
  * reached when no record claims the listing. The server checks again and answers 409 if one does,
  * which is the race, not the common path; the caller treats that as "somebody else already made
  * it" and re-reads.

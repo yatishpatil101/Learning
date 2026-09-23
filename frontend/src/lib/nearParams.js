@@ -14,6 +14,22 @@
    dead-end when its slug held no stock but nearby slugs did. */
 export const NEAR_DEFAULT_RADIUS = 5;
 export const NEAR_DEFAULT_MODE = 'km';
+/* The widest radius the product offers. The server clamps at 50 km (`ListingFacets.MAX_RADIUS_KM`),
+   which is a backstop against a hand-edited URL rather than a second opinion about the UI: past a
+   city's own width "near this place" stops meaning anything. Clamp every radius that arrives from
+   outside the controls to this, or a shared `?nearr=9999` shows a chip the search never honoured. */
+export const NEAR_MAX_RADIUS = 25;
+/* The widest commute the product offers, in MINUTES. Equal to `NEAR_MAX_RADIUS` today by
+   coincidence, not by definition — the two axes measure different quantities (`nearParams` walks
+   minutes at 0.4 km/min), so widening the distance cap must not silently widen the commute one. */
+export const NEAR_MAX_MINUTES = 25;
+
+/** The ceiling that applies to the axis `mode` selects. */
+export const nearMaxFor = (mode) => (mode === 'min' ? NEAR_MAX_MINUTES : NEAR_MAX_RADIUS);
+
+/** The nearest offered radius to `raw`, for input handlers and for URLs written by someone else. */
+export const clampNearRadius = (raw, max = NEAR_MAX_RADIUS) =>
+  Math.min(max, Math.max(1, Math.round(Number(raw)) || 1));
 
 export function nearToParams({ near, nearLabel = '', radius = NEAR_DEFAULT_RADIUS, mode = NEAR_DEFAULT_MODE } = {}) {
   const p = {};

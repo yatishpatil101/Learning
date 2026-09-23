@@ -1,14 +1,14 @@
 /**
  * HTTP visit provider.
  *
- * Two reads and two writes (schedule, and reschedule via `PATCH /visits/{id}/slot`, D87).
+ * Two reads and two writes (schedule, and reschedule via `PATCH /visits/{id}/slot`).
  *
  * The only real translation is the slot: the server carries a single ISO instant plus a separate
  * `mode`, while the dashboard reads one human `when` string through `parseWhen`. Both directions
  * live in `lib/visitWhen.js`, beside the parser they have to stay mutually readable with.
  */
 import { get, patch, post, unwrapFullPage } from '../../http.js';
-// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+// Leaf module, no imports of its own — see its header. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { slotFromParts, slotFromWhen, whenFromSlot } from '../../../lib/visitWhen.js';
 
@@ -41,25 +41,24 @@ function toViewModel(row) {
 }
 
 /**
- * Both reads are paged on the wire (D77) and read as plain lists here.
+ * Both reads are paged on the wire and read as plain lists here.
  *
  * The dashboard groups visits into upcoming/past and the calendar buckets them by day, both from
  * one array; neither has a pager. `size=100` is the server's ceiling, so the request stays bounded
  * and {@link unwrapFullPage} warns the day somebody's visit history outgrows it — which matters
  * more here than elsewhere, because a missing row reads as "that viewing was cancelled".
  */
-/* A function, not a constant — see the note on `paged` in `dealProvider.js`. `MAX_PAGE_SIZE` now
-   comes from the import-free `apiLimits.js` (D208) so this read would be safe either way, but the
-   eager provider glob in `config.js` still evaluates this file inside `http.js`'s own evaluation,
-   and call-time reads stay out of that window whatever `http.js` grows next. */
+/* A function, not a constant — see the note on `paged` in `dealProvider.js`. `MAX_PAGE_SIZE` comes
+   from the import-free `apiLimits.js`, so a call-time read stays out of `http.js`'s evaluation
+   window whatever `http.js` grows next. */
 const paged = () => ({ size: MAX_PAGE_SIZE });
 
-/** `GET /visits` — visits the caller booked. Caller-scoped by the token. Paged (D77). */
+/** `GET /visits` — visits the caller booked. Caller-scoped by the token. Paged. */
 export async function listVisits() {
   return unwrapFullPage(await get('/visits', paged()), 'visit').map(toViewModel);
 }
 
-/** `GET /me/visit-requests` — visits on the caller's own listings. Paged (D77). */
+/** `GET /me/visit-requests` — visits on the caller's own listings. Paged. */
 export async function myVisitRequests() {
   return unwrapFullPage(await get('/me/visit-requests', paged()), 'visit').map(toViewModel);
 }
@@ -68,8 +67,7 @@ export async function myVisitRequests() {
  * `POST /visits` — book a visit.
  *
  * Rejects with 409 when a live visit already exists on this property for this caller. That is not
- * smoothed over: the mock now raises the same error, so a call site cannot be written against the
- * gentler behaviour and then break on the day the domain goes live.
+ * smoothed over: the caller sees the conflict.
  */
 export async function scheduleVisit(req = {}) {
   const slot = req.slot || (req.dateIso ? slotFromParts(req.dateIso, req.time) : null);
@@ -94,7 +92,7 @@ export async function updateVisitStatus(id, status) {
 }
 
 /**
- * `PATCH /visits/{id}/slot` — reschedule a live visit to a new slot (D87).
+ * `PATCH /visits/{id}/slot` — reschedule a live visit to a new slot.
  *
  * The dashboard passes a human `when` string; the seam converts it to the ISO instant the server
  * stores, via `slotFromWhen` (the same converter the booking form uses, kept beside `parseWhen` so

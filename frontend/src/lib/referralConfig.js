@@ -1,12 +1,4 @@
-/**
- * Referral programme constants — domain configuration shared between the
- * consumer UI and the mock store's derived computations.
- *
- * Both are pure numbers; neither depends on localStorage or the server. They
- * live here so components (Refer.jsx, ContactsExhaustedModal.jsx) can import
- * them without pulling in the mock-store barrel (lib/store.js), which makes
- * the remaining mock-import count meaningful.
- */
+/* Pure numbers, so Refer.jsx and ContactsExhaustedModal.jsx can import them without a data layer. */
 
 /** Referred owners who post a listing: one per how many unlocks an extra slot. */
 export const referralListingsTarget = 3;

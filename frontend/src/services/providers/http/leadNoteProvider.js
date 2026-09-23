@@ -4,14 +4,14 @@
  * No mapper module alongside this one: the server's `LeadNoteResponse` was designed against this
  * seam and the field names already match, so a mapper here would be a file of identity functions.
  * The one shape difference worth naming is that `followUpAt` and `updatedAt` arrive as ISO strings
- * rather than epoch millis — the localStorage version stored numbers. Nothing is converted here,
+ * rather than epoch millis. Nothing is converted here,
  * because both of the panel's consumers (`FollowUpChip`, the sheet's date input) go through helpers
  * that already accept either, and a conversion in this file would be a second place for the two
  * representations to disagree.
  *
  * Nothing in this file names an owner. The store is caller-scoped, derived from the token, which is
- * what lets both calls take no owner argument — and is also the fix for the bug that motivated the
- * move: the localStorage keys were built from `myMobile()`, so the notes lived per-browser.
+ * what lets both calls take no owner argument — and is what keeps the notes with the account rather
+ * than with one browser.
  */
 import { get, put } from '../../http.js';
 
@@ -28,8 +28,7 @@ import { get, put } from '../../http.js';
  * reason to skip the conversion, because without it no follow-up date can ever be saved at all.
  *
  * Converted here rather than in the sheet because this is the only layer that owes the server a
- * representation; the sheet's number is fine everywhere else, including the mock store, which is
- * where it has always been kept.
+ * representation; the sheet's number is fine everywhere else.
  *
  * Strings pass through untouched — a caller echoing a row back from a previous read is already
  * sending ISO, and re-parsing it would be a second place for the formats to disagree.

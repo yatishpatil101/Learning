@@ -6,9 +6,8 @@
  *
  * ## 1. Status
  *
- * The page and the server now share one five-status vocabulary: `open`, `in-progress`, `waiting`,
- * `resolved`, `closed`. The mock opens a ticket `open` (as the server does) and moves it to
- * `in-progress` when support picks it up, so there is no longer a mock-only `new` to reconcile.
+ * The page and the server share one five-status vocabulary: `open`, `in-progress`, `waiting`,
+ * `resolved`, `closed`.
  *
  * Status is therefore **passed through unchanged**, not defaulted — an identity map. Unknown statuses
  * still fall through to `getStatusLabel`, which shows the raw key, so any future server status
@@ -29,10 +28,10 @@
  *
  * ## `updatedAt` is not on the wire
  *
- * The mock sorts the list by `updatedAt`; the server sorts by `createdAtDesc` and does not send an
- * updated time. So it is **derived from the last message**, which is the thing that actually changed
- * — a ticket answered this morning belongs above one opened last week. Falling back to `createdAt`
- * for a ticket with no messages keeps the sort total.
+ * The server sorts by `createdAtDesc` and does not send an updated time, but the list wants one. So
+ * it is **derived from the last message**, which is the thing that actually changed — a ticket
+ * answered this morning belongs above one opened last week. Falling back to `createdAt` for a
+ * ticket with no messages keeps the sort total.
  */
 
 /** ISO instant → epoch ms. 0 for a missing date, so a sort never produces NaN. */
@@ -94,11 +93,11 @@ export function toViewModelList(rows) {
 }
 
 /**
- * One wire `AdminSupportTicket` → one row of the ops queue (D51).
+ * One wire `AdminSupportTicket` → one row of the ops queue.
  *
  * A different schema from `SupportTicket`, and the difference is the point: this one carries **no
  * thread**, because the list is the whole platform's support traffic rather than one person's own
- * history, and an unbounded response is what `GET /support/tickets` was narrowed to avoid. It also
+ * history, and an unbounded response is what `GET /support/tickets` is narrowed to avoid. It also
  * carries **no mobile** — the detail read reveals it to the same callers, and a list is the shape
  * that gets exported.
  *

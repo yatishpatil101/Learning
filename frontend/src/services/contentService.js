@@ -1,54 +1,39 @@
 /**
- * Content Service — the editorial copy the platform publishes about itself.
+ * Content Service — the editorial copy the platform publishes about itself, and what readers say
+ * back about it.
  *
- * `GET /faqs` (public).
+ * `GET /faqs` and `POST /help/feedback` (both public).
  *
- * ## Why this domain is one method wide
+ * ## Why the read side is one method wide
  *
  * `ContentController` exposes four public reads — `/announcements`, `/services`, `/faqs`,
  * `/banners` — and only FAQs can be moved across today. The other three are recorded rather than
  * built, because each is blocked on something that is not a migration:
  *
  * - **banners** cannot round-trip. `BannerResponse` carries `{ id, image, link, headline, position }`
- *   and the mock's banners carry a `cta` and a `theme` the server has no column for. Moving the
- *   consumer onto the server would silently drop copy that is currently rendered.
+ *   with no column for a `cta` or a `theme`, so a consumer moved onto the server would silently
+ *   drop copy that is currently rendered.
  * - **announcements** and **services** have no consumer a *public read* can serve. Their only
  *   caller is the admin content console, which asks for archived rows and then writes.
  *
- * ### Correction: this file used to claim there is no admin content API
- *
- * The paragraph above ended, until now, with *"and there are no admin content routes at all, in
- * either direction."* **That was wrong.** `AdminContentController` has always existed, at
- * `/admin/content/{type}` with five operations — list (including archived), create, patch, archive,
- * restore — covering all four types. The claim was presumably written from a grep of
- * `ContentController` alone, and it survived because nothing on the frontend was calling the admin
- * routes, so nothing contradicted it.
- *
- * The rest of the paragraph stands, and is the reason this file did not simply grow to four
- * methods: the admin console needs *archived* rows and a *write* path, and this seam is the public
- * read. They are separate services on purpose. See `adminContentService.js`.
- *
- * So this file will grow, and it is deliberately not shaped as though it already had.
+ * `AdminContentController` covers all four types at `/admin/content/{type}` — list (including
+ * archived), create, patch, archive, restore. That is a different seam on purpose: the console
+ * needs archived rows and a write path, and this is the public read. See `adminContentService.js`.
  *
  * ## Shape
  *
  *   { id, question, answer, category }
  *
- * **The server's field names, not the mock's.** The mock stores `q` / `a` / `cat`, and the temptation
- * is to keep that here and translate on the way in — the diff would be smaller. It would also make
- * this seam a permanent dialect: every future reader would learn the abbreviations, and the wire
- * shape would be something only one file had ever seen. The seam exists to make the server's
- * vocabulary the application's vocabulary, so the translation goes in the mock provider, which is
- * the side with an expiry date.
+ * The FAQ row; help feedback has no read and therefore no shape to state. **The server's field
+ * names.** Abbreviations (`q` / `a` / `cat`) translated at this seam would make it a permanent
+ * dialect only one file had ever seen — the seam exists to make the server's vocabulary the
+ * application's.
  *
- * ## What this deliberately does not promise
- *
- * **No order.** `ContentService.listFaqs()` is `findByArchivedFalse()` with no `Sort`, so the rows
- * arrive in whatever order Postgres finds them in — stable for a freshly seeded table, and not
- * guaranteed across an update. The mock's order was editorial (the zero-brokerage answer first,
- * because it is the platform's core claim). Sorting here would hide that the guarantee is missing
- * rather than supply it; the fix is a `position` column on the server, exactly as `banners` already
- * has. Recorded in `tasks/todo.md`, and no caller may rely on index.
+ * **No order is promised.** `ContentService.listFaqs()` is `findByArchivedFalse()` with no `Sort`,
+ * so rows arrive in whatever order Postgres finds them in — stable for a freshly seeded table, not
+ * guaranteed across an update. Sorting here would hide the missing guarantee rather than supply it;
+ * the fix is a `position` column on the server, as `banners` already has. Recorded in
+ * `tasks/todo.md`, and no caller may rely on index.
  */
 import { createProvider } from './config.js';
 
@@ -67,3 +52,14 @@ const provider = createProvider('content');
  * @returns {Promise<{id: string, question: string, answer: string, category: string}[]>}
  */
 export const listFaqs = async () => (await provider()).listFaqs();
+
+/**
+ * Record whether a help article helped. Public, and write-only — there is no read to pair with it.
+ *
+ * A reader who *is* signed in is recorded as such, so "owners find this confusing" can be told
+ * apart from "nobody understands it". Erasure reaches both the link and the prose.
+ *
+ * @param {{slug: string, lang: string, helpful: boolean, comment?: string}} verdict
+ * @returns {Promise<void>}
+ */
+export const submitHelpFeedback = async (verdict) => (await provider()).submitHelpFeedback(verdict);

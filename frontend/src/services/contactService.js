@@ -8,12 +8,10 @@
  * constraint on `(requester, property)`, so a listing id is the whole key and the owner is derived
  * from it server-side.
  *
- * The mock predates that decision and buckets requests by *owner mobile*, which is why the old
- * signatures took `(ownerMobile, propId)`. Keeping `ownerMobile` here would have been the smaller
- * diff, but it is an identifier the browser should never need: it forced every caller to resolve a
- * phone number before it could ask a permission question, and a masked number (`98XXXXX210`) is not
- * a usable key — that mismatch is exactly how a caller ends up silently reading an empty bucket.
- * The mock provider now resolves the owner from the listing internally instead.
+ * Nothing here takes an `ownerMobile`. It is an identifier the browser should never need: it
+ * would force every caller to resolve a phone number before it could ask a permission question,
+ * and a masked number (`98XXXXX210`) is not a usable key — that mismatch is exactly how a caller
+ * ends up silently reading an empty bucket.
  *
  * ## Shape
  *
@@ -24,7 +22,7 @@
  *   status               'owner' | 'approved' | 'pending' | 'declined' | 'none'
  *   verifiedContactOnly  the owner accepts enquiries from Verified-badge users only
  *   verificationRequired this caller is blocked by that opt-in right now
- *   ownerHidesNumber     the owner stays masked even once approved — offer chat, not a call (D5)
+ *   ownerHidesNumber     the owner stays masked even once approved — offer chat, not a call
  *
  * Returning one object rather than a bare status string is what lets `ownerHidesNumber` stop being
  * a second lookup keyed on a phone number. It arrives from the same round trip that decided the
@@ -32,9 +30,8 @@
  *
  * ## Failure
  *
- * Both providers reject with an `ApiError`, so callers branch on a stable `code` instead of the
- * mock's old in-band sentinel strings (`'login'`, `'unavailable'`, `'verification_required'`),
- * which were indistinguishable from real statuses and had to be checked in the right order:
+ * Reads reject with an `ApiError`, so callers branch on a stable `code` rather than on an in-band
+ * sentinel string indistinguishable from a real status:
  *
  *   401 unauthorized           not signed in — send them to /signin
  *   403 verification_required  owner accepts verified contacts only, and this caller has no badge
@@ -66,6 +63,6 @@ export const respondToContactRequest = async (reqId, status) =>
  * How many requests are waiting on the signed-in owner, across *all* pages.
  *
  * Deliberately not derived from `myContactRequests`: that is one page, so a busy owner's badge
- * would silently cap at the page size and under-report exactly when it matters most (D78).
+ * would silently cap at the page size and under-report exactly when it matters most.
  */
 export const pendingContactCount = async () => (await provider()).pendingContactCount();

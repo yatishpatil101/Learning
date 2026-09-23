@@ -6,6 +6,10 @@ const USER_KEY = 'draazyUser';
 
 export const digits = (num) => String(num || '').replace(/\D/g, '');
 
+/* Only a *known* intermediary withdraws the "deal direct with the owner" half of the zero-brokerage
+   claim: a blank column is silence, not evidence of one, and Draazy's own cut is nil either way. */
+export const isBrokered = (p) => p?.postedByType === 'agent' || p?.postedByType === 'builder';
+
 /* The "nothing is known" gate: not signed in, unknown listing, or still loading. Lives in `lib/`
    because both providers and `useContactGate` need it and only `lib/` is importable by all three
    without a cycle. Every field is the safe answer — no status, no reveal. */
