@@ -27,18 +27,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Reads {@code information_schema} so a new table with a mobile number in it cannot arrive
- * unnoticed. Rules and decisions: compliance doc §11.
- */
+// Reads information_schema so a new table with a mobile number in it cannot arrive unnoticed.
+// Rules and decisions: compliance doc §11.
 @DisplayName("DPDP erasure — every personal-data column in the schema is classified and accounted for")
 class ErasureCoverageTest extends AbstractApiTest {
 
-    // ------------------------------------------------------------------ the definition
 
-    /**
-     * Matched as bare substrings on purpose — the derivation must over-match, never under-match.
-     */
+    // Matched as bare substrings on purpose — the derivation must over-match, never under-match.
     private static final List<String> IDENTIFIER_TOKENS = List.of(
             // direct identifiers and contact routes
             "mobile", "phone", "whatsapp", "email", "name", "holder", "contact",
@@ -53,13 +48,10 @@ class ErasureCoverageTest extends AbstractApiTest {
             // likeness and device
             "avatar", "photo", "selfie", "device");
 
-    /**
-     * Matched on underscore boundaries: a bare {@code contains("ip")} hits {@code description} and
-     * {@code script}, transcribing the whole schema into the maps below.
-     */
+    // Matched on underscore boundaries: a bare contains("ip") hits `description` and `script`,
+    // transcribing the whole schema into the maps below.
     private static final List<String> BOUNDED_TOKENS = List.of("pan", "gst", "ip", "age", "lat", "lng", "dob");
 
-    // ------------------------------------------------------------------ the classification
 
     /** How a column stops carrying personal data. */
     private enum Outcome {
@@ -69,17 +61,13 @@ class ErasureCoverageTest extends AbstractApiTest {
         REPLACED,
         /** The whole row goes; the column is named so a reviewer can see what went with it. */
         ROW_REMOVED,
-        /**
-         * The row stays and its link to the subject is nulled — {@code page_views.user_id}. Distinct
-         * from both neighbours; see {@code docs/system/legal-entity-and-compliance.md} §11.
-         */
+        // The row stays and its link to the subject is nulled — page_views.user_id. Distinct from
+        // both neighbours; see docs/system/legal-entity-and-compliance.md §11.
         DETACHED
     }
 
-    /**
-     * Columns {@link ErasureService#execute} clears, and how. Every entry is proved by
-     * {@link #everyErasedColumnIsActuallyCleared()} seeding a value and reading it back.
-     */
+    // Columns ErasureService#execute clears, and how. Every entry is proved by
+    // everyErasedColumnIsActuallyCleared() seeding a value and reading it back.
     private static final Map<String, Outcome> ERASED = erased();
 
     private static Map<String, Outcome> erased() {
@@ -99,6 +87,9 @@ class ErasureCoverageTest extends AbstractApiTest {
         // Auth credentials: deleted outright, because a blanked row still says "this person signed
         // in on this date".
         map.put("otp_codes.mobile", Outcome.ROW_REMOVED);
+        // A consent code (V33) is addressed to the flat owner, so the subject's own row is unreachable
+        // from `mobile` and would outlive the sweep that deletes its siblings.
+        map.put("otp_codes.requested_by", Outcome.ROW_REMOVED);
         map.put("refresh_tokens.token_hash", Outcome.ROW_REMOVED);
 
         // Whole row: the rest of it — landlord's name, rent, lease window — identifies one tenancy,
@@ -152,13 +143,16 @@ class ErasureCoverageTest extends AbstractApiTest {
         // already in a daily aggregate naming nobody, so deleting it would falsify traffic history.
         map.put("page_views.user_id", Outcome.DETACHED);
 
+        // Neither token matches the vocabulary, which is why the sweep misses this table. The whole
+        // row goes: "what was missing?" collects phone numbers, so nulling user_id leaves those.
+        map.put("help_article_feedback.user_id", Outcome.ROW_REMOVED);
+        map.put("help_article_feedback.comment", Outcome.ROW_REMOVED);
+
         return map;
     }
 
-    /**
-     * Columns the vocabulary matched that are kept. The text says which of the two reasons applies:
-     * not actually a natural person (the common case), or a statute requires keeping it.
-     */
+    // Columns the vocabulary matched that are kept. The text says which reason applies: not a
+    // natural person (the common case), or a statute requires keeping it.
     private static final Map<String, String> RETAINED = retained();
 
     private static Map<String, String> retained() {
@@ -305,6 +299,10 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "property rather than a person.");
         map.put("flatmate_groups.address_fingerprint",
                 "As flatmate_rooms.address_fingerprint — a duplicate-detection hash of a flat.");
+        map.put("flatmate_owner_consents.address_fingerprint",
+                "As flatmate_rooms.address_fingerprint. V30 copied the same hash onto the consent "
+                        + "row to scope it to the flat the owner was actually asked about; it names "
+                        + "a property, and the person on that row is named by owner_mobile.");
         map.put("flatmate_rooms.photos", "Photographs of a room, on a listing that is retained.");
         map.put("flatmate_rooms.lat", "Coordinates of a room listing, retained with the listing.");
         map.put("flatmate_rooms.lng", "Coordinates of a room listing, retained with the listing.");
@@ -426,10 +424,8 @@ class ErasureCoverageTest extends AbstractApiTest {
         return map;
     }
 
-    /**
-     * <strong>Personal data this pass does not reach.</strong> Not a parking bay: adding a column
-     * here obliges you to name its table in the disclosure the subject reads.
-     */
+    // Personal data this pass does not reach. Not a parking bay: adding a column here obliges you
+    // to name its table in the disclosure the subject reads.
     private static final Map<String, String> GAPS = gaps();
 
     private static Map<String, String> gaps() {
@@ -474,7 +470,7 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "survive; the duplicated contact details need not.");
         map.put("deal_parties.mobile", "As deal_parties.name.");
 
-        // --- found by this test, and not disclosed anywhere until it added them to knownGaps() ---
+        // --- found by this test, and disclosed here rather than left silent ---
         map.put("deals.counterparty_mobile",
                 "The same denormalised-number shape as deal_parties, on the deal row itself (V11). "
                         + "It sat outside the disclosure list until this test derived it from the "
@@ -491,6 +487,9 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("flatmate_groups.owner_consent_mobile",
                 "The flat owner's number, captured as evidence of their consent (V27) — a third "
                         + "party's contact detail sitting on the subject's record.");
+        map.put("flatmate_rooms.owner_consent_mobile",
+                "As flatmate_groups.owner_consent_mobile; V28 gave standalone rooms the same "
+                        + "OTP-backed consent lookup.");
         map.put("flatmate_owner_consents.owner_mobile",
                 "As flatmate_groups.owner_consent_mobile; the consent row keys on the number "
                         + "itself, NOT NULL.");
@@ -506,7 +505,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         return map;
     }
 
-    // ------------------------------------------------------------------ fixtures
 
     @Autowired
     UserRepository users;
@@ -522,7 +520,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         createdActors.clear();
     }
 
-    // ------------------------------------------------------------------ the schema gate
 
     @Test
     @DisplayName("every personal-data column in the migrated schema is classified as erased, retained or a disclosed gap")
@@ -567,10 +564,8 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .hasSizeGreaterThan(30));
     }
 
-    /**
-     * A classification naming a column the schema lacks is one step short of the sweep doing it —
-     * a 500 halfway through an irreversible operation.
-     */
+    // A classification naming a column the schema lacks is one step short of the sweep doing it —
+    // a 500 halfway through an irreversible operation.
     @Test
     @DisplayName("no classification names a column the schema no longer has")
     void noClassificationNamesAColumnTheSchemaNoLongerHas() {
@@ -595,10 +590,8 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .isEmpty();
     }
 
-    /**
-     * A gap is allowed; a <em>silent</em> one is not. Requiring the disclosure, which is serialised
-     * into {@code erasure_requests.retained} and returned, makes parking a column cost something.
-     */
+    // A gap is allowed; a silent one is not. Requiring the disclosure, serialised into
+    // erasure_requests.retained and returned, makes parking a column cost something.
     @Test
     @DisplayName("every parked gap is disclosed in the record the subject receives")
     void everyGapIsDisclosedToTheSubject() {
@@ -626,12 +619,9 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .isEmpty();
     }
 
-    // ------------------------------------------------------------------ the behavioural gate
 
-    /**
-     * The half that cannot be faked by editing a list. The pre-check matters as much: a column never
-     * seeded would pass the post-check trivially, so each is proved non-null first.
-     */
+    // The half that cannot be faked by editing a list. The pre-check matters as much: a column never
+    // seeded would pass the post-check trivially, so each is proved non-null first.
     @Test
     @DisplayName("every column claimed as erased is seeded, swept, and verifiably empty afterwards")
     void everyErasedColumnIsActuallyCleared() throws Exception {
@@ -672,7 +662,6 @@ class ErasureCoverageTest extends AbstractApiTest {
                         ERASED.""", unseeded.size(), bullets(unseeded))
                 .isEmpty();
 
-        // --- erase ------------------------------------------------------------------------
         String requestId = fileRequest(subject);
         mvc.perform(patch("/admin/erasure-requests/{id}", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin))
@@ -682,7 +671,6 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value("completed"));
         entityManager.flush();
 
-        // --- and read every one of them back ----------------------------------------------
         Map<String, String> survivors = new LinkedHashMap<>();
         for (Map.Entry<String, Outcome> entry : ERASED.entrySet()) {
             String column = entry.getKey();
@@ -739,12 +727,9 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .isEmpty();
     }
 
-    // ------------------------------------------------------------------ plumbing
 
-    /**
-     * Every column of every migrated table, as {@code table.column}. Views are excluded because
-     * their columns are somebody else's seen twice, and {@code flyway_schema_history} is a ledger.
-     */
+    // Views are excluded because their columns are somebody else's seen twice, and
+    // flyway_schema_history is a ledger.
     private List<String> schemaColumns() {
         return jdbc.queryForList("""
                 select c.table_name || '.' || c.column_name
@@ -794,10 +779,8 @@ class ErasureCoverageTest extends AbstractApiTest {
         return value == null || Boolean.FALSE.equals(value);
     }
 
-    /**
-     * {@code otp_codes} and {@code service_request_parties} key on the number itself, not a user id
-     * — which is precisely why erasure must reach them before it substitutes the mobile.
-     */
+    // otp_codes and service_request_parties key on the number itself, not a user id — which is
+    // precisely why erasure must reach them before it substitutes the mobile.
     private static final Map<String, String> SWEPT_ROW = Map.ofEntries(
             Map.entry("users", "id = ?"),
             Map.entry("tenant_profiles", "user_id = ?"),
@@ -810,6 +793,7 @@ class ErasureCoverageTest extends AbstractApiTest {
             Map.entry("society_claims", "claimed_by = ?"),
             Map.entry("service_request_parties", "mobile = ?"),
             Map.entry("tenant_rentals", "tenant_id = ?"),
+            Map.entry("help_article_feedback", "user_id = ?"),
             Map.entry("service_request_identities",
                     "service_request_id in (select id from service_requests where requester_id = ?)"));
 
@@ -820,10 +804,8 @@ class ErasureCoverageTest extends AbstractApiTest {
         return KEYED_ON_OLD_MOBILE.contains(table) ? oldMobile : subjectId;
     }
 
-    /**
-     * The column name is concatenated because a placeholder cannot stand for one. Safe only here:
-     * both halves come from {@link #ERASED}, and a sibling test proves each names a real column.
-     */
+    // The column name is concatenated because a placeholder cannot stand for one. Safe only here:
+    // both halves come from ERASED, and a sibling test proves each names a real column.
     private Object read(String qualified, UUID subjectId, String oldMobile) {
         String table = tableOf(qualified);
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -939,6 +921,14 @@ class ErasureCoverageTest extends AbstractApiTest {
                 insert into page_views (session_id, user_id, path, referrer_host, device)
                 values ('erasure-seed-session', ?, '/listings', 'google.com', 'mobile'),
                        ('erasure-seed-session', ?, '/property/:id', null, 'mobile')
+                """, subjectId, subjectId);
+        // Two verdicts, one with prose and one without, because a sweep that removed only the rows
+        // carrying a comment would pass a check that looked at either one alone.
+        jdbc.update("""
+                insert into help_article_feedback (slug, lang, helpful, comment, user_id)
+                values ('what-is-draazy', 'en', false,
+                        'Nobody called me back on 9876543210 about the Kothrud flat.', ?),
+                       ('create-account', 'mr', true, null, ?)
                 """, subjectId, subjectId);
         // The society is read rather than created so the sweep's `where claimed_by` runs against a
         // real FK. Taken from the far end of the slug ordering: the engagement fixtures count up.

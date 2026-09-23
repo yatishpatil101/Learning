@@ -4,19 +4,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * What erasure deletes, what it keeps, and on whose authority. The statutory reasoning that decided
- * each category: docs/system/legal-entity-and-compliance.md §11.
- */
+/** What erasure deletes, what it keeps, and on whose authority. Statutory reasoning per category:
+ * docs/system/legal-entity-and-compliance.md §11. */
 public final class ErasureRetention {
 
     private ErasureRetention() {
     }
 
-    /**
-     * Categories deliberately kept, and the law that requires keeping them. Written into
-     * {@code erasure_requests.retained} at execution; ordered so two stored documents diff cleanly.
-     */
+    /** Written into {@code erasure_requests.retained} at execution; ordered so two stored documents
+     * diff cleanly. */
     public static Map<String, String> retainedWithReasons() {
         Map<String, String> reasons = new LinkedHashMap<>();
 
@@ -91,10 +87,8 @@ public final class ErasureRetention {
         return reasons;
     }
 
-    /**
-     * Personal data this sweep does not reach, disclosed to the subject alongside the retentions.
-     * Derived from the schema by {@code ErasureCoverageTest}, which fails the build on any omission.
-     */
+    /** Personal data this sweep does not reach, disclosed to the subject alongside the retentions.
+     * Derived from the schema by {@code ErasureCoverageTest}, which fails the build on any omission. */
     public static List<String> knownGaps() {
         return List.of(
                 "referrals — referrer_mobile and referred_mobile are stored numbers, not references,"
@@ -127,9 +121,10 @@ public final class ErasureRetention {
                 "managed_properties.tenant_name — a third party's name typed in by an owner. Erasing"
                         + " the owner does not touch it, and the tenant it names has no account here"
                         + " to erase from.",
-                "flatmate_groups.owner_consent_mobile / flatmate_owner_consents.owner_mobile — the"
-                        + " flat owner's number, captured as evidence of their consent to a flatmate"
-                        + " group. The consent record keys on the number itself.",
+                "flatmate_groups.owner_consent_mobile / flatmate_rooms.owner_consent_mobile / "
+                        + "flatmate_owner_consents.owner_mobile — the flat owner's number, captured"
+                        + " as evidence of their consent to a flatmate post. The consent record keys"
+                        + " on the number itself.",
                 "flatmate_seeker_posts — name, age and occupation are stored on the post rather than"
                         + " read through user_id, so the post keeps describing its author after the"
                         + " users row stops naming anybody.",

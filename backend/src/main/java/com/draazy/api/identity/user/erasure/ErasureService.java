@@ -26,10 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-/**
- * DPDP right-to-erasure — filing and execution. Rationale for what's erased vs retained lives in
- * {@link ErasureRetention}; wider decisions in docs/system/legal-entity-and-compliance.md#11-dpdp-erasure--what-is-deleted-what-is-retained-and-on-whose-authority
- */
+/** DPDP right-to-erasure — filing and execution. Erased vs retained: {@link ErasureRetention} and
+ * docs/system/legal-entity-and-compliance.md#11-dpdp-erasure--what-is-deleted-what-is-retained-and-on-whose-authority */
 @Service
 public class ErasureService {
 
@@ -47,10 +45,8 @@ public class ErasureService {
     private final EntityManager entityManager;
     private final IdentityVerificationService identity;
 
-    /**
-     * Deployment secret mixed into {@link #digest}; empty by default, which is a real weakening
-     * (unpeppered digest is confirmable from a database dump alone).
-     */
+    /** Deployment secret mixed into {@link #digest}; empty by default, which is a real weakening
+     * (an unpeppered digest is confirmable from a database dump alone). */
     private final String pepper;
 
     public ErasureService(ErasureRequestRepository requests, UserRepository users,
@@ -129,10 +125,8 @@ public class ErasureService {
         return ErasureRequestResponse.of(execute(admin, request, note));
     }
 
-    /**
-     * Carry out the erasure in one transaction: a half-applied erasure (told-erased but photos
-     * still in the object store) is the worst outcome available.
-     */
+    /** One transaction: a half-applied erasure (told-erased but photos still in the object store)
+     * is the worst outcome available. */
     private ErasureRequest execute(AuthPrincipal admin, ErasureRequest request, String note) {
         UUID subjectId = request.getSubjectId();
         User subject = users.findById(subjectId)
@@ -141,10 +135,13 @@ public class ErasureService {
 
         Map<String, Object> erased = new LinkedHashMap<>();
 
-        // 1. Auth credentials. Deleted outright: transient session artefacts, no retention basis.
+        // 1. Auth credentials, deleted outright. `requested_by` too: a consent code the subject
+        //    asked for is addressed to a third party's number, unreachable from their own.
         erased.put("otp_codes", entityManager
-                .createNativeQuery("delete from otp_codes where mobile = :mobile")
+                .createNativeQuery(
+                        "delete from otp_codes where mobile = :mobile or requested_by = :id")
                 .setParameter("mobile", oldMobile)
+                .setParameter("id", subjectId)
                 .executeUpdate());
         erased.put("refresh_tokens", entityManager
                 .createNativeQuery("delete from refresh_tokens where user_id = :id")
@@ -171,7 +168,7 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 3. Profile free text. Column set follows V13 (V6 dropped four); `score` and `verified`
+        // 3. Profile free text. Column set follows V13; `score` and `verified`
         //    stay — platform-derived signals, not identifiers.
         erased.put("tenant_profiles", entityManager
                 .createNativeQuery("""
@@ -204,7 +201,7 @@ public class ErasureService {
                 .executeUpdate());
 
         // 5. Unclaimed co-fill invitations (V107). Row deleted because the CHECK forces mobile XOR
-        //    user_id; must run before step 9 replaces the mobile. Claimed rows untouched by design.
+        //    user_id; must run before step 10 replaces the mobile. Claimed rows untouched by design.
         erased.put("service_request_parties", entityManager
                 .createNativeQuery("delete from service_request_parties where mobile = :mobile")
                 .setParameter("mobile", oldMobile)
@@ -239,7 +236,14 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 9. Identity root, last: earlier steps key off mobile or row-existing, so replacing the
+        // 9. Help article verdicts (V36). Whole row, not an unlink: "what was missing?" reliably
+        //    collects a phone number, and no aggregate has been computed from these rows.
+        erased.put("help_article_feedback", entityManager
+                .createNativeQuery("delete from help_article_feedback where user_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
+        // 10. Identity root, last: earlier steps key off mobile or row-existing, so replacing the
         //    number first would orphan the OTP and pending-invite deletes.
         subject.erasePersonalData(pseudonymMobile(subjectId));
         erased.put("users", 1);
@@ -257,20 +261,16 @@ public class ErasureService {
         return request;
     }
 
-    /**
-     * A stand-in for {@code users.mobile} derived from the row id: ten digits beginning {@code 9},
-     * taken from SHA-256(id) — pseudonym, not a reserved range, so never treated as contactable.
-     */
+    /** A stand-in for {@code users.mobile} derived from the row id: ten digits beginning {@code 9},
+     * taken from SHA-256(id) — a pseudonym, not a reserved range, so never treated as contactable. */
     static String pseudonymMobile(UUID subjectId) {
         BigInteger hash = new BigInteger(1, sha256("mobile:" + subjectId));
         long tail = hash.mod(BigInteger.valueOf(MOBILE_BLOCK_SIZE)).longValueExact();
         return String.valueOf(MOBILE_BLOCK + tail);
     }
 
-    /**
-     * Surviving reference to an erased subject — {@code SHA-256(pepper || uuid)}, lowercase hex.
-     * A verifier, not an index: confirms a UUID you already hold, cannot be run backwards.
-     */
+    /** Surviving reference to an erased subject — {@code SHA-256(pepper || uuid)}, lowercase hex.
+     * A verifier, not an index: confirms a UUID you already hold, cannot be run backwards. */
     String digest(UUID subjectId) {
         byte[] bytes = sha256(pepper + subjectId);
         StringBuilder hex = new StringBuilder(bytes.length * 2);

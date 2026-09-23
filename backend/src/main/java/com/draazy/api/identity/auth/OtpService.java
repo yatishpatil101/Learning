@@ -10,25 +10,22 @@ import jakarta.annotation.PostConstruct;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The mobile-OTP primitive behind passwordless login (ADR-008, L1): 6 digits, stored SHA-256 hashed,
- * single-use, 5-minute TTL, delivered through the {@link OtpSender} seam. docs/flows/consumer/auth.md
- */
+/** The mobile-OTP primitive behind passwordless login (ADR-008, L1): 6 digits, stored SHA-256 hashed,
+ * single-use, 5-minute TTL, delivered through the {@link OtpSender} seam. docs/flows/consumer/auth.md */
 @Service
 public class OtpService {
 
     /** Short enough to limit exposure of a delivered code, long enough for real SMS latency. */
     static final Duration TTL = Duration.ofMinutes(5);
 
-    /**
-     * Online-guess ceiling per code before it is burned. Chosen for the honest typist rather than the
-     * attacker — three of a 10^6 space is far below where guessing is a threat.
-     */
+    /** Online-guess ceiling per code before it is burned. Chosen for the honest typist — three of a
+     * 10^6 space is far below where guessing is a threat. */
     static final int DEFAULT_MAX_VERIFY_ATTEMPTS = 3;
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -38,31 +35,22 @@ public class OtpService {
     /** Whether another code may be sent at all — see {@link OtpSendBudget} for all three limits. */
     private final OtpSendBudget budget;
 
-    /**
-     * When non-blank, the fixed code every {@link #sendCode} issues, so a browser suite can type it
-     * rather than scrape a shared log. Guarded three ways — see docs/flows/consumer/auth.md.
-     */
+    /** When non-blank, the fixed code every {@link #sendCode} issues, so a browser suite can type it
+     * rather than scrape a shared log. Guarded three ways — see docs/flows/consumer/auth.md. */
     private final String fixedCode;
 
-    /**
-     * The one deployment profile allowed to carry a predictable login code. An alias, not a literal,
-     * so a profile rename cannot silently disarm the guards below.
-     */
+    /** An alias, not a literal, so a profile rename cannot silently disarm the guards below. */
     private static final String SANDBOX_PROFILE = LocalProfileGuard.SANDBOX_PROFILE;
 
-    /**
-     * Sandbox's own predictable login code, kept a separate key from {@link #fixedCode} so no
-     * variable meaningful in prod can set it. Cost and blast radius: docs/flows/consumer/auth.md
-     */
+    /** Sandbox's own predictable login code, kept a separate key from {@link #fixedCode} so no
+     * variable meaningful in prod can set it. Cost and blast radius: docs/flows/consumer/auth.md */
     private final String sandboxCode;
 
     /** Consulted only by the two boot guards below, to read the active profiles. */
     private final Environment environment;
 
-    /**
-     * Wrong guesses allowed against one code before it is burned. Configurable per environment; see
-     * {@link #DEFAULT_MAX_VERIFY_ATTEMPTS} and {@link #rejectUnusableAttemptCap}.
-     */
+    /** Wrong guesses allowed against one code before it is burned. Configurable per environment;
+     * see {@link #DEFAULT_MAX_VERIFY_ATTEMPTS} and {@link #rejectUnusableAttemptCap}. */
     private final int maxVerifyAttempts;
 
     public OtpService(OtpCodeRepository repository, OtpSender sender, OtpSendBudget budget,
@@ -80,26 +68,19 @@ public class OtpService {
         this.maxVerifyAttempts = maxVerifyAttempts;
     }
 
-    /**
-     * The configured cap, package-private for the tests that loop to it. Nothing in production reads
-     * it — {@code verifyCode} derives the count it reports itself.
-     */
+    /** Package-private for the tests that loop to it; nothing in production reads it. */
     int maxVerifyAttempts() {
         return maxVerifyAttempts;
     }
 
-    /**
-     * How long before another code to the same number is allowed, in seconds. Published rather than
-     * hardcoded client-side, because the gap is per-environment.
-     */
+    /** How long before another code to the same number is allowed. Published rather than hardcoded
+     * client-side, because the gap is per-environment. */
     public int resendCooldownSeconds() {
         return budget.sendCooldownSeconds();
     }
 
-    /**
-     * Kill the boot on an attempt cap that cannot work: below 1 is an outage dressed as a rate limit,
-     * above 20 stops being a brute-force defence. Both are typos a properties file makes easy.
-     */
+    /** Kill the boot on an attempt cap that cannot work: below 1 is an outage dressed as a rate
+     * limit, above 20 stops being a brute-force defence. Both are typos a properties file makes easy. */
     @PostConstruct
     void rejectUnusableAttemptCap() {
         if (maxVerifyAttempts < 1 || maxVerifyAttempts > 20) {
@@ -111,10 +92,8 @@ public class OtpService {
         }
     }
 
-    /**
-     * Kill the boot if a deployment is carrying a predictable login code. Keyed on a deployment
-     * profile being active, so a mistyped profile lands on the safe side.
-     */
+    /** Kill the boot if a deployment is carrying a predictable login code. Keyed on a deployment
+     * profile being active, so a mistyped profile lands on the safe side. */
     @PostConstruct
     void rejectFixedCodeInProduction() {
         String profile = LocalProfileGuard.activeDeploymentProfile(environment);
@@ -127,10 +106,8 @@ public class OtpService {
         }
     }
 
-    /**
-     * Kill the boot if sandbox's login code has escaped sandbox. Phrased as "sandbox and nothing
-     * else", so a superset activation such as {@code prod,sandbox} fails too.
-     */
+    /** Kill the boot if sandbox's login code has escaped sandbox. Phrased as "sandbox and nothing
+     * else", so a superset activation such as {@code prod,sandbox} fails too. */
     @PostConstruct
     void rejectSandboxCodeOutsideSandbox() {
         if (sandboxCode.isEmpty()) {
@@ -153,24 +130,28 @@ public class OtpService {
         }
     }
 
-    /**
-     * Generate a login code, persist its hash, and dispatch it. Rate-limited three ways and
-     * {@code noRollbackFor} its refusals, both load-bearing — see docs/flows/consumer/auth.md.
-     */
+    /** Generate a login code, persist its hash, and dispatch it. Rate-limited three ways and
+     * {@code noRollbackFor} its refusals, both load-bearing — see docs/flows/consumer/auth.md. */
     @Transactional(noRollbackFor = {RateLimitedException.class,
             OtpSender.DeliveryFailedException.class})
     public void sendLoginCode(String mobile) {
-        sendCode(mobile, OtpCode.PURPOSE_LOGIN);
+        sendSelfServiceCode(mobile, OtpCode.PURPOSE_LOGIN);
     }
 
-    /**
-     * Issue a code for any declared purpose. Every limit is keyed on (mobile, purpose) so a code
-     * minted for one flow is worthless in another; {@code noRollbackFor}: docs/flows/consumer/auth.md
-     */
+    /** Issue a code to the person who asked for it. Passes no {@code requestedBy}, so it is correct
+     * only where the recipient <em>is</em> the caller; otherwise use {@link #sendCode}. */
     @Transactional(noRollbackFor = {RateLimitedException.class,
             OtpSender.DeliveryFailedException.class})
-    public void sendCode(String mobile, String purpose) {
-        budget.enforce(mobile, purpose);
+    public void sendSelfServiceCode(String mobile, String purpose) {
+        sendCode(mobile, purpose, null);
+    }
+
+    /** Issue a code and charge it to {@code requestedBy} as well as to the recipient — for flows
+     * where the caller names somebody else's number, which recipient-keyed limits cannot bound. */
+    @Transactional(noRollbackFor = {RateLimitedException.class,
+            OtpSender.DeliveryFailedException.class})
+    public void sendCode(String mobile, String purpose, UUID requestedBy) {
+        budget.enforce(mobile, purpose, requestedBy);
         // Two keys, never both set. Everything after this line is identical either way, so a suite
         // exercises the real storage and consume path.
         String preset = fixedCode.isEmpty() ? sandboxCode : fixedCode;
@@ -178,25 +159,21 @@ public class OtpService {
                 ? String.format("%06d", RANDOM.nextInt(1_000_000))
                 : preset;
         repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
-                Instant.now().plus(TTL)));
+                Instant.now().plus(TTL), requestedBy));
         // Nothing is caught here on purpose: a delivery failure arrives already named and spared
         // from rollback, so the row survives and the attempt spends its slot.
         sender.send(mobile, code);
     }
 
-    /**
-     * Validate {@code code} against the newest unconsumed login OTP and consume it on success. The
-     * attempt bookkeeping must survive the thrown 401/429, hence {@code noRollbackFor}.
-     */
+    /** Validate {@code code} against the newest unconsumed login OTP and consume it on success. The
+     * attempt bookkeeping must survive the thrown 401/429, hence {@code noRollbackFor}. */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class})
     public void verifyLoginCode(String mobile, String code) {
         verifyCode(mobile, code, OtpCode.PURPOSE_LOGIN);
     }
 
-    /**
-     * Validate {@code code} against the newest unconsumed OTP for {@code (mobile, purpose)}. Scoped
-     * by purpose for the reason given on {@link #sendCode}.
-     */
+    /** Validate {@code code} against the newest unconsumed OTP for {@code (mobile, purpose)}. Scoped
+     * by purpose for the reason given on {@link #sendCode}. */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class})
     public void verifyCode(String mobile, String code, String purpose) {
         OtpCode otp = repository

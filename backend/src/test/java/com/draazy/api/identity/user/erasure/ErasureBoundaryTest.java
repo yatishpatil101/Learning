@@ -24,18 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The DPDP erasure boundary (tech debt D177): what must go, and what must <em>stay</em>.
- *
- * <p>Both halves are load-bearing and the second is the one nobody writes a test for. An erasure
- * that took the rent agreement with it would be a compliance failure in the opposite direction —
- * DPDP s.8(7) permits, and other statutes require, retention — and it would be undetectable
- * afterwards, because the evidence it destroyed is the evidence you would need to notice. So every
- * retained category asserted here is asserted as a positive: the row is still there, and still
- * points at the same id.
- *
- * <p>See {@code ErasureRetention} for which statute stands behind each retention.
- */
+// Retention is the half nobody tests: an erasure that took the rent agreement would be a compliance
+// failure in the opposite direction, undetectable after the fact. See ErasureRetention.
 @DisplayName("DPDP erasure — erased, pseudonymised, and deliberately retained")
 class ErasureBoundaryTest extends AbstractApiTest {
 
@@ -89,12 +79,9 @@ class ErasureBoundaryTest extends AbstractApiTest {
         return body.replaceAll("^.*\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    // ------------------------------------------------------------------ authorisation
 
-    /**
-     * Deciding an erasure is destructive, irreversible, and one rung above every other moderation
-     * power here — staff may take a listing down and suspend an account, and both are reversible.
-     */
+    // Deciding an erasure is destructive and irreversible, one rung above every other moderation
+    // power here — taking a listing down and suspending an account are both reversible.
     @Test
     @DisplayName("staff cannot decide an erasure request; only an admin can")
     void staffCannotDecide() throws Exception {
@@ -128,7 +115,6 @@ class ErasureBoundaryTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ------------------------------------------------------------------ the boundary
 
     @Test
     @DisplayName("execution erases identity, retains the contract record, and leaves an anonymous audit")
@@ -140,11 +126,15 @@ class ErasureBoundaryTest extends AbstractApiTest {
         String originalMobile = subject.getMobile();
 
         // Data that must go: an auth credential, a masked government number, and the free text the
-        // subject wrote about themselves. The profile columns are the old V13's, not the old V6's -- V13 reshaped
-        // this table, and a sweep written from the original migration names four columns that no
-        // longer exist.
+        // subject wrote. The profile columns are V13's, not V6's — V13 reshaped this table.
         jdbc.update("insert into otp_codes (mobile, code_hash, expires_at) values (?, ?, now() + interval '5 min')",
                 originalMobile, "hashed");
+        // The owner-consent code is addressed to the flat owner, so a sweep keyed only on `mobile`
+        // leaves a row saying this account asked after that stranger.
+        jdbc.update("""
+                insert into otp_codes (mobile, code_hash, purpose, requested_by, expires_at)
+                values (?, ?, 'owner-consent', ?, now() + interval '5 min')
+                """, "9800000398", "hashed", subjectId);
         jdbc.update("insert into owner_kyc (user_id, pan_masked, aadhaar_masked) values (?, ?, ?)",
                 subjectId, "ABCDE****F", "XXXX XXXX 1234");
         jdbc.update("""
@@ -175,7 +165,6 @@ class ErasureBoundaryTest extends AbstractApiTest {
 
         entityManager.flush();
 
-        // --- erased -----------------------------------------------------------------------
         User after = users.findById(subjectId).orElseThrow();
         assertThat(after.getName()).isNull();
         assertThat(after.getEmail()).isNull();
@@ -190,6 +179,8 @@ class ErasureBoundaryTest extends AbstractApiTest {
 
         assertThat(jdbc.queryForObject("select count(*) from otp_codes where mobile = ?",
                 Integer.class, originalMobile)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from otp_codes where requested_by = ?",
+                Integer.class, subjectId)).isZero();
         assertThat(jdbc.queryForObject("select pan_masked from owner_kyc where user_id = ?",
                 String.class, subjectId)).isNull();
         assertThat(jdbc.queryForObject("select aadhaar_masked from owner_kyc where user_id = ?",
@@ -204,14 +195,12 @@ class ErasureBoundaryTest extends AbstractApiTest {
                 // resolves to anybody.
                 .containsEntry("score", 72);
 
-        // --- deliberately retained --------------------------------------------------------
         assertThat(jdbc.queryForObject("select owner_id from rent_agreements where id = ?",
                 UUID.class, agreementId)).isEqualTo(subjectId);
         // The listing survives too: it carries no contact data of its own, and enquiries, visits and
         // deals reference it. It de-identifies with the users row rather than by being deleted.
         assertThat(properties.findById(listing.getId())).isPresent();
 
-        // --- the record of the erasure ----------------------------------------------------
         ErasureRequest completed = requests.findById(UUID.fromString(id)).orElseThrow();
         assertThat(completed.getStatus()).isEqualTo(ErasureStatuses.COMPLETED);
         // The whole design rests on this: a completed request must not still name its subject, or
@@ -223,11 +212,8 @@ class ErasureBoundaryTest extends AbstractApiTest {
         assertThat(completed.getRetained()).contains("notYetSwept");
     }
 
-    /**
-     * A rejection is a real outcome, not an escape hatch — s.8(7) is the reason it has to exist. It
-     * must leave the account intact and say why, because the subject is entitled to know which
-     * obligation blocked them and when they can ask again.
-     */
+    // A rejection must leave the account intact and say why: the subject is entitled to know which
+    // obligation blocked them (s.8(7)) and when they can ask again.
     @Test
     @DisplayName("a rejection needs a reason, keeps the account, and keeps the subject reachable")
     void rejectionRequiresAReasonAndChangesNothing() throws Exception {
@@ -277,11 +263,8 @@ class ErasureBoundaryTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    /**
-     * The pseudonym must be a function of the id and of nothing else. If it drew on the mobile it
-     * replaces it would be a reversible pointer to the number, and the whole substitution would be
-     * theatre.
-     */
+    // If the pseudonym drew on the mobile it replaces it would be a reversible pointer to the
+    // number, and the whole substitution would be theatre.
     @Test
     @DisplayName("the mobile pseudonym is deterministic in the id, stable, and satisfies the column CHECK")
     void pseudonymIsDerivedFromTheIdAlone() {

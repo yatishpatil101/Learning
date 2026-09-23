@@ -6,19 +6,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * The DPDP s.11 data-export scope: which rows are the subject's to see, and the redaction rule for
- * shared records. Rationale: docs/system/legal-entity-and-compliance.md#12-dpdp-data-export--the-redaction-rule-for-shared-records
- */
+/** The DPDP s.11 data-export scope: which rows are the subject's, and the redaction rule for shared
+ * records. Rationale: docs/system/legal-entity-and-compliance.md#12-dpdp-data-export--the-redaction-rule-for-shared-records */
 public final class DataExportScope {
 
     private DataExportScope() {
     }
 
-    /**
-     * Alias marking a column as another person's identifier: every value under it is hashed by
-     * {@link DataExportRedaction#partyRef} on the way out.
-     */
+    /** Alias marking a column as another person's identifier: every value under it is hashed by
+     * {@link DataExportRedaction#partyRef} on the way out. */
     static final String PARTY_REF_SOURCE = "party_ref_src";
 
     /** What {@link #PARTY_REF_SOURCE} becomes on the wire. */
@@ -32,8 +28,6 @@ public final class DataExportScope {
     /** A whole table left out of the export, and why. Serialised into the response. */
     record Exclusion(String name, String reason) {
     }
-
-    // ------------------------------------------------------------------ the datasets
 
     private static final List<Dataset> DATASETS = datasets();
 
@@ -50,8 +44,6 @@ public final class DataExportScope {
         flatmate(out);
         return List.copyOf(out);
     }
-
-    // --- account ----------------------------------------------------------------------------
 
     private static void account(List<Dataset> out) {
         out.add(new Dataset("account", "users",
@@ -139,8 +131,6 @@ public final class DataExportScope {
                                 + "note they wrote is included; who wrote it is not.")));
     }
 
-    // --- identity ---------------------------------------------------------------------------
-
     private static void identity(List<Dataset> out) {
         out.add(new Dataset("identity", "identity_verifications",
                 "Your identity check: which document you showed, its outcome, and the last four "
@@ -210,8 +200,6 @@ public final class DataExportScope {
                 """,
                 Map.of()));
     }
-
-    // --- listings ---------------------------------------------------------------------------
 
     private static void listings(List<Dataset> out) {
         out.add(new Dataset("listings", "properties",
@@ -392,9 +380,18 @@ public final class DataExportScope {
                  order by occurred_at desc
                 """,
                 Map.of()));
-    }
 
-    // --- enquiries: the two-party read surfaces ----------------------------------------------
+        out.add(new Dataset("listings", "help_article_feedback",
+                "Help-centre articles you told us were or were not useful, and anything you wrote "
+                        + "about what was missing.",
+                """
+                select slug, lang, helpful, comment, created_at
+                  from help_article_feedback
+                 where user_id = :subjectId
+                 order by created_at desc
+                """,
+                Map.of()));
+    }
 
     private static void enquiries(List<Dataset> out) {
         out.add(new Dataset("enquiries", "contact_requests_sent",
@@ -505,8 +502,6 @@ public final class DataExportScope {
                         "requester_id", "Replaced by partyRef.",
                         "share_token", "See document_requests_sent.share_token.")));
     }
-
-    // --- agreements, deals and money ---------------------------------------------------------
 
     private static void agreements(List<Dataset> out) {
         out.add(new Dataset("agreements", "finalization_requests",
@@ -630,8 +625,6 @@ public final class DataExportScope {
                 withheld("owner_id", "Replaced by partyRef.")));
     }
 
-    // --- messaging --------------------------------------------------------------------------
-
     private static void messaging(List<Dataset> out) {
         out.add(new Dataset("messaging", "conversations",
                 "Chat threads you are in.",
@@ -698,8 +691,6 @@ public final class DataExportScope {
                 """,
                 Map.of()));
     }
-
-    // --- support and services -----------------------------------------------------------------
 
     private static void support(List<Dataset> out) {
         out.add(new Dataset("support", "service_requests",
@@ -821,11 +812,9 @@ public final class DataExportScope {
                 Map.of()));
     }
 
-    // --- community --------------------------------------------------------------------------
-
     private static void community(List<Dataset> out) {
-        // reviews.target_id is polymorphic; personal case (target_type='owner') routes through
-        // party_ref_src, impersonal keeps the real id. Discriminator is 'owner' per V7 CHECK.
+        // reviews.target_id is polymorphic: the personal case (target_type='owner', per the V7
+        // CHECK) routes through party_ref_src, the impersonal one keeps the real id.
         out.add(new Dataset("community", "reviews_written",
                 "Reviews you wrote. Where you reviewed a person rather than a place, their id is "
                         + "replaced by the same reference used everywhere else in this document.",
@@ -888,15 +877,13 @@ public final class DataExportScope {
                         "Replaced by partyRef. See the redaction rule.")));
     }
 
-    // --- flatmate ---------------------------------------------------------------------------
-
     private static void flatmate(List<Dataset> out) {
         out.add(new Dataset("flatmate", "flatmate_rooms",
                 "Rooms you listed.",
                 """
                 select id, property_id, room_kind, room_type, attached_bath, price_basis, budget,
                        deposit, occupants, max_occupants, seats_total, seats_open, host_role,
-                       verification_tier, verified, agreement_declared, society_id, society,
+                       verification_tier, agreement_declared, society_id, society,
                        flat_number, locality, localities, lat, lng, bhk, flat_type,
                        home_type_label, gated_community, furnishing, move_in, available_from,
                        gender, food, tags, note, photos, status, archived, archived_at,
@@ -1047,12 +1034,8 @@ public final class DataExportScope {
                         + "returning them would create a correlation token and disclose nothing.")));
     }
 
-    // ------------------------------------------------------------------ the exclusions
-
-    /**
-     * Tables holding data about the subject that this export does not return; serialised into every
-     * response so an omission is never silent.
-     */
+    /** Tables holding data about the subject that this export does not return; serialised into every
+     * response so an omission is never silent. */
     static List<Exclusion> exclusions() {
         return List.of(
                 new Exclusion("reports_about_me",
@@ -1113,8 +1096,6 @@ public final class DataExportScope {
                                 + "returned; the other person is a reference. This is DPDP s.11(2) "
                                 + "and it is the whole design of this endpoint."));
     }
-
-    // ------------------------------------------------------------------ accessors and plumbing
 
     static List<Dataset> all() {
         return DATASETS;
