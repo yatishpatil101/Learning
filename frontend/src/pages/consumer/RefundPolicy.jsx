@@ -3,7 +3,7 @@ import LegalPage from '../../components/LegalPage.jsx';
 
 export default function RefundPolicy() {
   return (
-    <LegalPage title="Refund Policy" lastUpdated="1 July 2026" current="refund-policy">
+    <LegalPage title="Refund Policy" lastUpdated="24 September 2026" current="refund-policy">
       <p>
         This Refund Policy applies to all paid services and subscription plans purchased through draazy.com
         ("<strong>Platform</strong>") operated by Draazy Technologies Private Limited ("<strong>Draazy</strong>").
@@ -24,7 +24,7 @@ export default function RefundPolicy() {
       <h2>2. Subscription refunds</h2>
       <h3>2.1 Within 7 days (cooling-off period)</h3>
       <p>
-        If you purchased a subscription plan and have not utilised any premium feature (e.g., boosted listing, contact
+        If you purchased a subscription plan and have not utilised any premium feature (e.g., featured listing, contact
         reveal, verified badge display), you may request a full refund within 7 calendar days of purchase.
       </p>
 
@@ -58,7 +58,15 @@ export default function RefundPolicy() {
         <li><strong>More than 50% complete</strong> — no refund; you may raise a dispute for service quality issues.</li>
       </ul>
 
-      <h3>3.3 Service quality disputes</h3>
+      <h3>3.3 Rent agreements</h3>
+      <p>
+        For a Leave and License agreement, 3.1 and 3.2 do not apply. Everything you paid is refunded until the
+        stamp duty is paid to the Government of Maharashtra on GRAS. After that, the stamp duty and registration
+        charges are spent, and only the service fee (and anything you overpaid after a change of terms) is
+        refunded. Every refund is approved by a second member of our team.
+      </p>
+
+      <h3>3.4 Service quality disputes</h3>
       <p>
         If you are dissatisfied with the quality of a completed service, you may raise a complaint within 7 days of
         delivery. Draazy will review the complaint and may offer a partial refund, re-do at no charge, or credit
@@ -68,7 +76,6 @@ export default function RefundPolicy() {
       <h2>4. Non-refundable items</h2>
       <ul>
         <li>Contact reveal credits once consumed (phone number or email viewed).</li>
-        <li>Listing boost credits once the boost period has started.</li>
         <li>Government fees, stamp duty, or registration charges paid on your behalf.</li>
         <li>Convenience or payment gateway charges.</li>
       </ul>
