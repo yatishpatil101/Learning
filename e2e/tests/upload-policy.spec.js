@@ -1,32 +1,42 @@
 import { createRequire } from 'node:module';
 import { test, expect } from '../fixtures/live.js';
-import { signedInAsNew } from '../helpers/liveAuth.js';
+import { authHeaders, uploadedListingPhotos, ownerIdOf, signedInAsNew } from '../helpers/liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
+import { PHOTO_PNG } from '../helpers/listingPhotos.helper.js';
+import { openBadgeVault } from '../helpers/badgeVault.js';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { PDFDocument, PDFName, PDFString } = requireFrontend('pdf-lib');
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4AWJiYGD4D8IgBpBmYAAAAAD//7vS9wEAAAAGSURBVAMAGDACA6ybwrYAAAAASUVORK5CYII=', 'base64');
+const PNG = PHOTO_PNG;
 const CAP = 1_000_000;
-const photoInput = (page) => page.locator('[data-err="photos"] label.upload-zone input');
+const photoInput = (page) => page.locator('[data-err="photos"] label.upload-zone input[multiple]');
+
+async function chooseLocality(page, name) {
+  const field = page.locator('[data-err="locality"] .dz-dropdown__trigger');
+  await field.click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.getByRole('option', { name, exact: true }).click();
+}
 
 async function openPhotos(page) {
-  await signedInAsNew(page);
-  await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({
+  const mobile = await signedInAsNew(page);
+  const ownerId = ownerIdOf(await authHeaders(mobile));
+  await page.evaluate(({ key, ownerId }) => localStorage.setItem(key, JSON.stringify({
     deal: 'rent', propertyType: 'flat', carpetArea: '900', bhk: '2', bathrooms: '2',
     // A tower's floors are answered on step 1, so a draft without them never gets past it.
     floor: '9', totalFloors: '14',
     flatNumber: 'M-101', society: 'Media Test Home', pincode: '411045',
     monthlyRent: '23000', deposit: '46000', availableFrom: '2026-12-01',
-  })), LIST_PROPERTY_DRAFT_KEY);
+    __owner: ownerId,
+  })), { key: LIST_PROPERTY_DRAFT_KEY, ownerId });
   await page.goto('/list-property');
   await expect(page.locator('.lp-steps')).toBeVisible();
+  // The draft already carries the rent, deposit and date, so the pricing step needs no answers.
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.locator('[data-err="locality"]').click();
-  await page.getByRole('option', { name: 'Baner', exact: true }).click();
+  await chooseLocality(page, 'Baner');
   await page.locator('input[data-err="society"]').fill('Media Test Home');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  // The draft already carries the rent, deposit and date, so the pricing step needs no answers.
   await page.getByRole('button', { name: /Next Step/i }).click();
   await expect(page.locator('[data-err="photos"]')).toBeVisible();
 }
@@ -61,84 +71,87 @@ async function pdf({ large = false, signed = false, incompressible = false } = {
 test.describe('upload preparation in the real browser', () => {
   test.beforeEach(async ({ page }) => { await page.goto('/signin'); });
 
-  test('preserves compatible files below 1 MB byte-for-byte', async ({ page }) => {
-    for (const size of [PNG.length, CAP - 1]) {
-      const input = Buffer.concat([PNG, Buffer.alloc(size - PNG.length)]);
-      const result = await prepare(page, input, 'room.png', 'image/png');
-      expect(result).toMatchObject({ size, type: 'image/png', unchanged: true });
-    }
-    const input = await pdf();
-    expect(await prepare(page, input, 'deed.pdf', 'application/pdf', true))
-      .toMatchObject({ size: input.length, unchanged: true });
-    for (const type of ['', 'application/octet-stream']) {
-      expect(await prepare(page, input, 'deed.pdf', type, true))
-        .toMatchObject({ size: input.length, type: 'application/pdf', unchanged: false });
-    }
-  });
-
-  test('rejects disallowed formats, disguised files and excessive inputs', async ({ page }) => {
-    const cases = [
-      [PNG, 'room.webp', 'image/webp', false],
-      [PNG, 'room.avif', 'image/avif', false],
-      [Buffer.from('<svg>not an image</svg>'), 'room.jpg', 'image/jpeg', false],
-      [await pdf(), 'deed.pdf', 'application/pdf', false],
-      [PNG, 'deed.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true],
-      [Buffer.alloc(25_000_001), 'huge.jpg', 'image/jpeg', false],
-      [Buffer.alloc(0), 'empty.png', 'image/png', false],
-      [Buffer.from([255, 216, 255]), 'truncated.jpg', 'image/jpeg', false],
-      [PNG.subarray(0, 8), 'truncated.png', 'image/png', false],
-    ];
-    for (const [bytes, name, type, document] of cases) {
-      expect((await prepare(page, bytes, name, type, document)).error, name).toBeTruthy();
-    }
-  });
-
-  test('compresses an oversized image without spending resolution it does not have to', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
-      const canvas = document.createElement('canvas');
-      canvas.width = 1800; canvas.height = 1200;
-      const ctx = canvas.getContext('2d');
-      const pixels = ctx.createImageData(canvas.width, canvas.height);
-      let seed = 29;
-      for (let i = 0; i < pixels.data.length; i += 4) {
-        seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
-        const shade = 150 + ((seed >>> 24) % 30);
-        pixels.data.set([shade, shade + 10, shade + 20, 255], i);
+  test('re-encodes photos and preserves compatible documents, and rejects disallowed formats, disguised files and excessive inputs', async ({ page }) => {
+    await test.step('re-encodes every photo so no metadata survives, and preserves compatible documents byte-for-byte', async () => {
+      for (const size of [PNG.length, CAP - 1]) {
+        const input = Buffer.concat([PNG, Buffer.alloc(size - PNG.length)]);
+        const result = await prepare(page, input, 'room.png', 'image/png');
+        expect(result).toMatchObject({ type: 'image/jpeg', unchanged: false });
       }
-      ctx.putImageData(pixels, 0, 0);
-      const original = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      const output = await prepareUpload(new File([original], 'interior.png', { type: 'image/png' }));
-      const decoded = await createImageBitmap(output);
-      const dimensions = [decoded.width, decoded.height]; decoded.close();
-      return { before: original.size, after: output.size, type: output.type, dimensions };
+      const input = await pdf();
+      expect(await prepare(page, input, 'deed.pdf', 'application/pdf', true))
+        .toMatchObject({ size: input.length, unchanged: true });
+      for (const type of ['', 'application/octet-stream']) {
+        expect(await prepare(page, input, 'deed.pdf', type, true))
+          .toMatchObject({ size: input.length, type: 'application/pdf', unchanged: false });
+      }
     });
-    expect(result.before).toBeGreaterThanOrEqual(CAP);
-    expect(result.after).toBeLessThan(CAP);
-    expect(result.type).toBe('image/jpeg');
-    expect(result.dimensions).toEqual([1800, 1200]);
-  });
 
-  test('the exact 1 MB boundary is processed, never passed through', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
-      const c = new OffscreenCanvas(64, 64);
-      c.getContext('2d').fillRect(0, 0, 64, 64);
-      const png = await c.convertToBlob({ type: 'image/png' });
-      const file = new File([png, new Uint8Array(1_000_000 - png.size)], 'boundary.png', { type: 'image/png' });
-      const result = await prepareUpload(file);
-      return { size: result.size, unchanged: file === result };
+    await test.step('rejects disallowed formats, disguised files and excessive inputs', async () => {
+      const cases = [
+        [PNG, 'room.webp', 'image/webp', false],
+        [PNG, 'room.avif', 'image/avif', false],
+        [Buffer.from('<svg>not an image</svg>'), 'room.jpg', 'image/jpeg', false],
+        [await pdf(), 'deed.pdf', 'application/pdf', false],
+        [PNG, 'deed.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true],
+        [Buffer.alloc(25_000_001), 'huge.jpg', 'image/jpeg', false],
+        [Buffer.alloc(0), 'empty.png', 'image/png', false],
+        [Buffer.from([255, 216, 255]), 'truncated.jpg', 'image/jpeg', false],
+        [PNG.subarray(0, 8), 'truncated.png', 'image/png', false],
+      ];
+      for (const [bytes, name, type, document] of cases) {
+        expect((await prepare(page, bytes, name, type, document)).error, name).toBeTruthy();
+      }
     });
-    expect(result.size).toBeLessThan(CAP);
-    expect(result.unchanged).toBe(false);
   });
 
-  test('rejects huge advertised dimensions before decoding a tiny compressed input', async ({ page }) => {
-    const huge = Buffer.from(PNG);
-    huge.writeUInt32BE(100_000, 16); huge.writeUInt32BE(100_000, 20);
-    expect((await prepare(page, huge, 'huge.png', 'image/png')).error).toMatch(/48 megapixels/);
-  });
+  test('compresses an oversized image without spending resolution it does not have to, processes the exact 1 MB boundary and rejects huge advertised dimensions', async ({ page }) => {
+    await test.step('compresses an oversized image without spending resolution it does not have to', async () => {
+      const result = await page.evaluate(async () => {
+        const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
+        const canvas = document.createElement('canvas');
+        canvas.width = 1800; canvas.height = 1200;
+        const ctx = canvas.getContext('2d');
+        const pixels = ctx.createImageData(canvas.width, canvas.height);
+        let seed = 29;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+          const shade = 150 + ((seed >>> 24) % 30);
+          pixels.data.set([shade, shade + 10, shade + 20, 255], i);
+        }
+        ctx.putImageData(pixels, 0, 0);
+        const original = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        const output = await prepareUpload(new File([original], 'interior.png', { type: 'image/png' }));
+        const decoded = await createImageBitmap(output);
+        const dimensions = [decoded.width, decoded.height]; decoded.close();
+        return { before: original.size, after: output.size, type: output.type, dimensions };
+      });
+      expect(result.before).toBeGreaterThanOrEqual(CAP);
+      expect(result.after).toBeLessThan(CAP);
+      expect(result.type).toBe('image/jpeg');
+      expect(result.dimensions).toEqual([1800, 1200]);
+    });
 
+    await test.step('the exact 1 MB boundary is processed, never passed through', async () => {
+      const result = await page.evaluate(async () => {
+        const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
+        const c = new OffscreenCanvas(640, 480);
+        c.getContext('2d').fillRect(0, 0, 640, 480);
+        const png = await c.convertToBlob({ type: 'image/png' });
+        const file = new File([png, new Uint8Array(1_000_000 - png.size)], 'boundary.png', { type: 'image/png' });
+        const result = await prepareUpload(file);
+        return { size: result.size, unchanged: file === result };
+      });
+      expect(result.size).toBeLessThan(CAP);
+      expect(result.unchanged).toBe(false);
+    });
+
+    await test.step('rejects huge advertised dimensions before decoding a tiny compressed input', async () => {
+      const huge = Buffer.from(PNG);
+      huge.writeUInt32BE(100_000, 16); huge.writeUInt32BE(100_000, 20);
+      expect((await prepare(page, huge, 'huge.png', 'image/png')).error).toMatch(/48 megapixels/);
+    });
+  });
   test('never refuses a photo for its size: quality is spent before resolution', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
@@ -193,7 +206,6 @@ test.describe('upload preparation in the real browser', () => {
   });
 
   test('converts a real HEIC into a browser-readable JPEG under 1 MB', async ({ page, request }) => {
-    // Pinned upstream libheif example (MIT); no user media is sent to an external service.
     const response = await request.get('https://raw.githubusercontent.com/strukturag/libheif/v1.22.2/examples/example.heic');
     expect(response.ok()).toBe(true);
     const input = await response.body();
@@ -204,34 +216,35 @@ test.describe('upload preparation in the real browser', () => {
     expect(result.size).toBeLessThan(CAP);
   });
 
-  test('optimizes oversized PDFs without rasterizing pages', async ({ page }) => {
-    const input = await pdf({ large: true });
-    expect(input.length).toBeGreaterThan(CAP);
-    const result = await page.evaluate(async (base64) => {
-      const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
-      const file = new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'deed.pdf', { type: 'application/pdf' });
-      const result = await prepareUpload(file, { document: true });
-      const data = new Uint8Array(await result.arrayBuffer());
-      return { size: result.size, bytes: Array.from(data) };
-    }, input.toString('base64'));
-    expect(result.size).toBeLessThan(CAP);
-    const optimized = await PDFDocument.load(Uint8Array.from(result.bytes));
-    const original = await PDFDocument.load(input);
-    expect(optimized.getPageCount()).toBe(original.getPageCount());
-    const streams = (doc) => doc.getPage(0).node.Contents().asArray().map((ref) => Buffer.from(doc.context.lookup(ref).getContents()));
-    expect(streams(optimized)).toEqual(streams(original));
-    expect(Buffer.from(optimized.catalog.get(PDFName.of('TestPayload')).asBytes()).toString('ascii')).toBe('property record '.repeat(100_000));
-  });
+  test('optimizes oversized PDFs without rasterizing pages, preserves a small signed PDF and rejects malformed and oversized ones', async ({ page }) => {
+    await test.step('optimizes oversized PDFs without rasterizing pages', async () => {
+      const input = await pdf({ large: true });
+      expect(input.length).toBeGreaterThan(CAP);
+      const result = await page.evaluate(async ({ base64 }) => {
+        const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
+        const file = new File([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], 'deed.pdf', { type: 'application/pdf' });
+        const result = await prepareUpload(file, { document: true });
+        const data = new Uint8Array(await result.arrayBuffer());
+        return { size: result.size, bytes: Array.from(data) };
+      }, { base64: input.toString('base64') });
+      expect(result.size).toBeLessThan(CAP);
+      const optimized = await PDFDocument.load(Uint8Array.from(result.bytes));
+      const original = await PDFDocument.load(input);
+      expect(optimized.getPageCount()).toBe(original.getPageCount());
+      const streams = (doc) => doc.getPage(0).node.Contents().asArray().map((ref) => Buffer.from(doc.context.lookup(ref).getContents()));
+      expect(streams(optimized)).toEqual(streams(original));
+      expect(Buffer.from(optimized.catalog.get(PDFName.of('TestPayload')).asBytes()).toString('ascii')).toBe('property record '.repeat(100_000));
+    });
 
-  test('preserves a small signed PDF but rejects malformed and oversized PDFs', async ({ page }) => {
-    const signed = await pdf({ signed: true });
-    expect(await prepare(page, signed, 'signed.pdf', 'application/pdf', true))
-      .toMatchObject({ size: signed.length, unchanged: true });
-    expect((await prepare(page, Buffer.from('%PDF-1.7 invalid'), 'broken.pdf', 'application/pdf', true)).error).toMatch(/PDF/i);
-    expect((await prepare(page, await pdf({ incompressible: true }), 'scan.pdf', 'application/pdf', true)).error).toMatch(/1 MB|smaller/i);
+    await test.step('preserves a small signed PDF but rejects malformed and oversized PDFs', async () => {
+      const signed = await pdf({ signed: true });
+      expect(await prepare(page, signed, 'signed.pdf', 'application/pdf', true))
+        .toMatchObject({ size: signed.length, unchanged: true });
+      expect((await prepare(page, Buffer.from('%PDF-1.7 invalid'), 'broken.pdf', 'application/pdf', true)).error).toMatch(/PDF/i);
+      expect((await prepare(page, await pdf({ incompressible: true }), 'scan.pdf', 'application/pdf', true)).error).toMatch(/1 MB|smaller/i);
+    });
   });
-
-  test('cancels preparation and does not give hidden videos completion credit', async ({ page }) => {
+  test('cancelling preparation aborts, terminates its worker and gives hidden videos no completion credit', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
       const { computeProgress } = await import('/src/pages/consumer/list-property/progress.js');
@@ -244,10 +257,9 @@ test.describe('upload preparation in the real browser', () => {
     });
     expect(result.error).toBe('AbortError');
     expect(result.with).toEqual(result.without);
-  });
 
-  test('terminates an already-created worker when preparation is cancelled', async ({ page }) => {
-    const result = await page.evaluate(async (base64) => {
+    // An already-created worker must be terminated, not just ignored.
+    const worker = await page.evaluate(async (base64) => {
       const { prepareUpload } = await import('/src/lib/uploads/prepareUpload.js');
       const NativeWorker = window.Worker;
       const controller = new AbortController();
@@ -263,28 +275,36 @@ test.describe('upload preparation in the real browser', () => {
       finally { window.Worker = NativeWorker; }
       return { created, terminated, error };
     }, PNG.toString('base64'));
-    expect(result).toEqual({ created: 1, terminated: 1, error: 'AbortError' });
+    expect(worker).toEqual({ created: 1, terminated: 1, error: 'AbortError' });
   });
 });
 
-test('wizard hides videos and explains accepted photo formats', async ({ page }) => {
+test('wizard hides videos, explains accepted photo formats and fits narrow phones', async ({ page }, testInfo) => {
   await openPhotos(page);
   await expect(photoInput(page)).toHaveAttribute('accept', /\.heic/);
   await expect(photoInput(page)).not.toHaveAttribute('accept', /webp|avif|image\/\*/);
   await expect(page.locator('input[accept^="video"]')).toHaveCount(0);
-  await expect(page.getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toBeVisible();
-  // The 25 MB and 48 MP guards are decode-memory limits, told to the one file that hits them.
-  await expect(page.locator('[data-err="photos"] label.upload-zone')).not.toContainText(/25 ?MB|megapixel/i);
-  await expect(page.locator('.lp-step')).not.toContainText(/5MB|10MB|20 photos/);
+  await expect(page.locator('[data-err="photos"]').getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toHaveCount(1);
+  await expect(page.locator('[data-err="photos"] label.upload-zone').filter({ hasText: /25 ?MB|megapixel/i })).toHaveCount(0);
+  await expect(page.locator('.lp-step')).not.toContainText(/5MB|10MB/);
+
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.locator('[data-err="photos"]').getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toHaveCount(1);
+  }
+  await page.locator('[data-err="photos"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('upload-phone.png'), fullPage: true });
 });
 
-test('wizard caps a batch at ten, keeps the cap across picks and frees a removed slot', async ({ page }) => {
+test('wizard caps a batch at the default ten, keeps the cap across picks and frees a removed slot', async ({ page }) => {
   await openPhotos(page);
   const photos = page.locator('[data-err="photos"] .grid img');
   let uploads = 0;
   page.on('request', (request) => { if (request.url().endsWith('/api/me/photos') && request.method() === 'POST') uploads += 1; });
   await photoInput(page).setInputFiles(Array.from({ length: 11 }, (_, i) => ({ name: `room-${i}.png`, mimeType: 'image/png', buffer: PNG })));
   await expect(photos).toHaveCount(10);
+  await expect(page.locator('[data-err="photos"]')).toHaveAttribute('aria-busy', 'false');
   await expect(photoInput(page)).toBeDisabled();
   expect(uploads).toBe(10);
   await expect(page.getByRole('button', { name: /Remove photo/i }).first().locator('span')).toHaveClass(/w-\[22px\].*h-\[22px\].*bg-red-500\/40/);
@@ -294,31 +314,43 @@ test('wizard caps a batch at ten, keeps the cap across picks and frees a removed
   await expect(photoInput(page)).toBeEnabled();
   await photoInput(page).setInputFiles({ name: 'replacement.png', mimeType: 'image/png', buffer: PNG });
   await expect(photos).toHaveCount(10);
+  await expect(page.locator('[data-err="photos"]')).toHaveAttribute('aria-busy', 'false');
   expect(uploads).toBe(11);
 });
 
-test('wizard shows per-document errors instead of silently retaining a rejected filename', async ({ page }) => {
-  await openPhotos(page);
+test('the vault reports a rejected document instead of silently filing it', async ({ page }) => {
+  const mobile = await signedInAsNew(page);
+  const images = await uploadedListingPhotos(await authHeaders(mobile));
+  const id = await page.evaluate(async (images) => {
+    const { post } = await import('/src/services/http.js');
+    return (await post('/me/listings', { title: 'Upload policy vault home', deal: 'rent', propertyType: 'Flat', price: 23000, locality: 'Baner', city: 'Pune', images })).id;
+  }, images);
   const rejected = await pdf({ incompressible: true });
   expect(rejected.length).toBeGreaterThan(CAP);
-  await page.locator('[data-err="Electricity Bill"] .doc-upload input').setInputFiles({ name: 'oversized.pdf', mimeType: 'application/pdf', buffer: rejected });
-  await expect(page.locator('[data-err="Electricity Bill"] .dz-field-error').filter({ hasText: /original PDF.*under 1 MB/i })).toBeVisible();
-  await expect(page.locator('.doc-name').filter({ hasText: 'oversized.pdf' })).toHaveCount(0);
+  const card = await openBadgeVault(page, id);
+  const row = card.locator('li[data-doc="Electricity Bill"]');
+  const chooser = page.waitForEvent('filechooser');
+  await row.getByRole('button', { name: 'Upload', exact: true }).click();
+  await (await chooser).setFiles({ name: 'oversized.pdf', mimeType: 'application/pdf', buffer: rejected });
+  await expect(page.getByText(/cannot fit under 1 MB/i)).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Upload', exact: true })).toBeVisible();
+  await expect(card.getByTestId('request-badge')).toBeDisabled();
 });
 
 test('service-request attachments also compress before the shared server size gate', async ({ page }) => {
-  await signedInAsNew(page);
+  const mobile = await signedInAsNew(page);
+  const images = await uploadedListingPhotos(await authHeaders(mobile));
   const input = await pdf({ large: true });
   expect(input.length).toBeGreaterThan(CAP);
-  const result = await page.evaluate(async (base64) => {
+  const result = await page.evaluate(async ({ base64, images }) => {
     const svc = await import('/src/services/serviceRequestService.js');
     const { get, post } = await import('/src/services/http.js');
-    const property = await post('/me/listings', { title: 'Upload policy home', deal: 'rent', propertyType: 'Flat', price: 23000, locality: 'Baner', city: 'Pune', images: [] });
+    const property = await post('/me/listings', { title: 'Upload policy home', deal: 'rent', propertyType: 'Flat', price: 23000, locality: 'Baner', city: 'Pune', images });
     const request = await svc.createServiceRequest({ type: 'valuation', propertyId: property.id, customer: { name: 'Media test' }, details: { property: 'Baner, Pune' } });
     await svc.addServiceRequestDoc(request.id, { fileName: 'ownership.pdf', mime: 'application/pdf', dataUrl: `data:application/pdf;base64,${base64}` });
     const stored = await get(`/service-requests/${request.id}`);
     return stored.documents;
-  }, input.toString('base64'));
+  }, { base64: input.toString('base64'), images });
   expect(result).toHaveLength(1);
   expect(result[0]).toMatchObject({ fileName: 'ownership.pdf', mimeType: 'application/pdf' });
   expect(result[0].sizeBytes).toBeLessThan(CAP);
@@ -345,16 +377,4 @@ test('a pending photo prevents duplicate picks and premature submission', async 
   await expect(page.locator('[data-err="photos"] .grid img')).toHaveCount(1);
   await expect(photoInput(page)).toBeEnabled();
   expect(requests).toBe(1);
-});
-
-test('upload instructions and controls fit narrow phones', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await openPhotos(page);
-  for (const width of [390, 360]) {
-    await page.setViewportSize({ width, height: 844 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.getByText(/HEIF.*iPhone|iPhone.*HEIF/i)).toBeVisible();
-  }
-  await page.locator('[data-err="photos"]').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: testInfo.outputPath('upload-phone.png'), fullPage: true });
 });

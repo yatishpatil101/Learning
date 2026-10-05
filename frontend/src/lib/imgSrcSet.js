@@ -47,3 +47,17 @@ export function srcSetFor(url, widths = DEFAULT_WIDTHS) {
  * page gutter on phones, then progressively narrower as columns are added.
  */
 export const CARD_SIZES = '(max-width: 639px) calc(100vw - 2rem), (max-width: 1023px) 45vw, 320px';
+
+// An upload's key as PhotoService writes it; its card copies sit beside it (PhotoVariants.WIDTHS).
+const UPLOADED_PHOTO = /\/photos\/[0-9a-f-]{36}\/[0-9a-f-]{36}(?:-[0-9a-f]{16})?$/;
+
+/**
+ * A card-sized srcset: the server's small copies of an uploaded photo, else a `w=` host's widths.
+ * Not for the gallery, which keeps the full original.
+ */
+export function cardSrcSet(url) {
+  if (typeof url === 'string' && UPLOADED_PHOTO.test(url)) {
+    return `${url}.w480.jpg 480w, ${url}.w960.jpg 960w`;
+  }
+  return srcSetFor(url);
+}

@@ -21,18 +21,17 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
-/**
- * Cloudflare R2 {@link FileStorage}: the S3 API with pseudo-region {@code auto} and path-style
- * addressing. Documents and photos go to separate buckets, making the seam's boundary real.
- */
+// Documents and photos go to separate buckets, making the seam's boundary real.
 @Component
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled", havingValue = "true")
 class R2FileStorage implements FileStorage, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(R2FileStorage.class);
 
-    /** Signed URLs are single-request handoffs; fifteen minutes is generous for one PUT or GET. */
     private static final Duration URL_TTL = Duration.ofMinutes(15);
+
+    // Every public key is written once under a fresh UUID, so its bytes can never change.
+    private static final String PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
     private final S3Client s3;
     private final S3Presigner presigner;
@@ -52,7 +51,7 @@ class R2FileStorage implements FileStorage, DisposableBean {
         }
         this.privateBucket = props.privateBucket();
         this.publicBucket = props.publicBucket();
-        // Trim a trailing slash so the public URL joins cleanly however the base URL was configured.
+
         this.publicBaseUrl = stripTrailingSlash(props.publicBaseUrl());
         StaticCredentialsProvider creds = StaticCredentialsProvider.create(
                 AwsBasicCredentials.create(props.accessKeyId(), props.secretAccessKey()));
@@ -105,6 +104,7 @@ class R2FileStorage implements FileStorage, DisposableBean {
 
     @Override
     public void delete(String key) {
+
         // S3 DeleteObject is a no-op on a missing key, which gives the sweep its idempotency.
         s3.deleteObject(DeleteObjectRequest.builder().bucket(privateBucket).key(key).build());
     }
@@ -116,9 +116,15 @@ class R2FileStorage implements FileStorage, DisposableBean {
                         .bucket(publicBucket)
                         .key(key)
                         .contentType(contentType)
+                        .cacheControl(PUBLIC_CACHE_CONTROL)
                         .build(),
                 RequestBody.fromBytes(content));
         return publicBaseUrl + "/" + key;
+    }
+
+    @Override
+    public String publicUrlPrefix() {
+        return publicBaseUrl + "/";
     }
 
     @Override
@@ -134,4 +140,4 @@ class R2FileStorage implements FileStorage, DisposableBean {
     private static String stripTrailingSlash(String s) {
         return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
-}
+    }

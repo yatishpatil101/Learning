@@ -17,7 +17,7 @@ class DevObjectStoreTest {
     @Test
     @DisplayName("a public-looking path cannot normalize into private storage")
     void publicPrefixCannotEscapeIntoPrivateStorage() {
-        DevObjectStore store = new DevObjectStore(root.toString(), "http://localhost:8080/api", "/api");
+        DevObjectStore store = new DevObjectStore(root.toString(), "/api");
         store.store("documents/lease.pdf", "private".getBytes(StandardCharsets.UTF_8), "application/pdf");
 
         assertThat(store.isPublic("public/../documents/lease.pdf")).isFalse();

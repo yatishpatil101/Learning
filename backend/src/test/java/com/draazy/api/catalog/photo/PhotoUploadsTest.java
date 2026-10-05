@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import com.draazy.api.common.error.PayloadTooLargeException;
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.zip.CRC32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -43,6 +46,32 @@ class PhotoUploadsTest {
                 .isEqualTo("image/png");
     }
 
+    private static byte[] pngDeclaring(int width, int height) {
+        ByteBuffer ihdr = ByteBuffer.allocate(17).put("IHDR".getBytes(StandardCharsets.US_ASCII))
+                .putInt(width).putInt(height).put((byte) 8).put((byte) 0).put((byte) 0).put((byte) 0).put((byte) 0);
+        CRC32 crc = new CRC32();
+        crc.update(ihdr.array());
+        return ByteBuffer.allocate(8 + 4 + 17 + 4)
+                .put(Arrays.copyOf(PNG_MAGIC, 8)).putInt(13).put(ihdr.array()).putInt((int) crc.getValue())
+                .array();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"10001, 1", "1, 10001", "6400, 6400"})
+    void refusesACanvasThatWouldTakeGigabytesToDecode(int width, int height) {
+        byte[] bomb = pngDeclaring(width, height);
+        assertThatExceptionOfType(PayloadTooLargeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/png", bomb.length, bomb))
+                .withMessageContaining("10,000 pixels");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"4000, 3000", "10000, 4000"})
+    void acceptsAPhoneCameraCanvas(int width, int height) {
+        byte[] photo = pngDeclaring(width, height);
+        assertThat(PhotoUploads.validate("image/png", photo.length, photo)).isEqualTo("image/png");
+    }
+
     @Test
     void acceptsJpeg() {
         assertThat(PhotoUploads.validate("image/jpeg", JPEG_MAGIC.length, JPEG_MAGIC))
@@ -58,15 +87,18 @@ class PhotoUploadsTest {
     }
 
     @Test
-    void acceptsHeic() {
+    void refusesHeic_becauseNoStripperReadsItAndTheBrowserSendsJpeg() {
         byte[] b = iso("heic");
-        assertThat(PhotoUploads.validate("image/heic", b.length, b)).isEqualTo("image/heic");
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/heic", b.length, b));
     }
 
-    @Test
-    void acceptsHeicBytesDeclaredAsHeif_becauseBrowsersLabelHeifEitherWay() {
+    @ParameterizedTest
+    @ValueSource(strings = {"image/heif", "image/png", "image/jpeg"})
+    void refusesHeifBytesWhateverTheyAreLabelled(String declared) {
         byte[] b = iso("mif1");
-        assertThat(PhotoUploads.validate("image/heif", b.length, b)).isEqualTo("image/heic");
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate(declared, b.length, b));
     }
 
     @ParameterizedTest

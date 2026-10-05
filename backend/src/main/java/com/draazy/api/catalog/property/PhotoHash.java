@@ -1,51 +1,101 @@
 package com.draazy.api.catalog.property;
 
-/**
- * The 64-bit perceptual photo hash, and the arithmetic the duplicate probe does with it.
- *
- * <p>The hash itself is computed in the browser and cannot move here: it is an average hash over the
- * decoded pixels, and decoding an image is what {@code canvas} is for. The server never sees the
- * photo at this point in the flow — the wizard hashes what the owner picked, before any upload — so
- * re-deriving it here would mean fetching every uploaded image back out of storage to reproduce a
- * number the client already had. What does belong here is everything the client could never do:
- * storing the hash where it outlives the browser, and comparing it against other people's listings.
- *
- * <p>The format is fixed by {@code lib/data/imageHash.js} and this class is the other half of that
- * contract: 16 hex characters, 64 bits, one bit per cell of an 8x8 grayscale downscale, set where the
- * pixel is at or above the image mean. {@link #THRESHOLD} is the same 10 the client uses, and it is
- * the same number for the same reason — about 15% of the hash, loose enough to survive
- * re-compression and a mild crop, tight enough that two unrelated interiors do not collide.
- *
- * <p>{@link #bands(long)} exists for the index rather than for the comparison; see the
- * {@code property_photo_hashes} section of {@code V04__DDL_catalog_listings.sql} (added in the old
- * V116) for why band equality is a pre-filter and not a proof. Every candidate it returns is still
- * checked with {@link #distance(long, long)}.
- */
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+
+/** Browser computes hashes because decoding pixels belongs to {@code canvas}. */
 public final class PhotoHash {
 
-    /** Two photos closer than this many bits of 64 are treated as the same shot. */
     public static final int THRESHOLD = 10;
 
     /** 16 hex characters, because the hash is exactly 64 bits. */
     private static final int HEX_LENGTH = 16;
 
-    /** The most photos one listing may contribute. The wizard's own picker stops well below this. */
     public static final int MAX_PER_LISTING = 20;
+
+    private static final int SAMPLE_EDGE = 256;
+
+    private static final Pattern KEYED_URL =
+            Pattern.compile("/photos/[^/?#]+/[0-9a-f-]{36}-([0-9a-f]{16})$");
 
     private PhotoHash() { }
 
-    /**
-     * Parse one 16-hex-char hash, or return null if it is not one.
-     *
-     * <p>Null rather than an exception, and the caller drops it: this arrives on the listing-create
-     * body next to the fields an owner actually typed, and a photo whose hash arrived malformed is a
-     * reason to lose a duplicate signal, not a reason to refuse the listing. A hash the owner cannot
-     * see, cannot correct and did not enter must never be the thing that fails their post.
-     *
-     * <p>{@code parseUnsignedLong} rather than {@code parseLong}: half the hash space has the top bit
-     * set, and those are the values a signed parse rejects. They round-trip through the column
-     * unchanged because the comparison is bitwise.
-     */
+    public static Long compute(byte[] image) {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(image))) {
+            if (in == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                ImageReadParam param = reader.getDefaultReadParam();
+                param.setSourceSubsampling(Math.max(1, reader.getWidth(0) / SAMPLE_EDGE),
+                        Math.max(1, reader.getHeight(0) / SAMPLE_EDGE), 0, 0);
+                return averageHash(reader.read(0, param));
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    static Long averageHash(BufferedImage img) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+        if (w < 8 || h < 8) {
+            return null;
+        }
+        double[] sum = new double[64];
+        int[] count = new int[64];
+        for (int y = 0; y < h; y++) {
+            int row = y * 8 / h * 8;
+            for (int x = 0; x < w; x++) {
+                int rgb = img.getRGB(x, y);
+                int cell = row + x * 8 / w;
+                sum[cell] += 0.299 * ((rgb >> 16) & 0xFF) + 0.587 * ((rgb >> 8) & 0xFF) + 0.114 * (rgb & 0xFF);
+                count[cell]++;
+            }
+        }
+        double mean = 0;
+        for (int i = 0; i < 64; i++) {
+            sum[i] /= count[i];
+            mean += sum[i] / 64;
+        }
+        long hash = 0;
+        for (int i = 0; i < 64; i++) {
+            hash = (hash << 1) | (sum[i] >= mean ? 1 : 0);
+        }
+        return hash;
+    }
+
+    public static String toHex(long hash) {
+        return String.format("%016x", hash);
+    }
+
+    public static List<String> fromGallery(List<String> urls) {
+        if (urls == null) {
+            return null;
+        }
+        return urls.stream().filter(Objects::nonNull).map(KEYED_URL::matcher)
+                .filter(Matcher::find).map(m -> m.group(1)).toList();
+    }
+
+    /** Malformed hashes drop the duplicate signal, not the listing submission. */
     public static Long parse(String hex) {
         if (hex == null || hex.length() != HEX_LENGTH) {
             return null;
@@ -57,22 +107,15 @@ public final class PhotoHash {
         }
     }
 
-    /** Hamming distance: how many of the 64 bits differ. 0 is identical, 64 is the inverse image. */
     public static int distance(long a, long b) {
         return Long.bitCount(a ^ b);
     }
 
-    /** True when two hashes are close enough to be the same photograph. */
     public static boolean sameShot(long a, long b) {
         return distance(a, b) <= THRESHOLD;
     }
 
-    /**
-     * The four 16-bit bands, in the same order as the generated columns.
-     *
-     * <p>The mask is what makes this correct for a hash with the top bit set: {@code >>} sign-extends,
-     * and the mask throws the extension away.
-     */
+    /** The four 16-bit bands, in the same order as the generated columns. */
     public static int[] bands(long hash) {
         return new int[] {
             (int) ((hash >> 48) & 0xFFFF),

@@ -1,6 +1,5 @@
 package com.draazy.api.catalog.listing;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -11,11 +10,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.catalog.property.PhotoHash;
 import com.draazy.api.catalog.property.PropertyMapper;
 import com.draazy.api.common.error.GlobalExceptionHandler;
 import com.draazy.api.security.AuthPrincipal;
-import jakarta.validation.Validation;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,7 +55,7 @@ class ListingGalleryPolicyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 10})
+    @ValueSource(ints = {0, 20})
     void acceptsCreateAndUpdateAtTheGalleryBoundary(int count) throws Exception {
         List<String> images = images(count);
         mvc.perform(post("/me/listings").contentType(MediaType.APPLICATION_JSON)
@@ -68,11 +65,12 @@ class ListingGalleryPolicyTest {
                         .content(json.writeValueAsString(Map.of("images", images))))
                 .andExpect(status().isOk());
         verify(listings).create(eq(OWNER), argThat(body -> body.images().equals(images)));
-        verify(listings).update(eq(OWNER), eq("existing"), argThat(body -> body.images().equals(images)));
+        verify(listings).update(argThat(actor -> actor.userId().equals(OWNER)), eq("existing"),
+                argThat(body -> body.images().equals(images)));
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {11, 20, 10_000})
+    @ValueSource(ints = {21, 10_000})
     void refusesOversizedCreateAndExistingGalleryUpdateRatherThanTruncating(int count) throws Exception {
         List<String> images = images(count);
         mvc.perform(post("/me/listings").contentType(MediaType.APPLICATION_JSON)
@@ -91,18 +89,18 @@ class ListingGalleryPolicyTest {
         mvc.perform(patch("/me/listings/existing").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"Updated title\"}"))
                 .andExpect(status().isOk());
-        verify(listings).update(eq(OWNER), eq("existing"), argThat(body -> body.images() == null));
+        verify(listings).update(argThat(actor -> actor.userId().equals(OWNER)), eq("existing"),
+                argThat(body -> body.images() == null));
     }
 
-    /**
-     * A null element is the one shape {@code @Size} and {@code @Pattern} both wave through, and {@code List.copyOf}
-     * throws on it. Without the element-level {@code @NotNull} that is a 500 on a fixable body.
-     */
+    // Without the element-level `@NotNull` that is a 500 on a fixable body.
     @ParameterizedTest
     @ValueSource(strings = {"images", "amenities", "tenants"})
     void aNullListElementIsRefusedRatherThanThrownOn(String field) throws Exception {
         String body = "{\"title\":\"Home\",\"deal\":\"rent\",\"propertyType\":\"Flat\",\"price\":25000,"
-                + "\"locality\":\"Baner\",\"city\":\"Pune\",\"" + field + "\":[null]}";
+                + "\"locality\":\"Baner\",\"city\":\"Pune\","
+                + ("images".equals(field) ? "" : "\"images\":[\"https://cdn.example/photo.jpg\"],")
+                + "\"" + field + "\":[null]}";
         mvc.perform(post("/me/listings").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.fields[0].field").value(Matchers.startsWith(field)));
@@ -111,19 +109,6 @@ class ListingGalleryPolicyTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.fields[0].field").value(Matchers.startsWith(field)));
         verifyNoInteractions(listings);
-    }
-
-    @Test
-    void galleryCapDoesNotChangeThePhotoHashCap() {
-        assertThat(PhotoHash.MAX_PER_LISTING).isEqualTo(20);
-        try (var factory = Validation.buildDefaultValidatorFactory()) {
-            var validator = factory.getValidator();
-            for (Class<?> dto : List.of(ListingCreate.class, ListingUpdate.class)) {
-                assertThat(validator.validateValue(dto, "images", null)).isEmpty();
-                assertThat(validator.validateValue(dto, "photoHashes", images(20))).isEmpty();
-                assertThat(validator.validateValue(dto, "photoHashes", images(21))).hasSize(1);
-            }
-        }
     }
 
     private String createBody(List<String> images) {

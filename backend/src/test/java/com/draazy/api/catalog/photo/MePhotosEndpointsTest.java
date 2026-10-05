@@ -9,26 +9,17 @@ import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockMultipartFile;
 
-/**
- * {@code POST /me/photos} — the public photo upload path.
- *
- * <p>Organised around what makes this different from the document vault: the object goes to the
- * <em>public</em> bucket (so the returned URL is an unsigned CDN URL, not a signed one), it is
- * image-only (an SVG or a mislabelled file is refused, because the bucket is world-readable), and it
- * is authenticated but not owner-scoped (there is no property to scope to at upload time).
- *
- * <p>Runs under the {@code dev} profile, so {@code MockFileStorage} is the wired {@link
- * com.draazy.api.provider.FileStorage}: its {@code storePublic} returns a relative
- * {@code /api/dev/storage/public/...} URL served by {@code DevStorageController}, which stands in
- * for the R2 CDN URL that the live test ({@code R2FileStorageLiveTest}) proves against the real
- * bucket. It used to answer on {@code https://mock.storage.local/}, a host that does not resolve,
- * so no photo uploaded in dev could be displayed or hashed (D246).
- */
+// Listing photos go to the public bucket, so uploads are image-only
+// and authenticated without property ownership scope.
 class MePhotosEndpointsTest extends AbstractApiTest {
 
     private static final String MOCK_PUBLIC = "/api/dev/storage/public/photos/";
@@ -44,11 +35,8 @@ class MePhotosEndpointsTest extends AbstractApiTest {
     }
 
     private static MockMultipartFile png(String name) {
-        byte[] pngMagic = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0};
-        return new MockMultipartFile("file", name, "image/png", pngMagic);
+        return new MockMultipartFile("file", name, "image/png", TinyImages.png());
     }
-
-    // ---------------- happy path ----------------
 
     @Test
     void uploadsToThePublicBucketAndReturnsAnUnsignedOwnerScopedCdnUrl() throws Exception {
@@ -61,48 +49,34 @@ class MePhotosEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.url").exists())
                 .andReturn().getResponse().getContentAsString();
 
-        // The key is server-minted and scoped by owner id; the URL is the public (unsigned) CDN URL,
-        // not a signed one — no ?sig= as the private download URLs carry.
         assertThat(json).contains(MOCK_PUBLIC + owner.getId() + "/");
         assertThat(json).doesNotContain("sig=");
     }
 
-    // ---------------- refusals ----------------
-
-    @Test
-    void refusesSvg_becauseThePublicBucketMustNotServeActiveContent() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusedUploads")
+    void refusesAnythingButARealImage(String name, MockMultipartFile file) throws Exception {
         User owner = user("9822003002");
 
         mvc.perform(multipart(Routes.MePhotos.BASE)
-                        .file(new MockMultipartFile("file", "logo.svg", "image/svg+xml",
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
+    }
+
+    static Stream<Arguments> refusedUploads() {
+        return Stream.of(
+                Arguments.of("refusesSvg_becauseThePublicBucketMustNotServeActiveContent",
+                        new MockMultipartFile("file", "logo.svg", "image/svg+xml",
                                 "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>1</script></svg>"
-                                        .getBytes()))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
-    }
-
-    @Test
-    void refusesHtmlDisguisedAsAPng() throws Exception {
-        User owner = user("9822003003");
-
-        mvc.perform(multipart(Routes.MePhotos.BASE)
-                        .file(new MockMultipartFile("file", "shot.png", "image/png",
-                                "<html><script>alert(1)</script></html>".getBytes()))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
-    }
-
-    @Test
-    void refusesAPdf_becausePhotosArePublicAndDocumentsAreNot() throws Exception {
-        User owner = user("9822003004");
-
-        mvc.perform(multipart(Routes.MePhotos.BASE)
-                        .file(new MockMultipartFile("file", "deed.pdf", "application/pdf",
-                                "%PDF-1.4 deed".getBytes()))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType());
+                                        .getBytes())),
+                Arguments.of("refusesHtmlDisguisedAsAPng",
+                        new MockMultipartFile("file", "shot.png", "image/png",
+                                "<html><script>alert(1)</script></html>".getBytes())),
+                Arguments.of("refusesAPdf_becausePhotosArePublicAndDocumentsAreNot",
+                        new MockMultipartFile("file", "deed.pdf", "application/pdf",
+                                "%PDF-1.4 deed".getBytes())));
     }
 
     @Test
