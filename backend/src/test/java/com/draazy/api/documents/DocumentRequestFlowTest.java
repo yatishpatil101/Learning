@@ -170,17 +170,6 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    @Test
-    void requestAccess_requiresAuthentication() throws Exception {
-        User owner = user("9820002008", "owner");
-        Property p = listing(owner, "Anon ask flat");
-
-        mvc.perform(post(Routes.Documents.REQUESTS)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"propertyId\":\"" + p.getId() + "\"}"))
-                .andExpect(status().isUnauthorized());
-    }
-
     // ---------------- GET /me/documents/requests ----------------
 
     @Test
@@ -303,13 +292,6 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.content[0].propertyId").value(third.getId().toString()));
-    }
-
-    /** No token, no list. The route is the buyer's own history and there is no anonymous view. */
-    @Test
-    void myAsks_requireAuthentication() throws Exception {
-        mvc.perform(get(Routes.MeDocumentRequests.BASE))
-                .andExpect(status().isUnauthorized());
     }
 
     /**

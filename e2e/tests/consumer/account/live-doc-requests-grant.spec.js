@@ -1,39 +1,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/liveAuth.js';
 
-/*
- * The **owner** grants a document request from the dashboard Leads inbox, against the live API.
- *
- * The sibling `live-buyer-document-access.spec.js` already proves the grant *contract* — but it
- * grants by calling `PATCH /me/documents/requests/{reqId}` directly. Nothing anywhere drove the
- * owner's actual screen, and that screen is the reason the retired mock spec existed: the dashboard
- * used to read its inbox straight from `localStorage` while the Documents tab read it through
- * `documentService`, so the two disagreed and a grant issued from the Leads inbox never reached the
- * server. A test that grants over the API cannot fail for that, because it never touches the
- * surface that was wrong.
- *
- * ## What the mock version could not do
- *
- * Its closing assertion read `draazyDocReq:<owner>` out of the browser it had just written it in,
- * and checked `sharedDocIds` against two file ids the spec itself had invented. Here the grant is
- * read back through `GET /me/documents/requests` **outside the browser**, so "the seam wrote
- * through" is a statement about Postgres rather than about localStorage.
- *
- * ## Fixture strategy
- *
- * Same discipline as `live-buyer-document-access`, for the same reasons:
- *
- *   - **The buyer is a throwaway** (`signedInAsNew`), never `ACTORS.buyer` — `platform/
- *     live-verification-disclaimer` files a request as Rahul against `p5021` and expects to find it
- *     pending. It is given a real name over `PATCH /auth/me`, because the inbox row is identified on
- *     screen by the requester's name and a freshly registered account has none; deriving the
- *     expected label from an account that might be nameless would make the assertion conditional,
- *     which is a skipped test wearing a assertion's clothes.
- *   - **The two categories are neither `Sale Deed` nor `Society NOC`.** Those slots belong to
- *     `live-property-integration`'s vault round-trip and to `live-buyer-document-access`
- *     respectively, and three specs sharing one vault would take turns failing on each other's
- *     leftovers. Both uploads are removed in teardown.
- */
+/* This drives the owner's actual grant screen and verifies the write outside the browser, so a
+   dashboard-only local copy cannot pass as a database grant. */
 
 /** Not `Sale Deed` (live-property-integration) and not `Society NOC` (live-buyer-document-access). */
 const CATEGORIES = ['Index II', 'Encumbrance Certificate'];
@@ -42,12 +11,8 @@ const BUYER_NAME = 'Priya Docseeker';
 
 const asOwner = () => authHeaders(ACTORS.owner);
 
-/**
- * The bearer alone, for the multipart uploads.
- *
- * `authHeaders` bakes in `content-type: application/json`, which would replace the multipart
- * boundary Playwright builds and be refused as a 415 by `MeDocumentsController`'s `consumes`.
- */
+/* Multipart uploads need only the bearer; `authHeaders` would replace Playwright's form boundary
+   with JSON and be refused as 415. */
 async function bearerOnly(mobile) {
   return { authorization: (await authHeaders(mobile)).authorization };
 }
@@ -102,8 +67,8 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
 
     const buyer = await signedInAsNew(page);
     const buyerAuth = await authHeaders(buyer);
-    /* A registered-but-unnamed account renders as a blank in the inbox. Naming it makes the
-       on-screen identity assertion unconditional. */
+    /* A registered-but-unnamed account renders blank in the inbox; naming it makes the assertion
+       unconditional. */
     const named = await request.patch(`${API}/auth/me`, {
       headers: buyerAuth,
       data: { name: BUYER_NAME },
@@ -119,17 +84,14 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
   });
 
   test.afterEach(async ({ request }) => {
-    // The e2e database resets at the start of a run, not per spec. A file left behind is another
-    // document for the next grant to count, and the failure would then name a number.
+    // The database resets per run, not per spec; a leftover document would skew the next grant count.
     for (const docId of docIds) {
       await request.delete(`${API}/me/documents/${propId}/${docId}`, { headers: await asOwner() });
     }
   });
 
   test('grants from the dashboard UI, and the grant reaches the database', async ({ page, request }) => {
-    /* The expected caption is built from what the server says the request contains, not from the
-       constant above: `EnquiriesPanel.itemDoc` renders `docTypes.slice(0, 3).join(', ')`, and
-       pinning an order the API never promised is how a green spec becomes a flaky one. */
+    /* Build the caption from the server row because the API never promised category order. */
     const before = await ownerRow(request, reqId);
     expect(before.status).toBe('pending');
     const caption = `Wants ${before.categories.length} documents: ${before.categories.slice(0, 3).join(', ')}`;
@@ -156,9 +118,8 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
       /\/api\/me\/documents\/requests\/[^/?]+$/.test(r.url()) && r.request().method() === 'PATCH',
     );
     await grantAll.click();
-    /* The write, on the wire. This is the assertion the retired spec had no way to make, and the
-       exact regression it was blind to: a dashboard that decided the request in its own copy of the
-       inbox rendered every screen below correctly and told the server nothing. */
+    /* The retired screen-only spec could not catch a dashboard that updated its local inbox and told
+       the server nothing. */
     expect((await patched).status(), 'the grant was refused').toBe(200);
 
     // The toast names the real count from the share ledger, not a blanket "granted". Matched
@@ -177,4 +138,3 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
     expect(after.shareToken, 'a granted row carries the owner-facing forwardable token').toBeTruthy();
   });
 });
-

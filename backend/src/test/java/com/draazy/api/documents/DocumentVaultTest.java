@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,22 +13,24 @@ import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.documents.vault.DocumentRepository;
-import com.draazy.api.documents.vault.DocumentUploads;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import java.math.BigDecimal;
+import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.RequestBuilder;
 
-/**
- * The document vault: {@code GET/POST /me/documents/{propId}} and
- * {@code DELETE /me/documents/{propId}/{docId}}.
- *
- * <p>Organised around the invariants rather than the endpoints — strict owner-scoping, the upload
- * allowlist, and the rule that a stored row never carries a persisted URL.
- */
+// Organised around the invariants rather than the endpoints — strict owner-scoping, the upload allowlist, and the
+// rule that a stored row never carries a persisted URL.
 class DocumentVaultTest extends AbstractApiTest {
 
     @Autowired
@@ -68,7 +71,19 @@ class DocumentVaultTest extends AbstractApiTest {
         return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    // ---------------- upload ----------------
+    @Test
+    void uploadDocument_doesNotAskForTheBadgeByItself() throws Exception {
+        User owner = user("9820001091");
+        Property p = listing(owner, "Badge-seeking flat");
+
+        upload(owner, p, "Index II", pdf("index2.pdf"));
+
+        assertThat(properties.findById(p.getId())).get().satisfies(saved -> {
+            assertThat(saved.getStatus()).isEqualTo("approved");
+            assertThat(saved.isRecheckPending()).isFalse();
+            assertThat(saved.isOwnershipRequested()).isFalse();
+        });
+    }
 
     @Test
     void uploadDocument_returnsAMintedUrlThatIsNotStoredOnTheRow() throws Exception {
@@ -79,41 +94,12 @@ class DocumentVaultTest extends AbstractApiTest {
 
         // The wire carries a signed URL; the row carries only an opaque storage key. A URL in the
         // column would be a permanent, un-revocable credential to a title deed.
-        assertThat(documents.findById(java.util.UUID.fromString(id)))
+        assertThat(documents.findById(UUID.fromString(id)))
                 .get()
                 .satisfies(d -> {
                     assertThat(d.getStorageKey()).startsWith("documents/" + p.getId() + "/");
                     assertThat(d.getStorageKey()).doesNotContain("http");
                 });
-    }
-
-    @Test
-    void uploadDocument_refusesATypeThatIsNotADocumentOrAScan() throws Exception {
-        User owner = user("9820001002");
-        Property p = listing(owner, "Html flat");
-
-        // An HTML upload served back from a draazy-looking signed URL is a phishing host.
-        mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
-                        .file(new MockMultipartFile("file", "evil.html", "text/html",
-                                "<script>".getBytes()))
-                        .param("category", "Sale Deed")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
-    }
-
-    @Test
-    void uploadDocument_refusesAFileOverTheSizeCeiling() throws Exception {
-        User owner = user("9820001003");
-        Property p = listing(owner, "Big file flat");
-
-        byte[] tooBig = new byte[(int) DocumentUploads.MAX_BYTES + 1];
-        mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
-                        .file(new MockMultipartFile("file", "huge.pdf", "application/pdf", tooBig))
-                        .param("category", "Sale Deed")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isPayloadTooLarge())
-                .andExpect(jsonPath("$.error").value("payload_too_large"));
     }
 
     @Test
@@ -128,22 +114,6 @@ class DocumentVaultTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.fileName").value("_script_.pdf"));
-    }
-
-    @Test
-    void uploadDocument_refusesHtmlDisguisedAsAPdf() throws Exception {
-        User owner = user("9820001012");
-        Property p = listing(owner, "Disguised flat");
-
-        // The allowlist alone never saw this: the declared type is on it. Only the bytes give the
-        // file away, which is exactly the case the sniff exists for (tech-debt D40).
-        mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
-                        .file(new MockMultipartFile("file", "deed.pdf", "application/pdf",
-                                "<html><script>alert(1)</script>".getBytes()))
-                        .param("category", "Sale Deed")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
     }
 
     @Test
@@ -185,8 +155,6 @@ class DocumentVaultTest extends AbstractApiTest {
         User owner = user("9820001015");
         Property p = listing(owner, "Active content flat");
 
-        // D131: the seam is wired in, and it runs on a file the allowlist and the sniffer both pass
-        // -- these really are the leading bytes of a PDF. Nothing before the scanner looks inside.
         mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
                         .file(new MockMultipartFile("file", "deed.pdf", "application/pdf",
                                 "%PDF-1.7\n/Type/Action/S/JavaScript(app.alert(1))".getBytes()))
@@ -205,8 +173,7 @@ class DocumentVaultTest extends AbstractApiTest {
         User owner = user("9820001016");
         Property p = listing(owner, "Double extension flat");
 
-        // The bytes are a genuine PDF, so every byte-level guard in the vault passes it. The name is
-        // what the recipient's computer reads when they save the download (D131).
+        // The bytes are a genuine PDF, so every byte-level guard in the vault passes it.
         mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
                         .file(new MockMultipartFile("file", "deed.pdf.exe", "application/pdf",
                                 "%PDF-1.4 deed".getBytes()))
@@ -221,15 +188,12 @@ class DocumentVaultTest extends AbstractApiTest {
         User stranger = user("9820001006");
         Property p = listing(owner, "Not yours");
 
-        // 403 would confirm that this listing -- and therefore its paperwork -- exists.
         mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
                         .file(pdf("deed.pdf"))
                         .param("category", "Sale Deed")
                         .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- list ----------------
 
     @Test
     void listDocuments_showsOnlyThisPropertysFiles_newestFirst() throws Exception {
@@ -259,8 +223,6 @@ class DocumentVaultTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- delete ----------------
 
     @Test
     void deleteDocument_removesItFromTheOwnersVault() throws Exception {
@@ -301,12 +263,31 @@ class DocumentVaultTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    @Test
-    void vaultRoutes_requireAuthentication() throws Exception {
-        User owner = user("9820001013");
-        Property p = listing(owner, "Anon flat");
+    static Stream<Arguments> anonymousRequests() {
+        UUID id = UUID.randomUUID();
+        return Stream.of(
+                Arguments.of("GET vault", (Supplier<RequestBuilder>) () ->
+                        get(Routes.MeDocuments.FOR_PROPERTY, id.toString())),
+                Arguments.of("GET personal", (Supplier<RequestBuilder>) () ->
+                        get(Routes.MeDocuments.PERSONAL)),
+                Arguments.of("GET managed", (Supplier<RequestBuilder>) () ->
+                        get(Routes.MeDocuments.FOR_MANAGED, id)),
+                Arguments.of("POST managed", (Supplier<RequestBuilder>) () ->
+                        multipart(Routes.MeDocuments.FOR_MANAGED, id).file(pdf("deed.pdf"))
+                                .param("category", "Sale Deed")),
+                Arguments.of("DELETE managed", (Supplier<RequestBuilder>) () ->
+                        delete(Routes.MeDocuments.MANAGED_BY_ID, id, UUID.randomUUID())),
+                Arguments.of("POST document request", (Supplier<RequestBuilder>) () ->
+                        post(Routes.Documents.REQUESTS).contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"propertyId\":\"" + id + "\"}")),
+                Arguments.of("GET my document requests", (Supplier<RequestBuilder>) () ->
+                        get(Routes.MeDocumentRequests.BASE)));
+    }
 
-        mvc.perform(get(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString()))
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("anonymousRequests")
+    void documentRoutes_requireAuthentication(String route, Supplier<RequestBuilder> request) throws Exception {
+        mvc.perform(request.get())
                 .andExpect(status().isUnauthorized());
     }
 }

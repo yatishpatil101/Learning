@@ -1,9 +1,7 @@
 /* localStorage keys match the HTML prototype's, for data interop. */
 
-import { digits } from '../contact.js';
-
 const DOC_CATEGORIES = {
-  'Title & Ownership': ['Sale Deed', 'Agreement to Sale', 'Mother Deed / Title Chain', 'Conveyance Deed', 'Index II', '7/12 Extract / Property Card', 'Encumbrance Certificate', 'Legal Title Search Report'],
+  'Title & Ownership': ['Sale Deed', 'Agreement to Sale', 'Mother Deed / Title Chain', 'Conveyance Deed', 'Index II', '7/12 Extract', '8A Extract', 'Property Card', 'Power of Attorney', 'Encumbrance Certificate', 'Legal Title Search Report'],
   'Society': ['Society Registration Certificate', 'Society NOC', 'Share Certificate', 'Maintenance Receipt'],
   'Approvals & Plans': ['Sanctioned Building Plan', 'Floor Plan', 'Commencement Certificate', 'Occupancy Certificate', 'Completion Certificate', 'RERA Certificate', 'NA Order (Non-Agricultural)'],
   'Purchase & Payments': ['Allotment Letter', 'Possession Letter', 'Builder Payment Receipts', 'Stamp Duty & Registration Receipt', 'Property Valuation Report'],
@@ -20,7 +18,10 @@ export const DOC_INFO = {
   'Mother Deed / Title Chain': { title: 'Mother Deed / Title Chain', body: 'Traces ownership back through every past owner. Buyers and banks use it to confirm the title is unbroken and dispute-free.' },
   'Conveyance Deed': { title: 'Conveyance Deed', body: 'Transfers land ownership to the society/owner. For flats, a deemed conveyance proves the society legally holds the land under the building.' },
   'Index II': { title: 'Index II', body: 'A one-page summary the registrar issues for a registered deed — names, property details and value. It is the quickest proof that a sale was officially registered.' },
-  '7/12 Extract / Property Card': { title: '7/12 Extract / Property Card', body: 'The government land record (7/12 for land, Property Card for city plots) showing the owner and any loans or charges. Essential to verify who legally holds the land.' },
+  '7/12 Extract': { title: '7/12 Extract', body: 'A village land record showing ownership, crop and mutation details, issued from Mahabhumi / bhulekh.mahabhumi.gov.in.' },
+  '8A Extract': { title: '8A Extract', body: 'A village holding extract showing the owner’s land account, issued from Mahabhumi / bhulekh.mahabhumi.gov.in.' },
+  'Property Card': { title: 'Property Card', body: 'A city-survey ownership record for urban plots, issued from Mahabhumi / bhulekh.mahabhumi.gov.in.' },
+  'Power of Attorney': { title: 'Power of Attorney', body: 'A registered Sub-Registrar document authorising someone to list or act for the owner.' },
   'Encumbrance Certificate': { title: 'Encumbrance Certificate (EC)', body: 'Lists all registered loans, mortgages or claims on the property over a period. A clean EC assures buyers and banks that the property is free of dues.' },
   'Legal Title Search Report': { title: 'Legal Title Search Report', body: 'A lawyer\u2019s report confirming the title is clear and marketable. Banks often insist on it before sanctioning a home loan.' },
 
@@ -53,7 +54,6 @@ export const DOC_INFO = {
 };
 
 export function docInfo(category) { return DOC_INFO[category] || null; }
-
 
 export const HOME_LOAN_CHECKLIST = [
   'Sale Deed', 'Agreement to Sale', 'Index II', 'Encumbrance Certificate',

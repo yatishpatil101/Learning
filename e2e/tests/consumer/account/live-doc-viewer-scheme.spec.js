@@ -42,61 +42,63 @@ test.afterEach(async () => {
 });
 
 test.describe('Document viewer — live storage and content rules', () => {
-  test('a server-stored PNG opens through the vetted viewer URL', async ({ page, context }) => {
-    const owner = await actor(`Zztest Document Viewer ${Date.now()}`);
-    const uploaded = await upload(owner.headers, {
-      name: 'identity.png',
-      type: 'image/png',
-      bytes: PNG,
+  test('a stored PNG opens through the vetted viewer URL, an HTML upload is refused, and the viewer guard never opens an active data URL', async ({ page, context }) => {
+    await test.step('a server-stored PNG opens through the vetted viewer URL', async () => {
+      const owner = await actor(`Zztest Document Viewer ${Date.now()}`);
+      const uploaded = await upload(owner.headers, {
+        name: 'identity.png',
+        type: 'image/png',
+        bytes: PNG,
+      });
+      expect(uploaded.status, 'uploading a viewable image').toBe(201);
+      expect(uploaded.body.url, 'the server response carries a hosted URL, not a browser data URL').not.toMatch(/^data:/);
+      createdDocumentIds.add({ mobile: owner.mobile, id: uploaded.body.id });
+
+      await signedInAs(page, owner.mobile);
+      await page.goto('/dashboard#documents');
+      await expect(page.getByText('identity.png')).toBeVisible();
+
+      const [viewer] = await Promise.all([
+        context.waitForEvent('page'),
+        page.getByRole('button', { name: /^View$/i }).first().click(),
+      ]);
+      await viewer.waitForURL(/\/api\//);
+      expect(viewer.url(), 'the viewer opens the server-owned file URL').toContain('/api/');
+      await viewer.close();
     });
-    expect(uploaded.status, 'uploading a viewable image').toBe(201);
-    expect(uploaded.body.url, 'the server response carries a hosted URL, not a browser data URL').not.toMatch(/^data:/);
-    createdDocumentIds.add({ mobile: owner.mobile, id: uploaded.body.id });
 
-    await signedInAs(page, owner.mobile);
-    await page.goto('/dashboard#documents');
-    await expect(page.getByText('identity.png')).toBeVisible();
+    await test.step('an HTML upload is rejected and never becomes a personal-vault row', async () => {
+      const owner = await actor(`Zztest Document Reject ${Date.now()}`);
+      const before = await fetch(`${API}/me/documents/personal`, { headers: owner.headers });
+      expect(before.status, 'reading the empty personal vault').toBe(200);
+      const initial = await before.json();
 
-    const [viewer] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('button', { name: /^View$/i }).first().click(),
-    ]);
-    await viewer.waitForURL(/\/api\//);
-    expect(viewer.url(), 'the viewer opens the server-owned file URL').toContain('/api/');
-    await viewer.close();
-  });
+      const rejected = await upload(owner.headers, {
+        name: 'unsafe.html',
+        type: 'text/html',
+        bytes: Buffer.from('<script>window.pwned = true</script>'),
+      });
+      expect(rejected.status, 'HTML is not an allowed document media type').toBe(415);
 
-  test('an HTML upload is rejected and never becomes a personal-vault row', async () => {
-    const owner = await actor(`Zztest Document Reject ${Date.now()}`);
-    const before = await fetch(`${API}/me/documents/personal`, { headers: owner.headers });
-    expect(before.status, 'reading the empty personal vault').toBe(200);
-    const initial = await before.json();
-
-    const rejected = await upload(owner.headers, {
-      name: 'unsafe.html',
-      type: 'text/html',
-      bytes: Buffer.from('<script>window.pwned = true</script>'),
+      const after = await fetch(`${API}/me/documents/personal`, { headers: owner.headers });
+      expect(after.status, 'reading the personal vault after the rejected upload').toBe(200);
+      expect(await after.json(), 'the refused upload did not create a previewable row').toEqual(initial);
     });
-    expect(rejected.status, 'HTML is not an allowed document media type').toBe(415);
 
-    const after = await fetch(`${API}/me/documents/personal`, { headers: owner.headers });
-    expect(after.status, 'reading the personal vault after the rejected upload').toBe(200);
-    expect(await after.json(), 'the refused upload did not create a previewable row').toEqual(initial);
-  });
-
-  test('the shared viewer guard never opens an active data URL', async ({ page }) => {
-    await page.goto('/');
-    const opened = await page.evaluate(async () => {
-      const { openDocUrl } = await import('/src/lib/openDoc.js');
-      const original = window.open;
-      let calls = 0;
-      window.open = () => { calls += 1; return null; };
-      try {
-        return { result: openDocUrl('data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='), calls };
-      } finally {
-        window.open = original;
-      }
+    await test.step('the shared viewer guard never opens an active data URL', async () => {
+      await page.goto('/');
+      const opened = await page.evaluate(async () => {
+        const { openDocUrl } = await import('/src/lib/openDoc.js');
+        const original = window.open;
+        let calls = 0;
+        window.open = () => { calls += 1; return null; };
+        try {
+          return { result: openDocUrl('data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='), calls };
+        } finally {
+          window.open = original;
+        }
+      });
+      expect(opened).toEqual({ result: false, calls: 0 });
     });
-    expect(opened).toEqual({ result: false, calls: 0 });
   });
 });

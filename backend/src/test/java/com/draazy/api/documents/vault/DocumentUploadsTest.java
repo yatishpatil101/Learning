@@ -1,7 +1,6 @@
 package com.draazy.api.documents.vault;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.draazy.api.common.error.PayloadTooLargeException;
@@ -12,6 +11,7 @@ import java.util.Arrays;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -125,14 +125,6 @@ class DocumentUploadsTest {
     }
 
     @Test
-    @DisplayName("an honest upload passes")
-    void acceptsAnHonestUpload() {
-        byte[] jpeg = bytes(0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10);
-        assertThatCode(() -> DocumentUploads.validate("image/jpeg", jpeg.length, jpeg))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
     void acceptsJpgAndHeifAliases() {
         byte[] jpeg = bytes(0xFF, 0xD8, 0xFF, 0xE0);
         byte[] heif = isoBmff("mif1");
@@ -149,18 +141,11 @@ class DocumentUploadsTest {
                 .isEqualTo(DocumentUploads.PDF);
     }
 
-    @ParameterizedTest
-    @ValueSource(longs = {0, 999_999, 1_000_000})
-    void refuses1000000ActualBytesRegardlessOfClaim(long claimedSize) {
-        byte[] content = Arrays.copyOf("%PDF-1.7".getBytes(StandardCharsets.US_ASCII), 1_000_000);
+    @ParameterizedTest(name = "claimed {0}, actual {1}")
+    @CsvSource({"0, 1000000", "999999, 1000000", "1000000, 1000000", "1000000, 8"})
+    void refusesTheLimitFromEitherActualOrClaimedSize(long claimedSize, int actualSize) {
+        byte[] content = Arrays.copyOf("%PDF-1.7".getBytes(StandardCharsets.US_ASCII), actualSize);
         assertThatThrownBy(() -> DocumentUploads.validate("application/pdf", claimedSize, content))
-                .isInstanceOf(PayloadTooLargeException.class);
-    }
-
-    @Test
-    void refuses1000000ClaimedBytesEvenWhenActualContentIsSmall() {
-        byte[] content = "%PDF-1.7".getBytes(StandardCharsets.US_ASCII);
-        assertThatThrownBy(() -> DocumentUploads.validate("application/pdf", 1_000_000, content))
                 .isInstanceOf(PayloadTooLargeException.class);
     }
 

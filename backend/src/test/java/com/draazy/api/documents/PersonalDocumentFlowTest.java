@@ -54,22 +54,6 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
         return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    // ---------------- routing ----------------
-
-    @Test
-    void personalRoute_outranksThePropIdTemplate_soItReachesThePersonalHandler() throws Exception {
-        User owner = user("9821002001");
-
-        // If `personal` were read as a {propId}, this would resolve to the vault handler and 404 as
-        // an unknown property. It is a literal segment, so it wins over the template (the same
-        // resolution rule that keeps /me/documents/requests out of the vault) and returns the
-        // caller's — empty — personal list instead.
-        mvc.perform(get(Routes.MeDocuments.PERSONAL)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
-    }
-
     // ---------------- upload ----------------
 
     @Test
@@ -104,19 +88,6 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.url").exists());
     }
 
-    @Test
-    void uploadPersonal_refusesHtmlDisguisedAsAPdf() throws Exception {
-        User owner = user("9821002004");
-
-        mvc.perform(multipart(Routes.MeDocuments.PERSONAL)
-                        .file(new MockMultipartFile("file", "aadhaar.pdf", "application/pdf",
-                                "<html><script>alert(1)</script>".getBytes()))
-                        .param("category", "Aadhaar Card")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
-    }
-
     // ---------------- list ----------------
 
     @Test
@@ -133,12 +104,6 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].category").value("PAN Card"))
                 .andExpect(jsonPath("$[0].propertyId").value("personal"));
-    }
-
-    @Test
-    void personalRoutes_requireAuthentication() throws Exception {
-        mvc.perform(get(Routes.MeDocuments.PERSONAL))
-                .andExpect(status().isUnauthorized());
     }
 
     // ---------------- delete ----------------

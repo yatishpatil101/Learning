@@ -138,20 +138,6 @@ class ManagedPropertyDocumentTest extends AbstractApiTest {
     }
 
     @Test
-    void upload_refusesHtmlDisguisedAsAPdf() throws Exception {
-        User owner = user("9841004004");
-        String managedId = record(owner, "Baner");
-
-        mvc.perform(multipart(Routes.MeDocuments.FOR_MANAGED, managedId)
-                        .file(new MockMultipartFile("file", "deed.pdf", "application/pdf",
-                                "<html><script>alert(1)</script>".getBytes()))
-                        .param("category", "Sale Deed")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
-    }
-
-    @Test
     void upload_toSomeoneElsesRecordIs404_beforeAnyBytesAreStored() throws Exception {
         User owner = user("9841004005");
         User stranger = user("9841004006");
@@ -291,19 +277,5 @@ class ManagedPropertyDocumentTest extends AbstractApiTest {
         // a feature" V20 refused.
         assertThat(managedDocuments.findByManagedPropertyIdOrderByUploadedAtDescIdDesc(
                 UUID.fromString(managedId))).isEmpty();
-    }
-
-    @Test
-    void everyRouteRequiresAuth() throws Exception {
-        UUID id = UUID.randomUUID();
-
-        mvc.perform(get(Routes.MeDocuments.FOR_MANAGED, id))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(multipart(Routes.MeDocuments.FOR_MANAGED, id)
-                        .file(pdf("deed.pdf"))
-                        .param("category", "Sale Deed"))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(delete(Routes.MeDocuments.MANAGED_BY_ID, id, UUID.randomUUID()))
-                .andExpect(status().isUnauthorized());
     }
 }

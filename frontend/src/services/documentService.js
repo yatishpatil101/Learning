@@ -7,13 +7,14 @@ const provider = createProvider('document');
 
 export const listDocuments = async (mobile, propId) => (await provider()).listDocuments(mobile, propId);
 
-/**
- * `prepared` is for a caller that already ran the file through `prepareUpload` — the listing wizard,
- * which prepares at the picker. Preparing is the default: vault callers hand over a raw input file.
- */
 export const uploadDocument = async (mobile, propId, upload) => {
   const file = upload.prepared ? upload.file : await prepareUpload(upload.file, { document: true });
   return (await provider()).uploadDocument(mobile, propId, { ...upload, file });
+};
+
+export const uploadPersonalDocument = async (upload) => {
+  const file = await prepareUpload(upload.file, { document: true });
+  return (await provider()).uploadPersonalDocument({ ...upload, file });
 };
 
 export const deleteDocument = async (mobile, propId, docId) =>

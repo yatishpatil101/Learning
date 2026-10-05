@@ -19,6 +19,7 @@ import com.draazy.api.catalog.managed.ManagedProperty;
 import com.draazy.api.catalog.managed.ManagedPropertyRepository;
 import com.draazy.api.catalog.photo.MePhotosController;
 import com.draazy.api.catalog.photo.PhotoService;
+import com.draazy.api.catalog.photo.TinyImages;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.audit.AuditService;
@@ -42,6 +43,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -99,8 +101,16 @@ class UploadPolicyEndpointsTest {
     static Stream<Arguments> acceptedUploads() {
         return Arrays.stream(Vault.values()).flatMap(vault ->
                 Stream.of("jpeg", "jpg", "png", "heic", "heif", "pdf")
-                        .filter(format -> vault != Vault.PHOTO || !format.equals("pdf"))
+                        .filter(format -> vault != Vault.PHOTO || List.of("jpeg", "jpg", "png").contains(format))
                         .map(format -> Arguments.of(vault, format)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"heic", "heif"})
+    void thePublicPhotoBucketRefusesHeic(String format) throws Exception {
+        mvc.perform(multipart(path(Vault.PHOTO)).file(file(format, 999_999, 999_999)))
+                .andExpect(status().isUnsupportedMediaType());
+        verifyNoInteractions(storage);
     }
 
     @ParameterizedTest
@@ -158,6 +168,21 @@ class UploadPolicyEndpointsTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = Vault.class, names = {"PROPERTY", "PERSONAL", "MANAGED"})
+    void refusesHtmlDeclaredAsHtmlOrDisguisedAsAPdf(Vault vault) throws Exception {
+        MockMultipartFile[] files = {
+            new MockMultipartFile("file", "evil.html", "text/html", "<script>".getBytes(StandardCharsets.US_ASCII)),
+            new MockMultipartFile("file", "deed.pdf", "application/pdf",
+                    "<html><script>alert(1)</script>".getBytes(StandardCharsets.US_ASCII))};
+        for (MockMultipartFile file : files) {
+            mvc.perform(multipart(path(vault)).file(file).param("category", "Ownership"))
+                    .andExpect(status().isUnsupportedMediaType())
+                    .andExpect(jsonPath("$.error").value("unsupported_media_type"));
+        }
+        verifyNoInteractions(storage, documents, personal, managed);
+    }
+
+    @ParameterizedTest
     @EnumSource(Vault.class)
     void storesActualLengthRatherThanAnUnderstatedClaim(Vault vault) throws Exception {
         MockMultipartFile file = file("png", 999_999, 8);
@@ -186,6 +211,10 @@ class UploadPolicyEndpointsTest {
             assertThatExceptionOfType(UnsupportedMediaTypeException.class).isThrownBy(() ->
                     service.uploadForServiceRequest(PROPERTY, request, "agreement", file));
         }
+        MockMultipartFile html = new MockMultipartFile("file", "payload.html", "text/html",
+                "<script>".getBytes(StandardCharsets.US_ASCII));
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class).isThrownBy(() ->
+                service.uploadForServiceRequest(PROPERTY, request, "agreement", html));
         verifyNoInteractions(storage, documents, personal, managed);
     }
 
@@ -208,12 +237,19 @@ class UploadPolicyEndpointsTest {
     }
 
     private static MockMultipartFile file(String format, int actualSize, long claimedSize) {
-        return new MockMultipartFile("file", "scan." + format, mime(format),
-                Arrays.copyOf(signature(format), actualSize)) {
+        return new MockMultipartFile("file", "scan." + format, mime(format), bytes(format, actualSize)) {
             @Override
             public long getSize() {
                 return claimedSize;
             }
+        };
+    }
+
+    private static byte[] bytes(String format, int size) {
+        return switch (format) {
+            case "jpeg", "jpg" -> TinyImages.jpeg(size);
+            case "png" -> TinyImages.png(size);
+            default -> Arrays.copyOf(signature(format), size);
         };
     }
 

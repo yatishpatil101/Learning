@@ -1,39 +1,4 @@
-/**
- * `Document` / `DocumentRequest` (wire) → the view models the owner document surfaces render.
- *
- * Both owner and requester operations cross the seam. The same request mapper feeds the owner's
- * inbox and the buyer's status list; the requester projection has a redacted `shareToken`, while
- * the signed-in document read uses the request id plus JWT instead. Every reconciliation below has
- * a wrong answer that looks right.
- *
- * ## 1. Vault file — signed URL, not a data URL
- *
- * The contract returns a short-lived signed `url` minted at read time (never stored, not stable
- * between two reads). The dev backend points that URL at `mock.storage.local`, which does not
- * resolve in the browser, so the *rendered file* degrades in dev exactly as the service-request
- * draft does.
- *
- * ## 2. Request category — one string vs a list
- *
- * The contract carries a `categories[]` array (a buyer can ask for several at once) while the inbox
- * view keys on `docType`, so the first category becomes `docType` and the whole list is preserved
- * as `categories` for a surface that wants it. A multi-category server request thus renders under
- * its first category — documented rather than hidden, because inventing N view rows from one
- * request would fabricate acknowledgements the buyer only gave once.
- *
- * ## 3. Requester mobile is masked, always
- *
- * `DocumentRequest.requester.mobile` is masked on this surface by contract — the inbox never
- * reveals a number (the contact gate is the only place that does). It maps straight to `buyerMobile`
- * without any attempt to unmask; a granted request's identity still arrives masked.
- *
- * ## 4. Share token / expiry are read-only owner affordances
- *
- * On grant the server mints a `shareToken` (and an `expiresAt`), surfaced so an owner can re-send
- * the link they issued. Neither is the signed-in buyer's credential — that read is requester-scoped
- * by the session.
- */
-
+/* Signed URLs are read-time values, never stable storage identifiers. */
 /** ISO instant → epoch ms. 0 for a missing date, so a sort never produces NaN. */
 function epoch(iso) {
   if (!iso) return 0;
@@ -41,12 +6,6 @@ function epoch(iso) {
   return Number.isNaN(t) ? 0 : t;
 }
 
-/**
- * One wire `Document` → the vault view model the owner surfaces render.
- *
- * `dataUrl` is null here (the bytes live behind the signed `url`, not inline); a viewer that finds
- * no `dataUrl` falls back to `url`.
- */
 export function toDoc(dto) {
   if (!dto) return null;
   return {
@@ -63,13 +22,6 @@ export function toDoc(dto) {
 
 export const toDocList = (rows) => (Array.isArray(rows) ? rows.map(toDoc).filter(Boolean) : []);
 
-/**
- * One wire `DocumentRequest` → the inbox view model.
- *
- * `categories[]` collapses to a single `docType` (the first) for the inbox's per-document row, with
- * the full list kept alongside. `shareToken`/`expiresAt` are the owner's re-send affordance; both
- * are null until the request is granted.
- */
 export function toRequest(dto) {
   if (!dto) return null;
   const categories = Array.isArray(dto.categories) ? dto.categories : [];
@@ -77,6 +29,7 @@ export function toRequest(dto) {
   return {
     id: dto.id,
     propId: dto.propertyId,
+    requesterId: requester.id || dto.requesterId || '',
     buyerName: requester.name || 'Buyer',
     buyerMobile: requester.mobile || '',
     docType: categories[0] || 'Document',
@@ -92,11 +45,7 @@ export function toRequest(dto) {
 
 export const toRequestList = (rows) => (Array.isArray(rows) ? rows.map(toRequest).filter(Boolean) : []);
 
-/**
- * The tracker/inbox speaks `'granted'`/`'declined'`; so does the contract's `StatusUpdate`. The
- * decision is passed through as-is, guarded to the two the server accepts so a typo becomes a
- * client-side no-op rather than a 422 the owner cannot act on.
- */
+/* Guard decisions to the two server statuses so typos fail closed as `declined`. */
 export function toStatusUpdate(decision, note) {
   const status = decision === 'granted' ? 'granted' : 'declined';
   return { status, note: note || '' };

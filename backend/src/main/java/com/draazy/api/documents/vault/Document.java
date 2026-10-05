@@ -30,7 +30,8 @@ import org.hibernate.annotations.CreationTimestamp;
 @Getter
 public class Document extends AuditedEntity {
 
-    @Column(name = "property_id", nullable = false, updatable = false)
+    /** Null only for a service-request file on a flat that was never listed (V40). */
+    @Column(name = "property_id", updatable = false)
     private UUID propertyId;
 
     /** Free text by contract ("Sale Deed", "Index II") — the vocabulary is the UI's, not the DB's. */
@@ -54,12 +55,10 @@ public class Document extends AuditedEntity {
      * Set when this file belongs to a service request (the old V7) — a draft agreement, the registered
      * copy, a document ops asked the customer for.
      *
-     * <p>It does <em>not</em> replace {@link #propertyId}: a service-request document is still
-     * about a flat, so it appears in that property's vault as well. That migration's comment read "a document
-     * may belong to a service request <em>instead of</em> a property", but every service Draazy
-     * sells is about a specific listing, so the {@code NOT NULL} added by the old V20 stands and this is an additional
-     * link rather than an alternative one. {@code ServiceRequestService} refuses a doc upload on a
-     * request with no property rather than letting a null through.
+     * <p>When the request names a listing the file carries its {@link #propertyId} too. A rent
+     * agreement is often drafted for a flat that was never listed, so one of the two is enough
+     * ({@code documents_subject_check}, V40). Property-scoped vault reads exclude these rows either
+     * way — see {@code DocumentRepository}.
      */
     @Column(name = "service_request_id")
     private UUID serviceRequestId;

@@ -25,7 +25,7 @@ public class DocumentMapper {
     public DocumentDto toDto(Document d) {
         return new DocumentDto(
                 d.getId().toString(),
-                d.getPropertyId().toString(),
+                d.getPropertyId() == null ? null : d.getPropertyId().toString(),
                 d.getCategory(),
                 d.getFileName(),
                 storage.signedDownloadUrl(d.getStorageKey()),
