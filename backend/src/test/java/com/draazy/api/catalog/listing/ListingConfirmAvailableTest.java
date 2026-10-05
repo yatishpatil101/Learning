@@ -22,21 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The anti-staleness heartbeat: {@code POST /me/listings/{id}/confirm-available} (V86).
- *
- * <p>The freshness badge is derived from one stored instant, so almost everything worth asserting
- * here is about what the write does <em>not</em> touch. Confirming availability is the single
- * most-repeated owner action the platform asks for, and every plausible "while we're here" —
- * re-moderate it, clear the re-check, bring it back from the archive — turns answering a nudge into
- * a way for an owner to hurt themselves or to dismiss a moderator. Each of those is a case below.
- *
- * <p>The positive cases pin the two halves the feature exists for: the instant is persisted (so it
- * survives the browser that produced it, which is the defect this replaces) and it is visible to a
- * stranger reading the public listing (so the badge means something to the buyer it is shown to).
- *
- * <p>Fixtures: owners created inline; listings created approved via the repository.
- */
+// The confirmation instant must persist server-side and appear on public detail,
+// or the buyer-facing badge means nothing.
 @DisplayName("Listings — the owner confirms a listing is still available")
 class ListingConfirmAvailableTest extends AbstractApiTest {
 
@@ -65,6 +52,14 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
         return "/me/listings/" + p.getId() + "/confirm-available";
     }
 
+    private String pausePath(Property p) {
+        return "/me/listings/" + p.getId() + "/pause";
+    }
+
+    private String resumePath(Property p) {
+        return "/me/listings/" + p.getId() + "/resume";
+    }
+
     @Test
     @DisplayName("a fresh listing has never been confirmed, and says so rather than guessing")
     void neverConfirmedReadsAsNull() throws Exception {
@@ -78,7 +73,7 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("confirming stamps the instant and returns the listing carrying it")
+    @DisplayName("confirming stamps the instant, keeps the listing approved, and returns it carrying the stamp")
     void confirmingStampsTheInstant() throws Exception {
         User o = owner("9876500102");
         Property p = approvedListing(o);
@@ -87,7 +82,8 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
         mvc.perform(post(confirmPath(p))
                         .header(HttpHeaders.AUTHORIZATION, bearer(o)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.lastConfirmedAt").exists());
+                .andExpect(jsonPath("$.lastConfirmedAt").exists())
+                .andExpect(jsonPath("$.status").value("approved"));
 
         Property saved = properties.findById(p.getId()).orElseThrow();
         assertThat(saved.getLastConfirmedAt())
@@ -114,25 +110,11 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("confirming does not send an approved listing back for moderation")
-    void confirmingDoesNotRevertStatus() throws Exception {
-        User o = owner("9876500104");
-        Property p = approvedListing(o);
-
-        mvc.perform(post(confirmPath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
-                .andExpect(status().isOk())
-                // The one that would make the nudge self-defeating: an owner answering "still
-                // available" would take their own listing out of search to do it.
-                .andExpect(jsonPath("$.status").value("approved"));
-    }
-
-    @Test
     @DisplayName("confirming does not clear a moderator's pending re-check")
     void confirmingDoesNotClearARecheck() throws Exception {
         User o = owner("9876500105");
         Property p = approvedListing(o);
 
-        // A price edit is the stays-live half of Q14: still approved, but queued for a moderator.
         mvc.perform(patch("/me/listings/" + p.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -142,6 +124,7 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
 
         mvc.perform(post(confirmPath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
                 .andExpect(status().isOk())
+
                 // Otherwise any owner could dismiss their own re-check with one tap, which is the
                 // cheapest way to get an unreviewed price back in front of buyers.
                 .andExpect(jsonPath("$.recheckPending").value(true));
@@ -155,6 +138,7 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
 
         mvc.perform(post(confirmPath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
                 .andExpect(status().isOk());
+
         // "Confirm all" on the dashboard sweeps every listing the owner has, and the owner cannot
         // see which ones the badge already considers fresh.
         mvc.perform(post(confirmPath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
@@ -169,14 +153,83 @@ class ListingConfirmAvailableTest extends AbstractApiTest {
         User theirs = owner("9876500108");
         Property p = approvedListing(theirs);
 
-        // 404 rather than 403 throughout /me/listings: existence is never confirmed to a caller who
-        // does not own the row.
         mvc.perform(post(confirmPath(p)).header(HttpHeaders.AUTHORIZATION, bearer(mine)))
                 .andExpect(status().isNotFound());
 
         assertThat(properties.findById(p.getId()).orElseThrow().getLastConfirmedAt())
                 .as("a rejected confirmation must not have written anything")
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("an owner can pause a live listing and keep its detail link reachable")
+    void ownerCanPauseALiveListing() throws Exception {
+        User o = owner("9876500109");
+        Property p = approvedListing(o);
+
+        mvc.perform(post(pausePath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("paused"));
+
+        mvc.perform(get("/properties/" + p.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("paused"));
+        mvc.perform(get("/properties").param("q", "Bright 2BHK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("an owner can resume only their own paused listing")
+    void ownerCanResumeAPausedListing() throws Exception {
+        User o = owner("9876500110");
+        Property p = approvedListing(o);
+
+        mvc.perform(post(pausePath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk());
+        mvc.perform(post(resumePath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"));
+    }
+
+    @Test
+    @DisplayName("a paused evidence edit stays queued after resume")
+    void pausedEvidenceEditSurvivesResume() throws Exception {
+        User o = owner("9876500113");
+        Property p = approvedListing(o);
+
+        mvc.perform(post(pausePath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk());
+        mvc.perform(patch("/me/listings/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{" + listingImages(o) + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("paused"))
+                .andExpect(jsonPath("$.recheckPending").value(true));
+
+        mvc.perform(post(resumePath(p)).header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").value(true));
+    }
+
+    @Test
+    @DisplayName("pause and resume are owner-scoped and state-scoped")
+    void pauseAndResumeRejectIllegalTransitions() throws Exception {
+        User mine = owner("9876500111");
+        User theirs = owner("9876500112");
+        Property live = approvedListing(theirs);
+        Property pending = approvedListing(mine);
+        pending.setStatus(PropertyStatus.PENDING);
+        properties.saveAndFlush(pending);
+
+        mvc.perform(post(pausePath(live)).header(HttpHeaders.AUTHORIZATION, bearer(mine)))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(pausePath(pending)).header(HttpHeaders.AUTHORIZATION, bearer(mine)))
+                .andExpect(status().isConflict());
+        mvc.perform(post(resumePath(live)).header(HttpHeaders.AUTHORIZATION, bearer(theirs)))
+                .andExpect(status().isConflict());
     }
 
     @Test

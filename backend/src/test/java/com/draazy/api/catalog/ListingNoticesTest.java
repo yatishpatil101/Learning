@@ -33,10 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * What the server says for itself when a listing is edited or looks like somebody else's. The assertions are
- * about <em>who is talking</em>: a platform note must come back as {@code ops}, or it counts as owner-read.
- */
+// The assertions are about who is talking: a platform note must come back as `ops`, or it counts as owner-read.
 @DisplayName("Listing writes — server-authored re-review notes and duplicate flags")
 class ListingNoticesTest extends AbstractApiTest {
 
@@ -64,10 +61,8 @@ class ListingNoticesTest extends AbstractApiTest {
         return user(mobile, Roles.Wire.OWNER);
     }
 
-    /**
-     * A moderator with the ordinary staff baseline, which includes the {@code properties:read} grant the
-     * service reads before rendering staff-only notes. Contrast {@link #aStaffAccountWithoutTheGrantIsNotAChecker}.
-     */
+    // Staff notes require the ordinary baseline, including `properties:read`.
+    // The narrowed-account test below proves the grant is load-bearing.
     private User staff(String mobile) {
         return user(mobile, Roles.Wire.STAFF);
     }
@@ -82,46 +77,51 @@ class ListingNoticesTest extends AbstractApiTest {
     }
 
     /** A create body with only the fields these tests care about; everything else takes its default. */
-    private static String body(String meter, String address) {
+    private String body(String token, String meter, String address) {
+        User photoOwner = users.findById(jwtService.parse(token.replace("Bearer ", "")).userId()).orElseThrow();
         return """
                 {"title":"2BHK in Kothrud","deal":"rent","propertyType":"apartment","price":32000,
-                 "bhk":2,"locality":"Kothrud","city":"Pune","floor":4
+                 "bhk":2,"locality":"Kothrud","city":"Pune","floor":4,%s
                  %s %s}
                 """.formatted(
+                listingImages(photoOwner),
                 meter == null ? "" : ",\"electricityMeterNo\":\"" + meter + "\"",
                 address == null ? "" : ",\"address\":\"" + address + "\"");
     }
 
     private UUID create(String token, String meter, String address) throws Exception {
         String json = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, token)
-                        .contentType(MediaType.APPLICATION_JSON).content(body(meter, address)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body(token, meter, address)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(com.jayway.jsonpath.JsonPath.read(json, "$.id"));
     }
 
-    /* BASE/NEAR differ by two bits in the last band, so they are a band candidate AND a real match; BANDED_BUT_DISTANT
-       shares those bands but is sixteen bits away, telling "the query found it" apart from "the comparison accepted it". */
     private static final String BASE = "ffff0000ffff0000";
     private static final String NEAR = "ffff0000ffff0003";
     private static final String BANDED_BUT_DISTANT = "ffff0000ffffffff";
 
-    private static String photoBody(String... hashes) {
+    private static String photoUrl(User owner, String hash) {
+        return "/api/dev/storage/public/photos/" + owner.getId() + "/" + UUID.randomUUID() + "-" + hash;
+    }
+
+    private static String imagesJson(User owner, String... hashes) {
+        return Arrays.stream(hashes).map(h -> '"' + photoUrl(owner, h) + '"')
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
+    private static String photoBody(User owner, String... hashes) {
         return """
                 {"title":"2BHK in Kothrud","deal":"rent","propertyType":"apartment","price":32000,
                  "bhk":2,"locality":"Kothrud","city":"Pune","floor":4,
-                 "photoHashes":[%s]}
-                """.formatted(Arrays.stream(hashes).map(h -> '"' + h + '"')
-                        .collect(java.util.stream.Collectors.joining(",")));
+                 "images":[%s]}
+                """.formatted(imagesJson(owner, hashes));
     }
 
-    /**
-     * Create a listing carrying photo hashes and nothing the doorway arm can use: with a meter or address
-     * present, a collision could be explained by {@code flagSameDoorway} and prove nothing about photos.
-     */
     private UUID createWithPhotos(String token, String... hashes) throws Exception {
+        User photoOwner = users.findById(jwtService.parse(token.replace("Bearer ", "")).userId()).orElseThrow();
         String json = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, token)
-                        .contentType(MediaType.APPLICATION_JSON).content(photoBody(hashes)))
+                        .contentType(MediaType.APPLICATION_JSON).content(photoBody(photoOwner, hashes)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(com.jayway.jsonpath.JsonPath.read(json, "$.id"));
@@ -141,7 +141,7 @@ class ListingNoticesTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"price\":34000}"))
                 .andExpect(status().isOk())
-                // Stays live, which is the half of Q14 this note has to be consistent with.
+
                 .andExpect(jsonPath("$.status").value(PropertyStatus.APPROVED))
                 .andExpect(jsonPath("$.recheckPending").value(true));
 
@@ -167,8 +167,6 @@ class ListingNoticesTest extends AbstractApiTest {
             properties.saveAndFlush(p);
         });
 
-        // The desk's queue is sorted by last_message_at, so a note is a bid for the front of it. An owner
-        // nudging their own price is the cheapest such bid, and the second nudge is news to nobody.
         patchOk(id, token, "{\"price\":34000}");
         patchOk(id, token, "{\"price\":34001}");
         patchOk(id, token, "{\"price\":34002}");
@@ -189,7 +187,6 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.messages.length()").value(2))
                 .andExpect(jsonPath("$.messages[1].body").value(containsString("You updated: furnishing")));
 
-        // And the re-check itself still names both fields: the note was skipped, not the work item.
         assertThat(properties.findById(id).orElseThrow().getRecheckReason())
                 .isEqualTo("price, furnishing");
     }
@@ -235,6 +232,7 @@ class ListingNoticesTest extends AbstractApiTest {
         User owner = owner("9820000532");
         String token = bearer(owner);
         UUID id = create(token, null, null);
+
         // Approved, because the control at the end of this test is a stays-live edit, which only raises
         // anything on a live listing. See aPendingListingIsNotToldItStaysLive for the other half.
         properties.findById(id).ifPresent(p -> {
@@ -253,8 +251,6 @@ class ListingNoticesTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isNotFound());
 
-        // The same 404 would come back if VerificationCases were never wired to this route at all, so a
-        // second, genuinely material edit on the same listing is what makes the assertion above load-bearing.
         mvc.perform(patch("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"price\":41000}"))
                 .andExpect(status().isOk());
@@ -269,15 +265,14 @@ class ListingNoticesTest extends AbstractApiTest {
     void aPendingListingIsNotToldItStaysLive() throws Exception {
         User owner = owner("9820000552");
         String token = bearer(owner);
-        // Left pending, which is where every listing starts.
+
         UUID id = create(token, null, null);
 
         mvc.perform(patch("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"price\":41000}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PropertyStatus.PENDING))
-                // Property.requestRecheck refuses on a listing that is not publicly visible: it is already
-                // in front of a moderator, and a second work item for the same row is queue noise.
+
                 .andExpect(jsonPath("$.recheckPending").value(false));
 
         // The note has to refuse with it, or an off-search listing's owner is told "your listing stays live"
@@ -293,20 +288,16 @@ class ListingNoticesTest extends AbstractApiTest {
         String firstToken = bearer(owner("9820000533"));
         UUID first = create(firstToken, "MSEDCL-170045321", null);
         Property firstListing = properties.findById(first).orElseThrow();
-        // Whatever the note will name it by — slug once one is minted, id until then.
+
         String firstRef = firstListing.getSlug() == null
                 ? first.toString() : firstListing.getSlug();
 
         String secondToken = bearer(owner("9820000534"));
         UUID second = create(secondToken, "MSEDCL-170045321", null);
 
-        // Created as normal. A collision is a suspicion, not a finding — refusing it would make an
-        // honest owner argue with a string comparison.
         assertThat(properties.findById(second)).get()
                 .extracting(Property::getStatus).isEqualTo(PropertyStatus.PENDING);
 
-        // The owner sees nothing: a note that reached them would let anyone submit a throwaway listing with a
-        // guessed meter number and read their own thread — an oracle for the column the mapper refuses to return.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, secondToken))
                 .andExpect(status().isNotFound());
@@ -325,6 +316,25 @@ class ListingNoticesTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("a paused duplicate still flags for ops")
+    void aPausedDuplicateStillFlagsForOps() throws Exception {
+        UUID first = create(bearer(owner("9820000544")), "MSEDCL-170045399", null);
+        properties.findById(first).ifPresent(p -> {
+            p.setStatus(PropertyStatus.PAUSED);
+            properties.saveAndFlush(p);
+        });
+
+        UUID second = create(bearer(owner("9820000545")), "MSEDCL-170045399", null);
+
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115545"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(1))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("Possible duplicate")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(first.toString())));
+    }
+
+    @Test
     @DisplayName("the write routes answer a flagged owner exactly as they answer an unflagged one")
     void theOracleIsClosedOnEveryRouteAndNotJustTheReadOne() throws Exception {
         create(bearer(owner("9820000540")), "MSEDCL-170046200", null);
@@ -332,12 +342,9 @@ class ListingNoticesTest extends AbstractApiTest {
         String flaggedToken = bearer(owner("9820000541"));
         UUID flagged = create(flaggedToken, "MSEDCL-170046200", null);
 
-        // The control: an owner nobody collided with, on a listing with no case file at all.
         String cleanToken = bearer(owner("9820000542"));
         UUID clean = create(cleanToken, "MSEDCL-170046201", null);
 
-        /* A status code is an oracle whenever it varies with a fact the caller may not know. Asserting sameness,
-         * not refusal: refusing lets an attacker mute an honest owner's thread by colliding on purpose. */
         for (UUID id : new UUID[] {flagged, clean}) {
             String token = id.equals(flagged) ? flaggedToken : cleanToken;
             mvc.perform(post("/properties/" + id + "/verification/read")
@@ -348,8 +355,7 @@ class ListingNoticesTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"body\":\"is something wrong with my listing?\"}"))
                     .andExpect(status().isCreated())
-                    // And the reply the flagged owner gets back is the same shape: their own
-                    // message, and no sign of the finding that is sitting beside it.
+
                     .andExpect(jsonPath("$.messages.length()").value(1))
                     .andExpect(jsonPath("$.messages[0].from").value("owner"));
         }
@@ -363,8 +369,6 @@ class ListingNoticesTest extends AbstractApiTest {
         String secondToken = bearer(owner("9820000539"));
         create(secondToken, "MSEDCL-170046100", null);
 
-        // The queue is the second half of the oracle: leaving the card on the dashboard tells the owner the
-        // platform found something. So the case is absent until it holds something addressed to them.
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, secondToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0));
@@ -377,8 +381,8 @@ class ListingNoticesTest extends AbstractApiTest {
 
         String secondToken = bearer(owner("9820000543"));
         UUID second = create(secondToken, "MSEDCL-170046200", null);
-        // Approved after the flag was filed, because the owner-addressed note below is a stays-live one and
-        // those are only raised on a live listing. The duplicate note is already filed and is not rewritten.
+
+        // The duplicate note is already filed and is not rewritten.
         properties.findById(second).ifPresent(p -> {
             p.setStatus(PropertyStatus.APPROVED);
             properties.saveAndFlush(p);
@@ -397,7 +401,6 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.messages[0].body").value(
                         org.hamcrest.Matchers.containsString("You updated: price")));
 
-        // Staff read the same case file and get both, in the order they were written.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115543"))))
                 .andExpect(status().isOk())
@@ -453,8 +456,6 @@ class ListingNoticesTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, secondToken))
                 .andExpect(status().isNotFound());
 
-        // And nothing is filed against the listing that was there first. It did nothing. A listing
-        // with no findings has no case file at all, which is what 404 means on this route.
         mvc.perform(get("/properties/" + first + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115571"))))
                 .andExpect(status().isNotFound());
@@ -467,8 +468,6 @@ class ListingNoticesTest extends AbstractApiTest {
 
         UUID distant = createWithPhotos(bearer(owner("9820000563")), BANDED_BUT_DISTANT);
 
-        // This pair IS returned by findBandCandidates — three of four bands identical — so no case file means
-        // PhotoHash.sameShot turned it away; a listing with no findings 404s on this route.
         mvc.perform(get("/properties/" + distant + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115562"))))
                 .andExpect(status().isNotFound());
@@ -487,6 +486,7 @@ class ListingNoticesTest extends AbstractApiTest {
     @DisplayName("your own photographs on your own second listing are not a duplicate")
     void thePhotoArmSkipsTheSameOwner() throws Exception {
         User both = owner("9820000564");
+
         // Two listings need two slots, and the free allowance is one.
         plans.grant(both.getId(), TestPlanGrants.OWNER_PLUS);
         String token = bearer(both);
@@ -515,12 +515,13 @@ class ListingNoticesTest extends AbstractApiTest {
     void changingPhotographsReprobes() throws Exception {
         UUID first = createWithPhotos(bearer(owner("9820000565")), BASE);
 
-        String secondToken = bearer(owner("9820000566"));
+        User secondOwner = owner("9820000566");
+        String secondToken = bearer(secondOwner);
         UUID second = createWithPhotos(secondToken, BANDED_BUT_DISTANT);
 
         mvc.perform(patch("/me/listings/" + second).header(HttpHeaders.AUTHORIZATION, secondToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"photoHashes\":[\"" + NEAR + "\"]}"))
+                        .content("{\"images\":[" + imagesJson(secondOwner, NEAR) + "]}"))
                 .andExpect(status().isOk());
 
         // Nothing in signalOf moved, so only the photo set can have re-run the probe. This is the edit the
@@ -534,22 +535,42 @@ class ListingNoticesTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("a hash the client sends is ignored — only the server's, carried in the upload key, counts")
+    void aClientClaimedHashIsIgnored() throws Exception {
+        createWithPhotos(bearer(owner("9820000591")), BASE);
+
+        User claimant = owner("9820000592");
+        String json = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(claimant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"2BHK in Kothrud","deal":"rent","propertyType":"apartment","price":32000,
+                                 "bhk":2,"locality":"Kothrud","city":"Pune","floor":4,
+                                 "images":["%s"],"photoHashes":["%s"]}
+                                """.formatted(listingPhoto(claimant), BASE)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID claimed = UUID.fromString(com.jayway.jsonpath.JsonPath.read(json, "$.id"));
+
+        mvc.perform(get("/properties/" + claimed + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115591"))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("the catch-up sweep reaches a listing whose only signal is its photographs")
     void theSweepReadsPhotoOnlyListings() throws Exception {
-        // Photographs are the only thing either listing is findable by. The first is the interesting side: the
-        // second did not exist when it was written, so its create-time probe had nothing to find.
+
+        // Photographs are the only thing either listing is findable by.
         UUID first = createWithPhotos(bearer(owner("9820000572")), BASE);
         UUID second = createWithPhotos(bearer(owner("9820000573")), NEAR);
 
         String staffToken = bearer(staff("9871115572"));
 
-        // The precondition, asserted rather than assumed: nothing is on file against the first
-        // listing yet. Without this the assertion below would pass on a note that was already there.
+        // The precondition, asserted rather than assumed: nothing is on file against the first listing yet.
         mvc.perform(get("/properties/" + first + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, staffToken))
                 .andExpect(status().isNotFound());
-        // And the positive anchor for the fixture: the pair really does collide, so a silent sweep below means
-        // the sweep did not reach the listing rather than that there was nothing to find.
+
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, staffToken))
                 .andExpect(status().isOk())
@@ -557,8 +578,6 @@ class ListingNoticesTest extends AbstractApiTest {
 
         probe.resweepRecent(Instant.now().minus(Duration.ofMinutes(20)), 500);
 
-        // What findRecentSignalCarrying's photo clause buys: selecting on meter and address alone skips this
-        // listing, leaving the earlier owner of a stolen photograph the one person never told.
         mvc.perform(get("/properties/" + first + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, staffToken))
                 .andExpect(status().isOk())
@@ -630,13 +649,11 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.address").doesNotExist());
     }
 
-    /**
-     * Sets {@code flagReason} on an approved listing — a state the service takes care never to produce — so the
-     * projection answers for itself, rather than the column's absence resting on three call sites remembering.
-     */
+    // Forces the projection to prove `flagReason` is hidden for approved listings,
+    // instead of trusting every caller to omit it.
     @Test
-    @DisplayName("the flag reason is the desk's note, not the listing's, on every consumer read")
-    void theFlagReasonNeverReachesAConsumerResponse() throws Exception {
+    @DisplayName("the flag reason reaches only the desk, never the public or the listing owner")
+    void theFlagReasonReachesOnlyStaff() throws Exception {
         User owner = owner("9820000549");
         String token = bearer(owner);
         UUID id = create(token, null, null);
@@ -646,16 +663,28 @@ class ListingNoticesTest extends AbstractApiTest {
             properties.saveAndFlush(p);
         });
 
-        // Not to a stranger, signed out...
         mvc.perform(get("/properties/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.flagReason").doesNotExist());
 
-        // ...nor to the owner: the shorthand is written for colleagues and usually repeats what somebody
-        // reported, so handing it back hands back the reporter. The owner is owed the verification thread.
+        mvc.perform(get("/properties/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner("9820000550"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flagReason").doesNotExist());
+
+        mvc.perform(get("/properties/" + id).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flagReason").doesNotExist());
+
         mvc.perform(get("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.flagReason").doesNotExist());
+
+        mvc.perform(get("/properties/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115570"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flagReason")
+                        .value("reporter says the photos are from a hotel listing"));
 
         // And the assertion that stops this from being satisfied by dropping the field: the desk
         // still gets it, from the queue the desk actually reads.
@@ -671,7 +700,7 @@ class ListingNoticesTest extends AbstractApiTest {
     void theNoteCarriesEnoughToActOn() throws Exception {
         String firstToken = bearer(owner("9820000544"));
         UUID first = create(firstToken, "MSEDCL-170049100", null);
-        // The incumbent: live, and its owner has proved who they are.
+
         properties.findById(first).ifPresent(p -> {
             p.setStatus(PropertyStatus.APPROVED);
             p.setOwnerVerified(true);
@@ -715,7 +744,6 @@ class ListingNoticesTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(narrowed)))
                 .andExpect(status().isNotFound());
 
-        // The control: same role, same route, grant intact.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115547"))))
                 .andExpect(status().isOk())
@@ -725,17 +753,15 @@ class ListingNoticesTest extends AbstractApiTest {
     @Test
     @DisplayName("a flag on an old case file lifts it back up the ops queue instead of sinking")
     void anInternalNoteResurfacesTheCase() throws Exception {
-        // The incumbent, holding the meter number that will be collided with later.
+
         create(bearer(owner("9820000548")), "MSEDCL-170049300", null);
 
-        // An old case: opened by its owner, then left alone.
         String ownerToken = bearer(owner("9820000549"));
         UUID stale = create(ownerToken, null, null);
         mvc.perform(post("/properties/" + stale + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, ownerToken))
                 .andExpect(status().isCreated());
 
-        // A newer case arrives after it, so the old one is not at the head of the queue.
         String otherToken = bearer(owner("9820000550"));
         UUID newer = create(otherToken, null, null);
         mvc.perform(post("/properties/" + newer + "/verification")
@@ -764,17 +790,16 @@ class ListingNoticesTest extends AbstractApiTest {
     @Test
     @DisplayName("a society that does not exist is not a society this listing can join")
     void anUnknownSocietyIsRefused() throws Exception {
-        String token = bearer(owner("9820000551"));
+        User o = owner("9820000551");
+        String token = bearer(o);
 
-        // The foreign key already refused an id naming nothing, but at flush, as a 409 on a request that
-        // conflicts with nothing. The boundary check buys the honest status code, not a claim of membership.
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"2BHK in Kothrud","deal":"rent","propertyType":"apartment",
                                  "price":32000,"bhk":2,"locality":"Kothrud","city":"Pune",
-                                 "societyId":"00000000-0000-4000-8000-00000000dead"}
-                                """))
+                                 "societyId":"00000000-0000-4000-8000-00000000dead",%s}
+                                """.formatted(listingImages(o))))
                 .andExpect(status().isNotFound());
     }
 
@@ -782,6 +807,7 @@ class ListingNoticesTest extends AbstractApiTest {
     @DisplayName("the same owner listing the same meter twice is housekeeping, not fraud")
     void oneOwnerDoesNotCollideWithThemselves() throws Exception {
         User owner = owner("9820000535");
+
         // Two live listings is over the free tier's one. Granted rather than worked around: seeding the second
         // past the endpoint would skip the reindex that creates the collision this test looks for.
         plans.grant(owner.getId(), TestPlanGrants.OWNER_PLUS);
@@ -789,8 +815,6 @@ class ListingNoticesTest extends AbstractApiTest {
         create(token, "MSEDCL-170045999", null);
         UUID second = create(token, "MSEDCL-170045999", null);
 
-        // Asked as staff: the owner gets a 404 either way, so an owner-scoped read would pass no matter what
-        // the probe did.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115535"))))
                 .andExpect(status().isNotFound());
@@ -803,8 +827,6 @@ class ListingNoticesTest extends AbstractApiTest {
 
         UUID second = create(bearer(owner("9820000537")), null, null);
 
-        // Every arm of findDuplicateCandidates is a plain `=`, so NULL is unknown rather than true — one
-        // well-meant `coalesce` from opening a case against every owner who skipped the optional fields.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115537"))))
                 .andExpect(status().isNotFound());
@@ -822,7 +844,6 @@ class ListingNoticesTest extends AbstractApiTest {
         assertThat(AddressKey.of("Flat 403, B Wing, Rohan Nilay, Baner", "Pune", "Baner"))
                 .isNotEqualTo(a);
 
-        // An address made entirely of filler carries no signal, and null is how the probe is told so.
         assertThat(AddressKey.of("The society building", "Pune", "Baner")).isNull();
         assertThat(AddressKey.of(null, "Pune", "Baner")).isNull();
 
@@ -837,29 +858,26 @@ class ListingNoticesTest extends AbstractApiTest {
         String firstToken = bearer(owner("9820000560"));
         UUID first = create(firstToken, "MSEDCL-170047100", null);
 
-        /* Staging the race a single-threaded test cannot have: created meterless so the probe early-outs, then
-        the meter written straight onto the entity — the state two concurrent commits leave under READ COMMITTED. */
+        // Staging the race a single-threaded test cannot have: created meterless
+        // so the probe early-outs, then the second writer adds the same meter.
         String secondToken = bearer(owner("9820000561"));
         UUID second = create(secondToken, null, null);
         Property racer = properties.findById(second).orElseThrow();
         racer.setElectricityMeterNo("MSEDCL-170047100");
-        // Both columns, because the write path sets both: a raw meter with no derived key is a row only this
-        // test could invent, and staging an impossible row would make the sweep look broken.
         racer.setElectricityMeterKey(MeterKey.of("MSEDCL-170047100"));
         properties.saveAndFlush(racer);
 
         String staffToken = bearer(staff("9871115560"));
 
-        // Neither listing knows about the other. This assertion is the point of the test: without it
-        // the one below would pass on a note the create path had already filed.
+        // Neither listing knows about the other; otherwise the later assertion
+        // could pass on a note the create path already filed.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, staffToken))
                 .andExpect(status().isNotFound());
 
         probe.resweepRecent(Instant.now().minus(Duration.ofMinutes(20)), 500);
 
-        // Both sides get the finding. The sweep has no notion of who was first, so a desk opening either case
-        // file sees the collision rather than having to know to look at the twin.
+        // The sweep has no notion of who was first, so both desks must see the collision.
         mvc.perform(get("/properties/" + second + "/verification")
                         .header(HttpHeaders.AUTHORIZATION, staffToken))
                 .andExpect(status().isOk())
@@ -871,8 +889,7 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.messages[0].body").value(containsString("Possible duplicate")));
 
-        /* The window is twice the period, so consecutive ticks re-read the same listing by design. The second
-        pass must be silent or an unworked collision grows a note every ten minutes; postInternalOnce holds it. */
+        // Consecutive ticks intentionally re-read the same window; the second pass must stay silent.
         probe.resweepRecent(Instant.now().minus(Duration.ofMinutes(20)), 500);
 
         mvc.perform(get("/properties/" + second + "/verification")
@@ -891,8 +908,8 @@ class ListingNoticesTest extends AbstractApiTest {
         racer.setElectricityMeterNo("MSEDCL-170047200");
         properties.saveAndFlush(racer);
 
-        /* A window reaching back further than it claims still catches the race, while turning a bounded per-tick
-        scan into one that grows with the platform. Ending it before these writes is the only way to see the bound. */
+        // Ending the bounded scan before these writes is the only way to prove it
+        // is not quietly growing with the platform.
         probe.resweepRecent(Instant.now().plus(Duration.ofMinutes(1)), 500);
 
         mvc.perform(get("/properties/" + second + "/verification")

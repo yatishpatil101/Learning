@@ -1,8 +1,8 @@
 import Icon from '../../../../components/Icon.jsx';
 import { CHIP_ACCENT } from './helpers.js';
-
 // One uniform stat chip used across the whole performance strip. Optional onClick
 // turns it into a focusable button (e.g. Leads → jump to the leads tab).
+
 export default function StatChip({ icon, value, label, tone = 'muted', onClick, title, ariaLabel }) {
   const accent = CHIP_ACCENT[tone] || CHIP_ACCENT.muted;
   const Tag = onClick ? 'button' : 'div';
@@ -20,7 +20,7 @@ export default function StatChip({ icon, value, label, tone = 'muted', onClick, 
       <Icon name={icon} className={'w-4 h-4 flex-shrink-0 ' + accent} />
       <span className="leading-tight min-w-0">
         <span className={'block text-xs font-bold tabular-nums truncate ' + (tone === 'muted' ? 'text-white' : accent)}>{value}</span>
-        <span className="block text-[10px] text-gray-500">{label}</span>
+        <span className="block text-xs text-gray-500">{label}</span>
       </span>
     </Tag>
   );

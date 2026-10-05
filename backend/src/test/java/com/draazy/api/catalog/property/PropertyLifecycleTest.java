@@ -1,6 +1,5 @@
 package com.draazy.api.catalog.property;
 
-import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.identity.user.User;
@@ -9,14 +8,16 @@ import com.draazy.api.security.AuthPrincipal;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.context.ApplicationEventPublisher;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PropertyLifecycleTest {
     private final AccountPermissions permissions = mock(AccountPermissions.class);
-    private final PropertyLifecycle lifecycle = new PropertyLifecycle(permissions);
+    private final PropertyLifecycle lifecycle =
+            new PropertyLifecycle(permissions, mock(ApplicationEventPublisher.class),
+                    (actor, property, secondApprovalSatisfied) -> {
+                    });
     private final AuthPrincipal staff = new AuthPrincipal(UUID.randomUUID(), "staff", null, true, false);
     private Property property;
 
@@ -28,62 +29,66 @@ class PropertyLifecycleTest {
         property.setLocalitySlug("baner");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"flagged", "rejected", "sold", "rented", "archived"})
-    void verificationAndManualStagesCannotReviveInactiveStatuses(String status) {
-        property.setStatus(status);
-        assertThatThrownBy(() -> lifecycle.verify(staff, property)).isInstanceOf(ConflictException.class);
-        assertThatThrownBy(() -> lifecycle.correct(staff, property, "live")).isInstanceOf(ConflictException.class);
-        assertThatThrownBy(() -> lifecycle.correct(staff, property, "in_review")).isInstanceOf(ConflictException.class);
-        assertThat(property.getStatus()).isEqualTo(status);
-        assertThat(property.getLifecycleStage()).isNull();
+    @Test void staffListingCannotPublishUntilTheOwnerConfirms() {
+        property.markPostedOnBehalf(UUID.randomUUID().toString());
+        assertThatThrownBy(() -> lifecycle.publish(staff, property))
+                .isInstanceOfSatisfying(ConflictException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("owner_not_confirmed"));
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.PENDING);
+        property.confirmByOwner();
+        lifecycle.publish(staff, property);
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.APPROVED);
     }
 
-    @Test void archiveAndRestoreRequireFreshVerification() {
-        lifecycle.verify(staff, property);
+    @Test void ownerListingPublishesWithoutConfirmation() {
         lifecycle.publish(staff, property);
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.APPROVED);
+        assertThat(property.getOwnerConfirmedAt()).isNull();
+    }
+
+    @Test void archivedListingCannotPublish() {
         property.archive("Removed");
-        assertThat(property.getLifecycleStage()).isNull();
-        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
-        property.restore();
-        property.revertToPending();
-        assertThat(property.getLifecycleStage()).isEqualTo("submitted");
         assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
     }
 
-    @Test void staffTrackCanBeVerifiedWithoutInventingAnOwnerStage() {
-        property.markPostedOnBehalf(UUID.randomUUID().toString());
-        assertThat(property.getLifecycleStage()).isNull();
-        property.recordLifecycleMedia();
-        lifecycle.verify(staff, property);
-        assertThat(property.getLifecycleStage()).isEqualTo("photos_docs");
-        assertThat(property.getStatus()).isEqualTo("pending");
-        assertThatThrownBy(() -> lifecycle.correct(staff, property, "verified")).isInstanceOf(BadRequestException.class);
+    @Test void startStampsReviewOnceAndReentryClearsIt() {
+        lifecycle.start(staff, property);
+        var started = property.getReviewStartedAt();
+        assertThat(started).isNotNull();
+        lifecycle.start(staff, property);
+        assertThat(property.getReviewStartedAt()).isEqualTo(started);
+        lifecycle.reenterPending(staff, property);
+        assertThat(property.getReviewStartedAt()).isNull();
+    }
+
+    @Test void clarificationThenOwnerReplyKeepsTheListingInReview() {
+        AuthPrincipal owner = new AuthPrincipal(property.getOwner().getId(), "owner", null, true, false);
+        lifecycle.message(staff, property, true);
+        assertThat(property.isAwaitingOwnerInfo()).isTrue();
+        assertThat(property.getReviewStartedAt()).isNotNull();
+        lifecycle.message(owner, property, false);
+        assertThat(property.isAwaitingOwnerInfo()).isFalse();
+        assertThat(property.getReviewStartedAt()).isNotNull();
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.PENDING);
+    }
+
+    @Test void clarificationIsRefusedOnALiveListing() {
         lifecycle.publish(staff, property);
-        property.recordLifecycleMedia();
-        assertThat(property.getLifecycleStage()).isEqualTo("live");
+        assertThatThrownBy(() -> lifecycle.message(staff, property, true)).isInstanceOf(ConflictException.class);
+        assertThat(property.isAwaitingOwnerInfo()).isFalse();
     }
 
-    @Test void resettingStatusInvalidatesThePublicationPrerequisite() {
-        lifecycle.verify(staff, property);
-        property.revertToPending();
-        assertThat(property.getLifecycleVerifiedAt()).isNull();
-        assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ConflictException.class);
+    @Test void ownerMessageDoesNotReopenRejectedListing() {
+        AuthPrincipal owner = new AuthPrincipal(property.getOwner().getId(), "owner", null, true, false);
+        property.setStatus(PropertyStatus.REJECTED);
+        lifecycle.message(owner, property, false);
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.REJECTED);
     }
 
-    @Test void revokedWriteGrantCannotVerifyPublishOrCorrect() {
-        when(permissions.granted(staff, "properties:write")).thenReturn(false);
-        assertThatThrownBy(() -> lifecycle.verify(staff, property)).isInstanceOf(ForbiddenException.class);
+    @Test void revokedWriteGrantCannotPublishOrStart() {
+        when(permissions.granted(staff, "properties:moderate")).thenReturn(false);
+        when(permissions.granted(staff, "properties:verify")).thenReturn(false);
         assertThatThrownBy(() -> lifecycle.publish(staff, property)).isInstanceOf(ForbiddenException.class);
-        assertThatThrownBy(() -> lifecycle.correct(staff, property, "in_review")).isInstanceOf(ForbiddenException.class);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"link_sent", "opened", "photos_docs"})
-    void manualStaffStagesAreStoredWithoutPublishing(String stage) {
-        property.markPostedOnBehalf(UUID.randomUUID().toString());
-        lifecycle.correct(staff, property, stage);
-        assertThat(property.getLifecycleStage()).isEqualTo(stage);
-        assertThat(property.getStatus()).isEqualTo("pending");
+        assertThatThrownBy(() -> lifecycle.start(staff, property)).isInstanceOf(ForbiddenException.class);
     }
 }

@@ -1,28 +1,31 @@
 package com.draazy.api.catalog.property;
 
-import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
-import java.util.Set;
+import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
-/** Catalog mechanics shared by moderation and owner actions, without a reverse dependency. */
 @Component
 public class PropertyLifecycle {
-    private static final Set<String> OWNER = Set.of("submitted", "in_review", "clarification", "verified", "live");
-    private static final Set<String> STAFF = Set.of("link_sent", "opened", "photos_docs", "live");
     private final AccountPermissions permissions;
+    private final ApplicationEventPublisher events;
+    private final PropertyPublicationGate publicationGate;
 
-    public PropertyLifecycle(AccountPermissions permissions) {
+    public PropertyLifecycle(AccountPermissions permissions, ApplicationEventPublisher events,
+            PropertyPublicationGate publicationGate) {
         this.permissions = permissions;
+        this.events = events;
+        this.publicationGate = publicationGate;
     }
 
     public void requireChecker(AuthPrincipal actor, Property property) {
         if (!permissions.granted(actor, BackOfficePermissions.PROPERTIES_READ)
-                || !permissions.granted(actor, BackOfficePermissions.PROPERTIES_WRITE)) {
+                || (!permissions.granted(actor, BackOfficePermissions.PROPERTIES_MODERATE)
+                && !permissions.granted(actor, BackOfficePermissions.PROPERTIES_VERIFY))) {
             throw new ForbiddenException("Property review permission is required");
         }
         if (actor.userId().equals(property.getOwner().getId())
@@ -38,10 +41,8 @@ public class PropertyLifecycle {
         }
     }
 
-    /**
-     * Every locality-keyed read skips a null slug, so a listing published without one is unreachable. Called
-     * by both approve routes before either writes, so a rollback cannot cost a reviewer their verdict.
-     */
+    /** Every locality-keyed read skips a null slug, so a listing published without one is unreachable. Called
+     * by both approve routes before either writes, so a rollback cannot cost a reviewer their verdict. */
     public void requireFiled(Property property) {
         if (property.getLocalitySlug() == null || property.getLocalitySlug().isBlank()) {
             throw new ConflictException("This listing has no locality, so approving it would"
@@ -51,48 +52,34 @@ public class PropertyLifecycle {
         }
     }
 
-    public void verify(AuthPrincipal actor, Property property) {
-        requireChecker(actor, property);
-        requireActive(property);
-        property.recordLifecycleVerification();
+    public void publish(AuthPrincipal actor, Property property) {
+        publish(actor, property, false);
     }
 
-    /** Publication always demands a verification; there is no staff bypass. */
-    public void publish(AuthPrincipal actor, Property property) {
+    public void publishWithSecondApproval(AuthPrincipal actor, Property property) {
+        publish(actor, property, true);
+    }
+
+    private void publish(AuthPrincipal actor, Property property, boolean secondApprovalSatisfied) {
         requireChecker(actor, property);
         requireActive(property);
         requireFiled(property);
-        if (!PropertyStatus.APPROVED.equals(property.getStatus())
-                && property.getLifecycleVerifiedAt() == null) {
-            throw new ConflictException("Verify this listing before publishing it");
+        if (!PropertyStatus.APPROVED.equals(property.getStatus()) && property.awaitsOwnerConfirmation()) {
+            throw new ConflictException("owner_not_confirmed",
+                    "The owner has not confirmed this listing yet. Send the claim link and wait for them to confirm.");
         }
+        publicationGate.requirePublishable(actor, property, secondApprovalSatisfied);
         property.setStatus(PropertyStatus.APPROVED);
         property.setFlagReason(null);
         property.clearRecheck();
-    }
-
-    public void correct(AuthPrincipal actor, Property property, String stage) {
-        requireChecker(actor, property);
-        requireActive(property);
-        Set<String> allowed = "staff".equals(property.getLifecycleTrack()) ? STAFF : OWNER;
-        if (stage == null || !allowed.contains(stage)) {
-            throw new BadRequestException("Invalid lifecycleStage for " + property.getLifecycleTrack() + " track");
-        }
-        if ("live".equals(stage)) {
-            publish(actor, property);
-        } else if ("verified".equals(stage)) {
-            verify(actor, property);
-        } else {
-            property.revertToPending();
-            property.recordLifecycleStage(stage);
-        }
+        events.publishEvent(new PropertyPublished(property.getId()));
     }
 
     public void start(AuthPrincipal actor, Property property) {
         requireChecker(actor, property);
         requireActive(property);
-        if ("submitted".equals(property.getLifecycleStage())) {
-            property.recordLifecycleStage("in_review");
+        if (PropertyStatus.PENDING.equals(property.getStatus())) {
+            property.startReview();
         }
     }
 
@@ -101,22 +88,37 @@ public class PropertyLifecycle {
         if (clarification) {
             requireChecker(actor, property);
             requireActive(property);
-            if (!"owner".equals(property.getLifecycleTrack())
-                    || PropertyStatus.APPROVED.equals(property.getStatus())) {
-                throw new ConflictException("Clarification requires an unpublished owner-track listing");
+            if (PropertyStatus.APPROVED.equals(property.getStatus())) {
+                throw new ConflictException("Clarification requires an unpublished listing");
             }
-            property.revertToPending();
-            property.recordLifecycleStage("clarification");
-        } else if (owner && !property.isArchived()
-                && "owner".equals(property.getLifecycleTrack())
-                && PropertyStatus.REJECTED.equals(property.getStatus())) {
+            reenterPending(actor, property);
+            property.requestInfo();
+        } else if (owner && property.isAwaitingOwnerInfo()
+                && PropertyStatus.PENDING.equals(property.getStatus()) && !property.isArchived()) {
+            property.provideInfo();
+            publishReentry(actor, property);
+        }
+    }
+
+    public void reenterPending(AuthPrincipal actor, Property property) {
+        if (PropertyStatus.REJECTED.equals(property.getStatus())) {
+            throw new ConflictException("second_approver_required",
+                    "A final rejection requires a second staff approver to reopen.");
+        }
+        reenterPendingAfterSecondApproval(actor, property);
+    }
+
+    public void reenterPendingAfterSecondApproval(AuthPrincipal actor, Property property) {
             // The rejection told the owner to reply here to resubmit, and this is the only route out of
             // REJECTED that needs no moderator. Owner-track only: "in_review" is not in the staff vocabulary.
-            property.revertToPending();
-            property.recordLifecycleStage("in_review");
-        } else if (owner && "clarification".equals(property.getLifecycleStage())
-                && PropertyStatus.PENDING.equals(property.getStatus()) && !property.isArchived()) {
-            property.recordLifecycleStage("in_review");
-        }
+        property.revertToPending();
+        publishReentry(actor, property);
+    }
+
+    private void publishReentry(AuthPrincipal actor, Property property) {
+        events.publishEvent(new ReviewReentered(property.getId(), actor.userId().toString(), actor.role()));
+    }
+
+    public record ReviewReentered(UUID propertyId, String actorId, String actorRole) {
     }
 }

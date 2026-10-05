@@ -32,6 +32,7 @@ test('an owner reactivates a dormant listing through the dashboard and the API p
   );
   await confirmAll.click();
   expect((await confirmed).status(), 'reactivating is accepted by the owner-scoped endpoint').toBe(200);
+  await expect(page.getByText(/listings? confirmed as available/i).first()).toBeVisible();
 
   const after = await api('GET', `/me/listings/${dormant.id}`, headers);
   expect(after.status, 're-reading the owner listing after reactivation').toBe(200);
