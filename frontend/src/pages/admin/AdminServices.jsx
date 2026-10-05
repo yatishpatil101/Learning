@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { CheckCircle2, Clock, ConciergeBell, Download, ExternalLink, Hand, Inbox, Loader, Play, Save } from 'lucide-react';
 import { addTicketNote, claimTicket, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
 import { listTeamMembers } from '../../services/teamService.js';
-import { TEAMS as SERVICE_DESKS, TEAM_LABEL as DESK_LABEL } from '../../lib/data/tickets.js';
+import { TEAM_LABEL as DESK_LABEL } from '../../lib/data/tickets.js';
 import { deskFromFunction } from '../../lib/adminModules.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -45,7 +45,6 @@ const PRIORITY_OPTS = [
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
 ];
-const DESK_OPTS = [{ value: '', label: 'All desks' }, ...SERVICE_DESKS.map((d) => ({ value: d, label: DESK_LABEL[d] }))];
 const MODAL_STATUS_OPTS = STATUS_OPTS.filter((o) => o.value);
 
 /* Every count and filter above the table is computed across rows, so a page of the list would make
@@ -90,7 +89,7 @@ function AgeChip({ ticket }) {
   );
 }
 
-export default function AdminServices({ desk = '' }) {
+export default function AdminServices({ desk }) {
   const { toast } = useToast();
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
   const { user, role } = useAuth();
@@ -101,7 +100,6 @@ export default function AdminServices({ desk = '' }) {
   const [loadError, setLoadError] = useState('');
 
   const [q, setQ] = useState('');
-  const [fDesk, setFDesk] = useState('');
   const [fStat, setFStat] = useState('');
   const [fPrio, setFPrio] = useState('');
 
@@ -109,7 +107,7 @@ export default function AdminServices({ desk = '' }) {
   const [form, setForm] = useState({ assigneeId: '', status: 'open', note: '' });
 
   const reload = useCallback(async () => {
-    const res = await listTicketQueue({ size: WINDOW, team: desk || undefined });
+    const res = await listTicketQueue({ size: WINDOW, team: desk });
     setTickets(res.items);
     return res.items;
   }, [desk]);
@@ -121,7 +119,7 @@ export default function AdminServices({ desk = '' }) {
        "Priya" into an id if it has the directory. `OpsQueue` has no directory and is therefore
        self-claim only — this console is the one screen that can hand work to a named colleague. */
     Promise.all([
-      listTicketQueue({ size: WINDOW, team: desk || undefined }),
+      listTicketQueue({ size: WINDOW, team: desk }),
       // `GET /users` is refused to desk staff, who can only claim for themselves.
       role === 'staff' ? [] : listTeamMembers().catch(() => []),
     ]).then(([res, members]) => {
@@ -140,7 +138,7 @@ export default function AdminServices({ desk = '' }) {
     };
   }, [desk, role]);
 
-  const title = desk ? DESK_LABEL[desk] || desk : 'Service Requests';
+  const title = desk === 'loans' ? DESK_LABEL[desk] : `${DESK_LABEL[desk] || desk} tickets`;
 
   const openTicket = useCallback((t) => {
     setOpenId(t.id);
@@ -174,13 +172,12 @@ export default function AdminServices({ desk = '' }) {
     const query = q.toLowerCase();
     return T.filter((t) => {
       return (
-        (!fDesk || t.desk === fDesk) &&
         (!fStat || t.status === fStat) &&
         (!fPrio || t.priority === fPrio) &&
         (!query || (t.id + ' ' + titleOf(t) + ' ' + t.customer + ' ' + (t.detail || '') + ' ' + (t.mobile || '')).toLowerCase().includes(query))
       );
     });
-  }, [tickets, q, fDesk, fStat, fPrio]);
+  }, [tickets, q, fStat, fPrio]);
 
   const deskStaff = useCallback(
     (desk) => staff.filter((s) => s.status === 'active' && memberDesks(s).includes(desk)),
@@ -269,13 +266,7 @@ export default function AdminServices({ desk = '' }) {
     clearOpenParam();
   };
 
-  /* Every early return below still renders the page header.
-     A console that cannot serve is still that console, and an operator who followed a link or a
-     redirect to /admin/services needs to be told where they landed before they are told what is
-     wrong. Returning a bare sentence on an unlabelled page reads as a broken route rather than a
-     working route with nothing behind it — which is how `consolidation.spec.js` caught this: it
-     asserts the /admin/support redirect "lands somewhere real", and the offline branch made it
-     land nowhere. */
+  /* Early returns keep the page header so an operator can tell which desk they landed on. */
   const notice = (body) => (
     <div>
       <PageHeader title={title} subtitle="Route, assign and resolve customer service requests" />
@@ -337,11 +328,6 @@ export default function AdminServices({ desk = '' }) {
     { key: 'detail', header: 'Detail', className: 'text-gray-400', render: (t) => t.detail },
     ...(optionEnabled('services.priority') ? [{ key: 'priority', header: 'Priority', render: (t) => <Badge status={t.priority} /> }] : []),
     { key: 'assignedTo', header: 'Assigned', render: (t) => (t.assignedTo ? t.assignedTo : <span className="text-gray-500">—</span>) },
-    ...(optionEnabled('services.teamRouting') ? [{
-      key: 'desk',
-      header: 'Desk',
-      render: (t) => <span className="text-sm">{DESK_LABEL[t.desk] || t.desk}</span>,
-    }] : []),
     {
       key: 'status',
       header: 'Status',
@@ -368,10 +354,7 @@ export default function AdminServices({ desk = '' }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{titleOf(t)}</div>
-          <div className="mt-0.5 text-xs text-gray-500">
-            {t.id}
-            {optionEnabled('services.teamRouting') ? <> · {DESK_LABEL[t.desk] || t.desk}</> : null}
-          </div>
+          <div className="mt-0.5 text-xs text-gray-500">{t.id}</div>
         </div>
         <div className="shrink-0 text-right">
           <Badge status={t.status} />
@@ -437,7 +420,6 @@ export default function AdminServices({ desk = '' }) {
 
       <div className="dz-card mb-4 flex flex-wrap items-center gap-3 p-3">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search id, customer, detail…" className="dz-input w-full sm:max-w-[240px]" />
-        {!desk && optionEnabled('services.teamRouting') && <Select value={fDesk} onChange={setFDesk} options={DESK_OPTS} ariaLabel="Filter by desk" className="max-w-[200px]" />}
         <Select value={fStat} onChange={setFStat} options={STATUS_OPTS} ariaLabel="Filter by status" className="max-w-[160px]" />
         {optionEnabled('services.priority') && <Select value={fPrio} onChange={setFPrio} options={PRIORITY_OPTS} ariaLabel="Filter by priority" className="max-w-[150px]" />}
         <span className="ml-auto text-sm text-gray-400">
@@ -471,11 +453,6 @@ export default function AdminServices({ desk = '' }) {
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge status={active.status} />
                   {optionEnabled('services.priority') && <Badge status={active.priority} />}
-                  {optionEnabled('services.teamRouting') && (
-                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-gray-300">
-                      {DESK_LABEL[active.desk] || active.desk}
-                    </span>
-                  )}
                 </div>
                 <div className="mt-2 text-sm text-gray-400">
                   {active.customer} · {active.mobile}

@@ -16,41 +16,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/**
- * D213 — the Staff Activity console gets a server.
- *
- * <h2>What was actually wrong</h2>
- *
- * <p>The page read a second, parallel activity log that the frontend wrote to the browser's own
- * storage at each point somebody had remembered to add a {@code logStaffActivity} call. So its
- * completeness was a property of how attentive the last person to edit a page had been, it could not
- * record an action taken through any other client, and it could not record one that failed. It also
- * ranked staff by counts folded out of whatever rows the browser had already fetched, which ranks
- * the page rather than the team.
- *
- * <p>The replacement is a read over {@code audit_log}, which the server writes inside the
- * transaction that does the work.
- *
- * <h2>The assertions that matter most</h2>
- *
- * <p>{@link #staffCannotReadTheirOwnReviewSurface()} — the whole point of the change is that this
- * is the record staff are held to. Serving it under anything weaker than the audit log's own
- * {@code audit:read} would leave a second, unlocked door into rows the first door refuses them.
- *
- * <p>{@link #consumerActionsAreNotStaffActivity()} — consumers write audit rows too. If they leaked
- * into the feed the leaderboard would rank buyers, and "active staff" would count the public.
- */
+/** The Staff Activity feed reads {@code audit_log}, so it needs {@code audit:read}: anything weaker opens a second
+ * door. Consumers write audit rows too and must not count as staff activity. */
 @DisplayName("D213 — staff activity")
 class StaffActivityEndpointTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
 
-    /**
-     * The seed database carries no audit rows, and audit rows written by other tests commit through
-     * the class-level rollback. Both directions are cleaned so the counts below are counts of what
-     * this test put there.
-     */
+    /** Other tests' rows commit past the class rollback and the seed has none; clean both ways for counts. */
     @BeforeEach
     @AfterEach
     void clearCommittedAuditRows() {
@@ -65,12 +39,38 @@ class StaffActivityEndpointTest extends AbstractApiTest {
     }
 
     private void auditRow(User actor, String role, String action, String entity) {
+        auditRow(actor, role, action, entity, "{}");
+    }
+
+    private void auditRow(User actor, String role, String action, String entity, String metadata) {
         jdbc.update("INSERT INTO audit_log (id, actor, actor_role, action, entity, entity_id, metadata, at)"
-                + " VALUES (gen_random_uuid(), ?, ?, ?, ?, 'X1', '{}', now())",
-                actor.getId().toString(), role, action, entity);
+                + " VALUES (gen_random_uuid(), ?, ?, ?, ?, 'X1', ?::jsonb, now())",
+                actor.getId().toString(), role, action, entity, metadata);
     }
 
     // ---------------------------------------------------------------- the feed
+
+    @Test
+    @DisplayName("admins see each action's details; managers do not")
+    void detailsAreAdminOnly() throws Exception {
+        User admin = person("9878000014", Roles.Wire.ADMIN);
+        User manager = person("9878000015", Roles.Wire.MANAGER);
+        User staff = person("9878000016", Roles.Wire.STAFF);
+        auditRow(staff, Roles.Wire.STAFF, "d213.price.change", "property", "{\"from\":100,\"to\":200}");
+
+        mvc.perform(get(Routes.Admin.STAFF_ACTIVITY)
+                        .param("action", "d213.price.change")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].metadata.from").value(100))
+                .andExpect(jsonPath("$.content[0].metadata.to").value(200));
+
+        mvc.perform(get(Routes.Admin.STAFF_ACTIVITY)
+                        .param("action", "d213.price.change")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(manager)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].metadata").isEmpty());
+    }
 
     @Test
     @DisplayName("the feed names the colleague who acted rather than printing their id")
@@ -88,11 +88,7 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].entity").value("user"));
     }
 
-    /**
-     * {@code user.contact.reveal} is recorded against whoever asked, and consumers ask. The scope is
-     * enforced in SQL rather than left to a filter the caller might omit, so this is a test of the
-     * query and not of the console.
-     */
+    /** Consumers also trigger {@code user.contact.reveal}; scope is enforced in SQL, so this tests the query. */
     @Test
     @DisplayName("consumer actions are not staff activity")
     void consumerActionsAreNotStaffActivity() throws Exception {
@@ -107,11 +103,7 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
-    /**
-     * The pattern is {@code d213.%}. Unescaped, {@code %} is SQL's "anything", so a naive
-     * implementation matches the row below and the operator gets rows back believing they narrowed.
-     * Escaped, it asks for a literal per-cent sign after {@code d213.} and correctly finds nothing.
-     */
+    /** Unescaped, {@code %} is SQL's wildcard and would match the row below; escaped, it is literal. */
     @Test
     @DisplayName("free-text search treats a wildcard as a character, not as everything")
     void searchEscapesWildcards() throws Exception {
@@ -127,10 +119,7 @@ class StaffActivityEndpointTest extends AbstractApiTest {
 
     // ---------------------------------------------------------------- the summary
 
-    /**
-     * The leaderboard is the reason this endpoint exists rather than a second call to the audit log:
-     * it has to count every row in the window, not the rows one page happens to hold.
-     */
+    /** The leaderboard must count every row in the window, not just the rows one page holds. */
     @Test
     @DisplayName("the summary counts the whole window, and ranks by it")
     void theSummaryCountsTheWholeWindow() throws Exception {
@@ -154,11 +143,7 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.leaderboard[1].total").value(1));
     }
 
-    /**
-     * The console's category and action pickers are built from this. The mock offered a hardcoded
-     * list containing {@code packers} and {@code interior} — service categories that were never
-     * audit actions, so two of its six filters could only ever return nothing.
-     */
+    /** The console's pickers are built from this; categories like {@code packers} were never audit actions. */
     @Test
     @DisplayName("the summary reports the vocabulary actually present, so filters cannot offer verbs that do not exist")
     void theSummaryReportsTheRealVocabulary() throws Exception {

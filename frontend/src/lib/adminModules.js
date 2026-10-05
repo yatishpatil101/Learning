@@ -1,7 +1,7 @@
 /* Admin tabs use server-resolved atoms from `user.permissions`; the console composes no union. */
 import {
   BarChart3, Building2, Calculator, FileSignature, FileText, Gauge, Gift, Landmark, LayoutDashboard, LifeBuoy,
-  MessageSquare, Paintbrush, Scale, Settings, ShieldCheck, Truck, Users, Wrench, Flag, IndianRupee, UserPlus,
+  MessageSquare, Paintbrush, Scale, Settings, Truck, Users, Flag, IndianRupee, UserPlus,
   MapPin, UsersRound,
 } from 'lucide-react';
 
@@ -16,6 +16,15 @@ export const SERVICE_DESKS = [
 ];
 export const DESK_BY_VALUE = Object.fromEntries(SERVICE_DESKS.map((d) => [d.value, d]));
 
+// Home Loans is the ticket board itself; every other desk shows tickets under `?view=tickets`.
+export const ticketPath = (ticket, open = false) => {
+  const desk = DESK_BY_VALUE[ticket?.desk] || DESK_BY_VALUE.loans;
+  const params = new URLSearchParams(desk.value === 'loans' ? {} : { view: 'tickets' });
+  if (open && ticket?.id) params.set('open', ticket.id);
+  const qs = params.toString();
+  return qs ? `${desk.path}?${qs}` : desk.path;
+};
+
 const DESK_MODULES = SERVICE_DESKS.map(({ atom = 'services:read', writeAtom = 'services:write', ...d }) => ({
   key: `desk:${d.value}`, label: d.label, path: d.path, icon: d.icon, desk: d.value, atom, writeAtom,
 }));
@@ -25,12 +34,10 @@ export const ADMIN_MODULES = [
   { key: 'kycReview', label: 'KYC Review', path: '/admin/kyc-review', icon: UserPlus, atom: 'identity:write' },
   { key: 'analytics', label: 'Analytics', path: '/admin/analytics', icon: BarChart3, flagKey: 'analytics', atom: 'analytics:read' },
   { key: 'postOnBehalf', label: 'Post on Behalf', path: '/admin/post-on-behalf', icon: UserPlus, atom: 'postOnBehalf:write' },
-  { key: 'staffActivity', label: 'Staff Activity', path: '/admin/staff-activity', icon: ShieldCheck, atom: 'audit:read' },
-  { key: 'teamPerformance', label: 'Team Performance', path: '/admin/team-performance', icon: Gauge, atom: 'audit:read' },
+  { key: 'staffActivity', label: 'Team Activity', path: '/admin/staff-activity', icon: Gauge, atom: 'audit:read' },
   { key: 'properties', label: 'Properties', path: '/admin/properties', icon: Building2, atom: 'properties:read', writeAtom: 'properties:moderate' },
   { key: 'users', label: 'Users', path: '/admin/users', icon: Users, atom: 'users:read' },
   ...DESK_MODULES,
-  { key: 'services', label: 'Services overview', path: '/admin/services', icon: Wrench, flagKey: 'services', roles: ['admin', 'manager'], atom: 'services:read', writeAtom: 'services:write' },
   { key: 'support', label: 'Support queue', path: '/admin/support', icon: LifeBuoy, atom: 'tickets:read', writeAtom: 'tickets:write' },
   { key: 'enquiries', label: 'Enquiries', path: '/admin/enquiries', icon: MessageSquare, atom: 'enquiries:read' },
   { key: 'referrals', label: 'Referrals', path: '/admin/referrals', icon: Gift, atom: 'reports:write' },
@@ -58,8 +65,8 @@ export function canAccessModule(user, key) {
   const mod = MODULE_BY_KEY[key];
   if (!mod) return false;
   if (mod.base) return true;
-  if (mod.roles && !mod.roles.includes(user?.role)) return false;
-  if (mod.desk && !(Array.isArray(user?.desks) && user.desks.includes(mod.desk))) return false;
+  // Only staff are scoped to desks; the server lets admin and manager work every desk.
+  if (mod.desk && user?.role === 'staff' && !(Array.isArray(user?.desks) && user.desks.includes(mod.desk))) return false;
   return hasPermission(user, mod.atom);
 }
 
@@ -88,7 +95,7 @@ export const portalPath = (user, path) => String(path).replace(/^\/(admin|staff)
 const ATOM_MODULE_LABELS = {
   dashboard: 'Dashboard',
   postOnBehalf: 'Post on Behalf',
-  audit: 'Staff Activity',
+  audit: 'Team Activity',
   tickets: 'Support Tickets',
   users: 'Users',
   identity: 'Identity Verification',

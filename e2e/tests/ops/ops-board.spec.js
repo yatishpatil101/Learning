@@ -1,21 +1,8 @@
 import { expect, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
-/**
- * Home Loans ticket board against the live API — `/admin/home-loans` over `GET|PATCH /tickets`.
- *
- * The board used to read `lib/mockApi.js`. Converting it was not a wiring job: three of its words
- * were wrong rather than merely different. It knew three statuses where `TicketStatuses` knows five,
- * it assigned by typing a display **name** where `TicketUpdate` takes a user **id** (and 404s an id
- * that is not an ops user), and it read-modify-wrote the whole `notes` array where the server has a
- * dedicated append. So there is no mock provider and no translation table — D184's call, made again
- * for the same reason — and everything below is asserted against Postgres.
- *
- * **The suite mints its own tickets.** The seed ships none (`GET /tickets` is `totalElements=0` on a
- * fresh baseline), and `POST /tickets` carries no role guard on purpose: "a queue only privileged
- * people can write to collects nothing". So a customer raises the ticket, exactly as one would in
- * life, and the desk finds it — which also proves the two halves agree about what a ticket is.
- */
+/** Home Loans ticket board against the live API (`/admin/home-loans` over `GET|PATCH /tickets`). The suite mints
+ * its own tickets: the seed ships none, and `POST /tickets` has no role guard on purpose. */
 
 const CUSTOMER = { mobile: '9700000001', name: 'Rahul Mehta' };
 const LOANS_STAFF = { mobile: '9812733640', name: 'Aarav Deshpande' };
@@ -42,15 +29,8 @@ async function seedTicket({ team = 'loans', priority = 'high', detail } = {}) {
 /** The row this file created, located by the customer's name rather than by a generated id. */
 const ourRow = (page) => page.getByRole('row').filter({ hasText: CUSTOMER.name }).first();
 
-/**
- * The status badge in that row.
- *
- * `exact` is load-bearing, not tidiness: every row also carries an **Open** action button, so a
- * substring match on "open" resolves to two elements and the assertion dies in strict mode. The
- * badge's DOM text is the server's own lowercase word — `Badge` capitalises it in CSS, so the eye
- * reads "Open" while the matcher reads "open" — which both disambiguates it and means these
- * assertions are checking the wire vocabulary rather than a label someone could translate.
- */
+/** The status badge in that row. `exact` is load-bearing: each row also has an **Open** action button, so a
+ * substring match hits two elements; the badge text is the server's lowercase word, capitalised only in CSS. */
 const statusOf = (page, status) => ourRow(page).getByText(status, { exact: true });
 
 /** A count tile reads "<label><n>"; the label alone is the stable part. */
@@ -84,7 +64,7 @@ test.describe('Ops → ticket board (live)', () => {
     await expect(statusOf(page, 'open')).toBeVisible();
     // Unclaimed: no name in the Assigned cell, and the desk is offered the Claim action.
     await expect(row.getByRole('button', { name: 'Claim' })).toBeVisible();
-    await expect(row).toContainText('Home Loans');
+    await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
   });
 
   test('the status tiles use the server’s five words, not the mock’s three', async ({ page, login }) => {
@@ -116,9 +96,7 @@ test.describe('Ops → ticket board (live)', () => {
     await ourRow(page).getByRole('button', { name: 'Claim' }).click();
     await expect(page.getByText(/Assigned to you/i)).toBeVisible();
 
-    /* The name on screen came back from `TicketMapper`, which looked the assignee id up — the
-       browser never typed it. That is the whole difference between the old board and this one:
-       previously any string at all could land in the assignee column. */
+    /* The name on screen comes from `TicketMapper` resolving the assignee id, not from browser input. */
     await expect(ourRow(page)).toContainText(LOANS_STAFF.name);
     await expect(ourRow(page).getByRole('button', { name: 'Claim' })).toHaveCount(0);
 
@@ -161,10 +139,8 @@ test.describe('Ops → ticket board (live)', () => {
   });
 
   test('a staffer sees their own desk and not another’s', async ({ page, login }) => {
-    /* The negative half of D44. `TicketService.list` narrows a staff caller to their own desk, so
-       a legal ticket must simply not be on a loans staffer's board — and this is asserted with a
-       ticket that provably exists, because "no legal rows" is otherwise indistinguishable from
-       "no legal tickets". */
+    /* `TicketService.list` narrows staff to their own desk, so a legal ticket must be absent from a loans
+       staffer's board; assert with a ticket that provably exists. */
     const legal = await seedTicket({ team: 'legal', detail: 'A question about the clause.' });
     expect(legal.team).toBe('legal');
 

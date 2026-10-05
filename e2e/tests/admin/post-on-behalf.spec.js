@@ -336,19 +336,14 @@ test('a deposit typed under rent is not filed against a sale', async ({ page, lo
 });
 
 // This covers the wizard's client-side paths that no API assertion can see.
-test('the two ways in reach the wizard, step one will not be skipped, and the money the operator reads is the money the server files', async ({ page, login }) => {
+test('the sidebar reaches the wizard, step one will not be skipped, and the money the operator reads is the money the server files', async ({ page, login }) => {
   const ownerMobile = uniqueMobile();
   await login.asAdmin();
 
-  // Scoped to the sidebar, because two links reach this page.
   await page.goto('/admin');
   await page.locator('aside').getByRole('link', { name: /Post on Behalf/i }).click();
   await expect(page).toHaveURL(/\/admin\/post-on-behalf$/);
   await expect(page.getByText('Post on Behalf of Owner')).toBeVisible();
-
-  await page.goto('/admin');
-  await page.locator('main').getByRole('link', { name: /Post on behalf/i }).first().click();
-  await expect(page).toHaveURL(/\/admin\/post-on-behalf$/);
 
   await page.getByRole('button', { name: /Next/i }).click();
   await expect(page.getByPlaceholder('Full name of the property owner')).toBeVisible();

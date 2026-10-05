@@ -1,24 +1,7 @@
 import { ACTORS, expect, test } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, signIn, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/* Reporting a community post, and what ops do with it — both ends in a browser, live.
- *
- * Split out of the retired `community-v2.spec.js`, whose reports were an array in localStorage:
- * the "one open report per person per target" guard was enforced by the same tab that was being
- * asked to prove it, and the ops half never left the page it was filed on.
- *
- * The rules belong to the server and are tested there, in `tests/live-society-reports.spec.js`:
- * every society surface can be complained about (L123), the reason vocabulary is the society one
- * (L152), the duplicate guard is per reporter so fifty neighbours are fifty complaints (L175),
- * upholding a complaint takes the post off the hub (L194), and the queue is staff-only (L300,
- * L332). `tests/live-society-hub.spec.js` already proves the dialog names the thing that was
- * clicked (L114) and that a report filed through the page reaches the queue carrying its reason
- * code (L134).
- *
- * Left over, and only answerable in a browser: what the second press looks like to the person
- * pressing it, and whether the two consoles agree — a post removed from the ops queue is gone from
- * the society page a neighbour is looking at.
- */
+/* Browser-only claims: the second-press UX and cross-console agreement; report rules are tested server-side. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SOC_DUP = 'skyline-terraces-gera-aundh';
@@ -81,7 +64,7 @@ test('the second complaint from the same person is answered, not silently swallo
   await expect(page.getByText(/already reported this/i)).toBeVisible({ timeout: 15_000 });
 });
 
-test('a post removed from the ops queue is gone from the society page a neighbour is reading', async ({ page, request }) => {
+test('a post removed from the reports queue is gone from the society page a neighbour is reading', async ({ page, request }) => {
   const author = uniqueMobile();
   await apiLogin(author, { api: API });
   const stamp = Date.now().toString(36);
@@ -102,20 +85,17 @@ test('a post removed from the ops queue is gone from the society page a neighbou
   await fileReport(page, marker);
   await expect(page.getByText(/our team will review it/i)).toBeVisible({ timeout: 15_000 });
 
-  /* Ops, in their own console. The queue deliberately carries no copy of the offending text, so the
-     row is found by the note the reporter wrote — which is also the only thing on screen that ties
-     this complaint to this test while other specs are filing their own. */
+  /* The queue omits the offending text, so find the row by the reporter's note, unique to this test. */
   const ops = await page.context().browser().newContext();
   const opsPage = await ops.newPage();
   try {
     await signIn(opsPage, ACTORS.admin, { screen: 'staff', role: 'admin' });
-    await opsPage.goto(`${BASE}/admin/societies?tab=moderation`);
-    const queue = opsPage.locator('div.dz-card', { hasText: 'Reported content' });
-    await expect(queue).toBeVisible({ timeout: 20_000 });
-    const row = queue.locator('li', { hasText: marker });
+    await opsPage.goto(`${BASE}/admin/reports?tab=society`);
+    const row = opsPage.getByRole('table').getByRole('row', { name: new RegExp(marker) });
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.getByRole('button', { name: 'Remove content' }).click();
-    await expect(queue.locator('li', { hasText: marker })).toHaveCount(0, { timeout: 20_000 });
+    await row.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(opsPage.getByRole('alert')).toContainText('Society post removed', { timeout: 20_000 });
+    await expect(row.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0, { timeout: 20_000 });
   } finally {
     await ops.close();
   }

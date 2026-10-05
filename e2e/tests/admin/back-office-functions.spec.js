@@ -41,16 +41,16 @@ test.describe('back-office functions', () => {
 
       await expect(page.getByRole('link', { name: 'KYC Review', exact: true })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Rent Agreement', exact: true })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Services overview', exact: true })).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Property Valuation', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Home Loans', exact: true })).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0);
 
       await page.getByRole('link', { name: 'KYC Review', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'KYC Review', exact: true })).toBeVisible();
 
-      await page.goto('/admin/services');
-      await expect(page).not.toHaveURL(/\/admin\/services/);
-      await expect(page.getByRole('heading', { name: 'Service Requests', exact: true })).toHaveCount(0);
+      await page.goto('/admin/home-loans');
+      await expect(page).not.toHaveURL(/\/admin\/home-loans/);
+      await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toHaveCount(0);
     } finally {
       await setFunctions(id, before.functions || before.permissions || []);
     }
@@ -78,20 +78,20 @@ test.describe('back-office functions', () => {
     expect(consoleErrors).toHaveLength(0);
   });
 
-  test('a manager reads team performance', async ({ page, login, consoleErrors }) => {
+  test('a manager reads team performance on Team Activity', async ({ page, login, consoleErrors }) => {
     await login.asManager();
-    await page.goto('/admin/team-performance');
-    await expect(page.getByRole('heading', { name: 'Team Performance', exact: true })).toBeVisible();
+    await page.goto('/admin/staff-activity');
+    await expect(page.getByRole('heading', { name: 'Team Activity', exact: true })).toBeVisible();
     await expect(page.getByTestId('queues')).toBeVisible();
     await page.getByRole('button', { name: '30 days' }).click();
     await expect(page.getByText('Staff · last 30 days')).toBeVisible();
     expect(consoleErrors).toHaveLength(0);
   });
 
-  test('staff get no team performance link', async ({ page, login, consoleErrors }) => {
+  test('staff get no Team Activity link', async ({ page, login, consoleErrors }) => {
     await login.asStaff('rental');
     await page.goto('/admin');
-    await expect(page.getByRole('link', { name: 'Team Performance', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Team Activity', exact: true })).toHaveCount(0);
     expect(consoleErrors).toHaveLength(0);
   });
 

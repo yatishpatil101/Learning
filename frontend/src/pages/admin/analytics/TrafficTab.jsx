@@ -4,17 +4,11 @@ import Select from '../../../components/ui/Select.jsx';
 import { exportCsv } from '../../../lib/csv.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { C, AX, axis, RANGE_OPTIONS, Card, LoadFailedNotice } from './constants.jsx';
+import AudiencePanel from './AudiencePanel.jsx';
 
-/**
- * Traffic — measured, now that `POST /page-views` collects and an hourly rollup aggregates.
- *
- * Every card here reads `GET /admin/analytics/traffic`, so the tab-wide `Sample` banner is gone and
- * so are the three per-card `Sample` chips. The card that is *absent* rather than merely un-chipped
- * is the old "New vs returning" split: the session id is minted per browser tab and dies with it,
- * so a returning visitor is structurally underivable rather than unimplemented. Anonymous vs
- * signed-in takes its place, because that one can actually be answered.
- */
-export default function TrafficTab({ report, failed, days, setDays }) {
+/** No 'New vs returning' card: the session id dies with the
+ * tab, so a returning visitor is structurally underivable. */
+export default function TrafficTab({ report, failed, audience, audienceFailed, days, setDays }) {
   const { toast } = useToast();
 
   const exportTraffic = () => {
@@ -69,10 +63,8 @@ export default function TrafficTab({ report, failed, days, setDays }) {
 
     const { series, sources, devices, identity } = report;
     const deviceTotal = devices.mobile + devices.tablet + devices.desktop;
-    // Sessions, not rows. The endpoint returns its whole closed channel vocabulary every time,
-    // zeroes included, so `sources.length` is five in a window nobody visited and the empty state
-    // below would never have shown. What renders instead is a doughnut of five nothing-slices,
-    // which looks like a measurement.
+    // Count sessions, not rows: the endpoint returns every channel
+    // with zeroes, so rows.length would hide the empty state.
     const sourceTotal = sources.reduce((sum, s) => sum + s.sessions, 0);
 
     return (
@@ -91,12 +83,8 @@ export default function TrafficTab({ report, failed, days, setDays }) {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          {/*
-            Sessions, not page views: a source describes how somebody arrived, and counting their
-            views would weight that arrival by how much they went on to read, then present it as
-            reach. There is no paid-ads slice and there cannot be one — identifying paid traffic
-            needs `utm_source`, which the collector strips from the query string before it sends.
-          */}
+          {/* Sessions, not page views, so arrival isn't weighted by reading
+              depth; no paid slice as the collector strips utm_source. */}
           <Card title="Traffic sources" desc="Sessions by channel">
             {sourceTotal ? (
               <DoughnutChart
@@ -141,6 +129,7 @@ export default function TrafficTab({ report, failed, days, setDays }) {
     <div>
       {picker}
       {body()}
+      <AudiencePanel report={audience} failed={audienceFailed} days={days} />
     </div>
   );
 }

@@ -1,17 +1,7 @@
 import { test, expect } from '../../fixtures/live.js';
 
-/* Redirects and the 404 catch-all.
- *
- * Six routes in App.jsx exist only to forward somewhere else, and one exists to
- * catch everything that matches nothing. None had a spec, which is a real gap:
- * a redirect is invisible when it works and indistinguishable from a dead link
- * when it breaks. Three of them are permanent public URLs (`/share-flat` from
- * before the Flatmates rename, `/docs` and `/help-center` as guessable aliases),
- * so external links and search results depend on them.
- *
- * The 404 stub matters for the same reason in reverse: an unknown URL must land
- * on something that says so and offers a way back, not a blank consumer shell.
- */
+/* Redirects and the 404 catch-all: a redirect is invisible when it works and looks like a dead link when it
+   breaks; `/share-flat`, `/docs` and `/help-center` are permanent public URLs. */
 
 const PUBLIC_REDIRECTS = [
   ['/map', '/listings', 'view=map'],
@@ -24,9 +14,8 @@ test.describe('Route redirects', () => {
   for (const [from, to, query] of PUBLIC_REDIRECTS) {
     test(`${from} forwards to ${to}`, async ({ page }) => {
       await page.goto(from);
-      // Match on the resolved pathname, not a glob: `/help-center` already
-      // satisfies a "contains /help" glob, so a glob wait returns before the
-      // redirect has happened and the spec passes against a broken route.
+      // Match the resolved pathname, not a glob: `/help-center` already satisfies a "contains /help" glob, so the
+      // wait would return before the redirect happened.
       await page.waitForURL((u) => new URL(u).pathname === to, { timeout: 15_000 });
 
       const url = new URL(page.url());
@@ -45,7 +34,7 @@ test.describe('Route redirects', () => {
     expect(page.url()).toContain('#owner-hub');
   });
 
-  test('/admin/support is the support queue, not a forward to the services overview', async ({ page, login }) => {
+  test('/admin/support is the support queue, not a forward to a service desk', async ({ page, login }) => {
     await login.asAdmin();
     await page.goto('/admin/support');
     await expect(page.getByRole('heading', { name: 'Support queue' })).toBeVisible({ timeout: 15_000 });

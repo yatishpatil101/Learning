@@ -44,7 +44,6 @@ export const ROUTE_PATTERNS = [
   '/ops/packers',
   '/ops/referrals',
   '/ops/rent-agreement',
-  '/ops/requests',
   '/ops/support',
   '/ops/valuation',
   '/ops/*',

@@ -125,17 +125,17 @@ test('page-view report routes validate the window and refuse a plain consumer', 
   });
 });
 
-test('Anonymous surfers tab renders the null contract as a dash, not as 0%', async ({ page, login, request }) => {
+test('Traffic tab renders the anonymous-audience null contract as a dash, not as 0%', async ({ page, login, request }) => {
   const res = await request.get(`${API}/admin/analytics/surfers?days=30`, { headers: await admin() });
   const report = await res.json();
 
-  await openTab(page, login, 'surfers');
+  await openTab(page, login, 'traffic');
 
   // Not a fallback discriminator — both an empty mock window and the e2e one render dashes.
   const inr = (n) => n.toLocaleString('en-IN');
   await expect(page.getByText(`Out of ${inr(report.totalSessions)} total sessions`)).toBeVisible();
-  await expect(page.getByText('Anonymous sessions')).toBeVisible();
+  await expect(page.getByText('Anonymous sessions', { exact: true })).toBeVisible();
 
   const expectedShare = report.anonSharePct === null ? '\u2014' : `${report.anonSharePct}%`;
-  await expect(page.getByText('Anonymous share').locator('..')).toContainText(expectedShare);
+  await expect(page.getByText('Anonymous share', { exact: true }).locator('..')).toContainText(expectedShare);
 });

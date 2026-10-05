@@ -6,16 +6,16 @@ const AdminFlagsContext = createContext(null);
 const DEFAULT_ADMIN_FLAGS = {
   tab: { analytics: true, finance: true, reports: true, support: true, flatmates: true, services: true },
   dash: { sla: true, glanceRevenue: true, glanceTraffic: true },
-  analytics: { traffic: true, engagement: true, anonymous: true, conversion: true, geography: true, supplyGap: true, pricing: true, sla: true },
+  analytics: { traffic: true, engagement: true, conversion: true, geography: true, supplyGap: true, pricing: true, sla: true },
   finance: { charts: true, transactions: true, models: true },
   properties: { csvExport: true, commsLog: true, qualityScore: true },
   users: { enabled: true, timeline: true, bulkOps: true, csvExport: true },
-  services: { enabled: true, priority: true, teamRouting: true, staffAssignment: true },
+  services: { enabled: true, priority: true, staffAssignment: true },
   enquiries: { visits: true, deals: true, funnelTime: true },
-  content: { enabled: true, cityDemand: true, banners: true, faqs: true, announcements: true, reviews: true },
-  reports: { properties: true, users: true, posts: true },
+  content: { enabled: true, cityDemand: true, banners: true, faqs: true, announcements: true },
+  reports: { properties: true, users: true, posts: true, reviews: true },
   flatmates: { seekers: true, groups: true, applications: true },
-  staffActivity: { enabled: true, kpis: true, leaderboard: true },
+  staffActivity: { enabled: true, kpis: true },
 };
 
 /* `read=false` without `settings:read`: `GET /admin/settings` is admin-only, so the read would be a

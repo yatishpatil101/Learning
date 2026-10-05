@@ -1,34 +1,5 @@
-/**
- * `/admin/content` — the CMS desk, against the live API.
- *
- * ## Why this file exists
- *
- * `admin/content.spec.js` was the only coverage this desk had, and it ran on the mock. That was a
- * real gap rather than a deliberate one: **both** of the desk's data paths are live domains and
- * have been for a while — banners, FAQs and announcements go through `adminContentService` to
- * `/admin/content/{type}`, and the Reviews tab goes through `reviewService` to `GET /admin/reviews`.
- * Nothing about this screen needed a mock; it simply never got converted.
- *
- * ## The magnitudes are read from the API, never hardcoded
- *
- * The mock file asserted `Showing 1–10 of 12 reviews` and the exact text of a seeded FAQ. Both are
- * facts about `db.json`, and porting them would have swapped one store's arithmetic for another's
- * while looking like a conversion. Every count and every row of copy below is fetched first and
- * compared, so what is actually asserted is **the screen agrees with the server** — which is the
- * only claim that survives the seed changing underneath it.
- *
- * That also makes these tests discriminators rather than renders. `services/config.js` falls back
- * to the mock provider with a `console.warn`, not an error, so a test asserting a static heading
- * would stay green while the desk read localStorage. A count taken from the database cannot be
- * reproduced by a provider reading `db.json`.
- *
- * ## The write test cleans up after itself
- *
- * The e2e database is reset at the **start of a run**, not per file, so a banner created here and
- * left behind is a row every later assertion in this file has to tolerate — and the "active,
- * archived" counter on the banners tab is exactly the sort of thing that would then drift. The
- * banner is archived in `afterEach`, through the same API the console uses.
- */
+/** `/admin/content` against the live API: counts and copy are read from the server, never hardcoded. The write
+ * test archives its banner in `afterEach` because the e2e database resets per run, not per file. */
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -49,13 +20,13 @@ async function contentRows(request, type) {
   return res.json();
 }
 
-test('admin loads the Content desk with all four tabs and the banners view', async ({ page, login, consoleErrors }) => {
+test('admin loads the Content desk with its three tabs and the banners view', async ({ page, login, consoleErrors }) => {
   await openContent(page, login);
 
   await expect(page.getByRole('button', { name: 'Banners', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'FAQs', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Announcements', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reviews', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reviews', exact: true })).toHaveCount(0);
 
   await expect(page.getByText(/\d+ active, \d+ archived/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add banner' })).toBeVisible();
@@ -85,9 +56,7 @@ test('the FAQs tab lists the questions the server holds', async ({ page, login, 
   await expect(page.getByText(faqs[0].title ?? faqs[0].question)).toBeVisible();
 });
 
-/* The Reviews tab's own assertions live in `tests/live-admin-content.spec.js` — "the console reads
-   the live queue, and Archive is gone rather than hidden", which pins this run's own author name on
-   the row and is a stronger claim than a count. Nothing about that tab is re-asserted here. */
+/* Reviews-tab assertions live in `tests/admin-content.spec.js` (it pins this run's author on the row); not repeated here. */
 
 test('adding a banner writes it through the API, not into this browser', async ({ page, login, request }) => {
   const headline = `E2E live banner ${Date.now()}`;
@@ -98,14 +67,8 @@ test('adding a banner writes it through the API, not into this browser', async (
   const dialog = page.getByRole('dialog', { name: 'Add banner' });
   await expect(dialog).toBeVisible();
 
-  /* Headline **and** image. The fields carry no label association, so they are addressed by
-     position: headline, image, link — and link is prefilled with `/listings`.
-
-     Filling only the first one is what `admin/content.spec.js` did, and it passed, because the mock
-     store validates nothing. The server answers `422 A banners item needs 'image'`, so that test
-     was green over a write the real API refuses — a create path that works offline and cannot work
-     in production. The refusal is pinned as coverage in the test below rather than merely avoided
-     here. */
+  /* Headline and image are both required (the server answers 422 otherwise); fields have no labels, so they are
+     addressed by position, and link is prefilled with `/listings`. */
   await dialog.getByRole('textbox').nth(0).fill(headline);
   await dialog.getByRole('textbox').nth(1).fill('https://example.invalid/e2e-banner.jpg');
   await dialog.getByRole('button', { name: 'Save' }).click();
@@ -129,11 +92,7 @@ test('adding a banner writes it through the API, not into this browser', async (
 });
 
 test('a banner with no image is refused, and the desk says which field', async ({ page, login }) => {
-  /* The console deliberately surfaces the server's own message rather than a generic "could not
-     save" (`AdminContent.jsx`: "The server names the offending field ... and that is far more"
-     useful). This is the assertion that keeps that true, and it can only be made live — the mock
-     provider accepts the same body without complaint, which is why the mock spec never noticed
-     that its own happy-path write was one the API would reject. */
+  /* The console shows the server's own message; only a live run can assert it, as the mock accepts the body. */
   await openContent(page, login);
   await page.getByRole('button', { name: 'Add banner' }).click();
 

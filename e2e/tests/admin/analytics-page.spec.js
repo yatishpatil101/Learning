@@ -5,8 +5,8 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 // The seeded admin, as used by the other live admin specs.
 const admin = () => authHeaders('9000000000');
 
-// Named once so the "all seven" test cannot drift.
-const TABS = ['Traffic', 'Engagement', 'Anonymous surfers', 'Geography', 'Supply Gap', 'Pricing', 'SLA'];
+// Named once so the "all six" test cannot drift.
+const TABS = ['Traffic', 'Engagement', 'Geography', 'Supply Gap', 'Pricing', 'SLA'];
 
 // Deep links are the page contract, not a shortcut around the UI.
 async function openAnalytics(page, tab) {
@@ -14,7 +14,7 @@ async function openAnalytics(page, tab) {
   await expect(page.getByRole('heading', { name: /Analytics/i })).toBeVisible();
 }
 
-test('analytics opens on Traffic with all seven tabs, no Conversion tab, its chart cards and a CSV export, and logs no console errors', async ({ page, login, consoleErrors }) => {
+test('analytics opens on Traffic with all six tabs, no Conversion or Anonymous surfers tab, its chart cards and a CSV export, and logs no console errors', async ({ page, login, consoleErrors }) => {
   test.slow();
   await login.asAdmin();
   await test.step('analytics page loads without errors', async () => {
@@ -23,7 +23,7 @@ test('analytics opens on Traffic with all seven tabs, no Conversion tab, its cha
     await expect(page.getByRole('tab', { name: 'Traffic' })).toBeVisible();
     expect(consoleErrors).toHaveLength(0);
   });
-  await test.step('analytics opens on Traffic and offers all seven tabs', async () => {
+  await test.step('analytics opens on Traffic and offers all six tabs', async () => {
     await openAnalytics(page);
     await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
     for (const label of TABS) {
@@ -32,9 +32,10 @@ test('analytics opens on Traffic with all seven tabs, no Conversion tab, its cha
   });
   await test.step('analytics does not show a Conversion tab', async () => {
     await openAnalytics(page);
-    // Conversion moved to the Enquiries funnel (`admin/live-consolidation.spec.js` asserts it arrived).
+    // Conversion lives on the Enquiries funnel (`admin/consolidation.spec.js` asserts it).
     await expect(page.getByRole('tab', { name: 'Traffic' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Conversion' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Anonymous surfers' })).toHaveCount(0);
   });
   await test.step('Traffic tab: chart cards and range selector', async () => {
     await openAnalytics(page);
@@ -44,6 +45,15 @@ test('analytics opens on Traffic with all seven tabs, no Conversion tab, its cha
     // `session_id` is per-tab, so a return visit is underivable from what is collected.
     await expect(page.getByText('Anonymous vs signed-in')).toBeVisible();
     await expect(page.getByLabel('Traffic window')).toBeVisible();
+  });
+  await test.step('Traffic tab: the anonymous-audience tiles and exit cards sit below the charts', async () => {
+    await openAnalytics(page);
+    for (const label of ['Anonymous share', 'Anonymous sessions', 'Signups in period']) {
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(page.getByText('Session \u2192 Signup rate', { exact: true })).toBeVisible();
+    await expect(page.getByText('Where visitors leave')).toBeVisible();
+    await expect(page.getByText('Pages visited by anonymous users')).toBeVisible();
   });
   await test.step('Traffic tab: export produces a CSV', async () => {
     await openAnalytics(page);
@@ -73,6 +83,11 @@ test('the tab is carried in the URL, retired deep links fall back to Traffic, an
     await expect(page.getByRole('tab', { name: 'Seasonal' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByText('Sessions & page views')).toBeVisible();
+  });
+  await test.step('a deep link to the retired Anonymous surfers tab falls back to Traffic', async () => {
+    await openAnalytics(page, 'surfers');
+    await expect(page.getByRole('tab', { name: 'Anonymous surfers' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
   });
   await test.step('switching tabs does not remount: the days selector keeps its value', async () => {
     await openAnalytics(page);
@@ -119,8 +134,7 @@ test('every tab renders its own charts, KPI tiles and tables', async ({ page, lo
     await expect(page.getByText('Listings reviewed')).toBeVisible();
     await expect(page.getByText('Avg time to review')).toBeVisible();
     await expect(page.getByText('Longest Waiting Listings')).toBeVisible();
-    // The three tracks that used to be generated panels or did not exist. `GET /admin/analytics/sla`
-    // derives all three from `audit_log`, so a heading here is a claim about served data.
+    // `GET /admin/analytics/sla` derives all three from `audit_log`, so a heading claims served data.
     await expect(page.getByRole('heading', { name: 'Ticket Pickup' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Service Delivery' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Concierge Pipeline' })).toBeVisible();
@@ -218,7 +232,7 @@ test('unmeasured values read as unmeasured and no tab presents generated numbers
     await expect(dashRow.locator('td').nth(1)).toContainText('₹');
   });
   await test.step('no analytics tab presents generated numbers', async () => {
-    for (const tab of ['traffic', 'engagement', 'surfers', 'geography', 'supply-gap', 'pricing', 'sla']) {
+    for (const tab of ['traffic', 'engagement', 'geography', 'supply-gap', 'pricing', 'sla']) {
       await openAnalytics(page, tab);
       await expect(page.locator('[role="tabpanel"], main').first()).toBeVisible();
       await expect(page.getByText('Illustrative data.')).toHaveCount(0);

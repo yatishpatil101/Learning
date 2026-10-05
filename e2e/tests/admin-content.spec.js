@@ -1,10 +1,5 @@
-/**
- * Live seam coverage for the admin content API and the Reviews tab: routes mapped where the frontend
- * expects, the role gate against a real token, and a write that survives the commit. Rule-level
- * behaviour is in the backend suite (AdminContentEndpointsTest, ReviewModerationQueueTest).
- * Rows are archived at the end; assertions look up this run's own ids, never a table count.
- * Fixtures: ACTORS.admin, ACTORS.buyer.
- */
+/** Live seam coverage for admin content and Reviews; rule-level behaviour is in AdminContentEndpointsTest and
+ * ReviewModerationQueueTest. Assertions use this run's own ids, never a table count. */
 import { test, expect } from '@playwright/test';
 import { API, authHeaders, signIn } from '../helpers/liveAuth.js';
 import { ACTORS } from '../fixtures/live.js';
@@ -118,26 +113,19 @@ test.describe('admin review moderation', () => {
   test('the console reads the live queue, with Archive gone rather than hidden, and a rejection reaches Postgres and the public read', async ({ page, request }) => {
     await test.step('the console reads the live queue, and Archive is gone rather than hidden', async () => {
       const headers = await authHeaders(ACTORS.admin, { request });
-      /* A page rather than `size: 1`, and a search rather than `[0]`. `author` is legitimately
-         nullable - `ReviewService.nameOf` returns null for a review whose author id is null, and
-         `ReviewResponse` is NON_NULL, so the field is simply absent on an authorless row. Pinning the
-         newest row of a queue this whole suite writes to therefore crashed here rather than failing:
-         `getByText(undefined)` throws inside Playwright's locator builder. What this test needs is
-         any row that carries the field it is about to assert on. Ten, because the table paginates at
-         ten and a row further down would not be on the page the assertions look at. */
+      /* `author` is absent on authorless rows, so search the first page (ten rows) for one that has it, not `[0]`:
+         `getByText(undefined)` throws. */
       const body = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 10 } })).json();
       const row = body.content.find((r) => r.author && r.targetType && r.targetId);
       expect(row, 'the e2e seed must contain at least one review with a named author').toBeTruthy();
 
       await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
-      await page.goto('/admin/content?tab=reviews');
+      await page.goto('/admin/reports?tab=reviews');
       await appReady(page);
 
-      await expect(page.getByText('Moderate user reviews')).toBeVisible();
+      await expect(page.getByText('Approve or reject user reviews.')).toBeVisible();
 
-      /* The author name is the proof the row came from the server. The old tab rendered `db.reviews`,
-         whose names are fixture inventions — so naming *this* run's author is what distinguishes a
-         live read from a localStorage one that happens to look plausible. */
+      /* The author name proves the row came from the server, not from a plausible-looking localStorage fixture. */
       const table = page.getByRole('table');
       await expect(table.getByText(row.author, { exact: true }).first()).toBeVisible();
 
@@ -145,9 +133,7 @@ test.describe('admin review moderation', () => {
       // cannot see what is being reviewed cannot judge whether the review is fair.
       await expect(table.getByText(`${row.targetType[0].toUpperCase()}${row.targetType.slice(1)}: ${row.targetId}`, { exact: true }).first()).toBeVisible();
 
-      /* The positive that makes the negative meaningful: the actions column rendered. A row whose
-         decision buttons were missing would satisfy `toHaveCount(0)` on Archive for the wrong
-         reason. */
+      /* Positive control: without the actions column, `toHaveCount(0)` on Archive would pass vacuously. */
       await expect(page.getByRole('button', { name: /^(Approve|Reject)$/ }).first()).toBeVisible();
       await expect(page.getByRole('button', { name: 'Archive' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Restore' })).toHaveCount(0);
@@ -163,34 +149,24 @@ test.describe('admin review moderation', () => {
       expect(publicBefore.some((r) => r.id === target.id)).toBe(true);
 
       await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
-      await page.goto('/admin/content?tab=reviews');
+      await page.goto('/admin/reports?tab=reviews');
       await appReady(page);
 
-      /* Author *and* target. The author alone stopped being a key the moment the seed grew a second
-         review by the same person — `filter({ hasText: author })` then resolves to four rows and the
-         click is ambiguous, which Playwright reports as a strict-mode violation rather than as the
-         fixture change it actually is. The pair is unique by database constraint
-         (`idx_reviews_author_target` forbids one author two reviews on one target), so it cannot
-         come loose the way a `.first()` would — silently, by drifting onto whichever row happens to
-         sort first. The count assertion states that reasoning where a failure will show it. */
+      /* Author and target together: the pair is unique by `idx_reviews_author_target`, while author alone can
+         match several rows (strict-mode violation) and `.first()` would drift. */
       const rowKey = `${target.targetType[0].toUpperCase()}${target.targetType.slice(1)}: ${target.targetId}`;
       const row = page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey });
       await expect(row).toHaveCount(1);
       await row.getByRole('button', { name: 'Reject' }).click();
       await expect(page.getByRole('alert')).toContainText('Rejected');
 
-      /* A reload, because the in-place state update proves only that the browser believes it. The
-         write is not optimistic — the row is not touched until the PATCH resolves — but "the button
-         waited" and "the row changed in Postgres" are still different claims, and only the second one
-         matters to the author whose review came down. */
+      /* Reload: the in-place update only proves the browser's belief, not that Postgres changed. */
       await page.reload();
       await appReady(page);
       await expect(page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey }))
         .toContainText(/Rejected/i);
 
-      /* And the half that archiving could never have done: the review is out of the public read, so
-         it is out of the aggregate too. Hiding it from the console alone would have left the rating
-         it produced standing. */
+      /* Archived reviews leave the public read, so the aggregate rating must drop them too. */
       const publicAfter = await (await request.get(`${API}/properties/${target.targetId}/reviews`)).json();
       expect(publicAfter.some((r) => r.id === target.id)).toBe(false);
 

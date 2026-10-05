@@ -5,7 +5,6 @@ export const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace
 export const fmtDate = (ts) => { try { return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); } catch { return ''; } };
 
 export const PROOF_LABELS = { maintenance: 'Maintenance receipt', agreement: 'Agreement', utility: 'Utility bill', allotment: 'Allotment letter', other: 'Other proof' };
-export const REPORT_LABELS = { contribution: 'Community post', reply: 'Reply', review: 'Review', question: 'Question', answer: 'Answer', board: 'Event / notice' };
 export const openDoc = (doc) => openDocUrl(doc && doc.dataUrl);
 
 /* The fourth state of the duplicate hint.

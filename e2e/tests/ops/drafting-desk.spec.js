@@ -456,7 +456,7 @@ test.describe('Ops → Drafting desk (live)', () => {
     }
   });
 
-  test('retired /ops bookmarks land on the staffer\'s own desk page, and the administrator, who holds no desk, on the console', async ({ page, browser }) => {
+  test('retired /ops bookmarks land on the staffer\'s own desk page, and the administrator on the matching desk page, or the console', async ({ page, browser }) => {
     const legalContext = await browser.newContext();
     try {
       const legalPage = await legalContext.newPage();
@@ -473,16 +473,17 @@ test.describe('Ops → Drafting desk (live)', () => {
       await legalContext.close();
     }
 
-    // Per-service desks are for the staff who hold them; the administrator oversees from Services overview.
     await signIn(page, ACTORS.admin, { screen: 'staff', role: /Administrator/ });
 
     await page.goto('/ops/drafting-desk?type=legal');
+    await expect(page).toHaveURL(/\/admin\/legal$/);
+    await expect(page.getByRole('heading', { name: 'Property & Legal' })).toBeVisible();
+
+    await page.goto('/ops/drafting-desk');
     await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole('heading', { name: 'Property & Legal' })).toHaveCount(0);
-    await expect(page.locator('nav').getByRole('link', { name: 'Services overview', exact: true })).toBeVisible();
 
     await page.goto('/ops/rent-agreement');
-    await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole('heading', { name: 'Rent Agreement' })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/rent-agreement$/);
+    await expect(page.getByRole('heading', { name: 'Rent Agreement' })).toBeVisible();
   });
 });

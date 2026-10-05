@@ -12,7 +12,6 @@ import {
   listSocietyMerges, mergeSocieties, undoSocietyMerge,
   getSocietyAdminView, editSociety, listSocietyDirectory,
 } from '../../services/societyService.js';
-import { listReports, triageReport } from '../../services/reportService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
@@ -23,21 +22,6 @@ import ResidentsTab from './societies/ResidentsTab.jsx';
 import CandidatesTab from './societies/CandidatesTab.jsx';
 import DirectoryTab from './societies/DirectoryTab.jsx';
 import ModerationTab from './societies/ModerationTab.jsx';
-
-/**
- * The five society UGC surfaces, as the report queue's view model names them.
- *
- * `review` is deliberately absent. A society review is reported as an ordinary `review` and taken
- * down through `PATCH /reviews/{id}/status`, so nothing on the wire says whether a given review
- * report is about a society or about a listing — including them here would drag every property
- * review complaint into the societies console. They stay in Admin ▸ Reports, which handles every
- * kind. Nothing on a row carries the slug that would let the distinction be made here, and
- * inventing it client-side would get it wrong silently.
- */
-const SOCIETY_REPORT_KINDS = new Set(['contribution', 'reply', 'question', 'answer', 'board']);
-
-/** Statuses a moderator can still act on. `actioned` and `dismissed` are terminal server-side. */
-const LIVE_REPORT_STATUSES = new Set(['open', 'reviewing']);
 
 /* 20, matching `GET /societies`'s own `@PageableDefault`. The other server-paged desks in this shell
    use 25 because they inherited it from the flatmate boards; this one has no such history, so it
@@ -81,7 +65,6 @@ export default function AdminSocieties() {
   const [candidates, setCandidates] = useState([]);
   const [merges, setMerges] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
-  const [reports, setReports] = useState([]);
   const [waPending, setWaPending] = useState([]);
   const [locFixes, setLocFixes] = useState([]);
   /* Which queues did not load. An empty table on an ops screen reads as "nothing to do", so a
@@ -110,10 +93,8 @@ export default function AdminSocieties() {
   const reload = async () => {
     const seq = reloadSeq.current + 1;
     reloadSeq.current = seq;
-    /* Per-queue, not one `Promise.all` rejection: a 500 on reports must not blank the claims tab.
-       Only transport failures are absorbed. A TypeError from a mapper change would otherwise
-       arrive as an empty queue, and on this screen an empty queue renders as "nothing to
-       moderate" — the most reassuring possible face for a bug. Those rethrow. */
+    /* Per-queue so one 500 does not blank the claims tab; only transport errors are absorbed, since an
+       empty queue reads as "nothing to moderate" and would hide a mapper bug. */
     const broke = [];
     const safe = (p, label, empty) => p.catch((err) => {
       if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
@@ -121,11 +102,8 @@ export default function AdminSocieties() {
       broke.push(label);
       return empty;
     });
-    /* Every queue asks the server for just the live rows. Unfiltered, decided rows accumulate
-       forever and fill the 100-row page budget oldest-first, so the newly-filed work falls off
-       the end: the queue would read empty precisely as the backlog grew. `listReports` takes one
-       status, and triage has two live ones. */
-    const [claimRows, proposals, residentRows, candidateRows, mergeRows, openReports, reviewingReports] = await Promise.all([
+    /* Live rows only: decided rows would fill the 100-row page oldest-first and hide new work. */
+    const [claimRows, proposals, residentRows, candidateRows, mergeRows] = await Promise.all([
       safe(listSocietyClaimQueue({ status: 'pending' }), 'claims', []),
       safe(listSocietyProposalQueue({ status: 'pending' }), 'community proposal', []),
       /* Unfiltered, unlike its neighbours. A residency is the one decision on this console that is
@@ -138,14 +116,10 @@ export default function AdminSocieties() {
          there is no decided-candidate row to accumulate and crowd out the new work. */
       safe(listSocietyCandidates(), 'society candidates', []),
       safe(listSocietyMerges(), 'merges', []),
-      safe(listReports({ status: 'open' }), 'reports', { items: [] }),
-      safe(listReports({ status: 'reviewing' }), 'reports', { items: [] }),
     ]);
     if (seq !== reloadSeq.current) return; // a newer reload has already answered
 
-    // Both report reads carry the same label, so a double failure would otherwise render as
-    // "The reports and reports queues could not be loaded" — a disclosure banner that looks broken.
-    setQueueErrors([...new Set(broke)]);
+    setQueueErrors(broke);
     setClaims(claimRows);
     setResidents(residentRows);
     setCandidates(candidateRows);
@@ -156,9 +130,6 @@ export default function AdminSocieties() {
     setSuggestions(proposals.filter((p) => p.kind === 'details').map(toSuggestionRow));
     setWaPending(proposals.filter((p) => p.kind === 'whatsapp'));
     setLocFixes(proposals.filter((p) => p.kind === 'location'));
-    setReports([...(openReports.items || []), ...(reviewingReports.items || [])].filter(
-      (r) => SOCIETY_REPORT_KINDS.has(r.kind) && LIVE_REPORT_STATUSES.has(r.status),
-    ));
   };
   /* Keyed on `bump` alone: the duplicate hint below is served rather than computed, so the bundled
      catalogue is not read on this screen at all. */
@@ -352,18 +323,6 @@ export default function AdminSocieties() {
     toast(status === 'verified' ? 'Resident verified' : 'Resident request rejected', status === 'verified' ? 'success' : 'info');
   });
 
-  const decideReport = (r, action) => withDeciding(r.id, async () => {
-    try {
-      /* "Remove content" is two facts on the wire, not one: the complaint is `actioned` *and* the
-         enforcement that discharges it is `hide_content`. Sending the status alone would close the
-         report and leave the post up — which is exactly what the old queue's buttons did. */
-      await triageReport(r.id, action === 'remove'
-        ? { status: 'actioned', enforcement: 'hide_content' }
-        : { status: 'dismissed' });
-    } catch (err) { failed(err, 'Could not triage that report.'); return; }
-    setBump((n) => n + 1);
-    toast(action === 'remove' ? 'Content removed & report closed' : 'Report dismissed — content kept', action === 'remove' ? 'success' : 'info');
-  });
   const decideProposal = (p, status, message, tone) => withDeciding(p.id, async () => {
     try {
       await decideSocietyProposal(p.id, { status });
@@ -514,7 +473,7 @@ export default function AdminSocieties() {
     { label: 'Pending claims', value: fmtNum(pendingClaims), icon: ShieldCheck, tab: 'claims' },
     { label: 'Pending residents', value: fmtNum(pendingRes), icon: Home, tab: 'residents' },
     { label: 'Candidates', value: fmtNum(candidates.length), icon: Sparkles, tab: 'candidates' },
-    { label: 'Open reports', value: fmtNum(reports.length + waPending.length + locFixes.length), icon: Flag, tab: 'moderation' },
+    { label: 'Pending moderation', value: fmtNum(waPending.length + locFixes.length), icon: Flag, tab: 'moderation' },
   ];
 
   const inp = 'w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-teal-400/50';
@@ -555,7 +514,7 @@ export default function AdminSocieties() {
         {tab === 'claims' ? 'RWA / committee requests to manage a society. Approving flips the public hub to “Managed on Draazy”.'
           : tab === 'residents' ? 'Residents proving they live in a society. Verifying grants a Resident badge on their reviews & answers.'
             : tab === 'candidates' ? 'Auto-minted community societies (from listings & searcher demand) awaiting review. Verify the real ones; merge duplicates into a canonical society — listings & followers redirect automatically.'
-              : tab === 'moderation' ? 'Community moderation queue. Review resident reports on society content, approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
+              : tab === 'moderation' ? 'Community moderation queue. Approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
                 : 'All societies with admin overlay. Edits are stored as an overlay on the static catalogue.'}
       </p>
       {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} deciding={deciding} viewCertificate={viewCertificate} opening={opening} /> : null}
@@ -572,7 +531,7 @@ export default function AdminSocieties() {
           openEdit={openEdit}
         />
       ) : null}
-      {tab === 'moderation' ? <ModerationTab reports={reports} waPending={waPending} locFixes={locFixes} decideReport={decideReport} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
+      {tab === 'moderation' ? <ModerationTab waPending={waPending} locFixes={locFixes} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
 
       {edit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>

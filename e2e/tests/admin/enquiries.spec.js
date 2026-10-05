@@ -78,8 +78,8 @@ test('revealing a contact unmasks that one row and records who asked', async ({ 
 
   /* The server writes the audit row before it answers, so by the time the number is on screen the record
      exists. Searched by action, not actor, so this does not depend on which admin the fixture is. */
-  await page.goto('/admin/staff-activity');
-  await expect(page.getByRole('heading', { name: 'Staff Activity', exact: true })).toBeVisible();
+  await page.goto('/admin/staff-activity?tab=log');
+  await expect(page.getByRole('heading', { name: 'Team Activity', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search staff activity' }).fill('enquiry.contact.reveal');
   await expect(page.locator('table tbody tr').first()).toBeVisible();
 });

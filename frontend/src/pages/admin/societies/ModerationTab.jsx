@@ -1,55 +1,17 @@
-import { Flag, MessageCircle, MapPin } from 'lucide-react';
+import { MessageCircle, MapPin } from 'lucide-react';
 // A pure regex validator, not state — inlined because there is no endpoint to
 // ask "is this a real WhatsApp invite" and the single caller does not warrant
 // a separate module. Same regex as lib/store/societyMod.js.
 const isSafeWhatsappUrl = (u) => /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,32}$/.test(String(u || ''));
-import { titleCase, fmtDate, Chip, actBtn, REPORT_LABELS, TEAL, RED, PLAIN } from './helpers.jsx';
+import { titleCase, fmtDate, actBtn, TEAL, RED } from './helpers.jsx';
 
-/**
- * The three queues that are one queue.
- *
- * Group links and pin corrections are `kind` filters on `/admin/society-proposals`, so both panels
- * below read identical row shapes — `id`, `societySlug`, `authorName`, `createdAt` — and differ only
- * in which optional columns are populated. Reports come from the platform-wide report queue,
- * narrowed to society kinds by the page above.
- */
-export default function ModerationTab({ reports, waPending, locFixes, decideReport, decideWa, decideLoc, deciding }) {
+/** Group links and pin corrections are `kind` filters on `/admin/society-proposals`, so rows share a shape. */
+export default function ModerationTab({ waPending, locFixes, decideWa, decideLoc, deciding }) {
   // A decision is a round trip. Without this the buttons stay live and look ignored, so the
   // operator clicks again — the write is already guarded, but the silence is what invites it.
   const busy = (id) => Boolean(deciding && deciding.has(id));
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="dz-card p-4">
-        <div className="mb-3 flex items-center gap-2"><Flag className="h-4 w-4 text-red-300" /><h3 className="font-bold">Reported content <span className="text-gray-400 font-normal">({reports.length})</span></h3></div>
-        {reports.length === 0 ? (
-          <p className="text-sm text-gray-400">No open reports. Resident flags on society posts land here.</p>
-        ) : (
-          <ul className="space-y-3">
-            {reports.map((r) => (
-              <li key={r.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <Chip tone="bg-white/10 text-gray-200">{REPORT_LABELS[r.kind] || r.kind}</Chip>
-                  <span className="text-xs text-gray-500">{fmtDate(r.at)}</span>
-                </div>
-                {/* No snapshot of the offending text, and no society link. The report carries a
-                    target id, not a copy of the content and not the page it sits on — a snapshot
-                    would go stale the moment the author edited, and the queue would show the
-                    operator words nobody can still see. `targetTitle` degrades to the bare id. */}
-                <p className="text-sm text-gray-200 line-clamp-3 break-words">{r.targetTitle || r.targetId || '—'}</p>
-                <div className="mt-1.5 text-xs text-gray-400">Reason: <span className="text-gray-300">{r.reasonLabel || r.reason || 'Not specified'}</span></div>
-                {r.details ? <div className="mt-0.5 text-xs text-gray-500 line-clamp-2 break-words">{r.details}</div> : null}
-                {/* The reporter is withheld by design — a moderator who can see who flagged them is
-                    a moderator who can be leaned on. */}
-                <div className="mt-2.5 flex gap-2">
-                  {actBtn('Remove content', RED, () => decideReport(r, 'remove'), busy(r.id))}
-                  {actBtn('Dismiss', PLAIN, () => decideReport(r, 'dismiss'), busy(r.id))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
       <div className="dz-card p-4">
         <div className="mb-3 flex items-center gap-2"><MessageCircle className="h-4 w-4 text-emerald-300" /><h3 className="font-bold">Pending WhatsApp links <span className="text-gray-400 font-normal">({waPending.length})</span></h3></div>
         {waPending.length === 0 ? (

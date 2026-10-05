@@ -48,13 +48,7 @@ const PAGE_SIZE = 20;
 /** `fmtNum` groups thousands, so the rendered total is `1,234` once the catalogue passes a thousand. */
 const grouped = (n) => n.toLocaleString('en-IN');
 
-/**
- * One page of the catalogue, read directly rather than through the app.
- *
- * Anonymous on purpose: `GET /societies` is the public route, which is the same fact the guard tests
- * at the bottom turn into an assertion. If that ever changes these calls start failing, which is the
- * correct way to find out.
- */
+/** One page of the catalogue read directly and anonymously: `GET /societies` is public, which the guard tests at the bottom assert. */
 async function catalogue(params = {}) {
   const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE), ...params });
   const res = await fetch(`${API}/societies?${qs}`);
@@ -100,7 +94,7 @@ test('the desk counts the whole catalogue, not the page it is showing', async ({
     await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
   }
   // The other four KPI tiles. Values belong to the queues, and to the specs that own those queues.
-  for (const label of ['Pending claims', 'Pending residents', 'Candidates', 'Open reports']) {
+  for (const label of ['Pending claims', 'Pending residents', 'Candidates', 'Pending moderation']) {
     await expect(page.locator('.dz-card').filter({ hasText: label }).first()).toBeVisible();
   }
 
@@ -123,10 +117,7 @@ test('Next fetches the next page from the server instead of slicing one already 
   await expect(page.getByText(`Showing 1–${PAGE_SIZE} of ${grouped(totalElements)} directory`)).toBeVisible();
   const firstName = await rows(page).first().locator('td').first().innerText();
 
-  /* The assertion is the request, not the rendering. `Table`'s own pager would advance the range
-     and change the first row too, without asking the server for anything — and against a fixture
-     holding the whole catalogue it would look identical. Only the outbound `page=1` tells them
-     apart, and only a server that has rows nineteen through three hundred can. */
+  /* Assert the request: `Table`'s own pager advances the range without asking the server. */
   const request = page.waitForResponse(
     (r) => /\/api\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('page') === '1',
   );
@@ -143,11 +134,8 @@ test('the search finds a society the first page does not contain', async ({ page
   const firstPage = await catalogue();
   const firstPageNames = new Set(firstPage.content.map((s) => s.name));
 
-  /* The adversarial row. A filter applied to the twenty rows in the browser would find nothing here,
-     and "no societies match that search" is a perfectly calm way to render that failure — which is
-     why the target has to be a society that is provably off the first page rather than any society
-     at all. Chosen from the far end of `name ASC` so the choice cannot quietly become a first-page
-     row as the catalogue grows. */
+  /* The adversarial row: a client-side filter over the 20 loaded rows finds nothing, so the target must be provably off the first page
+       (taken from the far end of `name ASC` so catalogue growth cannot move it onto it). */
   const last = await catalogue({ page: String(Math.max(0, firstPage.totalPages - 1)) });
   const target = last.content.reverse().find((s) => !firstPageNames.has(s.name));
   expect(target, 'no society exists off the first page — the catalogue is too small to test search').toBeTruthy();

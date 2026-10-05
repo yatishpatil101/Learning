@@ -65,9 +65,11 @@ public class UserAdminController {
     }
 
     // status and archived are separate because an account can be suspended and archived.
+    // customers=true narrows to owners and buyers; back-office accounts live under Team & Access.
     @GetMapping(Routes.Users.BASE)
     @PreAuthorize(USERS_READ)
     public PageResponse<UserResponse> list(@RequestParam(required = false) String role,
+            @RequestParam(defaultValue = "false") boolean customers,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean flagged,
@@ -78,7 +80,7 @@ public class UserAdminController {
                     + "active, suspended, archived.");
         }
         return PageResponse.of(
-                service.list(role, q, status, flagged, archived,
+                service.list(role, customers, q, status, flagged, archived,
                         Pageables.unsorted(pageable)),
                 dto -> dto);
     }

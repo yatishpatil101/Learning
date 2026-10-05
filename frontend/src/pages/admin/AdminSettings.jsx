@@ -1,25 +1,20 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Link } from 'react-router';
-import { Save, Download, History, AlertTriangle } from 'lucide-react';
+import { Save, AlertTriangle } from 'lucide-react';
 import { listCities, updateCityLive } from '../../services/cityService.js';
 import { onGeoChange } from '../../lib/geoConfig.js';
 import { getSettings, updateSettings } from '../../services/settingsService.js';
 import { DEFAULT_MAX_PHOTOS, MAX_PHOTOS_CEILING, MIN_PHOTOS_CAP } from '../../lib/uploads/policy.js';
-import { listAuditLog } from '../../services/auditService.js';
 import { classNames } from '../../lib/format.js';
-import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Switch from '../../components/ui/Switch.jsx';
-import Table from '../../components/ui/Table.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import AdminFlagsPanel from './settings/AdminFlagsPanel.jsx';
 import AppFlagsPanel from './settings/AppFlagsPanel.jsx';
 import MapsGeoPanel from './settings/MapsGeoPanel.jsx';
 
-/* ─── Confirmation Dialog ─── */
 function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Confirm', danger }) {
   if (!open) return null;
   return (
@@ -51,30 +46,9 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
   );
 }
 
-const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flags', 'Feature flags'], ['audit', 'Audit log']];
+const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flags', 'Feature flags']];
 const DEFAULT_GROUPS_PER_PERSON = 2;
 const MAX_GROUPS_CEILING = 10;
-
-/** Shortened only visually; the full UUID remains in title text and CSV export. */
-const shortId = (id) => {
-  const s = String(id || '');
-  return s.length > 8 ? `${s.slice(0, 8)}…` : s;
-};
-
-/** `from`/`to` lead because that pair is what an audit reader scans for first. */
-const describe = (metadata) => {
-  if (!metadata || typeof metadata !== 'object') return '';
-  const parts = [];
-  if (metadata.from !== undefined || metadata.to !== undefined) {
-    parts.push(`${metadata.from ?? '—'} → ${metadata.to ?? '—'}`);
-  }
-  for (const [k, v] of Object.entries(metadata)) {
-    if (k === 'from' || k === 'to') continue;
-    if (v === null || v === undefined || v === '') continue;
-    parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
-  }
-  return parts.join(', ');
-};
 
 const SITE_FIELDS = [
   ['name', 'Site name'],
@@ -137,12 +111,8 @@ export default function AdminSettings() {
   const [cityRosterError, setCityRosterError] = useState(false);
   const [pendingCity, setPendingCity] = useState(null);
   const [loadError, setLoadError] = useState(false);
-  const [tab, setTab] = useTabParam(['general', 'fees', 'maps', 'flags', 'audit'], 'general');
+  const [tab, setTab] = useTabParam(TABS.map(([id]) => id), 'general');
   const [flagSubTab, setFlagSubTab] = useState('application');
-  const [audit, setAudit] = useState([]);
-  const [auditError, setAuditError] = useState('');
-  /** Bumped to re-ask the server for the trail; see the loader effect. */
-  const [reloadAudit, setReloadAudit] = useState(0);
   const [confirm, setConfirm] = useState(null);
 
   useEffect(() => {
@@ -174,21 +144,6 @@ export default function AdminSettings() {
 
   /** Stable identity keeps the Maps panel from re-syncing over a half-typed bounding box. */
   const geo = useMemo(() => settings?.geo || {}, [settings?.geo]);
-
-  /** A failed audit-log fetch must not render as an empty log. */
-  useEffect(() => {
-    if (tab !== 'audit') return undefined;
-    let live = true;
-    setAuditError('');
-    listAuditLog({ size: 100 })
-      .then((res) => { if (live) setAudit(res.items || []); })
-      .catch(() => {
-        if (!live) return;
-        setAudit([]);
-        setAuditError('The audit log could not be loaded. This is not an empty log — reload to try again.');
-      });
-    return () => { live = false; };
-  }, [tab, reloadAudit]);
 
   // Confirmation-gated admin flag toggle (must be before early return to satisfy Rules of Hooks)
   const requestAdminFlagToggle = useCallback((section, key, value, moduleTitle) => {
@@ -338,78 +293,8 @@ export default function AdminSettings() {
   const handleConfirm = () => {
     confirm?.action();
     setConfirm(null);
-    // The confirmed action writes through the API, which writes the audit row; re-ask for the
-    // trail rather than appending a guess at what the server recorded.
-    if (tab === 'audit') setReloadAudit((n) => n + 1);
   };
   const handleCancel = () => setConfirm(null);
-
-  const exportAudit = () => {
-    if (!audit.length) { toast('Nothing to export'); return; }
-    exportCsv(
-      'draazy-audit-log.csv',
-      ['When', 'Actor', 'Actor ID', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
-      audit.map((a) => [a.at, a.actorName, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
-    );
-    toast('Audit log exported');
-  };
-
-  /* No "Clear" button: the trail is append-only by construction, so a client-side clear could only
-     mislead about whether a compliance record is gone or erasable. */
-
-  const auditCols = [
-    { key: 'at', header: 'When', className: 'whitespace-nowrap text-gray-400', render: (a) => new Date(a.at).toLocaleString('en-IN') },
-    {
-      key: 'actor',
-      header: 'Actor',
-      render: (a) => (
-        <span className="block">
-          <span className="text-sm text-gray-200" title={a.actor}>{a.actorName}</span>
-          {a.actorRole ? <span className="ml-2 text-[0.68rem] uppercase tracking-wide text-gray-500">{a.actorRole}</span> : null}
-        </span>
-      ),
-    },
-    {
-      key: 'action',
-      header: 'Action',
-      render: (a) => (
-        <span className="inline-block rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-[0.68rem] font-bold uppercase tracking-wide text-indigo-300">
-          {a.action}
-        </span>
-      ),
-    },
-    {
-      key: 'entity',
-      header: 'Record',
-      className: 'text-gray-300',
-      render: (a) => (
-        <span className="block">
-          <span>{a.entity}</span>
-          {a.entityId ? <span className="ml-2 font-mono text-xs text-gray-500" title={a.entityId}>{shortId(a.entityId)}</span> : null}
-        </span>
-      ),
-    },
-    { key: 'metadata', header: 'Details', className: 'text-gray-300', render: (a) => describe(a.metadata) },
-  ];
-
-  /* Stacked-card fallback below `sm` (see Table.jsx). Read-only log, so the card is
-     purely informational — no actions to size up. */
-  const auditCard = (a) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <span className="truncate text-sm font-semibold text-gray-200" title={a.actor}>{a.actorName}</span>
-        <span className="shrink-0 rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-indigo-300">{a.action}</span>
-      </div>
-      {a.entity ? (
-        <div className="mt-2 text-sm text-gray-300">
-          {a.entity}
-          {a.entityId ? <span className="ml-2 font-mono text-xs text-gray-500">{shortId(a.entityId)}</span> : null}
-        </div>
-      ) : null}
-      {describe(a.metadata) ? <div className="mt-1 text-sm text-gray-300">{describe(a.metadata)}</div> : null}
-      <div className="mt-2 text-xs text-gray-400">{new Date(a.at).toLocaleString('en-IN')}</div>
-    </div>
-  );
 
   return (
     <div>
@@ -590,51 +475,6 @@ export default function AdminSettings() {
               <AdminFlagsPanel adminFlags={adminFlags} onToggle={requestAdminFlagToggle} />
             </div>
           )}
-        </div>
-      )}
-
-      {/* Audit Log */}
-      {tab === 'audit' && (
-        <div>
-          <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-3">
-            <p className="text-sm text-gray-400">
-              Looking for staff operational activity?{' '}
-              <Link to="/admin/staff-activity" className="text-brand-teal hover:underline font-medium">
-                &rarr; View Staff Activity
-              </Link>
-            </p>
-          </div>
-          <div className="mb-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-200">Audit log</h3>
-              <p className="text-xs text-gray-400">
-                The server&rsquo;s append-only record of privileged actions. Read-only &mdash; entries cannot be edited or removed.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={exportAudit} className="dz-btn dz-btn-ghost">
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
-            </div>
-          </div>
-          {auditError ? (
-            <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-sm text-rose-200">
-              {auditError}
-            </div>
-          ) : null}
-          <Table
-            columns={auditCols}
-            rows={audit}
-            rowKey={(a) => a.id}
-            pageSize={12}
-            label="entries"
-            mobileCard={auditCard}
-            empty={
-              <span className="inline-flex items-center gap-2 text-gray-500">
-                <History className="h-4 w-4" /> No audited actions recorded yet.
-              </span>
-            }
-          />
         </div>
       )}
 

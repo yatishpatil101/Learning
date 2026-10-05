@@ -12,7 +12,6 @@ const ADMIN_FLAG_SECTIONS = [
   { section: 'analytics', title: 'Analytics', desc: 'Full analytics dashboard with multiple sub-tabs', hasTabFlag: true, options: [
     { key: 'traffic', label: 'Traffic', desc: 'Website visits & pageviews', cost: 'low' },
     { key: 'engagement', label: 'Engagement', desc: 'Session duration & bounce rate', cost: 'low' },
-    { key: 'anonymous', label: 'Anonymous surfers', desc: 'Non-registered visitor tracking', cost: 'low' },
     { key: 'geography', label: 'Geography', desc: 'Listings & demand by locality', cost: 'low' },
     { key: 'supplyGap', label: 'Supply-demand gap', desc: 'Market opportunity analysis', cost: 'high' },
     { key: 'pricing', label: 'Pricing intelligence', desc: 'Market rate comparisons', cost: 'high' },
@@ -33,9 +32,8 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'bulkOps', label: 'Bulk operations', desc: 'Multi-select batch actions', cost: 'low' },
     { key: 'csvExport', label: 'CSV export', desc: 'Export user data to CSV', cost: 'low' },
   ] },
-  { section: 'services', title: 'Services', desc: 'Service ticket management options', hasTabFlag: true, options: [
+  { section: 'services', title: 'Home Loans desk', desc: 'Ticket options on the Home Loans desk', hasTabFlag: true, options: [
     { key: 'priority', label: 'Priority levels', desc: 'High/medium/low ticket priority', cost: 'low' },
-    { key: 'teamRouting', label: 'Team routing', desc: 'Route tickets to specific teams', cost: 'low' },
     { key: 'staffAssignment', label: 'Staff assignment', desc: 'Assign tickets to individual staff', cost: 'low' },
   ] },
   { section: 'enquiries', title: 'Enquiries', desc: 'Lead pipeline sub-tabs', hasTabFlag: false, critical: true, options: [
@@ -48,23 +46,22 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'banners', label: 'Banners', desc: 'Homepage promotional banners', cost: 'low' },
     { key: 'faqs', label: 'FAQs', desc: 'Frequently asked questions', cost: 'low' },
     { key: 'announcements', label: 'Announcements', desc: 'User-facing announcements', cost: 'low' },
-    { key: 'reviews', label: 'Reviews', desc: 'User review moderation', cost: 'low' },
   ] },
-  { section: 'staffActivity', title: 'Staff Activity', desc: 'Staff activity page options', hasTabFlag: false, options: [
-    { key: 'kpis', label: 'KPI tiles', desc: 'Summary metrics at the top', cost: 'low' },
-    { key: 'leaderboard', label: 'Leaderboard', desc: 'Staff ranking by activity', cost: 'low' },
+  { section: 'staffActivity', title: 'Team Activity', desc: 'Team activity page options', hasTabFlag: false, options: [
+    { key: 'kpis', label: 'KPI tiles', desc: 'Summary metrics above the activity log', cost: 'low' },
   ] },
   { section: 'reports', title: 'Reports', desc: 'Abuse reports & content moderation', hasTabFlag: true, options: [
     { key: 'properties', label: 'Reported properties', desc: 'Property abuse reports', cost: 'low' },
     { key: 'users', label: 'Reported users', desc: 'User abuse reports', cost: 'low' },
     { key: 'posts', label: 'Reported posts', desc: 'Flatmate room, group and seeker posts', cost: 'low' },
+    { key: 'reviews', label: 'Reviews', desc: 'Approve or reject user reviews', cost: 'low' },
   ] },
   { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [
     { key: 'seekers', label: 'Seekers', desc: 'Flatmate seeker posts', cost: 'low' },
     { key: 'groups', label: 'Groups', desc: 'Flatmate groups', cost: 'low' },
     { key: 'applications', label: 'Applications', desc: 'Group applications to listings', cost: 'low' },
   ] },
-  { section: 'support', title: 'Support', desc: 'Standalone support ticket view (overlaps with Services)', hasTabFlag: true, options: [] },
+  { section: 'support', title: 'Support', desc: 'Customer support ticket queue', hasTabFlag: true, options: [] },
 ];
 
 const COST_DOT = {

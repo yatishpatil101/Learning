@@ -3,18 +3,17 @@ import { Link } from 'react-router';
 import {
   ShieldAlert, Flag, Mail, CalendarCheck, ConciergeBell, Handshake, MessageSquareWarning,
   Users, Building2, Building, IndianRupee, Trophy, UserPlus, MousePointerClick,
-  ShieldCheck, Megaphone, ToggleRight, ExternalLink, ArrowUpRight, CheckCheck, Clock,
+  ArrowUpRight, CheckCheck, Clock,
 } from 'lucide-react';
 import { listForModeration, moderationSummary } from '../../services/propertyService.js';
 import { listEnquiries, listVisits, listDeals } from '../../services/enquiryBoardService.js';
 import { listTicketQueue } from '../../services/ticketService.js';
 import { listUsers } from '../../services/usersService.js';
-import { getSettings } from '../../services/settingsService.js';
 import { dashboardKpis, reviewSla, traffic as fetchTraffic } from '../../services/analyticsService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { canOpenPath, hasPermission } from '../../lib/adminModules.js';
+import { canOpenPath, hasPermission, ticketPath } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
@@ -29,8 +28,6 @@ const TINT = {
   coral: 'bg-orange-500/15 text-orange-300',
   emerald: 'bg-emerald-500/15 text-emerald-300',
 };
-
-const DOT = { green: '#34d399', red: '#fb7185', amber: '#fbbf24', slate: '#94a3b8' };
 
 const SECTIONS = 'text-lg font-bold';
 
@@ -74,7 +71,6 @@ function PlatformDashboard({ user }) {
   const [data, setData] = useState(null);
   const { optionEnabled } = useAdminFlags();
   const canOpen = (href) => canOpenPath(user, href);
-  const canReadSettings = hasPermission(user, 'settings:read');
   const canReadAnalytics = hasPermission(user, 'analytics:read');
 
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
@@ -122,18 +118,17 @@ function PlatformDashboard({ user }) {
       soft('the owner count', listUsers({ role: 'owner', size: 1 })),
       soft('the scorecard', canReadAnalytics ? dashboardKpis() : Promise.resolve(null)),
       soft('traffic', canReadAnalytics ? fetchTraffic({ days: 30 }) : Promise.resolve(null)),
-      soft('settings', canReadSettings ? getSettings() : Promise.resolve(null)),
-    ]).then(([listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings]) => {
+    ]).then(([listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic]) => {
       if (!alive) return;
-      setData({ listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings });
+      setData({ listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic });
     });
     return () => { alive = false; };
-  }, [canReadSettings, canReadAnalytics]);
+  }, [canReadAnalytics]);
 
   if (!data) return <Loading />;
 
   const {
-    listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings,
+    listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic,
   } = data;
 
   // Queue depths — over the window each collection returns, which is the same window the tile links
@@ -183,10 +178,10 @@ function PlatformDashboard({ user }) {
     { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: pendingVerif != null },
     { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
     { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties?tab=flagged', cta: 'Investigate', show: flagged != null },
-    { lbl: 'Open Reports', val: kpis?.openReports, icon: MessageSquareWarning, tint: 'rose', href: '/admin/properties?tab=reports', cta: 'Review reports', show: Boolean(kpis) },
+    { lbl: 'Open Reports', val: kpis?.openReports, icon: MessageSquareWarning, tint: 'rose', href: '/admin/reports', cta: 'Review reports', show: Boolean(kpis) },
     { lbl: 'New Enquiries', val: newEnq, icon: Mail, tint: 'indigo', href: '/admin/enquiries', cta: 'Respond now', show: true },
     { lbl: 'Scheduled Visits', val: schedVisits, icon: CalendarCheck, tint: 'teal', href: '/admin/enquiries', cta: 'Coordinate', show: true },
-    { lbl: 'Open Service Requests', val: openTickets, icon: ConciergeBell, tint: 'coral', href: '/admin/services', cta: 'Assign & start', show: openTickets != null },
+    { lbl: 'Open Service Requests', val: openTickets, icon: ConciergeBell, tint: 'coral', href: ticketPath(openTicketPage?.items?.[0]), cta: 'Assign & start', show: openTickets != null },
     { lbl: 'Deals in Progress', val: dealsProg, icon: Handshake, tint: 'emerald', href: '/admin/enquiries', cta: 'Close deals', show: true },
   ].filter((t) => t.show && canOpen(t.href)).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
 
@@ -201,27 +196,6 @@ function PlatformDashboard({ user }) {
     { lbl: 'Visits today', val: lastDay?.sessions, display: fmtNum(lastDay?.sessions), icon: MousePointerClick, tint: 'indigo', href: '/admin/analytics', sub: `${fmtNum(sessions30)} in 30d`, show: showGlanceTraffic && Boolean(lastDay) },
   ];
   const glanceTiles = glanceTilesAll.filter((t) => t.show && canOpen(t.href)).map((t) => ({ ...t, attention: false }));
-
-  const f = (settings && settings.flags) || {};
-  const svcKeys = ['svcRentAgreement', 'svcLegal', 'svcValuation', 'svcInterior', 'svcPackers', 'svcHomeLoans', 'societySaaS'];
-  const svcOn = svcKeys.filter((kk) => f[kk]).length;
-  const health = [
-    { lbl: 'Site status', color: f.maintenanceMode ? DOT.red : DOT.green, txt: f.maintenanceMode ? 'Maintenance mode' : 'Online' },
-    { lbl: 'Public signups', color: f.signupsEnabled ? DOT.green : DOT.amber, txt: f.signupsEnabled ? 'Open' : 'Closed' },
-    { lbl: 'Staff & ops login', color: f.staffLoginEnabled ? DOT.green : DOT.amber, txt: f.staffLoginEnabled ? 'Enabled' : 'Disabled' },
-    { lbl: 'Services live', color: svcOn ? DOT.green : DOT.red, txt: `${svcOn} of ${svcKeys.length} enabled` },
-    { lbl: 'WhatsApp integration', color: f.whatsappEnabled ? DOT.green : DOT.slate, txt: f.whatsappEnabled ? 'Connected' : 'Off' },
-  ];
-
-  const quick = [
-    { lbl: 'Post on behalf', icon: UserPlus, href: '/admin/post-on-behalf' },
-    { lbl: 'Verify listings', icon: ShieldCheck, href: '/admin/properties' },
-    { lbl: 'Add staff', icon: UserPlus, href: '/admin/users' },
-    { lbl: 'New announcement', icon: Megaphone, href: '/admin/content' },
-    { lbl: 'Manage services', icon: ConciergeBell, href: '/admin/services' },
-    { lbl: 'Feature flags', icon: ToggleRight, href: '/admin/settings' },
-    { lbl: 'View live site', icon: ExternalLink, href: '/' },
-  ].filter((q) => canOpen(q.href));
 
   /* Oldest first, because this card is a queue and not a feed: the listing that has waited longest
      is the one a moderator should open next. */
@@ -251,58 +225,6 @@ function PlatformDashboard({ user }) {
         {glanceTiles.map((t) => (
           <StatTile key={t.lbl} tile={t} />
         ))}
-      </div>
-
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className={SECTIONS}>Platform health &amp; quick actions</h2>
-        <span className="text-sm text-gray-500">System status pulled live from your settings</span>
-      </div>
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        {settings ? (
-        <div className="dz-card p-5">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <h3 className="font-bold">Platform health</h3>
-              <div className="text-xs text-gray-500">Services, integrations &amp; system switches</div>
-            </div>
-            <Link to="/admin/settings" className="dz-btn dz-btn-ghost text-sm">
-              Manage
-            </Link>
-          </div>
-          <div>
-            {health.map((h) => (
-              <div key={h.lbl} className="flex items-center justify-between gap-3 border-b border-white/10 py-3 last:border-0">
-                <span className="text-sm text-gray-200">{h.lbl}</span>
-                <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold text-gray-300">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: h.color }} />
-                  {h.txt}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-        ) : null}
-
-        <div className="dz-card p-5">
-          <div className="mb-3">
-            <h3 className="font-bold">Quick actions</h3>
-            <div className="text-xs text-gray-500">Jump to common tasks</div>
-          </div>
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            {quick.map((q) => (
-              <Link
-                key={q.lbl}
-                to={q.href}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm font-semibold text-gray-200 transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/10"
-              >
-                <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px] bg-ink-2">
-                  <q.icon className="h-[17px] w-[17px]" />
-                </span>
-                {q.lbl}
-              </Link>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -351,22 +273,17 @@ function PlatformDashboard({ user }) {
         </div>
         ) : null}
 
-        {canOpen('/admin/services') ? (
+        {hasPermission(user, 'tickets:read') ? (
         <div className="dz-card min-w-0 p-5">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <h3 className="font-bold">Latest service requests</h3>
-              <div className="text-xs text-gray-500">Across all teams</div>
-            </div>
-            <Link to="/admin/services" className="dz-btn dz-btn-ghost text-sm">
-              View all
-            </Link>
+          <div className="mb-3">
+            <h3 className="font-bold">Latest service requests</h3>
+            <div className="text-xs text-gray-500">Across all desks</div>
           </div>
           <div>
             {latestTickets.map((t) => (
               <Link
                 key={t.id}
-                to="/admin/services"
+                to={ticketPath(t, true)}
                 className="flex items-center gap-3 border-b border-white/10 py-2.5 text-inherit no-underline last:border-0"
               >
                 <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-[10px] ${TINT.coral}`}>

@@ -8,6 +8,8 @@ import { fmtNum, classNames, timeAgo } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Table from '../../components/ui/Table.jsx';
@@ -17,20 +19,12 @@ import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import DateRangePills from '../../components/ui/DateRangePills.jsx';
+import ReviewsTab from './reports/ReviewsTab.jsx';
 
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
 
-/**
- * The queue's status vocabulary, reconciled with the server's.
- *
- * The server has four — `open`, `reviewing`, `actioned`, `dismissed`. `resolved` is not among
- * them: it means "reviewed, no action needed", which is exactly what `dismissed` means. The mapper
- * translates it on the way out so a triage still works, but offering it as a *filter* would offer
- * a state no live report can be in.
- *
- * `reviewing` is the reverse case: real server-side, no button here. Listed so the filter can reach
- * reports another moderator has picked up.
- */
+/** `resolved` is omitted: it equals `dismissed` server-side, so
+ * filtering on it would offer a state no report can be in. */
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
   { value: 'open', label: 'Open' },
@@ -39,21 +33,8 @@ const STATUS_OPTS = [
   { value: 'dismissed', label: 'Dismissed' },
 ];
 
-/**
- * The reason filter, derived from the vocabularies reporters actually choose from.
- *
- * Derived, not hand-maintained. A hand-written mirror drifts in both directions: it offers codes
- * no report can carry — which empties the queue and looks like "no such complaints" — and omits
- * codes reports do carry, so a common complaint such as "posted by a broker, not the owner" stops
- * being filterable at all. `STATUS_OPTS` above drifted the same way. This list is built from the
- * exact arrays `ReportModal` offers and the backend's `ReportReasons` mirrors, so it cannot drift
- * without the modal changing.
- *
- * Keyed by tab because reasons are per target type — the server's rule is "this reason must be
- * valid *for this target type*". `pricing` is a meaningful complaint about a listing and meaningless
- * about a person; `impersonation` the reverse. Offering the union would reintroduce, as a filter,
- * exactly the nonsensical pairings the server refuses to store.
- */
+/** Derived from the arrays ReportModal offers so the filter can't
+ * drift; keyed by tab as reasons are valid per target type. */
 const REASON_OPTS = {
   listings: [{ value: '', label: 'All reasons' }, ...LISTING_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
   users: [{ value: '', label: 'All reasons' }, ...OWNER_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
@@ -92,9 +73,11 @@ const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
 export default function AdminReports() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
+  const { user } = useAuth();
+  const canSeeReviews = hasPermission(user, 'properties:read');
   const [searchParams] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', 'society'], 'listings');
+  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', 'society', ...(canSeeReviews ? ['reviews'] : [])], 'listings');
   const [statusF, setStatusF] = useState('');
   const [reasonF, setReasonF] = useState('');
   const [dateRange, setDateRange] = useState('');
@@ -119,38 +102,13 @@ export default function AdminReports() {
     if (oid) { const r = all.find((x) => x.id === oid); if (r) setDetail(r); }
   }, [all, searchParams]); // eslint-disable-line
 
-  /**
-   * A reason filter does not survive a tab change.
-   *
-   * The two tabs offer different vocabularies, so a reason chosen on one is frequently not a legal
-   * complaint on the other. Left standing it would filter on a code no row in the new tab can
-   * carry, and the moderator would read an empty queue as "no reports here" rather than "you are
-   * filtering by something that cannot exist here".
-   *
-   * Derived rather than an effect. An effect would have to run *after* the tab change has painted,
-   * so there would be one frame showing an empty table, a "0 of N" count and the raw code in the
-   * trigger (`Select` falls back to `String(value)` when the value matches no option) — which is
-   * the exact misreading this exists to prevent, just briefly. Deriving also keeps `hasFilters`
-   * honest: an effect leaves `reasonF` set for that frame, so "Clear all filters" would offer to
-   * clear a filter that is no longer being applied. `reasonF` is kept rather than cleared, so
-   * going back to the original tab restores the moderator's filter instead of silently dropping it.
-   */
+  /** Derived, not an effect: an effect leaves a frame with a
+   * stale reason; `reasonF` is kept so returning restores it. */
   const reasonOpts = REASON_OPTS[tab] || REASON_OPTS.listings;
   const activeReason = reasonOpts.some((o) => o.value === reasonF) ? reasonF : '';
 
-  /**
-   * Triage one report.
-   *
-   * `actionTaken` is the queue's own label for what was done ("Listing taken down"). The server has
-   * no such column — the moderator's words go to the audit log, attributable to whoever typed them,
-   * so that "a triage note can never be mistaken for something the reporter said". It is passed as
-   * the note and kept locally for the table.
-   *
-   * `enforcement` is the separate, machine-readable verb the server executes. It is deliberately not
-   * inferred from `actionTaken`: that string is a human label which will be reworded or translated
-   * one day, and the moment it is, an inferred enforcement silently becomes `none` and the queue
-   * starts closing reports without touching the thing reported.
-   */
+  /** `enforcement` is the machine verb the server executes; never infer
+   * it from the human `actionTaken` label, which gets reworded. */
   const act = async (id, status, actionTaken, enforcement) => {
     const note = window.prompt('Internal note (optional):');
     let updated;
@@ -160,12 +118,8 @@ export default function AdminReports() {
       toast('That decision could not be saved. Please reload the queue.', 'error');
       return;
     }
-    // Neither `logAudit` nor `addInternalNote` here: `ReportService.triage` writes `report.triage`
-    // with the from-status, the to-status, the authenticated actor and — via `body.note()` — this
-    // very string. A browser-local copy would be a second record under no real author.
-    //
-    // The server's answer is authoritative for `status` — `resolved` is recorded as `dismissed`,
-    // so echoing the requested value would show a state the server did not store.
+    // No client audit/note: ReportService.triage writes the audit row; the server's `status` is authoritative
+    // (`resolved` stores as `dismissed`).
     const saved = updated?.status || status;
     const resolveAction = (existing) => (status === 'open' ? '' : (actionTaken || existing));
     setAll((prev) => prev.map((r) => r.id === id ? { ...r, status: saved, actionTaken: resolveAction(r.actionTaken), handledAt: Date.now() } : r));
@@ -173,13 +127,8 @@ export default function AdminReports() {
     toast(actionTaken || (status === 'open' ? 'Reopened' : saved));
   };
 
-  /**
-   * Bulk decisions are N requests, not one.
-   *
-   * There is no bulk endpoint, and inventing one client-side means some can fail while others
-   * succeed. `allSettled` so one refusal does not abandon the rest, then a single re-read: the
-   * local state cannot be patched optimistically when an unknown subset may not have applied.
-   */
+  /** No bulk endpoint, so N requests: `allSettled` so one
+   * refusal doesn't abandon the rest, then a single re-read.  */
   const bulkTriage = async (status, actionTaken, confirmMsg, doneMsg) => {
     if (!selected.size) return;
     if (!window.confirm(confirmMsg)) return;
@@ -448,7 +397,7 @@ export default function AdminReports() {
     <div>
       <PageHeader
         title="Reports & Moderation"
-        subtitle="Review reported properties, users and flatmate posts, and take action."
+        subtitle="Review reported properties, users and posts, moderate reviews, and take action."
         actions={<button onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>}
       />
 
@@ -473,7 +422,14 @@ export default function AdminReports() {
             </button>
           ) : null
         ))}
+        {canSeeReviews && optionEnabled('reports.reviews') ? (
+          <button onClick={() => setTab('reviews')} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === 'reviews' ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
+            Reviews
+          </button>
+        ) : null}
       </HScroll>
+
+      {tab === 'reviews' ? <ReviewsTab /> : (<>
 
       {/* Filter bar */}
       <div className="dz-card mb-4 p-3 space-y-2">
@@ -523,6 +479,7 @@ export default function AdminReports() {
       )}
 
       <Table columns={cols} rows={rows} pageSize={10} label="reports" empty="No reports match — all clear!" mobileCard={reportCard} />
+      </>)}
 
       {/* Detail modal */}
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Report · ${detail.id}` : ''} size="lg">

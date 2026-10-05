@@ -41,10 +41,10 @@ Admin desks, and **KYC review** on the ops side, show only when your account hol
 | Properties | `/admin/properties` | Listing verification, re-checks, duplicates | [Verification SLAs](/help/a/verification-sla) |
 | Properties → ownership | `/admin/properties` | Ownership evidence and ownership badges | [Ownership and badges](/help/a/ownership-and-badges) |
 | Users → Badge approvals | `/admin/users` | Manual verified-badge requests | [Ownership and badges](/help/a/ownership-and-badges) |
-| Reports | `/admin/reports` | Listing, user and society-content reports | [Reports and takedowns](/help/a/reports-and-takedowns) |
+| Reports | `/admin/reports` | Listing, user and society-content reports; review moderation | [Reports and takedowns](/help/a/reports-and-takedowns) |
 | Societies | `/admin/societies` | Claims, residents, candidates, moderation | [Society moderation](/help/a/society-moderation) |
 | Post on Behalf | `/admin/post-on-behalf` | Listings for owners who called or messaged | [Post on behalf](/help/a/post-on-behalf) |
-| Services | `/admin/services` | Service-request tickets with staff directory | [Ticket handling and escalation](/help/a/ticket-escalation) |
+| Home Loans | `/admin/home-loans` | Home-loan ticket board; other desks show tickets under **Tickets** | [Ticket handling and escalation](/help/a/ticket-escalation) |
 
 ## Rules for every desk
 

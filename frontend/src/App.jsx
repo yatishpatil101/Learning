@@ -87,6 +87,7 @@ const AdminProperties = lazy(() => import('./pages/admin/AdminProperties.jsx'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics.jsx'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers.jsx'));
 const AdminServices = lazy(() => import('./pages/admin/AdminServices.jsx'));
+const DeskWithTickets = lazy(() => import('./pages/admin/DeskWithTickets.jsx'));
 const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries.jsx'));
 const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
@@ -94,7 +95,6 @@ const AdminReports = lazy(() => import('./pages/admin/AdminReports.jsx'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminPostOnBehalf = lazyPage(() => import('./pages/admin/AdminPostOnBehalf.jsx'), 'list-property');
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
-const AdminTeamPerformance = lazy(() => import('./pages/admin/AdminTeamPerformance.jsx'));
 const AdminSocieties = lazy(() => import('./pages/admin/AdminSocieties.jsx'));
 const AdminLocalities = lazy(() => import('./pages/admin/AdminLocalities.jsx'));
 /* The manager warning owns the only translated string on this page; the rest is still English. */
@@ -181,13 +181,12 @@ const BACK_OFFICE_ROUTES = [{
     { path: 'properties', element: <ModuleRoute moduleKey="properties"><AdminProperties /></ModuleRoute> },
     { path: 'analytics', element: <ModuleRoute moduleKey="analytics"><FlagRoute flag="analytics"><AdminAnalytics /></FlagRoute></ModuleRoute> },
     { path: 'users', element: <ModuleRoute moduleKey="users"><AdminUsers /></ModuleRoute> },
-    { path: 'services', element: <ModuleRoute moduleKey="services"><AdminServices /></ModuleRoute> },
-    { path: 'rent-agreement', element: <ModuleRoute moduleKey="desk:rental"><RentAgreementDesk /></ModuleRoute> },
+    { path: 'rent-agreement', element: <ModuleRoute moduleKey="desk:rental"><DeskWithTickets desk="rental"><RentAgreementDesk /></DeskWithTickets></ModuleRoute> },
     { path: 'home-loans', element: <ModuleRoute moduleKey="desk:loans"><AdminServices desk="loans" /></ModuleRoute> },
-    { path: 'legal', element: <ModuleRoute moduleKey="desk:legal"><OpsDraftingDesk key="legal" desk="legal" /></ModuleRoute> },
-    { path: 'interior', element: <ModuleRoute moduleKey="desk:interior"><OpsDraftingDesk key="interior" desk="interior" /></ModuleRoute> },
-    { path: 'packers', element: <ModuleRoute moduleKey="desk:packers"><OpsDraftingDesk key="packers" desk="packers" /></ModuleRoute> },
-    { path: 'valuation', element: <ModuleRoute moduleKey="desk:valuation"><OpsDraftingDesk key="valuation" desk="valuation" /></ModuleRoute> },
+    { path: 'legal', element: <ModuleRoute moduleKey="desk:legal"><DeskWithTickets desk="legal"><OpsDraftingDesk key="legal" desk="legal" /></DeskWithTickets></ModuleRoute> },
+    { path: 'interior', element: <ModuleRoute moduleKey="desk:interior"><DeskWithTickets desk="interior"><OpsDraftingDesk key="interior" desk="interior" /></DeskWithTickets></ModuleRoute> },
+    { path: 'packers', element: <ModuleRoute moduleKey="desk:packers"><DeskWithTickets desk="packers"><OpsDraftingDesk key="packers" desk="packers" /></DeskWithTickets></ModuleRoute> },
+    { path: 'valuation', element: <ModuleRoute moduleKey="desk:valuation"><DeskWithTickets desk="valuation"><OpsDraftingDesk key="valuation" desk="valuation" /></DeskWithTickets></ModuleRoute> },
     { path: 'drafting-desk', element: <DeskRedirect /> },
     { path: 'support', element: <ModuleRoute moduleKey="support"><OpsSupportQueue /></ModuleRoute> },
     { path: 'enquiries', element: <ModuleRoute moduleKey="enquiries"><AdminEnquiries /></ModuleRoute> },
@@ -202,7 +201,6 @@ const BACK_OFFICE_ROUTES = [{
     { path: 'settings', element: <ModuleRoute moduleKey="settings"><AdminSettings /></ModuleRoute> },
     { path: 'post-on-behalf', element: <ModuleRoute moduleKey="postOnBehalf"><AdminPostOnBehalf /></ModuleRoute> },
     { path: 'staff-activity', element: <ModuleRoute moduleKey="staffActivity"><AdminStaffActivity /></ModuleRoute> },
-    { path: 'team-performance', element: <ModuleRoute moduleKey="teamPerformance"><AdminTeamPerformance /></ModuleRoute> },
     { path: '*', element: <PortalHome /> },
   ],
 }];
@@ -329,7 +327,6 @@ export default function App() {
         <Route path="/staff/*" element={<RoleRoute roles={['staff', 'manager', 'admin']}><BackOffice /></RoleRoute>} />
 
         <Route path="/ops" element={<LegacyRedirect to="/admin" />} />
-        <Route path="/ops/requests" element={<LegacyRedirect to="/admin/services" />} />
         <Route path="/ops/support" element={<LegacyRedirect to="/admin/support" />} />
         <Route path="/ops/drafting-desk" element={<DeskRedirect />} />
         <Route path="/ops/rent-agreement" element={<LegacyRedirect to="/admin/rent-agreement" />} />

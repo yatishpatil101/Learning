@@ -2594,7 +2594,6 @@ paths:
       tags: [Moderation]
       summary: Approve / reject listing
       operationId: setPropertyStatus
-      # S28: Approving/rejecting a listing is the core moderation task.
       description: >
         **Approving a listing with no `localitySlug` is refused with 409.** Publishing one puts a
         listing live that is absent from locality search facets, from its locality landing page, from
@@ -2710,7 +2709,6 @@ paths:
       tags: [Moderation]
       summary: Flag listing
       operationId: flagProperty
-      # S28: Raising a moderation flag.
       x-roles: [staff, manager, admin]
       requestBody:
         content:
@@ -2722,7 +2720,6 @@ paths:
       tags: [Moderation]
       summary: Clear flag
       operationId: clearFlag
-      # S28: Clearing a moderation flag.
       x-roles: [staff, admin]
       responses:
         '204': { description: Cleared }
@@ -2732,7 +2729,7 @@ paths:
       tags: [Moderation]
       summary: Archive listing (soft-delete)
       operationId: archiveProperty
-      # S28: deliberately NO x-roles. DUAL AUDIENCE: the owner soft-deleting their own listing, or staff/admin taking one down. Role-gating this would remove an owner's ability to delete their own listing. Guard is owner-or-staff, enforced server-side.
+      # No x-roles: dual audience (owner deletes own, staff takes down); guard is owner-or-staff server-side.
       requestBody:
         content:
           application/json:
@@ -2746,7 +2743,7 @@ paths:
       tags: [Moderation]
       summary: Restore archived listing
       operationId: restoreProperty
-      # S28: deliberately NO x-roles. DUAL AUDIENCE: see archiveProperty.
+      # No x-roles: dual audience, see archiveProperty.
       responses:
         '200': { description: Restored (status reset to pending) }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2824,6 +2821,8 @@ paths:
       x-roles: [staff, manager, admin]
       parameters:
         - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
+        # Owners and buyers only; back-office accounts are listed under Team & Access.
+        - { name: customers, in: query, schema: { type: boolean, default: false } }
         - { name: q, in: query, schema: { type: string } }
         # Separate columns: an account can be suspended *and* archived, and a moderator works the
         # suspended ones still live. Unknown status is 422 so a typo'd dropdown fails loudly.
@@ -2865,7 +2864,7 @@ paths:
       tags: [Moderation]
       summary: Update user
       operationId: adminUpdateUser
-      # S28: Editing another person's profile is not a daily ops action.
+      # Manager/admin only: editing another person's profile is not a routine ops action.
       x-roles: [manager, admin]
       requestBody:
         required: true
@@ -2889,7 +2888,6 @@ paths:
       tags: [Moderation]
       summary: Archive user (soft-delete)
       operationId: archiveUser
-      # S28: Suspending a person from the platform.
       x-roles: [manager, admin]
       requestBody:
         content:
@@ -2912,7 +2910,6 @@ paths:
       tags: [Moderation]
       summary: Restore archived user
       operationId: restoreUser
-      # S28: Reinstating a suspended person.
       x-roles: [manager, admin]
       responses:
         '200': { description: Restored }
@@ -3238,7 +3235,7 @@ paths:
       tags: [Moderation]
       summary: Get own identity-verification status
       operationId: getIdentityVerification
-      # S28: deliberately NO x-roles. The caller's own verification. /me/** self-scoping is the guard.
+      # No x-roles: the caller's own verification; /me/** self-scoping is the guard.
       description: >
         The caller's **opt-in** identity verification (L2 "Verified" badge). Always 200:
         someone who never submitted reads `status: none`. Absence of the badge never blocks
@@ -3253,7 +3250,7 @@ paths:
       tags: [Moderation]
       summary: Submit a government ID + live selfie for manual review
       operationId: submitIdentityVerification
-      # S28: deliberately NO x-roles. The caller's own submission. /me/** self-scoping is the guard.
+      # No x-roles: the caller's own submission; /me/** self-scoping is the guard.
       description: >
         Live-captured photos of one government ID (Aadhaar front+back, PAN front, driving
         licence front, passport front, or voter ID front+back) plus a selfie, taken in the app camera and compressed client-side to
@@ -3642,7 +3639,7 @@ paths:
       tags: [Moderation]
       summary: Get property review thread
       operationId: getPropertyVerification
-      # S28: deliberately NO x-roles. The owner<->ops clarification thread; the owner is a participant. Guard is participant-or-staff.
+      # No x-roles: owner<->ops clarification thread, owner is a participant; guard is participant-or-staff.
       responses:
         '200':
           description: Review thread
@@ -3653,7 +3650,7 @@ paths:
       tags: [Moderation]
       summary: Initiate property review
       operationId: initPropertyVerification
-      # S28: deliberately NO x-roles. The owner submits their listing for review. Guard is participant-or-staff.
+      # No x-roles: the owner submits their own listing; guard is participant-or-staff.
       responses:
         '201': { description: Initiated }
   /properties/{id}/verification/messages:
@@ -3662,7 +3659,7 @@ paths:
       tags: [Moderation]
       summary: Add message to review
       operationId: addVerificationMessage
-      # S28: deliberately NO x-roles. Both sides of the thread post here. Guard is participant-or-staff.
+      # No x-roles: both sides of the thread post here; guard is participant-or-staff.
       requestBody:
         required: true
         content:
@@ -3681,7 +3678,7 @@ paths:
       tags: [Moderation]
       summary: Mark review messages read
       operationId: markVerificationRead
-      # S28: deliberately NO x-roles. Either participant marks their own side read. Guard is participant-or-staff.
+      # No x-roles: either participant marks their own side read; guard is participant-or-staff.
       responses:
         '204': { description: Marked }
   /properties/{id}/verification/decision:
@@ -3691,7 +3688,6 @@ paths:
       summary: Verify or reject a property without publishing it
       description: Approval records verification only. Pending listings stay pending; live rechecks stay live. Requires a different checker with properties read/write grants.
       operationId: verificationDecision
-      # S28: The checker half of the maker-checker listing review.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -4061,7 +4057,6 @@ paths:
       tags: [Moderation]
       summary: Triage a report
       operationId: triageReport
-      # S30: Working the abuse queue is the daily ops job.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -4735,7 +4730,6 @@ paths:
       tags: [Moderation]
       summary: Publish or take down a review
       operationId: setReviewStatus
-      # S31: Taking down defamatory or fake content is the daily ops job.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -4811,7 +4805,6 @@ paths:
       tags: [Moderation]
       summary: All listing reports (admin)
       operationId: listReports
-      # S28: The trust & safety queue. Anyone may file; only ops may read.
       x-roles: [staff, admin]
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -4848,7 +4841,7 @@ paths:
       tags: [Moderation]
       summary: Report a listing
       operationId: createReport
-      # S28: deliberately NO x-roles. Any signed-in user must be able to report abuse — that is the whole point of the queue.
+      # No x-roles: any signed-in user must be able to report abuse.
       requestBody:
         required: true
         content:
@@ -6603,8 +6596,7 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/Ticket' }
-    # Deliberately NO x-roles (slice-11 S43): a customer raising a request is the point of the
-    # queue, exactly as with POST /reports. Only reading and working the queue is staff-only.
+    # No x-roles: a customer raising a request is the point of the queue; only working it is staff-only.
     post:
       tags: [Services & Support]
       summary: Create service request
@@ -9595,7 +9587,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Who arrived, from where, on what
       operationId: adminAnalyticsTraffic
-      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
         Built entirely from Draazy's own `page_views` table. No third-party analytics tag is
@@ -9625,7 +9616,6 @@ paths:
       tags: [Admin & Analytics]
       summary: How deep the visits went
       operationId: adminAnalyticsEngagement
-      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
         Session depth and bounce rate by week, plus the pages people actually reached.
@@ -9653,7 +9643,6 @@ paths:
       tags: [Admin & Analytics]
       summary: The anonymous-to-signed-in funnel
       operationId: adminAnalyticsSurfers
-      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
         The question this endpoint exists to answer: of the people who arrive without an account,
@@ -9927,7 +9916,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Residency requests across every society
       operationId: adminListSocietyResidents
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
         Every society's residency queue at once, oldest first for the same work-queue reason as the
@@ -9968,7 +9957,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Member-added societies nobody has checked yet
       operationId: adminListSocietyCandidates
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
         Everything `mintSociety` has created and no operator has confirmed, oldest first.
@@ -10029,7 +10018,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Societies this candidate may already be a copy of
       operationId: adminListSocietyCandidateDuplicates
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
         Ranked hints, strongest first, scored on shared distinctive name tokens plus a boost for
@@ -10072,7 +10061,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Every society merge currently in force
       operationId: adminListSocietyMerges
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
         Newest first, and deliberately the other way round from the four work queues beside it.
@@ -10105,7 +10094,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Record that one society is a duplicate of another
       operationId: adminMergeSocieties
-      # S28 + societies:write.
+      # Server also requires the societies:write permission.
       x-roles: [staff, admin]
       description: >
         Auto-minting a society from four surfaces guarantees duplicates: "Kumar Pinnacle", "Kumar
@@ -10155,7 +10144,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Undo a society merge
       operationId: adminUndoSocietyMerge
-      # S28 + societies:write.
+      # Server also requires the societies:write permission.
       x-roles: [staff, admin]
       description: >
         Addressed by the slug of the society that was **merged away**, not the survivor's: a
@@ -10181,7 +10170,7 @@ paths:
       tags: [Admin & Analytics]
       summary: One society as the back-office editor needs it
       operationId: adminGetSociety
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
         The four public facts plus `adminNote`.
@@ -10209,7 +10198,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Correct a society's own facts
       operationId: adminEditSociety
-      # S28 + societies:write.
+      # Server also requires the societies:write permission.
       x-roles: [staff, admin]
       description: >
         Registration, conveyance, the maintenance rate and the claim state, plus an internal note
@@ -10309,7 +10298,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Platform finance overview (revenue, subscriptions)
       operationId: adminFinance
-      # S28: Revenue and settlement figures.
       x-roles: [admin]
       responses:
         '200':
@@ -10322,7 +10310,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Revenue per month, split by source
       operationId: adminFinanceSeries
-      # S28: The revenue mix, which is why this carries the finance guard and not the staff one.
+      # Finance guard, not the staff one: exposes the revenue mix.
       description: >
         Monthly revenue for the finance console's stacked chart, oldest month first, ending with the
         current (partial) month.
@@ -10368,7 +10356,7 @@ paths:
       tags: [Admin & Analytics]
       summary: The settlement ledger, paged
       operationId: adminFinanceTransactions
-      # S28: Every recorded movement of money, with the counterparty's name.
+      # Finance guard: lists every movement of money with the counterparty's name.
       description: >
         Every movement of money the platform can evidence: a paid subscription. Newest first.
 
@@ -10634,7 +10622,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Audit log (maker-checker trail)
       operationId: adminAuditLog
-      # S28: Who watches the watchers: staff must not read the record of admin actions.
+      # Admin-only: staff must not read the record of admin actions.
       x-roles: [admin]
       parameters:
         - { name: actor, in: query, schema: { type: string } }
@@ -10870,7 +10858,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Create CMS content item
       operationId: adminCreateContent
-      # S28: CMS is an ops job.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -10893,7 +10880,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Update CMS content item
       operationId: adminUpdateContent
-      # S28: CMS is an ops job.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -10914,7 +10900,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Archive content item (soft delete)
       operationId: adminArchiveContent
-      # S28: CMS is an ops job.
       # Returns the item so the caller can see `archived: true` without a re-read.
       x-roles: [staff, admin]
       responses:
@@ -10931,7 +10916,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Restore archived content item
       operationId: adminRestoreContent
-      # S28: CMS is an ops job.
       x-roles: [staff, admin]
       responses:
         '200':
@@ -17885,8 +17869,8 @@ components:
         metadata: { type: object, additionalProperties: true }
     StaffActivityEntry:
       type: object
-      # AuditEntry with the actor resolved to a person and the metadata dropped: the question here
-      # is "what has this colleague been doing", not the detail of a case (/admin/audit-log).
+      # AuditEntry with the actor resolved to a person. `metadata` is filled for admins only, the same
+      # boundary as /admin/audit-log; managers get an empty object.
       required: [id, actor, actorRole, action, entity, at]
       properties:
         id: { type: string, description: The audit row's id, so the feed can be reconciled against the audit log. }
@@ -17898,6 +17882,7 @@ components:
         entity: { type: string, example: user, description: The kind of record acted on; the console's category. }
         entityId: { type: [string, 'null'] }
         at: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true, description: 'Context such as a from/to diff; empty unless the caller is an admin.' }
     StaffActivityCount:
       type: object
       required: [entity, count]

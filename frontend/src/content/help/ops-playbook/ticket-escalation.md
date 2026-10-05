@@ -18,9 +18,9 @@ tags: [ops, support, tickets, escalation, internal]
 | Desk | Route | Backing table | Use it for |
 | --- | --- | --- | --- |
 | Support conversations | `/ops/support` | `support_tickets` | Customer support threads |
-| Service-request tickets | `/ops/requests`, `/admin/services` | `tickets` | Ops work items with team, priority, assignee, and private notes |
+| Service-request tickets | each desk's **Tickets** view (`/admin/home-loans` is the loans board) | `tickets` | Ops work items with team, priority, assignee, and private notes |
 
-Both ops routes are for `staff` and `admin`. `/admin/services` is admin-only and adds named staff assignment.
+Tickets show to anyone with ticket access: admins and managers see every desk, staff only the desks they hold.
 
 ## Priority ladder
 
@@ -64,13 +64,13 @@ A customer reply sets **Waiting on: Us** again even if the case looked answered.
 
 ## Service-request ticket queue
 
-Use **Service requests** at `/ops/requests` for the staff board. Use `/admin/services` when an admin needs the full services console, named assignment, CSV export, or `?open=<ticketId>` deep link.
+Open the desk page and switch to **Tickets** (`?view=tickets`; Home Loans needs no switch). It has named assignment, CSV export and a `?open=<ticketId>` deep link.
 
 | Field | Current behavior |
 | --- | --- |
 | Team | Staff are server-scoped to their own team; admins can see all teams |
 | Priority | Stored on `tickets.priority`; create accepts it, but current consumer service forms do not send it, so most tickets default to `medium` |
-| Assignee | `/ops/requests` self-claims only; `/admin/services` can assign to an active staff member on the ticket team |
+| Assignee | Staff self-claim; admins and managers can assign to an active staff member on the ticket team |
 | Notes | Private internal notes appended with **Add** / **Save**; customers never see them |
 | Age | Non-terminal tickets show today, 2–4 day warning, or 5+ day breach |
 
@@ -89,7 +89,7 @@ There is no transition table for service-request tickets; any legal status can b
 
 ### Priority on service tickets
 
-`TicketUpdate` accepts priority, and the backend validates `low`, `medium`, `high`, and `urgent`. The current `/ops/requests` and `/admin/services` UIs do not send priority updates. If stored priority is wrong, record the assessed P-level in a private note and escalate to the support lead or ops lead; for P0, phone the ops lead immediately.
+`TicketUpdate` accepts priority, and the backend validates `low`, `medium`, `high`, and `urgent`. The current ticket views do not send priority updates. If stored priority is wrong, record the assessed P-level in a private note and escalate to the support lead or ops lead; for P0, phone the ops lead immediately.
 
 ### Drafting-desk relationship
 

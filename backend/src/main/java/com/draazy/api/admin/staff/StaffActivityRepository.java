@@ -1,5 +1,6 @@
 package com.draazy.api.admin.staff;
 
+import com.draazy.api.common.audit.AuditMetadata;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -9,28 +10,12 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Repository;
 
-/**
- * Reads back-office activity out of {@code audit_log}.
- *
- * <p>Native SQL, like everything else in {@code admin}: this package sits at the top of the layer
- * map with no outgoing edges, so it may not reach into the modules whose records it counts. That is
- * the point of it. A reporting read that imported {@code moderation} and {@code catalog} to build
- * the same numbers would make every one of them a reason not to change those modules.
- *
- * <p>The join to {@code users} is {@code u.id::text = a.actor} rather than a cast the other way.
- * {@code actor} is a free-text handle — a user id for anything the back-office does, but the column
- * is not a foreign key and older rows may hold a mobile number, so casting it to {@code uuid} would
- * fail the whole query on one malformed row. Comparing as text degrades instead: an unmatched actor
- * shows up under its raw handle, which is worse to read and better than a 500.
- */
+/** Native SQL: {@code admin} may not import the modules it counts. Joins {@code u.id::text = a.actor}:
+ * actor is free text, so a uuid cast would fail the whole query on one malformed row. */
 @Repository
 class StaffActivityRepository {
 
-    /**
-     * Consumers write audit rows too — {@code user.contact.reveal} is recorded against whoever
-     * asked. This is a staff review, so the feed is scoped to back-office roles at the SQL level
-     * rather than in a filter the caller could omit.
-     */
+    /** Consumers write audit rows too (contact reveals), so scope to back-office roles in SQL, not a filter. */
     private static final String BACK_OFFICE = "a.actor_role in ('staff', 'manager', 'admin')";
 
     private static final String FILTERS = """
@@ -53,7 +38,7 @@ class StaffActivityRepository {
 
     private static final String FEED = """
             select a.id, a.actor, coalesce(u.name, a.actor), a.actor_role, u.team,
-                   a.action, a.entity, a.entity_id, a.at
+                   a.action, a.entity, a.entity_id, a.at, a.metadata::text
             """ + JOIN + """
             order by a.at desc
             limit :limit offset :offset
@@ -100,7 +85,8 @@ class StaffActivityRepository {
                     text(cells[5]),
                     text(cells[6]),
                     text(cells[7]),
-                    toInstant(cells[8])));
+                    toInstant(cells[8]),
+                    AuditMetadata.parse(text(cells[9]))));
         }
         return out;
     }
@@ -146,11 +132,7 @@ class StaffActivityRepository {
         return out;
     }
 
-    /**
-     * Time bounds are bound as ISO text and cast in SQL rather than bound as {@code Instant}. A null
-     * {@code Instant} on a native query leaves the driver with no type to send, and Postgres answers
-     * "could not determine data type" — for the unfiltered case, which is the default.
-     */
+    /** Bound as ISO text and cast in SQL: a null {@code Instant} gives the driver no type to send. */
     private static Query bind(Query query, StaffActivityFilter filter) {
         query.setParameter("actor", filter.actor());
         query.setParameter("entity", filter.entity());

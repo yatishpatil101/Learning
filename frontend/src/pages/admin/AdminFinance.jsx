@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, TrendingUp, Users, UserCheck } from 'lucide-react';
+import { AlertTriangle, Download, IndianRupee, Eye, Receipt, RefreshCw, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { getFinanceOverview, getFinanceSeries, listFinanceTransactions } from '../../services/financeService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -248,18 +247,6 @@ export default function AdminFinance() {
         ))}
       </div>
 
-      <div className="mb-5">
-        <div className="dz-card p-4 flex items-center justify-between max-w-sm">
-          <div>
-            <div className="text-sm font-bold text-gray-200">Deal Pipeline</div>
-            <div className="mt-0.5 text-xs text-gray-400">Track deal GMV in Enquiries</div>
-          </div>
-          <Link to="/admin/enquiries" className="inline-flex items-center gap-1 text-sm font-medium text-brand-teal hover:underline">
-            View all deals <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      </div>
-
       {optionEnabled('finance.charts') && (
         <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr]">
           <div className="dz-card p-4">
@@ -369,8 +356,8 @@ export default function AdminFinance() {
                 className="[--dd-sm-w:200px]"
                 options={[{ value: '', label: 'All types' }, ...TX_TYPES.map((k) => ({ value: k, label: KIND_LABELS[k] }))]}
               />
-              {/* Exactly `AdminFinanceService.LEDGER_STATUSES`. No `refunded`: there is no refund
-                  path, and the server answers 400 for it (D251). */}
+              {/* Exactly AdminFinanceService.LEDGER_STATUSES: there is no
+                  refund path and the server answers 400 for `refunded`. */}
               <Select
                 size="sm"
                 value={txStatus}

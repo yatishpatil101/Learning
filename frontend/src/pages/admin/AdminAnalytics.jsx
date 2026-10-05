@@ -11,12 +11,11 @@ import {
   reviewSla,
   traffic as fetchTraffic,
   engagement as fetchEngagement,
-  surfers as fetchSurfers,
+  surfers as fetchAudience,
 } from '../../services/analyticsService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
 import EngagementTab from './analytics/EngagementTab.jsx';
 import GeographyTab from './analytics/GeographyTab.jsx';
-import SurfersTab from './analytics/SurfersTab.jsx';
 import SupplyGapTab from './analytics/SupplyGapTab.jsx';
 import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
@@ -27,13 +26,7 @@ export default function AdminAnalytics() {
   const [days, setDays] = useState(90);
   const { optionEnabled } = useAdminFlags();
 
-  /*
-   * Nothing on this page is generated. Three tabs — Traffic, Engagement and Anonymous surfers —
-   * read the page-view aggregates below; Supply Gap is a server aggregate; Pricing and SLA are
-   * server reports. There is no Seasonal tab: a month-over-month demand curve needs one to three
-   * years of history that collection started far too recently to have, and a seeded generator
-   * behind a `Sample` chip is not the honest version of that.
-   */
+  /* No Seasonal tab: month-over-month demand needs years of history that do not exist yet. */
 
   // The supply gap is a server aggregate, so it is fetched rather than derived. Kept out of the
   // `analytics` gate above because it is one tab: an outage in the demand report should leave the
@@ -136,18 +129,7 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showSla]);
 
-  /*
-   * Traffic, Engagement and Anonymous surfers are measured now.
-   *
-   * All three read the same `days` window, and the picker that sets it lives on the Traffic tab.
-   * That is one window for one page rather than three independent ones, but it does mean a change
-   * made on Traffic silently moves the other two — so both of them state the window they drew
-   * rather than leaving the reader to remember where the control was.
-   *
-   * Same three-state shape as Pricing and SLA above, for the same reason. `[]` in the catch would
-   * render "0 sessions, 0 anonymous, 0% bounce" — a confident report that nobody visited the site,
-   * assembled out of a 500. The one figure a traffic console must never invent is zero traffic.
-   */
+  /* `days` is set on the Traffic tab and shared with Engagement; `[]` in the catch would show zero traffic. */
   const [trafficReport, setTrafficReport] = useState(null);
   const [trafficFailed, setTrafficFailed] = useState(false);
   const showTraffic = optionEnabled('analytics.traffic');
@@ -172,22 +154,20 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showEngagement, days]);
 
-  const [surfersReport, setSurfersReport] = useState(null);
-  const [surfersFailed, setSurfersFailed] = useState(false);
-  const showSurfers = optionEnabled('analytics.anonymous');
+  const [audienceReport, setAudienceReport] = useState(null);
+  const [audienceFailed, setAudienceFailed] = useState(false);
   useEffect(() => {
-    if (!showSurfers) { setSurfersReport(null); setSurfersFailed(false); return undefined; }
+    if (!showTraffic) { setAudienceReport(null); setAudienceFailed(false); return undefined; }
     let alive = true;
-    fetchSurfers({ days })
-      .then((r) => { if (alive) { setSurfersReport(r); setSurfersFailed(false); } })
-      .catch(() => { if (alive) { setSurfersReport(null); setSurfersFailed(true); } });
+    fetchAudience({ days })
+      .then((r) => { if (alive) { setAudienceReport(r); setAudienceFailed(false); } })
+      .catch(() => { if (alive) { setAudienceReport(null); setAudienceFailed(true); } });
     return () => { alive = false; };
-  }, [showSurfers, days]);
+  }, [showTraffic, days]);
 
   const tabs = [
-    optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} days={days} setDays={setDays} /> },
+    optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} setDays={setDays} /> },
     optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
-    optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab report={surfersReport} failed={surfersFailed} days={days} /> },
     optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
     optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
     optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },

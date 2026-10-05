@@ -4,10 +4,11 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 const navLink = (page, name) => page.locator('nav').getByRole('link', { name, exact: true });
 
-// Every module the admin sidebar shows; per-service desks are staff-only (`user.desks`), admin uses Services overview.
+// Every module the admin sidebar shows; staff see only the desks they hold, admin and manager see all six.
 const ALL_TABS = [
-  'Dashboard', 'KYC Review', 'Analytics', 'Post on Behalf', 'Staff Activity', 'Team Performance',
-  'Properties', 'Users', 'Services overview', 'Support queue', 'Enquiries',
+  'Dashboard', 'KYC Review', 'Analytics', 'Post on Behalf', 'Team Activity',
+  'Properties', 'Users', 'Rent Agreement', 'Property & Legal', 'Home Loans', 'Interior & Renovation',
+  'Packers & Movers', 'Property Valuation', 'Support queue', 'Enquiries',
   'Referrals', 'Finance', 'Content', 'Reports', 'Flatmates', 'Societies', 'Localities',
   'Team & Access', 'Settings',
 ];

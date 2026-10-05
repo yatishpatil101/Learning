@@ -1,6 +1,6 @@
 // Bulk account moderation has a blast radius that needs its own design.
-import { test, expect } from '../../fixtures/live.js';
-import { grantIdentityBadge, uniqueMobile } from '../../helpers/liveAuth.js';
+import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders, grantIdentityBadge, uniqueMobile } from '../../helpers/liveAuth.js';
 
 async function openUsers(page) {
   await page.goto('/admin/users');
@@ -27,7 +27,7 @@ test('the directory lists accounts with role, status and a masked mobile, filter
 
     // Directory copy depends on shared population size, not this test.
     await expect(
-      page.getByText(/(\d+ accounts — owners, buyers and staff|Showing [\d,]+ of [\d,]+ matching accounts)/),
+      page.getByText(/(\d+ accounts — owners and buyers|Showing [\d,]+ of [\d,]+ matching accounts)/),
     ).toBeVisible();
 
     // Use Nikhil Sharma because Nikhil Nair is not unique in the seed.
@@ -39,6 +39,11 @@ test('the directory lists accounts with role, status and a masked mobile, filter
     expect(consoleErrors).toHaveLength(0);
   });
   await test.step('the status filter asks the server, and Suspended returns only suspended accounts', async () => {
+    const res = await fetch(`${API}/users?customers=true&status=suspended&size=1`, { headers: await authHeaders(ACTORS.admin) });
+    expect(res.status).toBe(200);
+    const suspended = (await res.json()).totalElements;
+    expect(suspended, 'the seed must hold suspended customers for this step to mean anything').toBeGreaterThan(0);
+
     await openUsers(page);
 
     // This custom Select is button/listbox based, not a native `<select>`.
@@ -46,15 +51,31 @@ test('the directory lists accounts with role, status and a masked mobile, filter
     await page.getByRole('option', { name: 'Suspended' }).click();
 
     // Count proves server-side filtering, not filtering over one downloaded page.
-    await expect(page.getByText('6 accounts — owners, buyers and staff.')).toBeVisible();
+    await expect(page.getByText(` accounts — owners and buyers.`, { exact: false })).toBeVisible();
 
     // Poll count because the heading can update before table rows are replaced.
     const rows = page.locator('table tbody tr');
-    await expect(rows).toHaveCount(6);
+    await expect(rows).toHaveCount(suspended);
     // Every visible row is suspended. `Badge` renders the server's own lowercase status verbatim.
-    await expect(page.locator('table').getByText('suspended', { exact: true })).toHaveCount(6);
+    await expect(page.locator('table').getByText('suspended', { exact: true })).toHaveCount(suspended);
 
     expect(consoleErrors).toHaveLength(0);
+  });
+  await test.step('the role filter offers customers only, and no back-office account is listed', async () => {
+    await openUsers(page);
+
+    await page.getByRole('button', { name: 'Filter by role' }).click();
+    for (const label of ['All customers', 'Owners', 'Buyers']) {
+      await expect(page.getByRole('option', { name: label, exact: true })).toBeVisible();
+    }
+    for (const gone of ['Staff', 'Admin', 'All roles']) {
+      await expect(page.getByRole('option', { name: gone, exact: true })).toHaveCount(0);
+    }
+    await page.keyboard.press('Escape');
+
+    for (const role of ['staff', 'admin', 'manager']) {
+      await expect(page.locator('table').getByRole('cell', { name: role, exact: true })).toHaveCount(0);
+    }
   });
   await test.step('search narrows the directory', async () => {
     await openUsers(page);

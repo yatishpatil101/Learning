@@ -75,11 +75,11 @@ public class UserAdminService {
 
     // No audit row: list pages reveal no unmasked mobile and would bury real reveal reads.
     @Transactional(readOnly = true)
-    public Page<UserResponse> list(String role, String q, String status, Boolean flagged,
+    public Page<UserResponse> list(String role, boolean customers, String q, String status, Boolean flagged,
             boolean archived, Pageable pageable) {
         String prefix = (q == null || q.isBlank()) ? null : likePrefix(q.trim().toLowerCase());
         String state = (status == null || status.isBlank()) ? null : status.trim();
-        return users.searchForAdmin(role, prefix, state, flagged, archived, pageable)
+        return users.searchForAdmin(role, customers, prefix, state, flagged, archived, pageable)
                 .map(this::masked);
     }
 

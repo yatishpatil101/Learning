@@ -25,11 +25,9 @@ import Modal from '../../components/ui/Modal.jsx';
 import BadgeApprovals from './BadgeApprovals.jsx';
 
 const ROLE_OPTS = [
-  { value: '', label: 'All roles' },
+  { value: '', label: 'All customers' },
   { value: 'owner', label: 'Owners' },
   { value: 'buyer', label: 'Buyers' },
-  { value: 'staff', label: 'Staff' },
-  { value: 'admin', label: 'Admin' },
 ];
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
@@ -67,10 +65,6 @@ export default function AdminUsers() {
   const { optionEnabled } = useAdminFlags();
   const isAdmin = user?.role === 'admin';
   const canManageBadges = isAdmin && hasPermission(user, 'users:write');
-  const canModerate = useCallback(
-    (u) => hasPermission(user, 'users:write') && (isAdmin || (user?.role === 'manager' && u.role === 'staff')),
-    [isAdmin, user],
-  );
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
   const [pendingBadgeGrants, setPendingBadgeGrants] = useState([]);
@@ -101,7 +95,7 @@ export default function AdminUsers() {
      only exists server-side, and a client-side filter can only count what it was given. */
   const load = useCallback(async () => {
     const [page, grants] = await Promise.all([
-      listUsers({ role, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE }),
+      listUsers({ role, customers: true, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE }),
       canManageBadges ? listBadgeGrants({ status: 'pending', size: 50 }).catch((err) => {
         toast(err?.message || 'Could not load badge approvals', 'error');
         return { items: [] };
@@ -343,7 +337,7 @@ export default function AdminUsers() {
         title="Users"
         subtitle={truncated
           ? `Showing ${fmtNum(list.length)} of ${fmtNum(total)} matching accounts — narrow the filters to see the rest.`
-          : `${fmtNum(total)} accounts — owners, buyers and staff.`}
+          : `${fmtNum(total)} accounts — owners and buyers. Staff are under Team & Access.`}
         actions={
           optionEnabled('users.csvExport') && (
             <button onClick={doExport} className="dz-btn dz-btn-ghost">

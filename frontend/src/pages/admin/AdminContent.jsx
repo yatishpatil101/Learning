@@ -1,28 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { Archive, Edit2, Megaphone, Plus, RotateCcw, Star } from 'lucide-react';
+import { Archive, Edit2, Megaphone, Plus, RotateCcw } from 'lucide-react';
 import { listContent, createContent, updateContent, archiveContent, restoreContent } from '../../services/adminContentService.js';
-import { listReviewsForModeration, setReviewStatus } from '../../services/reviewService.js';
 import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Switch from '../../components/ui/Switch.jsx';
-import Badge from '../../components/ui/Badge.jsx';
-import Table from '../../components/ui/Table.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 
-const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements'], ['reviews', 'Reviews']];
+const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements']];
 
-// The blanks are the server's fields, and only those.
-//
-// No `sub`, `cta` or `theme` on a banner, no `audience` on an announcement, no `active` on an FAQ:
-// none of them exist on the API, and a console that keeps offering a field the server will not
-// store is a console that quietly loses work. Announcements carry `severity` and a schedule window
-// instead, which is the more useful half of what `audience` was being asked to imply.
+// Blanks hold only the fields the API stores; offering others would let the console quietly lose work.
 const BLANK_BANNER = { headline: '', image: '', link: '/listings', position: 0 };
 const BLANK_FAQ = { question: '', answer: '', category: 'general' };
 const BLANK_ANN = { title: '', body: '', severity: 'info', active: true };
@@ -35,18 +27,16 @@ const TAB_FLAG_MAP = {
   banners: 'content.banners',
   faqs: 'content.faqs',
   announcements: 'content.announcements',
-  reviews: 'content.reviews',
 };
 
 export default function AdminContent() {
   const { toast } = useToast();
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
-  const [tab, setTab] = useTabParam(['banners', 'faqs', 'announcements', 'reviews'], 'banners');
+  const [tab, setTab] = useTabParam(['banners', 'faqs', 'announcements'], 'banners');
   const [loaded, setLoaded] = useState(false);
   const [banners, setBanners] = useState([]);
   const [anns, setAnns] = useState([]);
   const [faqs, setFaqs] = useState([]);
-  const [reviews, setReviews] = useState([]);
   const [editModal, setEditModal] = useState(null);
   const [editData, setEditData] = useState({});
 
@@ -64,13 +54,11 @@ export default function AdminContent() {
       listContent('banners'),
       listContent('announcements'),
       listContent('faqs'),
-      listReviewsForModeration({ size: 100 }),
-    ]).then(([b, a, f, r]) => {
+    ]).then(([b, a, f]) => {
       if (!alive) return;
       setBanners(b || []);
       setAnns(a || []);
       setFaqs(f || []);
-      setReviews(r?.items || []);
       setLoaded(true);
     }).catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
@@ -98,12 +86,8 @@ export default function AdminContent() {
   const openEdit = (kind, item) => { setEditModal({ kind, isNew: false, id: item.id }); setEditData({ ...item }); };
   const closeMod = () => { setEditModal(null); setEditData({}); };
 
-  // Every write below replaces the row the server returns rather than the row the form held. The
-  // form does not know the id, the created timestamp or what the server normalised, and guessing
-  // any of the three is how a console starts disagreeing with the database it is editing.
-  //
-  // No `logAudit` call: the API writes the audit row itself, from the authenticated principal, and
-  // a second entry composed in the browser is both duplicate and less trustworthy.
+  // Writes replace the row with the server's response; the audit
+  // row is written server-side from the authenticated principal.
   const saveItem = async (kind, setter) => {
     const type = TYPE_OF[kind];
     try {
@@ -145,11 +129,8 @@ export default function AdminContent() {
     }
   };
 
-  /**
-   * Announcements are the only CMS type with an `active` flag. The API has no such column for
-   * banners or FAQs: withdrawing a banner or an answer is archiving it. Two ways to hide the same
-   * row is one way too many, and a toggle leaves no record of who hid it.
-   */
+  /** Only announcements have `active`; banners and FAQs are
+   * withdrawn by archiving, so there is one way to hide a row. */
   const toggleActive = async (item) => {
     try {
       const updated = await updateContent('announcements', item.id, { active: !item.active });
@@ -159,74 +140,9 @@ export default function AdminContent() {
     }
   };
 
-  /* Reviews are not a CMS type: they are written by users, and the console's only job here is to
-   * decide whether one stays up. That is `PATCH /reviews/{id}/status`, and the two verdicts it
-   * accepts are the two buttons below.
-   *
-   * No Archive/Restore. An `archived` flag would be a second, weaker notion of "taken down" that
-   * the rating aggregate does not honour — the review would vanish from this table while still
-   * dragging the society's average down, which is the exact thing a moderator archives a review to
-   * prevent. `rejected` is the one verdict that both hides the text and removes it from the maths.
-   *
-   * No internal note either. The live route takes an optional `reason` that reaches the audit log,
-   * but a `window.prompt` wired to it is a control whose output nobody can read from the product.
-   * If the reason is worth capturing it deserves a field and a place to read it.
-   */
-  const decide = async (r, status) => {
-    const before = reviews;
-    // Not optimistic. A failed write that left the row claiming a verdict would be worse than a
-    // slow button: the moderator would believe the review was down and it would still be up.
-    try {
-      await setReviewStatus(r.id, status);
-      setReviews((prev) => prev.map((x) => (x.id === r.id ? { ...x, status } : x)));
-      toast(status === 'published' ? 'Approved' : 'Rejected');
-    } catch {
-      setReviews(before);
-      toast('Could not update. Please try again.', 'error');
-    }
-  };
-
-  const reviewActions = (r) => (
-    <>
-      {r.status !== 'published' ? <button onClick={() => decide(r, 'published')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal">Approve</button> : null}
-      {r.status !== 'rejected' ? <button onClick={() => decide(r, 'rejected')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300">Reject</button> : null}
-    </>
-  );
-
-  const reviewCols = [
-    { key: 'author', header: 'Author', render: (r) => <div><div className="font-semibold">{r.user || r.author || 'User'}</div><div className="text-xs text-gray-400">{r.target || '—'}</div></div> },
-    { key: 'rating', header: 'Rating', render: (r) => <span className="flex items-center gap-1"><Star className="h-3.5 w-3.5 text-amber-400" />{r.rating || '—'}</span> },
-    { key: 'text', header: 'Review', render: (r) => <span className="max-w-xs truncate text-sm">{r.text || r.body || '—'}</span> },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status || 'pending'} /> },
-    { key: 'actions', header: '', className: 'whitespace-nowrap', render: (r) => (
-      <div className="flex gap-1">
-        {reviewActions(r)}
-      </div>
-    ) },
-  ];
-
-  const reviewCard = (r) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{r.user || r.author || 'User'}</div>
-          <div className="truncate text-xs text-gray-400">{r.target || '—'}</div>
-        </div>
-        <div className="shrink-0 text-right">
-          <span className="flex items-center justify-end gap-1 text-sm"><Star className="h-3.5 w-3.5 text-amber-400" />{r.rating || '—'}</span>
-          <div className="mt-1"><Badge status={r.status || 'pending'} /></div>
-        </div>
-      </div>
-      {(r.text || r.body) ? <div className="mt-2 text-sm text-gray-300">{r.text || r.body}</div> : null}
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
-        {reviewActions(r)}
-      </div>
-    </div>
-  );
-
   return (
     <div>
-      <PageHeader title="Content" subtitle="Manage banners, FAQs, announcements and reviews." />
+      <PageHeader title="Content" subtitle="Manage banners, FAQs and announcements." />
 
       <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-5" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
         {visibleTabs.map(([id, label]) => (
@@ -236,10 +152,6 @@ export default function AdminContent() {
         ))}
       </HScroll>
 
-      {/* ---- Localities ---- */}
-      {/* Localities & City Demand moved to Analytics → Geography & Pricing tabs */}
-
-      {/* ---- Banners ---- */}
       {tab === 'banners' ? (
         <div>
           <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Promotional banners shown on the homepage hero. ({activeBanners.length} active, {archivedBanners.length} archived)</p><button onClick={() => openAdd('banner', BLANK_BANNER)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add banner</button></div>
@@ -271,7 +183,6 @@ export default function AdminContent() {
         </div>
       ) : null}
 
-      {/* ---- FAQs ---- */}
       {tab === 'faqs' ? (
         <div>
           <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Frequently asked questions. ({activeFaqs.length} active)</p><button onClick={() => openAdd('faq', BLANK_FAQ)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add FAQ</button></div>
@@ -307,7 +218,6 @@ export default function AdminContent() {
         </div>
       ) : null}
 
-      {/* ---- Announcements ---- */}
       {tab === 'announcements' ? (
         <div>
           <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Internal/marketing announcements &amp; campaigns. ({activeAnns.length} active)</p><button onClick={() => openAdd('announcement', BLANK_ANN)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />New announcement</button></div>
@@ -344,15 +254,6 @@ export default function AdminContent() {
         </div>
       ) : null}
 
-      {/* ---- Reviews ---- */}
-      {tab === 'reviews' ? (
-        <div>
-          <p className="mb-3 text-xs text-gray-400">Moderate user reviews for localities and services. ({reviews.length} total)</p>
-          <Table columns={reviewCols} rows={reviews} pageSize={10} label="reviews" empty="No reviews yet." mobileCard={reviewCard} />
-        </div>
-      ) : null}
-
-      {/* ---- Edit / Add modal ---- */}
       {editModal ? (
         <Modal open={true} onClose={closeMod} title={`${editModal.isNew ? 'Add' : 'Edit'} ${editModal.kind}`} size="md"
           footer={<><button onClick={closeMod} className="dz-btn dz-btn-ghost">Cancel</button>

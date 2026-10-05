@@ -456,6 +456,26 @@ class ModerationBehaviourTest extends AbstractApiTest {
         assertThat(rows.get(0).get("entity_id")).isEqualTo(subject.getId().toString());
     }
 
+    @Test
+    @DisplayName("customers=true lists owners and buyers only")
+    void customersFilterExcludesBackOffice() throws Exception {
+        User staff = user("9800000193", "staff", "Custfilter Staff");
+        user("9800000194", "owner", "Custfilter Owner");
+        user("9800000195", "buyer", "Custfilter Buyer");
+
+        mvc.perform(get("/users").param("q", "Custfilter").param("customers", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[*].role", org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.oneOf("owner", "buyer"))));
+
+        mvc.perform(get("/users").param("q", "Custfilter")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3));
+    }
+
     // Every signed-in user can add to the report queue and only ops can take anything out.
     @Test
     @DisplayName("back-office lists cap page size and ignore a client sort")

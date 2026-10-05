@@ -6,7 +6,7 @@ async function openAdmin(page, path) {
   await page.goto(path);
 }
 
-test('/admin/support serves the Support queue, and the sidebar offers it beside Services overview', async ({ page, login, consoleErrors }) => {
+test('/admin/support serves the Support queue, and the sidebar offers it beside the service desks', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await test.step('/admin/support is its own desk and loads clean', async () => {
     await openAdmin(page, '/admin/support');
@@ -19,15 +19,16 @@ test('/admin/support serves the Support queue, and the sidebar offers it beside 
 
     expect(consoleErrors).toHaveLength(0);
   });
-  await test.step('the sidebar offers both the Support queue and the Services overview', async () => {
+  await test.step('the sidebar offers the Support queue and the Home Loans desk, and no Services overview', async () => {
     await openAdmin(page, '/admin');
 
-    await expect(page.locator('nav a[href="/admin/services"]').first()).toBeVisible();
+    await expect(page.locator('nav a[href="/admin/home-loans"]').first()).toBeVisible();
+    await expect(page.locator('nav a[href="/admin/services"]')).toHaveCount(0);
     await expect(page.locator('nav a[href="/admin/support"]').first()).toBeVisible();
   });
 });
 
-test('retired tabs and cards are gone and their replacements are in place: Analytics, Staff Activity, Content, Finance, Settings audit, Dashboard', async ({ page, login, consoleErrors }) => {
+test('retired tabs and cards are gone and their replacements are in place: Analytics, Team Activity, Content, Finance, Settings, Dashboard', async ({ page, login, consoleErrors }) => {
   test.slow();
   await login.asAdmin();
   await test.step('the admin dashboard loads without errors', async () => {
@@ -38,6 +39,21 @@ test('retired tabs and cards are gone and their replacements are in place: Analy
        rather than only first paint. */
     await expect(page.getByRole('heading', { name: 'Pending verification' })).toBeVisible();
     expect(consoleErrors).toHaveLength(0);
+  });
+  await test.step('the dashboard has no Quick actions or Platform health, and its tiles lead to the queues that own the work', async () => {
+    await openAdmin(page, '/admin');
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
+
+    await expect(page.getByText('Quick actions')).toHaveCount(0);
+    await expect(page.getByText('Platform health')).toHaveCount(0);
+
+    await expect(page.getByRole('main').locator('a[href="/admin/reports"]').filter({ hasText: 'Open Reports' })).toBeVisible();
+    const requests = page.getByRole('main').locator('a').filter({ hasText: 'Open Service Requests' });
+    await expect(requests).toHaveAttribute('href', /^\/admin\/(home-loans|rent-agreement|legal|interior|packers|valuation)$/);
+
+    const latest = page.locator('.dz-card').filter({ has: page.getByRole('heading', { name: 'Latest service requests' }) });
+    await expect(latest).toBeVisible();
+    await expect(latest.getByRole('link', { name: 'View all' })).toHaveCount(0);
   });
   await test.step('Analytics no longer shows a Revenue tab', async () => {
     await openAdmin(page, '/admin/analytics');
@@ -50,14 +66,15 @@ test('retired tabs and cards are gone and their replacements are in place: Analy
     await expect(page.getByRole('tab', { name: /Revenue/i })).toHaveCount(0);
     await expect(page.locator('button:has-text("Revenue")')).toHaveCount(0);
   });
-  await test.step("Staff Activity drops Today's Progress and cross-links the audit log", async () => {
+  await test.step('Team Activity opens on Performance, with the log a tab away and no leaderboard', async () => {
     await openAdmin(page, '/admin/staff-activity');
-    await expect(page.getByRole('heading', { name: 'Staff Activity', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Team Activity', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Performance', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-    /* The feed is the API anchor, and the cross-link is the replacement for the removed progress
-       panel, so both must move together. */
+    await page.getByRole('button', { name: 'Activity log', exact: true }).click();
+    await expect(page).toHaveURL(/[?&]tab=log\b/);
     await expect(page.locator('table tbody tr').first()).toBeVisible();
-    await expect(page.getByRole('link', { name: /View Audit Log/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Staff Leaderboard' })).toHaveCount(0);
     await expect(page.getByText("Today's Progress")).toHaveCount(0);
   });
   await test.step('Content has no Localities tab and no City Demand tab', async () => {
@@ -70,26 +87,20 @@ test('retired tabs and cards are gone and their replacements are in place: Analy
     await expect(page.getByRole('button', { name: /Localities/i })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /City Demand/i })).toHaveCount(0);
   });
-  await test.step('Finance carries the Deal Pipeline card, and it points at Enquiries', async () => {
+  await test.step('Finance no longer carries the Deal Pipeline card', async () => {
     await openAdmin(page, '/admin/finance');
     await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
 
-    await expect(page.getByText('Deal Pipeline')).toBeVisible();
-
-    /* The destination matters because the accessible name alone cannot distinguish a bad link. */
-    const link = page.getByRole('link', { name: /View all deals/i });
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('href', '/admin/enquiries');
+    await expect(page.getByText('Deal Pipeline')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /View all deals/i })).toHaveCount(0);
   });
-  await test.step('the Settings audit log cross-links Staff Activity', async () => {
-    /* Deep-linking uses the supported tab entry point; asserting the tab still catches a lost audit
-       tab instead of silently falling back to General. */
+  await test.step('Settings has no Audit log tab, and its old deep link lands on the first tab', async () => {
     await openAdmin(page, '/admin/settings?tab=audit');
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Audit log', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'General', exact: true })).toBeVisible();
 
-    await expect(page.getByRole('heading', { name: 'Audit log', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: /View Staff Activity/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Audit log', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /View Staff Activity/ })).toHaveCount(0);
   });
 });
 
@@ -108,7 +119,7 @@ test('Enquiries shows its KPI tiles and tabs, and the Funnel and Visits tabs car
       await expect(main.getByText(label, { exact: true })).toBeVisible();
     }
 
-    /* Counts belong to `admin/live-enquiries.spec.js`; prefix matching catches missing tabs without
+    /* Counts belong to `admin/enquiries.spec.js`; prefix matching catches missing tabs without
        duplicating exact totals. */
     for (const label of ['Enquiries', 'Visits', 'Deals', 'Funnel']) {
       await expect(page.getByRole('button', { name: new RegExp(`^${label}`) })).toBeVisible();

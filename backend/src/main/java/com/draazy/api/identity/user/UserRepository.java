@@ -66,6 +66,7 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
             select u from User u
             where u.archived = :archived
               and (:role is null or u.role = :role)
+              and (:customers = false or u.role in ('owner', 'buyer'))
               and (:status is null or u.status = :status)
               and (:flagged is null or u.flagged = :flagged)
               and (:prefix is null
@@ -74,6 +75,7 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
             order by u.createdAt desc
             """)
     Page<User> searchForAdmin(@Param("role") String role,
+            @Param("customers") boolean customers,
             @Param("prefix") String prefix,
             @Param("status") String status,
             @Param("flagged") Boolean flagged,

@@ -43,7 +43,7 @@ test('the queue renders its rows and tiles, and the tabs switch by tile and by d
     await openReports(page);
 
     await expect(page.getByRole('heading', { name: 'Reports & Moderation' })).toBeVisible();
-    await expect(page.getByText('Review reported properties, users and flatmate posts, and take action.')).toBeVisible();
+    await expect(page.getByText('Review reported properties, users and posts, moderate reviews, and take action.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
 
     /* Three seeded reports on p5002. Scoped to the target rather than the tab, so another spec filing
@@ -120,10 +120,7 @@ test('every report row reads in its own vocabulary, escalates at three, and with
        other vocabulary — it proves the row is being labelled as a post and not as a listing. */
     await expect(rows(page).filter({ hasText: 'Already filled / no longer available' })).toHaveCount(1);
 
-    /* `broker` is shared with the listing vocabulary under *different wording*. The listing wording
-       is "Posted by a broker / not the owner", which is about the person who owns the flat; a
-       flatmate post is somebody looking for a housemate. Getting the right one here is the whole
-       reason `reasonLabel` takes a target type. */
+    /* `broker` is also in the listing vocabulary with other wording; `reasonLabel` takes the target type. */
     await expect(rows(page).filter({ hasText: 'Broker or agent, not a genuine seeker' })).toHaveCount(1);
     await expect(page.getByText('Posted by a broker / not the owner')).toHaveCount(0);
 
@@ -136,9 +133,7 @@ test('every report row reads in its own vocabulary, escalates at three, and with
 
     const onP5002 = rows(page).filter({ hasText: REPORTED_PROPERTY });
 
-    /* Labels, not codes. The wire carries `fake`/`pricing`/`broker`; a moderator must never be shown
-       those. And they are the *listing* vocabulary's wording specifically — `reasonLabel` indexes by
-       target type, so a `spam` report on a flatmate post does not read "duplicate listing". */
+    /* Moderators see labels, not wire codes, and `reasonLabel` indexes by target type. */
     await expect(onP5002.filter({ hasText: 'Fake photos or misleading info' })).toHaveCount(1);
     await expect(onP5002.filter({ hasText: 'Overpriced / incorrect price' })).toHaveCount(1);
     await expect(onP5002.filter({ hasText: 'Posted by a broker / not the owner' })).toHaveCount(1);
@@ -150,9 +145,7 @@ test('every report row reads in its own vocabulary, escalates at three, and with
   await test.step('the reporter is withheld on every row', async () => {
     await openReports(page);
 
-    /* `ReportResponse` omits `reporterId` on purpose — naming the reporter to all of ops is how a
-       complaint becomes a reprisal. "Withheld" and not "Anonymous": the platform knows exactly who
-       filed this, and an unattributable complaint is an easier one to wave away. */
+    /* `ReportResponse` omits `reporterId` so ops can't retaliate; "Withheld", not "Anonymous", as it is known. */
     const count = await rows(page).count();
     await expect(rows(page).filter({ hasText: 'Withheld' })).toHaveCount(count);
     await expect(page.getByText('Anonymous')).toHaveCount(0);
@@ -226,9 +219,7 @@ test('the queue filters by status, reason and search, and clears them again', as
     await pick(page, 'Filter by reason', 'Posted by a broker / not the owner');
     await expect(rows(page)).toHaveCount(1);
 
-    /* `broker` is not in the owner vocabulary. Left standing it would filter the users tab by a code
-       no row there can carry, and an empty queue reads as "no reports" rather than "you are filtering
-       by something impossible here". */
+    /* `broker` isn't an owner code; filtering users by it gives an empty queue that reads as "no reports". */
     await page.getByRole('button', { name: /^Reported users & owners/ }).click();
     await expect(page.getByRole('button', { name: 'Filter by reason' })).toContainText('All reasons');
     await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
@@ -271,9 +262,7 @@ test('triage controls, bulk selection, the detail drawer and the ?open= deep lin
     await expect(open.getByRole('button', { name: 'Resolve' })).toBeVisible();
     await expect(open.getByRole('button', { name: 'Dismiss' })).toBeVisible();
 
-    /* Terminal is terminal, server-side: `canTriage` gates on `open`/`reviewing`, so a decided report
-       renders a note and no buttons. The mock spec asserted a Reopen button here, which the live page
-       cannot render under any state. */
+    /* Terminal is terminal: `canTriage` gates on `open`/`reviewing`, so decided reports have no buttons. */
     await pick(page, 'Filter by status', 'Dismissed');
     const decided = rows(page).filter({ hasText: REPORTED_PROPERTY }).first();
     await expect(decided.getByText('Decided')).toBeVisible();
@@ -322,9 +311,7 @@ test('triage controls, bulk selection, the detail drawer and the ?open= deep lin
   });
 });
 
-/* Declared last because it mutates: files its *own* report rather than triaging a seeded one, whose
-   rows back the counts above and whose triage is not undoable. Dismiss, so nothing outside the row
-   changes; the note `prompt` is left to Playwright's default dismissal. */
+/* Declared last because it mutates: files its own report, as triaging a seeded one is not undoable. */
 test('a moderator can decide a report, and the decision sticks', async ({ page, login }) => {
   const reporter = `9${Math.floor(100000000 + Math.random() * 899999999)}`;
   const headers = await authHeaders(reporter);
@@ -360,9 +347,7 @@ test('a moderator can decide a report, and the decision sticks', async ({ page, 
   await expect(drawer).toContainText('Already sold or rented out');
   await drawer.getByRole('button', { name: 'Dismiss' }).click();
 
-  /* The server's answer is authoritative — `act` writes back `updated.status`, not the requested
-     one, which is why asking for `resolved` shows `dismissed`. Here they agree; what is being
-     asserted is that the row moved and the triage controls went with it. */
+  /* `act` writes back the server's `updated.status`, not the requested one; here they agree. */
   await expect(drawer.getByRole('button', { name: 'Dismiss' })).toHaveCount(0);
   await expect(drawer.getByText(/decided report cannot be reopened|Decided/)).toBeVisible();
 

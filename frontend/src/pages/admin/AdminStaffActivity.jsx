@@ -1,29 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { Award, Building2, ExternalLink, Search, TrendingUp, X } from 'lucide-react';
+import { ExternalLink, Search, X } from 'lucide-react';
 import { listStaffActivity, getStaffActivitySummary } from '../../services/staffActivityService.js';
 import { classNames, fmtNum, timeAgo } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { useTabParam } from '../../lib/useTabParam.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import DateRangePills from '../../components/ui/DateRangePills.jsx';
+import PerformanceTab from './staff-activity/PerformanceTab.jsx';
+import AuditTrail, { describe } from './staff-activity/AuditTrail.jsx';
 
-/**
- * The back-office review surface: who did what, and how much of it.
- *
- * Every figure on this page is counted by the server. Folding KPI tiles and a leaderboard out of
- * the rows the browser happens to hold makes "total activities" mean "rows in this tab" and ranks
- * the current page rather than the staff — wrong numbers, printed confidently, on the page used to
- * judge colleagues.
- *
- * Two reads, both administrator-only under `audit:read`:
- *   - the feed, paged, one row per audited back-office action
- *   - the summary: totals, the per-entity split, the action vocabulary, the leaderboard
- *
- * The summary is asked twice on purpose — see `refresh` below.
- */
+/** Team Activity: queue health per colleague and the audited action log. Every figure is counted by the server, not folded from the rows in hand. */
+
+const TABS = [['performance', 'Performance'], ['log', 'Activity log']];
 
 const PAGE_SIZE = 50;
 
@@ -44,6 +37,11 @@ const readableAction = (action) => String(action || '').split('.').slice(1).join
 
 export default function AdminStaffActivity() {
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
+  const { user } = useAuth();
+  // The server fills `metadata` for admins only; a manager's column would be empty on every row.
+  const showDetails = user?.role === 'admin';
+  const [tab, setTab] = useTabParam(TABS.map(([id]) => id), 'performance');
+  const [allActors, setAllActors] = useState(false);
 
   const [rows, setRows] = useState(null);
   const [pageInfo, setPageInfo] = useState({ page: 0, totalPages: 1, total: 0 });
@@ -68,16 +66,8 @@ export default function AdminStaffActivity() {
 
   const from = days ? new Date(Date.now() - Number(days) * 86400000).toISOString() : undefined;
 
-  /**
-   * Three requests, and each one answers a different question.
-   *
-   * The feed and the headline take the full filter, because a console narrowed to one colleague
-   * should not sit under a total for the whole platform. The facets take only the date range and the
-   * search term, because a picker built from the narrowed window would delete its own options the
-   * moment you used it — choose "user" and `byEntity` comes back holding nothing but "user", so
-   * there is no way back to anything else. The leaderboard rides with the facets for the same
-   * reason: it doubles as the staff picker, and a ranking of one person cannot pick a second.
-   */
+  /** Three reads: the feed and headline take the full filter; the facets and staff list take only the date range and search,
+   * because a picker built from a narrowed window would delete its own options. */
   const refresh = useCallback(async () => {
     const filter = { actor, entity, action, from, q };
     const open = { from, q };
@@ -102,9 +92,10 @@ export default function AdminStaffActivity() {
 
   /* Debounced because `q` changes on every keystroke and each change is three requests. */
   useEffect(() => {
+    if (tab !== 'log' || allActors) return undefined;
     const timer = setTimeout(refresh, 250);
     return () => clearTimeout(timer);
-  }, [refresh]);
+  }, [refresh, tab, allActors]);
 
   /* Any change to the filters is a different result set, so page 1 is the only honest place to be. */
   useEffect(() => { setPage(0); }, [actor, entity, action, days, q]);
@@ -162,6 +153,12 @@ export default function AdminStaffActivity() {
         <span className="font-mono text-xs text-gray-400">{a.entityId || '—'}</span>
       ),
     },
+    ...(showDetails ? [{
+      key: 'metadata',
+      header: 'Details',
+      className: 'text-xs text-gray-300',
+      render: (a) => describe(a.metadata) || '—',
+    }] : []),
     {
       key: 'link',
       header: '',
@@ -201,6 +198,7 @@ export default function AdminStaffActivity() {
         <span className="text-[11px] text-gray-500">{readableAction(a.action)}</span>
       </div>
       <div className="mt-2 font-mono text-xs text-gray-400">{a.entityId || '—'}</div>
+      {showDetails && describe(a.metadata) ? <div className="mt-1 text-xs text-gray-300">{describe(a.metadata)}</div> : null}
     </div>
   );
 
@@ -215,7 +213,7 @@ export default function AdminStaffActivity() {
   if (!optionEnabled('staffActivity.enabled')) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="text-gray-500 text-sm">Staff Activity module is disabled.</div>
+        <div className="text-gray-500 text-sm">Team Activity module is disabled.</div>
         <Link to="/admin/settings" className="mt-2 text-brand-teal text-sm hover:underline">Enable in Settings &rarr;</Link>
       </div>
     );
@@ -223,25 +221,32 @@ export default function AdminStaffActivity() {
 
   return (
     <div>
-      <PageHeader
-        title="Staff Activity"
-        subtitle="Every back-office action on the record, counted by the server"
-        actions={
-          <Link to="/admin/properties" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10 transition">
-            <Building2 className="h-4 w-4" /> Staff Posted Tab
-          </Link>
-        }
-      />
+      <PageHeader title="Team Activity" subtitle="Queue health, what each colleague handled, and every back-office action on the record" />
 
-      <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-3">
-        <p className="text-sm text-gray-400">
-          Chasing one record rather than one colleague?{' '}
-          <Link to="/admin/settings" className="text-brand-teal hover:underline font-medium">
-            &rarr; View Audit Log
-          </Link>
-        </p>
+      <div className="mb-5 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+        {TABS.map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} aria-pressed={tab === id} className={classNames('flex-1 rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
+            {label}
+          </button>
+        ))}
       </div>
 
+      {tab === 'performance' && <PerformanceTab />}
+
+      {tab === 'log' && showDetails && (
+        <div className="mb-4 inline-flex gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+          {[[false, 'Back-office'], [true, 'All actors']].map(([value, label]) => (
+            <button key={label} onClick={() => setAllActors(value)} aria-pressed={allActors === value} className={classNames('rounded-md px-3 py-1 text-xs font-medium transition', allActors === value ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'log' && allActors && <AuditTrail />}
+
+      {tab === 'log' && !allActors && (
+      <>
       {error && (
         <div role="alert" className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
           {error}
@@ -270,59 +275,6 @@ export default function AdminStaffActivity() {
       </div>
       )}
 
-      {/* Leaderboard */}
-      {optionEnabled('staffActivity.leaderboard') && (
-      <div className="mb-8">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
-          <Award className="h-4 w-4 text-amber-400" /> Staff Leaderboard
-        </h2>
-        {facets.leaderboard.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {facets.leaderboard.map((s, i) => (
-              <button
-                key={s.actor}
-                onClick={() => setActor(actor === s.actor ? '' : s.actor)}
-                aria-pressed={actor === s.actor}
-                className={classNames(
-                  'rounded-xl border p-4 transition text-left',
-                  actor === s.actor ? 'border-teal-400/50 bg-teal-500/10 ring-1 ring-teal-400/20' :
-                  i === 0 ? 'border-amber-500/30 bg-amber-500/5 hover:border-amber-400/50' :
-                  'border-white/10 bg-white/[0.02] hover:border-white/20',
-                )}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className={classNames(
-                    'flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold',
-                    i === 0 ? 'bg-amber-500/20 text-amber-300' :
-                    i === 1 ? 'bg-gray-400/20 text-gray-300' :
-                    i === 2 ? 'bg-orange-500/15 text-orange-300' :
-                    'bg-white/10 text-gray-400',
-                  )}>
-                    {i + 1}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-white truncate">{s.name}</div>
-                    <div className="text-[11px] text-gray-500 capitalize">
-                      {s.role || 'staff'}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-xs">
-                  {/* Volume, deliberately labelled as such. An audit row records that something was
-                      done, not that it was done well — the old page filed the same number under
-                      "performance", which this data cannot support. */}
-                  <span className="flex items-center gap-1 text-teal-400">
-                    <TrendingUp className="h-3 w-3" /> {fmtNum(s.total)} actions
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">No activity recorded in this window.</p>
-        )}
-      </div>
-      )}
 
       {/* Filters bar */}
       <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
@@ -389,6 +341,8 @@ export default function AdminStaffActivity() {
             Next
           </button>
         </nav>
+      )}
+      </>
       )}
     </div>
   );

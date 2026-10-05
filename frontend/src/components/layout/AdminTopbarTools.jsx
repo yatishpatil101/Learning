@@ -7,7 +7,7 @@ import { listTicketQueue } from '../../services/ticketService.js';
 import { listPropertyReviewQueue } from '../../services/propertyReviewService.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { canOpenPath, hasPermission, portalPath } from '../../lib/adminModules.js';
+import { SERVICE_DESKS, canOpenPath, hasPermission, portalPath, ticketPath } from '../../lib/adminModules.js';
 /** Rows shown per data category. The chip beside it carries the size of the whole match. */
 
 const RESULT_CAP = 6;
@@ -34,7 +34,7 @@ const NAV_INDEX_FULL = [
   { label: 'Analytics', keywords: 'analytics stats chart graph', path: '/admin/analytics', icon: BarChart3, flag: 'analytics' },
   { label: 'Properties', keywords: 'properties listings homes flats apartments manage', path: '/admin/properties', icon: Building2, flag: null },
   { label: 'Users', keywords: 'users people accounts customers owners tenants members', path: '/admin/users', icon: Users, flag: null },
-  { label: 'Services', keywords: 'services requests tickets packers movers legal interior valuation rent agreement home loans finance', path: '/admin/services', icon: Wrench, flag: null },
+  ...SERVICE_DESKS.map((d) => ({ label: d.label, keywords: `services desk requests tickets ${d.label.toLowerCase()}`, path: d.path, icon: d.icon, flag: null })),
   { label: 'Enquiries', keywords: 'enquiries messages inbox contact leads', path: '/admin/enquiries', icon: MessageSquare, flag: null },
   { label: 'Finance', keywords: 'finance billing payments revenue invoices subscriptions money', path: '/admin/finance', icon: IndianRupee, flag: 'finance' },
   { label: 'Content', keywords: 'content cms pages blog posts manage text', path: '/admin/content', icon: FileText, flag: null },
@@ -51,7 +51,6 @@ const NAV_INDEX_FULL = [
 const FEATURES_INDEX = [
   { label: 'Traffic', keywords: 'traffic visits pageviews sessions visitors', path: '/admin/analytics?tab=traffic', parent: 'Analytics', flag: 'analytics.traffic' },
   { label: 'Engagement', keywords: 'engagement session duration bounce rate top pages', path: '/admin/analytics?tab=engagement', parent: 'Analytics', flag: 'analytics.engagement' },
-  { label: 'Anonymous Surfers', keywords: 'anonymous surfers non-registered visitors tracking', path: '/admin/analytics?tab=surfers', parent: 'Analytics', flag: 'analytics.anonymous' },
   { label: 'Geography', keywords: 'geography locality area demand listings rates pune', path: '/admin/analytics?tab=geography', parent: 'Analytics', flag: 'analytics.geography' },
   { label: 'Supply Gap', keywords: 'supply gap demand market opportunity underserved', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
   { label: 'City Requests', keywords: 'city request expansion request your city geographic demand waitlist new city', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
@@ -77,15 +76,15 @@ const FEATURES_INDEX = [
   { label: 'Banners', keywords: 'banners promotional homepage carousel', path: '/admin/content?tab=banners', parent: 'Content', flag: 'content.banners' },
   { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content?tab=faqs', parent: 'Content', flag: 'content.faqs' },
   { label: 'Announcements', keywords: 'announcements notifications alerts', path: '/admin/content?tab=announcements', parent: 'Content', flag: 'content.announcements' },
-  { label: 'Reviews Moderation', keywords: 'reviews moderation feedback ratings', path: '/admin/content?tab=reviews', parent: 'Content', flag: 'content.reviews' },
 
   { label: 'General Settings', keywords: 'general site email notifications sms configuration', path: '/admin/settings?tab=general', parent: 'Settings', flag: null },
   { label: 'Fee Configuration', keywords: 'fees pricing commission brokerage charges', path: '/admin/settings?tab=fees', parent: 'Settings', flag: null },
   { label: 'Feature Flags', keywords: 'feature flags toggles enable disable modules', path: '/admin/settings?tab=flags', parent: 'Settings', flag: null },
-  { label: 'Audit Log', keywords: 'audit log history actions trail who changed', path: '/admin/settings?tab=audit', parent: 'Settings', flag: null },
+  { label: 'Activity Log', keywords: 'audit log history actions trail who changed staff activity', path: '/admin/staff-activity?tab=log', parent: 'Team Activity', flag: null },
 
   { label: 'Reported Properties', keywords: 'reported abuse fake fraud listings', path: '/admin/reports?tab=listings', parent: 'Reports', flag: 'reports' },
   { label: 'Reported Users', keywords: 'reported impersonation abuse spam', path: '/admin/reports?tab=users', parent: 'Reports', flag: 'reports' },
+  { label: 'Reviews Moderation', keywords: 'reviews moderation feedback ratings approve reject', path: '/admin/reports?tab=reviews', parent: 'Reports', flag: 'reports.reviews' },
 
   { label: 'Host Verification', keywords: 'verification tenant owner badge flatmate agreement', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
   { label: 'Flatmate Moderation', keywords: 'seekers rooms groups flatmate share roommate posts publish', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
@@ -99,12 +98,10 @@ const FEATURES_INDEX = [
   { label: 'Locality Directory', keywords: 'locality directory registry curated community areas', path: '/admin/localities?tab=directory', parent: 'Localities', flag: null },
   /* Three Dashboard entries stood here — Smart Alerts, SLA Health and Daily Scorecard. */
 
-  { label: 'Staff KPIs', keywords: 'staff kpi performance metrics summary', path: '/admin/staff-activity', parent: 'Staff Activity', flag: 'staffActivity.kpis' },
-  { label: 'Staff Leaderboard', keywords: 'leaderboard ranking staff top performer', path: '/admin/staff-activity', parent: 'Staff Activity', flag: 'staffActivity.leaderboard' },
+  { label: 'Team Performance', keywords: 'staff kpi performance metrics summary leaderboard turnaround', path: '/admin/staff-activity?tab=performance', parent: 'Team Activity', flag: null },
 
-  { label: 'Team Routing', keywords: 'team routing assign tickets', path: '/admin/services', parent: 'Services', flag: 'services.teamRouting' },
-  { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/services', parent: 'Services', flag: 'services.priority' },
-  { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/services', parent: 'Services', flag: 'services.staffAssignment' },
+  { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.priority' },
+  { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.staffAssignment' },
 
   { label: 'Staff Desks at a Glance', keywords: 'desks routes access permissions which desk index map runbook internal ops', path: '/help/a/staff-desks', parent: 'Runbooks', flag: null },
   { label: 'Verification SLAs', keywords: 'sla slas turnaround target verification listing queue recheck duplicates needs info breach runbook internal ops deadline', path: '/help/a/verification-sla', parent: 'Runbooks', flag: null },
@@ -386,7 +383,7 @@ export default function AdminTopbarTools() {
                     <>
                       <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">People ({results.counts.users})</div>
                       {results.users.map((u) => { const RI = roleIcon(u.role); return (
-                        <button key={u.id} onClick={() => go('/admin/users')} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5">
+                        <button key={u.id} onClick={() => go(u.role === 'owner' || u.role === 'buyer' ? '/admin/users' : '/admin/team')} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5">
                           <span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-500/15 text-indigo-300"><RI className="h-4 w-4" /></span>
                           <span className="min-w-0 flex-1"><span className="block truncate text-sm text-white">{u.name}</span><span className="block truncate text-xs text-gray-400">{u.role} &middot; {u.mobile}</span></span>
                           {u.verified && <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-teal-400" />}
@@ -448,7 +445,7 @@ export default function AdminTopbarTools() {
                   <>
                     <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Open service requests ({notif.openTotal})</div>
                     {notif.open.map((t) => (
-                      <button key={t.id} onClick={() => go('/admin/services')} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5">
+                      <button key={t.id} onClick={() => go(ticketPath(t, true))} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5">
                         <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500/15 text-amber-300"><Wrench className="h-4 w-4" /></span>
                         <span className="min-w-0"><span className="block truncate text-sm text-white">{t.service}</span><span className="block truncate text-xs text-gray-400">{t.customer} &middot; {t.mobile}</span></span>
                       </button>
@@ -463,7 +460,7 @@ export default function AdminTopbarTools() {
                     <p className="mt-1">
                       {prose(notif.blind)} could not be counted &mdash; the desk that holds them is
                       not answering for this build or not open to your role &mdash; so the count is
-                      switched off rather than made up. Open Properties and Services; those queues
+                      switched off rather than made up. Open Properties and the service desks; those queues
                       are the record.
                     </p>
                   </div>

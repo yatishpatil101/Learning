@@ -2,6 +2,7 @@ package com.draazy.api.moderation.audit;
 
 import com.draazy.api.common.audit.AuditLog;
 import com.draazy.api.common.audit.AuditLogRepository;
+import com.draazy.api.common.audit.AuditMetadata;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
@@ -23,17 +24,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 
 // Admin-only by design: the audit trail holds privileged users to account.
 @RestController
 public class AuditLogController {
-
-    private static final ObjectMapper METADATA_JSON = JsonMapper.builder().build();
-    private static final TypeReference<Map<String, Object>> METADATA_TYPE = new TypeReference<>() {
-    };
 
     private final AuditLogRepository repository;
     private final UserRepository users;
@@ -97,18 +91,6 @@ public class AuditLogController {
                 row.getEntityId(),
                 row.getChecker(),
                 row.getAt(),
-                metadata(row.getMetadata()));
-    }
-
-    // Bad metadata must not hide the rest of the log when an operator is investigating.
-    private static Map<String, Object> metadata(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return Map.of();
-        }
-        try {
-            return METADATA_JSON.readValue(raw, METADATA_TYPE);
-        } catch (RuntimeException unparseable) {
-            return Map.of();
-        }
+                AuditMetadata.parse(row.getMetadata()));
     }
 }

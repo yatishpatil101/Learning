@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getTeamPerformance } from '../../services/staffActivityService.js';
-import { getFunctionCatalogue } from '../../services/permissionsService.js';
-import { classNames, fmtNum, timeAgo } from '../../lib/format.js';
-import PageHeader from '../../components/ui/PageHeader.jsx';
+import { getTeamPerformance } from '../../../services/staffActivityService.js';
+import { getFunctionCatalogue } from '../../../services/permissionsService.js';
+import { classNames, fmtNum, timeAgo } from '../../../lib/format.js';
 
 const WINDOWS = [7, 30];
 
@@ -13,7 +12,7 @@ const fmtMinutes = (m) => {
   return `${Math.round(m / 1440)}d`;
 };
 
-export default function AdminTeamPerformance() {
+export default function PerformanceTab() {
   const [days, setDays] = useState(7);
   const [data, setData] = useState(null);
   const [labels, setLabels] = useState(new Map());
@@ -41,25 +40,19 @@ export default function AdminTeamPerformance() {
 
   return (
     <div>
-      <PageHeader
-        title="Team Performance"
-        subtitle="Queue health and what each staff member handled"
-        actions={(
-          <div role="group" aria-label="Window" className="flex rounded-xl border border-white/10 p-0.5">
-            {WINDOWS.map((w) => (
-              <button
-                key={w}
-                type="button"
-                aria-pressed={days === w}
-                onClick={() => setDays(w)}
-                className={classNames('min-h-11 rounded-lg px-3 text-sm sm:min-h-0 sm:py-1.5', days === w ? 'bg-white/10 text-white' : 'text-gray-400')}
-              >
-                {w} days
-              </button>
-            ))}
-          </div>
-        )}
-      />
+      <div role="group" aria-label="Window" className="mb-4 flex w-fit rounded-xl border border-white/10 p-0.5">
+        {WINDOWS.map((w) => (
+          <button
+            key={w}
+            type="button"
+            aria-pressed={days === w}
+            onClick={() => setDays(w)}
+            className={classNames('min-h-11 rounded-lg px-3 text-sm sm:min-h-0 sm:py-1.5', days === w ? 'bg-white/10 text-white' : 'text-gray-400')}
+          >
+            {w} days
+          </button>
+        ))}
+      </div>
 
       {error && (
         <div role="alert" className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>

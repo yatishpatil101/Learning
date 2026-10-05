@@ -1,15 +1,4 @@
-/**
- * `/admin/services` — the gaps `live-admin-services.spec.js` leaves, against the live API.
- *
- * That file proves Start, the modal's assign + resolve + additive note, the status vocabulary, the
- * desk label and the router guard. This one covers the rest of what an operator does on the board:
- * reads the counts, narrows the queue, exports it, resolves from the row, parks a ticket on
- * Waiting, and is told when the board cannot be read — plus the writes the API refuses to people
- * the screen would never have shown a button to.
- *
- * Every ticket is raised by the spec with a run-stamped subject; the board is shared and
- * append-only, so no locator or count depends on its position or its total.
- */
+/** Run-stamped tickets: the board is shared and append-only, so no locator depends on position or total. */
 import fs from 'node:fs';
 import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
@@ -17,7 +6,7 @@ import { appReady } from '../../helpers/app.js';
 
 const run = () => `E2E svc desk ${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
 
-async function raise(request, subject, { team = 'packers', priority } = {}) {
+async function raise(request, subject, { team = 'loans', priority } = {}) {
   const res = await request.post(`${API}/tickets`, {
     headers: await authHeaders(ACTORS.tenant),
     data: { team, subject, priority, body: 'Two-bedroom move, ground floor to third floor.' },
@@ -27,7 +16,7 @@ async function raise(request, subject, { team = 'packers', priority } = {}) {
 }
 
 const adminBoard = async (request) => {
-  const res = await request.get(`${API}/tickets?size=100`, { headers: await authHeaders(ACTORS.admin) });
+  const res = await request.get(`${API}/tickets?team=loans&size=100`, { headers: await authHeaders(ACTORS.admin) });
   expect(res.status()).toBe(200);
   return (await res.json()).content;
 };
@@ -44,11 +33,11 @@ const pick = async (page, ariaLabel, option) => {
   await page.getByRole('option', { name: option, exact: true }).click();
 };
 
-const openDesk = async (page, login, path = '/admin/services') => {
+const openDesk = async (page, login, path = '/admin/home-loans') => {
   await login.asAdmin();
   await page.goto(path);
   await appReady(page);
-  await expect(page.getByRole('heading', { name: 'Service Requests' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
 };
 
 const kpi = (page, label) => page.getByText(label, { exact: true }).locator('xpath=following-sibling::div[1]');
@@ -58,10 +47,10 @@ test('the tiles tally the board the API serves, and each filter and the CSV narr
   test.slow();
   const tag = run();
   const urgent = `${tag} urgent`;
-  const loans = `${tag} loans`;
+  const low = `${tag} low`;
   const parked = `${tag} parked`;
   await raise(request, urgent, { priority: 'urgent' });
-  await raise(request, loans, { team: 'loans', priority: 'low' });
+  await raise(request, low, { priority: 'low' });
   const parkedId = await raise(request, parked, { priority: 'high' });
   await adminPatch(request, parkedId, { status: 'waiting' });
 
@@ -96,13 +85,9 @@ test('the tiles tally the board the API serves, and each filter and the CSV narr
   const csv = fs.readFileSync(await (await download).path(), 'utf8');
   expect(csv.split('\n')[0]).toBe('"ID","Service","Desk","Customer","Mobile","Detail","Priority","Assigned","Status","Created"');
   expect(csv, 'the export is the filtered view').toContain(urgent);
-  expect(csv).not.toContain(loans);
+  expect(csv).not.toContain(low);
   expect(csv).not.toContain(parked);
   await pick(page, 'Filter by priority', 'All priorities');
-
-  await pick(page, 'Filter by desk', 'Home Loans');
-  await expect(rowOf(page, tag)).toHaveCount(1);
-  await expect(rowOf(page, loans)).toBeVisible();
 
   await page.getByPlaceholder('Search id, customer, detail…').fill(`${tag} no such ticket`);
   await expect(page.getByRole('cell', { name: 'No requests match' })).toBeVisible();
@@ -140,7 +125,7 @@ test('a deep link opens the ticket, and Save parks it on Waiting with a note wit
   const admin = (await apiLogin(ACTORS.admin)).user;
   const note = `Waiting on the customer to confirm the date ${subject}`;
 
-  await openDesk(page, login, `/admin/services?open=${id}`);
+  await openDesk(page, login, `/admin/home-loans?open=${id}`);
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(`Request ${id}`, { exact: true })).toBeVisible();
@@ -177,9 +162,9 @@ test('a board that cannot be read says so instead of showing an empty one', asyn
       contentType: 'application/json',
       body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'The ticket board is unavailable.' }),
     }));
-  await page.goto('/admin/services');
+  await page.goto('/admin/home-loans');
 
-  await expect(page.getByRole('heading', { name: 'Service Requests' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
   await expect(page.getByText('The ticket board is unavailable.')).toBeVisible();
   await expect(page.getByText('Total requests', { exact: true })).toHaveCount(0);
   await expect(page.getByText('No requests match')).toHaveCount(0);
@@ -192,7 +177,7 @@ test('writes to a ticket are refused to a buyer, to nobody, and to another desk 
   const attempts = [
     ['no session', {}],
     ['a buyer', await authHeaders(ACTORS.buyer)],
-    ['the loans desk', await authHeaders(STAFF.loans)],
+    ['another desk', await authHeaders(STAFF.packers)],
   ];
 
   for (const [who, headers] of attempts) {
@@ -206,7 +191,7 @@ test('writes to a ticket are refused to a buyer, to nobody, and to another desk 
   expect(untouched.status).toBe('open');
   expect(untouched.notes ?? []).toHaveLength(0);
 
-  const own = await request.patch(url, { headers: await authHeaders(STAFF.packers), data: { status: 'in-progress' } });
+  const own = await request.patch(url, { headers: await authHeaders(STAFF.loans), data: { status: 'in-progress' } });
   expect(own.status(), 'the desk that owns the ticket is let through, so the refusals above were about who asked').toBe(200);
   expect((await serverTicket(request, id)).status).toBe('in-progress');
 });
