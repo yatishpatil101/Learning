@@ -182,8 +182,21 @@ jobs:
         run: |
           set -euo pipefail
           url=$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')
-          curl -fsS --max-time 60 "$url/api/actuator/health"
-          echo
+          attempt=1
+          max=12
+          while : ; do
+            if curl -fsS --max-time 15 "$url/api/actuator/health"; then
+              echo
+              break
+            fi
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::Cloud Run health check failed after ${max} attempts." >&2
+              exit 1
+            fi
+            echo "Waiting for Cloud Run routing mesh to warm up (attempt ${attempt}/${max})..."
+            attempt=$((attempt + 1))
+            sleep 5
+          done
 
       # Self-hosted runners can keep RUNNER_TEMP after the job.
       - name: Remove rendered service definition
