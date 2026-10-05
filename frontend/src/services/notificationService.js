@@ -1,85 +1,21 @@
-/**
- * Notification Service — public API for the in-app alert inbox.
- *
- * ## The server surface is three endpoints, and the page still needs a little more
- *
- * `GET /notifications` (paged), `POST /notifications/read` and `DELETE /notifications/{id}` are the
- * whole contract. What is left has no server home, so this seam is partly a set of decisions about
- * *where each behaviour lives* rather than only a set of request builders:
- *
- * | Behaviour | Where it lives | Why |
- * |---|---|---|
- * | list, mark read, mark all read | **server** | the read + mark-read endpoints |
- * | `dismiss` (server rows) | **server** | `DELETE /notifications/{id}` — permanent, syncs across devices |
- * | `dismiss` (client-derived rows) | **client tombstones** | they have no server row to delete, so the server 404s them and the provider falls back locally |
- * | saved-search / saved-property alerts | **client-derived** | the server has no inbox slot for them, but the number in them is not counted here — it rides on the saved-search record as `matchCount` |
- * | `pushNotificationFor` | **absent** | writing into *another* user's inbox is a server-side effect, never a client call; the server raises `document.granted`, `service.draft-shared` and `service.party-invited` instead |
- * | preferences + quiet hours | **server** | `GET`/`PUT /me/notification-preferences` — see below |
- *
- * ## Preferences are the server's
- *
- * `MeNotificationPreferencesController` has a `GET` and a `PUT`. Keeping these settings
- * in one browser's localStorage instead would mean the server enforced none of them — a
- * quiet-hours window would suppress only the alerts the *client* derived, so a notification the
- * server wrote at 03:00 would still arrive at 03:00. The client half is the two functions at the
- * bottom of this file.
- */
 import { createProvider } from './config.js';
 
 const provider = createProvider('notification');
 
-/**
- * The caller's notifications, newest first, already merged and de-duplicated.
- *
- * `extra` carries client-derived rows (saved-search matches, saved-property availability). They are
- * merged **by the provider**, not by the page, and never persisted — a client-derived alert written
- * to localStorage would be a notification the user was shown once and can never see again from
- * another device.
- *
- * @param {object[]} [extra] client-derived notifications to merge in, deduped by id
- */
-export const listNotifications = async (extra) => (await provider()).listNotifications(extra);
+export const listNotifications = async (opts) => (await provider()).listNotifications(opts);
 
-/**
- * How many unread, over the **whole** inbox rather than the first page.
- *
- * Separate from `listNotifications` because the navbar bell needs the count on every page, and
- * counting a page would quietly cap the badge at the page size — the same bug `countProperties`
- * exists to avoid on the catalogue.
- */
+/** How many unread, over the **whole** inbox rather than the first page. */
 export const unreadCount = async () => (await provider()).unreadCount();
 
-/** Mark one notification read. Resolves when applied; does not resolve to the new list. */
 export const markRead = async (id) => (await provider()).markRead(id);
 
-/** Mark every notification read. The server treats an empty id list as "all". */
 export const markAllRead = async () => (await provider()).markAllRead();
 
-/**
- * Hide one notification.
- *
- * **There is no server endpoint for this.** It records a client-side tombstone that the provider
- * filters subsequent reads through. Deliberately still offered: the X is a control that works
- * today, and removing it would be a visible regression traded for a purity that no user asked for.
- * Its limits are real and documented on the provider — it does not sync across devices, and
- * clearing site data brings the row back.
- */
+/** Deliberately still offered: the X is a control that works today, and removing it would be a visible regression
+ * traded for a purity that no user asked for. */
 export const dismiss = async (id) => (await provider()).dismiss(id);
 
-/**
- * What the server returns for a user who has never saved preferences.
- *
- * Published so a settings screen can render the right six controls on its first frame without
- * reading one browser's saved copy to guess the shape. That read looks like a harmless seed but is
- * a stale cache of the server's answer: a user who changed a switch on their phone would open the
- * laptop and see the old value flash before the real one arrived. A fixed default flashes only a
- * default, which is what a screen with no answer yet honestly has.
- *
- * Mirrors {@code DEFAULTS} in `NotificationPreferenceService.java` and V73's column defaults — the
- * browser's only copy, so there are three in all: this one, the server's and the database's.
- * `NotificationPreferencesEndpointTest` keeps the latter two honest; this one is held in step by
- * review, so change it only alongside the Java constant.
- */
+/* Defaults publish the server shape so settings do not infer it from one browser's cache. */
 export const NOTIFICATION_PREFERENCE_DEFAULTS = Object.freeze({
   email: true,
   sms: false,
@@ -89,31 +25,12 @@ export const NOTIFICATION_PREFERENCE_DEFAULTS = Object.freeze({
   language: 'en',
 });
 
-/**
- * The caller's delivery preferences: channels, the master match-alert switch, quiet hours, language.
- * `{ email, sms, whatsapp, matchAlerts, quietHours: { enabled, start, end }, language }` on both
- * sides — the server contract is modelled on the object the browser already kept, so no mapper.
- */
+/** `{ email, sms, whatsapp, matchAlerts, quietHours: { enabled, start, end }, language }` on both sides — the server
+ * contract is modelled on the object the browser already kept, so no mapper. */
 export const getNotificationPreferences = async () => (await provider()).getNotificationPreferences();
 
-/**
- * Apply a partial change and return the stored document.
- *
- * **The merge lives here, not in the provider.** `PUT /me/notification-preferences` requires all
- * six fields — a missing one is a 422, because the server refuses to be a `PATCH` wearing a `PUT`'s
- * verb — while the screen that calls this flips one switch at a time. Somebody has to widen a patch
- * into a document, and above the seam is the one place every caller shares.
- *
- * `quietHours` is merged one level deeper, since the screen writes `{ start }` on its own. Deeper
- * than that there is nothing to merge — the document is two levels and no more.
- *
- * The read before the write is the cost of that. It is one request against a route that is always
- * 200 and never 404, on a settings screen, at the moment the user touched a control — the cheapest
- * possible place to pay for correctness.
- *
- * @param {object} patch the fields that changed
- * @returns {Promise<object>} the full stored document, from the server where the server is in play
- */
+/** **The merge lives here, not in the provider.** `PUT /me/notification-preferences` requires all six fields — a
+ * missing one is a 422, because the server refuses to be a `PATCH` wearing a `PUT`'s verb. */
 export const updateNotificationPreferences = async (patch) => {
   const impl = await provider();
   const current = await impl.getNotificationPreferences();
@@ -124,3 +41,6 @@ export const updateNotificationPreferences = async (patch) => {
   };
   return impl.updateNotificationPreferences(next);
 };
+
+export const registerPushSubscription = async (subscription) => (await provider()).registerPushSubscription(subscription);
+export const unregisterPushSubscription = async (endpoint) => (await provider()).unregisterPushSubscription(endpoint);

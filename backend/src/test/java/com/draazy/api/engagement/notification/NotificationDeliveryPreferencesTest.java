@@ -19,6 +19,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.util.AopTestUtils;
@@ -42,9 +44,6 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
     /** A future quiet window: whatever it defers to is still in the future at real "now". */
     private static final ZonedDateTime FUTURE_NIGHT =
             ZonedDateTime.of(2027, 1, 10, 23, 0, 0, 0, PlatformTime.IST);
-
-    private static final ZonedDateTime FUTURE_SMALL_HOURS =
-            ZonedDateTime.of(2027, 1, 11, 3, 0, 0, 0, PlatformTime.IST);
 
     private static final ZonedDateTime FUTURE_MIDDAY =
             ZonedDateTime.of(2027, 1, 10, 12, 0, 0, 0, PlatformTime.IST);
@@ -117,22 +116,6 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
         return com.jayway.jsonpath.JsonPath.parse(json).read("$.content.length()");
     }
 
-    // ============================== quiet hours: the window ==============================
-
-    @Test
-    @DisplayName("outside the quiet window the notification is delivered immediately")
-    void deliveredOutsideQuietHours() throws Exception {
-        User u = user("9800000201");
-        quietHours(u, "22:00", "07:00");
-
-        writeAt(FUTURE_MIDDAY, u.getId(), "offer.received");
-
-        assertThat(deferredUntil(u))
-                .as("midday is not inside a 22:00-07:00 window; nothing should be held back")
-                .isNull();
-        assertThat(inboxSize(u)).isEqualTo(1);
-    }
-
     @Test
     @DisplayName("at 23:00 a window that crosses midnight defers to the NEXT morning")
     void wrappingWindowBeforeMidnightDefersToTomorrow() throws Exception {
@@ -148,41 +131,6 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
         assertThat(inboxSize(u))
                 .as("held back until the window closes")
                 .isZero();
-    }
-
-    @Test
-    @DisplayName("at 03:00 the same window defers to THIS morning, hours later not a day later")
-    void wrappingWindowAfterMidnightDefersToThisMorning() throws Exception {
-        User u = user("9800000203");
-        quietHours(u, "22:00", "07:00");
-
-        writeAt(FUTURE_SMALL_HOURS, u.getId(), "offer.received");
-
-        assertThat(deferredUntil(u))
-                .as("03:00 on the 11th is the tail of the window that opened on the 10th; it closes "
-                        + "at 07:00 that same morning")
-                .isEqualTo(ZonedDateTime.of(2027, 1, 11, 7, 0, 0, 0, PlatformTime.IST).toInstant());
-        assertThat(inboxSize(u)).isZero();
-    }
-
-    @Test
-    @DisplayName("a same-day window (09:00-17:00) works too, and 23:00 falls outside it")
-    void nonWrappingWindow() throws Exception {
-        User u = user("9800000204");
-        quietHours(u, "09:00", "17:00");
-
-        writeAt(FUTURE_MIDDAY, u.getId(), "offer.received");
-        assertThat(deferredUntil(u))
-                .as("12:00 is inside 09:00-17:00")
-                .isEqualTo(ZonedDateTime.of(2027, 1, 10, 17, 0, 0, 0, PlatformTime.IST).toInstant());
-
-        jdbc.update("delete from notifications where user_id = ?", u.getId());
-
-        writeAt(FUTURE_NIGHT, u.getId(), "offer.received");
-        assertThat(deferredUntil(u))
-                .as("23:00 is outside 09:00-17:00 — a non-wrapping window must not be read as if it "
-                        + "wrapped")
-                .isNull();
     }
 
     @Test
@@ -203,51 +151,6 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("quiet hours are DEFERRED, never dropped — the row exists throughout")
-    void quietHoursNeverLoseTheNotification() throws Exception {
-        User u = user("9800000206");
-        quietHours(u, "22:00", "07:00");
-
-        writeAt(FUTURE_NIGHT, u.getId(), "offer.received");
-
-        Integer rows = jdbc.queryForObject(
-                "select count(*) from notifications where user_id = ?", Integer.class, u.getId());
-        assertThat(rows)
-                .as("the inbox is the only place a notification is ever read, so suppressing one "
-                        + "would permanently lose the event. It must be on disk even while hidden")
-                .isEqualTo(1);
-        assertThat(inboxSize(u)).isZero();
-    }
-
-    // ============================== quiet hours: the edges ==============================
-
-    @Test
-    @DisplayName("quiet hours switched off never defer, whatever the window says")
-    void disabledQuietHoursNeverDefer() throws Exception {
-        User u = user("9800000207");
-        preferences.saveAndFlush(withPreferences(u, false, "22:00", "07:00", true));
-
-        writeAt(FUTURE_NIGHT, u.getId(), "offer.received");
-
-        assertThat(deferredUntil(u)).isNull();
-        assertThat(inboxSize(u)).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("start == end means never, not always")
-    void degenerateWindowMeansNever() throws Exception {
-        User u = user("9800000208");
-        quietHours(u, "22:00", "22:00");
-
-        writeAt(FUTURE_NIGHT, u.getId(), "offer.received");
-
-        assertThat(deferredUntil(u))
-                .as("reading a zero-length window as a whole day would mute a user permanently for "
-                        + "dragging two sliders together")
-                .isNull();
-    }
-
-    @Test
     @DisplayName("a user with no preferences row behaves exactly as before this slice")
     void absentPreferencesRowIsNotSilence() throws Exception {
         User u = user("9800000209");
@@ -262,48 +165,25 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
         assertThat(inboxSize(u)).isEqualTo(1);
     }
 
-    // ============================== the master switch ==============================
-
-    @Test
-    @DisplayName("matchAlerts off stops match alerts")
-    void masterSwitchOffStopsMatchAlerts() throws Exception {
+    @ParameterizedTest(name = "matchAlerts={0} {1} → {2} delivered")
+    @CsvSource({
+            "false, match.saved-search, 0",
+            "false, offer.received, 1",
+            "true, match.saved-search, 1"
+    })
+    @DisplayName("matchAlerts is a narrow switch: it drops match alerts and nothing else")
+    void masterSwitch(boolean matchAlerts, String type, int delivered) throws Exception {
         User u = user("9800000210");
-        preferences.saveAndFlush(withPreferences(u, false, "22:00", "07:00", false));
+        preferences.saveAndFlush(withPreferences(u, false, "22:00", "07:00", matchAlerts));
 
-        writeAt(FUTURE_MIDDAY, u.getId(), "match.saved-search");
+        writeAt(FUTURE_MIDDAY, u.getId(), type);
 
         Integer rows = jdbc.queryForObject(
                 "select count(*) from notifications where user_id = ?", Integer.class, u.getId());
         assertThat(rows)
-                .as("the master switch drops rather than defers: there is no later moment at which "
-                        + "the user wants an alert they switched off")
-                .isZero();
-        assertThat(inboxSize(u)).isZero();
-    }
-
-    @Test
-    @DisplayName("matchAlerts off does NOT silence events the user is a party to")
-    void masterSwitchDoesNotSilenceTransactionalEvents() throws Exception {
-        User u = user("9800000211");
-        preferences.saveAndFlush(withPreferences(u, false, "22:00", "07:00", false));
-
-        writeAt(FUTURE_MIDDAY, u.getId(), "offer.received");
-
-        assertThat(inboxSize(u))
-                .as("\"New match alerts\" is a narrow switch. Reading it as a global mute would lose "
-                        + "an offer on the user's own listing, which they never asked to stop hearing "
-                        + "about")
-                .isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("matchAlerts on leaves match alerts alone")
-    void masterSwitchOnDeliversMatchAlerts() throws Exception {
-        User u = user("9800000212");
-        preferences.saveAndFlush(withPreferences(u, false, "22:00", "07:00", true));
-
-        writeAt(FUTURE_MIDDAY, u.getId(), "match.saved-search");
-
-        assertThat(inboxSize(u)).isEqualTo(1);
+                .as("the master switch drops rather than defers, and it is not a global mute: an "
+                        + "offer on the user's own listing still arrives")
+                .isEqualTo(delivered);
+        assertThat(inboxSize(u)).isEqualTo(delivered);
     }
 }

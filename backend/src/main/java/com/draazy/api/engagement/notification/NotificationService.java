@@ -1,6 +1,7 @@
 package com.draazy.api.engagement.notification;
 
 import com.draazy.api.common.error.NotFoundException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.UUID;
@@ -11,13 +12,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Notification reads and mark-read. All queries are strictly caller-scoped — user A can never
- * read or mark user B's notifications. Passing another user's notification ids to the mark-read
- * operation has no effect (invariant 2).
- */
+/** All queries are strictly caller-scoped — user A can never read or mark user B's notifications.
+ * Passing another user's notification ids to the mark-read operation has no effect (invariant 2). */
 @Service
 public class NotificationService {
+
+    public static final Duration READ_VISIBILITY = Duration.ofDays(30);
 
     private final NotificationRepository repo;
     private final NotificationMapper mapper;
@@ -27,30 +27,22 @@ public class NotificationService {
         this.mapper = mapper;
     }
 
-    /**
-     * Paged notifications, newest first. The sort is fixed server-side (contract does not expose
-     * a sort parameter), so client-supplied sort is stripped before reaching the query.
-     *
-     * <p><strong>Deferred rows are withheld, not hidden forever.</strong> A notification written
-     * inside the recipient's quiet-hours window carries a {@code deliverAfter} instant and does not
-     * appear here until that window has closed — at which point it appears in its natural place in
-     * the ordering, because the sort is on {@code createdAt} and that still records when the thing
-     * happened. Nothing sweeps the flag; the comparison against "now" is the whole mechanism. See
-     * {@link NotificationPublisher} for why this is deferral and not suppression.
-     */
+    /** Deferred quiet-hours rows stay hidden only until their delivery instant. */
     @Transactional(readOnly = true)
     public Page<NotificationResponse> list(UUID userId, Pageable pageable) {
         Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repo.findDeliverable(userId, Instant.now(), sorted).map(mapper::toResponse);
+        Instant now = Instant.now();
+        return repo.findDeliverable(userId, now, now.minus(READ_VISIBILITY), sorted)
+                .map(mapper::toResponse);
     }
 
-    /**
-     * Mark notifications read. If ids is null/empty, marks ALL of the caller's unread notifications.
-     * Only ever touches the caller's own rows (invariant 2, 3), and only rows that are actually
-     * visible — see {@link NotificationRepository#markAllRead} for why "mark all read" must not
-     * reach a notification the user has not been shown yet.
-     */
+    @Transactional(readOnly = true)
+    public long unreadCount(UUID userId) {
+        return repo.countUnreadDeliverable(userId, Instant.now());
+    }
+
+    /** Empty ids means all visible caller rows; deferred rows must not be consumed unseen. */
     @Transactional
     public void markRead(UUID userId, Collection<UUID> ids) {
         Instant now = Instant.now();
@@ -61,14 +53,7 @@ public class NotificationService {
         }
     }
 
-    /**
-     * Dismiss (delete) one notification. User-scoped: acting on another user's id returns 404,
-     * never 403 — the same convention as {@code deleteSavedSearch}. The row is hard-deleted rather
-     * than tombstoned, because a dismissed notification is a personal preference to remove it from
-     * the inbox, and the inbox is the only place it is ever read.
-     *
-     * @throws NotFoundException if the id does not belong to the caller
-     */
+    /** Foreign ids return 404, and dismiss hard-deletes because only the inbox reads the row. */
     @Transactional
     public void dismiss(UUID userId, UUID id) {
         Notification entity = repo.findByIdAndUserId(id, userId)

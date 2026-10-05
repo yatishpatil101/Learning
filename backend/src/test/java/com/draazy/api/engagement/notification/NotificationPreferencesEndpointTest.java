@@ -9,8 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -198,47 +202,34 @@ class NotificationPreferencesEndpointTest extends AbstractApiTest {
 
     // ============================== validation ==============================
 
-    @Test
-    @DisplayName("a malformed quiet-hours time is refused, not stored")
-    void malformedQuietHoursIsRejected() throws Exception {
+    static Stream<Arguments> rejectedDocuments() {
+        return Stream.of(
+                Arguments.of("a malformed quiet-hours time is refused, not stored",
+                        body(true, false, true, true, true, "25:00", "07:00", "en")),
+                Arguments.of("a language the app does not ship is a 422, not a 500 from V73's CHECK",
+                        body(true, false, true, true, false, "22:00", "07:00", "fr")),
+                Arguments.of("an omitted field is refused — this is a PUT, not a patch",
+                        """
+                        {"email":true,"sms":false,"whatsapp":true,
+                         "quietHours":{"enabled":false,"start":"22:00","end":"07:00"},
+                         "language":"en"}
+                        """));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rejectedDocuments")
+    @DisplayName("an invalid document is a 422 and leaves no row behind")
+    void invalidDocumentIsRejected(String label, String document) throws Exception {
         User u = user("9800000107");
 
         mvc.perform(put(PATH)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(true, false, true, true, true, "25:00", "07:00", "en")))
+                        .content(document))
                 .andExpect(status().isUnprocessableEntity());
 
         assertThat(preferences.findById(u.getId()))
                 .as("a rejected write must leave no row behind")
                 .isEmpty();
-    }
-
-    @Test
-    @DisplayName("a language the app does not ship is a 422 here, not a 500 from V73's CHECK")
-    void unknownLanguageIsRejected() throws Exception {
-        User u = user("9800000108");
-
-        mvc.perform(put(PATH)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(u))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(true, false, true, true, false, "22:00", "07:00", "fr")))
-                .andExpect(status().isUnprocessableEntity());
-    }
-
-    @Test
-    @DisplayName("an omitted field is refused — this is a PUT, not a patch wearing a PUT's verb")
-    void omittedFieldIsRejected() throws Exception {
-        User u = user("9800000109");
-
-        mvc.perform(put(PATH)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(u))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"email":true,"sms":false,"whatsapp":true,
-                                 "quietHours":{"enabled":false,"start":"22:00","end":"07:00"},
-                                 "language":"en"}
-                                """))
-                .andExpect(status().isUnprocessableEntity());
     }
 }

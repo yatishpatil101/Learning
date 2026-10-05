@@ -1,23 +1,6 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/*
- * The retired mock suite seeded `dzNotifications:<mobile>` and then asserted the
- * same local array after mark-all and dismiss. This file crosses the real boundary:
- * the page acts through `/notifications`, then a second API client reads the inbox
- * back outside the browser. The seeded buyer is deliberately read for the fixtures
- * the database owns; destructive assertions derive their subject from the current
- * server response rather than assuming a fixed count or order.
- */
-/* The demo inbox these ids and titles came from, named here so the live build can be checked
-   against it. It used to live in `providers/mock/notificationProvider.js` and this list was kept in
-   sync with that file by hand; D256 deleted the provider, so the list is now the only copy and its
-   counterpart is the database seed. Nothing keeps the two in step automatically — if the seed
-   changes, the honest failure is this list going stale, not a silent hole in the check. */
-const SEED_IDS = [
-  'n-match-baner', 'n-flatmate-hinjawadi', 'n-enquiry-priya', 'n-price-kp',
-  'n-visit-wakad', 'n-match-balewadi', 'n-enquiry-viewed', 'n-system-welcome',
-];
 const SEED_TITLES = [
   '3 new properties match your search',
   'Welcome to Draazy!',
@@ -44,6 +27,11 @@ async function inbox(mobile) {
   return page.content;
 }
 
+async function legacyNotificationKeys(page) {
+  return page.evaluate(() =>
+    Object.keys(localStorage).filter((key) => key === 'dzDismissedNotifs' || key.startsWith('dzNotifications:')));
+}
+
 async function openInbox(page, mobile) {
   await seedConsent(page);
   await signedInAs(page, mobile);
@@ -66,7 +54,7 @@ test.describe('Notifications — live API', () => {
     await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toHaveCount(0);
   });
 
-  test('renders server-owned inbox rows and filters their mapped categories', async ({ page }) => {
+  test('renders server-owned inbox rows, filters their mapped categories and loads clean', async ({ page, consoleErrors }) => {
     const before = await inbox(ACTORS.buyer);
     const unread = before.find((row) => !row.read);
     const enquiry = before.find((row) => row.type.startsWith('contact.'));
@@ -82,62 +70,36 @@ test.describe('Notifications — live API', () => {
     await expect(unreadCard).toBeVisible();
     await expect(page.getByText(match.title)).toBeVisible();
 
-    await page.getByRole('button', { name: 'New Matches' }).click();
+    const ids = new Set(before.map((row) => row.id));
+    const renderedIds = await page.locator('.notif').evaluateAll((rows) => rows.map((row) => row.dataset.id));
+    expect(renderedIds.every((id) => ids.has(id)), 'the page rendered a notification id the server did not return').toBe(true);
+
+    const unreadCount = before.filter((row) => !row.read).length;
+    await expect(page.getByLabel(`Notifications, ${unreadCount} unread`).locator('visible=true')).toBeVisible();
+    await expect(page.getByText(`${unreadCount} unread updates`)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Updates' }).click();
     await expect(page.locator('.notif')).not.toHaveCount(0);
     await expect(page.getByText(match.title)).toBeVisible();
     await expect(page.getByText(enquiry.title)).toHaveCount(0);
-  });
 
-  test('exposes the notification-preferences link', async ({ page }) => {
-    await openInbox(page, ACTORS.buyer);
     await expect(page.getByRole('link', { name: /Manage notification preferences/ })).toBeVisible();
+    expect(await legacyNotificationKeys(page), 'legacy notification storage keys should be cleared on load').toEqual([]);
+    expect(consoleErrors).toEqual([]);
   });
 
-  test('shows the empty state for an account with no server notifications', async ({ page }) => {
-    const mobile = uniqueMobile();
-    await openInbox(page, mobile);
-
-    expect(await inbox(mobile)).toHaveLength(0);
-    await expect(page.getByText("You're all caught up — no notifications yet.")).toBeVisible();
-    await expect(page.locator('.notif')).toHaveCount(0);
-  });
-
-  /*
-   * The demo inbox cannot reach a live account.
-   *
-   * Eight fabricated rows used to be held by `Notifications.jsx` and written to
-   * `dzNotifications:<mobile>` behind an `isHttpDomain('notification')` check. The check was
-   * correct, but it was a condition a page had to keep getting right; the seed now lives in
-   * `providers/mock/notificationProvider.js`, so the http provider has no route to it at all.
-   *
-   * This asserts the outcome rather than the mechanism, in the two places it would show. The
-   * account is brand new, so the server's own answer is the empty set — read here from outside the
-   * browser — and any row on screen would therefore have been invented by the client. The storage
-   * key is then checked by id, because a seed that was written and then filtered out of the render
-   * is still a row this browser would show the next time it loaded offline.
-   */
-  test('the demo seed reaches neither the screen nor storage on a live build', async ({ page }) => {
+  test('a new account sees the empty inbox, no demo seed on screen or in storage', async ({ page }) => {
     const mobile = uniqueMobile();
     await openInbox(page, mobile);
 
     expect(await inbox(mobile), 'a new account starts with an empty server inbox').toHaveLength(0);
+    await expect(page.getByText("You're all caught up — no notifications yet.")).toBeVisible();
     await expect(page.locator('.notif')).toHaveCount(0);
     for (const title of SEED_TITLES) {
       await expect(page.getByText(title), `"${title}" is demo content and must not render`).toHaveCount(0);
     }
 
-    const stored = await page.evaluate(() => {
-      const key = Object.keys(localStorage).find((k) => k.startsWith('dzNotifications:'));
-      return key ? localStorage.getItem(key) : null;
-    });
-    const ids = stored ? JSON.parse(stored).map((row) => String(row.id)) : [];
-    expect(ids.filter((id) => SEED_IDS.includes(id)), 'the demo seed was written to a live inbox').toEqual([]);
-  });
-
-  test('loads the notifications page with no console errors', async ({ page, consoleErrors }) => {
-    await openInbox(page, ACTORS.buyer);
-    await expect(page.locator('.notif').first()).toBeVisible();
-    expect(consoleErrors).toEqual([]);
+    expect(await legacyNotificationKeys(page), 'legacy notification storage keys leaked into a live inbox').toEqual([]);
   });
 
   // Destructive tests — mutate ACTORS.buyer state; these run last so earlier baseline-dependent tests pass first.

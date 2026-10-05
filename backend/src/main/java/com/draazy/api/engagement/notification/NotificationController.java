@@ -20,13 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code /notifications} — the caller's notification inbox.
- *
- * <p>The only paged endpoint in this slice: notifications accrue with time and are never culled,
- * so a five-year user could have thousands. Everything else in this slice is a bare array per
- * api-standards.md §5.1.
- */
+/** Paged because notifications accrue for years. */
 @RestController
 public class NotificationController {
 
@@ -36,13 +30,7 @@ public class NotificationController {
         this.notificationService = notificationService;
     }
 
-    /**
-     * {@code GET /notifications} (contract {@code listNotifications}) — paged, newest first.
-     *
-     * <p>Applies the shared {@link Pageables#unsorted(Pageable)} guard: Spring binds {@code ?sort=}
-     * even when no sort parameter is in the spec, and an unknown property would propagate to the
-     * query as a 500. Rebuilding the pageable strips it.
-     */
+    /** Strip client sort so unknown properties cannot reach the query as a 500. */
     @GetMapping(Routes.Engagement.NOTIFICATIONS)
     public PageResponse<NotificationResponse> list(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -51,18 +39,12 @@ public class NotificationController {
                 dto -> dto);
     }
 
-    /**
-     * {@code POST /notifications/read} (contract {@code markNotificationsRead}) — 204.
-     *
-     * <p>Body is optional: absent or empty ids means "mark all of the caller's notifications read".
-     * This matches the frontend mock's {@code markAllNotifsRead} function.
-     *
-     * <p>A malformed id is rejected with a 400 rather than skipped. Skipping would be worse than it
-     * sounds: if every id in the list were unparseable the list would arrive empty, and an empty
-     * list is the signal for "mark <em>all</em> read" — so a typo would silently clear the whole
-     * inbox. Raw {@link UUID#fromString} is not an option either; it throws
-     * {@link IllegalArgumentException}, which the global handler can only render as a 500.
-     */
+    @GetMapping(Routes.Engagement.NOTIFICATIONS_UNREAD_COUNT)
+    public CountResponse unreadCount(@CurrentUser AuthPrincipal principal) {
+        return new CountResponse(notificationService.unreadCount(principal.userId()));
+    }
+
+    /** Reject malformed ids; skipping them could turn a typo into "mark all read". */
     @PostMapping(Routes.Engagement.NOTIFICATIONS_READ)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void markRead(@CurrentUser AuthPrincipal principal,
@@ -73,42 +55,20 @@ public class NotificationController {
         notificationService.markRead(principal.userId(), ids);
     }
 
-    /**
-     * {@code DELETE /notifications/{id}} (contract {@code dismissNotification}) — 204.
-     *
-     * <p>Dismisses one notification: a hard delete, scoped to the caller. A non-UUID id is answered
-     * 404 by the shared path-id handler, and a well-formed id that is not the caller's own is also
-     * 404 (never 403) — the resource-scoping convention {@code deleteSavedSearch} uses, so an id
-     * space cannot be probed by status code.
-     */
+    /** Foreign well-formed ids return 404, never 403, so status codes cannot probe the id space. */
     @DeleteMapping(Routes.Engagement.NOTIFICATION_BY_ID)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void dismiss(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
         notificationService.dismiss(principal.userId(), id);
     }
 
-    /**
-     * Parse a notification id, or reject the request.
-     *
-     * <p><strong>400, and deliberately not the 404 that {@link Ids} prescribes.</strong> That rule
-     * governs ids in the <em>path</em>: {@code GET /properties/{id}} with a non-UUID is answered 404
-     * because the caller named a resource that does not exist, and a 400 there would tell a prober
-     * that the id space is UUIDs and that their string was rejected before any authorisation ran.
-     * None of that applies here. The id arrives as an element of a request body, the endpoint it
-     * addresses exists, and there is nothing to be 404. A malformed body field is a bad request,
-     * which is what this says (tech-debt D74 — the divergence was flagged as an inconsistency; it is
-     * a different question with a different answer, and the reasoning is recorded here so it is not
-     * flagged a third time).
-     *
-     * <p>The offending token is <em>not</em> echoed back. It told the caller nothing they did not
-     * already know — they sent it — and reflecting unvalidated input into a response body is a habit
-     * worth not having, however inert it is behind JSON encoding.
-     *
-     * @throws BadRequestException if the token is not a UUID
-     */
+    /** Body ids get 400 because the client sent a malformed list, not a missing resource path. */
     private static UUID parseId(String token) {
         return Ids.parseUuid(token)
                 .orElseThrow(() -> new BadRequestException(
                         "Every id in the list must be a notification id."));
+    }
+
+    public record CountResponse(long count) {
     }
 }

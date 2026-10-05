@@ -2,53 +2,73 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { unreadCount as fetchUnreadCount } from '../services/notificationService.js';
 import { useAuth } from './AuthContext.jsx';
 
-/* The bell's unread count, held once for the whole app because the answer is a network call and a
-   network call cannot happen during render. Signed out holds zero: the inbox 401s without a session. */
 const NotificationContext = createContext(null);
+const POLL_MS = 60_000;
+
+function clearLegacyNotificationStorage() {
+  try {
+    localStorage.removeItem('dzDismissedNotifs');
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('dzNotifications:'))
+      .forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // localStorage may be disabled; a cleanup miss must not block the app shell.
+  }
+}
 
 export function NotificationProvider({ children }) {
   const { isIn } = useAuth();
   const [unread, setUnread] = useState(0);
+  const [status, setStatus] = useState('loading');
 
   const refresh = useCallback(async () => {
     if (!isIn) {
       setUnread(0);
+      setStatus('ready');
       return 0;
     }
+    setStatus((s) => (s === 'ready' ? s : 'loading'));
     try {
       const n = await fetchUnreadCount();
       setUnread(n);
+      setStatus('ready');
       return n;
     } catch {
-      // An unreachable inbox shows no badge rather than a stale one: a stale badge sends the user
-      // to a page that cannot explain why the number was wrong.
       setUnread(0);
+      setStatus('error');
       return 0;
     }
   }, [isIn]);
 
   useEffect(() => {
-    let alive = true;
-    if (!isIn) {
-      setUnread(0);
-      return undefined;
-    }
-    fetchUnreadCount()
-      .then((n) => { if (alive) setUnread(n); })
-      .catch(() => { if (alive) setUnread(0); });
-    return () => { alive = false; };
-  }, [isIn]);
+    clearLegacyNotificationStorage();
+  }, []);
 
-  /* `pn:store` is broadcast by lib/localPrefs.js and lib/contact.js on every local write. Listening
-     here rather than in the navbar keeps the subscription off the consumer. */
   useEffect(() => {
-    if (!isIn) return undefined;
-    const onStoreWrite = () => { refresh(); };
-    window.addEventListener('pn:store', onStoreWrite);
-    return () => window.removeEventListener('pn:store', onStoreWrite);
-  }, [isIn, refresh]);
+    refresh();
+  }, [refresh]);
 
-  const value = useMemo(() => ({ unread, refresh }), [unread, refresh]);
+  useEffect(() => {
+    const onStoreWrite = () => { refresh(); };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const onFocus = () => { refresh(); };
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, POLL_MS);
+    window.addEventListener('pn:store', onStoreWrite);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener('pn:store', onStoreWrite);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refresh]);
+
+  const value = useMemo(() => ({ unread, refresh, status }), [unread, refresh, status]);
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }
 
