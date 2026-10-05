@@ -16,14 +16,11 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Enforces the service-split trigger of {@code docs/system/package-structure.md} §4.1, which fixes
- * the judgement call at {@value #MAX_LINES} physical lines and the remedy at split-by-use-case. */
 @DisplayName("Architecture — service size (package-structure.md §4.1)")
 class ServiceSizeGuardTest {
 
     private static final Path MAIN = Path.of("src", "main", "java");
 
-    /** The split trigger from package-structure.md §4.1. */
     private static final int MAX_LINES = 450;
 
     /** Services already over the line when §4.1 was agreed, pinned at their size on that day; a pin
@@ -31,11 +28,8 @@ class ServiceSizeGuardTest {
     private static final Map<String, Integer> BASELINE = new LinkedHashMap<>();
 
     static {
-        BASELINE.put("com/draazy/api/services/request/ServiceRequestService.java", 1124);
-        // The next raise on this one should be the rooms/groups split — see package-structure.md §4.1.
+        BASELINE.put("com/draazy/api/services/request/ServiceRequestService.java", 992);
         BASELINE.put("com/draazy/api/engagement/flatmate/FlatmateSupplyService.java", 876);
-        BASELINE.put("com/draazy/api/billing/plan/SubscriptionService.java", 586);
-        BASELINE.put("com/draazy/api/billing/boost/BoostService.java", 500);
     }
 
     /** Names that are a service plus a filler word — the file split §4.1 forbids. Deliberately
@@ -85,7 +79,7 @@ class ServiceSizeGuardTest {
         BASELINE.forEach((key, pinned) -> {
             Path service = MAIN.resolve(key);
             if (!Files.isRegularFile(service)) {
-                return; // reported by baselineStaysHonest
+                return;
             }
             int lines = lines(service);
             if (lines > pinned) {
@@ -160,7 +154,6 @@ class ServiceSizeGuardTest {
         }
     }
 
-    /** Path relative to the source root, slash-separated, so the table reads the same on any OS. */
     private static String key(Path service) {
         return MAIN.relativize(service).toString().replace('\\', '/');
     }

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -52,6 +53,7 @@ import org.yaml.snakeyaml.Yaml;
  * and {@link #COMPARABLE_FLOOR} stops that skip-list from silently growing into "checks nothing".
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @DisplayName("The contract — declared response fields match what the handlers actually return")
 class SpecSchemaParityTest {
 

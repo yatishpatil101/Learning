@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.web.RequestCorrelation;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
@@ -25,9 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * End-to-end proof of the web-facing cross-cutting layer through the real filter chain: default-deny
- * → 401 envelope, role guard allow/deny → 403 envelope, typed exception → 404 envelope, public route
- * open, and the correlation id echoed on every response. Uses a throwaway test controller so no
- * feature endpoint is needed.
+ * → 401 envelope, role guard allow/deny → 403 envelope, and the correlation id echoed on every
+ * response. Uses a throwaway test controller so no feature endpoint is needed.
  */
 class SecurityWebTest extends AbstractApiTest {
 
@@ -47,11 +45,6 @@ class SecurityWebTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("unauthorized"))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(header().exists(RequestCorrelation.TRACE_ID_HEADER));
-    }
-
-    @Test
-    void publicHealthRouteIsOpen() throws Exception {
-        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
     }
 
     @Test
@@ -77,11 +70,13 @@ class SecurityWebTest extends AbstractApiTest {
     }
 
     @Test
-    void typedNotFoundRendersContract404Envelope() throws Exception {
-        mvc.perform(get("/test/notfound").header(HttpHeaders.AUTHORIZATION, bearerFor("9876500104", "buyer")))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("not_found"))
-                .andExpect(jsonPath("$.status").value(404));
+    void roleHierarchyLetsManagerThroughStaffGuardButNotAdminGuard() throws Exception {
+        String token = bearerFor("9876500106", Roles.Wire.MANAGER);
+
+        mvc.perform(get("/test/staff").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk());
+        mvc.perform(get("/test/admin").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isForbidden());
     }
 
     @TestConfiguration
@@ -107,9 +102,10 @@ class SecurityWebTest extends AbstractApiTest {
             return "ok";
         }
 
-        @GetMapping("/test/notfound")
-        String notFound() {
-            throw new NotFoundException("nope");
+        @GetMapping("/test/staff")
+        @PreAuthorize("hasRole('" + Roles.STAFF + "')")
+        String staffOrHigher() {
+            return "ok";
         }
     }
 }

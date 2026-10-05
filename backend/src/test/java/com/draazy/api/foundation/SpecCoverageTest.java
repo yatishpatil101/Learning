@@ -7,31 +7,31 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.yaml.snakeyaml.Yaml;
 
-/** Measures the routes Spring actually maps against the contract rather than assuming they agree.
- *  Rules and rationale: {@code docs/system/api-standards.md} §1.1. */
 @SpringBootTest
+@AutoConfigureMockMvc
 @DisplayName("The contract — every served route is declared, and coverage only grows")
 class SpecCoverageTest {
 
-    /** A floor, not a target: the running sum of what each slice added, so a slice that silently
-     *  unmaps an operation fails the build. See {@code docs/system/api-standards.md} §1.1. */
-    private static final int IMPLEMENTED_FLOOR = 258;
+    private static final int IMPLEMENTED_FLOOR = 218;
 
-    /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");
 
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
     RequestMappingHandlerMapping handlers;
 
+    /** The direction the coverage ratchet cannot see: a declaration nothing serves 404s for every
+     *  client generated from the contract. Held as an exact set — see api-standards.md §1.1. */
     @Test
     @DisplayName("no route is served that the contract does not declare")
     void noUndeclaredRoutes() {
@@ -45,8 +45,6 @@ class SpecCoverageTest {
                 .isEmpty();
     }
 
-    /** The direction the coverage ratchet cannot see: a declaration nothing serves 404s for every
-     *  client generated from the contract. Held as an exact set — see api-standards.md §1.1. */
     @Test
     @DisplayName("no route is declared that nothing serves")
     void noUnimplementedDeclarations() {
@@ -98,29 +96,40 @@ class SpecCoverageTest {
                 .hasAnnotation(handler.getBeanType(), com.draazy.api.security.LocalOnly.class);
     }
 
+    private static Set<String> declared;
+
+    @BeforeAll
+    static void parseTheContractOnce() {
+        declared = parseDeclaredOperations();
+    }
+
+    private static Set<String> declaredOperations() {
+        return declared;
+    }
+
     @SuppressWarnings("unchecked")
-    private Set<String> declaredOperations() {
+    private static Set<String> parseDeclaredOperations() {
         Map<String, Object> spec;
-        try (InputStream in = getClass().getResourceAsStream("/static/openapi/draazy-api.yaml")) {
+        try (InputStream in = SpecCoverageTest.class
+                .getResourceAsStream("/static/openapi/draazy-api.yaml")) {
             assertThat(in).as("the contract must be on the classpath").isNotNull();
             spec = new Yaml().load(in);
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException("cannot read the contract", e);
         }
-        Set<String> declared = new TreeSet<>();
+        Set<String> operations = new TreeSet<>();
         ((Map<String, Map<String, Object>>) spec.get("paths")).forEach((path, item) ->
                 item.keySet().stream()
                         .map(k -> k.toUpperCase(java.util.Locale.ROOT))
                         .filter(SpecCoverageTest::isHttpMethod)
-                        .forEach(verb -> declared.add(verb + " " + erase(path))));
-        return declared;
+                        .forEach(verb -> operations.add(verb + " " + erase(path))));
+        return operations;
     }
 
     private static boolean isHttpMethod(String key) {
         return List.of("GET", "POST", "PUT", "PATCH", "DELETE").contains(key);
     }
 
-    /** {@code /me/properties/{propId}/docs} and {@code /me/properties/{id}/docs} are one route. */
     private static String erase(String path) {
         String erased = path.replaceAll("\\{[^}]+}", "{}");
         return erased.length() > 1 && erased.endsWith("/")

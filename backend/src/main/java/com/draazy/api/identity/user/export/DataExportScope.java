@@ -13,11 +13,8 @@ public final class DataExportScope {
     private DataExportScope() {
     }
 
-    /** Alias marking a column as another person's identifier: every value under it is hashed by
-     * {@link DataExportRedaction#partyRef} on the way out. */
     static final String PARTY_REF_SOURCE = "party_ref_src";
 
-    /** What {@link #PARTY_REF_SOURCE} becomes on the wire. */
     static final String PARTY_REF = "partyRef";
 
     /** One table's contribution to the export; {@code sql} must be wrappable in {@code select * from (…) d limit ?}. */
@@ -75,6 +72,17 @@ public final class DataExportScope {
                  where user_id = :subjectId
                 """,
                 Map.of()));
+
+        out.add(new Dataset("account", "push_subscriptions",
+                "Browser push endpoints registered to your account.",
+                """
+                select id, endpoint, created_at
+                  from push_subscriptions
+                 where user_id = :subjectId
+                 order by created_at desc
+                """,
+                withheld("p256dh / auth", "Live browser push credentials. Returning them would "
+                        + "put delivery secrets into a portable export document.")));
 
         out.add(new Dataset("account", "back_office_permissions",
                 "If you hold a staff account, the permission atoms it resolves to. Empty for "
@@ -138,7 +146,8 @@ public final class DataExportScope {
                 """
                 select id, status, doc_type, claimed_number_last4, claimed_name, claimed_dob,
                        doc_last4, holder_name, holder_dob, consent_at, submitted_at, attempt_count,
-                       decided_at, rejection_reason, rejection_note, files_purged_at,
+                       decided_at, rejection_reason, rejection_note, revoked_at, revocation_reason,
+                       qa_sampled_at, qa_reviewed_at, qa_outcome, files_purged_at,
                        created_at, updated_at
                   from identity_verifications
                  where user_id = :subjectId
@@ -154,7 +163,27 @@ public final class DataExportScope {
                         "person_key", "A digest of your name and date of birth used only to flag "
                                 + "possible duplicate accounts to a reviewer.",
                         "reviewer_id", "Which member of staff decided your case is about them, "
-                                + "not about you.")));
+                                + "not about you.",
+                        "revoked_by", "Which member of staff revoked your badge is about them, "
+                                + "not about you.",
+                        "claimed_by", "Which member of staff temporarily held your review is "
+                                + "about their workload, not about you.",
+                        "qa_reviewed_by", "Which second checker reviewed the decision is about "
+                                + "them, not about you.")));
+
+        out.add(new Dataset("identity", "identity_conflicts",
+                "Document already-in-use conflicts your account hit while submitting identity verification.",
+                """
+                select id, doc_type, created_at
+                  from identity_conflicts
+                 where user_id = :subjectId
+                 order by created_at desc
+                """,
+                withheld(
+                        "claimed_hash", "An irreversible digest used only to connect your dispute "
+                                + "to the conflict the submit path saw.",
+                        "holder_verification_id", "The internal case staff investigate; exposing it "
+                                + "would identify another data principal.")));
 
         out.add(new Dataset("identity", "owner_kyc",
                 "The masked PAN and Aadhaar recorded when you were verified as an owner.",
@@ -193,7 +222,7 @@ public final class DataExportScope {
                 "Homes you rent that you recorded yourself, including ones the platform was "
                         + "never involved in.",
                 """
-                select address, landlord_name, monthly_rent, deposit, lease_start, lease_end,
+                select address, monthly_rent, deposit, lease_start, lease_end,
                        status, archived, created_at, updated_at
                   from tenant_rentals
                  where tenant_id = :subjectId
@@ -210,11 +239,11 @@ public final class DataExportScope {
                        super_built_up_area, furnishing, floor, total_floors, facing, possession,
                        locality, locality_slug, society_id, city, lat, lng, address, pincode, form_details,
                        rera_id, description, amenities, images, cover_image, floor_plan, video,
-                       posted_by_type, status, featured, verified, owner_verified,
+                       status, verified, owner_verified,
                        ownership_verified, society_verified, conveyance_done, docs_count, views,
-                       enquiries, archived, archived_at, deal_status, boosted_until,
+                       enquiries, archived, archived_at, deal_status,
                        ownership_verified_at, ownership_verified_until, electricity_meter_no,
-                       address_key, last_confirmed_at, handback_milestone, quality_score, land_use,
+                       address_key, last_confirmed_at, owner_confirmed_at, quality_score, land_use,
                        age_years, room, tenants, available_from, pets, property_type_key,
                        commercial_use_key, share_type, created_at, updated_at
                   from properties
@@ -225,11 +254,12 @@ public final class DataExportScope {
                         "flag_reason", "Staff free text from a moderation review.",
                         "archive_reason", "As flag_reason.",
                         "recheck_reason", "As flag_reason.",
-                        "pipeline_stage", "Internal ops workflow state, written by staff about how "
+                        "admin_pipeline", "Internal ops workflow state, written by staff about how "
                                 + "they are handling the listing rather than about you.",
-                        "admin_pipeline", "As pipeline_stage.",
                         "posted_by_admin", "Whether a staff member posted on your behalf; it names "
-                                + "the operating model, not you.")));
+                                + "the operating model, not you.",
+                        "featured", "No longer read (D292): featured now follows your Owner plan, "
+                                + "which the subscriptions dataset already exports.")));
 
         out.add(new Dataset("listings", "ownership_basis",
                 "What you told us you paid for a property, and what you think it is worth now. "
@@ -307,18 +337,6 @@ public final class DataExportScope {
                 """,
                 withheld("archive_reason", "Staff free text.")));
 
-        out.add(new Dataset("listings", "boosts",
-                "Paid promotions you bought for a listing.",
-                """
-                select id, property_id, pack_id, starts_at, ends_at, status, payment_ref,
-                       paid_at, created_at, updated_at
-                  from boosts
-                 where buyer_id = :subjectId
-                 order by created_at desc
-                """,
-                withheld("idempotency_key", "A client-supplied token that stops a double tap "
-                        + "charging you twice. Internal plumbing, not information about you.")));
-
         out.add(new Dataset("listings", "subscriptions",
                 "Subscription plans you have held.",
                 """
@@ -328,7 +346,8 @@ public final class DataExportScope {
                  where user_id = :subjectId
                  order by created_at desc
                 """,
-                withheld("idempotency_key", "See boosts.idempotency_key.")));
+                withheld("idempotency_key", "A client-supplied token that stops a double tap "
+                        + "charging you twice. Internal plumbing, not information about you.")));
 
         out.add(new Dataset("listings", "saved_properties",
                 "Listings you shortlisted.",
@@ -627,32 +646,71 @@ public final class DataExportScope {
 
     private static void messaging(List<Dataset> out) {
         out.add(new Dataset("messaging", "conversations",
-                "Chat threads you are in.",
+                "Chat threads you are in, and flatmate group threads you are in or wrote in.",
                 """
-                select id, property_id, last_message, created_at, updated_at,
-                       case when user_a_id = :subjectId then user_b_id else user_a_id end
+                select id, property_id, flatmate_group_id, last_message, created_at, updated_at,
+                       case when flatmate_group_id is not null then null
+                            when user_a_id = :subjectId then user_b_id else user_a_id end
                            as party_ref_src
                   from conversations
                  where user_a_id = :subjectId or user_b_id = :subjectId
+                    or flatmate_group_id in (select group_id from flatmate_group_members
+                                              where user_id = :subjectId)
+                    or (flatmate_group_id is not null and id in (select conversation_id from messages
+                                                                  where author_id = :subjectId))
                  order by updated_at desc
                 """,
                 withheld("user_a_id / user_b_id", "Whichever is not you is replaced by partyRef.")));
 
         out.add(new Dataset("messaging", "messages",
-                "Every message in those threads, yours and theirs. partyRef is 'self' on the ones "
-                        + "you wrote.",
+                "Every message in those threads, yours and theirs (in a group you have left, only "
+                        + "yours). partyRef is 'self' on the ones you wrote.",
                 """
                 select m.id, m.conversation_id, m.author_role, m.body, m.attachments, m.read,
-                       m.created_at, m.author_id as party_ref_src
+                       m.client_id, m.reply_to_id, m.created_at, m.author_id as party_ref_src
                   from messages m
                   join conversations c on c.id = m.conversation_id
                  where c.user_a_id = :subjectId or c.user_b_id = :subjectId
+                    or c.flatmate_group_id in (select group_id from flatmate_group_members
+                                                where user_id = :subjectId)
+                    or m.author_id = :subjectId
                  order by m.created_at desc
                 """,
                 withheld("author_id", "Replaced by partyRef. The bodies of the other side's "
                         + "messages are included: this is your correspondence, you are reading it "
                         + "in the product today, and an export that returned only your half would "
                         + "be a worse record than the inbox it came from.")));
+
+        out.add(new Dataset("messaging", "conversation_user_state",
+                "Per-thread archive and mute choices you set.",
+                """
+                select conversation_id, archived, muted, updated_at
+                  from conversation_user_state
+                 where user_id = :subjectId
+                 order by updated_at desc
+                """,
+                withheld("user_id", "Scoped to you by the predicate.")));
+
+        out.add(new Dataset("messaging", "hidden_conversation_messages",
+                "Chat messages you hid for yourself.",
+                """
+                select conversation_id, message_id, created_at
+                  from hidden_conversation_messages
+                 where user_id = :subjectId
+                 order by created_at desc
+                """,
+                withheld("user_id", "Scoped to you by the predicate.")));
+
+        out.add(new Dataset("messaging", "user_blocks",
+                "People you blocked from messaging you.",
+                """
+                select blocked_id as party_ref_src, created_at
+                  from user_blocks
+                 where blocker_id = :subjectId
+                 order by created_at desc
+                """,
+                withheld("blocker_id", "Scoped to you by the predicate.",
+                        "blocked_id", "Replaced by partyRef.")));
 
         out.add(new Dataset("messaging", "message_attachments",
                 "Files you attached to a chat or support thread.",
@@ -718,6 +776,19 @@ public final class DataExportScope {
                         "the other parties on the same request", "Scoped to your own party rows. "
                                 + "The other side of a rent agreement is another data principal.")));
 
+        out.add(new Dataset("support", "service_request_draft_approvals",
+                "Agreement draft versions you were asked to approve, and when you approved them.",
+                """
+                select a.id, a.request_id, a.draft_version, a.party_label, a.method,
+                       a.mobile_masked, a.opened_at, a.approved_at, a.created_at, a.updated_at
+                  from service_request_draft_approvals a
+                 where a.user_id = :subjectId
+                 order by a.created_at desc
+                """,
+                withheld(
+                        "mobile_hash", "A one-way hash; mobileMasked is the readable form.",
+                        "party_key", "An internal slot name; partyLabel says the same thing.")));
+
         out.add(new Dataset("support", "service_request_messages",
                 "Messages on service requests you raised.",
                 """
@@ -750,7 +821,7 @@ public final class DataExportScope {
                  where user_id = :subjectId
                  order by created_at desc
                 """,
-                withheld("idempotency_key", "See boosts.idempotency_key.")));
+                withheld("idempotency_key", "See subscriptions.idempotency_key.")));
 
         out.add(new Dataset("support", "support_tickets",
                 "Support conversations you opened.",
@@ -813,8 +884,7 @@ public final class DataExportScope {
     }
 
     private static void community(List<Dataset> out) {
-        // reviews.target_id is polymorphic: the personal case (target_type='owner', per the V7
-        // CHECK) routes through party_ref_src, the impersonal one keeps the real id.
+
         out.add(new Dataset("community", "reviews_written",
                 "Reviews you wrote. Where you reviewed a person rather than a place, their id is "
                         + "replaced by the same reference used everywhere else in this document.",
@@ -887,7 +957,7 @@ public final class DataExportScope {
                        flat_number, locality, localities, lat, lng, bhk, flat_type,
                        home_type_label, gated_community, furnishing, move_in, available_from,
                        gender, food, tags, note, photos, status, archived, archived_at,
-                       created_at, updated_at
+                       active_until, created_at, updated_at
                   from flatmate_rooms
                  where host_id = :subjectId
                  order by created_at desc
@@ -905,7 +975,9 @@ public final class DataExportScope {
                 """
                 select id, title, locality, policy, rent, seats_total, seats_open, property_id,
                        host_role, verification_tier, agreement_declared, owner_consent, tags,
-                       note, archived, archived_at, created_at, updated_at
+                       note, hunting, localities, pref_bhk, rent_min, deposit_min, deposit_max,
+                       gated_only, bachelors, furnishing, move_in_by,
+                       archived, archived_at, active_until, created_at, updated_at
                   from flatmate_groups
                  where host_id = :subjectId
                  order by created_at desc
@@ -962,7 +1034,7 @@ public final class DataExportScope {
                 """
                 select id, name, gender, age, occupation, budget, localities, move_in, move_in_at,
                        flat_pref, room_pref, tags, note, verified_contact_only, verified, lat,
-                       lng, archived, archived_at, created_at, updated_at
+                       lng, archived, archived_at, active_until, created_at, updated_at
                   from flatmate_seeker_posts
                  where user_id = :subjectId
                  order by created_at desc
@@ -1077,16 +1149,17 @@ public final class DataExportScope {
                                 + "an export that had to get one boolean right to avoid disclosing "
                                 + "staff deliberation is an export one migration away from getting "
                                 + "it wrong."),
-                new Exclusion("staff_invites / staff_account_approvals",
+                new Exclusion("staff_invites / badge_grant_requests",
                         "The paperwork behind a staff account, naming the administrator who "
-                                + "invited and approved it."),
+                                + "invited it, and badge maker-checker rows naming "
+                                + "the staff who requested or decided a trust signal."),
                 new Exclusion("page_view_daily and its path/referrer rollups",
                         "Daily traffic totals. They carry no user id, no session id and no path "
                                 + "attributable to a person — they are what the raw page_views "
                                 + "rows are counted into before deletion. There is nothing in them "
                                 + "that is about you rather than about the site."),
                 new Exclusion("reference and catalogue tables",
-                        "cities, localities, societies, plans, boost_packs, service_offerings, "
+                        "cities, localities, societies, plans, service_offerings, "
                                 + "cms_services, faqs, banners, announcements, reels, "
                                 + "message_template, platform_fees and settings. Reference data "
                                 + "with no data subject behind it, identical for every user."),
@@ -1122,8 +1195,7 @@ public final class DataExportScope {
         for (int i = 0; i < pairs.length; i += 2) {
             map.put(pairs[i], pairs[i + 1]);
         }
-        // Not Map.copyOf: its iteration order is deliberately unspecified, which would defeat the
-        // point of building the map in a LinkedHashMap in the first place.
+
         return Collections.unmodifiableMap(map);
     }
 }

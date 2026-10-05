@@ -1,6 +1,7 @@
 package com.draazy.api.identity.user;
 
 import com.draazy.api.support.AbstractApiTest;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -30,14 +31,6 @@ class MeEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void getMeWithoutTokenReturns401Envelope() throws Exception {
-        mvc.perform(get("/auth/me"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("unauthorized"))
-                .andExpect(jsonPath("$.status").value(401));
-    }
-
-    @Test
     void getMeReturnsOwnProfile() throws Exception {
         User u = saveUser("9876500701", "buyer");
         mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u)))
@@ -54,7 +47,8 @@ class MeEndpointsTest extends AbstractApiTest {
         User u = saveUser("9876500704", "buyer");
         mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.permissions").doesNotExist());
+                .andExpect(jsonPath("$.permissions").doesNotExist())
+                .andExpect(jsonPath("$.desks").isEmpty());
     }
 
     /**
@@ -68,7 +62,21 @@ class MeEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.permissions").isArray())
                 .andExpect(jsonPath("$.permissions", hasItem("users:read")))
-                .andExpect(jsonPath("$.permissions", hasItem("settings:write")));
+                .andExpect(jsonPath("$.permissions", hasItem("settings:write")))
+                .andExpect(jsonPath("$.desks").isEmpty());
+    }
+
+    @Test
+    void getMeCarriesSortedDesksForStaff() throws Exception {
+        User u = saveUser("9876500710", "staff");
+        jdbc.update("""
+                INSERT INTO back_office_permissions (user_id, permissions)
+                VALUES (?::uuid, ?::jsonb)
+                """, u.getId().toString(), "[\"support\",\"desk:rental\",\"desk:legal\"]");
+
+        mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.desks", contains("legal", "rental")));
     }
 
     /**

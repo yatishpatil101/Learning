@@ -13,10 +13,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.DynamicUpdate;
 
-/**
- * The identity root every other table hangs off; maps {@code users} (V2). Text-mapped enum columns,
- * {@code @DynamicUpdate} and the erasure contract: docs/system/data-model.md § Identity root notes.
- */
+// The identity root other tables hang off; erasure contract: docs/system/data-model.md.
 @Entity
 @Table(name = "users")
 @DynamicUpdate
@@ -27,10 +24,7 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private String name;
 
-    /**
-     * The natural key, and the one column erasure cannot blank. No setter: that absence, rather than
-     * {@code updatable = false}, is what keeps identity from moving under every {@code user_id}.
-     */
+    // The natural key erasure cannot blank. No setter keeps identity from moving under user_id.
     @Column(name = "mobile", nullable = false, unique = true)
     private String mobile;
 
@@ -59,7 +53,6 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private String city;
 
-    /** L1 trust floor (ADR-019): the participation gate for contacting owners. */
     @Column(name = "mobile_verified", nullable = false)
     @Setter
     private boolean mobileVerified = false;
@@ -69,23 +62,25 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private boolean verified = false;
 
-    /** Owner preference: only accept contact requests from L2-verified users. */
+    /** Owner preference: only accept contact requests from -verified users. */
     @Column(name = "verified_contact_only", nullable = false)
     @Setter
     private boolean verifiedContactOnly = false;
 
-    /**
-     * Owner preference: stay masked even after approving a contact request (V31). Not a second gate —
-     * the request is still approved and the conversation still happens; only the digits are withheld.
-     */
+    // Not a second contact gate: the request is approved, only the digits are withheld.
     @Column(name = "hide_number", nullable = false)
     @Setter
     private boolean hideNumber = false;
 
-    /**
-     * How many listings this account has <em>ever</em> posted, including the rejected and archived —
-     * a persona predicate, never a quota input. See {@link #recordListingPosted()}.
-     */
+    @Column(name = "share_activity_status", nullable = false)
+    @Setter
+    private boolean shareActivityStatus = true;
+
+    @Column(name = "share_read_receipts", nullable = false)
+    @Setter
+    private boolean shareReadReceipts = true;
+
+    // Persona predicate, never a quota input: includes rejected and archived listings.
     @Column(name = "listings_count", nullable = false)
     private int listingsCount = 0;
 
@@ -93,10 +88,7 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private String avatar;
 
-    /**
-     * Hibernate-populated like {@code created_at}, since entities boot under {@code ddl-auto=validate}
-     * and cannot rely on the schema's {@code DEFAULT now()} (that only covers raw-SQL inserts).
-     */
+    // Hibernate-populated because DEFAULT now only covers raw-SQL inserts.
     @CreationTimestamp
     @Column(name = "joined_at", nullable = false, updatable = false)
     private Instant joinedAt;
@@ -105,10 +97,7 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private Instant lastActive;
 
-    /**
-     * Internal review marker (V77) — a note between colleagues, deliberately not a status. No
-     * {@code @Setter}: the four columns move together. See docs/system/data-model.md.
-     */
+    // Internal review marker, deliberately not a status. No setter: the columns move together.
     @Column(name = "flagged", nullable = false)
     private boolean flagged = false;
 
@@ -122,7 +111,7 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     private UUID flaggedBy;
 
     protected User() {
-        // JPA
+
     }
 
     public User(String mobile, String role) {
@@ -130,10 +119,7 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.role = role;
     }
 
-    /**
-     * Raise the internal review flag, or re-raise it with a fresh reason. Overwrites rather than
-     * appends: the column answers "what should the next person look at"; the history is audited.
-     */
+    // Overwrites rather than appends: the column says what the next person should inspect.
     public void flag(String reason, UUID by) {
         this.flagged = true;
         this.flagReason = reason;
@@ -141,10 +127,6 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.flaggedBy = by;
     }
 
-    /**
-     * Lower the flag and forget what it said: a reason left on an unflagged account reads on every
-     * later screen as an accusation that was never withdrawn. What happened is in {@code audit_log}.
-     */
     public void clearFlag() {
         this.flagged = false;
         this.flagReason = null;
@@ -152,32 +134,24 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.flaggedBy = null;
     }
 
-    /**
-     * Record that this account has posted a listing. Monotonic on purpose, an increment rather than a
-     * setter, and its lost-update race is accepted — docs/system/data-model.md § Identity root notes.
-     */
+    // Monotonic on purpose; lost-update race is accepted for this persona predicate.
     public void recordListingPosted() {
         this.listingsCount++;
     }
 
-    /**
-     * Irreversibly de-identify this account — the {@code users} half of a DPDP erasure. One method
-     * because these fields must stop being true together; what survives and why: data-model.md.
-     */
+    // One method because these user PII fields must stop being true together.
     public void erasePersonalData(String pseudonymMobile) {
         this.mobile = pseudonymMobile;
         this.name = null;
         this.email = null;
         this.avatar = null;
         this.city = null;
-        // Credentials, not merely personal data: both sign-in paths key off `mobile` (just replaced)
-        // and this hash. Both are now dead.
+
         this.passwordHash = null;
         this.mobileVerified = false;
         this.verified = false;
         this.lastActive = null;
-        // 'archived' is the strongest CHECKed state and already excluded by every read path; a new
-        // 'erased' value would need a CHECK change on every deployed database first.
+
         this.status = "archived";
         archive("Erased on the account holder's request (DPDP s.12(3))");
     }

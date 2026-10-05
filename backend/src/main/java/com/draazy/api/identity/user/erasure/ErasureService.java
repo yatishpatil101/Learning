@@ -34,7 +34,6 @@ public class ErasureService {
     /** Serializer for the two {@code jsonb} documents; must not corrupt or forge fields from a quoted note. */
     private static final ObjectMapper DOCUMENT_JSON = JsonMapper.builder().build();
 
-    /** Where the pseudonym mobile block starts. See {@link #pseudonymMobile}. */
     private static final long MOBILE_BLOCK = 9_000_000_000L;
 
     private static final long MOBILE_BLOCK_SIZE = 1_000_000_000L;
@@ -45,8 +44,6 @@ public class ErasureService {
     private final EntityManager entityManager;
     private final IdentityVerificationService identity;
 
-    /** Deployment secret mixed into {@link #digest}; empty by default, which is a real weakening
-     * (an unpeppered digest is confirmable from a database dump alone). */
     private final String pepper;
 
     public ErasureService(ErasureRequestRepository requests, UserRepository users,
@@ -60,7 +57,7 @@ public class ErasureService {
         this.pepper = pepper == null ? "" : pepper;
     }
 
-    /** {@code POST /me/erasure} files a queue entry (nothing is erased here); double-tap returns 409 rather than the V56 unique-index violation. */
+    /** Double-tap returns 409 rather than the unique-index violation. */
     @Transactional
     public ErasureRequestResponse request(AuthPrincipal subject, String reason) {
         requests.findBySubjectIdAndStatus(subject.userId(), ErasureStatuses.PENDING)
@@ -70,20 +67,19 @@ public class ErasureService {
                 });
         ErasureRequest saved = requests.saveAndFlush(
                 new ErasureRequest(subject.userId(), digest(subject.userId()), reason));
+
         // Audit the subject-initiated ask onto a table other than the one about to be emptied.
         audit.record(subject, "erasure.request", "erasure_request", saved.getId().toString(),
                 "reason", reason);
         return ErasureRequestResponse.of(saved);
     }
 
-    /** {@code GET /me/erasure} — the subject's own requests, newest first. */
     @Transactional(readOnly = true)
     public Page<ErasureRequestResponse> mine(AuthPrincipal subject, Pageable pageable) {
         return requests.findBySubjectIdOrderByRequestedAtDesc(subject.userId(), pageable)
                 .map(ErasureRequestResponse::of);
     }
 
-    /** {@code GET /admin/erasure-requests} — the queue, newest first, optionally one state. */
     @Transactional(readOnly = true)
     public Page<ErasureRequestResponse> queue(String status, Pageable pageable) {
         if (status == null || status.isBlank()) {
@@ -97,7 +93,6 @@ public class ErasureService {
                 .map(ErasureRequestResponse::of);
     }
 
-    /** {@code PATCH /admin/erasure-requests/{id}} — execute or refuse; note is required on rejection. Throws {@link ConflictException} if already decided. */
     @Transactional
     public ErasureRequestResponse decide(AuthPrincipal admin, String id, String decision,
             String note) {
@@ -125,8 +120,6 @@ public class ErasureService {
         return ErasureRequestResponse.of(execute(admin, request, note));
     }
 
-    /** One transaction: a half-applied erasure (told-erased but photos still in the object store)
-     * is the worst outcome available. */
     private ErasureRequest execute(AuthPrincipal admin, ErasureRequest request, String note) {
         UUID subjectId = request.getSubjectId();
         User subject = users.findById(subjectId)
@@ -135,8 +128,6 @@ public class ErasureService {
 
         Map<String, Object> erased = new LinkedHashMap<>();
 
-        // 1. Auth credentials, deleted outright. `requested_by` too: a consent code the subject
-        //    asked for is addressed to a third party's number, unreachable from their own.
         erased.put("otp_codes", entityManager
                 .createNativeQuery(
                         "delete from otp_codes where mobile = :mobile or requested_by = :id")
@@ -147,6 +138,10 @@ public class ErasureService {
                 .createNativeQuery("delete from refresh_tokens where user_id = :id")
                 .setParameter("id", subjectId)
                 .executeUpdate());
+        erased.put("push_subscriptions", entityManager
+                .createNativeQuery("delete from push_subscriptions where user_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
 
         // 1b. Outbound messages. Deleted whole: `body` holds rendered text naming the subject, so
         //     there is no column subset to null. Not retained — chasers are coordination, not obligation.
@@ -155,8 +150,16 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 2. Identity case. Row, images and `identity_hash` all go — keeping the dedup key would
-        //    let the platform recognise an erased person on their return.
+        erased.put("notifications", entityManager
+                .createNativeQuery("delete from notifications where user_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
+        erased.put("identity_conflicts", entityManager
+                .createNativeQuery("delete from identity_conflicts where user_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
         erased.put("identity_verifications", identity.erase(subjectId));
         erased.put("owner_kyc", entityManager
                 .createNativeQuery("""
@@ -168,7 +171,7 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 3. Profile free text. Column set follows V13; `score` and `verified`
+        // 3. Profile free text. Column set follows the V13 schema; `score` and `verified`
         //    stay — platform-derived signals, not identifiers.
         erased.put("tenant_profiles", entityManager
                 .createNativeQuery("""
@@ -185,8 +188,6 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 4. Rent-agreement gov numbers (V47). Erasure case is stronger than the routine purge:
-        //    also takes `party_name`, which routine purge deliberately keeps.
         erased.put("service_request_identities", entityManager
                 .createNativeQuery("""
                         update service_request_identities
@@ -200,14 +201,14 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 5. Unclaimed co-fill invitations (V107). Row deleted because the CHECK forces mobile XOR
+        // 5. Unclaimed co-fill invitations. Row deleted because the CHECK forces mobile XOR
         //    user_id; must run before step 10 replaces the mobile. Claimed rows untouched by design.
         erased.put("service_request_parties", entityManager
                 .createNativeQuery("delete from service_request_parties where mobile = :mobile")
                 .setParameter("mobile", oldMobile)
                 .executeUpdate());
 
-        // 6. Society claim contact fields (V101). Row stays — deleting one person's claim would
+        // 6. Society claim contact fields. Row stays — deleting one person's claim would
         //    change a shared building's status — but `name` (NOT NULL) is substituted, `email` nulled.
         erased.put("society_claims", entityManager
                 .createNativeQuery("""
@@ -219,8 +220,6 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 7. Page view telemetry. Nulled, not deleted — the view happened, aggregates name nobody,
-        //    and raw rows expire on a 90-day clock (see PageViewRetention).
         erased.put("page_views", entityManager
                 .createNativeQuery("""
                         update page_views
@@ -230,17 +229,21 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 8. The homes the subject records renting (V128). Whole row; reasoned in ErasureCoverageTest.
         erased.put("tenant_rentals", entityManager
                 .createNativeQuery("delete from tenant_rentals where tenant_id = :id")
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 9. Help article verdicts (V36). Whole row, not an unlink: "what was missing?" reliably
-        //    collects a phone number, and no aggregate has been computed from these rows.
         erased.put("help_article_feedback", entityManager
                 .createNativeQuery("delete from help_article_feedback where user_id = :id")
                 .setParameter("id", subjectId)
+                .executeUpdate());
+
+        erased.put("rent_agreement_tenant_consents", entityManager
+                .createNativeQuery("delete from rent_agreement_tenant_consents"
+                        + " where granted_to = :id or tenant_mobile = :mobile")
+                .setParameter("id", subjectId)
+                .setParameter("mobile", oldMobile)
                 .executeUpdate());
 
         // 10. Identity root, last: earlier steps key off mobile or row-existing, so replacing the
@@ -286,12 +289,11 @@ public class ErasureService {
             return MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException impossible) {
-            // SHA-256 ships with every JRE; failing loudly beats writing an unverifiable erasure record.
+
             throw new IllegalStateException("SHA-256 unavailable", impossible);
         }
     }
 
-    /** The two things an admin may do with a pending request. */
     public static final class ErasureDecisions {
 
         private ErasureDecisions() {

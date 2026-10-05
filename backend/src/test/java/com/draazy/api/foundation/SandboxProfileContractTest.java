@@ -158,6 +158,12 @@ class SandboxProfileContractTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("sandbox never loads the committed staff passwords and authenticator")
+    void sandboxNeverSeedsStaffCredentials() throws IOException {
+        assertThat(sandbox().getProperty("spring.flyway.locations")).doesNotContain("seed-staff");
+    }
+
     /**
      * The variables an operator has to provision before the first sandbox deploy. That this is
      * exactly prod's set is not a coincidence worth asserting for its own sake — it falls out of the

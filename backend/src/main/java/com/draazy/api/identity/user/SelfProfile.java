@@ -5,10 +5,7 @@ import com.draazy.api.security.Roles;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
-/**
- * Caller's own profile — {@link UserMapper}'s output plus resolved back-office permission atoms
- * (four routes return the caller to themselves and all four must fill this uniformly).
- */
+// Four routes return the caller to themselves, so each must resolve permissions uniformly.
 @Component
 public class SelfProfile {
 
@@ -20,27 +17,26 @@ public class SelfProfile {
         this.accountPermissions = accountPermissions;
     }
 
-    /**
-     * Projects a user as their own profile. Non-staff get {@code permissions} null (dropped by
-     * {@code NON_NULL}); staff/admin get the role-ceiling-intersected list, possibly empty.
-     */
+    // Consumer accounts get permissions null; back-office accounts get the resolved atom list.
     public UserResponse of(User user) {
         UserResponse base = userMapper.toResponse(user);
-        if (!backOffice(user.getRole())) {
-            return base;
+        List<String> desks = Roles.isBackOffice(user.getRole())
+                ? accountPermissions.desksFor(user.getRole(), user.getId()).stream().sorted().toList()
+                : List.of();
+        if (!Roles.isBackOffice(user.getRole())) {
+            return new UserResponse(base.id(), base.name(), base.mobile(), base.email(), base.role(),
+                    base.team(), base.status(), base.verified(), base.city(), base.mobileVerified(),
+                    base.verifiedContactOnly(), base.hideNumber(), base.shareActivityStatus(),
+                    base.shareReadReceipts(), base.listingsCount(), base.joinedAt(),
+                    base.lastActive(), base.createdAt(), null, desks, null, null, null);
         }
         List<String> atoms =
                 List.copyOf(accountPermissions.effectiveFor(user.getRole(), user.getId()));
         return new UserResponse(base.id(), base.name(), base.mobile(), base.email(), base.role(),
                 base.team(), base.status(), base.verified(), base.city(), base.mobileVerified(),
-                base.verifiedContactOnly(), base.hideNumber(),
+                base.verifiedContactOnly(), base.hideNumber(), base.shareActivityStatus(),
+                base.shareReadReceipts(),
                 base.listingsCount(), base.joinedAt(), base.lastActive(), base.createdAt(), atoms,
-                // Nulls on purpose, and NON_NULL drops both keys: the review flag is a note between
-                // moderators about this person, and this is the one route that serves it *to* them.
-                null, null);
-    }
-
-    private static boolean backOffice(String wireRole) {
-        return Roles.Wire.STAFF.equals(wireRole) || Roles.Wire.ADMIN.equals(wireRole);
+                desks, null, null, null);
     }
 }

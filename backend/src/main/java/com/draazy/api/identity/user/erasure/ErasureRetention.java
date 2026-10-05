@@ -130,6 +130,10 @@ public final class ErasureRetention {
                         + " users row stops naming anybody.",
                 "personal_documents — the subject's own uploaded KYC papers. Neither the row nor the"
                         + " stored object is reached by this sweep, which makes it the largest of"
-                        + " these gaps by volume of personal data.");
+                        + " these gaps by volume of personal data.",
+                "service_request_draft_approvals — current-draft approval evidence can hold an"
+                        + " inline party's mobile hash, masked mobile and a display label, or an"
+                        + " account party label copied from users.name. The erasure sweep does not"
+                        + " reach this table yet.");
     }
 }

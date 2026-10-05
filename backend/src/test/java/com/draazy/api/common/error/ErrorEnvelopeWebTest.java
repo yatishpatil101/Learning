@@ -7,43 +7,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.common.config.JsonBodyLimitsConfig;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Protocol-level refusals, asserted through the dispatcher rather than against the advice.
- *
- * <p><strong>Why these cannot be unit tests.</strong> {@link GlobalExceptionHandlerTest} already
- * proves each handler maps its exception to the right envelope. It cannot prove the handler is ever
- * <em>reached</em>, and that was the actual defect: {@link GlobalExceptionHandler} carries an
- * {@code @ExceptionHandler(Exception.class)} catch-all and does not extend
- * {@code ResponseEntityExceptionHandler}, so for any exception without a more specific handler the
- * catch-all outranked Spring's own {@code DefaultHandlerExceptionResolver}. A wrong verb and an
- * unsupported content type — both entirely the caller's doing — were answered with 500
- * {@code internal} and a logged stack trace, as though the server had broken.
- *
- * <p>The multipart controllers assert in their Javadoc that "the wrong content type is refused as a
- * 415 by Spring before any of our code runs". Every existing 415 test exercises the vault's own
- * byte-sniffing refusal instead, so that claim had no coverage at all. It does now.
- *
- * <p>The two public cases use unauthenticated routes deliberately: they must reach the dispatcher,
- * and a 401 would short-circuit in the filter chain first. The 405 case is the opposite — it has to
- * be authenticated, because {@code permitAll} on {@code /properties} is scoped to {@code GET}, so an
- * unauthenticated {@code DELETE} is refused by the security chain (a correct 401) and never reaches
- * the layer under test.
- */
+// Why these cannot be unit tests. {@link GlobalExceptionHandlerTest} already proves each handler maps its exception
+// to the right envelope.
 @DisplayName("Error envelope — protocol refusals are the caller's fault, not a 500")
 class ErrorEnvelopeWebTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
 
+    // The regression this pins is not the status — a malformed body was always a 400 — but the body.
     @Test
     @DisplayName("a wrong verb on a real route is 405 with an Allow header, not 500")
     void wrongVerbIs405() throws Exception {
@@ -69,12 +55,6 @@ class ErrorEnvelopeWebTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(415));
     }
 
-    /**
-     * Same family as the two above, and the one that hid the longest: an unmapped path reached the
-     * catch-all and was reported as 500 {@code internal}. It has to be authenticated for the same
-     * reason the 405 case does — an anonymous request is refused by the security chain and never
-     * reaches the dispatcher, which is precisely why nobody noticed until they were holding a token.
-     */
     @Test
     @DisplayName("an unmapped path is 404, not 500")
     void unmappedPathIs404() throws Exception {
@@ -88,19 +68,22 @@ class ErrorEnvelopeWebTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(404));
     }
 
-    /**
-     * The regression this pins is not the status — a malformed body was always a 400 — but the
-     * body. The handler used to return Jackson's message verbatim, which names the target Java
-     * class and quotes the submitted payload back to whoever sent it.
-     */
-    @Test
-    @DisplayName("a malformed body is 400 and names no internal type")
-    void malformedBodyIs400WithoutInternals() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("badBodies")
+    @DisplayName("a malformed or oversized body is 400 and names no internal type")
+    void malformedBodyIs400WithoutInternals(String label, String body) throws Exception {
         mvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mobile\": "))
+                        .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(ErrorCodes.BAD_REQUEST))
                 .andExpect(jsonPath("$.message").value(ErrorCodes.Messages.MALFORMED_BODY));
+    }
+
+    static Stream<Arguments> badBodies() {
+        String oversized = "9".repeat(JsonBodyLimitsConfig.MAX_JSON_STRING_CHARS + 1);
+        return Stream.of(
+                Arguments.of("malformed JSON", "{\"mobile\": "),
+                Arguments.of("oversized JSON string", "{\"mobile\":\"" + oversized + "\"}"));
     }
 }

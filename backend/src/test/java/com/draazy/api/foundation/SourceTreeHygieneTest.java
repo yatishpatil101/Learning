@@ -1,5 +1,6 @@
 package com.draazy.api.foundation;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -11,8 +12,10 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,13 +57,21 @@ class SourceTreeHygieneTest {
     private static final Set<String> MOJIBAKE_EXEMPT = Set.of(
             "e2e/scripts/fix-mojibake.mjs");
 
+    private static Path root;
+    private static Map<Path, String> sources;
+
+    @BeforeAll
+    static void walkTheTreeOnce() {
+        root = repoRoot();
+        sources = sourceFilesUnder(root);
+    }
+
     @Test
     @DisplayName("no empty or declaration-free source file exists anywhere in the repository")
     void noEmptySourceFiles() {
-        Path root = repoRoot();
-        List<String> empties = sourceFilesUnder(root).stream()
-                .filter(SourceTreeHygieneTest::isEmpty)
-                .map(p -> root.relativize(p).toString().replace('\\', '/'))
+        List<String> empties = sources.entrySet().stream()
+                .filter(e -> isEmpty(e.getKey(), e.getValue()))
+                .map(e -> root.relativize(e.getKey()).toString().replace('\\', '/'))
                 .sorted()
                 .toList();
 
@@ -83,25 +94,18 @@ class SourceTreeHygieneTest {
     @Test
     @DisplayName("no mojibake or UTF-8 BOM in any source file (tech-debt D19)")
     void noMojibakeOrBom() {
-        Path root = repoRoot();
         List<String> damaged = new ArrayList<>();
-        for (Path file : sourceFilesUnder(root)) {
+        sources.forEach((file, text) -> {
             String rel = root.relativize(file).toString().replace('\\', '/');
-            if (MOJIBAKE_EXEMPT.contains(rel)) {
-                continue;
-            }
-            String text;
-            try {
-                text = Files.readString(file, StandardCharsets.UTF_8);
-            } catch (java.io.UncheckedIOException | IOException e) {
-                continue;
+            if (MOJIBAKE_EXEMPT.contains(rel) || text == null) {
+                return;
             }
             if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
                 damaged.add(rel + "  (UTF-8 BOM)");
             } else if (hasMojibake(text)) {
                 damaged.add(rel + "  (mojibake)");
             }
-        }
+        });
 
         assertThat(damaged)
                 .as("""
@@ -176,30 +180,29 @@ class SourceTreeHygieneTest {
      * "Declares nothing" only for {@code .java}: no portable way to tell a comment-only script from
      * a deliberate one. {@code package-info.java} is exempt from that half, but not from zero-byte.
      */
-    private static boolean isEmpty(Path file) {
-        try {
-            if (Files.size(file) == 0) {
-                return true;
-            }
-            String name = file.getFileName().toString();
-            if (!name.endsWith(".java")) {
-                return Files.readString(file, StandardCharsets.UTF_8).isBlank();
-            }
-            if (name.equals("package-info.java")) {
-                return false;
-            }
-            String stripped = Files.readString(file, StandardCharsets.UTF_8)
-                    .replaceAll("(?s)/\\*.*?\\*/", "")
-                    .replaceAll("//[^\\n]*", "")
-                    .replaceAll("(?m)^\\s*package\\s+[^;]+;", "")
-                    .replaceAll("(?m)^\\s*import\\s+[^;]+;", "")
-                    .trim();
-            return stripped.isEmpty();
-        } catch (java.io.UncheckedIOException | IOException e) {
+    private static boolean isEmpty(Path file, String text) {
+        if (text == null) {
             // A file that cannot be read as UTF-8 is not a source file this guard has an opinion
             // about, so passing silently is correct here.
             return false;
         }
+        if (text.isEmpty()) {
+            return true;
+        }
+        String name = file.getFileName().toString();
+        if (!name.endsWith(".java")) {
+            return text.isBlank();
+        }
+        if (name.equals("package-info.java")) {
+            return false;
+        }
+        String stripped = text
+                .replaceAll("(?s)/\\*.*?\\*/", "")
+                .replaceAll("//[^\\n]*", "")
+                .replaceAll("(?m)^\\s*package\\s+[^;]+;", "")
+                .replaceAll("(?m)^\\s*import\\s+[^;]+;", "")
+                .trim();
+        return stripped.isEmpty();
     }
 
     /**
@@ -215,7 +218,8 @@ class SourceTreeHygieneTest {
         return MODULE;
     }
 
-    private static List<Path> sourceFilesUnder(Path root) {
+    /** Each source file's text, or {@code null} when it cannot be read as UTF-8. */
+    private static Map<Path, String> sourceFilesUnder(Path root) {
         List<Path> found = new ArrayList<>();
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
@@ -245,6 +249,18 @@ class SourceTreeHygieneTest {
         } catch (IOException e) {
             throw new IllegalStateException("cannot walk " + root, e);
         }
-        return found;
+        Map<Path, String> texts = new LinkedHashMap<>();
+        for (Path file : found) {
+            texts.put(file, read(file));
+        }
+        return texts;
+    }
+
+    private static String read(Path file) {
+        try {
+            return Files.readString(file, StandardCharsets.UTF_8);
+        } catch (java.io.UncheckedIOException | IOException e) {
+            return null;
+        }
     }
 }

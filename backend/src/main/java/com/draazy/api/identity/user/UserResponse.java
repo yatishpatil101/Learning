@@ -4,10 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Public projection of a {@link User} (contract {@code User} schema) — entity↔wire boundary that
- * keeps {@code password_hash} and the soft-delete triplet from ever leaking. Populated by {@code UserMapper}.
- */
+// Wire boundary keeps password_hash and the soft-delete triplet from leaking.
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record UserResponse(
         String id,
@@ -22,11 +19,15 @@ public record UserResponse(
         boolean mobileVerified,
         boolean verifiedContactOnly,
         boolean hideNumber,
+        boolean shareActivityStatus,
+        boolean shareReadReceipts,
         int listingsCount,
         Instant joinedAt,
         Instant lastActive,
         Instant createdAt,
         List<String> permissions,
+        List<String> desks,
         Boolean flagged,
-        String flagReason) {
+        String flagReason,
+        String badgeSource) {
 }

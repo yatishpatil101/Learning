@@ -1,6 +1,7 @@
 package com.draazy.api.identity.user;
 
 import com.draazy.api.common.error.ConflictException;
+import com.draazy.api.common.error.ErrorCodes;
 import com.draazy.api.common.error.UnauthorizedException;
 import com.draazy.api.security.Roles;
 import java.time.Instant;
@@ -9,10 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Owner-scoped profile reads/writes behind {@code /auth/me}. Every method is keyed by the
- * server-resolved principal id, so a caller can only ever see or mutate their own row.
- */
+// Every method uses the server-resolved principal id, so callers only touch their own row.
 @Service
 public class UserService {
 
@@ -28,14 +26,15 @@ public class UserService {
         return liveUser(userId);
     }
 
-    /**
-     * Apply a partial profile update; null fields are left untouched and server-owned identity/trust
-     * fields are not accepted. Why {@code verifiedContactOnly} is self-service: see {@link UserUpdate}.
-     */
+    // Server-owned identity/trust fields are not accepted. verifiedContactOnly rationale: UserUpdate.
     @Transactional
     public User updateMe(UUID userId, UserUpdate patch) {
         User user = liveUser(userId);
         if (patch.name() != null) {
+            if (user.isVerified() && !patch.name().equals(user.getName())) {
+                throw new ConflictException(ErrorCodes.NAME_LOCKED_WHILE_VERIFIED,
+                        "Verified profiles cannot change name from self-service. Ask support to review it.");
+            }
             user.setName(patch.name());
         }
         if (patch.email() != null) {
@@ -57,6 +56,12 @@ public class UserService {
         if (patch.verifiedContactOnly() != null) {
             user.setVerifiedContactOnly(patch.verifiedContactOnly());
         }
+        if (patch.shareActivityStatus() != null) {
+            user.setShareActivityStatus(patch.shareActivityStatus());
+        }
+        if (patch.shareReadReceipts() != null) {
+            user.setShareReadReceipts(patch.shareReadReceipts());
+        }
         return user;
     }
 
@@ -66,10 +71,7 @@ public class UserService {
                 .orElseThrow(() -> new UnauthorizedException("Session is no longer valid"));
     }
 
-    /**
-     * Auto-provision a passwordless {@code buyer} on first OTP-verified sign-in (ADR-019, L1 floor).
-     * {@code REQUIRES_NEW} + eager flush so a concurrent first sign-in's UNIQUE violation isolates.
-     */
+    // REQUIRES_NEW + eager flush isolates a concurrent first sign-in's UNIQUE violation.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User provisionBuyer(String mobile) {
         User created = new User(mobile, Roles.Wire.BUYER);
@@ -78,10 +80,7 @@ public class UserService {
         return users.saveAndFlush(created);
     }
 
-    /**
-     * Provision an account for an owner who called the office, so a phoned-in listing is owned by the
-     * person who owns the flat. {@code mobileVerified} stays false — an operator's word is not an OTP.
-     */
+    // Phoned-in listings need an owner row, but an operator's word is not an OTP.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User provisionForStaff(String mobile, String name) {
         User created = new User(mobile, Roles.Wire.BUYER);

@@ -1,7 +1,7 @@
 -- Repeatable reference/config seed; keep statements idempotent and never add user data. A statutory
 -- charge is seeded only where it is a flat published figure, so a percentage stays NULL.
 INSERT INTO platform_fees (deal, brokerage, platform_fee, stamp_duty, registration, gst, notes) VALUES
-    ('rent', 0, 1999, NULL,  NULL,  360, 'Zero brokerage; flat rent-agreement platform fee + 18% GST. Maharashtra stamp duty (0.25% of rent for the term + non-refundable deposit + 10% of the refundable deposit per year) and registration (Rs 1,000 municipal / Rs 500 rural) are statutory, computed per agreement from your terms, and collected on top.'),
+    ('rent', 0, 500, NULL,  NULL,  90, 'Zero brokerage; flat rent-agreement platform fee + 18% GST. Maharashtra stamp duty (0.25% of rent for the term + non-refundable deposit + 10% of the refundable deposit per year, rounded up to the next Rs 100, minimum Rs 100), registration (Rs 1,000 municipal / Rs 500 rural) and the Rs 300 document handling charge are statutory, computed per agreement from your terms, and collected on top.'),
     ('buy',  0, 4999, NULL,  30000, 900, 'Zero brokerage; the platform fee and GST are ours, the rest is the state''s. Maharashtra stamp duty is a percentage (5-7% incl. cess) of the higher of agreement value and ready reckoner rate, so it is calculated on your property, not published here; registration is 1% capped at Rs 30,000.')
 ON CONFLICT (deal) DO UPDATE SET
     brokerage    = EXCLUDED.brokerage,
@@ -12,7 +12,8 @@ ON CONFLICT (deal) DO UPDATE SET
     notes        = EXCLUDED.notes;
 
 -- Admin settings seed. Each top-level key is an independently owned configuration block.
--- `fees` stays on DO UPDATE: every value in it is a price with no honest absent state.
+-- `fees` is the admin Fees tab and the only source of every platform price, so a re-run only adds
+-- keys it lacks (`||` keeps the right-hand, stored value) and never reverts an admin's repricing.
 INSERT INTO settings (key, value) VALUES
     ('fees', '{
         "ownerPlanYearly": 999,
@@ -24,7 +25,10 @@ INSERT INTO settings (key, value) VALUES
         "freeContactLimit": 15,
         "referralContactBonus": 15,
         "referralQualifyPerMonth": 10
-    }'::jsonb),
+    }'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value || settings.value;
+
+INSERT INTO settings (key, value) VALUES
     ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.example.com", "city": "Pune" }'::jsonb)
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
@@ -33,7 +37,6 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 INSERT INTO settings (key, value) VALUES
     ('flags', '{
         "kycBadgeEnabled": true,
-        "boostEnabled": true,
         "maintenanceMode": false,
         "signupsEnabled": true,
         "staffLoginEnabled": true
@@ -221,6 +224,11 @@ ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name, city = EXCLUDED.city, rate_per_sqft = EXCLUDED.rate_per_sqft,
     avg_rent = EXCLUDED.avg_rent, demand = EXCLUDED.demand, focus = EXCLUDED.focus,
     lat = EXCLUDED.lat, lng = EXCLUDED.lng, active = EXCLUDED.active;
+
+-- Seeded localities still under a Gram Panchayat (Rs 500 registration fee).
+-- Must match `registrationBody: 'gram-panchayat'` in frontend/src/data/localities.js.
+UPDATE localities SET registration_body = CASE WHEN slug IN ('hinjawadi', 'hinjawadi-phase-1', 'hinjawadi-phase-2', 'hinjawadi-phase-3', 'marunji', 'maan', 'nande', 'chande', 'pirangut', 'bhugaon', 'bhukum', 'lonikand')
+    THEN 'gram-panchayat' ELSE 'municipal' END;
 
 -- Generated from the frontend society catalogues; edit the source and rerun the generator.
 INSERT INTO societies (slug, name, builder, locality_slug, lat, lng, year, towers, units,
@@ -603,26 +611,14 @@ ON CONFLICT (id) DO UPDATE SET
     deal = EXCLUDED.deal, poster = EXCLUDED.poster, video = EXCLUDED.video,
     likes = EXCLUDED.likes, views = EXCLUDED.views, tag = EXCLUDED.tag;
 
--- Stable catalogue IDs support cross-environment references and repeatable updates.
--- `unlimited_contacts`, not `contact_limit`, is the enforced contact entitlement.
--- The priced plans here must equal their `fees` counterparts above — `ownerPlanYearly`,
--- `ownerProYearly`, `seekerPlusTopup`. They are two tables because one is back-office config and
--- the other is the product, but they answer the same question — "what does Owner Plus cost" — and
--- only this one is charged. Drift puts a live mis-quote on `/plans`: the FAQ reads the fee
--- schedule, so Owner **Pro** is answered with Owner **Plus**'s real price, directly beneath a card
--- quoting a third number, and a seeker is shown the schedule's figure while being billed this one.
---
--- `PlanPriceMatchesFeeScheduleTest` fails if these two *seeded* blocks drift apart. It does NOT
--- cover the runtime path: `PUT /admin/settings` deep-merges the fees block with no plans write and
--- no cross-check, so an operator repricing a plan from the Fees panel recreates the bug in
--- production with every test green. Reprice here, not there.
+-- `price` is a fallback only: paid plans are priced from `settings('fees')` by `PlanMapper`.
 INSERT INTO plans (id, name, audience, price, billing_cycle, listing_limit, contact_limit, unlimited_contacts, features) VALUES
     ('b1000000-0000-4000-8000-000000000001', 'Owner Free',  'owner',     0, 'yearly',    1, NULL, false,
      '["1 live listing", "Verified owner badge", "Unlimited enquiries"]'::jsonb),
     ('b1000000-0000-4000-8000-000000000002', 'Owner Plus',  'owner',   999, 'yearly',    2, NULL, true,
-     '["2 live listings", "Self-serve boosts", "Priority support"]'::jsonb),
+     '["2 live listings", "Featured placement on every listing", "Priority support"]'::jsonb),
     ('b1000000-0000-4000-8000-000000000003', 'Owner Pro',   'owner',  2499, 'yearly',    5, NULL, true,
-     '["5 live listings", "Self-serve boosts", "Rent agreement included", "Dedicated manager"]'::jsonb),
+     '["5 live listings", "Featured placement on every listing", "Rent agreement included", "Dedicated manager"]'::jsonb),
     ('b1000000-0000-4000-8000-000000000004', 'Seeker Plus', 'tenant',  199, 'monthly', NULL, NULL, true,
      '["Unlimited owner contacts", "Instant alerts", "Saved-search priority"]'::jsonb)
 ON CONFLICT (id) DO UPDATE SET
@@ -634,16 +630,6 @@ ON CONFLICT (id) DO UPDATE SET
     contact_limit      = EXCLUDED.contact_limit,
     unlimited_contacts = EXCLUDED.unlimited_contacts,
     features           = EXCLUDED.features;
-
-INSERT INTO boost_packs (id, name, price, duration_days, placement) VALUES
-    ('b2000000-0000-4000-8000-000000000001', '7-day Spotlight',   999,  7, 'top'),
-    ('b2000000-0000-4000-8000-000000000002', '15-day Featured',  1799, 15, 'featured'),
-    ('b2000000-0000-4000-8000-000000000003', '30-day Homepage',  3499, 30, 'homepage')
-ON CONFLICT (id) DO UPDATE SET
-    name          = EXCLUDED.name,
-    price         = EXCLUDED.price,
-    duration_days = EXCLUDED.duration_days,
-    placement     = EXCLUDED.placement;
 
 -- Service categories route orders to their corresponding desks.
 INSERT INTO service_offerings (id, name, category, starting_price, description) VALUES
@@ -686,6 +672,20 @@ insert into message_template (id, channel, category, name, body) values
  E'Hi {owner_name},\n\nQuick market update for {locality}:\n\n\U0001F4CA Avg rate: \u20B9{market_rate}/sqft\n\U0001F3F7\uFE0F Your listing: \u20B9{price}\n\nProperties priced within 10% of market rate get 2x more views. Would you like to adjust?\n\n\u2014 {staff_name}, Draazy'),
 ('wa-docs', 'whatsapp', 'verification', 'Document request',
  E'Hi {owner_name},\n\nTo complete verification of "{title}", we need:\n\n\U0001F4C4 Property ownership proof (sale deed / society NOC)\n\U0001F4C4 Recent electricity bill\n\nPlease upload via your dashboard or share photos here.\n\n\u2014 {staff_name}, Draazy Team'),
+('reason_photos_not_real', 'whatsapp', 'verification', 'Actual property photos needed',
+ E'Hi {owner_name},\n\nFor "{title}", please add clear photos of the actual property so buyers know what they will visit.\n\nUpload them here: {claim_link}\n\n\u2014 Draazy Team'),
+('reason_duplicate', 'whatsapp', 'verification', 'Duplicate listing check',
+ E'Hi {owner_name},\n\nWe found another similar listing for "{title}". Please keep only the correct one live, or reply here if this is a separate property.\n\n\u2014 Draazy Team'),
+('reason_broker', 'whatsapp', 'verification', 'Owner confirmation needed',
+ E'Hi {owner_name},\n\nPlease confirm "{title}" is being listed by the owner or family member, not a broker. Reply here and we will continue the review.\n\n\u2014 Draazy Team'),
+('reason_wrong_details', 'whatsapp', 'verification', 'Listing details need a quick fix',
+ E'Hi {owner_name},\n\nSome details on "{title}" look different from the property. Please check the price, address, photos and room details, then resubmit.\n\n\u2014 Draazy Team'),
+('reason_locality_unclear', 'whatsapp', 'verification', 'Locality needs confirmation',
+ E'Hi {owner_name},\n\nWe could not place "{title}" in the right locality. Please update the locality or share the nearest landmark here.\n\n\u2014 Draazy Team'),
+('reason_document_unreadable', 'whatsapp', 'verification', 'Readable document needed',
+ E'Hi {owner_name},\n\nThe document/photo for "{title}" is not clear enough to read. Please upload a brighter, full-page photo and we will check again.\n\n\u2014 Draazy Team'),
+('reason_name_mismatch', 'whatsapp', 'verification', 'Name confirmation needed',
+ E'Hi {owner_name},\n\nThe name on the document for "{title}" does not match the listing owner. Please share the correct document or tell us the family connection.\n\n\u2014 Draazy Team'),
 ('wa-stale', 'whatsapp', 'reminder', 'Confirm still available (stale)',
  E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 {listing_link}\n\n\u2014 Draazy Team'),
 ('wa-dormant', 'whatsapp', 'reminder', 'Dormant listing reactivation',
