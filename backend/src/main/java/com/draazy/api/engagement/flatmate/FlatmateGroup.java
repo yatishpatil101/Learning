@@ -11,6 +11,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -68,6 +69,8 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
     @Setter
     private String electricityBilling;
 
+    public static final int MAX_SEATS = 12;
+
     @Column(name = "seats_total", nullable = false)
     @Setter
     private int seatsTotal = 2;
@@ -122,13 +125,15 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
     @Embedded
     private ModerationRecheck recheck = new ModerationRecheck();
 
-    /** Null means <em>unknown</em>, never {@code 0} — (0,0) is open ocean; radius search excludes
+    @Embedded
+    private FlatmateExpiry expiry = new FlatmateExpiry();
+
+    /** Null means unknown, never {@code 0} — (0,0) is open ocean; radius search excludes
      * null instead. */
     @Column(name = "lat")
     @Setter
     private Double lat;
 
-    /** @see #lat */
     @Column(name = "lng")
     @Setter
     private Double lng;
@@ -141,6 +146,38 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
     @Column(name = "note")
     @Setter
     private String note;
+
+    @Column(name = "hunting", nullable = false)
+    private boolean hunting = false;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "localities", nullable = false)
+    private List<String> localities = new ArrayList<>();
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "pref_bhk", nullable = false)
+    private List<String> prefBhk = new ArrayList<>();
+
+    @Column(name = "rent_min")
+    private Long rentMin;
+
+    @Column(name = "deposit_min")
+    private Long depositMin;
+
+    @Column(name = "deposit_max")
+    private Long depositMax;
+
+    @Column(name = "gated_only", nullable = false)
+    private boolean gatedOnly = false;
+
+    @Column(name = "bachelors", nullable = false)
+    private boolean bachelors = false;
+
+    @Column(name = "furnishing")
+    private String furnishing;
+
+    @Column(name = "move_in_by")
+    private LocalDate moveInBy;
 
     @Column(name = "archived", nullable = false)
     private boolean archived = false;
@@ -168,10 +205,58 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
         this.rent = rent;
     }
 
-    /** Add a member, keeping both sides of the association consistent. */
     void addMember(FlatmateGroupMember member) {
         member.attachTo(this);
         this.members.add(member);
+    }
+
+    void removeMember(FlatmateGroupMember member) {
+        this.members.remove(member);
+    }
+
+    void hunt(FlatmateGroupPreferences p) {
+        hunting = true;
+        localities = new ArrayList<>(p.localities());
+        locality = p.localities().get(0);
+        prefBhk = new ArrayList<>(p.bhk());
+        rentMin = p.rentMin();
+        rent = p.rentMax();
+        depositMin = p.depositMin();
+        depositMax = p.depositMax();
+        gatedOnly = p.gatedOnly();
+        bachelors = p.bachelors();
+        furnishing = p.furnishing();
+        moveInBy = p.moveInBy();
+        deposit = null;
+        noticePeriodDays = null;
+        lockInMonths = null;
+        maintenanceBilling = null;
+        electricityBilling = null;
+        ownerConsentMobile = null;
+        propertyId = null;
+    }
+
+    void settle(String locality, Long rent) {
+        hunting = false;
+        this.locality = locality;
+        this.rent = rent;
+        localities = new ArrayList<>(List.of(locality));
+        prefBhk = new ArrayList<>();
+        rentMin = null;
+        depositMin = null;
+        depositMax = null;
+        gatedOnly = false;
+        bachelors = false;
+        furnishing = null;
+        moveInBy = null;
+    }
+
+    public FlatmateGroupPreferences getPreferences() {
+        if (!hunting) {
+            return null;
+        }
+        return new FlatmateGroupPreferences(List.copyOf(localities), List.copyOf(prefBhk), rentMin,
+                rent, depositMin, depositMax, gatedOnly, bachelors, furnishing, moveInBy);
     }
 
     void archive(String reason) {
@@ -198,12 +283,12 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
         return propertyId != null;
     }
 
-    /** Falls back to {@code seatsTotal - members} for legacy rows predating the explicit column,
-     * which is the best answer available for them. */
-    public int openSeats() {
-        if (seatsOpen != null) {
-            return Math.max(0, Math.min(seatsTotal, seatsOpen));
-        }
+    public int maxOpenSeats() {
         return Math.max(0, seatsTotal - members.size());
+    }
+
+    public int openSeats() {
+        int max = maxOpenSeats();
+        return seatsOpen == null ? max : Math.max(0, Math.min(max, seatsOpen));
     }
 }

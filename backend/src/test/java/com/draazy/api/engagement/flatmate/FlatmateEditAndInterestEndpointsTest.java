@@ -9,12 +9,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.documents.vault.PersonalDocument;
+import com.draazy.api.documents.vault.PersonalDocumentRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.Roles;
 import com.draazy.api.support.AbstractApiTest;
+import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,13 +29,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/** The two worth reading twice are {@link Editing#anEditByAHostAtTheCapIsNotAConflict} and
- *  {@link Editing#anOwnerTierEditStaysOnTheBoard}: the obvious implementation gets both wrong. */
 @DisplayName("Flatmates — publishing, editing, and taking an interest back")
 class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
+
+    @Autowired
+    PersonalDocumentRepository personalDocuments;
+
+    @Autowired
+    EntityManager entityManager;
 
     /** Audit writes run {@code REQUIRES_NEW} and escape this test's rollback. */
     private final List<String> createdActors = new ArrayList<>();
@@ -56,38 +65,56 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                  "furnishing":"semi","locality":"%s","society":"%s","rentShare":%d,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
                  "foodPref":"any","photos":["https://cdn.example/1.jpg"],
+                 "hostRole":"owner",
                  "note":"Sunny room, quiet building."}
                 """.formatted(locality, society, rentShare);
     }
 
-    /** Evidence-backed agreement makes this tenant tier, and tenant tier is what publishes. A
-     *  pending room is invisible and {@code POST .../interest} answers 404 for it. */
-    private static String liveRoomBody(String locality, String society, long rentShare) {
+    private String liveRoomBody(User host, String locality, String society, long rentShare) {
         return roomBody(locality, society, rentShare)
-                .replace("\"bhk\"",
-                        "\"agreementDeclared\":true," + FlatmateAgreementFixture.EVIDENCE + ",\"bhk\"");
+                .replace("\"hostRole\":\"owner\"",
+                        "\"hostRole\":\"tenant\",\"agreementDeclared\":true,"
+                                + agreementEvidence(host));
     }
 
-    private static String groupBody(String title, String locality, String policy,
-            int seats, int seatsOpen) {
+    private String groupBody(User host, String title, String locality, String policy,
         // `agreement` is what makes this tenant tier, and tenant tier is what publishes. An
         // unpublished group cannot be joined: `findVisible` answers 404 for it.
+            int seats, int seatsOpen) {
         return """
                 {"title":"%s","locality":"%s","policy":"%s","rent":40000,"agreement":true,
                  "seats":%d,"seatsOpen":%d,"name":"Host","tags":["Vegetarian"],%s}
                 """.formatted(title, locality, policy, seats, seatsOpen,
-                FlatmateAgreementFixture.EVIDENCE);
+                agreementEvidence(host));
     }
 
     private static String idOf(String json) {
-        return json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        return json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+    }
+
+    private String agreementEvidence(User host) {
+        PersonalDocument doc = personalDocuments.saveAndFlush(new PersonalDocument(host.getId(),
+                "Registered Leave and Licence", "leave-and-licence.pdf",
+                "personal/" + host.getId() + "/" + UUID.randomUUID(),
+                184320L, "application/pdf"));
+        return FlatmateAgreementFixture.evidence(doc.getId().toString());
+    }
+
+    private String approved(String table, String id) {
+        jdbc.update("update " + table + " set mod_status = 'approved' where id = ?::uuid", id);
+        entityManager.clear();
+        return id;
     }
 
     private String createRoom(User host, String locality, String society) throws Exception {
+        return approved("flatmate_rooms", postRoom(host, locality, society));
+    }
+
+    private String postRoom(User host, String locality, String society) throws Exception {
         return idOf(mvc.perform(post(Routes.Flatmates.ROOMS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(liveRoomBody(locality, society, 15000)))
+                        .content(liveRoomBody(host, locality, society, 15000)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString());
     }
@@ -98,12 +125,12 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
 
     private String createGroup(User host, String title, String locality, String policy,
             int seats, int seatsOpen) throws Exception {
-        return idOf(mvc.perform(post(Routes.Flatmates.GROUPS)
+        return approved("flatmate_groups", idOf(mvc.perform(post(Routes.Flatmates.GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(groupBody(title, locality, policy, seats, seatsOpen)))
+                        .content(groupBody(host, title, locality, policy, seats, seatsOpen)))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString());
+                .andReturn().getResponse().getContentAsString()));
     }
 
     @Nested
@@ -111,16 +138,14 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
     class Publishing {
 
         @Test
-        @DisplayName("reaches the board without an Ops click when the host declared an agreement")
-        void aTenantTierPostPublishesItself() throws Exception {
+        @DisplayName("waits for Ops even when the host backed it with an agreement")
+        void aTenantTierPostWaits() throws Exception {
             User host = user("9811000101", "Tenant Host");
-            String id = createRoom(host, "Baner", "Sunrise Heights");
+            String id = postRoom(host, "Baner", "Sunrise Heights");
 
-            // The anonymous feed is the test that matters: a host can always see their own post,
-            // so asserting on the host's view would pass even when nobody else can see it.
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Baner").param("size", "100"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Baner").param("size", "100"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[*].id", Matchers.hasItem(id)));
+                    .andExpect(jsonPath("$.content[*].id", Matchers.not(Matchers.hasItem(id))));
         }
 
         @Test
@@ -134,9 +159,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString());
 
-            // Signed in and nothing more is the population the gate is for, and the cheapest
-            // identity for a broker to mint.
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Kothrud").param("size", "100"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Kothrud").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.not(Matchers.hasItem(id))));
         }
@@ -155,12 +178,34 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(liveRoomBody("Baner", "Sunrise Heights", 17500)))
+                            .content(liveRoomBody(host, "Baner", "Sunrise Heights", 17500)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(id))
-                    // `budget` on the wire out, `rentShare` on the wire in. The asking price for
-                    // the seat has two names and the entity column is the read one.
+
                     .andExpect(jsonPath("$.budget").value(17500));
+        }
+
+        @Test
+        @DisplayName("corrects how many people live in the flat, and leaves it alone when absent")
+        void aRoomEditCarriesTheFlatsOccupancy() throws Exception {
+            User host = user("9811000127", "Occupancy Host");
+            String id = createRoom(host, "Baner", "Sunrise Heights");
+            String body = liveRoomBody(host, "Baner", "Sunrise Heights", 17500);
+
+            mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body.replaceFirst("\\{", "{\"occupants\":2,\"maxOccupants\":4,")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.occupants").value(2))
+                    .andExpect(jsonPath("$.maxOccupants").value(4));
+
+            mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.occupants").value(2));
         }
 
         @Test
@@ -173,7 +218,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(liveRoomBody("Baner", "Sunrise Heights", 1000)))
+                            .content(liveRoomBody(host, "Baner", "Sunrise Heights", 1000)))
                     .andExpect(status().isForbidden());
         }
 
@@ -184,7 +229,6 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             User joiner = user("9811000126", "Second Member");
             String id = createGroup(host, "Baner 3BHK", "Baner", "any", 3, 2);
 
-            // An open group auto-accepts, so this is the shortest honest way to a two-member group.
             mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(joiner)))
                     .andExpect(status().isCreated());
@@ -194,7 +238,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             mvc.perform(patch(Routes.Flatmates.GROUP_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(groupBody("Baner 3BHK", "Baner", "any", 4, 2)))
+                            .content(groupBody(host, "Baner 3BHK", "Baner", "any", 4, 2)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.seatsTotal").value(4));
 
@@ -203,7 +247,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             mvc.perform(patch(Routes.Flatmates.GROUP_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(groupBody("Baner 3BHK", "Baner", "any", 1, 0)))
+                            .content(groupBody(host, "Baner 3BHK", "Baner", "any", 1, 0)))
                     .andExpect(status().isBadRequest());
         }
 
@@ -220,26 +264,24 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, first)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(liveRoomBody("Baner", "Alpha Towers", 16000)))
+                            .content(liveRoomBody(host, "Baner", "Alpha Towers", 16000)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.budget").value(16000));
         }
 
         @Test
-        @DisplayName("leaves an already-published post on the board rather than re-queueing it")
-        void anOwnerTierEditStaysOnTheBoard() throws Exception {
+        @DisplayName("leaves an approved post on the board rather than re-queueing it")
+        void anApprovedPostStaysOnTheBoardAfterAnEdit() throws Exception {
             User host = user("9811000108", "Declared Host");
             String id = createRoom(host, "Aundh", "Delta Court");
 
             mvc.perform(patch(Routes.Flatmates.ROOM_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(liveRoomBody("Aundh", "Delta Court", 15500)))
+                            .content(liveRoomBody(host, "Aundh", "Delta Court", 15500)))
                     .andExpect(status().isOk());
 
-            // This post's visibility came from what the host staked, not from a moderator reading
-            // the copy, so there is no approval for the edit to invalidate.
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Aundh").param("size", "100"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Aundh").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.hasItem(id)));
         }
@@ -257,11 +299,13 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             String roomId = createRoom(host, "Baner", "Sunrise Heights");
 
             mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"message":"Call me on 9811000195."}
+                                    """))
                     .andExpect(status().isCreated());
 
-            // The title is the assertion: the shared join resolves seeker posts unless it also
-            // resolves rooms, and a room row with a null title renders as "this is gone".
             mvc.perform(get(Routes.Flatmates.MY_INTERESTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isOk())
@@ -310,8 +354,6 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
         }
     }
 
-    /** {@code users.name} is nullable and most often null for the person who ends up here, so a
-     *  concatenated title would tell the host "null is interested in Sunrise Heights". */
     @Nested
     @DisplayName("The host's notification")
     class HostNotification {
@@ -351,14 +393,12 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
 
-            // "Someone" is indefinite on purpose: the alternative is a made-up name shown to the
-            // host as this person's, and absent is not the same claim as "called Member".
             assertThat(titleFor(host)).isEqualTo("Someone is interested in your room in Baner");
         }
 
         @Test
-        @DisplayName("carries the seeker's number in the body, which is never absent")
-        void theBodyCarriesTheNumber() throws Exception {
+        @DisplayName("keeps mobile numbers out of notification copy")
+        void notificationCopyDoesNotCarryMobileNumbers() throws Exception {
             User host = user("9811000194", "Body Host");
             User seeker = user("9811000195", null);
             String roomId = createRoom(host, "Baner", "Sunrise Heights");
@@ -367,12 +407,12 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
 
-            // The reason "Someone" is a tolerable title rather than a dead end: `users.mobile` is
-            // the login identity and NOT NULL, so an unnamed seeker is still reachable.
-            String body = jdbc.queryForObject(
-                    "select body from notifications where user_id = ? and type = 'flatmate.room.interest'",
-                    String.class, host.getId());
-            assertThat(body).contains("9811000195");
+            Map<String, Object> notification = jdbc.queryForMap("""
+                    select title, body from notifications
+                     where user_id = ? and type = 'flatmate.room.interest'
+                    """, host.getId());
+            assertThat((String) notification.get("title")).doesNotContainPattern("\\b\\d{10}\\b");
+            assertThat((String) notification.get("body")).doesNotContainPattern("\\b\\d{10}\\b");
         }
     }
 
@@ -400,8 +440,6 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty());
 
-            // The table is unique on (kind, target_id, requester_id), so a retained row would refuse
-            // the next ask forever and turn an undo into a lockout.
             mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isCreated());
@@ -466,9 +504,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
             jdbc.update("update flatmate_rooms set verification_tier = 'owner' where id = ?::uuid",
                     verifiedRoom);
 
-            // The board filtered a single 200-row page in the browser, which is correct until a
-            // locality has 201 rooms and then silently wrong.
-            mvc.perform(get(Routes.Flatmates.ROOMS)
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in")
                             .param("locality", "Hinjewadi")
                             .param("verifiedOnly", "true")
                             .param("size", "100"))
@@ -485,7 +521,7 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
 
             // A client that always sends the toggle's state should need no special case for off,
             // which is why the parameter is a Boolean and `false` widens rather than narrows.
-            mvc.perform(get(Routes.Flatmates.ROOMS)
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in")
                             .param("locality", "Viman Nagar")
                             .param("verifiedOnly", "false")
                             .param("size", "100"))

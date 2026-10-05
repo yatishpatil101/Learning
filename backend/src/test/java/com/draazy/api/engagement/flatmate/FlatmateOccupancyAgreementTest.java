@@ -26,22 +26,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/**
- * D212 — one room, one occupancy answer, whichever endpoint asked.
- *
- * <p>{@code flatCommitted} is not only displayed: {@code occupancy} and {@code shareMax} are
- * derived from it. So when {@code RoomView.anonymous} passed {@code 0} because an anonymous caller
- * "has no business knowing", it did not withhold the number — it published a wrong <em>label</em>.
- * A full flat advertised itself as {@code empty} on the mixed feed while the room feed, reading the
- * same row through a different call site, said {@code occupied}. The contract declares one schema
- * for all three reads, so this was not a projection difference; it was two answers to one question.
- *
- * <p>The test therefore asserts <strong>agreement</strong> rather than a value: it reads the same
- * room back from all three public endpoints and requires them to say the same thing. A future
- * refactor that gets the number wrong in one place still fails here, which a per-endpoint
- * expectation would not catch if both expectations were edited together.
- */
-@DisplayName("D212 — every public read reports the same occupancy for the same room")
+// `flatCommitted` is not only displayed: `occupancy` and `shareMax` are derived from it.
+// Anonymous must omit occupancy, not publish `0`, or it labels occupied rooms as empty.
+@DisplayName("D212 — the public feed reports a full flat as occupied")
 class FlatmateOccupancyAgreementTest extends AbstractApiTest {
 
     @Autowired
@@ -59,8 +46,8 @@ class FlatmateOccupancyAgreementTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a full flat never reports itself empty, on any of the three room reads")
-    void everyPublicReadAgrees() throws Exception {
+    @DisplayName("a full flat never reports itself empty")
+    void aFullFlatReportsOccupied() throws Exception {
         User owner = user("9830000041", "Ledger", Roles.Wire.OWNER);
         User admin = user("9830000042", "Moderator3", Roles.Wire.ADMIN);
         Property flat = listing(owner);
@@ -82,32 +69,18 @@ class FlatmateOccupancyAgreementTest extends AbstractApiTest {
         clear(admin, first);
         clear(admin, second);
 
-        // The three public reads of the same room. Compared as objects rather than asserted one
-        // endpoint at a time: agreement is the property under test, and three separate literal
-        // expectations would be edited together by anyone who broke it.
-        Map<String, Object> fromFlat = roomIn(
-                body(get(Routes.Properties.ROOMS, flat.getId())), "$", first);
-        Map<String, Object> fromRoomFeed = roomIn(
-                body(get(Routes.Flatmates.ROOMS).param("locality", "Baner").param("size", "50")),
-                "$.content", first);
-        Map<String, Object> fromMixedFeed = roomIn(
-                body(get(Routes.Flatmates.FEED).param("tab", "move-in")
-                        .param("locality", "Baner").param("size", "50")),
-                "$.content", first);
+        // The flat holds two people and allows two: full.
+        Map<String, Object> fromFeed = feedCard(first);
 
-        // The flat holds two people and allows two: full. The mixed feed used to say `empty` here,
-        // because its RoomView carried a hardcoded zero rather than the flat's real ledger.
-        assertEquals(2, fromFlat.get("flatCommitted"), "the flat's own room list");
-        assertEquals("occupied", fromFlat.get("occupancy"), "the flat's own room list");
-        assertEquals(fromFlat.get("flatCommitted"), fromRoomFeed.get("flatCommitted"), "room feed");
-        assertEquals(fromFlat.get("occupancy"), fromRoomFeed.get("occupancy"), "room feed");
-        assertEquals(fromFlat.get("flatCommitted"), fromMixedFeed.get("flatCommitted"), "mixed feed");
-        assertEquals(fromFlat.get("occupancy"), fromMixedFeed.get("occupancy"), "mixed feed");
+        assertEquals(2, fromFeed.get("flatCommitted"));
+        assertEquals("occupied", fromFeed.get("occupancy"));
 
-        // The sibling shares the ledger, so it reports the same total, not its own single head.
-        assertEquals(2, roomIn(
-                body(get(Routes.Flatmates.ROOMS).param("locality", "Baner").param("size", "50")),
-                "$.content", second).get("flatCommitted"));
+        assertEquals(2, feedCard(second).get("flatCommitted"));
+    }
+
+    private Map<String, Object> feedCard(String roomId) throws Exception {
+        return roomIn(body(get(Routes.Flatmates.FEED).param("tab", "move-in")
+                .param("locality", "Baner").param("size", "50")), "$.content", roomId);
     }
 
     private String body(MockHttpServletRequestBuilder request) throws Exception {

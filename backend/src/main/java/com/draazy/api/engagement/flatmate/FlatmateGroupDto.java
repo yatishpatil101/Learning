@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** Contract schema {@code FlatmateGroup}. {@link #seatsOpen()} is <em>not</em>
+/** Contract schema {@code FlatmateGroup}. {@link #seatsOpen()} is not
  * {@code seatsTotal - members} — see {@link FlatmateGroup#openSeats()}. */
 public record FlatmateGroupDto(
         UUID id,
@@ -35,10 +35,9 @@ public record FlatmateGroupDto(
         String note,
         String ownerName,
         String ownerMobile,
-        Instant createdAt) {
+        Instant createdAt,
+        FlatmateGroupPreferences preferences) {
 
-    /** No user id: a member is a person, not necessarily a user. {@code name} and {@code initials}
-     * are null when none was given, so a client renders its own placeholder. */
-    public record Member(String name, String initials, boolean verified) {
+    public record Member(UUID id, String name, String initials, boolean verified, boolean host) {
     }
 }

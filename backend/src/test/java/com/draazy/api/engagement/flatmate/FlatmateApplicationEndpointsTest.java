@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.flatmate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,18 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * A group applies to a whole flat, and the flat's owner answers.
- *
- * <p>These three routes exist because the admin board over {@code flatmate_group_applications} was
- * a correct, guarded, paged read over a table nothing could write to: the entity's constructor had
- * no callers and {@code decide()} had none either. So the interesting assertions here are not the
- * happy paths — they are the ones that prove the two axes stay apart. An owner writes
- * {@code status} and can never write {@code modStatus}; a moderator writes {@code modStatus} and
- * can never decide on the owner's behalf; and a removed row leaves the owner's inbox without its
- * {@code status} moving, because "ops took this down" is not the same statement as "the owner said
- * no".
- */
+// These routes prove owner status and moderation status stay separate: ops removing a row
+// must never be recorded as the owner saying no.
 @DisplayName("Flatmate group applications — the group applies, the owner answers")
 class FlatmateApplicationEndpointsTest extends AbstractApiTest {
 
@@ -80,12 +71,8 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    /**
-     * A group, published past the D72 queue.
-     *
-     * <p>Applying deliberately requires a <em>visible</em> group, so a test that skipped this would
-     * be asserting against a 400 rather than the thing it meant to assert.
-     */
+    // Applying deliberately requires a visible group, so skipping approval would assert
+    // against a 400 rather than the intended branch.
     private String group(User host, String title) throws Exception {
         String json = mvc.perform(post(Routes.Flatmates.GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
@@ -98,10 +85,8 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
                 .andReturn().getResponse().getContentAsString();
         String id = json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
         jdbc.update("update flatmate_groups set mod_status = 'approved' where id = ?::uuid", id);
-        /* The whole test class runs in one transaction, so the row Hibernate is holding still says
-           `pending` after that UPDATE — and `apply` reads visibility off the entity, not off the
-           WHERE clause. Clearing forces the next read to come from the database, which is what the
-           running application would always have done. */
+        // The transaction still holds the pending entity; clearing forces the next read
+        // through the database, matching the running application.
         em.clear();
         return id;
     }
@@ -137,9 +122,8 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.groupTitle").value("Three of us for a 3BHK"))
                     .andExpect(jsonPath("$.applicantName").value("Host One"))
                     .andExpect(jsonPath("$.status").value("pending"))
-                    // 45000 over 3 seats. The per-head figure is what an owner actually reads, and
-                    // it is computed from the group's seats rather than its current members —
-                    // a group applies for the seats it intends to fill.
+                    // The owner reads the per-head figure, which comes from intended seats
+                    // rather than current members.
                     .andExpect(jsonPath("$.perHead").value(15000))
                     .andExpect(jsonPath("$.seatsTotal").value(3));
         }
@@ -290,7 +274,11 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"status\":\"declined\"}"))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("declined"));
+            assertThat(jdbc.queryForObject(
+                    "select count(*) from audit_log where actor = ? and action = ?", Long.class,
+                    owner.getId().toString(), "flatmate.groupApplication.declined")).isEqualTo(1L);
 
             mvc.perform(patch(path)
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))

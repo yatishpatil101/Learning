@@ -8,8 +8,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.support.AbstractApiTest;
 import com.jayway.jsonpath.JsonPath;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
@@ -19,8 +23,12 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @DisplayName("Flatmate feed — every facet and every sort produces runnable SQL")
 class FlatmateFeedSearchTest extends AbstractApiTest {
 
-    private MockHttpServletRequestBuilder feed(String tab) {
+    private static MockHttpServletRequestBuilder feed(String tab) {
         return get(Routes.Flatmates.FEED).param("tab", tab);
+    }
+
+    private static Arguments smoke(String name, MockHttpServletRequestBuilder... requests) {
+        return Arguments.of(name, requests);
     }
 
     /**
@@ -45,19 +53,172 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
         return ((Number) JsonPath.read(json, "$.totalElements")).longValue();
     }
 
-    /* ─── The two tabs, unfiltered ─────────────────────────────────────────────────────────── */
-
-    /** The only case where a window function feeds a join feeds another window function. */
-    @Test
-    @DisplayName("the move-in tab answers a page with no filters at all")
-    void moveInUnfiltered() throws Exception {
-        expectWellFormedPage(feed("move-in"));
+    private static Stream<Arguments> smokeCases() {
+        return Stream.of(
+                // The only case where a window function feeds a join feeds another window function.
+                smoke("moveInUnfiltered", feed("move-in")),
+                smoke("teamUpUnfiltered", feed("team-up")),
+                // Old links are the reason the legacy `?view=` alias is still accepted.
+                smoke("legacyViewAlias",
+                        get(Routes.Flatmates.FEED).param("view", "rooms"),
+                        get(Routes.Flatmates.FEED).param("view", "groups"),
+                        get(Routes.Flatmates.FEED).param("view", "flatmates")),
+                // Three different column lists depending on the branch: a room searches its society
+                // and flat type, a group its title, a post its occupation.
+                smoke("freeText",
+                        feed("move-in").param("q", "koregaon"),
+                        feed("team-up").param("q", "koregaon")),
+                // %, _ and backslash are escaped Java-side; a raw backslash errors in some collations.
+                smoke("freeTextWithMetacharacters",
+                        feed("move-in").param("q", "100%_\\"),
+                        feed("team-up").param("q", "'; select 1 --")),
+                // Equality on one branch, jsonb containment on another.
+                smoke("locality",
+                        feed("move-in").param("locality", "Baner"),
+                        feed("team-up").param("locality", "Baner")),
+                // An explicitly blank facet is a different binding from an absent one, and must widen.
+                smoke("blankFacetsWiden",
+                        feed("move-in")
+                                .param("locality", "")
+                                .param("q", "")
+                                .param("gender", "")
+                                .param("attachedBath", "")),
+                // No column behind it on either branch: a window aggregate on rooms, a generated
+                // column on groups. Each bound alone, because they append separate clauses.
+                smoke("budgetRange",
+                        feed("move-in").param("minBudget", "8000").param("maxBudget", "20000"),
+                        feed("team-up").param("minBudget", "8000").param("maxBudget", "20000"),
+                        feed("move-in").param("minBudget", "8000"),
+                        feed("move-in").param("maxBudget", "20000")),
+                smoke("legacyBudgetAlias", feed("move-in").param("budget", "15000")),
+                // Rooms and posts store male|female|any, a group men|women|any; an unrecognised
+                // casing widens rather than emptying the board.
+                smoke("gender",
+                        feed("move-in").param("gender", "female"),
+                        feed("move-in").param("gender", "male"),
+                        feed("team-up").param("gender", "female"),
+                        feed("move-in").param("gender", "Female")),
+                smoke("verifiedOnly",
+                        feed("move-in").param("verifiedOnly", "true"),
+                        feed("team-up").param("verifiedOnly", "true")),
+                // A date comparison; only two of the three branches have a date.
+                smoke("moveInDays",
+                        feed("move-in").param("moveInDays", "0"),
+                        feed("move-in").param("moveInDays", "30"),
+                        feed("team-up").param("moveInDays", "30")),
+                // One jsonb containment clause per habit, so the SQL grows with the request; a
+                // habit holding jsonb's structural characters is still just a string.
+                smoke("habits",
+                        feed("move-in").param("habits", "Non-smoker"),
+                        feed("move-in").param("habits", "Non-smoker", "Vegetarian", "Pet-friendly"),
+                        feed("team-up").param("habits", "Non-smoker", "Vegetarian"),
+                        feed("move-in").param("habits", "{\"a\":1}")),
+                // Room-only and group-only facets must narrow their own kind and not empty the other.
+                smoke("kindSpecificFacets",
+                        feed("move-in").param("attachedBath", "attached"),
+                        feed("move-in").param("attachedBath", "shared"),
+                        feed("team-up").param("sharing", "3"),
+                        feed("move-in").param("sharing", "2")),
+                // A bounding box plus a cosine comparison, so it proves the coordinate column types.
+                smoke("radius",
+                        feed("move-in").param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "5"),
+                        feed("team-up").param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "5")),
+                // A centre with no radius would divide by zero; a radius with no centre would bind
+                // half its parameters. Both arrive from hand-edited URLs and stale deep links.
+                smoke("incompleteRadius",
+                        feed("move-in").param("nearLat", "18.5204").param("nearLng", "73.8567"),
+                        feed("move-in").param("nearRadiusKm", "5"),
+                        feed("move-in").param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "0")),
+                // Past the ceiling the radius is clamped, not refused, and the statement must run.
+                smoke("radiusIsClamped",
+                        feed("move-in").param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "99999")),
+                // An order by over a UNION ALL can only name projected columns and price differs
+                // per branch, so a bad sort fails on the default page load.
+                smoke("everySort",
+                        feed("move-in").param("sort", "verified"),
+                        feed("team-up").param("sort", "verified"),
+                        feed("move-in").param("sort", "newest"),
+                        feed("team-up").param("sort", "newest"),
+                        feed("move-in").param("sort", "budget-low"),
+                        feed("team-up").param("sort", "budget-low"),
+                        feed("move-in").param("sort", "budget-high"),
+                        feed("team-up").param("sort", "budget-high"),
+                        feed("move-in").param("sort", "match"),
+                        feed("team-up").param("sort", "match")),
+                // An unknown sort falls back to trust-first rather than 400, unlike `tab`.
+                smoke("unknownSort",
+                        feed("move-in").param("sort", "price-low"),
+                        feed("move-in").param("sort", "")),
+                // The only clause built from the searcher rather than the row; each scoring term
+                // alone, since each appends its own fragment.
+                smoke("matchSortWithMe",
+                        feed("team-up")
+                                .param("sort", "match")
+                                .param("meLocalities", "Baner", "Wakad")
+                                .param("meBudget", "16000")
+                                .param("meGender", "female"),
+                        feed("move-in")
+                                .param("sort", "match")
+                                .param("meLocalities", "Baner")
+                                .param("meBudget", "16000")
+                                .param("meGender", "male"),
+                        feed("move-in").param("sort", "match").param("meBudget", "16000"),
+                        feed("move-in").param("sort", "match").param("meGender", "male"),
+                        feed("move-in").param("sort", "match").param("meLocalities", "Baner")),
+                // The band comparison multiplies it, so 0 overlaps only 0; a seeker post can be 0.
+                smoke("zeroBudgetScores",
+                        feed("move-in").param("sort", "match").param("meBudget", "0"),
+                        feed("move-in").param("minBudget", "0")),
+                smoke("explicitPageSize",
+                        feed("move-in").param("page", "0").param("size", "5"),
+                        feed("team-up").param("page", "1").param("size", "5")),
+                // The single-facet cases prove each fragment parses; this proves they compose
+                // without two of them binding the same parameter name to different values.
+                smoke("everyFacetTogether",
+                        feed("move-in")
+                                .param("q", "baner")
+                                .param("locality", "Baner")
+                                .param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "5")
+                                .param("minBudget", "8000").param("maxBudget", "25000")
+                                .param("gender", "female")
+                                .param("verifiedOnly", "true")
+                                .param("moveInDays", "30")
+                                .param("habits", "Non-smoker", "Vegetarian")
+                                .param("attachedBath", "attached")
+                                .param("sharing", "3")
+                                .param("sort", "match")
+                                .param("meLocalities", "Baner", "Wakad")
+                                .param("meBudget", "16000")
+                                .param("meGender", "female")
+                                .param("page", "0").param("size", "12"),
+                        feed("team-up")
+                                .param("q", "baner")
+                                .param("locality", "Baner")
+                                .param("nearLat", "18.5204").param("nearLng", "73.8567")
+                                .param("nearRadiusKm", "5")
+                                .param("minBudget", "8000").param("maxBudget", "25000")
+                                .param("gender", "male")
+                                .param("verifiedOnly", "true")
+                                .param("moveInDays", "30")
+                                .param("habits", "Non-smoker")
+                                .param("sharing", "2")
+                                .param("sort", "budget-low")
+                                .param("page", "0").param("size", "12")));
     }
 
-    @Test
-    @DisplayName("the team-up tab answers a page with no filters at all")
-    void teamUpUnfiltered() throws Exception {
-        expectWellFormedPage(feed("team-up"));
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("smokeCases")
+    @DisplayName("each facet and sort runs as a well-formed page")
+    void facetRunsAsWellFormedPage(String name, MockHttpServletRequestBuilder[] requests)
+            throws Exception {
+        for (MockHttpServletRequestBuilder request : requests) {
+            expectWellFormedPage(request);
+        }
     }
 
     /**
@@ -69,112 +230,6 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
     void tabResolution() throws Exception {
         expectWellFormedPage(get(Routes.Flatmates.FEED));
         mvc.perform(feed("nonsense-tab")).andExpect(status().isBadRequest());
-    }
-
-    /** The legacy `?view=` alias still resolves — old links are the reason it is still accepted. */
-    @Test
-    @DisplayName("the legacy view alias still selects a tab")
-    void legacyViewAlias() throws Exception {
-        expectWellFormedPage(get(Routes.Flatmates.FEED).param("view", "rooms"));
-        expectWellFormedPage(get(Routes.Flatmates.FEED).param("view", "groups"));
-        expectWellFormedPage(get(Routes.Flatmates.FEED).param("view", "flatmates"));
-    }
-
-    /* ─── One facet at a time, on both tabs ────────────────────────────────────────────────── */
-
-    /**
-     * Free text, which is three different column lists depending on which branch it lands in — a
-     * room searches its society and flat type, a group its title, a post its occupation.
-     */
-    @Test
-    @DisplayName("free text runs against all three column lists")
-    void freeText() throws Exception {
-        expectWellFormedPage(feed("move-in").param("q", "koregaon"));
-        expectWellFormedPage(feed("team-up").param("q", "koregaon"));
-    }
-
-    /**
-     * Bound parameters do not stop {@code %} and {@code _} being wildcards, so they are escaped on
-     * the Java side; an unescaped backslash reaching the pattern is a runtime error in some collations.
-     */
-    @Test
-    @DisplayName("wildcard characters in the query are a search, not a syntax error")
-    void freeTextWithMetacharacters() throws Exception {
-        expectWellFormedPage(feed("move-in").param("q", "100%_\\"));
-        expectWellFormedPage(feed("team-up").param("q", "'; select 1 --"));
-    }
-
-    /**
-     * Locality, which is an equality on one branch and a jsonb containment on another — a seeker
-     * names a shortlist of areas rather than one.
-     */
-    @Test
-    @DisplayName("locality runs as equality on rooms and containment on posts")
-    void locality() throws Exception {
-        expectWellFormedPage(feed("move-in").param("locality", "Baner"));
-        expectWellFormedPage(feed("team-up").param("locality", "Baner"));
-    }
-
-    /** An explicitly blank facet is a different binding from an absent one, and must widen. */
-    @Test
-    @DisplayName("blank facets are treated as no filter")
-    void blankFacetsWiden() throws Exception {
-        expectWellFormedPage(feed("move-in")
-                .param("locality", "")
-                .param("q", "")
-                .param("gender", "")
-                .param("attachedBath", ""));
-    }
-
-    /**
-     * Budget, which is the facet with no column behind it on either branch: a room's per-person
-     * price is a window aggregate over its flat, a group's is a generated column.
-     */
-    @Test
-    @DisplayName("the budget range runs against two different derived prices")
-    void budgetRange() throws Exception {
-        expectWellFormedPage(feed("move-in").param("minBudget", "8000").param("maxBudget", "20000"));
-        expectWellFormedPage(feed("team-up").param("minBudget", "8000").param("maxBudget", "20000"));
-        // Each bound alone, because they append separate clauses.
-        expectWellFormedPage(feed("move-in").param("minBudget", "8000"));
-        expectWellFormedPage(feed("move-in").param("maxBudget", "20000"));
-    }
-
-    /** The single-value legacy alias, folded into the ceiling rather than living beside it. */
-    @Test
-    @DisplayName("the legacy single budget parameter still means a ceiling")
-    void legacyBudgetAlias() throws Exception {
-        expectWellFormedPage(feed("move-in").param("budget", "15000"));
-    }
-
-    /**
-     * Spelled differently on either side of the union — rooms and posts store {@code male|female|any},
-     * a group a join policy of {@code men|women|any} — so one request becomes two predicates.
-     */
-    @Test
-    @DisplayName("gender translates into a group's policy vocabulary")
-    void gender() throws Exception {
-        expectWellFormedPage(feed("move-in").param("gender", "female"));
-        expectWellFormedPage(feed("move-in").param("gender", "male"));
-        expectWellFormedPage(feed("team-up").param("gender", "female"));
-        // Unrecognised widens rather than empties — a stray casing must not delete the board.
-        expectWellFormedPage(feed("move-in").param("gender", "Female"));
-    }
-
-    @Test
-    @DisplayName("verified-only runs its own disjunction on all three branches")
-    void verifiedOnly() throws Exception {
-        expectWellFormedPage(feed("move-in").param("verifiedOnly", "true"));
-        expectWellFormedPage(feed("team-up").param("verifiedOnly", "true"));
-    }
-
-    /** Move-in is a date comparison, and only two of the three branches have a date to compare. */
-    @Test
-    @DisplayName("move-in days runs where there is a date and is absent where there is not")
-    void moveInDays() throws Exception {
-        expectWellFormedPage(feed("move-in").param("moveInDays", "0"));
-        expectWellFormedPage(feed("move-in").param("moveInDays", "30"));
-        expectWellFormedPage(feed("team-up").param("moveInDays", "30"));
     }
 
     /**
@@ -199,32 +254,6 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
     }
 
     /**
-     * Habits, which are an AND of jsonb containments — one clause per habit, so this is the only
-     * facet whose SQL grows with the size of the request.
-     */
-    @Test
-    @DisplayName("several habits become several containment clauses")
-    void habits() throws Exception {
-        expectWellFormedPage(feed("move-in").param("habits", "Non-smoker"));
-        expectWellFormedPage(feed("move-in")
-                .param("habits", "Non-smoker", "Vegetarian", "Pet-friendly"));
-        expectWellFormedPage(feed("team-up")
-                .param("habits", "Non-smoker", "Vegetarian"));
-        // A habit containing the characters jsonb uses structurally is still just a string.
-        expectWellFormedPage(feed("move-in").param("habits", "{\"a\":1}"));
-    }
-
-    /** Room-only and group-only facets, which must narrow their own kind and not empty the other. */
-    @Test
-    @DisplayName("kind-specific facets run on the kind that has them")
-    void kindSpecificFacets() throws Exception {
-        expectWellFormedPage(feed("move-in").param("attachedBath", "attached"));
-        expectWellFormedPage(feed("move-in").param("attachedBath", "shared"));
-        expectWellFormedPage(feed("team-up").param("sharing", "3"));
-        expectWellFormedPage(feed("move-in").param("sharing", "2"));
-    }
-
-    /**
      * Junk passed through narrows to nothing, so a typo or stale deep link reads as "the board is
      * empty". Asserted against the unfiltered total, making it a claim about the junk, not the fixture.
      */
@@ -240,91 +269,6 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
                 .isEqualTo(totalOf(feed("move-in").param("attachedBath", "attached")));
     }
 
-    /** A bounding box plus a cosine comparison, so it also proves the coordinate columns' types. */
-    @Test
-    @DisplayName("a near-a-place radius runs on both tabs")
-    void radius() throws Exception {
-        expectWellFormedPage(feed("move-in")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567").param("nearRadiusKm", "5"));
-        expectWellFormedPage(feed("team-up")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567").param("nearRadiusKm", "5"));
-    }
-
-    /**
-     * A centre with no radius would divide by zero building the longitude delta; a radius with no
-     * centre would bind half its parameters. Both arrive from hand-edited URLs and stale deep links.
-     */
-    @Test
-    @DisplayName("half a near-a-place point narrows nothing rather than failing")
-    void incompleteRadius() throws Exception {
-        expectWellFormedPage(feed("move-in").param("nearLat", "18.5204").param("nearLng", "73.8567"));
-        expectWellFormedPage(feed("move-in").param("nearRadiusKm", "5"));
-        expectWellFormedPage(feed("move-in")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567").param("nearRadiusKm", "0"));
-    }
-
-    /** A radius past the ceiling is clamped, not refused — and the clamped statement must run. */
-    @Test
-    @DisplayName("an absurd radius is clamped rather than scanning the table")
-    void radiusIsClamped() throws Exception {
-        expectWellFormedPage(feed("move-in")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567")
-                .param("nearRadiusKm", "99999"));
-    }
-
-    /* ─── Sorts ────────────────────────────────────────────────────────────────────────────── */
-
-    /**
-     * An {@code order by} over a {@code UNION ALL} can only name projected columns, and price is a
-     * different expression per branch — so a sort fails on the default page load, not behind a chip.
-     */
-    @Test
-    @DisplayName("every sort key produces a runnable order")
-    void everySort() throws Exception {
-        for (String sort : new String[] {"verified", "newest", "budget-low", "budget-high", "match"}) {
-            expectWellFormedPage(feed("move-in").param("sort", sort));
-            expectWellFormedPage(feed("team-up").param("sort", sort));
-        }
-    }
-
-    /** An unknown sort falls back to trust-first rather than 400, for the same reason `tab` does. */
-    @Test
-    @DisplayName("an unrecognised sort falls back instead of failing")
-    void unknownSort() throws Exception {
-        expectWellFormedPage(feed("move-in").param("sort", "price-low"));
-        expectWellFormedPage(feed("move-in").param("sort", ""));
-    }
-
-    /** The only clause built from the searcher rather than the row, all in one {@code order by}. */
-    @Test
-    @DisplayName("best match scores against the searcher's own post")
-    void matchSortWithMe() throws Exception {
-        expectWellFormedPage(feed("team-up")
-                .param("sort", "match")
-                .param("meLocalities", "Baner", "Wakad")
-                .param("meBudget", "16000")
-                .param("meGender", "female"));
-        expectWellFormedPage(feed("move-in")
-                .param("sort", "match")
-                .param("meLocalities", "Baner")
-                .param("meBudget", "16000")
-                .param("meGender", "male"));
-        // Each scoring term alone, since each appends its own fragment.
-        expectWellFormedPage(feed("move-in").param("sort", "match").param("meBudget", "16000"));
-        expectWellFormedPage(feed("move-in").param("sort", "match").param("meGender", "male"));
-        expectWellFormedPage(feed("move-in").param("sort", "match").param("meLocalities", "Baner"));
-    }
-
-    /** The band comparison multiplies it, so 0 overlaps only 0 — and a seeker post really can be 0. */
-    @Test
-    @DisplayName("a zero budget is a number, not an absence")
-    void zeroBudgetScores() throws Exception {
-        expectWellFormedPage(feed("move-in").param("sort", "match").param("meBudget", "0"));
-        expectWellFormedPage(feed("move-in").param("minBudget", "0"));
-    }
-
-    /* ─── Paging ───────────────────────────────────────────────────────────────────────────── */
-
     /**
      * Zero rows means the window functions have no row to read totals off, so they are counted
      * separately; reporting 0 would collapse {@code totalPages} and unmount the pager on page 4.
@@ -338,52 +282,5 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content").isEmpty())
                 .andExpect(jsonPath("$.totalElements").value((int) whole));
-    }
-
-    @Test
-    @DisplayName("an explicit page size is honoured on both tabs")
-    void explicitPageSize() throws Exception {
-        expectWellFormedPage(feed("move-in").param("page", "0").param("size", "5"));
-        expectWellFormedPage(feed("team-up").param("page", "1").param("size", "5"));
-    }
-
-    /* ─── Everything at once ───────────────────────────────────────────────────────────────── */
-
-    /**
-     * The single-facet cases prove each fragment parses; this proves they compose without two of
-     * them binding the same parameter name to different values.
-     */
-    @Test
-    @DisplayName("every facet at once is still one valid statement")
-    void everyFacetTogether() throws Exception {
-        expectWellFormedPage(feed("move-in")
-                .param("q", "baner")
-                .param("locality", "Baner")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567").param("nearRadiusKm", "5")
-                .param("minBudget", "8000").param("maxBudget", "25000")
-                .param("gender", "female")
-                .param("verifiedOnly", "true")
-                .param("moveInDays", "30")
-                .param("habits", "Non-smoker", "Vegetarian")
-                .param("attachedBath", "attached")
-                .param("sharing", "3")
-                .param("sort", "match")
-                .param("meLocalities", "Baner", "Wakad")
-                .param("meBudget", "16000")
-                .param("meGender", "female")
-                .param("page", "0").param("size", "12"));
-
-        expectWellFormedPage(feed("team-up")
-                .param("q", "baner")
-                .param("locality", "Baner")
-                .param("nearLat", "18.5204").param("nearLng", "73.8567").param("nearRadiusKm", "5")
-                .param("minBudget", "8000").param("maxBudget", "25000")
-                .param("gender", "male")
-                .param("verifiedOnly", "true")
-                .param("moveInDays", "30")
-                .param("habits", "Non-smoker")
-                .param("sharing", "2")
-                .param("sort", "budget-low")
-                .param("page", "0").param("size", "12"));
     }
 }

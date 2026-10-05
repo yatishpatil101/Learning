@@ -16,11 +16,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Either the existence check or {@code uq_flatmate_requests_target_requester} may refuse the loser,
  *  and both must answer the same 409. Commits, so it cannot extend {@code AbstractApiTest}. */
 @SpringBootTest
+@AutoConfigureMockMvc
 @DisplayName("Two interests in the same post, sent together")
 class FlatmateDuplicateInterestRaceTest {
 

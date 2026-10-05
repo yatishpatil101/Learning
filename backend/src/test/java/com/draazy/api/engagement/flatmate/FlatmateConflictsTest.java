@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.draazy.api.common.error.ConflictException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The 409 sub-code marker is the <em>last</em> thing in the message, for both sub-codes.
@@ -46,30 +50,27 @@ class FlatmateConflictsTest {
         return hit.find() ? hit.group(1) : null;
     }
 
-    @Test
-    @DisplayName("a repeat ask ends with (already_interested) and the client can read it")
-    void alreadyInterestedMarkerIsLast() {
-        ConflictException refusal = FlatmateConflicts.alreadyInterested(
-                "You have already sent this host a request — your earlier message is with them.");
-
-        assertThat(refusal.getMessage())
-                .as("the client anchors on the end of the string, so nothing may follow the marker")
-                .endsWith("(" + FlatmateConflicts.ALREADY_INTERESTED + ")");
-        assertThat(subCodeAsClientSeesIt(refusal))
-                .as("the marker has to survive the client's own pattern, not just an endsWith")
-                .isEqualTo(FlatmateConflicts.ALREADY_INTERESTED);
+    private static Stream<Arguments> refusals() {
+        return Stream.of(
+                Arguments.of("already_interested",
+                        FlatmateConflicts.alreadyInterested("You have already sent this host a request"
+                                + " — your earlier message is with them."),
+                        FlatmateConflicts.ALREADY_INTERESTED),
+                // The one the board reacts to; before D182 nothing pinned it.
+                Arguments.of("group_full", FlatmateConflicts.groupFull("This group is full."),
+                        FlatmateConflicts.GROUP_FULL));
     }
 
-    @Test
-    @DisplayName("a full group ends with (group_full) and the client can read it")
-    void groupFullMarkerIsLast() {
-        ConflictException refusal = FlatmateConflicts.groupFull("This group is full.");
-
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusals")
+    @DisplayName("the marker ends the message and the client can read it")
+    void markerIsLast(String name, ConflictException refusal, String marker) {
         assertThat(refusal.getMessage())
-                .endsWith("(" + FlatmateConflicts.GROUP_FULL + ")");
+                .as("the client anchors on the end of the string, so nothing may follow the marker")
+                .endsWith("(" + marker + ")");
         assertThat(subCodeAsClientSeesIt(refusal))
-                .as("group_full is the one the board reacts to; before D182 nothing pinned it")
-                .isEqualTo(FlatmateConflicts.GROUP_FULL);
+                .as("the marker has to survive the client's own pattern, not just an endsWith")
+                .isEqualTo(marker);
     }
 
     /**
@@ -77,9 +78,13 @@ class FlatmateConflictsTest {
      *
      * <p>The client strips the marker and renders what is left, so a refusal that were nothing but
      * a marker would parse perfectly and say nothing to the person who pressed the button.
+     *
+     * <p>A trailing space in a call site's literal must not open a gap in the middle of the message:
+     * the client's pattern tolerates it only because of its leading {@code \s*}, so the wire form
+     * is pinned rather than left depending on that tolerance.
      */
     @Test
-    @DisplayName("the sentence the caller wrote is still in front of the marker")
+    @DisplayName("the sentence the caller wrote is still in front of the marker, and sloppy spacing is normalised")
     void theProseSurvives() {
         ConflictException refusal = FlatmateConflicts.groupFull("This group is full.");
 
@@ -87,18 +92,6 @@ class FlatmateConflictsTest {
         assertThat(refusal.getMessage().replaceAll("\\s*\\([a-z_]+\\)\\s*$", ""))
                 .as("what the client renders after stripping the routing token")
                 .isEqualTo("This group is full.");
-    }
-
-    /**
-     * A trailing space in a call site's literal does not open a gap in the middle of the message.
-     *
-     * <p>Cheap to get wrong (`"...them. "` reads identically in a diff) and the client's pattern
-     * happens to tolerate it today — but only because of the leading {@code \s*}. Pinning the
-     * normalisation means the wire form does not depend on that tolerance.
-     */
-    @Test
-    @DisplayName("a sloppy trailing space in the prose is normalised away")
-    void proseIsStripped() {
         assertThat(FlatmateConflicts.groupFull("This group is full.   ").getMessage())
                 .isEqualTo("This group is full. (group_full)");
     }

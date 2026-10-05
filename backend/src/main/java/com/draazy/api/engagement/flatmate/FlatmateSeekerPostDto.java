@@ -8,6 +8,7 @@ import java.util.UUID;
  * the contract declares {@code security: []} — a number there would be published to the internet. */
 public record FlatmateSeekerPostDto(
         UUID id,
+        String title,
         String name,
         String gender,
         Integer age,

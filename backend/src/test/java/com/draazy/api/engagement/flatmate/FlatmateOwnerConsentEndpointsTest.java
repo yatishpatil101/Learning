@@ -1,10 +1,12 @@
 package com.draazy.api.engagement.flatmate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -23,8 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-// Consent is a fact about two people, not about one post, so it is granted before the group exists
-// and read back at submit time. ownerConsent is never client-settable.
 @DisplayName("Flatmates — owner consent, granted before the group exists")
 class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
 
@@ -76,6 +76,7 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
                             """.formatted(ownerMobile, title, locality)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.consentRecorded").value(false))
+
                 // Owner consent spends the same send budget as login, so the resend gap is the
                 // server's to state, not the client's to assume.
                 .andExpect(jsonPath("$.resendAfterSeconds").exists());
@@ -101,7 +102,7 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
                                 """.formatted(ownerMobile, title, locality)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.consentRecorded").value(true))
-                // Nothing left to resend once consent is stored, so the field is omitted.
+
                 .andExpect(jsonPath("$.resendAfterSeconds").doesNotExist());
     }
 
@@ -124,7 +125,6 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         User tenant = user("9830000401", "Tenant");
         sendAndForceCode(tenant, "9830000402");
 
-        // The code is scoped to its own purpose: it can never be presented at /auth/login.
         String purpose = jdbc.queryForObject(
                 "select purpose from otp_codes where mobile = '9830000402'", String.class);
         assertThat(purpose).startsWith("owner-consent:");
@@ -145,8 +145,6 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         sendAndForceCode(tenant, "9830000404");
         record(tenant, "9830000404", "Replacement flatmate", "Baner");
 
-        // The modal asks while the form is open, so the group cannot be named yet: the title and
-        // locality below must be the pair the consent row was keyed under.
         mvc.perform(post(Routes.Flatmates.GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -254,7 +252,6 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         sendAndForceCode(tenant, "9830000414", "Late consent", "Baner");
         record(tenant, "9830000414", "Late consent", "Baner");
 
-        // Scoped to the address the consent was taken under, so it lands on that post and no other.
         Integer consented = jdbc.queryForObject("""
                 select count(*) from flatmate_groups
                  where host_id = ?::uuid and owner_consent = true""",
@@ -263,16 +260,73 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("consent granted through an existing group is visible in my groups")
+    void groupScopedConsentShowsInMyGroups() throws Exception {
+        User tenant = user("9830000417", "Scoped");
+        String ownerMobile = "9830000418";
+        usedMobiles.add(ownerMobile);
+
+        String groupJson = mvc.perform(post(Routes.Flatmates.GROUPS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Scoped consent","locality":"Baner","rent":40000,
+                                 "name":"Scoped","role":"tenant","consentMobile":"9830000418"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.ownerConsent").value(false))
+                .andReturn().getResponse().getContentAsString();
+        String groupId = JsonPath.read(groupJson, "$.id");
+
+        mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerMobile\":\"9830000418\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.consentRecorded").value(false));
+
+        assertThat(jdbc.queryForObject(
+                "select purpose from otp_codes where mobile = ?", String.class, ownerMobile))
+                .startsWith("owner-consent:");
+        assertThat(jdbc.queryForObject(
+                "select owner_consent from flatmate_groups where id = ?::uuid",
+                Boolean.class, groupId)).isFalse();
+
+        em.flush();
+        jdbc.update("""
+                UPDATE otp_codes SET code_hash = ?
+                WHERE id = (SELECT id FROM otp_codes WHERE mobile = ?
+                            ORDER BY created_at DESC LIMIT 1)""",
+                sha256Hex("424242"), ownerMobile);
+        em.clear();
+
+        mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerMobile\":\"9830000418\",\"otp\":\"424242\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.consentRecorded").value(true));
+
+        String myGroups = mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Boolean> consentFlags = JsonPath.read(myGroups,
+                "$.content[?(@.id == '" + groupId + "')].ownerConsent");
+        assertThat(consentFlags).containsExactly(true);
+    }
+
+    @Test
     @DisplayName("a tenant cannot consent on their own behalf")
     void selfConsentIsRefused() throws Exception {
         User tenant = user("9830000409", "SelfServer");
 
-        // Self-consent would make the record worthless, and it is the shortcut somebody would try.
         mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ownerMobile\":\"9830000409\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("owner_consent_self"));
     }
 
     @Test

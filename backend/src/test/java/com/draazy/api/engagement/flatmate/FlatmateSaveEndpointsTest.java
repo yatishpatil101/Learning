@@ -24,20 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * {@code /me/flatmate-saves} — the flatmate shortlist, which until now had no server at all.
- *
- * <p>It lived in {@code draazyFlatmateSaved}: a localStorage map holding both the keys and a copy
- * of each card's title, price and photo, taken at save time. Two consequences this class exists to
- * close. A save belonged to a <em>browser</em>, so shortlisting a room on a phone left the laptop
- * showing an empty Saved page — and the copied card never refreshed, so a room whose rent changed
- * went on advertising the old number from inside the user's own shortlist.
- *
- * <p>The tests below are therefore about three things and not about bookmarking as such: that a save
- * is scoped to the <em>person</em>, that the card is rebuilt on read rather than stored, and that a
- * key pointing at nothing cannot be created (there is no FK to catch it — {@code post_id} may name
- * any of three tables).
- */
+// Server-side saves close the device-local shortlist gap and keep cards fresh
+// when rooms, groups or seeker posts change after the heart was tapped.
 @DisplayName("Flatmates — the shortlist, and what it is allowed to point at")
 class FlatmateSaveEndpointsTest extends AbstractApiTest {
 
@@ -74,7 +62,7 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"Baner","society":"%s","rentShare":15000,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
-                 "foodPref":"any","photos":["https://cdn.example/1.jpg"]}
+                 "foodPref":"any","hostRole":"owner","photos":["https://cdn.example/1.jpg"]}
                 """.formatted(society);
         String json = mvc.perform(post(Routes.Flatmates.ROOMS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
@@ -133,9 +121,8 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isNoContent());
 
-            /* The whole reason the shortlist moved off the device: the row that comes back is the
-               same projection the feed renders, joined now, not a copy taken when the heart was
-               tapped. A stored card could not carry `society` correctly the day the host edited it. */
+            // The shortlist returns the live feed projection, not the stale card copied
+            // when the heart was tapped.
             mvc.perform(get(Routes.Engagement.FLATMATE_SAVES)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isOk())
@@ -163,9 +150,8 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
                         .andExpect(status().isNoContent());
             }
 
-            /* Newest first, so the post saved last leads. Asserted because the alternative — insert
-               order, or whatever the planner felt like — is what makes a shortlist reshuffle itself
-               between visits for no reason the user can see. */
+            // Newest-first is user-visible; leaving this to planner order makes a shortlist
+            // reshuffle between visits for no visible reason.
             mvc.perform(get(Routes.Engagement.FLATMATE_SAVES)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isOk())
@@ -199,9 +185,8 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
         void unknownTargetIs404() throws Exception {
             User seeker = user("9840000007", "Seeker");
 
-            /* There is no foreign key to catch this — `post_id` may name any of three tables, and
-               Postgres has no polymorphic reference. Without the service's existence check a typo
-               would be stored happily and reappear forever as a row that renders nothing. */
+            // `post_id` may name any of three tables, so there is no foreign key to stop
+            // a typo from becoming a forever-empty saved row.
             mvc.perform(put(saveUrl("room", UUID.randomUUID().toString()))
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isNotFound());
@@ -289,9 +274,8 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isNoContent());
 
-            /* A withdrawn room is gone rather than rendered as an empty card — the same contract
-               `SavedPropertyService` states for a hard-deleted property, and for the same reason: a
-               page with holes in it is worse than a page that is one row shorter. */
+            // A withdrawn room disappears instead of rendering as an empty card:
+            // one row shorter beats a page with holes.
             mvc.perform(get(Routes.Engagement.FLATMATE_SAVES)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
                     .andExpect(status().isOk())

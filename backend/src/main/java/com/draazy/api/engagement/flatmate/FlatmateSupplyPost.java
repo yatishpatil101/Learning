@@ -13,4 +13,6 @@ interface FlatmateSupplyPost {
     void setFlagForReview(boolean flagForReview);
 
     ModerationRecheck getRecheck();
+
+    FlatmateExpiry getExpiry();
 }

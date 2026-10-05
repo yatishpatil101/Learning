@@ -24,18 +24,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Flat splits, owner consent and group applications — the last of the flatmates surface.
- *
- * <p>{@link Splitting} is the interesting half. A split is the one place where supply is created
- * from a listing rather than from a form, so it is where the badge could most plausibly leak: the
- * owner is acting on something they demonstrably own, which feels like it should confer trust. It
- * does not, and {@link Splitting#roomsInheritThePendingParentsLackOfBadge} is the test that says so.
- */
 @DisplayName("Flatmates — splits, owner consent and group applications")
 class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
 
@@ -66,13 +60,34 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
         return saved;
     }
 
-    /** A rent listing owned by {@code owner}, approved or not. */
     private Property listing(User owner, String status, int bhk) {
         Property p = new Property(owner, "Flat in Baner", "rent", "apartment",
                 45000L, "Baner", "Pune");
         p.setBhk(BigDecimal.valueOf(bhk));
         p.setStatus(status);
         return properties.saveAndFlush(p);
+    }
+
+    private String moveInFeed() throws Exception {
+        return mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in")
+                        .param("locality", "Baner").param("size", "50"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private void tickChecklist(Property listing, User staff) throws Exception {
+        String opened = mvc.perform(post("/properties/{id}/verification/start", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> items = com.jayway.jsonpath.JsonPath.read(opened, "$.checklist[*].item");
+        for (String item : items) {
+            mvc.perform(patch("/properties/{id}/verification/checklist", listing.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"item\":\"" + item + "\",\"pass\":true}"))
+                    .andExpect(status().isOk());
+        }
     }
 
     private static String splitBody(int maxOccupants, String... kinds) {
@@ -105,11 +120,10 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.tier").value("owner"))
                     .andExpect(jsonPath("$.pending").value(false))
                     .andExpect(jsonPath("$.rooms[0].verified").value(true))
-                    // A master bedroom's private bathroom is implied, never asked twice.
+
                     .andExpect(jsonPath("$.rooms[0].attachedBath").value("attached"))
                     .andExpect(jsonPath("$.rooms[1].attachedBath").value("shared"))
-                    // Per ROOM, not per person -- the distinction that stops a shared bed
-                    // looking pricier than a private room.
+
                     .andExpect(jsonPath("$.rooms[0].priceBasis").value("room"));
         }
 
@@ -119,8 +133,6 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
             User owner = user("9830000002", "Hopeful");
             Property flat = listing(owner, PropertyStatus.PENDING, 2);
 
-            // Splitting is an act the owner performs on their own listing. It proves nothing that
-            // was not already proven about the parent, so it grants nothing.
             mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -131,43 +143,36 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.rooms[0].verified").value(false));
         }
 
-        /**
-         * {@code GET /properties/{id}/rooms} was declared in the contract from the start and served
-         * by nothing — the one spec/controller drift in the whole API. A client generated from the
-         * document got a 404 from an operation the document promised, and {@code SpecCoverageTest}
-         * could not see it: that test asserts served ⊆ declared, which is silent in this direction.
-         *
-         * <p>Anonymity is asserted rather than assumed. This is an unauthenticated read on a route
-         * whose sibling POST is owner-only, so the interesting question is not whether it returns
-         * rooms but what it returns with them.
-         *
-         * <p><strong>The result is narrower than it was (D210).</strong> It used to return every
-         * non-archived room of the flat, moderated or not — this endpoint was the one public room
-         * read that skipped the queue, and it carried {@code modStatus} so a stranger could read
-         * the verdict too. The two tests below pin the new behaviour from both sides: an
-         * un-cleared room is absent, and a cleared one is present without the verdict. They are a
-         * pair on purpose — either alone passes trivially if the filter is wrong in the other
-         * direction.
-         */
+        // `SpecCoverageTest` only proves served routes are declared; this route was declared but absent.
+        // The unauthenticated read must return rooms without leaking sibling owner-only data.
         @Test
-        @DisplayName("a room Ops has not cleared is absent from the public list")
-        void unclearedRoomsAreNotPublished() throws Exception {
-            User owner = user("9830000009", "Splitter");
-            Property flat = listing(owner, PropertyStatus.APPROVED, 2);
+        @DisplayName("approving the flat later promotes its split rooms to owner-tier (D287)")
+        void approvalPromotesRoomsSplitWhilePending() throws Exception {
+            User owner = user("9830000012", "Patient");
+            User admin = user("9830000013", "Checker", Roles.Wire.ADMIN);
+            Property flat = listing(owner, PropertyStatus.PENDING, 2);
+            flat.setLocalitySlug("baner");
+            properties.saveAndFlush(flat);
 
-            // Splitting an already-approved flat still produces rooms that are themselves pending:
-            // the parent's approval says the flat exists, not that these two rooms are advertised
-            // honestly. They are visible to their host and to Ops, and to nobody else.
             mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(splitBody(4, "master", "bedroom")))
+                            .content(splitBody(3, "bedroom", "living")))
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.rooms.length()").value(2));
+                    .andExpect(jsonPath("$.tier").value("identity"));
 
-            mvc.perform(get(Routes.Properties.ROOMS, flat.getId()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(0));
+            tickChecklist(flat, admin);
+            mvc.perform(patch(Routes.Moderation.PROPERTY_STATUS, flat.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"status\":\"approved\"}"))
+                    .andExpect(status().isOk());
+
+            assertThat(jdbc.queryForList(
+                    "select verification_tier from flatmate_rooms where property_id = ? and not archived",
+                    String.class, flat.getId()))
+                    .hasSize(2)
+                    .containsOnly("owner");
         }
 
         @Test
@@ -184,6 +189,7 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString();
             String firstRoom = com.jayway.jsonpath.JsonPath.read(split, "$.rooms[0].id");
+            String sibling = com.jayway.jsonpath.JsonPath.read(split, "$.rooms[1].id");
 
             mvc.perform(patch(Routes.Moderation.FLATMATE_MODERATION.replace("{id}", firstRoom))
                             .header(HttpHeaders.AUTHORIZATION, bearer(admin))
@@ -191,28 +197,16 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                             .content("{\"modStatus\":\"approved\"}"))
                     .andExpect(status().isOk());
 
-            // Exactly the one Ops cleared — the sibling is still pending and still absent.
-            mvc.perform(get(Routes.Properties.ROOMS, flat.getId()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(1))
-                    .andExpect(jsonPath("$[0].id").value(firstRoom))
-                    .andExpect(jsonPath("$[0].hostMobile").doesNotExist())
-                    // D210 — the card no longer tells a stranger what Ops decided. It could only
-                    // ever say "approved" now that the list is filtered, which is either no
-                    // information or, the day a producer stops filtering, a leaked verdict.
-                    .andExpect(jsonPath("$[0].modStatus").doesNotExist());
-        }
+                    // In a filtered list this can only say "approved"; if filtering regresses,
+                    // it becomes a leaked verdict.
+            String feed = moveInFeed();
+            assertThat(feed).contains(firstRoom).doesNotContain(sibling);
+            String card = "$.content[?(@.id=='" + firstRoom + "')]";
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in")
+                            .param("locality", "Baner").param("size", "50"))
+                    .andExpect(jsonPath(card + ".hostMobile").value(Matchers.empty()))
 
-        /** An unsplit flat has no rooms — an empty list, not a 404. The listing still exists. */
-        @Test
-        @DisplayName("an unsplit flat reports no rooms rather than 404")
-        void unsplitFlatReturnsAnEmptyList() throws Exception {
-            User owner = user("9830000010", "Whole");
-            Property flat = listing(owner, PropertyStatus.APPROVED, 2);
-
-            mvc.perform(get(Routes.Properties.ROOMS, flat.getId()))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(0));
+                    .andExpect(jsonPath(card + ".modStatus").value(Matchers.empty()));
         }
 
         @Test
@@ -259,32 +253,23 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isConflict());
         }
 
-        @Test
-        @DisplayName("a 2 BHK cannot be let as five rooms")
-        void roomCountIsBoundedByBhk() throws Exception {
-            User owner = user("9830000006", "Optimist");
+        @ParameterizedTest(name = "{0}")
+        @CsvSource({
+                "rooms beyond the BHK allowance, 9830000006, 6, master|bedroom|living|bedroom",
+                "occupancy cap above three a room, 9830000007, 9, bedroom|master"})
+        @DisplayName("an oversized split is refused")
+        void splitIsBounded(String label, String mobile, int maxOccupants, String kinds)
+                throws Exception {
+            User owner = user(mobile, "Optimist");
             Property flat = listing(owner, PropertyStatus.APPROVED, 2);
 
-            // Lettable rooms = bedrooms + hall, so a 2 BHK tops out at three. 422 rather than
-            // 400: the contract declares only 403/409/422 for this operation.
+            // Lettable rooms = bedrooms + hall, so a 2 BHK tops out at three; the flat cap sits
+            // between one and three people per room. 422 rather than 400: the contract declares
+            // only 403/409/422 for this operation.
             mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(splitBody(6, "master", "bedroom", "living", "bedroom")))
-                    .andExpect(status().isUnprocessableEntity());
-        }
-
-        @Test
-        @DisplayName("the flat cap must sit between one and three people per room")
-        void occupancyCapIsBounded() throws Exception {
-            User owner = user("9830000007", "Crowded");
-            Property flat = listing(owner, PropertyStatus.APPROVED, 2);
-
-            // Two rooms means a cap of at most six, whatever the owner claims.
-            mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
-                            .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(splitBody(9, "bedroom", "master")))
+                            .content(splitBody(maxOccupants, kinds.split("\\|"))))
                     .andExpect(status().isUnprocessableEntity());
         }
 
@@ -311,7 +296,6 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.occupants").value(2));
 
-            // Deleting the rooms would erase a live tenancy.
             mvc.perform(delete(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                     .andExpect(status().isConflict());
@@ -380,31 +364,6 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
     class OwnerConsent {
 
         @Test
-        @DisplayName("the first call sends a code; the second records the consent")
-        void twoStepFlow() throws Exception {
-            User tenant = user("9830000020", "Tenant", Roles.Wire.BUYER);
-            String groupId = createGroup(tenant);
-
-            mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"ownerMobile\":\"9830000021\"}"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.consentRecorded").value(false));
-
-            // The code is scoped to its own purpose: it can never be presented at /auth/login.
-            // The `:<address>` suffix (V32) narrows it further, to the one flat it was asked about.
-            String purpose = jdbc.queryForObject(
-                    "select purpose from otp_codes where mobile = '9830000021'", String.class);
-            assertThat(purpose).startsWith("owner-consent:");
-
-            Boolean consented = jdbc.queryForObject(
-                    "select owner_consent from flatmate_groups where id = ?::uuid",
-                    Boolean.class, groupId);
-            assertThat(consented).isFalse();
-        }
-
-        @Test
         @DisplayName("a wrong code records nothing")
         void wrongCodeIsRefused() throws Exception {
             User tenant = user("9830000022", "Tenant2", Roles.Wire.BUYER);
@@ -426,21 +385,6 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     "select owner_consent from flatmate_groups where id = ?::uuid",
                     Boolean.class, groupId);
             assertThat(consented).isFalse();
-        }
-
-        @Test
-        @DisplayName("a tenant cannot consent on their own behalf")
-        void selfConsentIsRefused() throws Exception {
-            User tenant = user("9830000024", "SelfServer", Roles.Wire.BUYER);
-            String groupId = createGroup(tenant);
-
-            // Self-consent would make the record worthless, and it is the one shortcut
-            // somebody would certainly try.
-            mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"ownerMobile\":\"9830000024\"}"))
-                    .andExpect(status().isBadRequest());
         }
 
         @Test
@@ -517,7 +461,7 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
                     .andExpect(jsonPath("$.content[0].groupTitle").value("Four of us"))
                     .andExpect(jsonPath("$.content[0].rent").value(45000))
-                    // Derived on read, so it can never disagree with the listing's rent.
+
                     .andExpect(jsonPath("$.content[0].perHead").value(45000 / 4))
                     .andExpect(jsonPath("$.content[0].status").value("pending"));
 
@@ -527,6 +471,7 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
                             .content("{\"modStatus\":\"removed\",\"note\":\"spam\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.modStatus").value("removed"))
+
                     // "We took this down" and "the owner said no" are different facts, and
                     // only one of them is true.
                     .andExpect(jsonPath("$.status").value("pending"));

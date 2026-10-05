@@ -15,8 +15,6 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** A person looking for flatmates who has no address yet — the {@code team-up} feed (V27). One live
- * post per identity, enforced by a partial unique index; archiving frees the slot. */
 @Entity
 @Table(name = "flatmate_seeker_posts")
 @Getter
@@ -36,6 +34,10 @@ public class FlatmateSeekerPost extends AuditedEntity {
     @Column(name = "age")
     @Setter
     private Integer age;
+
+    @Column(name = "title")
+    @Setter
+    private String title;
 
     @Column(name = "occupation")
     @Setter
@@ -84,7 +86,7 @@ public class FlatmateSeekerPost extends AuditedEntity {
     @Setter
     private String note;
 
-    /** The seeker's half of ADR-019: only badged callers may express interest. Opt-in, never default. */
+    /** Only badged callers may express interest. Opt-in, never default. */
     @Column(name = "verified_contact_only", nullable = false)
     @Setter
     private boolean verifiedContactOnly = false;
@@ -101,6 +103,9 @@ public class FlatmateSeekerPost extends AuditedEntity {
 
     @Embedded
     private ModerationRecheck recheck = new ModerationRecheck();
+
+    @Embedded
+    private FlatmateExpiry expiry = new FlatmateExpiry();
 
     @Column(name = "lat")
     @Setter
@@ -136,7 +141,6 @@ public class FlatmateSeekerPost extends AuditedEntity {
         this.archiveReason = reason;
     }
 
-    /** Visible on a consumer surface: neither archived nor awaiting/denied by a moderator. */
     public boolean isVisible() {
         return !archived && FlatmateVocabulary.isPublic(modStatus);
     }

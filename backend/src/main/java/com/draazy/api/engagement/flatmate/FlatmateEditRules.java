@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
-/** Classify-only twin of {@code catalog.listing.ListingEditRules}: it must run <em>before</em>
+/** Classify-only twin of {@code catalog.listing.ListingEditRules}: it must run before
  * {@code mapper.applyTo}, or the stored values it compares against are gone. */
 @Component
 class FlatmateEditRules {
@@ -19,13 +19,11 @@ class FlatmateEditRules {
     static final Map<Class<?>, Set<String>> SILENT = Map.of(
             FlatmateRoomCreateRequest.class,
             Set.of("attachedBath", "lookingFor", "foodPref", "hostRole", "propertyId",
-                    "agreementDeclared", "agreementDoc", "agreementRegNo",
-                    "agreementRegisteredOn", "agreementValidTill", "ownerConsentMobile",
-                    "occupants", "maxOccupants"),
+                    "agreementDeclared", "agreementDoc", "ownerConsentMobile", "ownerConsent",
+                    "occupants", "maxOccupants", "gatedCommunity", "details"),
             FlatmateGroupCreateRequest.class,
             Set.of("policy", "seatsOpen", "name", "role", "propertyId", "agreement",
-                    "agreementDoc", "agreementRegNo", "agreementRegisteredOn",
-                    "agreementValidTill"),
+                    "agreementDoc"),
             FlatmateSeekerPostCreateRequest.class,
             Set.of("gender", "age", "flatPref", "roomPref", "verifiedContactOnly"));
 
@@ -35,26 +33,24 @@ class FlatmateEditRules {
         boolean remoderationRequired = false;
         List<String> rechecked = new ArrayList<>();
 
-        // ── Foundation, OFF BOARD ──────────────────────────────────────────────────────────────
         if (!same(room.getLocality(), in.locality())) {
             remoderationRequired = true;
         }
+
         // A single room that became a whole flat, or a 2BHK that became a 4BHK, answers filters it
         // was never checked for — and both are how a broker relabels a room into a better slot.
         if (!same(room.getRoomType(), in.roomType()) || !same(room.getBhk(), in.bhk())) {
             remoderationRequired = true;
         }
 
-        // ── Foundation, STAYS LIVE ─────────────────────────────────────────────────────────────
-        /* The address is what the guardrail fingerprints. The society *reference* counts too:
-           `societyReference.require` proves the id names *a* society, not this host's. */
+        /** The address is what the guardrail fingerprints. The society *reference* counts too:
+         * `societyReference.require` proves the id names *a* society, not this host's. */
         if (!same(room.getSociety(), in.society())
                 || !same(room.getFlatNumber(), in.flatNumber())
                 || !Objects.equals(room.getSocietyId(), Ids.parseUuid(in.societyId()).orElse(null))) {
             rechecked.add("address");
         }
-        /* The pin says where the flat is as loudly as the label does, and a moved pin still reads as
-           unchanged to anyone checking the locality text. */
+
         if (!Objects.equals(room.getLat(), in.lat()) || !Objects.equals(room.getLng(), in.lng())) {
             rechecked.add("map pin");
         }
@@ -64,14 +60,16 @@ class FlatmateEditRules {
         if (!same(room.getFurnishing(), in.furnishing())) {
             rechecked.add("furnishing");
         }
-        /* Not foundation, because nothing filters on it — but it is the card's headline claim about
-           what the building is, so a flat relabelled a villa is the BHK relabel minus the filter. */
+
+        /** Not foundation, because nothing filters on it — but it is the card's headline claim about
+         * what the building is, so a flat relabelled a villa is the BHK relabel minus the filter. */
         if (!same(room.getHomeTypeLabel(), in.homeTypeLabel())) {
             rechecked.add("home type");
         }
         if (!Objects.equals(room.getAvailableFrom(), in.availableFrom())) {
             rechecked.add("availability");
         }
+
         // Photos and prose are the evidence the moderator approved against, so swapping them
         // re-sells that approval — the exact bait-and-switch this class exists to stop.
         if (!sameList(room.getPhotos(), in.photos())) {
@@ -80,8 +78,12 @@ class FlatmateEditRules {
         if (!same(room.getNote(), in.note())) {
             rechecked.add("note");
         }
-        /* These read like facets because the wizard offers chips, but the *endpoint* takes `@Size`
-           strings checked against no vocabulary and renders them on the anonymous feed. */
+        if (!same(room.getTitle(), in.title())) {
+            rechecked.add("title");
+        }
+
+        /** These read like facets because the wizard offers chips, but the *endpoint* takes `@Size`
+         * strings checked against no vocabulary and renders them on the anonymous feed. */
         if (!same(room.getFacing(), in.facing())
                 || !same(room.getOverlooking(), in.overlooking())) {
             rechecked.add("details");
@@ -89,6 +91,7 @@ class FlatmateEditRules {
         if (!sameList(room.getTags(), in.lifestyle())) {
             rechecked.add("lifestyle");
         }
+
         // Deposit and terms are the other half of the ask: watching `rentShare` alone would leave a
         // host free to move the money, or to add a lock-in, without tripping anything.
         if (!Objects.equals(room.getDeposit(), in.deposit())
@@ -103,53 +106,53 @@ class FlatmateEditRules {
         return impact(remoderationRequired, rechecked);
     }
 
-    /** {@code locality} and {@code seats} arrive already resolved — the edit path defaults a blank
-     * locality and {@code FlatmateMapper.seatsOrTwo} defaults the seats; re-deriving would drift. */
     FlatmateEditImpact classify(FlatmateGroup group, FlatmateGroupCreateRequest in, String locality,
             int seats) {
         boolean remoderationRequired = false;
         List<String> rechecked = new ArrayList<>();
+        FlatmateGroupPreferences wanted = in.hunting() ? in.preferences().normalised() : null;
 
-        // ── Foundation, OFF BOARD ──────────────────────────────────────────────────────────────
-        if (!same(group.getLocality(), locality)) {
+        if (group.isHunting() != in.hunting()
+                || (!in.hunting() && !same(group.getLocality(), locality))) {
             remoderationRequired = true;
         }
 
-        // ── Foundation, STAYS LIVE ─────────────────────────────────────────────────────────────
         if (!same(group.getTitle(), in.title())) {
             rechecked.add("title");
         }
-        if (!Objects.equals(group.getRent(), in.rent())) {
+        if (!Objects.equals(group.getRent(), wanted == null ? in.rent() : wanted.rentMax())) {
             rechecked.add("rent");
         }
-        // The rest of the ask, for the reason a room's is re-checked: the deposit and the billing
-        // split move real money without touching the rent the card advertises.
-        if (!Objects.equals(group.getDeposit(), in.deposit())
+        if (wanted != null && !wanted.equals(group.getPreferences())) {
+            rechecked.add("preferences");
+        }
+
+        if (wanted == null && (!Objects.equals(group.getDeposit(), in.deposit())
                 || !Objects.equals(group.getNoticePeriodDays(), in.noticePeriodDays())
                 || !Objects.equals(group.getLockInMonths(), in.lockInMonths())
                 || !same(group.getMaintenanceBilling(), in.maintenanceBilling())
-                || !same(group.getElectricityBilling(), in.electricityBilling())) {
+                || !same(group.getElectricityBilling(), in.electricityBilling()))) {
             rechecked.add("deposit");
         }
         if (!same(group.getNote(), in.note())) {
             rechecked.add("note");
         }
-        // Same unbounded strings as a room's, on the same public card.
+
         if (!sameList(group.getTags(), in.tags())) {
             rechecked.add("lifestyle");
         }
-        /* Seats, because the card advertises `rent / seatsTotal`: halving them halves the per-head
-           price a reader sees without touching `rent`. */
+
+        /** Seats, because the card advertises `rent / seatsTotal`: halving them halves the per-head
+         * price a reader sees without touching `rent`. */
         if (group.getSeatsTotal() != seats) {
             rechecked.add("seats");
         }
-        /* Normalised because the column is ten digits while `@IndianMobile` also accepts
-           `+91 98210 00123`; comparing raw would re-file a work item on every save. */
-        if (!same(group.getOwnerConsentMobile(), MobileMask.normalise(in.consentMobile()))) {
+
+        if (wanted == null
+                && !same(group.getOwnerConsentMobile(), MobileMask.normalise(in.consentMobile()))) {
             rechecked.add("owner consent");
         }
 
-        // Everything else is silent, and named in SILENT.
         return impact(remoderationRequired, rechecked);
     }
 
@@ -158,7 +161,6 @@ class FlatmateEditRules {
     FlatmateEditImpact classify(FlatmateSeekerPost post, FlatmateSeekerPostCreateRequest in) {
         List<String> rechecked = new ArrayList<>();
 
-        // ── Foundation, STAYS LIVE ─────────────────────────────────────────────────────────────
         if (!same(post.getName(), in.name())) {
             rechecked.add("name");
         }
@@ -168,23 +170,25 @@ class FlatmateEditRules {
         if (!same(post.getNote(), in.note())) {
             rechecked.add("note");
         }
+        if (!same(post.getTitle(), in.title())) {
+            rechecked.add("title");
+        }
         if (!Objects.equals(post.getBudget(), in.budget())
                 || !Objects.equals(post.getBudgetMax(), in.budgetMax())) {
             rechecked.add("budget");
         }
-        /* Cleaned on the incoming side for the same reason `same` trims: `FlatmateSeekerService.clean`
-           runs on the way to the column, so one stray duplicate would look like an edit. */
+
+        /** Cleaned on the incoming side for the same reason `same` trims: `FlatmateSeekerService.clean`
+         * runs on the way to the column, so one stray duplicate would look like an edit. */
         if (!sameList(post.getLocalities(), FlatmateSeekerService.clean(in.localities()))) {
             rechecked.add("localities");
         }
-        // Unbounded strings again: `tags` is 20 × 40 characters against no vocabulary and `moveIn`
-        // is a 40-character free string. Both are rendered to readers.
+
         if (!sameList(post.getTags(), FlatmateSeekerService.clean(in.tags()))
                 || !same(post.getMoveIn(), in.moveIn())) {
             rechecked.add("details");
         }
 
-        // Everything else is silent, and named in SILENT.
         return impact(false, rechecked);
     }
 
@@ -192,6 +196,7 @@ class FlatmateEditRules {
         if (!remoderationRequired && rechecked.isEmpty()) {
             return FlatmateEditImpact.SILENT;
         }
+
         // A full re-moderation supersedes a re-check, so the two flags are never both true.
         return new FlatmateEditImpact(remoderationRequired,
                 !remoderationRequired, List.copyOf(rechecked));

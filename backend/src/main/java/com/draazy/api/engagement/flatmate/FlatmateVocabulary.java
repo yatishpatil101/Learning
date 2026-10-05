@@ -3,8 +3,6 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.error.BadRequestException;
 import java.util.Set;
 
-/** The closed vocabularies of the flatmate domain. Each is also a V27 {@code CHECK} — the constraint
- * is the guarantee, this class is the message. Why: docs/system/data-model.md. */
 public final class FlatmateVocabulary {
 
     private FlatmateVocabulary() {
@@ -13,27 +11,23 @@ public final class FlatmateVocabulary {
     /** Who a seeker or host will share with. {@code any} is a stated openness, not an absence. */
     public static final Set<String> GENDER = Set.of("any", "male", "female");
 
-    /** Dietary preference. Note {@code nonveg}, one word — the schema spells it without a hyphen. */
     public static final Set<String> FOOD = Set.of("any", "veg", "nonveg");
 
-    /** Who a seeker wants in the flat as a whole, as opposed to in their own room. */
     public static final Set<String> FLAT_PREF = Set.of("any", "women", "men");
 
-    /** Whether the seeker wants a room to themselves. */
     public static final Set<String> ROOM_PREF = Set.of("any", "private", "shared");
 
     /** A group's join policy. {@code any} means open-join — requests auto-accept. */
     public static final Set<String> POLICY = Set.of("any", "women", "men");
 
-    /** What the room physically is. Drives the derived attached-bathroom answer. */
     public static final Set<String> ROOM_KIND = Set.of("master", "bedroom", "living");
 
-    /** Private or shared occupancy of the room itself. Contract spells these with a capital and a space. */
     public static final Set<String> ROOM_TYPE = Set.of("Private room", "Shared room");
+
+    static final String ROOM_DOUBLE = "Shared room";
 
     public static final Set<String> ATTACHED_BATH = Set.of("attached", "shared");
 
-    /** Whether {@code budget} is per room or per person. Getting this wrong misprices every card. */
     public static final Set<String> PRICE_BASIS = Set.of("room", "person");
 
     public static final Set<String> FURNISHING = Set.of("unfurnished", "semi", "furnished");
@@ -62,14 +56,12 @@ public final class FlatmateVocabulary {
     public static final Set<String> MOD_STATUS =
             Set.of("pending", "live", "approved", "flagged", "removed", "rejected");
 
-    /** A whitelist, deliberately: stated the other way round a newly added sixth state would be
+    /** A whitelist, deliberately: stated the other way round a newly sixth state would be
      * public until someone remembered to hide it. */
     public static final Set<String> MOD_PUBLIC = Set.of("live", "approved");
 
-    /** How many people a requester intends to bring to a per-room-priced room. */
     public static final Set<String> SHARE_INTENT = Set.of("solo", "bring", "match");
 
-    /** Whether a host must approve, or the requester is already in (open-policy group). */
     public static final Set<String> REQUEST_ACTION = Set.of("request", "join");
 
     public static final Set<String> REQUEST_STATUS = Set.of("pending", "accepted", "declined");
@@ -98,6 +90,7 @@ public final class FlatmateVocabulary {
     public static final String TIER_OWNER = "owner";
 
     public static final String ROLE_OWNER = "owner";
+    public static final String ROLE_TENANT = "tenant";
 
     /** Spelled differently from a room's or a post's {@code gender} and translated where they meet —
      * see {@link FlatmateSearchQuery#policy()}. */
@@ -106,12 +99,19 @@ public final class FlatmateVocabulary {
     public static final String POLICY_WOMEN = "women";
     public static final String POLICY_MEN = "men";
     public static final String STATUS_PENDING = "pending";
+    public static final String STATUS_ACCEPTED = "accepted";
     public static final String MOD_LIVE = "live";
+
+    public static final String MOD_APPROVED = "approved";
 
     /** Shares a spelling with {@link #STATUS_PENDING}, not a meaning: that one is about a person. */
     public static final String MOD_PENDING = "pending";
 
-    /** Whether a row in this moderation state may be shown to somebody other than its author. */
+    public static final String MOD_EXPIRED = "expired";
+
+    static final String NO_CONTACT = "must not contain a phone number, email address or messaging link."
+            + " People reach you through Draazy";
+
     public static boolean isPublic(String modStatus) {
         return MOD_PUBLIC.contains(modStatus);
     }
@@ -148,6 +148,7 @@ public final class FlatmateVocabulary {
 
     public static String require(String value, Set<String> allowed, String field) {
         if (!allowed.contains(value)) {
+
             // Lists the vocabulary so a caller who mistyped need not open the contract.
             throw new BadRequestException(
                     "Unknown " + field + ": '" + value + "'. Expected one of "

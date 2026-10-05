@@ -2,6 +2,7 @@ package com.draazy.api.engagement.flatmate;
 
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
+import com.draazy.api.common.error.ErrorCodes;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.RateLimitedException;
@@ -18,8 +19,6 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The flat owner's OTP-confirmed acknowledgement that a sitting tenant may list a replacement. Why
- * its own service, and why the group-less path exists: docs/flows/consumer/flatmates.md §5. */
 @Service
 public class FlatmateOwnerConsentService {
 
@@ -27,7 +26,7 @@ public class FlatmateOwnerConsentService {
     private final FlatmateRoomRepository rooms;
     private final FlatmateGroupRepository groups;
     private final FlatmateGuardrails guardrails;
-    /** Whether the post a consent unblocks lands on the board or back in the review backlog. */
+
     private final FlatmatePublication publication;
     private final UserRepository users;
     private final OtpService otpService;
@@ -63,6 +62,7 @@ public class FlatmateOwnerConsentService {
         if (FlatmateVocabulary.blankToNull(otp) == null) {
             send(caller.userId(), mobile, group.getAddressFingerprint());
             group.setOwnerConsentMobile(mobile);
+
             // Re-derived, not left standing: retargeting the number is a claim about a different
             // person, and a carried-over flag would read as consent B has never given.
             group.setOwnerConsent(has(mobile, caller.userId(), group.getAddressFingerprint()));
@@ -78,8 +78,8 @@ public class FlatmateOwnerConsentService {
         return true;
     }
 
-    /** The group-less twin: the address travels with the request (V30 scopes the row to a flat) and is
-     * settled <em>before</em> the send, so an unfingerprintable address costs no SMS and no cooldown. */
+    /** The group-less twin: the address travels with the request ( scopes the row to a flat) and is
+     * settled before the send, so an unfingerprintable address costs no SMS and no cooldown. */
     @Transactional(noRollbackFor = {OtpSender.DeliveryFailedException.class,
             UnauthorizedException.class, RateLimitedException.class})
     public boolean ownerConsent(AuthPrincipal caller, String title, String society, String locality,
@@ -139,7 +139,7 @@ public class FlatmateOwnerConsentService {
         User self = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
         if (mobile.equals(self.getMobile())) {
-            throw new BadRequestException(
+            throw new BadRequestException(ErrorCodes.OWNER_CONSENT_SELF,
                     "That is your own number. Consent has to come from the flat's owner.");
         }
         return mobile;

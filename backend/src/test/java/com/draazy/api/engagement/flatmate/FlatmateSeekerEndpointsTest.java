@@ -15,6 +15,7 @@ import com.draazy.api.security.Roles;
 import com.draazy.api.support.AbstractApiTest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,8 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-// Contact moves the opposite way here to everywhere else: the anonymous feed carries none at all,
-// expressing interest releases the requester's own number to the host, and nothing flows back.
 @DisplayName("Flatmates — seeker posts, and the contact that moves across them")
 class FlatmateSeekerEndpointsTest extends AbstractApiTest {
 
@@ -91,11 +90,10 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             User author = user("9810000001", "Anita");
             createPost(author, "Anita", "Baner");
 
-            // No Authorization header at all: this is the anonymous surface.
-            mvc.perform(get(Routes.Flatmates.POSTS).param("locality", "Baner"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up").param("locality", "Baner"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].name").value("Anita"))
-                    // Absent, not masked.
+
                     .andExpect(jsonPath("$.content[0].mobile").doesNotExist());
         }
 
@@ -105,11 +103,11 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             User author = user("9810000002", "Bhavna");
             createPost(author, "Bhavna", "Kothrud");
 
-            mvc.perform(get(Routes.Flatmates.POSTS).param("locality", "Kothrud"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up").param("locality", "Kothrud"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", Matchers.hasSize(Matchers.greaterThan(0))));
 
-            mvc.perform(get(Routes.Flatmates.POSTS).param("locality", "Wakad"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up").param("locality", "Wakad"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
         }
@@ -122,7 +120,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
 
             jdbc.update("update flatmate_seeker_posts set mod_status = 'flagged' where id = ?::uuid", id);
 
-            mvc.perform(get(Routes.Flatmates.POSTS).param("locality", "Aundh"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up").param("locality", "Aundh"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
         }
@@ -210,8 +208,8 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
     class Interest {
 
         @Test
-        @DisplayName("hands the requester's own number to the host, and nothing back")
-        void interestReleasesTheSendersNumberOnly() throws Exception {
+        @DisplayName("notifies the host without putting mobile numbers in notification copy")
+        void interestNotificationDoesNotLeakMobileNumbers() throws Exception {
             User host = user("9810000020", "Isha");
             User requester = user("9810000021", "Jay");
             String id = createPost(host, "Isha", "Baner");
@@ -220,15 +218,19 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(requester))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
-                                    {"share":"solo","message":"Hi! I'd like to team up."}
+                                    {"share":"solo","message":"Hi! Call me on 9810000021."}
                                     """))
                     .andExpect(status().isCreated());
 
-            // The host's notification carries the REQUESTER's number...
-            String body = jdbc.queryForObject(
-                    "select body from notifications where user_id = ?::uuid",
-                    String.class, host.getId().toString());
-            assertThat(body).contains("9810000021");
+            Map<String, Object> notification = jdbc.queryForMap(
+                    "select title, body from notifications where user_id = ?::uuid and type = 'flatmate.interest'",
+                    host.getId().toString());
+            assertThat((String) notification.get("title"))
+                    .contains("Jay")
+                    .doesNotContainPattern("\\b\\d{10}\\b");
+            assertThat((String) notification.get("body"))
+                    .contains("request inbox")
+                    .doesNotContainPattern("\\b\\d{10}\\b");
 
             // Asserted as "the host's digits are absent" rather than "no row exists": the release
             // is the thing under test, not the count.
@@ -258,8 +260,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"message\":\"Better pitch.\"}"))
                     .andExpect(status().isConflict())
-                    // Ends with, not contains: the client routes on a marker anchored to the end
-                    // of the message, so anything appended after it is a silent break.
+
                     .andExpect(jsonPath("$.message",
                             Matchers.endsWith("(already_interested)")));
 
@@ -272,7 +273,6 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     Integer.class, host.getId().toString());
             assertThat(notifications).isOne();
 
-            // The refusal is total: the first pitch is what the host still has.
             String stored = jdbc.queryForObject(
                     "select message from flatmate_requests where target_id = ?::uuid",
                     String.class, id);
@@ -298,8 +298,6 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             User host = user("9810000025", "Neha");
             User requester = user("9810000026", "Omkar");
 
-            // Set through the API rather than by raw SQL: a JDBC update is invisible to the
-            // persistence context this test shares with the service, which would read a stale row.
             String json = mvc.perform(post(Routes.Flatmates.POSTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -399,8 +397,6 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.totalElements").value(3))
                     .andExpect(jsonPath("$.totalPages").value(2));
 
-            // The filter runs in the query, so a status nobody has is an empty page, not an empty
-            // slice of a non-zero total.
             mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
                             .param("status", "accepted")
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
@@ -460,7 +456,6 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     "select id::text from flatmate_requests where target_id = ?::uuid",
                     String.class, id);
 
-            // 404 rather than 403: a 403 would confirm the id exists and belongs to another host.
             mvc.perform(patch(Routes.Flatmates.MY_REQUEST_BY_ID, requestId)
                             .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -469,8 +464,6 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
         }
     }
 
-    // One live post per identity, so each row here needs its own author. Gender and room preference
-    // are exact on this side, unlike the room feed where an `any` room matches everyone.
     @Nested
     @DisplayName("server-side facets (D116)")
     class Facets {
@@ -493,26 +486,8 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             publish(json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
         }
 
-        @Test
-        @DisplayName("gender is an exact filter — an 'any' seeker does not match a specific request")
-        void genderIsExactNoFallback() throws Exception {
-            createFacetPost(user("9810000060", "Fem"), "Fem", "GenderPostTown", "female", 18000);
-            createFacetPost(user("9810000061", "Nyx"), "Nyx", "GenderPostTown", "any", 18000);
-            createFacetPost(user("9810000062", "Max"), "Max", "GenderPostTown", "male", 18000);
-
-            // Exact, unlike the room feed: only the female seeker, not the no-preference one.
-            mvc.perform(get(Routes.Flatmates.POSTS)
-                            .param("locality", "GenderPostTown").param("gender", "female"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
-
             // A request of 'any' states no preference and filters nothing.
-            mvc.perform(get(Routes.Flatmates.POSTS)
-                            .param("locality", "GenderPostTown").param("gender", "any"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content", Matchers.hasSize(3)));
-        }
-
+            // Exact, unlike the room feed: only the female seeker, not the no-preference one.
         @Test
         @DisplayName("budget range filters posts server-side")
         void budgetRange() throws Exception {
@@ -520,7 +495,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             createFacetPost(user("9810000064", "Mid"), "Mid", "BudgetPostTown", "any", 20000);
             createFacetPost(user("9810000065", "High"), "High", "BudgetPostTown", "any", 30000);
 
-            mvc.perform(get(Routes.Flatmates.POSTS)
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up")
                             .param("locality", "BudgetPostTown")
                             .param("minBudget", "15000").param("maxBudget", "25000"))
                     .andExpect(status().isOk())

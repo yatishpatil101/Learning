@@ -14,15 +14,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class FlatmateSearchQueries {
 
-    /** Matches {@code FlatmateMapper.shareMax} — the cap on people in any one room, anywhere. */
     private static final int ROOM_SHARE_MAX = 3;
 
     private static final double EARTH_RADIUS_KM = 6371.0;
 
-    /** One degree of latitude, in km. A degree of longitude shrinks with the cosine of latitude. */
     private static final double KM_PER_DEGREE = 111.045;
 
-    /** A text block strips common indentation, so an appended {@code "    and (...)"} contributes
+    /** A text block strips common indentation, so an appended {@code " and (...)"} contributes
      * no leading space and fuses with the token before it ({@code nulland}). */
     private static final String SEP = "\n ";
 
@@ -32,19 +30,18 @@ public class FlatmateSearchQueries {
         this.em = em;
     }
 
-    /** One row of the merged board: which table it came from, and its key. */
     public record Ref(String kind, UUID id) {
     }
 
-    /** @param verifiedTotal counted over every matching row, not just this page */
     public record Result(List<Ref> refs, long total, long verifiedTotal) {
     }
 
     public Result search(FlatmateSearchQuery facets, Pageable pageable) {
         Map<String, Object> params = new HashMap<>();
         String matches = matchesCte(facets, params);
-        /* Snapshot before ordering: `orderBy` binds parameters of its own that appear nowhere in
-           the CTE, and setting a parameter a statement does not mention is an error. */
+
+        /** Snapshot before ordering: `orderBy` binds parameters of its own that appear nowhere in
+         * the CTE, and setting a parameter a statement does not mention is an error. */
         Map<String, Object> cteParams = new HashMap<>(params);
 
         String sql = matches + """
@@ -64,8 +61,9 @@ public class FlatmateSearchQueries {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = query.getResultList();
         if (rows.isEmpty()) {
-            /* Both totals ride on window columns of the RETURNED rows, so an offset past the end
-               carries none. Zeros would unmount the pager on a search with hundreds of results. */
+
+            /** Both totals ride on window columns of the RETURNED rows, so an offset past the end
+             * carries none. Zeros would unmount the pager on a search with hundreds of results. */
             return countOnly(matches, cteParams);
         }
         List<Ref> refs = rows.stream()
@@ -75,7 +73,6 @@ public class FlatmateSearchQueries {
                 ((Number) rows.getFirst()[3]).longValue());
     }
 
-    /** The two totals for a match set whose requested page held no rows. */
     private Result countOnly(String matches, Map<String, Object> params) {
         Query count = em.createNativeQuery(matches + """
                 select count(*), coalesce(sum(case when verified then 1 else 0 end), 0)
@@ -90,6 +87,7 @@ public class FlatmateSearchQueries {
     /** Every branch ends in {@code id desc}: without a total order the boundary row of a page is
      * shown twice or skipped. Only literals chosen here are concatenated. */
     private static String orderBy(FlatmateSearchQuery f, Map<String, Object> params) {
+
         // A null price sorts last in both directions: "we do not know" is neither free nor dearest.
         return switch (f.sort()) {
             case FlatmateSearchQuery.SORT_NEWEST -> "order by created_at desc, id desc\n";
@@ -98,13 +96,11 @@ public class FlatmateSearchQueries {
             case FlatmateSearchQuery.SORT_BUDGET_HIGH ->
                     "order by price desc nulls last, created_at desc, id desc\n";
             case FlatmateSearchQuery.SORT_MATCH -> matchOrder(f, params);
-            // The default, and the one the board opens on: trust first, then recency inside it.
+
             default -> "order by verified desc, created_at desc, id desc\n";
         };
     }
 
-    /** Kept term for term with the browser's {@code matchScore}. Terms and why:
-     * docs/flows/consumer/flatmates.md §5. */
     private static String matchOrder(FlatmateSearchQuery f, Map<String, Object> params) {
         if (!f.scoresAgainstMe()) {
             return "order by created_at desc, id desc\n";
@@ -172,17 +168,14 @@ public class FlatmateSearchQueries {
                 + " + cast(:moveInDays as integer)))";
     }
 
-    /** No column holds this — the headroom it divides by belongs to the FLAT. Divisor floored at 1,
-     * matching the browser's {@code perPersonRent}. */
     private static String perPersonPrice() {
         return """
                 round(cast(r.budget as numeric) / case when r.price_basis = 'person' then 1
+                      when r.seats_total is not null then greatest(1, r.seats_total)
                       else greatest(1, least(%d - r.occupants, r.max_occupants - l.committed))
                       end)""".formatted(ROOM_SHARE_MAX);
     }
 
-    /** From the one place that defines it — a SQL literal per branch would leave four copies of a
-     * rule whose whole purpose is to be a single closed list. */
     private static String publicRows(String alias, Map<String, Object> params) {
         params.put("modPublic", FlatmateVocabulary.MOD_PUBLIC);
         return "where %1$s.archived = false and %1$s.mod_status in (:modPublic)".formatted(alias);
@@ -241,8 +234,9 @@ public class FlatmateSearchQueries {
             params.put("attachedBath", f.attachedBath());
         }
         if (f.moveInDays() != null) {
-            /* An undated row PASSES: null means "the host has not said", and `available_from` is
-               null on most rows, so requiring it empties the board on first touch. */
+
+            /** An undated row PASSES: null means "the host has not said", and `available_from` is
+             * null on most rows, so requiring it empties the board on first touch. */
             sql.append(" and (r.available_from is null or r.available_from <= ")
                     .append(moveInHorizon());
             params.put("moveInDays", f.moveInDays());
@@ -255,8 +249,6 @@ public class FlatmateSearchQueries {
         return sql.toString();
     }
 
-    /** Three readers ask, via two independent routes; dropping either is a visible contradiction:
-     * docs/flows/consumer/flatmates.md §5. */
     private static String groupVerified() {
         return """
                 (g.verification_tier = 'owner'
@@ -278,7 +270,7 @@ public class FlatmateSearchQueries {
         sql.append(groupVerified()).append(" as verified,\n");
         sql.append("""
                        cast(g.per_head as numeric) as price,
-                       to_jsonb(array[g.locality]) as locs,
+                       g.localities as locs,
                        case when g.policy = 'women' then 'female'
                             when g.policy = 'men' then 'male'
                             else g.policy end as gender
@@ -288,26 +280,31 @@ public class FlatmateSearchQueries {
         sql.append(housed ? " and g.property_id is not null" : " and g.property_id is null");
 
         if (f.locality() != null) {
-            sql.append(" and lower(g.locality) = lower(:locality)");
+            sql.append(" and exists (select 1 from jsonb_array_elements_text(g.localities) as l(v)"
+                    + " where lower(l.v) = lower(:locality))");
             params.put("locality", f.locality());
         }
         if (f.q() != null) {
-            /* Not the members' names, for the reason on the seeker branch: a name on a card is not
-               the same permission as a name being queryable. */
+
+            /** Not the members' names, for the reason on the seeker branch: a name on a card is not
+             * the same permission as a name being queryable. */
             sql.append(SEP).append("""
-                    and (lower(g.title) like :q or lower(g.locality) like :q
-                         or lower(coalesce(g.note, '')) like :q""")
+                    and (lower(g.title) like :q or lower(coalesce(g.note, '')) like :q""")
+                    .append(" or ").append(jsonbTextLike("g.localities"))
                     .append(" or ").append(jsonbTextLike("g.tags")).append(')');
             params.put("q", like(f.q()));
         }
-        // `per_head` is generated (V15) so it cannot drift from the card. Comparing against `rent`
+
+        // `per_head` is generated so it cannot drift from the card. Comparing against `rent`
         // would filter on the whole flat's price while the screen shows one member's share.
         if (f.minBudget() != null) {
             sql.append(" and g.per_head >= :minBudget");
             params.put("minBudget", f.minBudget());
         }
         if (f.maxBudget() != null) {
-            sql.append(" and g.per_head <= :maxBudget");
+
+            sql.append(" and coalesce(round(cast(g.rent_min as numeric) / g.seats_total), g.per_head)"
+                    + " <= :maxBudget");
             params.put("maxBudget", f.maxBudget());
         }
         String policy = f.policy();
@@ -319,9 +316,15 @@ public class FlatmateSearchQueries {
             sql.append(" and g.seats_total = :sharing");
             params.put("sharing", f.sharing());
         }
+        if (f.moveInDays() != null) {
+
+            sql.append(" and (g.move_in_by is null or g.move_in_by <= ").append(moveInHorizon());
+            params.put("moveInDays", f.moveInDays());
+        }
         appendHabits(sql, "g", f, params);
         appendRadius(sql, "g", f, params);
         if (f.verifiedOnly()) {
+
             // The same expression the row projects, so the filter and the badge cannot disagree.
             sql.append(SEP).append(" and ").append(groupVerified());
         }
@@ -346,6 +349,7 @@ public class FlatmateSearchQueries {
             params.put("locality", f.locality());
         }
         if (f.q() != null) {
+
             // Deliberately not `p.name`: matching it would turn a no-login endpoint into a
             // searchable directory of people looking for a room.
             sql.append(SEP).append("""
@@ -368,7 +372,7 @@ public class FlatmateSearchQueries {
             params.put("gender", f.gender());
         }
         if (f.moveInDays() != null) {
-            // Undated passes, for the reason spelled out on the room branch above.
+
             sql.append(" and (p.move_in_at is null or p.move_in_at <= ")
                     .append(moveInHorizon());
             params.put("moveInDays", f.moveInDays());
@@ -381,8 +385,6 @@ public class FlatmateSearchQueries {
         return sql.toString();
     }
 
-    /** One containment test per habit. {@code @>} against a scalar is what the GIN
-     * {@code jsonb_path_ops} indexes answer; {@code ?} is also JDBC's bind placeholder. */
     private static void appendHabits(StringBuilder sql, String alias, FlatmateSearchQuery f,
             Map<String, Object> params) {
         List<String> habits = f.habits();
@@ -408,6 +410,7 @@ public class FlatmateSearchQueries {
         double cosLat = Math.cos(latRad);
 
         double latDelta = radiusKm / KM_PER_DEGREE;
+
         // Floored so a search near a pole degenerates into the whole longitude range, not a
         // division by zero.
         double lngDelta = radiusKm / (KM_PER_DEGREE * Math.max(Math.abs(cosLat), 1e-6));
@@ -427,7 +430,6 @@ public class FlatmateSearchQueries {
         params.put("cosRadius", Math.cos(radiusKm / EARTH_RADIUS_KM));
     }
 
-    /** The bounding box and the exact circle for one aliased pair of coordinate columns. */
     private static String within(String alias) {
         return ("%1$s.lng is not null"
                 + " and %1$s.lat between :latMin and :latMax and %1$s.lng between :lngMin and :lngMax"
@@ -435,13 +437,14 @@ public class FlatmateSearchQueries {
                 + " + :sinLat * sin(radians(%1$s.lat))) >= :cosRadius").formatted(alias);
     }
 
-    /** A seeker names a <em>shortlist</em>, so any entry landing in the circle answers yes. */
+    /** A seeker names a shortlist, so any entry landing in the circle answers yes. */
     private static String nearByLocality(String alias) {
-        String source = "p".equals(alias)
-                ? "jsonb_array_elements_text(coalesce(p.localities, '[]'::jsonb)) as e(v)"
+        boolean shortlist = "p".equals(alias) || "g".equals(alias);
+        String source = shortlist
+                ? "jsonb_array_elements_text(coalesce(%s.localities, '[]'::jsonb)) as e(v)".formatted(alias)
                         + " join localities loc on lower(loc.name) = lower(e.v)"
                 : "localities loc";
-        String match = "p".equals(alias) ? ""
+        String match = shortlist ? ""
                 : " lower(loc.name) = lower(coalesce(%s.locality, '')) and".formatted(alias);
         return "exists (select 1 from %s where%s loc.lat is not null and %s)"
                 .formatted(source, match, within("loc"));

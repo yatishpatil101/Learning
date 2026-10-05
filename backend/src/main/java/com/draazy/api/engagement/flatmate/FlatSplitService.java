@@ -2,6 +2,7 @@ package com.draazy.api.engagement.flatmate;
 
 import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.Property;
+import com.draazy.api.catalog.property.PropertyPublished;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.audit.AuditService;
@@ -17,6 +18,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FlatSplitService {
 
-    /** People allowed in one room, anywhere on the platform. Above this it is a dormitory. */
     private static final int MAX_PER_ROOM = 3;
 
     /** Lettable rooms are bedrooms plus the hall. Unbounded when {@code bhk} is {@code "4"} (4+):
@@ -91,6 +92,7 @@ public class FlatSplitService {
             FlatmateRoom room = buildRoom(caller, parent, spec, body.maxOccupants(), tier,
                     eligibility.fingerprint(), eligibility.flagForReview());
             created.add(mapper.toDto(rooms.saveAndFlush(room), new FlatmateMapper.RoomView(
+
                     // No verdict to read: the tier here is owner or identity (never tenant), so the
                     // badge is already decided by the parent listing's own Ops approval.
                     0, owner.getName(), owner.getMobile(), null)));
@@ -101,6 +103,16 @@ public class FlatSplitService {
 
         return new FlatSplitResult(created.size(), tier, !approved, eligibility.flagForReview(),
                 created);
+    }
+
+    @EventListener
+    public void promoteOnApproval(PropertyPublished event) {
+        rooms.findByPropertyIdAndArchivedFalse(event.propertyId()).stream()
+                .filter(room -> FlatmateVocabulary.TIER_IDENTITY.equals(room.getVerificationTier()))
+                .forEach(room -> {
+                    room.setVerificationTier(FlatmateVocabulary.TIER_OWNER);
+                    rooms.save(room);
+                });
     }
 
     /** Refused once anyone has moved in: the occupancy ledger is the only record those people are
@@ -142,15 +154,17 @@ public class FlatSplitService {
                 caller.userId(), "Private room", parent.getLocality(), spec.rent());
         room.setPropertyId(parent.getId());
         room.setRoomKind(kind);
+
         // A master bedroom's private bathroom is implied, so the owner is never asked twice.
         room.setAttachedBath("master".equals(kind) ? "attached" : "shared");
+
         // Per ROOM, not per person — this is what stops a shared bed looking pricier than a private
         // room.
         room.setPriceBasis("room");
         room.setDeposit(spec.deposit() == null ? spec.rent() * 2 : spec.deposit());
         room.setMaxOccupants(maxOccupants);
         room.setOccupants(0);
-        // Occupancy model: explicitly no seats, which the DB also enforces for split rooms.
+
         room.setSeatsTotal(null);
         room.setSeatsOpen(null);
         room.setHostRole(FlatmateVocabulary.ROLE_OWNER);
@@ -192,8 +206,6 @@ public class FlatSplitService {
         return String.valueOf(Math.clamp(whole, 1, 4));
     }
 
-    /** Below the room count it would advertise rooms nobody may live in; above three per room it
-     * exceeds the platform-wide per-room ceiling however the people are distributed. */
     private static void validateOccupancy(int maxOccupants, int roomCount) {
         int floor = roomCount;
         int ceiling = roomCount * MAX_PER_ROOM;
