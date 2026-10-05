@@ -18,6 +18,7 @@ import com.draazy.api.services.request.ServiceRequestStatus;
 import com.draazy.api.services.request.ServiceRequestTypes;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -205,6 +206,42 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
 
             assertThat(serviceRequests.expireAbandonedCheckouts(future())).isEqualTo(1);
             assertThat(serviceRequests.expireAbandonedCheckouts(future())).isZero();
+        }
+
+        @Test
+        @DisplayName("the checkout clock starts when checkout opens, not when the request was filed")
+        void aLateCheckoutGetsItsFullTtl() throws Exception {
+            User buyer = customer("9820000914");
+            Property p = listing(buyer);
+            create(buyer, p, 201);
+            UUID id = openUnpaidId(buyer);
+            jdbc.update("update service_requests set created_at = now() - interval '2 days' where id = ?", id);
+
+            paymentRef(id.toString());
+
+            assertThat(serviceRequests.expireAbandonedCheckouts(past())).isZero();
+            expectStatus(buyer, id.toString(), ServiceRequestStatus.AWAITING_PAYMENT.wire());
+        }
+
+        @Test
+        @DisplayName("a filing that never opened checkout is retired after its longer inactivity window")
+        void incompleteFilingsExpireLater() throws Exception {
+            User buyer = customer("9820000915");
+            Property p = listing(buyer);
+            create(buyer, p, 201);
+            UUID id = openUnpaidId(buyer);
+
+            assertThat(serviceRequests.expireAbandonedCheckouts(future())).isZero();
+            assertThat(serviceRequests.expireAbandonedCheckouts(future().plus(Duration.ofDays(31))))
+                    .isEqualTo(1);
+
+            expectStatus(buyer, id.toString(), ServiceRequestStatus.CANCELLED.wire());
+            create(buyer, p, 201);
+        }
+
+        private UUID openUnpaidId(User requester) {
+            return jdbc.queryForObject("select id from service_requests where requester_id = ? "
+                    + "and status = 'awaiting-payment'", UUID.class, requester.getId());
         }
 
         /** Every request in this suite is younger than this, so the whole set is "past its TTL". */

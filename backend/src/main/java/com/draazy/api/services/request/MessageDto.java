@@ -11,7 +11,7 @@ import java.time.Instant;
  *     Added 2026-08-08: the mapper already read this id to look up the name and then discarded it,
  *     so the contract declared a field the wire never carried (found by {@code SpecSchemaParityTest}).
  * @param author     display name; {@code null} for a message whose author has since been removed
- * @param authorRole {@code buyer|owner|staff|admin}, captured at write time
+ * @param authorRole {@code buyer|owner|staff|manager|admin}, captured at write time
  * @param readAt     when the other side of the thread first opened it, or {@code null} if they have
  *     not (D121). Before this the unread badge was computed in {@code localStorage}, so it cleared
  *     on one browser and stayed lit on the rest — and the sender learnt nothing either way.

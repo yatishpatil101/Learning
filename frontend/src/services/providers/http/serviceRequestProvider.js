@@ -1,7 +1,5 @@
-/**
- * HTTP service-request provider; `serviceRequestService.js` is the only contract to the tracker and
- * `serviceRequestMapper.js` holds shape translation. Document rendering degrades without a vault.
- */
+/** HTTP service-request provider; `serviceRequestService.js` is the only contract to the tracker and
+ * `serviceRequestMapper.js` holds shape translation. */
 import { del, get, patch, post, postMultipart, put } from '../../http.js';
 import {
   toChecklist, toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
@@ -16,41 +14,131 @@ export async function listServiceRequests(typeFilter) {
   return toViewModelList(res?.content ?? (Array.isArray(res) ? res : []));
 }
 
-/**
- * The desk's view of the same path — scope is role-derived, so only the session separates "mine"
- * from "everyone's" and no consumer surface may call it. Genuinely paged; totals come from the envelope.
- */
-export async function listServiceRequestQueue({ type, status, page = 0, size = 20 } = {}) {
+export async function listServiceRequestQueue({ type, status, mine, unassigned, overdue, q, page = 0, size = 20 } = {}) {
   const query = { page, size };
   if (type) query.type = toWireType(type);
-  if (status) query.status = status;
+  if (status) query.status = Array.isArray(status) ? status.join(',') : status;
+  if (mine) query.mine = true;
+  if (unassigned) query.unassigned = true;
+  if (overdue) query.overdue = true;
+  if (q) query.q = q;
   return toViewModelPage(await get('/service-requests', query), { page, size });
 }
 
-/**
- * Take a request for the *calling* staff member — assignment and acknowledgement are one act, and a
- * queue you can push work into is one people push work into. It also gates the identity read.
- */
+export async function getServiceRequestQueueSummary(team) {
+  return get('/service-requests/queue-summary', team ? { team } : {});
+}
+
 export async function takeServiceRequest(id) {
   return toViewModel(
     await patch(`/service-requests/${encodeURIComponent(id)}/status`, { status: 'assigned' }),
   );
 }
 
-/**
- * The assigned operator's read of the parties' identity numbers. Errors propagate: collapsing a 403
- * would render "nothing was recorded" over a refusal, so the caller shows `err.message`.
- */
+const uploadStaffDocument = async (id, path, file, fields = {}) => {
+  if (!file) throw new Error('Choose a document to upload.');
+  const { prepareUpload } = await import('../../../lib/uploads/prepareUpload.js');
+  const prepared = await prepareUpload(file, { document: true });
+  const form = new FormData();
+  form.append('file', prepared);
+  Object.entries(fields).forEach(([key, value]) => {
+    [value].flat().forEach((item) => {
+      const text = String(item ?? '').trim();
+      if (text) form.append(key, text);
+    });
+  });
+  return postMultipart(`/service-requests/${encodeURIComponent(id)}${path}`, form);
+};
+
+/** Rent-agreement drafts include every `checks` key or the server answers 422. */
+export async function shareServiceRequestDraft(id, { file, note, checks } = {}) {
+  return toViewModel(await uploadStaffDocument(id, '/draft', file, { note, checks }));
+}
+
+export async function uploadServiceRequestFinalDoc(id, file, registration = {}) {
+  await uploadStaffDocument(id, '/final-doc', file, registration);
+  return getServiceRequest(id);
+}
+
+/** Cancel as ops. The server requires and forwards the reason to the customer. */
+export async function cancelServiceRequestAsOps(id, reason) {
+  return toViewModel(await patch(`/service-requests/${encodeURIComponent(id)}/status`, {
+    status: 'cancelled',
+    note: String(reason || '').trim(),
+  }));
+}
+
+/** The assigned operator's read of the parties' identity numbers. Errors propagate: collapsing a 403 would render
+ * "nothing was recorded" over a refusal, so the caller shows `err.message`. */
 export async function readServiceRequestIdentities(id) {
   return toIdentityList(await get(`/service-requests/${encodeURIComponent(id)}/identities`));
 }
 
-/**
- * The document checklist. Errors propagate: "no documents yet" and "we could not find out" are
- * different sentences. The server guards on participation and answers a stranger 404, not 403.
- */
 export async function readServiceRequestChecklist(id) {
   return toChecklist(await get(`/service-requests/${encodeURIComponent(id)}/checklist`));
+}
+
+/** Verify or reject the newest paper in one checklist slot (the holder or an admin). */
+export async function reviewServiceRequestDocument(id, category, { documentId, verdict, reason } = {}) {
+  const body = { documentId, verdict };
+  if (reason) body.reason = reason;
+  return toChecklist(await put(
+    `/service-requests/${encodeURIComponent(id)}/checklist/${encodeURIComponent(category)}`, body));
+}
+
+/** Re-priced terms on a paid rent agreement (the holder or an admin); `terms` names only what changes. */
+export async function proposeServiceRequestAmendment(id, { reason, ...terms } = {}) {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/amendments`, { ...terms, reason }));
+}
+
+/** The requester accepts; a positive difference answers a `paymentSessionId` to pay it with. */
+export async function acceptServiceRequestAmendment(id, amendmentId) {
+  return toViewModel(await post(
+    `/service-requests/${encodeURIComponent(id)}/amendments/${encodeURIComponent(amendmentId)}/accept`));
+}
+
+export async function withdrawServiceRequestAmendment(id, amendmentId) {
+  return toViewModel(await post(
+    `/service-requests/${encodeURIComponent(id)}/amendments/${encodeURIComponent(amendmentId)}/withdraw`));
+}
+
+const refundsPath = (id) => `/service-requests/${encodeURIComponent(id)}/refunds`;
+
+export async function getServiceRequestRefunds(id) {
+  return get(refundsPath(id));
+}
+
+export async function requestServiceRequestRefund(id, { amount, dutyPaid, grn, reason } = {}) {
+  return post(refundsPath(id), { amount, dutyPaid: !!dutyPaid, grn: grn || undefined, reason });
+}
+
+/** `decision` is `approve` or `reject`; a rejection needs the `note`. */
+export async function decideServiceRequestRefund(id, refundId, decision, note) {
+  return post(`${refundsPath(id)}/${encodeURIComponent(refundId)}/${decision}`, note ? { note } : {});
+}
+
+export async function confirmServiceRequestPoliceIntimation(id, { reference, submittedOn } = {}) {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/police-intimation`, {
+    reference: reference || undefined,
+    submittedOn: submittedOn || undefined,
+  }));
+}
+
+/** The tenancy rows a registered copy produced, for the second operator's check. Errors propagate. */
+export async function listServiceRequestRentAgreements(id) {
+  const rows = await get(`/service-requests/${encodeURIComponent(id)}/rent-agreements`);
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** Other live rent agreements on the same flat whose term overlaps this one. Errors propagate. */
+export async function listServiceRequestOverlaps(id) {
+  const rows = await get(`/service-requests/${encodeURIComponent(id)}/overlaps`);
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** `registered` after checking the copy, or `expired` when the tenant is not on it. */
+export async function verifyRentAgreement(agreementId, status) {
+  return patch(`/admin/rent-agreements/${encodeURIComponent(agreementId)}`, { status });
 }
 
 export async function getServiceRequest(id) {
@@ -68,10 +156,6 @@ export async function createServiceRequest(data) {
   return toViewModel(await post('/service-requests', toCreate(data)));
 }
 
-/**
- * Deferred co-fill create: commit awaiting-payment with no checkout yet, and invite the second
- * party.
- */
 export async function createCoFillServiceRequest({ request, role, mobile }) {
   return toViewModel(await post('/service-requests/co-fill', {
     request: toCreate(request || {}),
@@ -98,21 +182,39 @@ export async function submitServiceRequestPartyDetails(id, details) {
   }));
 }
 
-/** Requester opens checkout for a deferred co-fill request. */
-export async function openServiceRequestCheckout(id) {
-  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/checkout`, {}));
+export async function openServiceRequestCheckout(id, declaration) {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/checkout`,
+    declaration ? { declaration } : {}));
 }
 
-/**
- * Requester takes an unanswered invitation back. Answers 204, so re-read the request: withdrawing
- * frees the role, and whether it is re-issuable is the server's answer to give.
- */
+// Local backend only: settles a mock-gateway order the way the Cashfree webhook would.
+export async function simulateServiceRequestPayment(id, outcome = 'paid') {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/payment/simulate?outcome=${outcome}`, {}));
+}
+
+/** Requester cancels their own request while it still awaits payment. */
+export async function cancelServiceRequest(id) {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/cancel`, {}));
+}
+
 export async function withdrawServiceRequestParty(id, partyId) {
   await del(`/service-requests/${encodeURIComponent(id)}/parties/${encodeURIComponent(partyId)}`);
   return getServiceRequest(id);
 }
 
+/** Requester invites a counterparty onto an existing request, e.g. after the first one declined. */
+export async function inviteServiceRequestParty(id, { role, mobile, partyIndex }) {
+  await post(`/service-requests/${encodeURIComponent(id)}/parties`, { role, mobile, partyIndex });
+  return getServiceRequest(id);
+}
+
+/** Files one of the caller's own personal-vault papers: a vault row carries a signed URL, not bytes. */
+export async function addServiceRequestDocFromVault(id, { documentId, category }) {
+  await post(`/service-requests/${encodeURIComponent(id)}/docs/from-vault`, { documentId, category });
+}
+
 const toUploadFile = (doc = {}) => {
+  if (doc?.file instanceof File) return doc.file;
   const name = doc?.fileName || 'document.bin';
   const mime = doc?.mime || 'application/octet-stream';
   const dataUrl = String(doc?.dataUrl || '');
@@ -124,7 +226,6 @@ const toUploadFile = (doc = {}) => {
   return new File([bytes], name, { type: mime });
 };
 
-/** Upload one customer document to `POST /service-requests/{id}/docs` and return the fresh request. */
 export async function addServiceRequestDoc(id, doc) {
   const file = toUploadFile(doc);
   if (!file) return getServiceRequest(id);
@@ -132,25 +233,19 @@ export async function addServiceRequestDoc(id, doc) {
   const { prepareUpload } = await import('../../../lib/uploads/prepareUpload.js');
   const prepared = await prepareUpload(file, { document: true });
   const form = new FormData();
-  form.append('category', 'service-request');
+  form.append('category', doc?.category || 'service-request');
   form.append('file', prepared);
   await postMultipart(`/service-requests/${encodeURIComponent(id)}/docs`, form);
   return getServiceRequest(id);
 }
 
-/**
- * Identity numbers go in a separate 204 call so an Aadhaar can never be echoed onto a rendered
- * create response. `PUT` because the body is the whole set; sends nothing when there is nothing.
- */
+/** Identity numbers go in a separate 204 call so an Aadhaar can never be echoed onto a rendered create response.
+ * `PUT` because the body is the whole set; sends nothing when there is nothing. */
 export async function recordServiceRequestIdentities(id, parties) {
   if (!id || !Array.isArray(parties) || parties.length === 0) return;
   await put(`/service-requests/${encodeURIComponent(id)}/identities`, { parties });
 }
 
-/**
- * Post a customer message. The endpoint returns the created `Message` but the tracker needs the
- * mapped request view model, so re-read the request after posting.
- */
 export async function addServiceRequestMessage(id, text) {
   // A blank body is a no-op that returns the request unchanged rather than POSTing an empty message.
   const body = String(text || '').trim();
@@ -159,10 +254,8 @@ export async function addServiceRequestMessage(id, text) {
   return getServiceRequest(id);
 }
 
-/**
- * The checker's half of the maker-checker: the tracker speaks `'accepted'`/`'changes'`, the contract
- * `approve`/`reject`. A rejection is not a failure — the request returns to `in-progress`.
- */
+/** The checker's half of the maker-checker: the tracker speaks `'accepted'`/`'changes'`, the contract
+ * `approve`/`reject`. */
 export async function decideServiceRequestDraft(id, decision, note) {
   const wire = decision === 'accepted' ? 'approve' : 'reject';
   return toViewModel(
@@ -173,7 +266,26 @@ export async function decideServiceRequestDraft(id, decision, note) {
   );
 }
 
+export async function approveServiceRequestDraftParty(id, partyKey, otp) {
+  const body = otp ? { partyKey, otp } : { partyKey };
+  return post(`/service-requests/${encodeURIComponent(id)}/draft/otp`, body);
+}
+
+export async function checkServiceRequestDraft(id, decision, note) {
+  const wire = decision === 'release' ? 'release' : 'send-back';
+  return toViewModel(
+    await post(`/service-requests/${encodeURIComponent(id)}/draft/check`, {
+      decision: wire,
+      note: note || '',
+    }),
+  );
+}
+
 /** Mark messages from the other side as read. The endpoint intentionally returns no body. */
 export async function markServiceRequestRead(id) {
   await post(`/service-requests/${encodeURIComponent(id)}/read`, {});
+}
+
+export async function markServiceRequestDraftOpened(id) {
+  await post(`/service-requests/${encodeURIComponent(id)}/draft/opened`, {});
 }

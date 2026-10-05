@@ -1,59 +1,43 @@
-// Helper to read a file as dataURL
-export const readFileAsDataURL = (file) => {
-  return new Promise((resolve, reject) => {
-    if (!file) { resolve(null); return; }
-    if (file.size > 2 * 1024 * 1024) { resolve({ fileName: file.name, tooLarge: true, mime: file.type, size: file.size }); return; }
-    const reader = new FileReader();
-    reader.onload = () => resolve({ fileName: file.name, dataUrl: reader.result, mime: file.type, size: file.size });
-    reader.onerror = () => resolve({ fileName: file.name, dataUrl: '', mime: file.type, size: file.size });
-    reader.readAsDataURL(file);
-  });
+import { AREA_UNITS } from './constants.js';
+
+export const readFileAsDataURL = async (file) => {
+  if (!file) return null;
+  try {
+    const { prepareUpload } = await import('../../../../lib/uploads/prepareUpload.js');
+    const prepared = await prepareUpload(file, { document: true });
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Could not read the file. Please try again.'));
+      reader.readAsDataURL(prepared);
+    });
+    return { fileName: prepared.name, dataUrl, mime: prepared.type, size: prepared.size };
+  } catch (e) {
+    return { fileName: file.name, error: e?.message || 'Could not prepare this file.' };
+  }
+};
+
+export const pickDoc = async (file, before, setDocs, key) => {
+  const d = await readFileAsDataURL(file);
+  if (!d) return null;
+  const held = (x) => x?.dataUrl || (x?.vaultDocId ? null : x?.fileName) || null;
+  setDocs((s) => (held(s[key]) !== held(before) ? s : { ...s, [key]: d.error && (before?.dataUrl || before?.vaultDocId) ? { ...before, rejected: d } : d }));
+  return d;
 };
 
 export const fmt = (n) => '₹' + Math.round(n || 0).toLocaleString('en-IN');
 export const digits = (s) => String(s || '').replace(/\D/g, '');
 export const num = (s) => parseInt(digits(s), 10) || 0;
 
-/*
-   Blank-state factories for each slice of the wizard.
+const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
+export const filingKey = (filing) => JSON.stringify(sortKeys(filing));
 
-   Factories, not shared constants, so no two pieces of state can ever alias the same object. They
-   live here because each shape is needed in two places — the `useState` initialiser and the
-   "start a new agreement" reset — and when those were two copies of the same literal, adding a
-   field to one and not the other left the reset carrying stale data from the previous agreement.
-   For a form that ends in a payment and a legal document, that is not a cosmetic bug.
-*/
-/*
-   ── The size the wizard's `details` payload has to fit in (D157) ──
+/* This number must track the server's; otherwise the UI discovers the limit by failed submits. */
 
-   The server bounds `service_requests.details` at `ServiceRequestService.DETAILS_MAX_CHARS`,
-   measured on the *serialized JSON* — `objectMapper.writeValueAsString(details).length()`, i.e.
-   characters, not bytes. Devanagari sits in the BMP, so a Marathi address costs exactly what an
-   English one of the same length costs against this limit even though it is three times the bytes
-   on disk; there is nothing to compensate for here, and any attempt to would be wrong.
-
-   `JSON.stringify` produces the same character count as Jackson for this payload: both emit
-   non-ASCII literally rather than as `\uXXXX` escapes, and neither writes whitespace.
-
-   **This number must track the server's.** It is duplicated because the alternative is discovering
-   the limit as a 400 at the end of a six-step form, which is the whole defect. If the server's cap
-   changes, change this with it — a client that believes in a larger cap than the server enforces is
-   worse than no guard at all, because it promises the submit will work.
-
-   16000 is measured, not guessed: the worst *realistic* state — four tenants, a 2000-character
-   clauses field, 300-character addresses, a full furniture list — serializes to 7875 characters, so
-   the old 8000 left 125 characters of headroom and D157 was not theoretical. Each extra tenant costs
-   ~645 characters. The ceiling is twice the worst realistic case and clears the pathological one.
-*/
 export const DETAILS_MAX_CHARS = 16000;
+/* Serialized size of the `details` payload, in the characters the server counts. */
 
-/**
- * Serialized size of the `details` payload, in the characters the server counts.
- *
- * Returns `0` for anything that will not serialize: an unserializable payload is a different
- * failure (the server answers "details must be a serializable object") and reporting it as
- * "too long" would send the customer to shorten a field that is not the problem.
- */
 export const detailsChars = (details) => {
   try {
     return JSON.stringify(details).length;
@@ -61,32 +45,17 @@ export const detailsChars = (details) => {
     return 0;
   }
 };
+/* Where the free text lives, and what to call it when it is the one that has to be shortened. */
 
-/*
-   Where the free text lives, and what to call it when it is the one that has to be shortened.
-
-   Ordered by how much a customer can plausibly put in each, longest first, because ties go to the
-   first match and the clauses box is the only genuinely unbounded field on the form. Reuses the
-   labels the fields already carry, so the warning names the control the customer is looking at
-   rather than a state key they have never seen.
-*/
 const FREE_TEXT_FIELDS = [
   { get: (s) => s.clauses, label: 'services.ra.terms.specialClauses', step: 3 },
   { get: (s) => s.owner?.oAddr, label: 'services.ra.owner.address', step: 1 },
-  { get: (s) => (s.tenants || []).map((t) => t.addr).join(''), label: 'services.ra.tenant.address', step: 2 },
+  { get: (s) => (s.tenants || []).map((t) => [t.addr, t.police?.permanent?.address, t.police?.previous?.address, t.police?.workplaceAddress, ...(t.police?.occupants || []).map((o) => o.fullName)].join('')).join(''), label: 'services.ra.tenant.address', step: 2 },
   { get: (s) => (s.wit?.w1Addr || '') + (s.wit?.w2Addr || ''), label: 'services.ra.witnesses.address', step: 4 },
   { get: (s) => (s.furnItems || []).map((f) => f.name).join(''), label: 'services.ra.terms.furniture', step: 3 },
 ];
+/* The field carrying the most text, so an over-length warning can name it. */
 
-/**
- * The field carrying the most text, so an over-length warning can name it.
- *
- * "Your form is too long" is not an actionable message on a form with sixty inputs; the customer
- * has no way to guess which one to cut. This picks the biggest contributor and hands back both its
- * label key and the step it lives on, so the warning can say what to shorten and the wizard can go
- * there. Falls back to the clauses box — the only field with no length limit of its own, and so the
- * only one that can be over-long without any other field being unusual.
- */
 export const largestFreeTextField = (state) => {
   let worst = null;
   FREE_TEXT_FIELDS.forEach((f) => {
@@ -95,70 +64,167 @@ export const largestFreeTextField = (state) => {
   });
   return worst && worst.len > 0 ? worst : { len: 0, label: FREE_TEXT_FIELDS[0].label, step: FREE_TEXT_FIELDS[0].step };
 };
+// Factories, not constants, so the useState initialiser and the new-agreement reset can never alias
+// or drift from each other.
 
-export const emptyTenant = () => ({ name: '', age: '', gender: 'Male', occupation: '', relation: '', pan: '', aadhaar: '', mobile: '', email: '', addr: '' });
-export const emptyProp = () => ({ propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: '', society: '', locality: '', city: 'Pune', pincode: '', area: '' });
-export const emptyOwner = (isIn, user) => ({ oName: isIn ? user?.name || '' : '', oAge: '', oGender: 'Male', oPan: '', oAadhaar: '', oMobile: isIn ? user?.mobile || '' : '', oEmail: '', oAddr: '' });
+const POA_BLANK = { poaPrincipal: '', poaRegNo: '', poaDate: '', poaSro: '' };
+const PARTY_BLANK = { type: 'individual', residency: 'resident', mother: '', dob: '', alias: '', passport: '', visaOci: '', frro: '' };
+export const emptyTenantPolice = () => ({ permanentSameAsCurrent: true, permanent: { address: '', pincode: '', village: '', policeStation: '' }, addressProofType: 'uid', previousSameAsPermanent: true, previous: { address: '', pincode: '', village: '', policeStation: '' }, previousAddressProofType: 'uid', workplaceAddress: '', workIdProofType: '', occupants: [] });
+export const emptyTenant = () => ({ name: '', age: '', gender: '', occupation: '', relation: '', pan: '', aadhaar: '', mobile: '', email: '', addr: '', police: emptyTenantPolice(), ...PARTY_BLANK });
+export const emptyProp = () => ({ propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: '', society: '', societyId: '', locality: '', city: 'Pune', taluka: '', villageCity: '', roadName: '', policeStation: '', pincode: '', area: '', areaBasis: 'carpet', areaUnit: 'sqft', floor: '', surveyNo: '', propertyAttributes: [], galleryArea: '', galleryAreaUnit: 'sqft' });
+export const emptyOwner = (isIn, user) => ({ oName: isIn ? user?.name || '' : '', oMother: '', oDob: '', oAlias: '', oAge: '', oGender: '', oOccupation: '', oPan: '', oAadhaar: '', oMobile: isIn ? user?.mobile || '' : '', oEmail: '', oAddr: '', capacity: 'owner', type: 'individual', residency: 'resident', passport: '', visaOci: '', frro: '', ...POA_BLANK });
+export const emptyCoOwner = () => ({ name: '', age: '', gender: '', occupation: '', pan: '', aadhaar: '', mobile: '', email: '', addr: '', capacity: 'co-owner', ...PARTY_BLANK, ...POA_BLANK });
 export const emptyInvite = () => ({ invMobile: '', invName: '', invMessage: '' });
-export const emptyTerms = () => ({ startDate: '', months: '11', rent: '', deposit: '', nrDeposit: '', increment: '5', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT' });
-export const emptyWit = () => ({ w1Name: '', w1Addr: '', w2Name: '', w2Addr: '' });
+export const emptyTerms = () => ({ startDate: '', months: '11', rent: '', deposit: '', nrDeposit: '', increment: '5', incrementEvery: '11', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT', utilitiesBy: 'Tenant', taxBy: 'Owner', costBy: 'Split', parking: 'none', parkingArea: '', parkingAreaUnit: 'sqft', occupants: '', language: 'English', visitAt: 'property', visitDate: '', visitSlot: 'any', depositPayments: [] });
 
-/*
-   ── The four fields that never leave this tab's memory ──
+export const rentForTerm = (rent, months, incrementPct, every) => {
+  const pct = Number(incrementPct);
+  const bps = Number.isFinite(pct) && pct >= 0 && pct <= 100 ? Math.round(pct * 100) : 0;
+  const step = parseInt(every, 10) === 12 ? 12 : 11;
+  let monthly = rent, total = 0;
+  for (let paid = 0; paid < months; paid += step) {
+    if (paid > 0) monthly = Math.floor((monthly * (10000 + bps) + 5000) / 10000);
+    total += monthly * Math.min(step, months - paid);
+  }
+  return total;
+};
+export const emptyWit = () => ({ w1Name: '', w1Age: '', w1Mobile: '', w1Addr: '', w1Aadhaar: '', w2Name: '', w2Age: '', w2Mobile: '', w2Addr: '', w2Aadhaar: '' });
 
-   PAN and Aadhaar — the owner's and every tenant's — are collected because the agreement needs them,
-   and they leave this tab exactly once, on their own call: `identityParties` below feeds
-   `PUT /service-requests/{id}/identities`, which the assigned operator alone can read back.
-   Everything else gets this treatment first: the `details` payload that call sits beside, the
-   co-fill payload an invited tenant opens, and the `dzDraft:rentAgreement` autosave. Same reasoning
-   in all three. A PAN plus an Aadhaar plus a name and a permanent address is a complete identity
-   set; `localStorage` is plain JSON that any XSS on this origin can read and that the next person on
-   a shared, borrowed or resold device inherits; and Aadhaar in particular is not ours to retain or
-   spread at all (Aadhaar Act s.29).
+export const fillBlanks = (cur, add) => ({
+  ...cur,
+  ...Object.fromEntries(Object.entries(add).filter(([k, v]) => v && !String(cur?.[k] ?? '').trim())),
+});
 
-   Blanked rather than deleted, deliberately: `applyFormState` restores each slice wholesale
-   (`setOwner(s.owner)`), so a missing key would make a controlled input uncontrolled and hand
-   `undefined` to the validators that call `.trim()` on it.
-*/
+const norm = (v) => String(v ?? '').trim().toLowerCase();
+export const namesOtherFlat = (cur, add) =>
+  ['flatNo', 'society'].some((k) => norm(cur?.[k]) && norm(add?.[k]) && norm(cur[k]) !== norm(add[k]));
+
+const FURNISH_LABEL = { unfurnished: 'Unfurnished', semi: 'Semi-Furnished', furnished: 'Furnished' };
+
+export const listingAnswers = (l = {}) => {
+  const f = l.form || {};
+  const unit = f.areaUnit || 'sqft';
+  const area = AREA_UNITS.includes(unit) ? String(f.carpetArea || f.builtUp || '') : '';
+  return {
+    prop: {
+      flatNo: f.flatNumber && f.tower ? `${f.flatNumber}, ${f.tower}` : f.flatNumber || '',
+      society: f.society || l.society || '',
+      societyId: f.societyId || l.societyId || '',
+      locality: f.locality || l.locality || '',
+      pincode: f.pincode || l.pincode || '',
+      area,
+      areaBasis: area ? (f.carpetArea ? 'carpet' : 'built-up') : '',
+      areaUnit: area ? unit : '',
+      floor: f.floor === '' || f.floor == null ? '' : String(f.floor),
+      furnish: FURNISH_LABEL[f.furnishing || l.furnishing] || '',
+    },
+    terms: { rent: digits(f.monthlyRent || (l.deal === 'rent' ? l.price : '')), deposit: digits(f.deposit || l.deposit) },
+  };
+};
+
+const OWNER_KYC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+export const readSavedKyc = (mobile) => {
+  const key = 'draazyOwnerKYC:' + digits(mobile);
+  let kyc;
+  try { kyc = JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+  if (!kyc || typeof kyc !== 'object') return null;
+  const savedAt = Number(kyc.savedAt);
+  if (savedAt && Date.now() - savedAt > OWNER_KYC_MAX_AGE_MS) {
+    try { localStorage.removeItem(key); } catch {}
+    return null;
+  }
+  const { pan: _pan, aadhaar: _aadhaar, at: _at, savedAt: _savedAt, ...clean } = kyc;
+  if (savedAt && !('pan' in kyc) && !('aadhaar' in kyc) && !('at' in kyc)) return clean;
+  try { localStorage.setItem(key, JSON.stringify({ ...clean, savedAt: Date.now() })); } catch {}
+  return clean;
+};
+
+const VERHOEFF_D = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 3, 4, 0, 6, 7, 8, 9, 5], [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+  [3, 4, 0, 1, 2, 8, 9, 5, 6, 7], [4, 0, 1, 2, 3, 9, 5, 6, 7, 8], [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+  [6, 5, 9, 8, 7, 1, 0, 4, 3, 2], [7, 6, 5, 9, 8, 2, 1, 0, 4, 3], [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+  [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+];
+const VERHOEFF_P = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 5, 7, 6, 2, 8, 3, 0, 9, 4], [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+  [8, 9, 1, 6, 0, 4, 3, 5, 2, 7], [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+  [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+];
+// UIDAI issues 12 digits, never starting 0 or 1, the last being a Verhoeff check digit.
+// Must agree with the server's `common.validation.AadhaarValidator`.
+
+export const isAadhaar = (s) => {
+  const d = digits(s);
+  if (!/^[2-9]\d{11}$/.test(d)) return false;
+  let c = 0;
+  d.split('').reverse().forEach((ch, i) => { c = VERHOEFF_D[c][VERHOEFF_P[i % 8][Number(ch)]]; });
+  return c === 0;
+};
+export const isPan = (s) => /^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(String(s || ''));
+export const isMobile = (s) => /^[6-9]\d{9}$/.test(digits(s));
+export const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s || '').trim());
+/* PAN and Aadhaar of every licensor, tenant and witness leave this tab exactly once, via `identityParties` → `PUT
+   /service-requests/{id}/identities`, which only the assigned operator can read back. */
+
+const blankIds = (rows) => (Array.isArray(rows) ? rows : []).map((r) => ({ ...r, pan: '', aadhaar: '' }));
+
 export const redactIdentityNumbers = (state) => ({
   ...state,
   owner: { ...(state?.owner || {}), oPan: '', oAadhaar: '' },
-  tenants: (Array.isArray(state?.tenants) ? state.tenants : []).map((t) => ({ ...t, pan: '', aadhaar: '' })),
+  coOwners: blankIds(state?.coOwners),
+  tenants: blankIds(state?.tenants),
+  wit: { ...(state?.wit || {}), w1Aadhaar: '', w2Aadhaar: '' },
 });
 
-/**
- * True if a stored wizard state still carries either identity number.
- *
- * Only used to decide whether a rewrite is worth doing — the redaction itself is unconditional and
- * idempotent, so a false negative here costs nothing beyond leaving an already-clean entry alone.
- */
 export const hasIdentityNumbers = (state) => {
   if (!state || typeof state !== 'object') return false;
   if (state.owner?.oPan || state.owner?.oAadhaar) return true;
-  return (Array.isArray(state.tenants) ? state.tenants : []).some((t) => t?.pan || t?.aadhaar);
+  if (state.wit?.w1Aadhaar || state.wit?.w2Aadhaar) return true;
+  return [...(Array.isArray(state.coOwners) ? state.coOwners : []), ...(Array.isArray(state.tenants) ? state.tenants : [])]
+    .some((r) => r?.pan || r?.aadhaar);
 };
 
-/*
-   ── The one thing built from the *unredacted* state (D151) ──
+/* The one payload built from the unredacted state. */
+const marker = (role, index, field, step, value) => (value ? { role, index, field, step } : null);
 
-   Everything else the wizard emits goes through `redactIdentityNumbers` first, because everything
-   else is either written to disk or echoed to a reader who has no business with these numbers. This
-   is the exception, and it is deliberately shaped so it cannot become one of those: the result is
-   handed straight to `PUT /service-requests/{id}/identities`, which answers 204, and is never held
-   in state, never serialized into `details`, and never written to `localStorage`.
+export const identityReminderFields = (state) => {
+  if (!state || typeof state !== 'object') return [];
+  return [
+    marker('licensor', 0, 'pan', 'owner', state.owner?.oPan),
+    marker('licensor', 0, 'aadhaar', 'owner', state.owner?.oAadhaar),
+    ...(Array.isArray(state.coOwners) ? state.coOwners : []).flatMap((c, i) => [
+      marker('licensor', i + 1, 'pan', 'owner', c?.pan),
+      marker('licensor', i + 1, 'aadhaar', 'owner', c?.aadhaar),
+    ]),
+    ...(Array.isArray(state.tenants) ? state.tenants : []).flatMap((t, i) => [
+      marker('tenant', i, 'pan', 'tenant', t?.pan),
+      marker('tenant', i, 'aadhaar', 'tenant', t?.aadhaar),
+    ]),
+    marker('witness', 0, 'aadhaar', 'witness', state.wit?.w1Aadhaar),
+    marker('witness', 1, 'aadhaar', 'witness', state.wit?.w2Aadhaar),
+  ].filter(Boolean);
+};
 
-   Read this together with `redactIdentityNumbers` above — the pair is the whole design. The numbers
-   are collected once, travel once, on a route only the operator the request is assigned to can read,
-   and are blanked by the server the moment the request reaches a terminal status.
+const identityValue = (state, field) => {
+  if (field.role === 'licensor' && field.index === 0) {
+    return field.field === 'pan' ? state.owner?.oPan : state.owner?.oAadhaar;
+  }
+  if (field.role === 'licensor') {
+    const row = (Array.isArray(state.coOwners) ? state.coOwners : [])[field.index - 1];
+    return field.field === 'pan' ? row?.pan : row?.aadhaar;
+  }
+  if (field.role === 'tenant') {
+    const row = (Array.isArray(state.tenants) ? state.tenants : [])[field.index];
+    return field.field === 'pan' ? row?.pan : row?.aadhaar;
+  }
+  return field.index === 0 ? state.wit?.w1Aadhaar : state.wit?.w2Aadhaar;
+};
 
-   Normalisation mirrors the server's `ServiceRequestIdentitiesRequest`: PAN upper-cased (the field
-   accepts either case and the agreement prints upper), Aadhaar reduced to its twelve digits (the
-   input allows the conventional 1234 5678 9012 spacing, which the server's `^[0-9]{12}$` refuses).
-   A party carrying neither number is dropped rather than sent, because the server refuses it with a
-   422 that would cost the whole set — and "no numbers for this person" is what an absent row already
-   says.
-*/
-export const identityParties = (owner, tenants) => {
+export const missingIdentityReminderFields = (fields, state) => (Array.isArray(fields) ? fields : [])
+  .filter((field) => !String(identityValue(state, field) || '').trim());
+
+export const identityParties = ({ owner, coOwners, tenants, wit } = {}) => {
   const party = (partyRole, partyIndex, name, rawPan, rawAadhaar) => {
     const pan = String(rawPan || '').trim().toUpperCase();
     const aadhaar = digits(rawAadhaar);
@@ -166,7 +232,10 @@ export const identityParties = (owner, tenants) => {
     return { partyRole, partyIndex, partyName: String(name || '').trim().slice(0, 120), pan, aadhaar };
   };
   return [
-    party('owner', 0, owner?.oName, owner?.oPan, owner?.oAadhaar),
+    owner && party('owner', 0, owner.oName, owner.oPan, owner.oAadhaar),
+    ...(Array.isArray(coOwners) ? coOwners : []).map((c, i) => party('owner', i + 1, c?.name, c?.pan, c?.aadhaar)),
     ...(Array.isArray(tenants) ? tenants : []).map((t, i) => party('tenant', i, t?.name, t?.pan, t?.aadhaar)),
+    wit && party('witness', 0, wit.w1Name, '', wit.w1Aadhaar),
+    wit && party('witness', 1, wit.w2Name, '', wit.w2Aadhaar),
   ].filter(Boolean);
 };

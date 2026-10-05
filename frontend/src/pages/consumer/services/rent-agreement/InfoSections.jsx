@@ -26,10 +26,10 @@ export default function InfoSections({ openFaq, setOpenFaq }) {
         <div className="space-y-3">
           {FAQ.map((_f, i) => (
             <div key={i} className={'faq-item glass-card rounded-2xl overflow-hidden' + (openFaq === i ? ' open' : '')}>
-              <div className="faq-q flex items-center justify-between gap-4 p-5" onClick={() => setOpenFaq(openFaq === i ? -1 : i)}>
-                <p className="text-white font-medium text-sm">{tr(`services.ra.assist.faq.${i}.q`)}</p>
+              <button type="button" className="faq-q flex items-center justify-between gap-4 p-5 w-full text-left" aria-expanded={openFaq === i} onClick={() => setOpenFaq(openFaq === i ? -1 : i)}>
+                <span className="text-white font-medium text-sm">{tr(`services.ra.assist.faq.${i}.q`)}</span>
                 <Icon name="chevron-down" className="faq-chev w-5 h-5 text-teal-400 flex-shrink-0" />
-              </div>
+              </button>
               <div className="faq-a"><p className="px-5 pb-5 text-gray-400 text-sm leading-relaxed">{tr(`services.ra.assist.faq.${i}.a`)}</p></div>
             </div>
           ))}

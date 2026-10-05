@@ -92,10 +92,6 @@
   transition: all .25s ease;
 }
 
-.ra-page .opt-pill:hover {
-  border-color: rgba(20, 184, 166, .4);
-}
-
 .ra-page .opt-pill.sel {
   border-color: var(--teal-2);
   background: rgba(20, 184, 166, .12);
@@ -108,10 +104,6 @@
   background: rgba(255, 255, 255, .03);
   cursor: pointer;
   transition: all .25s ease;
-}
-
-.ra-page .ra-mode:hover {
-  border-color: rgba(20, 184, 166, .4);
 }
 
 .ra-page .ra-mode.sel {
@@ -174,11 +166,6 @@
   transition: all .15s;
 }
 
-.ra-page .qty-btn:hover {
-  background: rgba(20, 184, 166, .15);
-  color: #5eead4;
-}
-
 .ra-page .qty-val {
   min-width: 30px;
   text-align: center;
@@ -200,11 +187,6 @@
   flex-shrink: 0;
 }
 
-.ra-page .fr-remove:hover {
-  background: rgba(244, 63, 94, .12);
-  color: #fda4af;
-}
-
 .ra-page label.lbl {
   display: block;
   font-size: 13px;
@@ -222,11 +204,6 @@
   border: 1.5px dashed rgba(255, 255, 255, .15);
   background: rgba(255, 255, 255, .03);
   transition: all .25s ease;
-}
-
-.ra-page .upload-box:hover {
-  border-color: rgba(20, 184, 166, .5);
-  background: rgba(20, 184, 166, .05);
 }
 
 .ra-page .upload-box.has-file {
@@ -259,4 +236,49 @@
 .ra-page .field.err {
   border-color: #fb7185 !important;
   box-shadow: 0 0 0 3px rgba(251, 113, 133, .15);
+}
+
+@media (hover: hover) {
+  /* Gated so touch does not leave the last tapped option highlighted. */
+
+  .ra-page .opt-pill:hover,
+  .ra-page .ra-mode:hover { border-color: rgba(20, 184, 166, .4); }
+
+  .ra-page .qty-btn:hover {
+    background: rgba(20, 184, 166, .15);
+    color: #5eead4;
+  }
+
+  .ra-page .fr-remove:hover {
+    background: rgba(244, 63, 94, .12);
+    color: #fda4af;
+  }
+
+  .ra-page .upload-box:hover {
+    border-color: rgba(20, 184, 166, .5);
+    background: rgba(20, 184, 166, .05);
+  }
+}
+
+/* 28px drawn squares against the 44px floor. `.tap-extend` cannot carry it here — `.qty-step`
+   clips its overflow — so the box itself grows and the glyph stays the size it was designed. */
+@media (pointer: coarse) {
+
+  .ra-page .qty-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ra-page .fr-remove {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.ra-page .opt-pill:disabled,
+.ra-page .ra-mode:disabled,
+.ra-page .furn-tile:disabled,
+.ra-page .qty-btn:disabled,
+.ra-page .fr-remove:disabled {
+  cursor: default;
 }

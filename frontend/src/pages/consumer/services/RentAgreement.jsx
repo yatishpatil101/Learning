@@ -14,6 +14,8 @@ import StepTenant from './rent-agreement/StepTenant.jsx';
 import StepTerms from './rent-agreement/StepTerms.jsx';
 import StepWitnesses from './rent-agreement/StepWitnesses.jsx';
 import StepReview from './rent-agreement/StepReview.jsx';
+import DeclinedInvitePanel from './rent-agreement/DeclinedInvitePanel.jsx';
+import ReadyToPayPanel from './rent-agreement/ReadyToPayPanel.jsx';
 import CostSidebar, { MobileCostSummary } from './rent-agreement/CostSidebar.jsx';
 import { useRentAgreement } from './rent-agreement/useRentAgreement.js';
 
@@ -24,26 +26,33 @@ export default function RentAgreement() {
     step, errors, done, openFaq, setOpenFaq,
     mode, inviteError, inviteResult, copied,
     withdrawInvite, withdrawing,
-    aType, setAType, prop, setP, setProp, setShowPropertyPicker, setSelectedPropertyId, myProperties,
-    owner, setO, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
+    prop, setP, setProp, setSelectedPropertyId, pickListing, myProperties,
+    owner, setO, coOwners, setCoOwner, addCoOwner, removeCoOwner, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
+    ownerMode, chooseOwnerMode, inviteRole,
     tenantMode, setTenantMode, tenants, setTenant, addTenant, removeTenant, tenantDocs, setTenantDocs, invite, setInvite,
-    terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,
+    terms, setT, startBounds, maint, setMaint, regArea, furnItems, custom, setCustom, clauses, setClauses,
     isChecked, toggleFurn, bumpQty, removeFurn, addCustom, furnitureText,
     wit, setWit,
-    declare, setDeclare, generate, submitting, paymentPending, paymentConfirming,
+    declare, setDeclare, generate, submitting, pendingRequestId, paymentPending, paymentConfirming,
     clearErr, fc, cost, locked, gated, startNewAgreement, restored, startFresh, myInvites,
+    identityReminders,
+    stalledInvite, recoverInvite, recovering, payable, payFiled, paying, continuable, continueFiled,
     copyInviteLink, next, prev,
   } = ctx;
+  const invitingOwner = mode === 'owner' && ownerMode === 'invite';
+  const inviting = invitingOwner || (mode === 'owner' && tenantMode === 'invite');
+  const invitedSide = { context: invitingOwner || inviteRole === 'owner' ? 'owner' : undefined };
+  const ownStep = inviteRole === 'owner' ? 1 : 2;
 
   return (
     <div ref={rootRef} className="ra-page">
       <div>
         <Hero />
-
         {/* Active requests tracker */}
-        <ServiceTracker typeFilter="rental" title={tr('services.ra.trackerTitle')} />
 
+        <ServiceTracker typeFilter="rental" title={tr('services.ra.trackerTitle')} />
         {/* Form + Summary */}
+
         <section ref={formRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-y">
           <div className={`grid grid-cols-1 gap-6${locked ? '' : ' lg:grid-cols-[1fr_340px]'}`}>
             {/* Wizard */}
@@ -56,25 +65,22 @@ export default function RentAgreement() {
                   <button type="button" onClick={() => navigate('/services/rent-agreement')} className="btn-teal mt-5 px-6 py-3 rounded-xl text-white text-sm font-semibold inline-flex items-center gap-2"><Icon name="file-signature" className="w-4 h-4" /> {tr('services.ra.inviteErr.startOwn')}</button>
                 </div>
               ) : (
+              /* Progress */
               <>
-              {/* Progress */}
               {!locked && (
               <HScroll wrapClassName="mb-8" className="flex items-center pb-2" fadeColor="#1b1926">
                 {STEP_LABELS.map((s, i) => {
-                  // In invite mode the Tenant step (index 2) stays PENDING — the owner
-                  // hasn't filled it; the tenant will. Never mark it done/checked.
-                  const tenantAwaiting = mode === 'owner' && tenantMode === 'invite';
-                  /* Padlocks every step behind the sign-in line, reading the *same* `gated` the
-                     clamp does so the two cannot disagree — see § 5.1 in the flow doc. */
+                  /* Padlocks every step behind the sign-in line, reading the *same* `gated` the clamp does so the two
+                     cannot disagree — see § 5.1 in the flow doc. */
+                  const awaitingStep = invitingOwner ? 1 : inviting ? 2 : -1;
                   const isLocked = gated && i > LAST_PUBLIC_STEP;
-                  const st = isLocked ? 'locked' : (i === step ? 'active' : (tenantAwaiting && i === 2 ? 'pending' : (i < step ? 'done' : '')));
+                  const st = isLocked ? 'locked' : (i === step ? 'active' : (i === awaitingStep ? 'pending' : (i < step ? 'done' : '')));
                   return (
                   <div key={s} className={'flex items-start ' + (i < STEP_LABELS.length - 1 ? 'flex-1' : '')}>
                     <div className="flex flex-col items-center flex-shrink-0">
                       <div
+                        /* The only state carried by a glyph alone, so the only one that needs saying out loud. */
                         className={'step-dot w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ' + st}
-                        /* The only state carried by a glyph alone, so the only one that needs saying
-                           out loud. The step's name is the next node in the reading order. */
                         {...(isLocked ? { role: 'img', 'aria-label': tr('services.ra.gate.stepLocked') } : {})}
                       >{st === 'locked' ? <Icon name="lock" className="w-4 h-4" /> : st === 'done' ? <Icon name="check" className="w-4 h-4" /> : st === 'pending' ? <Icon name="clock" className="w-4 h-4" /> : i + 1}</div>
                       <span className={'text-[10px] mt-1.5 whitespace-nowrap ' + (st === 'active' ? 'text-teal-400' : st === 'pending' ? 'text-amber-400' : 'text-gray-500')}>{tr(`services.ra.stepLabel.${i}`)}</span>
@@ -87,29 +93,33 @@ export default function RentAgreement() {
               )}
 
               {done ? (
+                  /* Reached only once the poll has spent its budget still seeing `awaiting_payment`, so it says
+                     unconfirmed, not failed — see § 5.10. */
                 <div className="space-y-4">
-                  {/* Reached only once the poll has spent its budget still seeing
-                      `awaiting_payment`, so it says unconfirmed, not failed — see § 5.10. */}
                   {paymentPending ? (
                     <div className="p-6 rounded-xl bg-amber-500/10 text-center">
                       <Icon name="clock" className="w-10 h-10 text-amber-400 mx-auto mb-2" />
                       <p className="text-white font-semibold">{tr('services.ra.donePaymentPendingTitle')}</p>
                       <p className="text-gray-400 text-sm mt-1">{tr('services.ra.donePaymentPendingDesc')}</p>
-                      <Link to="/dashboard#rental" className="btn-teal inline-flex items-center justify-center gap-2 px-5 py-3 mt-4 rounded-xl text-white text-sm font-semibold min-h-[44px]"><Icon name="credit-card" className="w-4 h-4" /> {tr('services.ra.donePaymentPendingCta')}</Link>
+                      {payable ? (
+                        <button type="button" disabled={paying} onClick={payFiled} className="btn-teal inline-flex items-center justify-center gap-2 px-5 py-3 mt-4 rounded-xl text-white text-sm font-semibold min-h-[44px] disabled:opacity-50"><Icon name="credit-card" className="w-4 h-4" /> {tr('services.ra.donePaymentPendingCta')}</button>
+                      ) : (
+                        <Link to="/dashboard#rental" className="btn-teal inline-flex items-center justify-center gap-2 px-5 py-3 mt-4 rounded-xl text-white text-sm font-semibold min-h-[44px]"><Icon name="credit-card" className="w-4 h-4" /> {tr('services.ra.donePaymentPendingCta')}</Link>
+                      )}
                     </div>
                   ) : (
                   <div className="p-6 rounded-xl bg-emerald-500/10 text-center">
                     <Icon name="check-circle-2" className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-                    <p className="text-white font-semibold">{tenantMode === 'invite' ? tr('services.ra.doneInviteTitle') : tr('services.ra.doneOwnerTitle')}</p>
-                    <p className="text-gray-400 text-sm mt-1">{tenantMode === 'invite' ? tr('services.ra.doneInviteDesc') : tr('services.ra.doneOwnerDesc')}</p>
+                    <p className="text-white font-semibold">{inviting ? tr('services.ra.doneInviteTitle', invitedSide) : tr('services.ra.doneOwnerTitle')}</p>
+                    <p className="text-gray-400 text-sm mt-1">{inviting ? tr('services.ra.doneInviteDesc', invitedSide) : tr('services.ra.doneOwnerDesc')}</p>
                   </div>
                   )}
-                  {tenantMode === 'invite' && inviteResult ? (
+                  {inviting && inviteResult ? (
                     <div className="p-5 rounded-xl bg-white/[0.03]">
-                      <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4 text-emerald-400" /> {tr('services.ra.invite.sendTitle')}</p>
+                      <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4 text-emerald-400" /> {tr('services.ra.invite.sendTitle', invitedSide)}</p>
+                      {/* Two different waits needing different advice: a pending party is a number nobody has signed
+                         up to, so the link cannot open until they do. */}
                       <p className="text-gray-400 text-xs mt-1">{tr('services.ra.invite.sendDesc', { mobile: inviteResult.toMobile ? '••••' + inviteResult.toMobile.slice(-4) : '' })}</p>
-                      {/* Two different waits needing different advice: a pending party is a number
-                          nobody has signed up to, so the link cannot open until they do. */}
                       {inviteResult.pending ? (
                         <p className="text-amber-200/90 text-[11px] mt-2 flex items-start gap-1.5"><Icon name="clock" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {tr('services.ra.invite.pendingSignup')}</p>
                       ) : (
@@ -119,7 +129,7 @@ export default function RentAgreement() {
                         <a href={inviteResult.waLink} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold min-h-[44px]"><Icon name="message-circle" className="w-4 h-4" /> {tr('services.ra.invite.sendWhatsapp')}</a>
                         <button type="button" onClick={copyInviteLink} className="btn-outline inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-gray-200 text-sm font-semibold min-h-[44px]"><Icon name={copied ? 'check' : 'copy'} className="w-4 h-4" /> {copied ? tr('services.ra.invite.copied') : tr('services.ra.invite.copyLink')}</button>
                       </div>
-                      <p className="text-gray-600 text-[11px] mt-2.5 leading-relaxed">{tr('services.ra.invite.sendNote')}</p>
+                      <p className="text-gray-600 text-[11px] mt-2.5 leading-relaxed">{tr('services.ra.invite.sendNote', invitedSide)}</p>
                       {inviteResult.partyId ? (
                         <button type="button" onClick={withdrawInvite} disabled={withdrawing} className="mt-3 text-gray-500 hover:text-gray-300 disabled:opacity-50 text-[11px] font-semibold underline underline-offset-2">
                           {withdrawing ? tr('services.ra.invite.withdrawing') : tr('services.ra.invite.withdraw')}
@@ -128,9 +138,9 @@ export default function RentAgreement() {
                     </div>
                   ) : null}
                 </div>
+                /* Between the modal closing and the webhook landing a paid agreement and an abandoned one look alike
+                   here, so hold a neutral panel until the poll knows. */
               ) : paymentConfirming ? (
-                /* Between the modal closing and the webhook landing a paid agreement and an
-                   abandoned one look alike here, so hold a neutral panel until the poll knows. */
                 <div className="p-6 rounded-xl bg-teal-500/10 text-center" role="status" aria-live="polite">
                   <Icon name="circle-notch" className="w-10 h-10 text-teal-300 mx-auto mb-2 animate-spin" />
                   <p className="text-white font-semibold">{tr('services.ra.donePaymentConfirmingTitle')}</p>
@@ -147,18 +157,29 @@ export default function RentAgreement() {
                     <Icon name="info" className="w-4 h-4 text-teal-300 mt-0.5 flex-shrink-0" />
                     <p className="text-gray-300 text-xs leading-relaxed">{tr('services.ra.locked.changesHint')}</p>
                   </div>
+                  {stalledInvite && <DeclinedInvitePanel stalled={stalledInvite} onRecover={recoverInvite} busy={recovering} />}
+                  {payable && <ReadyToPayPanel request={payable} onPay={payFiled} busy={paying} unconfirmed={paymentPending} />}
+                  {continuable && (
+                    <div className="mt-4 max-w-md mx-auto">
+                      <button type="button" onClick={continueFiled} data-testid="ra-continue-filed" className="btn-outline w-full px-4 py-3 rounded-xl text-gray-200 text-sm font-semibold inline-flex items-center justify-center gap-2 min-h-[44px]">
+                        <Icon name="file-up" className="w-4 h-4" /> {tr('services.ra.locked.continue')}
+                      </button>
+                      <p className="text-gray-500 text-[11px] mt-2">{continuable.details._state.ownerMode === 'invite' || continuable.details._state.tenantMode === 'invite'
+                        ? tr('services.ra.locked.topUpHint', { context: continuable.details._state.ownerMode === 'invite' ? 'owner' : undefined })
+                        : tr('services.ra.locked.continueHint')}</p>
+                    </div>
+                  )}
                   <button type="button" onClick={startNewAgreement} className="btn-outline mt-6 px-6 py-3 rounded-xl text-gray-200 text-sm font-semibold inline-flex items-center gap-2 min-h-[44px]">
                     <Icon name="plus" className="w-4 h-4" /> {tr('services.ra.locked.startNew')}
                   </button>
                   <p className="text-gray-600 text-[11px] mt-2">{tr('services.ra.locked.startNewHint')}</p>
                 </div>
               ) : (
+                  /* Mobile-only cost summary (collapsible) — desktop uses the sidebar */
                 <>
-                  {/* Mobile-only cost summary (collapsible) — desktop uses the sidebar */}
                   <MobileCostSummary cost={cost} />
+                  {/* No button of its own: the Next control below relabels itself and runs the validation first. */}
 
-                  {/* No button of its own: the Next control below relabels itself and runs the
-                      validation first. `role="status"` because `gated` can flip without a navigation. */}
                   {gated && (
                     <div role="status" className="mb-6 p-3.5 rounded-xl bg-white/5 border border-white/10 flex items-start gap-2.5">
                       <Icon name="lock" className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
@@ -168,8 +189,8 @@ export default function RentAgreement() {
                       </div>
                     </div>
                   )}
-
                   {/* Restored draft — pick up where you left off */}
+
                   {restored && mode === 'owner' && (
                     <div className="mb-6 p-3.5 rounded-xl bg-teal-500/8 border border-teal-500/20 flex items-center justify-between gap-3">
                       <div className="flex items-start gap-2.5">
@@ -182,8 +203,8 @@ export default function RentAgreement() {
                       <button type="button" onClick={startFresh} className="text-gray-400 hover:text-white text-[11px] font-semibold whitespace-nowrap underline underline-offset-2">{tr('services.ra.draft.startFresh')}</button>
                     </div>
                   )}
-
                   {/* Pending co-fill invites addressed to this signed-in user */}
+
                   {myInvites.length > 0 && mode === 'owner' && (
                     <div className="mb-6 p-4 rounded-xl bg-emerald-500/8 border border-emerald-500/25">
                       <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="user-plus" className="w-4 h-4 text-emerald-400" /> {tr('services.ra.pendingInvite.title', { count: myInvites.length })}</p>
@@ -198,57 +219,58 @@ export default function RentAgreement() {
                       </div>
                     </div>
                   )}
+                  {/* Invited tenant: they can view the whole agreement the owner set up, but only their own Tenant step is editable. */}
 
-                  {/* Invited tenant: they can view the whole agreement the owner set up,
-                      but only their own Tenant step is editable. */}
                   {mode === 'invite' && (
-                    step === 2 ? (
+                    step === ownStep ? (
                       <div className="mb-6 p-3.5 rounded-xl bg-teal-500/8 border border-teal-500/20 flex items-start gap-2.5">
                         <Icon name="pencil" className="w-4 h-4 text-teal-300 flex-shrink-0 mt-0.5" />
                         <div>
                           <p className="text-white font-semibold text-xs">{tr('services.ra.invite.editableTitle')}</p>
-                          <p className="text-gray-400 text-[11px] mt-0.5">{tr('services.ra.invite.editableDesc')}</p>
+                          <p className="text-gray-400 text-[11px] mt-0.5">{tr('services.ra.invite.editableDesc', invitedSide)}</p>
                         </div>
                       </div>
                     ) : (
                       <div className="mb-6 p-3.5 rounded-xl bg-white/5 border border-white/10 flex items-start gap-2.5">
                         <Icon name="lock" className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                         <div>
-                          <p className="text-white font-semibold text-xs">{tr('services.ra.invite.readonlyTitle')}</p>
-                          <p className="text-gray-400 text-[11px] mt-0.5">{tr('services.ra.invite.readonlyDesc')}</p>
+                          <p className="text-white font-semibold text-xs">{tr('services.ra.invite.readonlyTitle', invitedSide)}</p>
+                          <p className="text-gray-400 text-[11px] mt-0.5">{tr('services.ra.invite.readonlyDesc', invitedSide)}</p>
                         </div>
                       </div>
                     )
                   )}
-
                   {/* Step 1: Property */}
+
                   <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepProperty step={step} aType={aType} setAType={setAType} prop={prop} setP={setP} setProp={setProp} setShowPropertyPicker={setShowPropertyPicker} setSelectedPropertyId={setSelectedPropertyId} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
+                    <StepProperty step={step} prop={prop} setP={setP} setProp={setProp} setSelectedPropertyId={setSelectedPropertyId} pickListing={pickListing} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
                   </fieldset>
 
                   {/* Step 2: Owner */}
-                  <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepOwner step={step} owner={owner} setO={setO} errors={errors} fc={fc} clearErr={clearErr} ownerDocs={ownerDocs} setOwnerDocs={setOwnerDocs} vaultEnabled={vaultEnabled} onDocSaved={saveOwnerDocToVault} />
+                  <fieldset disabled={mode === 'invite' && inviteRole !== 'owner'} className="contents">
+                    <StepOwner step={step} canInvite={mode === 'owner'} ownerMode={ownerMode} chooseOwnerMode={chooseOwnerMode} invite={invite} setInvite={setInvite} owner={owner} setO={setO} coOwners={coOwners} setCoOwner={setCoOwner} addCoOwner={addCoOwner} removeCoOwner={removeCoOwner} errors={errors} fc={fc} clearErr={clearErr} ownerDocs={ownerDocs} setOwnerDocs={setOwnerDocs} vaultEnabled={vaultEnabled} onDocSaved={saveOwnerDocToVault} identityReminders={identityReminders.owner} />
                   </fieldset>
 
                   {/* Step 3: Tenant — the invited tenant's editable section */}
-                  <StepTenant step={step} tenantMode={tenantMode} setTenantMode={setTenantMode} tenants={tenants} setTenant={setTenant} removeTenant={removeTenant} addTenant={addTenant} errors={errors} clearErr={clearErr} tenantDocs={tenantDocs} setTenantDocs={setTenantDocs} invite={invite} setInvite={setInvite} />
-
-                  {/* Step 4: Terms */}
-                  <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepTerms step={step} terms={terms} setT={setT} errors={errors} fc={fc} clearErr={clearErr} maint={maint} setMaint={setMaint} regArea={regArea} setRegArea={setRegArea} furnItems={furnItems} toggleFurn={toggleFurn} isChecked={isChecked} bumpQty={bumpQty} removeFurn={removeFurn} custom={custom} setCustom={setCustom} addCustom={addCustom} clauses={clauses} setClauses={setClauses} />
+                  <fieldset disabled={mode === 'invite' && inviteRole === 'owner'} className="contents">
+                  <StepTenant step={step} canInvite={mode === 'owner' && ownerMode !== 'invite'} tenantMode={tenantMode} setTenantMode={setTenantMode} tenants={tenants} setTenant={setTenant} removeTenant={removeTenant} addTenant={addTenant} errors={errors} clearErr={clearErr} tenantDocs={tenantDocs} setTenantDocs={setTenantDocs} invite={invite} setInvite={setInvite} identityReminders={identityReminders.tenant} />
                   </fieldset>
+                  {/* Step 4: Terms */}
 
-                  {/* Step 5: Witnesses */}
                   <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepWitnesses step={step} wit={wit} setWit={setWit} />
+                    <StepTerms step={step} terms={terms} setT={setT} startBounds={startBounds} errors={errors} fc={fc} clearErr={clearErr} maint={maint} setMaint={setMaint} regArea={regArea} furnish={prop.furnish} setFurnish={(v) => setP('furnish', v)} furnItems={furnItems} toggleFurn={toggleFurn} isChecked={isChecked} bumpQty={bumpQty} removeFurn={removeFurn} custom={custom} setCustom={setCustom} addCustom={addCustom} clauses={clauses} setClauses={setClauses} />
+                  </fieldset>
+                  {/* Step 5: Witnesses */}
+
+                  <fieldset disabled={mode === 'invite'} className="contents">
+                    <StepWitnesses step={step} wit={wit} setWit={setWit} errors={errors} fc={fc} clearErr={clearErr} identityReminders={identityReminders.witness} />
                   </fieldset>
 
                   {/* Step 6: Review */}
-                  <StepReview step={step} aType={aType} prop={prop} owner={owner} tenantMode={tenantMode} invite={invite} tenants={tenants} terms={terms} cost={cost} maint={maint} furnitureText={furnitureText} regArea={regArea} declare={declare} setDeclare={setDeclare} generate={generate} submitting={submitting} />
+                  <StepReview step={step} prop={prop} owner={owner} coOwners={coOwners} wit={wit} ownerMode={ownerMode} tenantMode={tenantMode} invite={invite} tenants={tenants} terms={terms} cost={cost} maint={maint} furnitureText={furnitureText} regArea={regArea} declare={declare} setDeclare={setDeclare} generate={generate} submitting={submitting} retrying={!!pendingRequestId} paysNow={mode === 'owner' && !inviting} identityReminders={identityReminders.review} />
 
                   {/* Nav buttons — sticky at viewport bottom on mobile so step actions stay reachable */}
-                  <div className="flex justify-between items-center gap-3 mt-8 sticky bottom-0 z-20 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4 bg-[#12101f]/95 backdrop-blur border-t border-white/10 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none lg:border-0">
+                  <div className="flex justify-between items-center gap-3 mt-8 sticky bottom-[var(--dz-bottom-inset)] z-20 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4 bg-[#12101f]/95 backdrop-blur border-t border-white/10 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none lg:border-0">
                     {step !== 0 ? <button type="button" onClick={prev} className="btn-outline px-6 py-3 rounded-xl text-gray-300 text-sm font-semibold flex items-center gap-2"><Icon name="arrow-left" className="w-4 h-4" /> {tr('services.ra.back')}</button> : <div />}
                     {step !== 5 ? <button type="button" onClick={next} className="btn-teal px-7 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2">{gated ? <><Icon name="lock" className="w-4 h-4" /> {tr('services.ra.gate.nextCta')}</> : <>{tr('services.ra.next')} <Icon name="arrow-right" className="w-4 h-4" /></>}</button> : <div />}
                   </div>
@@ -257,8 +279,8 @@ export default function RentAgreement() {
               </>
               )}
             </div>
-
             {/* Summary sidebar — desktop only; mobile uses the collapsible summary inside the wizard */}
+
             {!locked && (
             <div className="hidden lg:block">
               <CostSidebar cost={cost} />
@@ -266,8 +288,8 @@ export default function RentAgreement() {
             )}
           </div>
         </section>
-
         {/* Documents required */}
+
         <DocsRequired />
 
         <InfoSections openFaq={openFaq} setOpenFaq={setOpenFaq} />

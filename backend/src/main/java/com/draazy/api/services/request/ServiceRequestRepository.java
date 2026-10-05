@@ -13,34 +13,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
-/**
- * Service-request reads.
- *
- * <p>The two list queries are separate rather than one query with a nullable requester, because
- * they are not the same question: {@link #findForRequester} is "my requests" and
- * {@link #findForQueue} is "the whole queue". Collapsing them into a single method with a nullable
- * scope parameter is exactly the shape in which somebody later passes {@code null} on the customer
- * path and hands one customer everybody else's paperwork.
- */
+// Customer and queue lists are separate to avoid nullable requester scope leaks.
 public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, UUID> {
 
-    /**
-     * The customer's own requests — raised by them, or co-filled with them (D121). Newest first.
-     *
-     * <p>Backed by {@code idx_service_requests_requester} for the common half and
-     * {@code idx_service_request_parties_user} for the correlated {@code exists}, which reads at most
-     * a handful of rows: a person is a party to a few agreements, never to a queue's worth.
-     *
-     * <p><strong>Only an {@code accepted} party.</strong> An invitation is a claim the requester made
-     * about somebody else; until that somebody confirms it, a mistyped mobile that happens to resolve
-     * to a real account would put a stranger's rent, deposit and identity documents on this page. The
-     * pending invitation is visible on {@code GET /me/service-request-invites} instead, which shows
-     * the invitation and nothing of the agreement.
-     *
-     * <p>The name kept its {@code ForRequester} shape and the scope parameter is still non-nullable,
-     * which is the property that matters: this is "the requests this person is on", and there is no
-     * argument you can pass to make it mean anything else.
-     */
+    // Only accepted parties can see co-filled requests; invites alone are requester claims.
     @Query("""
             select r from ServiceRequest r
             where (r.requesterId = :requesterId
@@ -59,15 +35,7 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
             @Param("ticketId") UUID ticketId,
             Pageable pageable);
 
-    /**
-     * Is this person on this request at all — as its requester, or as an accepted co-fill party
-     * (D121)? The single-row form of {@link #findForRequester}'s scope clause, and the guard behind
-     * {@code ServiceRequestService.visible}.
-     *
-     * <p>One query rather than a fetch-and-compare so the two cannot drift: a participant test that
-     * says yes on the list and no on the detail is a request a customer can see the existence of and
-     * not open.
-     */
+    // Single-row form of requester/accepted-party scope behind visible().
     @Query("""
             select count(r) > 0 from ServiceRequest r
             where r.id = :id
@@ -79,7 +47,6 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
             """)
     boolean isParticipant(@Param("id") UUID id, @Param("userId") UUID userId);
 
-    /** Same row fetch as {@link #findById}, but write-locked for checkout-open serialization. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select r from ServiceRequest r
@@ -87,83 +54,140 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
             """)
     Optional<ServiceRequest> findByIdForUpdate(@Param("id") UUID id);
 
-    /**
-     * The staff queue — every request on the given desk that has entered it, newest first. A request
-     * still {@code awaiting-payment} is deliberately excluded: ops does not work a rent agreement
-     * nobody has paid for. It becomes visible the moment the payment webhook moves it to {@code new}.
-     *
-     * <p><strong>{@code team} is resolved by the service, never taken from the caller's
-     * {@code ?team=}</strong> — exactly as {@code TicketRepository.findForBoard} is. A staff member's
-     * desk is pinned to their own; only an admin's filter reaches this parameter, and only then does
-     * {@code null} mean "every desk". See {@code ServiceRequestService.list} for why the staff case
-     * with no desk is decided before the query rather than by passing null into it: null here means
-     * "all", which is the opposite of what a deskless staff account should see.
-     *
-     * <p>Backed by {@code idx_service_requests_team_status} (V72).
-     */
+    // The staff queue — every request on the given desk that has entered it, newest first.
+    // A request still awaiting-payment is deliberately excluded: ops does not work a rent agreement nobody has paid for.
+    // Teams are resolved by the service from the caller, never taken from ?team= as-is.
     @Query("""
             select r from ServiceRequest r
             where r.status <> com.draazy.api.services.request.ServiceRequestStatus.AWAITING_PAYMENT
-              and (:team is null or r.team = :team)
+              and (:allTeams = true or r.team in :teams)
               and (:type is null or r.type = :type)
-              and (:status is null or r.status = :status)
+              and (:anyStatus = true or r.status in :statuses)
               and (:ticketId is null or r.ticketId = :ticketId)
+              and (:unassigned = false or r.assigneeId is null)
+              and (:mine = false or r.assigneeId = :assigneeId)
+              and (:overdue = false
+                   or (r.type = 'rent-agreement'
+                       and ((r.status = com.draazy.api.services.request.ServiceRequestStatus.NEW
+                             and r.statusChangedAt < :pickupBy)
+                            or (r.status in (com.draazy.api.services.request.ServiceRequestStatus.ASSIGNED,
+                                             com.draazy.api.services.request.ServiceRequestStatus.IN_PROGRESS)
+                                and r.statusChangedAt < :draftBy)
+                            or (r.status = com.draazy.api.services.request.ServiceRequestStatus.CHANGES_REQUESTED
+                                and r.statusChangedAt < :revisionBy)
+                            or (r.status = com.draazy.api.services.request.ServiceRequestStatus.APPROVED
+                                and r.statusChangedAt < :registrationBy))))
+              and (:prefix is null
+                   or (:requestId is not null and r.id = :requestId)
+                   or exists (select 1 from User u
+                              where u.id = r.requesterId
+                                and (lower(u.name) like :prefix escape '\\'
+                                     or u.mobile like :prefix escape '\\')))
             order by r.createdAt desc
             """)
-    Page<ServiceRequest> findForQueue(@Param("team") String team,
+    Page<ServiceRequest> findForQueue(@Param("allTeams") boolean allTeams,
+            @Param("teams") List<String> teams,
             @Param("type") String type,
-            @Param("status") ServiceRequestStatus status,
+            @Param("anyStatus") boolean anyStatus,
+            @Param("statuses") List<ServiceRequestStatus> statuses,
             @Param("ticketId") UUID ticketId,
+            @Param("unassigned") boolean unassigned,
+            @Param("mine") boolean mine,
+            @Param("assigneeId") UUID assigneeId,
+            @Param("overdue") boolean overdue,
+            @Param("pickupBy") Instant pickupBy,
+            @Param("draftBy") Instant draftBy,
+            @Param("revisionBy") Instant revisionBy,
+            @Param("registrationBy") Instant registrationBy,
+            @Param("prefix") String prefix,
+            @Param("requestId") UUID requestId,
             Pageable pageable);
 
-    /**
-     * The request that mirrors a ticket, if one does (D45) — the board-to-workflow direction of the
-     * link whose other half is {@code ServiceRequest.ticketId}.
-     *
-     * <p>{@code Optional}, not a list, and that is enforced rather than assumed:
-     * {@code uq_service_requests_ticket} (V72) is a partial unique index on the column, so a ticket
-     * cannot acquire a second request behind this method's back.
-     */
+    @Query("""
+            select r.status as status, count(r) as total
+            from ServiceRequest r
+            where r.status <> com.draazy.api.services.request.ServiceRequestStatus.AWAITING_PAYMENT
+              and (:allTeams = true or r.team in :teams)
+            group by r.status
+            """)
+    List<StatusTotal> countQueueByStatus(@Param("allTeams") boolean allTeams,
+            @Param("teams") List<String> teams);
+
+    @Query("""
+            select count(r) from ServiceRequest r
+            where r.status <> com.draazy.api.services.request.ServiceRequestStatus.AWAITING_PAYMENT
+              and (:allTeams = true or r.team in :teams)
+              and r.assigneeId = :assigneeId
+              and r.status in :statuses
+            """)
+    long countMineForQueue(@Param("allTeams") boolean allTeams,
+            @Param("teams") List<String> teams,
+            @Param("assigneeId") UUID assigneeId,
+            @Param("statuses") List<ServiceRequestStatus> statuses);
+
+    @Query("""
+            select count(r) from ServiceRequest r
+            where r.status <> com.draazy.api.services.request.ServiceRequestStatus.AWAITING_PAYMENT
+              and (:allTeams = true or r.team in :teams)
+              and r.type = 'rent-agreement'
+              and ((r.status = com.draazy.api.services.request.ServiceRequestStatus.NEW
+                    and r.statusChangedAt < :pickupBy)
+                   or (r.status in (com.draazy.api.services.request.ServiceRequestStatus.ASSIGNED,
+                                    com.draazy.api.services.request.ServiceRequestStatus.IN_PROGRESS)
+                       and r.statusChangedAt < :draftBy)
+                   or (r.status = com.draazy.api.services.request.ServiceRequestStatus.CHANGES_REQUESTED
+                       and r.statusChangedAt < :revisionBy)
+                   or (r.status = com.draazy.api.services.request.ServiceRequestStatus.APPROVED
+                       and r.statusChangedAt < :registrationBy))
+            """)
+    long countOverdueForQueue(@Param("allTeams") boolean allTeams,
+            @Param("teams") List<String> teams,
+            @Param("pickupBy") Instant pickupBy,
+            @Param("draftBy") Instant draftBy,
+            @Param("revisionBy") Instant revisionBy,
+            @Param("registrationBy") Instant registrationBy);
+
+    interface StatusTotal {
+        ServiceRequestStatus getStatus();
+
+        Long getTotal();
+    }
+
+    // Optional is enforced by uq_service_requests_ticket partial unique index.
     Optional<ServiceRequest> findByTicketId(UUID ticketId);
 
-    /** The request behind a Cashfree order, so the payment webhook can settle it. */
+    // The request behind a Cashfree order, so the payment webhook can settle it.
     Optional<ServiceRequest> findByPaymentRef(String paymentRef);
 
-    /**
-     * How many priced requests this caller is already holding open but unpaid.
-     *
-     * <p>Every one of these opened a live gateway order. Without a ceiling, a script calling
-     * {@code POST /service-requests} in a loop opens unbounded real orders against our merchant
-     * account at no cost to itself — see {@code ServiceRequestService.create}.
-     *
-     * <p><strong>This count is the fast path, not the guarantee</strong> (D153). It is a read with
-     * no lock over rows that do not exist yet, so two concurrent creates both see zero and both
-     * insert. What actually holds the cap is {@code uq_service_requests_open_unpaid} (V43); this
-     * stays because it produces the better message on the ordinary double click, which is the case
-     * that happens hourly rather than the one that happens under attack.
-     */
+    // Fast path only: concurrent creates can both count zero before inserting.
     long countByRequesterIdAndTypeAndStatus(UUID requesterId, String type,
             ServiceRequestStatus status);
 
-    /**
-     * Checkouts that were opened and then walked away from — {@code awaiting-payment} rows older
-     * than the sweep's TTL (D152).
-     *
-     * <p>The status filter is also the never-paid proof: a settled payment moves the request to
-     * {@code new} and a refused one to {@code cancelled}, so a row still sitting here is one no
-     * money has ever arrived for, whether or not it carries a gateway order id.
-     *
-     * <p>Ordered oldest-first and taken a {@code batch} at a time, as the other three families now
-     * are (D161): the order decides which rows a bounded run retires, and the bound keeps a
-     * post-outage backlog — and any version conflict inside it — from taking one transaction down
-     * with it.
-     */
+    // Awaiting-payment with stale update means no settled money arrived yet.
     @Query("""
             select r from ServiceRequest r
             where r.status = :status
-              and r.createdAt < :cutoff
-            order by r.createdAt asc
+              and ((r.paymentRef is not null and r.updatedAt < :cutoff)
+                or (r.paymentRef is null and r.updatedAt < :incompleteCutoff))
+            order by r.updatedAt asc
             """)
     List<ServiceRequest> findStaleByStatus(@Param("status") ServiceRequestStatus status,
-            @Param("cutoff") Instant cutoff, Limit batch);
+            @Param("cutoff") Instant cutoff, @Param("incompleteCutoff") Instant incompleteCutoff,
+            Limit batch);
+
+    @Query(value = """
+            select r.* from service_requests r
+            where r.type = 'rent-agreement' and r.id <> :id
+              and r.status not in ('awaiting-payment', 'cancelled')
+              and ((cast(:propertyId as uuid) is not null and r.property_id = cast(:propertyId as uuid))
+                or (cast(:flat as text) is not null
+                  and regexp_replace(lower(coalesce(r.details #>> '{_state,prop,flatNo}', '')), '[^a-z0-9]', '', 'g')
+                    || '|' || regexp_replace(lower(coalesce(r.details #>> '{_state,prop,society}', '')), '[^a-z0-9]', '', 'g')
+                    || '|' || regexp_replace(lower(coalesce(r.details #>> '{_state,prop,pincode}', '')), '[^a-z0-9]', '', 'g')
+                    = cast(:flat as text)))
+            order by r.created_at asc
+            limit 50
+            """, nativeQuery = true)
+    List<ServiceRequest> findRentAgreementsOnFlat(@Param("id") UUID id,
+            @Param("propertyId") String propertyId, @Param("flat") String flat);
 }

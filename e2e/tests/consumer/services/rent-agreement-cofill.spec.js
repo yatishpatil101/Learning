@@ -1,69 +1,12 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { API, apiLogin, signedInAs, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
-
-/* Rent Agreement co-fill: an owner invites a tenant on another phone in another browser, so it can
-   only be asserted live. The deep link is account-addressed and resolved after sign-in — holding it
-   is not authority — and the sign-in URL carries no `mobile=`, which would leak the tenant's number. */
-
+import { API, apiLogin, authHeaders, signedInAs, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { AADHAAR, active, clickNext, fillOwner, fillProperty, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, inviteTenant, uploadAll } from '../../../helpers/rentAgreementWizard.js';
+import { pickDate } from '../../../helpers/datePicker.helper.js';
+// Co-fill must be live: it spans two accounts and browser contexts.
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-const pad = (n) => String(n).padStart(2, '0');
-const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-
-const active = (page) => page.locator('.step-panel.active');
-
-/* Click Next and prove the wizard moved: panels share placeholders, so a refused Next silently
-   redirects the next helper's typing and the run falls over somewhere unrelated. Page-scoped on the
-   progress dot, because the Next button sits outside `.step-panel`. */
-async function clickNext(page, expectStep) {
-  await page.getByRole('button', { name: 'Next' }).click();
-  await expect(
-    page.locator('.step-dot').nth(expectStep),
-    `wizard did not advance to step ${expectStep + 1}`,
-  ).toHaveClass(/\bactive\b/);
-}
-
-async function fillProperty(page) {
-  const p = active(page);
-  await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-  await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-  await p.getByPlaceholder('e.g. Baner').fill('Baner');
-  await p.getByPlaceholder('411045').fill('411045');
-  await clickNext(page, 1);
-}
-
-async function fillOwner(page) {
-  const p = active(page);
-  await p.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
-  await p.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
-  await p.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
-  await p.getByPlaceholder('10-digit mobile').fill('9811223344');
-  await p.getByPlaceholder('Full permanent address').fill('12, MG Road, Pune 411001');
-  await clickNext(page, 2);
-}
-
-/** Step 3 in *invite* mode: name the counterparty instead of typing their details. */
-async function inviteTenant(page, mobile) {
-  const p = active(page);
-  await p.getByText('Invite the tenant', { exact: true }).click();
-  await p.getByPlaceholder('10-digit mobile').fill(mobile);
-  await clickNext(page, 3);
-}
-
-async function fillTerms(page) {
-  const p = active(page);
-  await p.locator('.dz-datefield').click();
-  await page.locator('.dz-cal').waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: todayIso(), exact: true }).first().click();
-  await page.locator('.dz-cal').waitFor({ state: 'detached' });
-  await p.getByPlaceholder('e.g. 25000').fill('30000');
-  await p.getByPlaceholder('e.g. 100000').fill('150000');
-  await clickNext(page, 4);
-}
-
 const authed = (token) => ({ authorization: `Bearer ${token}`, 'content-type': 'application/json' });
-
 /** The invitations the server considers addressed to this account. */
 async function invitesFor(token) {
   const res = await fetch(`${API}/me/service-request-invites`, { headers: authed(token) });
@@ -71,7 +14,6 @@ async function invitesFor(token) {
   const rows = await res.json().catch(() => []);
   return Array.isArray(rows) ? rows : [];
 }
-
 /* This account's own inbox, read over the API rather than through the bell: the claim is that the
    *server* raised the row, and the page would put `notificationMapper` between it and the fact. */
 async function notificationsFor(token) {
@@ -81,9 +23,9 @@ async function notificationsFor(token) {
   expect(Array.isArray(body.content), 'the notification contract returns a page envelope').toBe(true);
   return body.content;
 }
-
 /* File a co-fill request the way the wizard does, without driving it. `type` is the wire value
    `rent-agreement`, not the client's `rental`, so the wire vocabulary is spelled out, not assumed. */
+
 async function coFillOverHttp(ownerToken, inviteeMobile) {
   const res = await fetch(`${API}/service-requests/co-fill`, {
     method: 'POST',
@@ -108,20 +50,52 @@ const inviteUrl = ({ partyId, requestId }) =>
   `${BASE}/services/rent-agreement?party=${encodeURIComponent(partyId)}&request=${encodeURIComponent(requestId)}`;
 
 test.describe('Rent Agreement co-fill — the invite the server addresses', () => {
+  test('the requester can address two tenant rows as separate invitations', async () => {
+    const tenantOne = uniqueMobile();
+    const tenantTwo = uniqueMobile();
+    const { accessToken: tenantOneToken } = await apiLogin(tenantOne, { api: API });
+    const { accessToken: tenantTwoToken } = await apiLogin(tenantTwo, { api: API });
+    const { accessToken: ownerToken } = await apiLogin(uniqueMobile(), { api: API });
+
+    const created = await fetch(`${API}/service-requests/co-fill`, {
+      method: 'POST',
+      headers: authed(ownerToken),
+      body: JSON.stringify({
+        request: {
+          type: 'rent-agreement',
+          details: {
+            ownerName: 'Anita Verma',
+            rent: '30000',
+            _state: { tenantMode: 'invite', tenants: [{ name: 'Ria', mobile: tenantOne }, { name: 'Sam', mobile: tenantTwo }] },
+          },
+        },
+        role: 'tenant',
+        mobile: tenantOne,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const body = await created.json();
+
+    const second = await fetch(`${API}/service-requests/${body.id}/parties`, {
+      method: 'POST',
+      headers: authed(ownerToken),
+      body: JSON.stringify({ role: 'tenant', partyIndex: 1, mobile: tenantTwo }),
+    });
+    expect(second.status, 'a second tenant row can be invited separately').toBe(201);
+
+    const firstInvite = (await invitesFor(tenantOneToken)).find((row) => row.requestId === body.id);
+    const secondInvite = (await invitesFor(tenantTwoToken)).find((row) => row.requestId === body.id);
+    expect(firstInvite?.partyIndex).toBe(0);
+    expect(secondInvite?.partyIndex).toBe(1);
+  });
+
   test('the owner\'s invite becomes a row the SERVER addressed to the tenant\'s account, and the tenant opens it from a different browser with only their own section editable', async ({ page, browser }) => {
     /* Two actors, a full wizard run and a second browser context. */
     test.slow();
 
-    /* The tenant's account exists *before* the invite is sent. That is what makes the panel below
-       say "waiting for them to open the invite" rather than "this number isn't on Draazy yet" —
-       the two are decided by `party.pending`, which is the server answering whether a user row
-       exists. A browser cannot know that about someone else's phone number. */
     const tenantMobile = uniqueMobile();
     const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });
 
-    /* Snapshot before the write. An id-set delta survives a seeded or concurrently-written list,
-       which an absolute count does not — and `GET` list rows are projections, so diffing ids is
-       also immune to a field simply not being carried. */
     const before = new Set((await invitesFor(tenantToken)).map((r) => r.id));
 
     await signedInAsNew(page, { api: API });
@@ -131,13 +105,13 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     await fillOwner(page);
     await inviteTenant(page, tenantMobile);
     await fillTerms(page);
-    await clickNext(page, 5); // witnesses -> review
+    await fillWitnesses(page);
 
     const review = active(page);
     await review.getByRole('checkbox').check();
-
     /* Armed before the click: a wizard that swaps in a confirmation panel looks identical whether
        the POST was accepted, refused, or never sent. */
+
     const created = page.waitForResponse(
       (r) => r.request().method() === 'POST' && /\/service-requests\/co-fill$/.test(new URL(r.url()).pathname),
     );
@@ -149,50 +123,50 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     const party = (body.parties || []).find((p) => p?.role === 'tenant') || (body.parties || [])[0];
     expect(party?.id, 'the server recorded the invited party').toBeTruthy();
     expect(body.status, 'a co-fill request parks unpaid, like any rent agreement').toBe('awaiting-payment');
-
     /* THE claim: the invitation is readable by the tenant's own account, from outside this
        browser entirely. The mock could only ever re-read the key it had just written. */
+
     const after = await invitesFor(tenantToken);
     const fresh = after.filter((r) => !before.has(r.id));
     expect(fresh.length, 'exactly one new invitation reached the tenant account').toBe(1);
     expect(fresh[0].requestId, 'and it points at the request the owner just filed').toBe(body.id);
     expect(fresh[0].role).toBe('tenant');
     expect(fresh[0].requestType).toBe('rent-agreement');
-
     /* `pending: false` — the server found an account for that number. This is the fact behind the
        copy assertion below, so both halves are pinned. */
+
     expect(fresh[0].pending, 'the tenant already has an account, so nothing is pending signup').toBe(false);
     await expect(
       page.getByText('Waiting for them to open the invite'),
       'the owner is told they are waiting on a reply, not on a signup',
     ).toBeVisible();
 
-    /* The live deep link is account-addressed. `?invite=` was the mock's bearer token. */
     const href = await page.getByRole('link', { name: /Send invite on WhatsApp/ }).getAttribute('href');
     const decoded = decodeURIComponent(href || '');
     expect(decoded).toContain('wa.me/91');
     expect(decoded, 'the live invite is addressed to a party, not carried as a token').toContain('?party=');
     expect(decoded).not.toContain('?invite=');
-
     /* ── The tenant, in a browser that has never seen the owner's session ── */
     const tenantCtx = await browser.newContext();
     try {
       const tenantPage = await tenantCtx.newPage();
       await signedInAs(tenantPage, tenantMobile);
       await tenantPage.goto(inviteUrl({ partyId: party.id, requestId: body.id }), { waitUntil: 'networkidle' });
-
       /* The owner's sections are readable but not writable, and the tenant's is the one they
          complete. Asserted from a context whose `localStorage` never held the owner's draft. */
+
       await expect(tenantPage.getByText('Set up by the owner — view only')).toBeVisible();
       await expect(active(tenantPage).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
+      await expect(active(tenantPage).locator('.dz-dropdown__trigger').first()).toBeDisabled();
 
       await clickNext(tenantPage, 1); // Property -> Owner (still read-only)
       await clickNext(tenantPage, 2); // Owner -> Tenant
       await expect(tenantPage.getByText('Your details — please complete this step')).toBeVisible();
       await expect(active(tenantPage).getByPlaceholder('As per PAN/Aadhaar')).toBeEnabled();
-
+      await expect(active(tenantPage).getByPlaceholder('10-digit mobile').first(), 'the invitee finds their own mobile already on their step').toHaveValue(tenantMobile);
       /* Accepting removes the row from the *pending* invite list, so a second visit finds nothing
          there and must not read that absence as expiry — the tenant would have no way back in. */
+
       await tenantPage.reload({ waitUntil: 'networkidle' });
       await expect(
         tenantPage.getByText('This invite is no longer available'),
@@ -204,15 +178,94 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     }
   });
 
-  test('an invite addressed to one account is invisible to another — the SERVER withholds it rather than the browser being discreet', async ({ page }) => {
+  test('a tenant can start the agreement and invite the owner, who fills only the owner half from their own browser', async ({ page, browser }) => {
+    test.slow();
+    const ownerMobile = uniqueMobile();
+    const { accessToken: ownerToken } = await apiLogin(ownerMobile, { api: API });
+    const tenantMobile = await signedInAsNew(page, { api: API });
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    await fillProperty(page);
+    await inviteOwner(page, ownerMobile, 'Rajesh Deshpande');
+    const t = active(page);
+    await expect(t.getByPlaceholder('10-digit mobile').first(), 'the requester is the first tenant').toHaveValue(tenantMobile);
+    await t.getByPlaceholder('As per PAN/Aadhaar').first().fill('Rahul Nair');
+    await t.getByPlaceholder('As per identity proof').first().fill('Latha Nair');
+    await pickDate(page, '[data-err="t0dob"]', '1995-01-01');
+    await t.getByPlaceholder('ABCDE1234F').first().fill('PQRSX6789K');
+    await t.getByPlaceholder('12-digit Aadhaar').first().fill(AADHAAR.tenant);
+    await t.getByPlaceholder('Full permanent address').first().fill('44, FC Road, Pune 411004');
+    await fillTenantPolice(page);
+    await uploadAll(t, 'tenant-doc');
+    await clickNext(page, 3);
+    await fillTerms(page);
+    await fillWitnesses(page);
+
+    const review = active(page);
+    await expect(review.getByText('Invited: Rajesh Deshpande (pending)')).toBeVisible();
+    await review.getByRole('checkbox').check();
+    const created = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/service-requests\/co-fill$/.test(new URL(r.url()).pathname),
+    );
+    await review.getByRole('button', { name: /Generate Agreement & Proceed/ }).click();
+    const res = await created;
+    expect(res.status(), 'the server accepted the tenant-started co-fill').toBe(201);
+    const body = await res.json();
+    const party = (body.parties || []).find((p) => p?.role === 'owner');
+    expect(party?.id, 'the invited party is the owner').toBeTruthy();
+    await expect(page.getByText('Request sent to the owner!')).toBeVisible();
+    await expect(page.getByText('Send the invite to the owner')).toBeVisible();
+    expect((await invitesFor(ownerToken)).map((r) => `${r.requestId}:${r.role}`)).toContain(`${body.id}:owner`);
+
+    const ownerCtx = await browser.newContext();
+    try {
+      const ownerPage = await ownerCtx.newPage();
+      await signedInAs(ownerPage, ownerMobile);
+      await ownerPage.goto(inviteUrl({ partyId: party.id, requestId: body.id }), { waitUntil: 'networkidle' });
+      await expect(ownerPage.getByText('Set up by the tenant — view only')).toBeVisible();
+      await expect(active(ownerPage).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
+      await clickNext(ownerPage, 1);
+      await expect(ownerPage.getByText('Your details — please complete this step')).toBeVisible();
+      const o = active(ownerPage);
+      await expect(o.getByPlaceholder('10-digit mobile').first(), 'the invitee\'s own number is already there').toHaveValue(ownerMobile);
+      await o.getByPlaceholder('As per PAN/Aadhaar').first().fill('Rajesh Deshpande');
+      await o.getByPlaceholder('As per identity proof').first().fill('Maya Deshpande');
+      await pickDate(ownerPage, '[data-err="oDob"]', '1974-01-01');
+      await o.getByPlaceholder('ABCDE1234F').first().fill('ABCDE1234F');
+      await o.getByPlaceholder('12-digit Aadhaar').first().fill(AADHAAR.owner);
+      await o.getByPlaceholder('Full permanent address').first().fill('12, MG Road, Pune 411001');
+      await uploadAll(o, 'owner-doc');
+      await clickNext(ownerPage, 2);
+      await expect(active(ownerPage).getByPlaceholder('As per PAN/Aadhaar').first(), 'the tenant half is read-only').toBeDisabled();
+      await clickNext(ownerPage, 3);
+      await clickNext(ownerPage, 4);
+      await clickNext(ownerPage, 5);
+      await active(ownerPage).getByRole('checkbox').check();
+      const filled = ownerPage.waitForResponse(
+        (r) => r.request().method() === 'PUT' && /\/party-details$/.test(new URL(r.url()).pathname),
+      );
+      await active(ownerPage).getByRole('button', { name: /Generate Agreement & Proceed/ }).click();
+      expect((await filled).status(), 'the owner half was accepted').toBe(200);
+    } finally {
+      await ownerCtx.close();
+    }
+
+    const read = await fetch(`${API}/service-requests/${body.id}`, { headers: await authHeaders(tenantMobile) });
+    const merged = (await read.json()).details;
+    expect(merged._state.owner.oName, 'the owner wrote the licensor').toBe('Rajesh Deshpande');
+    expect(merged._state.tenants[0].name, 'and left the requester\'s tenant half alone').toBe('Rahul Nair');
+
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('ra-pay-panel').getByText('The owner has filled in their part')).toBeVisible();
+  });
+
+  test('an invite addressed to one account is invisible to another, and a signed-out invitee is sent to sign in and back — the SERVER withholds it, and the mobile never enters the URL', async ({ page, browser }) => {
     const ownerMobile = uniqueMobile();
     const { accessToken: ownerToken } = await apiLogin(ownerMobile, { api: API });
     const tenantMobile = uniqueMobile();
     await apiLogin(tenantMobile, { api: API });
 
     const { requestId, partyId } = await coFillOverHttp(ownerToken, tenantMobile);
-
-    /* A third account: not the owner, not the invitee, holding the exact link. */
     const strangerMobile = uniqueMobile();
     const { accessToken: strangerToken } = await apiLogin(strangerMobile, { api: API });
 
@@ -221,53 +274,38 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
       'the invitation is not in a stranger\'s list at all',
     ).not.toContain(partyId);
 
-    /* 404, not 403. The stranger is not told "you may not see this request", which would confirm
-       it exists; they are told there is nothing there. */
     const peek = await fetch(`${API}/service-requests/${requestId}`, { headers: authed(strangerToken) });
     expect(peek.status, 'the request does not exist as far as a stranger is concerned').toBe(404);
 
     await signedInAs(page, strangerMobile);
     await page.goto(inviteUrl({ partyId, requestId }), { waitUntil: 'networkidle' });
-
     /* Positive wait first. `toHaveCount(0)` is satisfied instantly by a page that has not
        rendered, so without this the two absence assertions below would pass on a blank screen. */
     await expect(page.getByText('This invite is no longer available')).toBeVisible();
 
-    /* The neutral refusal, not the mock's `wrongNumber` panel — which named the invited number
-       to whoever was holding the link. */
     await expect(page.getByText(/sent to a different number/i)).toHaveCount(0);
     await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toHaveCount(0);
-  });
 
-  test('a signed-out invitee is sent to sign in and back — without the invited mobile being put in the URL', async ({ page }) => {
-    const ownerMobile = uniqueMobile();
-    const { accessToken: ownerToken } = await apiLogin(ownerMobile, { api: API });
-    const tenantMobile = uniqueMobile();
-    await apiLogin(tenantMobile, { api: API });
+    const signedOut = await browser.newContext();
+    try {
+      const anon = await signedOut.newPage();
+      await anon.goto(inviteUrl({ partyId, requestId }), { waitUntil: 'networkidle' });
 
-    const { requestId, partyId } = await coFillOverHttp(ownerToken, tenantMobile);
+      await expect(anon).toHaveURL(/\/signin/);
+      await expect(anon).toHaveURL(/reason=invite/);
+      await expect(anon.getByRole('heading', { name: 'Sign in to complete your Rent Agreement' })).toBeVisible();
 
-    /* No sign-in step: this context has never authenticated. */
-    await page.goto(inviteUrl({ partyId, requestId }), { waitUntil: 'networkidle' });
-
-    await expect(page).toHaveURL(/\/signin/);
-    await expect(page).toHaveURL(/reason=invite/);
-    await expect(page.getByText('Sign in to complete your Rent Agreement')).toBeVisible();
-
-    /* The return path is preserved, so signing in resumes the invite rather than dumping them on
-       a dashboard. */
-    const url = new URL(page.url());
-    expect(decodeURIComponent(url.searchParams.get('next') || ''), 'the invite is resumed after sign-in').toContain(`party=${partyId}`);
-
-    /* The reversal. The mock asserted `mobile=9822334455` was prefilled here — from a record the
-       test itself had seeded. Live the number is never put in the URL, so a forwarded link does
-       not disclose whose invite it is. */
-    expect(url.searchParams.get('mobile'), 'the invited number is not leaked into the sign-in URL').toBeNull();
-    expect(page.url()).not.toContain(tenantMobile);
+      const url = new URL(anon.url());
+      expect(decodeURIComponent(url.searchParams.get('next') || ''), 'the invite is resumed after sign-in').toContain(`party=${partyId}`);
+      // Live the number is never put in the URL, so a forwarded link does not disclose whose invite it is.
+      expect(url.searchParams.get('mobile'), 'the invited number is not leaked into the sign-in URL').toBeNull();
+      expect(anon.url()).not.toContain(tenantMobile);
+    } finally {
+      await signedOut.close();
+    }
   });
 
   test('inviting a number with no Draazy account says so, and asks for a signup rather than a resend', async ({ page }) => {
-    /* Never registered — `uniqueMobile()` without the `apiLogin` the other tests pair it with. */
     const strangerMobile = uniqueMobile();
 
     await signedInAsNew(page, { api: API });
@@ -277,7 +315,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     await fillOwner(page);
     await inviteTenant(page, strangerMobile);
     await fillTerms(page);
-    await clickNext(page, 5);
+    await fillWitnesses(page);
 
     const review = active(page);
     await review.getByRole('checkbox').check();
@@ -290,16 +328,10 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     const body = await (await created).json();
     const party = (body.parties || [])[0];
 
-    /* Only the server can answer "is there an account behind this number?", and it is the whole
-       basis for the advice the owner is given. "Resend it" would be useless — the link cannot
-       open until they sign up. */
     expect(party?.pending, 'the server reports no account behind that number').toBe(true);
     await expect(page.getByText(/isn.t on Draazy yet/)).toBeVisible();
     await expect(page.getByText('Waiting for them to open the invite')).toHaveCount(0);
-
-    /* The server masks the number it echoes back, so the panel cannot become a place to read a
-       full phone number off someone else's screen. Measured shape: first two digits, then five
-       X, then the last three — `9712345074` comes back as `97XXXXX074`. */
+    // Mask echoed pending numbers so the panel cannot leak someone else's phone.
     expect(party.mobile, 'the echoed number is masked').not.toBe(strangerMobile);
     expect(party.mobile, 'and most of it is withheld').toContain('XXXXX');
     expect(party.mobile, 'though the last three stay, so the owner can tell who they meant').toContain(strangerMobile.slice(-3));
@@ -310,14 +342,25 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
   });
 
   test('the invited tenant is told from their own dashboard, and the card routes into the invite', async ({ page }) => {
-    /* The invitation is a row the owner created against *this* account, which this browser has never
-       seen — so the card and the tab gate must be sourced from the server, not from localStorage. */
     const ownerMobile = uniqueMobile();
     const { accessToken: ownerToken } = await apiLogin(ownerMobile, { api: API });
     const tenantMobile = uniqueMobile();
-    await apiLogin(tenantMobile, { api: API });
+    const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });
+    const invited = (rows) => rows.filter((n) => n.type === 'service.party-invited');
+    expect(invited(await notificationsFor(tenantToken)), 'a brand-new account has no invitation notice to begin with').toHaveLength(0);
 
     const { requestId, partyId } = await coFillOverHttp(ownerToken, tenantMobile);
+
+    const notices = invited(await notificationsFor(tenantToken));
+    expect(notices, 'the invitation raised exactly one notice in the tenant\'s inbox').toHaveLength(1);
+    expect(notices[0].link, 'the notice opens the invite it is about').toContain(`party=${partyId}`);
+    expect(notices[0].link).toContain(`request=${requestId}`);
+    expect(notices[0].link, 'not the mock bearer-token link the live wizard ignores').not.toContain('invite=');
+    expect(notices[0].read, 'an unread notice is what surfaces the bell').toBe(false);
+    expect(
+      invited(await notificationsFor(ownerToken)),
+      'the person who SENT the invitation is not the person it notifies',
+    ).toHaveLength(0);
 
     /* A browser that has never run the owner's wizard. Nothing local could tell it this exists. */
     await signedInAs(page, tenantMobile);
@@ -330,9 +373,9 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
 
     const fill = page.getByRole('link', { name: /Fill my details/ });
     await expect(fill).toBeVisible();
-
     /* The link has to be the account-addressed form. A `?invite=` href would render identically
        and dead-end on the expired panel, so assert the address before following it. */
+
     const href = await fill.getAttribute('href');
     expect(href, 'the card links to the account-addressed invite').toContain(`party=${partyId}`);
     expect(href).toContain(`request=${requestId}`);
@@ -344,38 +387,11 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
       page.getByText('Set up by the owner — view only'),
       'and it opens the invite rather than the expired panel',
     ).toBeVisible();
-  });
 
-  /* The invitation announces itself, and to the right person. The BEFORE is not decoration: without
-     it a pre-filled inbox satisfies the AFTER on its own, and the owner's inbox is the negative that
-     pins the recipient — writing into the *inviter's* store was the original defect. */
-  test('the SERVER announces the invitation to the invited tenant — into their inbox, not the inviter\'s browser', async () => {
-    const tenantMobile = uniqueMobile();
-    const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });
-    const { accessToken: ownerToken } = await apiLogin(uniqueMobile(), { api: API });
-
-    const invited = (rows) => rows.filter((n) => n.type === 'service.party-invited');
-
-    const before = invited(await notificationsFor(tenantToken));
-    expect(before, 'a brand-new account has no invitation notice to begin with').toHaveLength(0);
-
-    const { requestId, partyId } = await coFillOverHttp(ownerToken, tenantMobile);
-
-    const after = invited(await notificationsFor(tenantToken));
-    expect(after, 'the invitation raised exactly one notice in the tenant\'s inbox').toHaveLength(1);
-
-    /* The notice has to be actionable, not merely present: the link is the whole point of sending
-       it. Same account-addressed shape the dashboard card uses — asserted here too because a
-       notification is the one surface a user reaches without passing through that card. */
-    expect(after[0].link, 'the notice opens the invite it is about').toContain(`party=${partyId}`);
-    expect(after[0].link).toContain(`request=${requestId}`);
-    expect(after[0].link, 'not the mock bearer-token link the live wizard ignores').not.toContain('invite=');
-    expect(after[0].read, 'an unread notice is what surfaces the bell').toBe(false);
-
-    /* The negative that names the recipient. */
-    expect(
-      invited(await notificationsFor(ownerToken)),
-      'the person who SENT the invitation is not the person it notifies',
-    ).toHaveLength(0);
+    await test.step('the invitee\'s own mobile is on their step, seeded from the account rather than from the owner\'s state', async () => {
+      await clickNext(page, 1);
+      await clickNext(page, 2);
+      await expect(active(page).getByPlaceholder('10-digit mobile').first()).toHaveValue(tenantMobile);
+    });
   });
 });

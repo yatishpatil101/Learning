@@ -3,41 +3,19 @@ package com.draazy.api.services.request;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
+import com.draazy.api.common.error.ValidationException;
+import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.provider.PaymentGateway;
 import com.draazy.api.security.AuthPrincipal;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Arranging an agreement between two people who both have to fill part of it in.
- *
- * <p><strong>The use case, and why it is a service of its own.</strong> An ordinary service request
- * is one person asking the desk for something: they describe it, they pay, ops works it. A rent
- * agreement is not that. Two people are party to it, each knows half of what the draft needs, and
- * neither should have to read the other's Aadhaar number down a phone line so that one of them can
- * type it into a form. So the request is filed unpaid, the second party is invited, they fill their
- * own half against their own account, and only then is anybody asked to pay.
- *
- * <p>That reordering — <em>invite, fill, then pay</em> against the ordinary <em>fill, pay, then
- * work</em> — is the whole of what this class contains. It sits beside {@link ServiceRequestService}
- * rather than inside it because the two answer different questions: that one owns what a service
- * request <em>is</em>, this one owns how a two-sided one is <em>arranged</em>. Splitting on the seam
- * between them is what package-structure.md §4.1 asks for, and the alternative — a
- * {@code ServiceRequestCoFillHelper} holding the same code — would have been the same file in two
- * pieces, still read together, with the responsibility still in the parent.
- *
- * <p><strong>What it deliberately does not own.</strong> Filing the row, pricing it, opening the
- * gateway order and narrating the timeline all still belong to {@link ServiceRequestService} and are
- * reached through a small package-private seam there. A co-filled rent agreement is a service
- * request; a second definition of what filing one means is a second definition that drifts.
- *
- * <p><strong>Invitations are not here either.</strong> {@link CoFillParties} owns the party rows —
- * who was invited, whether they answered, and the V107 pending state where the invitation is
- * addressed to a mobile number rather than to an account. This class is the request-shaped half of
- * co-fill and that one is the person-shaped half.
- */
 @Service
 public class CoFillServiceRequests {
 
@@ -47,73 +25,60 @@ public class CoFillServiceRequests {
     private final ServiceRequestService serviceRequests;
     private final ServiceRequestMapper mapper;
     private final AuditService audit;
+    private final RentAgreementReadiness readiness;
+    private final Notifier notifier;
+    private final PaymentGateway gateway;
+    private final TransactionTemplate transactions;
 
     public CoFillServiceRequests(ServiceRequestRepository requests,
             ServiceRequestPartyRepository partyRows,
             CoFillParties parties,
             ServiceRequestService serviceRequests,
             ServiceRequestMapper mapper,
-            AuditService audit) {
+            AuditService audit,
+            RentAgreementReadiness readiness,
+            Notifier notifier,
+            PaymentGateway gateway,
+            PlatformTransactionManager transactionManager) {
         this.requests = requests;
         this.partyRows = partyRows;
         this.parties = parties;
         this.serviceRequests = serviceRequests;
         this.mapper = mapper;
         this.audit = audit;
+        this.readiness = readiness;
+        this.notifier = notifier;
+        this.gateway = gateway;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    /**
-     * Contract {@code createCoFillServiceRequest} — file a priced request without opening checkout,
-     * and invite the second party.
-     *
-     * <p>The row is committed as {@code awaiting-payment} with no {@code payment_ref}: invisible to
-     * ops on exactly the same rule as any other unpaid rent agreement, but not yet bound to a
-     * gateway order either. That distinction is the point of the whole flow. An order opened now
-     * would start a payment clock against a form that is still half empty, and the requester would
-     * be paying for a draft neither party could yet complete.
-     *
-     * <p>Checkout is opened later through {@link #openDeferredCheckout}, once the counterparty has
-     * accepted and submitted their side.
-     */
     @Transactional
     public ServiceRequestDto createCoFill(AuthPrincipal caller, ServiceRequestCreate body,
             String role, String mobile) {
         UUID requestId = serviceRequests.fileDeferred(caller, body);
-        parties.invite(caller, requestId.toString(), role, mobile);
-        // Re-read rather than carry the entity across: `invite` may have written a pending party
-        // row, and the DTO carries the party list, so the request has to be seen after that write
-        // and not before it.
-        ServiceRequest request = requests.findById(requestId)
-                .orElseThrow(() -> new IllegalStateException("Service request " + requestId
+        parties.invite(caller, requestId.toString(), role, 0, mobile);
+
+        // Re-read after invite so the DTO sees the just-written party row.
+        ServiceRequest request = requests.findById(requestId).orElseThrow(() -> new IllegalStateException("Service request " + requestId
                         + " disappeared before its co-fill invitation was recorded"));
         serviceRequests.recordBy(request, "party.invited", caller.userId());
-        return mapper.toDto(request);
+        return mapper.toDto(request, caller);
     }
 
-    /**
-     * Contract {@code submitServiceRequestPartyDetails} — the accepted second party submits their
-     * half of the details, before checkout is opened.
-     *
-     * <p>Only theirs. The merge is non-erasing, so a key they leave blank keeps whatever the
-     * requester put there: the two halves of the form are filled by two people at two times, and a
-     * whole-payload replace would let whoever saved last quietly blank the other's work.
-     */
+    // Merge only this side; blank fields must not erase the other party's work.
     @Transactional
     public ServiceRequestDto submitPartyDetails(AuthPrincipal caller, String id,
             Map<String, Object> details) {
         ServiceRequest request = serviceRequests.visible(caller, id);
-        // The requester has their own route. Rejecting them here is not pedantry: this route skips
-        // the requester-side validation the ordinary update performs, and its whole authorisation
-        // rests on the caller being the *other* party.
+
         if (caller.userId().equals(request.getRequesterId())) {
             throw new ForbiddenException(
                     "Only the invited co-fill party can submit details through this route.");
         }
-        if (!partyRows.existsByRequestIdAndUserIdAndStatus(
-                request.getId(), caller.userId(), CoFillParties.ACCEPTED)) {
-            throw new ForbiddenException(
-                    "Accept the invitation first, then submit your details.");
-        }
+        ServiceRequestParty party = partyRows.findByRequestId(request.getId()).stream().filter(p -> caller.userId().equals(p.getUserId())
+                        && CoFillParties.ACCEPTED.equals(p.getStatus())).findFirst().orElseThrow(() -> new ForbiddenException(
+                        "Accept the invitation first, then submit your details."));
+        String side = party.getRole();
         if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
             throw new ConflictException(
                     "This request is " + request.getStatus()
@@ -124,30 +89,106 @@ public class CoFillServiceRequests {
                     "Checkout is already open for this request. Ask the requester to reopen it if"
                             + " edits are needed.");
         }
-        request.replaceDetails(serviceRequests.mergedBoundedDetails(request, details));
+
+        if (!ServiceRequestPricing.samePricedTerms(request.getDetails(),
+                serviceRequests.mergedBoundedDetails(request, details))) {
+            throw new ConflictException(
+                    "The rent, deposit and term were set by the requester and the fee was priced on"
+                            + " them. Ask the requester to change them.");
+        }
+        Map<String, Object> merged = serviceRequests.mergedBoundedDetails(request,
+                ownSide(request.getType(), side, party.getPartyIndex(), request.getDetails(), details));
+        RentAgreementDetailsRules.checkMerged(merged);
+        request.replaceDetails(merged);
         serviceRequests.recordBy(request, "party.details-submitted", caller.userId());
         audit.record(caller, "service-request.party-details", "service_request",
                 request.getId().toString());
-        return mapper.toDto(requests.saveAndFlush(request));
+
+        notifier.notify(request.getRequesterId(), "service.party-details-submitted",
+                "The other side has filled in their details",
+                "Open the request and pay to send it to our drafting team.",
+                ServiceRequestTypes.pageFor(request.getType()));
+        return mapper.toDto(requests.saveAndFlush(request), caller);
     }
 
-    /**
-     * Contract {@code openServiceRequestCheckout} — the requester opens checkout once every
-     * invitation has been answered.
-     *
-     * <p>The guards read as a list but they are one rule stated six ways: <em>nobody pays for a
-     * draft that is not ready to be drafted.</em> Read under a row lock, because two taps on a slow
-     * connection would otherwise open two live gateway orders against one request, and the second
-     * one is a real charge nobody can explain afterwards.
-     *
-     * <p>An unanswered invitation blocks checkout whether or not it was ever claimed, and both cases
-     * are named separately in the message. "Waiting for them to sign up" and "waiting for them to
-     * reply" are different situations for the requester: the first is fixed by nudging somebody to
-     * register, the second by nudging them to open an invitation they already have. A single message
-     * covering both would leave them guessing which.
-     */
-    @Transactional
-    public ServiceRequestDto openDeferredCheckout(AuthPrincipal caller, String id) {
+    private static final Map<String, List<String>> SIDE_SUMMARY = Map.of(
+            "tenant", List.of("tenants"),
+            "owner", List.of("ownerName"));
+    private static final Map<String, List<String>> SIDE_STATE = Map.of(
+            "tenant", List.of("tenants"),
+            "owner", List.of("owner", "coOwners"));
+
+    static Map<String, Object> ownSide(String type, String side, int partyIndex,
+            Map<String, Object> currentDetails, Map<String, Object> details) {
+        if (!ServiceRequestTypes.RENT_AGREEMENT.equals(type) || details == null) {
+            return details;
+        }
+        Map<String, Object> own = new HashMap<>();
+        SIDE_SUMMARY.getOrDefault(side, List.of()).stream().filter(details::containsKey).forEach(key -> own.put(key, details.get(key)));
+        Map<String, Object> ownState = new HashMap<>();
+        if (details.get("_state") instanceof Map<?, ?> state) {
+            SIDE_STATE.getOrDefault(side, List.of()).stream().filter(state::containsKey).forEach(key -> ownState.put(key,
+                            ownStateValue(side, key, partyIndex, currentDetails, state.get(key))));
+        }
+
+        Object first = ownState.get(SIDE_STATE.get(side).getFirst());
+        if (first == null || first instanceof List<?> rows && rows.isEmpty()) {
+            throw new ValidationException("Fill in the " + side + " details before submitting.");
+        }
+        own.put("_state", ownState);
+        return own;
+    }
+
+    private static Object ownStateValue(String side, String key, int partyIndex,
+            Map<String, Object> currentDetails, Object value) {
+        if (!"tenant".equals(side) || !"tenants".equals(key)) {
+            return value;
+        }
+        if (!(value instanceof List<?> rows) || partyIndex >= rows.size()) {
+            throw new ValidationException("Fill in the tenant details before submitting.");
+        }
+        Map<String, Object> currentState = ServiceRequestPricing.childObject(
+                currentDetails == null ? Map.of() : currentDetails, "_state");
+        List<?> currentRows = currentState.get("tenants") instanceof List<?> cur ? cur : List.of();
+        List<Object> merged = new java.util.ArrayList<>(currentRows);
+        while (merged.size() <= partyIndex) {
+            merged.add(Map.of());
+        }
+        merged.set(partyIndex, rows.get(partyIndex));
+        return merged;
+    }
+
+    public ServiceRequestDto openDeferredCheckout(AuthPrincipal caller, String id, String declaration) {
+        ServiceRequest ready = transactions.execute(tx -> checkoutable(caller, id));
+        RentAgreementDeclaration.accept(audit, caller, ready, declaration);
+        String openOrder = ready.getPaymentRef();
+        if (openOrder != null) {
+            return resumeCheckout(caller, id, openOrder);
+        }
+        PaymentGateway.PaymentOrder order = serviceRequests.openOrderFor(caller, ready);
+        return transactions.execute(tx -> {
+            ServiceRequest request = checkoutable(caller, id);
+            if (!request.attachOrder(order.orderId())) {
+                throw new ConflictException("Checkout is already open for this request.");
+            }
+            return mapper.toDto(requests.saveAndFlush(request), caller).withPaymentSessionId(order.paymentSessionId());
+        });
+    }
+
+    private ServiceRequestDto resumeCheckout(AuthPrincipal caller, String id, String orderId) {
+        String session = gateway.resumeSession(orderId).orElseThrow(() -> new ConflictException(
+                "This checkout can no longer be resumed. If you have just paid, it will show as paid"
+                        + " in a few minutes; otherwise it closes on its own and you can file again."));
+        return transactions.execute(tx -> {
+            ServiceRequest request = checkoutable(caller, id);
+            if (!orderId.equals(request.getPaymentRef())) {
+                throw new ConflictException("Checkout changed while it was being resumed. Try again.");
+            }
+            return mapper.toDto(request, caller).withPaymentSessionId(session);
+        });
+    }
+
+    private ServiceRequest checkoutable(AuthPrincipal caller, String id) {
         ServiceRequest request = serviceRequests.visibleForUpdate(caller, id);
         if (!caller.userId().equals(request.getRequesterId())) {
             throw new ForbiddenException(
@@ -155,34 +196,27 @@ public class CoFillServiceRequests {
         }
         if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
             throw new ConflictException(
-                    "Checkout may only be opened while this request is awaiting payment — it is "
+                    "Checkout may only be opened while this request is awaiting payment \u2014 it is "
                             + request.getStatus() + ".");
-        }
-        if (request.getPaymentRef() != null) {
-            throw new ConflictException("Checkout is already open for this request.");
         }
         if (request.getAmount() == null || request.getAmount() <= 0) {
             throw new ConflictException("This request has no payable amount.");
         }
-        if (partyRows.countByRequestIdAndStatus(request.getId(), CoFillParties.ACCEPTED) == 0) {
-            throw new ConflictException(
-                    "Wait for the invited party to accept before opening checkout.");
+        var rows = partyRows.findByRequestId(request.getId());
+        if (!rows.isEmpty()) {
+            if (rows.stream().anyMatch(p -> CoFillParties.INVITED.equals(p.getStatus()))) {
+                throw new ConflictException(pendingInviteMessage(request.getId()));
+            }
+            if (rows.stream().noneMatch(p -> CoFillParties.ACCEPTED.equals(p.getStatus()))) {
+                throw new ConflictException("No invited party has accepted this request yet.");
+            }
         }
-        if (partyRows.existsByRequestIdAndStatus(request.getId(), CoFillParties.INVITED)) {
-            throw new ConflictException(pendingInviteMessage(request.getId()));
-        }
-        PaymentGateway.PaymentOrder order = serviceRequests.openOrderFor(caller, request);
-        if (!request.attachOrder(order.orderId())) {
-            throw new ConflictException("Checkout is already open for this request.");
-        }
-        return mapper.toDto(requests.saveAndFlush(request))
-                .withPaymentSessionId(order.paymentSessionId());
+        readiness.require(request);
+        return request;
     }
 
-    /** Which of the two waits the requester is actually in. */
     private String pendingInviteMessage(UUID requestId) {
-        boolean unclaimed = partyRows.findByRequestId(requestId).stream()
-                .anyMatch(p -> p.isPending() && CoFillParties.INVITED.equals(p.getStatus()));
+        boolean unclaimed = partyRows.findByRequestId(requestId).stream().anyMatch(p -> p.isPending() && CoFillParties.INVITED.equals(p.getStatus()));
         return unclaimed
                 ? "That number has not signed up yet. Once they register, the invitation reaches "
                         + "them and they can accept it."

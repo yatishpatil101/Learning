@@ -1,18 +1,9 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-
-/** Mock-only coverage protects browser drafts and identity-field purging. */
-
+import { AADHAAR, MOBILE, active, clickNext, fillOwner, fillProperty, fillTenant, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, pickLocality, uploadAll } from '../../../helpers/rentAgreementWizard.js';
+import { pickDate } from '../../../helpers/datePicker.helper.js';
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
-
-/** Consumer-only tests use the buyer fixture. */
 const BUYER = { name: 'Anita Verma', mobile: '9811223344', email: '', role: 'buyer', joinedAt: Date.now() };
-
-const pad = (n) => String(n).padStart(2, '0');
-const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-
-
-/** Stub identity endpoints because this mock-only suite runs without backend access. */
 async function login(page, user) {
   await page.route('**/api/auth/me', (route) => route.fulfill({
     status: 200,
@@ -34,117 +25,39 @@ async function login(page, user) {
   }, user);
 }
 
-const active = (page) => page.locator('.step-panel.active');
-
-/* Assert the wizard moved: the Property, Owner and Tenant panels share every placeholder, so a Next
-   that silently did not advance types the next answers into the wrong panel and fails steps later. */
-const clickNext = async (page, expectStep) => {
-  await page.getByRole('button', { name: 'Next' }).click();
-  if (expectStep == null) return;
-  await expect(
-    page.locator('.step-dot').nth(expectStep),
-    `wizard did not advance to step ${expectStep + 1}`,
-  ).toHaveClass(/\bactive\b/);
-};
-
-async function fillProperty(page) {
-  const p = active(page);
-  await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-  await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-  await p.getByPlaceholder('e.g. Baner').fill('Baner');
-  await p.getByPlaceholder('411045').fill('411045');
-  await clickNext(page, 1);
-}
-
-async function fillOwner(page) {
-  const p = active(page);
-  await p.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
-  await p.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
-  await p.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
-  await p.getByPlaceholder('10-digit mobile').fill('9811223344');
-  await p.getByPlaceholder('Full permanent address').fill('12, MG Road, Pune 411001');
-  await clickNext(page, 2);
-}
-
-async function fillTenant(page) {
-  const p = active(page);
-  await p.getByPlaceholder('As per PAN/Aadhaar').fill('Rahul Nair');
-  await p.getByPlaceholder('ABCDE1234F').fill('PQRSX6789K');
-  await p.getByPlaceholder('12-digit Aadhaar').fill('999988887777');
-  await p.getByPlaceholder('10-digit mobile').fill('9822334455');
-  await p.getByPlaceholder('Full permanent address').fill('44, FC Road, Pune 411004');
-  await clickNext(page, 3);
-}
-
-async function fillTerms(page) {
-  const p = active(page);
-  await p.locator('.dz-datefield').click();
-  await page.locator('.dz-cal').waitFor({ state: 'visible' });
-  const day = page.getByRole('button', { name: todayIso(), exact: true }).first();
-  await day.click();
-  await page.locator('.dz-cal').waitFor({ state: 'detached' });
-  await p.getByPlaceholder('e.g. 25000').fill('30000');
-  await p.getByPlaceholder('e.g. 100000').fill('150000');
-  await clickNext(page, 4);
-}
-
 test.describe('Rent Agreement — revenue flow', () => {
-  test('mandatory document fields carry the app-standard required marker', async ({ page }) => {
+  test('a mid-fill refresh restores every answer except PAN and Aadhaar and remembers which papers were attached', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
+    await fillOwner(page, { next: false });
 
-    // Owner KYC + ownership docs are visibly required (red asterisk via .req).
-    const p = active(page);
-    for (const doc of ['PAN Card', 'Aadhaar Card', 'Passport Photo', 'Ownership Proof']) {
-      await expect(p.locator('label span.req').filter({ hasText: doc })).toBeVisible();
-    }
-  });
-
-  test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
-    // `dzDraft:rentAgreement` is plain JSON on localStorage, so PAN + Aadhaar are stripped before
-    // the write; everything else must still come back or the autosave is pointless.
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    const p = active(page);
-    await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-    await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-    await p.getByPlaceholder('e.g. Baner').fill('Baner');
-    await p.getByPlaceholder('411045').fill('411045');
-    await clickNext(page, 1); // -> owner step
-    const o = active(page);
-    await expect(o.getByPlaceholder('As per PAN/Aadhaar')).toBeVisible();
-    await o.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
-    await o.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
-    await o.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
     /* Poll for `"step":1`, not the name: the draft picks up the owner's name while `"step":0` is
        still on disk, so the reload would restore correct fields parked on the wrong panel. */
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || ''))
-      .toContain('"step":1');
-    expect(await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '')).toContain('Anita Verma');
-
-    // The numbers never reach the disk in the first place.
+      .toContain('owner-doc-3.jpg');
     const written = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
+    expect(written).toContain('"step":1');
+    expect(written).toContain('Anita Verma');
+    expect(written).not.toContain('data:image');
     expect(written).not.toContain('ABCDE1234F');
-    expect(written).not.toContain('123412341234');
+    expect(written).not.toContain(AADHAAR.owner);
 
     await page.reload({ waitUntil: 'networkidle' });
-
-    // The draft is restored: the banner shows and we're back on the OWNER step (step
-    // was persisted), not reset to step 0.
     await expect(page.getByText('We saved your progress')).toBeVisible();
     const back = active(page);
     await expect(back.getByPlaceholder('As per PAN/Aadhaar')).toHaveValue('Anita Verma');
-
-    // …but the two identity fields come back blank, and the banner says so rather than
-    // claiming everything was restored.
     await expect(back.getByPlaceholder('ABCDE1234F')).toHaveValue('');
     await expect(back.getByPlaceholder('12-digit Aadhaar')).toHaveValue('');
     await expect(page.getByText(/PAN and Aadhaar are never saved on this device/)).toBeVisible();
+    await expect(back.getByText('Re-attach owner-doc-0.jpg')).toBeVisible();
+    await expect(back.getByText('Re-attach owner-doc-3.jpg')).toBeVisible();
 
-    // …and the earlier property answers are intact.
+    await clickNext(page);
+    await expect(page.locator('.step-dot').nth(1), 'a re-attach marker is not a paper').toHaveClass(/\bactive\b/);
+    await expect(back.getByPlaceholder('ABCDE1234F').first(), 'the purged PAN is the first gap, and has focus').toBeFocused();
+
     await page.getByRole('button', { name: 'Back' }).click();
     await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
   });
@@ -171,105 +84,95 @@ test.describe('Rent Agreement — revenue flow', () => {
     expect(stored).not.toContain('123412341234');
     expect(stored).not.toContain('PQRSX6789K');
     expect(stored).not.toContain('999988887777');
-    // The rest of the draft survives the purge — this is a redaction, not a wipe.
     expect(stored).toContain('Skyline Heights');
 
-    // And the purged values are not put back on screen by the restore either.
     await expect(active(page).getByPlaceholder('ABCDE1234F')).toHaveValue('');
     await expect(active(page).getByPlaceholder('12-digit Aadhaar')).toHaveValue('');
   });
 
-  test('witnesses step is optional and flags biometric attendance', async ({ page }) => {
+  test('each step refuses incomplete answers, and the review carries identity, deed language and the biometric visit preference', async ({ page }) => {
+    test.slow();
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
-    await fillOwner(page);
-    await fillTenant(page);
-    await fillTerms(page); // -> witnesses step
+    const owner = active(page);
+    await owner.getByPlaceholder('As per PAN/Aadhaar').first().fill('Anita Verma');
+    await clickNext(page);
+    await expect(page.locator('.step-dot').nth(1)).toHaveClass(/\bactive\b/);
+    await expect(owner.getByText("Enter mother's name.")).toBeVisible();
+    await expect(owner.getByText('Choose a valid date of birth for an adult party.')).toBeVisible();
+
+    await fillOwner(page, { next: false });
+    await expect(owner.getByPlaceholder('e.g. 42').first()).toHaveValue('46');
+    await clickNext(page, 2);
+    await fillTenant(page, { next: false });
+    await expect(active(page).getByPlaceholder('e.g. 29').first()).toHaveValue('31');
+    await clickNext(page, 3);
+    await fillTerms(page, { next: false });
+
+    const t = active(page);
+    await expect(t.getByRole('button', { name: 'English', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await t.getByRole('button', { name: 'Marathi (मराठी)' }).click();
+    await t.getByRole('button', { name: 'Where', exact: true }).click();
+    await page.getByRole('option', { name: "At the tenant's address" }).click();
+    await t.getByRole('button', { name: 'Preferred time', exact: true }).click();
+    await page.getByRole('option', { name: 'Evening (4 – 8 pm)' }).click();
+    await clickNext(page, 4);
 
     const w = active(page);
-    await expect(w.getByText('Optional')).toBeVisible();
-    await expect(w.getByText(/physically present/)).toBeVisible();
+    await expect(w.getByText('Optional')).toHaveCount(0);
+    await expect(w.getByText(/must be present at the registration visit/)).toBeVisible();
+    await clickNext(page);
+    await expect(page.locator('.step-dot').nth(4), 'an empty witnesses step does not reach review').toHaveClass(/\bactive\b/);
+    await expect(w.getByText("Enter the witness's full name as on their Aadhaar.").first()).toBeVisible();
+    await fillWitnesses(page);
 
-    // Optional means the owner can reach Review & submit without entering witnesses.
-    await clickNext(page, 5);
-    await expect(active(page).getByRole('button', { name: /Generate Agreement & Proceed/ })).toBeVisible();
+    const review = active(page);
+    await expect(review.getByRole('button', { name: /Pay ₹[\d,]+ & Submit/ })).toBeVisible();
+    await expect(review.getByText('Suresh Patil, Meera Joshi')).toBeVisible();
+    await expect(review.getByText('Marathi (मराठी)')).toBeVisible();
+    await expect(review.getByText("At the tenant's address · date to be agreed · Evening (4 – 8 pm)")).toBeVisible();
+    await expect(review.getByText('Owner identity')).toBeVisible();
+    await expect(review.getByText(/Mother's name: Shaila Verma/)).toBeVisible();
+    await expect(review.getByText(/Date of birth: 1980-01-01/)).toBeVisible();
+    await expect(review.getByText('Tenant identity')).toBeVisible();
+    await expect(review.getByText(/Mother's name: Latha Nair/)).toBeVisible();
   });
 
-    /** Signed-out coverage keeps identity steps inaccessible before authentication. */
-  test('a signed-out visitor may price the property, but the identity steps are padlocked', async ({ page }) => {
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    // Step 0 is open and usable: it asks about a building, not about a person.
-    const p = active(page);
-    await expect(p.getByPlaceholder('e.g. B-1204')).toBeVisible();
-    await expect(page.locator('.step-dot').nth(0)).toHaveClass(/\bactive\b/);
-
-    // Owner, Tenant, Terms, Witnesses, Review — all behind the line.
-    for (let i = 1; i <= 5; i++) {
-      await expect(page.locator('.step-dot').nth(i), `step ${i + 1} should be padlocked`).toHaveClass(/\blocked\b/);
-    }
-
-    // The way forward says what it will actually do. A button labelled "Next" that turns out to be
-    // a sign-in wall is the thing this test exists to stop coming back.
-    await expect(page.getByRole('button', { name: 'Sign in to continue' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
-    await expect(page.getByText(/Property details are open to everyone/)).toBeVisible();
-  });
-
-  test('crossing the line keeps every property answer, including the one typed last', async ({ page }) => {
-    /* Fake timers make the flush window unbounded: the autosave is debounced by 400ms and every
-       `fill` is a CDP round trip, so a real-time version of this test passes with the flush deleted.
-       `pauseAt` stops `setTimeout` entirely, so anything on disk afterwards got there synchronously.
-       React schedules on MessageChannel, so rendering is unaffected. */
-    await page.clock.install({ time: new Date('2025-01-01T10:00:00Z') });
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    await page.clock.pauseAt(new Date('2025-01-01T10:00:05Z'));
-
-    const p = active(page);
-    await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-    await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-    await p.getByPlaceholder('e.g. Baner').fill('Baner');
-    await p.getByPlaceholder('411045').fill('411045');
-
-    await page.getByRole('button', { name: 'Sign in to continue' }).click();
-
-    // Sent to sign in, told why, and pointed back here rather than at the dashboard.
-    await expect(page).toHaveURL(/\/signin/);
-    const url = new URL(page.url());
-    expect(url.searchParams.get('reason')).toBe('services'); // plural — AUTH_REASONS drops 'service'
-    expect(url.searchParams.get('next')).toBe('/services/rent-agreement');
-
-    /* The sign-up leg must carry `next` too, or `postAuthDest` sends a brand-new account to the
-       dashboard. Asserted on the href, because completing a signup needs a server this lane lacks. */
-    await expect(page.getByRole('link', { name: /sign up/i }))
-      .toHaveAttribute('href', /next=%2Fservices%2Frent-agreement/);
-
-    // The draft made it to disk before the page went away — pincode included.
-    const written = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
-    expect(written).toContain('Skyline Heights');
-    expect(written).toContain('411045');
-
-    // Sign in and come back: the answers are on screen, not merely on disk.
-    /* Resume first — a paused clock starves the next page load of every `setTimeout` it needs to
-       boot, which reads as the restore losing the answers. */
-    await page.clock.resume();
+  test('a tenant can start the agreement and invite the owner to fill only the owner half', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    const back = active(page);
-    await expect(back.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
-    await expect(back.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
-    await expect(back.getByPlaceholder('e.g. Baner')).toHaveValue('Baner');
-    await expect(back.getByPlaceholder('411045')).toHaveValue('411045');
+    await fillProperty(page);
 
-    // …and the line is gone, so the same control now does what it says.
-    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
-    await expect(page.locator('.step-dot').nth(1)).not.toHaveClass(/\blocked\b/);
+    const o = active(page);
+    await o.getByText("I'm the tenant — invite the owner", { exact: true }).click();
+    await expect(o.getByPlaceholder('As per PAN/Aadhaar'), 'the owner fields are the invitee\'s to fill').toHaveCount(0);
+    await clickNext(page);
+    await expect(o.getByText("Enter the owner's 10-digit mobile number.")).toBeVisible();
+    await inviteOwner(page, MOBILE.coOwner, 'Rajesh Deshpande');
+    await expect(page.locator('.step-dot').nth(1), 'the owner step waits on the invitee').toHaveClass(/\bpending\b/);
+
+    const t = active(page);
+    await expect(t.getByText('Invite the tenant', { exact: true }), 'one side is invited at a time').toHaveCount(0);
+    await expect(t.getByPlaceholder('As per PAN/Aadhaar').first(), 'the first tenant is the signed-in requester').toHaveValue(BUYER.name);
+    await expect(t.getByPlaceholder('10-digit mobile').first()).toHaveValue(BUYER.mobile);
+    await t.getByPlaceholder('As per identity proof').first().fill('Latha Nair');
+    await pickDate(page, '[data-err="t0dob"]', '1995-01-01');
+    await t.getByPlaceholder('ABCDE1234F').first().fill('PQRSX6789K');
+    await t.getByPlaceholder('12-digit Aadhaar').first().fill(AADHAAR.tenant);
+    await t.getByPlaceholder('Full permanent address').first().fill('44, FC Road, Pune 411004');
+    await fillTenantPolice(page);
+    await uploadAll(t, 'tenant-doc');
+    await clickNext(page, 3);
+    await fillTerms(page);
+    await fillWitnesses(page);
+
+    const review = active(page);
+    await expect(review.getByText('Invited: Rajesh Deshpande (pending)')).toBeVisible();
+    await expect(review.getByText(BUYER.name, { exact: true })).toBeVisible();
   });
 
-  test('a draft that was left on a later step cannot restore a signed-out visitor into it', async ({ page }) => {
-    /* The draft persists `step`, so a restore drops a signed-out visitor straight onto a panel full
-       of PAN and Aadhaar inputs without ever pressing the button the gate lives on. */
+  test('a signed-out visitor may price the property, but the identity steps are padlocked even for a draft left on a later step', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
         step: 3,
@@ -278,9 +181,168 @@ test.describe('Rent Agreement — revenue flow', () => {
     });
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
-    // Clamped back to the public step, with the rest of the draft intact.
+    const p = active(page);
+    await expect(p.getByPlaceholder('e.g. B-1204')).toBeVisible();
+    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
     await expect(page.locator('.step-dot').nth(0)).toHaveClass(/\bactive\b/);
-    await expect(page.locator('.step-dot').nth(3)).toHaveClass(/\blocked\b/);
-    await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    for (let i = 1; i <= 5; i++) {
+      await expect(page.locator('.step-dot').nth(i), `step ${i + 1} should be padlocked`).toHaveClass(/\blocked\b/);
+    }
+
+    await expect(page.getByRole('button', { name: 'Sign in to continue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Property details are open to everyone/)).toBeVisible();
+  });
+
+  test('crossing the line keeps every property answer, including the one typed last', async ({ page }) => {
+    await page.clock.install({ time: new Date('2025-01-01T10:00:00Z') });
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    const p = active(page);
+    await pickLocality(page);
+    await p.getByRole('button', { name: 'Taluka', exact: true }).click();
+    await page.getByRole('option', { name: 'Haveli', exact: true }).click();
+    await p.getByPlaceholder('e.g. Baner, Pune').fill('Baner');
+    await page.clock.pauseAt(new Date('2025-01-01T10:05:00Z'));
+    await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
+    await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
+    await p.getByPlaceholder('e.g. Skyline Heights').press('Escape');
+    await p.getByPlaceholder('e.g. 850').fill('850');
+    await p.getByPlaceholder('411045').fill('411045');
+
+    await page.getByRole('button', { name: 'Sign in to continue' }).click();
+
+    await expect(page).toHaveURL(/\/signin/);
+    const url = new URL(page.url());
+    expect(url.searchParams.get('reason')).toBe('services'); // plural — AUTH_REASONS drops 'service'
+    expect(url.searchParams.get('next')).toBe('/services/rent-agreement');
+    /* The sign-up leg must carry `next` too, or `postAuthDest` sends a brand-new account to the
+       dashboard. Asserted on the href, because completing a signup needs a server this lane lacks. */
+
+    await expect(page.getByRole('link', { name: /sign up/i }))
+      .toHaveAttribute('href', /next=%2Fservices%2Frent-agreement/);
+
+    const written = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
+    expect(written).toContain('Skyline Heights');
+    expect(written).toContain('411045');
+
+    await page.clock.resume();
+    await login(page, BUYER);
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    const back = active(page);
+    await expect(back.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
+    await expect(back.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(back.locator('[data-err="locality"]')).toContainText('Baner');
+    await expect(back.getByPlaceholder('411045')).toHaveValue('411045');
+    // …and the line is gone, so the same control now does what it says.
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+    await expect(page.locator('.step-dot').nth(1)).not.toHaveClass(/\blocked\b/);
+  });
+});
+
+const LISTING = {
+  id: '6b1f3c2e-1d2a-4c55-9a0e-1f2e3d4c5b6a',
+  slug: null,
+  deal: 'rent',
+  propertyType: 'Apartment',
+  title: '2 BHK in Kumar Paradise',
+  price: 32000,
+  deposit: 128000,
+  furnishing: 'semi-furnished',
+  locality: 'Kharadi',
+  pincode: '411014',
+  builtUpArea: 950,
+  status: 'approved',
+  formDetails: { flatNumber: 'A-702', society: 'Kumar Paradise' },
+};
+
+async function serveMyListing(page) {
+  await page.route(/\/api\/me\/listings(\?|$)/, (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ content: [LISTING], totalElements: 1, totalPages: 1, number: 0, size: 50 }),
+  }));
+  await page.route(new RegExp(`/api/me/listings/${LISTING.id}$`), (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(LISTING),
+  }));
+}
+
+test.describe('Rent Agreement — what the platform already holds is not asked for twice', () => {
+  test('choosing one of your listings fills the property step from it instead of blanking it', async ({ page }) => {
+    await login(page, BUYER);
+    await serveMyListing(page);
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    const p = active(page);
+    await p.getByRole('button', { name: /2 BHK in Kumar Paradise/ }).click();
+    await expect(p.getByPlaceholder('e.g. B-1204')).toHaveValue('A-702');
+    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Kumar Paradise');
+    await expect(p.locator('[data-err="locality"]')).toContainText('Kharadi');
+    await expect(p.getByPlaceholder('411045')).toHaveValue('411014');
+    await expect(p.getByPlaceholder('e.g. 850')).toHaveValue('950');
+    await expect(p.getByRole('button', { name: 'Measured as', exact: true }), 'the listing only gives a built-up figure, so the deed says so').toContainText('Built-up');
+  });
+
+  test('a ?listing= link fills only the blanks of a restored draft for the same flat', async ({ page }) => {
+    await login(page, BUYER);
+    await serveMyListing(page);
+    await page.addInitScript(() => {
+      localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
+        step: 0,
+        prop: { propType: 'Flat / Apartment', furnish: 'Furnished', flatNo: 'A-702', society: 'Kumar Paradise', societyId: '', locality: '', city: 'Pune', pincode: '', area: '' },
+        terms: { startDate: '', months: '11', rent: '30000', deposit: '', nrDeposit: '', increment: '5', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT' },
+      }));
+    });
+    await page.goto(`${BASE}/services/rent-agreement?listing=${LISTING.id}`, { waitUntil: 'networkidle' });
+
+    const p = active(page);
+    await expect(p.getByPlaceholder('e.g. 850'), 'a blank the listing can answer is filled').toHaveValue('950');
+    await expect(p.getByPlaceholder('411045')).toHaveValue('411014');
+    await expect(p.getByPlaceholder('e.g. B-1204')).toHaveValue('A-702');
+    await expect(p.locator('.dz-dropdown__trigger').nth(1), 'furnishing is the restored answer, not the listing\'s').toHaveText('Furnished');
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || ''))
+      .toContain('"area":"950"');
+    const draft = JSON.parse(await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '{}'));
+    expect(draft.terms.rent, 'the agreed rent survives the listing\'s asking rent').toBe('30000');
+    expect(draft.terms.deposit, 'while an unanswered deposit is taken from the listing').toBe('128000');
+  });
+
+  test('a ?listing= link for another flat leaves a restored draft whole and does not bind to it', async ({ page }) => {
+    await login(page, BUYER);
+    await serveMyListing(page);
+    await page.addInitScript(() => {
+      localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
+        step: 0,
+        prop: { propType: 'Flat / Apartment', furnish: 'Furnished', flatNo: 'B-1204', society: 'Skyline Heights', societyId: '', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+        terms: { startDate: '', months: '11', rent: '30000', deposit: '', nrDeposit: '', increment: '5', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT' },
+      }));
+    });
+    await page.goto(`${BASE}/services/rent-agreement?listing=${LISTING.id}`, { waitUntil: 'networkidle' });
+
+    await expect(page.getByText('Your saved draft is for a different flat')).toBeVisible();
+    const p = active(page);
+    await expect(p.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
+    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(p.getByPlaceholder('e.g. 850'), 'the other flat\'s area is not borrowed').toHaveValue('');
+
+    await p.getByRole('button', { name: /2 BHK in Kumar Paradise/ }).click();
+    await expect(p.getByPlaceholder('e.g. B-1204'), 'an explicit pick still switches the flat').toHaveValue('A-702');
+  });
+
+  test('a refused Next brings the first missing answer into view, and re-checks as it is fixed', async ({ page }) => {
+    await login(page, BUYER);
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    await clickNext(page);
+    const p = active(page);
+    await expect(p.getByPlaceholder('e.g. B-1204'), 'the first flagged control has focus').toBeFocused();
+    await expect(p.getByText('Enter the flat / house number.')).toBeVisible();
+
+    await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
+    await expect(p.getByText('Enter the flat / house number.'), 'a fixed answer clears without another Next').toHaveCount(0);
+    await expect(p.getByText('Enter the building / society name.'), 'an untouched one stays flagged').toBeVisible();
   });
 });
