@@ -3,14 +3,14 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
+import useVisualViewportInsets from '../../lib/useVisualViewportInsets.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
 import Icon from '../Icon.jsx';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
+import { isSearchableList } from './dropdownSearch.js';
+/* Custom dropdown select (themed, dark, with search for long lists). */
 
-/* Custom dropdown select (themed, dark, with search for long lists). `ariaDescribedBy` is the only
-   way to reach hint text from this control: it is a button, so no `<label for>` can point at it.
-   `asyncSearch` forces a search box and falls back to static filtering when it returns nothing. */
 const Select = forwardRef(function Select({
   value,
   onChange,
@@ -29,17 +29,16 @@ const Select = forwardRef(function Select({
   prefix,
   noResultsText,
 }, ref) {
+  /* Resolved at render rather than as a default parameter: a default is evaluated against whatever language was
+     active on first mount and would never follow a later switch. */
   const { t } = useTranslation();
-  /* Resolved at render rather than as a default parameter: a default is evaluated
-     against whatever language was active on first mount and would never follow a
-     later switch. */
   const ph = placeholder || t('ui.selectPlaceholder');
   const noResults = noResultsText || t('ui.noMatches');
   const opts = useMemo(
     () => options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)),
     [options],
   );
-  const isSearchable = searchable ?? (asyncSearch ? true : opts.length >= 8);
+  const isSearchable = isSearchableList(searchable, asyncSearch, opts.length);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -51,13 +50,15 @@ const Select = forwardRef(function Select({
   const searchRef = useRef(null);
   useImperativeHandle(ref, () => triggerRef.current, []);
   const [portalOpen, setPortalOpen] = useState(false);
+  /* On phones the menu docks to the bottom edge as a sheet: an anchored panel there opens under the thumb and is
+     routinely half-covered by the keyboard when the field is searchable. */
   const listId = useId();
-  /* On phones the menu docks to the bottom edge as a sheet: an anchored panel there opens under
-     the thumb and is routinely half-covered by the keyboard when the field is searchable. */
   const sheet = useSheetViewport();
-
+  const picker = sheet && isSearchable;
+  useVisualViewportInsets(open && picker);
   // Fall back to showing the raw value as its own label so a locality picked from
   // live search (not in the static list) still displays on the trigger.
+
   const selected = opts.find((o) => o.value === value)
     || (value != null && value !== '' ? { value, label: String(value) } : null);
   const asyncNorm = useMemo(
@@ -80,9 +81,9 @@ const Select = forwardRef(function Select({
     setAsyncOpts([]);
     setLoading(false);
   }, []);
-
   // Debounced live search. Fires only while open with a ≥2-char query; races are
   // guarded by a cancelled flag so a stale response can't clobber a newer one.
+
   useEffect(() => {
     if (!asyncSearch || !open) return undefined;
     const q = query.trim();
@@ -122,9 +123,9 @@ const Select = forwardRef(function Select({
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
-
   // Portal the menu to <body> with fixed positioning (mirrors dropdowns.js) so it escapes any
   // ancestor overflow/transform/stacking trap and can flip up near the viewport edge.
+
   const position = useCallback(() => {
     const trigger = triggerRef.current;
     const menu = menuRef.current;
@@ -165,12 +166,12 @@ const Select = forwardRef(function Select({
       window.removeEventListener('resize', onAnchor);
     };
   }, [open, position, visible.length]);
-
   /* A sheet covers the page, so the page behind it must not scroll with it. */
-  useScrollLock(open && sheet);
 
+  useScrollLock(open && sheet);
   // Focus the search box only after position() has anchored the portaled menu: focusing while it
   // still resolves to its static page-bottom position drags the window to the footer.
+
   useLayoutEffect(() => {
     if (!open || !isSearchable) return;
     searchRef.current.focus({ preventScroll: true });
@@ -182,8 +183,8 @@ const Select = forwardRef(function Select({
     if (onPick) onPick(opt);
     close();
   };
-
   /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
+
   const swipe = useSwipeDismiss(close);
 
   const onKeyDown = (e) => {
@@ -220,9 +221,8 @@ const Select = forwardRef(function Select({
         }
         break;
       case 'Escape':
+        /* Escape closes the innermost thing only. */
         e.preventDefault();
-        /* Escape closes the innermost thing only. Without this the event reaches the document-level
-           handlers the surrounding dialogs register and dismisses the whole form behind the menu. */
         e.stopPropagation();
         close();
         break;
@@ -256,14 +256,13 @@ const Select = forwardRef(function Select({
 
       {open && typeof document !== 'undefined'
         ? createPortal(
+              /* Scrim: a sheet is a modal surface, so the page behind it has to read as dismissed rather than merely covered. */
             <>
-              {/* Scrim: a sheet is a modal surface, so the page behind it has to
-                  read as dismissed rather than merely covered. */}
               {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div
                 ref={menuRef}
                 {...(sheet ? swipe : null)}
-                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', picker && 'dz-dropdown__menu--picker', portalOpen && 'is-portal-open')}
                 role="listbox"
                 id={listId}
                 aria-label={ariaLabel}
@@ -280,6 +279,11 @@ const Select = forwardRef(function Select({
                       placeholder={t('ui.searchPlaceholder')}
                       ref={searchRef}
                     />
+                    {picker ? (
+                      <button type="button" className="dz-dropdown__search-close" onClick={close}>
+                        {t('ui.pickerCancel')}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
 

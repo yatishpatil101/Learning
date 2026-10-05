@@ -23,7 +23,7 @@ const AUTHED_ROUTES = [
 // Staff routes cover mobile controls for field operations and moderation.
 const STAFF_ROUTES = [
   ['/admin', (login) => login.asAdmin()],
-  ['/ops', (login) => login.asStaff('rental')],
+  ['/staff', (login) => login.asStaff('rental')],
 ];
 
 /* Reviewed exemptions — each must name why the control may be small.
@@ -217,8 +217,7 @@ test.describe('Mobile tap-target sweep', () => {
     await renderedSweep(page, 'the property page');
   });
 
-  /* The bottom nav's tabs are covered by the per-route sweeps above and in detail by
-     mobile-bottom-nav.spec.js, so no third assertion here. */
+
 });
 
 test.describe('Mobile tap-target sweep — signed in', () => {

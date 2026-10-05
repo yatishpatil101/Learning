@@ -1,10 +1,10 @@
 {
   "misc1": {
     "uploads": {
-      "photoGuidance": "HEIF/HEIC, JPEG/JPG or PNG. Up to 10 photos. Pick them straight off your phone or camera — large photos are optimized automatically and stored under 1 MB.",
+      "photoGuidance": "HEIF/HEIC, JPEG/JPG or PNG. Up to {{max}} photos. Pick them straight off your phone or camera — large photos are optimized automatically and stored under 1 MB.",
       "cameraGuidance": "For smaller originals, use High Efficiency (HEIF/HEIC) on a supported iPhone or Android camera. File sizes vary; HEIC is converted to JPEG for browser compatibility.",
-      "documentGuidance": "PDF, HEIF/HEIC, JPEG/JPG or PNG. Each document must fit under 1 MB after optimization (originals up to 25 MB; PDFs up to 100 pages). PDFs retain their text and pages; files that cannot fit are refused.",
-      "pdfGuidance": "Digitally signed PDFs under 1 MB are stored exactly as issued. Larger signed PDFs cannot be uploaded: rewriting them would invalidate the signature. Keep the original; for a large electricity bill, use a current property-tax receipt instead. Documents are optional for publishing."
+      "documentGuidance": "PDF, JPG, PNG or HEIC. We compress each file to under 1 MB.",
+      "pdfGuidance": "Signed PDFs must already be under 1 MB, as compressing them breaks the signature. Documents are optional for publishing."
     },
     "svErrName": "Please enter your name",
     "svErrPhone": "Enter a valid 10-digit mobile number",
@@ -41,7 +41,6 @@
     "svBookVisit": "Book a visit",
     "svBookVisitSub": "Choose a property to schedule an in-person or video tour.",
     "svBrowseListings": "Browse listings",
-
     "contactErrName": "Please enter your name",
     "contactErrPhone": "Enter a valid 10-digit mobile number",
     "contactErrEmail": "Enter a valid email address",
@@ -64,12 +63,10 @@
     "contactSending": "Sending…",
     "contactSendBtn": "Send enquiry",
     "contactNoBrokerage": "No brokerage — deal directly with the owner",
-    "contactNoBrokerageFee": "No brokerage charged by Draazy",
     "contactVerifiedOwner": "Verified Owner",
-    "contactPostedByAgent": "Listed by an agent or developer",
     "contactHiddenPrivacy": "Hidden for the owner's privacy",
     "contactRequestIt": "Send an enquiry to request it",
-  "contactDirectTitle": "Contact owner directly",
+    "contactDirectTitle": "Contact owner directly",
     "contactViewOwnerProfile": "View owner profile",
     "contactSupportTitle": "Need help?",
     "contactSupportHours": "Our support team is available 9 AM – 9 PM, all days.",
@@ -79,7 +76,6 @@
     "contactCall": "Call",
     "contactWhatsappShort": "WhatsApp",
     "contactEmailShort": "Email",
-
     "emiBadge": "Home Loan Calculator",
     "emiTitle": "EMI Calculator",
     "emiSubtitle": "Estimate your monthly home loan payments and plan your budget.",
@@ -110,7 +106,6 @@
     "emiPrincipalPaid": "Principal paid",
     "emiInterestPaid": "Interest paid",
     "emiBalance": "Balance",
-
     "plansSeekerFreeName": "Seeker Free",
     "plansSeekerFreeSub": "forever",
     "plansSeekerFreeTag": "Everything you need to start your search",
@@ -180,7 +175,6 @@
     "plansFrequentlyAsked": "Frequently asked",
     "plansFooter1": "Still have questions? Reach out to our ",
     "plansFooterBold": "support team.",
-
     "referCodeCopied": "Referral code copied!",
     "referCodeUnavailable": "We could not load your referral code just now.",
     "referShareMsg": "Join me on Draazy — India's broker-free property platform. Use my code {{code}} to get started: {{link}}",

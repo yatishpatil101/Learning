@@ -22,6 +22,8 @@ test.describe('PWA installability', () => {
     // installed app shows a white band above a dark UI.
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0f0d1a');
     const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+    expect(viewport).toContain('width=device-width');
+    // Without viewport-fit=cover every env(safe-area-inset-*) in the stylesheet resolves to 0, so fixed bottom bars sit under the gesture bar.
     expect(viewport).toContain('viewport-fit=cover');
   });
 
@@ -37,6 +39,8 @@ test.describe('PWA installability', () => {
     expect(m.scope).toBe('/');
     // 'standalone' is what removes the browser chrome — the whole point of installing.
     expect(m.display).toBe('standalone');
+    expect(m.start_url).toContain('/');
+    expect(m.theme_color).toBe('#0f0d1a');
   });
 
   test('orientation is not locked to portrait', async ({ page, baseURL }) => {

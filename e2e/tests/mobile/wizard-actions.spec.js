@@ -1,59 +1,105 @@
 import { test, expect } from '../../fixtures/live.js';
 import { trackErrors } from '../../helpers/console.js';
+import { authHeaders, ownerIdOf } from '../../helpers/liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY as DRAFT_KEY } from '../../helpers/listingForm.helper.js';
 
-/* Covers what `mobile-sheets-and-actions` does not: scroll-to-first-error on a step whose first
-   bad field can sit 600px above the button just pressed, and draft survival across tab eviction. */
-
-/* Only the cookie bar is seeded here: it is bottom-anchored at z-1400, and the wizard's last
-   fields sit in the same strip on a phone. The session is a real owner sign-in. */
+// Seed consent because the bar overlaps the wizard's phone-bottom fields.
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
-    } catch { /* storage unavailable — the cookie bar just stays up */ }
+    } catch {}
   });
 }
 
-/* `asNewOwner`, not `asOwner`: seeded owners are over the free-tier allowance, so `/list-property`
-   answers them with the upgrade prompt and never renders `.lp-step-actions`. */
+// Use `asNewOwner`; seeded owners hit the paywall instead of `.lp-step-actions`.
 async function openWizard(page) {
   await page.goto('/list-property');
   await page.locator('.lp-step-actions').first().waitFor({ timeout: 15000 });
 }
 
 test.describe('Mobile listing wizard', () => {
-  test('the step actions end the form instead of floating over it', async ({ page, login }) => {
+  test('the step 1 form spends its width on fields, keeps its actions pinned and tappable, and flags every invalid field', async ({ page, login }) => {
+    test.slow();
+    const errors = trackErrors(page);
     await withConsent(page);
     await login.asNewOwner();
     await openWizard(page);
 
-    const actions = page.locator('.lp-step-actions').first();
+    await test.step('the form spends its narrow width on fields, not on gutters', async () => {
+      const card = page.locator('.lp-page .glass-card').filter({ has: page.locator('.lp-step') });
+      const pad = await card.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { left: s.paddingLeft, right: s.paddingRight, top: s.paddingTop };
+      });
+      expect(pad, 'only the horizontal gutter was halved').toEqual({ left: '12px', right: '12px', top: '24px' });
 
-    /* In flow means the row scrolls with the form: its viewport position must move by the amount
-       scrolled. A sticky row would hold its place and the delta would be ~0. */
-    const before = (await actions.boundingBox()).y;
-    await page.evaluate(() => window.scrollTo(0, 300));
-    await page.waitForTimeout(200);
-    const after = (await actions.boundingBox()).y;
-    expect(Math.round(before - after), 'the row scrolled with the form').toBeGreaterThan(250);
+      // Asserted against the input's own size rather than a literal, so this stays true if the base field type scale moves.
+      const suffix = page.getByText('sq.ft.', { exact: true }).first();
+      const chrome = await suffix.evaluate((el) => {
+        const s = getComputedStyle(el);
+        const field = getComputedStyle(el.parentElement.querySelector('input'));
+        return {
+          background: s.backgroundColor,
+          radius: s.borderRadius,
+          smaller: parseFloat(s.fontSize) < parseFloat(field.fontSize),
+          reserved: parseFloat(field.paddingRight),
+        };
+      });
+      expect(chrome.background, 'the unit is text, not a chip').toBe('rgba(0, 0, 0, 0)');
+      expect(chrome.radius).toBe('0px');
+      expect(chrome.smaller, 'the unit reads quieter than the value').toBe(true);
 
-    /* …and the primary action hugs the right edge, inside a right thumb's arc, rather than
-       spanning the width as a bar. */
-    await page.evaluate(() => window.scrollTo(0, 0));
-    const vw = page.viewportSize().width;
-    const primary = actions.getByRole('button', { name: /next/i });
-    const actionsBox = await actions.boundingBox();
-    const box = await primary.boundingBox();
-    expect(box.width, 'compact, not a full-width bar').toBeLessThan(vw * 0.6);
-    expect(
-      Math.abs((actionsBox.x + actionsBox.width) - (box.x + box.width)),
-      'button right edge aligns with the form action row',
-    ).toBeLessThanOrEqual(2);
+      // The gutter must still clear the unit it exists for, and no more.
+      const box = await suffix.boundingBox();
+      const field = await suffix.evaluate((el) => el.parentElement.querySelector('input').getBoundingClientRect().right);
+      expect(chrome.reserved).toBeGreaterThan(field - box.x);
+      expect(chrome.reserved).toBeLessThan(64);
+    });
+
+    await test.step('the sticky step actions stay in reach and tappable', async () => {
+      const actions = page.locator('.lp-step-actions').first();
+
+      await expect(actions).toHaveCSS('position', 'sticky');
+      await page.evaluate(() => window.scrollTo(0, 300));
+      await page.waitForTimeout(200);
+      const actionsBox = await actions.boundingBox();
+      expect(actionsBox.y + actionsBox.height, 'the row stays inside the viewport').toBeLessThanOrEqual(page.viewportSize().height);
+
+      const vw = page.viewportSize().width;
+      const primary = actions.getByRole('button', { name: /next/i });
+      const box = await primary.boundingBox();
+      expect(box.width, 'compact, not a full-width bar').toBeLessThan(vw * 0.6);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    });
+
+    expect(errors, 'the wizard logs no console errors on a phone').toEqual([]);
+
+    // Step 1 opens with propertyType/bhk/carpetArea empty, so a bare Next is guaranteed to fail
+    // validation on a field scrolled off screen — no setup needed to reach the error path.
+    await test.step('an invalid Next scrolls the first bad field into view, focuses it and marks every failing field', async () => {
+      await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
+      await page.waitForTimeout(800);
+
+      // Red-marking only the first field makes the user play whack-a-mole. Step 1 has
+      // several empty required fields, so more than one must light up.
+      const marked = page.locator('.dz-invalid');
+      await expect(marked.first(), 'the failing fields are marked').toBeVisible();
+      expect(await marked.count(), 'all failing fields are marked at once').toBeGreaterThan(1);
+
+      // Whatever came first must have been brought to the user, not left above the fold.
+      await expect(marked.first()).toBeInViewport();
+
+      // Include button triggers so the next keystroke can fix propertyType.
+      const focusedInsideError = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return false;
+        return !!el.closest('[data-err]');
+      });
+      expect(focusedInsideError, 'focus moved into the offending field').toBe(true);
+    });
   });
-
-  /* Label-based rather than `data-err`-based: the flatmate fork marks none of these fields
-     required, and the whole-place fork suffixes its required labels with " *". */
+  // Use labels because required markers differ between flatmate and whole-place flows.
   const rowTracks = (page, labelText) => page.evaluate((text) => {
     const label = [...document.querySelectorAll('label')]
       .find((el) => el.textContent.trim().replace(/\s*\*$/, '') === text);
@@ -80,6 +126,8 @@ test.describe('Mobile listing wizard', () => {
   }
 
   test('shows completed details and pairs compact property controls', async ({ page, login }) => {
+    // Android kills backgrounded tabs aggressively; an owner halfway through a
+    // 3-step listing must not lose the work. useFormDraft persists to localStorage.
     await withConsent(page);
     await login.asNewOwner();
     await openWizard(page);
@@ -90,7 +138,7 @@ test.describe('Mobile listing wizard', () => {
 
     await page.getByRole('button', { name: 'Rent', exact: true }).click();
     await page.getByRole('button', { name: /Find a flatmate/ }).click();
-    await expect(page.getByText('Room Offered *', { exact: true })).toBeVisible();
+    await expect(page.getByText('This room is for *', { exact: true })).toBeVisible();
 
     for (const gone of ['Carpet Area', 'Built-up Area', 'Facing', 'Overlooking', 'Age of Property']) {
       await expect(page.getByText(gone, { exact: true }), `${gone} is not a flatmate question`).toHaveCount(0);
@@ -142,11 +190,12 @@ test.describe('Mobile listing wizard', () => {
 
   test('legacy drafts restore a view separately from the compass direction', async ({ page, login }) => {
     await withConsent(page);
-    await login.asNewOwner();
+    const mobile = await login.asNewOwner();
+    const ownerId = ownerIdOf(await authHeaders(mobile));
     for (const [facing, view] of [['Park Facing', 'Garden'], ['Road Facing', 'Main Road']]) {
-      await page.evaluate(({ key, facing }) => {
-        localStorage.setItem(key, JSON.stringify({ propertyType: 'flat', facing }));
-      }, { key: DRAFT_KEY, facing });
+      await page.evaluate(({ key, facing, ownerId }) => {
+        localStorage.setItem(key, JSON.stringify({ propertyType: 'flat', facing, __owner: ownerId }));
+      }, { key: DRAFT_KEY, facing, ownerId });
       await openWizard(page);
       await expect(page.getByRole('button', { name: 'Facing', exact: true })).toHaveText('Select facing');
       await expect(page.getByRole('button', { name: 'Overlooking', exact: true })).toHaveText(view);
@@ -154,87 +203,7 @@ test.describe('Mobile listing wizard', () => {
     }
   });
 
-  /* A 390px screen spent 40px a side on gutters, and the unit chip trailing an area input
-     clipped the placeholder beside it ("e.g. 105" for "e.g. 1050"). */
-  test('the form spends its narrow width on fields, not on gutters', async ({ page, login }) => {
-    await withConsent(page);
-    await login.asNewOwner();
-    await openWizard(page);
-
-    const card = page.locator('.lp-page .glass-card').filter({ has: page.locator('.lp-step') });
-    const pad = await card.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { left: s.paddingLeft, right: s.paddingRight, top: s.paddingTop };
-    });
-    expect(pad, 'only the horizontal gutter was halved').toEqual({ left: '12px', right: '12px', top: '24px' });
-
-    /* Asserted against the input's own size rather than a literal, so this stays true if
-       the base field type scale moves. */
-    const suffix = page.getByText('sq.ft.', { exact: true }).first();
-    const chrome = await suffix.evaluate((el) => {
-      const s = getComputedStyle(el);
-      const field = getComputedStyle(el.parentElement.querySelector('input'));
-      return {
-        background: s.backgroundColor,
-        radius: s.borderRadius,
-        smaller: parseFloat(s.fontSize) < parseFloat(field.fontSize),
-        reserved: parseFloat(field.paddingRight),
-      };
-    });
-    expect(chrome.background, 'the unit is text, not a chip').toBe('rgba(0, 0, 0, 0)');
-    expect(chrome.radius).toBe('0px');
-    expect(chrome.smaller, 'the unit reads quieter than the value').toBe(true);
-
-    /* The gutter must still clear the unit it exists for, and no more. */
-    const box = await suffix.boundingBox();
-    const field = await suffix.evaluate((el) => el.parentElement.querySelector('input').getBoundingClientRect().right);
-    expect(chrome.reserved).toBeGreaterThan(field - box.x);
-    expect(chrome.reserved).toBeLessThan(64);
-  });
-
-  test('an invalid Next scrolls the first bad field into view and focuses it', async ({ page, login }) => {
-    // Step 1 opens with propertyType/bhk/carpetArea empty, so a bare Next is guaranteed to fail
-    // validation on a field scrolled off screen — no setup needed to reach the error path.
-    await withConsent(page);
-    await login.asNewOwner();
-    await openWizard(page);
-
-    await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
-    await page.waitForTimeout(800);
-
-    const marked = page.locator('.dz-invalid');
-    await expect(marked.first(), 'the failing fields are marked').toBeVisible();
-
-    // Whatever came first must have been brought to the user, not left above the fold.
-    await expect(marked.first()).toBeInViewport();
-
-    /* The caret must land in the field, so the next keystroke fixes it: propertyType renders its
-       trigger as a <button>, which a focus search over input/select/textarea alone misses. */
-    const focusedInsideError = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body) return false;
-      return !!el.closest('[data-err]');
-    });
-    expect(focusedInsideError, 'focus moved into the offending field').toBe(true);
-  });
-
-  test('every field that fails is marked, not just the first', async ({ page, login }) => {
-    await withConsent(page);
-    await login.asNewOwner();
-    await openWizard(page);
-
-    await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
-    await page.waitForTimeout(800);
-
-    // Red-marking only the first field makes the user play whack-a-mole. Step 1 has
-    // several empty required fields, so more than one must light up.
-    const marked = page.locator('.dz-invalid');
-    expect(await marked.count(), 'all failing fields are marked at once').toBeGreaterThan(1);
-  });
-
   test('the draft survives a reload the way an evicted tab would', async ({ page, login }) => {
-    // Android kills backgrounded tabs aggressively; an owner halfway through a
-    // 3-step listing must not lose the work. useFormDraft persists to localStorage.
     await withConsent(page);
     await login.asNewOwner();
     await openWizard(page);
@@ -256,11 +225,4 @@ test.describe('Mobile listing wizard', () => {
     await expect(page.locator('input[placeholder="e.g. 1050"]').first()).toHaveValue('1234');
   });
 
-  test('the wizard logs no console errors on a phone', async ({ page, login }) => {
-    const errors = trackErrors(page);
-    await withConsent(page);
-    await login.asNewOwner();
-    await openWizard(page);
-    expect(errors).toEqual([]);
-  });
 });

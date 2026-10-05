@@ -48,25 +48,22 @@ export function popularChipsFor(city) {
 
 /* Canonical marketing stats — single source of truth so the hero, "Why Draazy"
    and testimonials never disagree. Each figure describes a DIFFERENT metric.
-   TODO(API): bind these to real aggregate counts once the backend lands. */
+   TODO(API): still hard-coded; bind `properties` to the /properties/counts total and the rest to
+   real aggregates before launch. */
 export const STATS = {
-  properties: '11,240+',      // live buy + rent listings
-  verifiedOwners: '523+',     // owners holding the Verified badge
-  localities: '54',           // Pune localities covered
-  familiesHoused: '8,600+',   // completed moves (< total listings)
+  properties: '11,240+',
+  verifiedOwners: '523+',
+  localities: '54',
+  familiesHoused: '8,600+',
   rating: '4.8',
   reviews: '2,614',
   brokerage: '₹0',
 };
 
-/* Property-type tiles. The five *property* tiles reconcile to STATS.properties
-   (4,490 + 2,100 + 1,200 + 900 + 2,550 = 11,240). "Flatmates" is a separate
-   inventory (flatmate seekers, not whole properties) so it is excluded from that
-   total. TODO(API): replace hardcoded counts with real per-type counts. */
 export const CATEGORIES = [
-  { href: '/listings?type=flat', icon: 'building', color: '#14b8a6', title: 'Flats', count: '4,490+' },
-  { href: '/flatmates', icon: 'user-plus', color: '#f59e0b', title: 'Flatmates', count: '3,100+' },
-  { href: '/listings?type=commercial', icon: 'briefcase', color: '#a78bfa', title: 'Commercial', count: '1,200+' },
-  { href: '/listings?type=plot', icon: 'map', color: '#f472b6', title: 'Plots / Land', count: '900+' },
-  { href: '/listings?type=house,villa', icon: 'home', color: '#34d399', title: 'Villas & Houses', count: '2,550+' },
+  { icon: 'building', color: '#14b8a6', title: 'Flats', types: ['flat'], defaultDeal: 'buy' },
+  { href: '/flatmates', icon: 'user-plus', color: '#f59e0b', title: 'Flatmates' },
+  { icon: 'briefcase', color: '#a78bfa', title: 'Commercial', types: ['commercial'], defaultDeal: 'rent', dealFromStock: true },
+  { icon: 'map', color: '#f472b6', title: 'Plots / Land', types: ['plot', 'farmland'], defaultDeal: 'buy' },
+  { icon: 'home', color: '#34d399', title: 'Villas & Houses', types: ['house', 'villa'], defaultDeal: 'buy' },
 ];

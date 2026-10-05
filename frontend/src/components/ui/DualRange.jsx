@@ -1,4 +1,4 @@
-import { forwardRef, useId, useState } from 'react';
+import { forwardRef, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCommitOnRelease } from '../../lib/useCommitOnRelease.js';
 
@@ -36,6 +36,10 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
   const id = useId();
   const [editing, setEditing] = useState(null); // 'lo' | 'hi' | null
   const [draft, setDraft] = useState('');
+  const inputRef = useRef(null);
+  const rangeRef = useRef(null);
+  const thumbDragRef = useRef(null);
+  const thumbLiveRef = useRef(null);
 
   /* A drag is one intent, not eighty: `useCommitOnRelease` holds the in-flight tuple and lifts it
      to `onChange` only once the value settles. Everything below reads the live tuple. */
@@ -56,6 +60,34 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
   // visual max entirely (highBound = the typed value's own ceiling).
   const nextLo = (v) => [snap(Number(v), min, hi), hi];
   const nextHi = (v) => [lo, snap(Number(v), lo, Math.max(max, Number(v)))];
+  const valueFromClientX = (clientX) => {
+    const box = rangeRef.current?.getBoundingClientRect();
+    if (!box?.width) return min;
+    return sMin + ((clientX - box.left) / box.width) * (sMax - sMin);
+  };
+  const updateThumb = (which, clientX) => {
+    const next = which === 'lo' ? nextLo(valueFromClientX(clientX)) : nextHi(valueFromClientX(clientX));
+    thumbLiveRef.current = next;
+    setLive(next);
+  };
+  const onThumbPointerDown = (which, e) => {
+    if (disabled) return;
+    e.preventDefault();
+    thumbDragRef.current = which;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    updateThumb(which, e.clientX);
+  };
+  const onThumbPointerMove = (e) => {
+    if (!thumbDragRef.current) return;
+    updateThumb(thumbDragRef.current, e.clientX);
+  };
+  const onThumbPointerEnd = (e) => {
+    if (!thumbDragRef.current) return;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    thumbDragRef.current = null;
+    if (thumbLiveRef.current) onChange(thumbLiveRef.current);
+    thumbLiveRef.current = null;
+  };
 
   const openEdit = (which) => {
     if (disabled) return;
@@ -74,14 +106,23 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
     else if (e.key === 'Escape') setEditing(null);
   };
 
-  const valueClass = 'rng-val text-teal-300 font-semibold underline decoration-dotted decoration-teal-400/40 underline-offset-4 hover:decoration-teal-300 focus:outline-none focus:decoration-teal-300 cursor-text';
-  const inputClass = 'w-24 bg-white/10 border border-teal-400/50 rounded px-1.5 py-0.5 text-teal-200 font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400';
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+
+  const valueClass = 'rng-val text-teal-300 font-semibold underline decoration-dotted decoration-teal-400/40 underline-offset-4 focus:outline-none focus:decoration-teal-300 cursor-text';
+  const inputClass = 'w-24 bg-white/10 border border-teal-400/50 rounded px-1.5 py-0.5 text-base sm:text-sm text-teal-200 font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400';
 
   const renderValue = (which, v, align) => (editing === which ? (
     <input
       type="text"
-      inputMode="numeric"
-      autoFocus
+      inputMode="text"
+      ref={inputRef}
+      enterKeyHint="done"
+      autoCapitalize="off"
+      autoCorrect="off"
       value={draft}
       aria-label={label
         ? t(which === 'lo' ? 'ui.minValueInput' : 'ui.maxValueInput', { label })
@@ -106,12 +147,14 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
 
   return (
     <div className={'rng-wrap' + (disabled ? ' opacity-50 pointer-events-none' : '')} ref={ref}>
-      <div className="rng">
+      <div className="rng" ref={rangeRef}>
         <div className="rng-track">
           <div className="rng-fill" style={{ left: `${pct(lo)}%`, width: `${pct(hi) - pct(lo)}%` }} />
         </div>
         <input type="range" aria-label={label ? t('ui.minValueOf', { label }) : t('ui.minimum')} min={sMin} max={sMax} step={step} value={lo} onChange={(e) => setLive(nextLo(e.target.value))} {...commitProps} id={`${id}-lo`} />
         <input type="range" aria-label={label ? t('ui.maxValueOf', { label }) : t('ui.maximum')} min={sMin} max={sMax} step={step} value={hi} onChange={(e) => setLive(nextHi(e.target.value))} {...commitProps} id={`${id}-hi`} />
+        <div className="rng-thumb-hit" aria-hidden="true" style={{ left: `${pct(lo)}%` }} onPointerDown={(e) => onThumbPointerDown('lo', e)} onPointerMove={onThumbPointerMove} onPointerUp={onThumbPointerEnd} onPointerCancel={onThumbPointerEnd} />
+        <div className="rng-thumb-hit" aria-hidden="true" style={{ left: `${pct(hi)}%` }} onPointerDown={(e) => onThumbPointerDown('hi', e)} onPointerMove={onThumbPointerMove} onPointerUp={onThumbPointerEnd} onPointerCancel={onThumbPointerEnd} />
       </div>
       <div className="flex justify-between mt-3 text-xs">
         {renderValue('lo', lo, 'left')}

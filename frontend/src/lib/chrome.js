@@ -36,7 +36,7 @@ const CHAT = ['/messages'];
 
 /** Focused conversion funnels. The long footer and the assistant bubble are noise
     here, and the bubble can overlap the form's actions. */
-const AUTH = ['/signin', '/signup', '/staff-login'];
+const AUTH = ['/signin', '/signup', '/staff-login', '/staff-invite'];
 
 const matches = (path, routes) =>
   routes.some((r) => (r === '/' ? path === '/' : path.startsWith(r)));

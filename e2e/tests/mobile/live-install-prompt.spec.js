@@ -7,7 +7,7 @@ import { test, expect } from '../../fixtures/live.js';
  * So the assertions are weighted towards silence — it must not appear to someone
  * who just landed, must not reappear after a decline, and must never appear once
  * the app is installed. The happy path is one test; the not-annoying contract is
- * six.
+ * the rest.
  *
  * Engagement is driven by real navigation rather than a mocked clock, because
  * the gate the component ships is page views, not elapsed time. The view counter
@@ -124,36 +124,46 @@ test.describe('PWA install nudge', () => {
     await expect(card(page)).toBeHidden();
   });
 
-  test('the second cooldown is longer than the first', async ({ page }) => {
-    await seedConsent(page);
-    // Two dismissals, eight days ago: past the 7-day first cooldown, inside the
-    // 14-day second. This pins the escalation — a flat 7-day cooldown would pass
-    // the single-dismissal test above but must fail here.
-    await seedState(page, { dismissals: 2, lastDismissAt: Date.now() - 8 * DAY });
-    await page.goto('/');
-    await fireInstallEvent(page);
-    await expect(card(page)).toBeHidden();
+  test('the cooldown ladder, the terminal decline and the installed flag keep it quiet — each with a control that shows it', async ({ context }) => {
+    test.slow();
+
+    // Each blocked state is paired with its nearest un-blocked neighbour, so a pass proves the
+    // state and not an install event that never rendered.
+    const expectCard = async (over, visible) => {
+      const page = await context.newPage();
+      try {
+        await seedConsent(page);
+        await seedState(page, over);
+        await browse(page, ['/']);
+        await fireInstallEvent(page);
+        if (visible) await expect(card(page)).toBeVisible();
+        else await expect(card(page)).toBeHidden();
+      } finally {
+        await page.close();
+      }
+    };
+
+    await test.step('the second cooldown is longer than the first', async () => {
+      // Two dismissals, eight days ago: past the 7-day first cooldown, inside the 14-day second.
+      // A flat 7-day cooldown would pass the single-dismissal test above but must fail here.
+      await expectCard({ dismissals: 2, lastDismissAt: Date.now() - 8 * DAY }, false);
+      await expectCard({ dismissals: 2, lastDismissAt: Date.now() - 15 * DAY }, true);
+    });
+
+    await test.step('goes quiet permanently after the third decline', async () => {
+      // The last decline is long enough ago that any finite cooldown would have expired —
+      // only the terminal state can keep it hidden.
+      await expectCard({ dismissals: 3, lastDismissAt: Date.now() - 400 * DAY }, false);
+      await expectCard({ dismissals: 2, lastDismissAt: Date.now() - 400 * DAY }, true);
+    });
+
+    await test.step('never shown to someone who already installed the app', async () => {
+      await expectCard({ installed: true }, false);
+      await expectCard({}, true);
+    });
   });
 
-  test('goes quiet permanently after the third decline', async ({ page }) => {
-    await seedConsent(page);
-    // Three declines on record, the last long enough ago that any finite
-    // cooldown would have expired — only the terminal state can keep it hidden.
-    await seedState(page, { dismissals: 3, lastDismissAt: Date.now() - 400 * DAY });
-    await page.goto('/');
-    await fireInstallEvent(page);
-    await expect(card(page)).toBeHidden();
-  });
-
-  test('never shown to someone who already installed the app', async ({ page }) => {
-    await seedConsent(page);
-    await seedState(page, { installed: true });
-    await page.goto('/');
-    await fireInstallEvent(page);
-    await expect(card(page)).toBeHidden();
-  });
-
-  test('is mobile-only chrome', async ({ page }) => {
+  test('is mobile-only chrome: visible on a phone, gone at desktop width', async ({ page }) => {
     await seedConsent(page);
     await browse(page);
     await fireInstallEvent(page);
@@ -161,6 +171,7 @@ test.describe('PWA install nudge', () => {
 
     // A home-screen icon is a phone affordance; on desktop the card would be a
     // banner selling something the user cannot meaningfully act on.
-    await expect(page.locator('.dz-safe-x.z-\\[1350\\]')).toHaveClass(/lg:hidden/);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(card(page)).toBeHidden();
   });
 });

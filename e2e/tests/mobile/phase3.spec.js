@@ -5,14 +5,11 @@ import { test, expect } from '@playwright/test';
        an offset, so nothing hides behind the tab bar
      - the control height ramps to the 44px touch floor, which lifts every
        dropdown option and shared field at once
-     - date/time pickers become bottom sheets rather than anchored popovers
-     - the auth submit and the wizard's progress meter stay pinned
      - taps get an explicit :active response now the native flash is suppressed
      - sheets and the filter drawer can be dragged away
 
-   Runs under `mobile` (412x915) and `mobile-small` (360x640). Desktop non-leak
-   assertions live in desktop-noleak-guardrails.spec.js — the mobile projects run
-   with hasTouch, so a (pointer: coarse) / (hover: none) rule can never be
+   Desktop non-leak assertions live in desktop-noleak-guardrails.spec.js — the mobile
+   projects run with hasTouch, so a (pointer: coarse) / (hover: none) rule can never be
    disproved from here. */
 
 const MIN_TAP = 44;
@@ -31,22 +28,6 @@ test.describe('Mobile control sizing', () => {
     const h = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--control-h').trim());
     expect(parseFloat(h)).toBeGreaterThanOrEqual(MIN_TAP);
   });
-
-  test('a dropdown option is a real target, not a 40px sliver', async ({ page }) => {
-    await page.goto('/listings');
-    const height = await page.evaluate(() => {
-      // Appended bare rather than inside .dz-dropdown__menu: the menu is hidden
-      // until opened, which would collapse the measurement to zero.
-      const opt = document.createElement('button');
-      opt.className = 'dz-dropdown__option';
-      opt.textContent = 'x';
-      document.body.appendChild(opt);
-      const r = opt.getBoundingClientRect().height;
-      opt.remove();
-      return r;
-    });
-    expect(height).toBeGreaterThanOrEqual(MIN_TAP - 0.5);
-  });
 });
 
 test.describe('Bottom-anchored widgets', () => {
@@ -56,15 +37,14 @@ test.describe('Bottom-anchored widgets', () => {
     // The route is lazy; networkidle can fire before the chunk mounts, which
     // would measure an empty document.
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    // The button appears past 600px of scroll; if the page cannot travel that
-    // far there is nothing to assert.
+    // The button appears past 600px of scroll.
     const scrolled = await page.evaluate(() => {
       // `instant` matters: the app sets scroll-behavior: smooth, so a default
       // scrollTo would still be animating when scrollY is read.
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
       return window.scrollY;
     });
-    test.skip(scrolled <= 600, 'privacy page is too short to reveal the back-to-top button');
+    expect(scrolled, 'the privacy page must be long enough to reveal the back-to-top button').toBeGreaterThan(600);
 
     const fab = page.locator('button[aria-label="Back to top"]');
     await expect(fab).toBeVisible();
@@ -83,111 +63,60 @@ test.describe('Bottom-anchored widgets', () => {
   });
 });
 
-test.describe('Mobile pickers', () => {
-  test('the calendar docks to the bottom edge instead of floating beside its trigger', async ({ page }) => {
-    await page.goto('/listings');
-    const r = await page.evaluate(async () => {
-      const cal = document.createElement('div');
-      cal.className = 'dz-cal is-open';
-      cal.style.height = '260px';
-      document.body.appendChild(cal);
-      await Promise.all(cal.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
-      const rect = cal.getBoundingClientRect();
-      const radius = getComputedStyle(cal).borderBottomLeftRadius;
-      cal.remove();
-      return { left: rect.left, width: rect.width, bottom: rect.bottom, radius, vw: window.innerWidth, vh: window.innerHeight };
-    });
-
-    expect(r.left).toBeCloseTo(0, 0);
-    expect(r.width).toBeCloseTo(r.vw, 0);
-    expect(Math.abs(r.bottom - r.vh)).toBeLessThanOrEqual(1);
-    expect(r.radius).toBe('0px');
-  });
-});
-
-test.describe('Sticky primary actions', () => {
-  test('the sign-in submit is pinned so the keyboard cannot bury it', async ({ page }) => {
-    await page.goto('/signin');
-    // Gate on the form, not `networkidle`: on a client-rendered app that resolves before `main.jsx`
-    // runs, and never at all after a client-side route change.
-    await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15_000 });
-    const position = await page.evaluate(() => {
-      const el = document.querySelector('.dz-auth-submit');
-      return el ? getComputedStyle(el).position : null;
-    });
-    // The button only renders once an OTP has been requested; assert the rule
-    // rather than driving the whole OTP flow from a layout spec.
-    if (position === null) {
-      const rule = await page.evaluate(() => {
-        const probe = document.createElement('div');
-        probe.className = 'dz-auth-submit';
-        document.body.appendChild(probe);
-        const p = getComputedStyle(probe).position;
-        probe.remove();
-        return p;
-      });
-      expect(rule).toBe('sticky');
-      return;
-    }
-    expect(position).toBe('sticky');
-  });
-});
-
 test.describe('Touch feedback', () => {
-  test('the native tap flash is replaced by an explicit pressed state', async ({ page }) => {
+  test('taps get an explicit pressed state: no native flash, no stuck hover, a declared platform baseline', async ({ page }) => {
+    // The cookie bar would sit over the card at 360x640 and swallow the synthetic hover.
+    await withConsent(page);
     await page.goto('/');
-    // The probe below reads the first `<button>`, so the gate must be that one exists — `networkidle`
+    // The probes read the first `<button>`, so the gate must be that one exists — `networkidle`
     // would hand `expect` a `null` to complain about for the wrong reason.
     await expect(page.locator('button').first()).toBeVisible({ timeout: 15_000 });
-    const highlight = await page.evaluate(() => {
-      const btn = document.querySelector('button');
-      return btn ? getComputedStyle(btn).webkitTapHighlightColor : null;
-    });
-    // rgba(0, 0, 0, 0) is how `transparent` computes.
-    expect(highlight).toContain('rgba(0, 0, 0, 0');
-  });
 
-  /* `.cat-card` and not `.property-card`: the home Featured card carries `list-reveal`, whose
-     `animation: … both` pins `transform: translateY(0)` in the animation cascade origin, so its
-     `:hover` lift cannot apply on any pointer. Asserting a flat card there would pass whether the
-     gate existed or not. The category rail has no such animation, so it is the honest witness —
-     its desktop counterpart is `platform/desktop-noleak-guardrails`. */
-  test('a tapped card is not left hovering', async ({ page }) => {
-    await page.goto('/');
-    const card = page.locator('.cat-card').first();
-    await card.waitFor({ timeout: 15_000 });
-    await card.scrollIntoViewIfNeeded();
-    // Touch has no hover, so the browser fakes one on first tap and holds it until the next tap
-    // elsewhere. Hovering here is the closest reproduction Playwright offers of that stuck state.
-    expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false);
-    await card.hover();
-    // Without this the test is vacuous: if the synthetic hover never landed, a card that is not
-    // raised proves nothing about the gate.
-    await expect.poll(() => card.evaluate((el) => el.matches(':hover'))).toBe(true);
-    await expect
-      .poll(() => card.evaluate((el) => getComputedStyle(el).transform))
-      .toBe('none');
-  });
-
-  test('the platform baseline is declared: no tap delay, no landscape inflation, dark UA chrome', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('button').first()).toBeVisible({ timeout: 15_000 });
-    const base = await page.evaluate(() => {
-      const html = getComputedStyle(document.documentElement);
-      const btn = getComputedStyle(document.querySelector('button'));
-      return {
-        colorScheme: html.colorScheme,
-        textSizeAdjust: html.webkitTextSizeAdjust,
-        touchAction: btn.touchAction,
-        userSelect: btn.userSelect || btn.webkitUserSelect,
-      };
+    await test.step('the native tap flash is replaced by an explicit pressed state', async () => {
+      const highlight = await page.evaluate(() => getComputedStyle(document.querySelector('button')).webkitTapHighlightColor);
+      // rgba(0, 0, 0, 0) is how `transparent` computes.
+      expect(highlight).toContain('rgba(0, 0, 0, 0');
     });
-    expect(base.colorScheme).toBe('dark');
-    expect(base.textSizeAdjust).toBe('100%');
-    // Without it iOS Safari holds `click` for the double-tap-zoom window on some elements.
-    expect(base.touchAction).toBe('manipulation');
-    // A long press on a control must not raise the selection handles.
-    expect(base.userSelect).toBe('none');
+
+    await test.step('the platform baseline is declared: no tap delay, no landscape inflation, dark UA chrome', async () => {
+      const base = await page.evaluate(() => {
+        const html = getComputedStyle(document.documentElement);
+        const btn = getComputedStyle(document.querySelector('button'));
+        return {
+          colorScheme: html.colorScheme,
+          textSizeAdjust: html.webkitTextSizeAdjust,
+          touchAction: btn.touchAction,
+          userSelect: btn.userSelect || btn.webkitUserSelect,
+        };
+      });
+      expect(base.colorScheme).toBe('dark');
+      expect(base.textSizeAdjust).toBe('100%');
+      // Without it iOS Safari holds `click` for the double-tap-zoom window on some elements.
+      expect(base.touchAction).toBe('manipulation');
+      // A long press on a control must not raise the selection handles.
+      expect(base.userSelect).toBe('none');
+    });
+
+    /* `.cat-card` and not `.property-card`: the home Featured card carries `list-reveal`, whose
+       `animation: … both` pins `transform: translateY(0)` in the animation cascade origin, so its
+       `:hover` lift cannot apply on any pointer. Asserting a flat card there would pass whether the
+       gate existed or not. The category rail has no such animation, so it is the honest witness —
+       its desktop counterpart is `platform/desktop-noleak-guardrails`. */
+    await test.step('a tapped card is not left hovering', async () => {
+      const card = page.locator('.cat-card').first();
+      await card.waitFor({ timeout: 15_000 });
+      await card.scrollIntoViewIfNeeded();
+      // Touch has no hover, so the browser fakes one on first tap and holds it until the next tap
+      // elsewhere. Hovering here is the closest reproduction Playwright offers of that stuck state.
+      expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false);
+      await card.hover();
+      // Without this the test is vacuous: if the synthetic hover never landed, a card that is not
+      // raised proves nothing about the gate.
+      await expect.poll(() => card.evaluate((el) => el.matches(':hover'))).toBe(true);
+      await expect
+        .poll(() => card.evaluate((el) => getComputedStyle(el).transform))
+        .toBe('none');
+    });
   });
 });
 
@@ -199,7 +128,11 @@ test.describe('Drag to dismiss', () => {
     await expect
       .poll(async () => {
         const box = await locator.boundingBox();
-        const same = prev && box && prev.x === box.x && prev.width === box.width;
+        const same = prev && box
+          && prev.x === box.x
+          && prev.y === box.y
+          && prev.width === box.width
+          && prev.height === box.height;
         prev = box;
         return Boolean(same);
       }, { timeout: 5_000, message: 'the filter drawer never stopped moving' })
@@ -228,34 +161,31 @@ test.describe('Drag to dismiss', () => {
   test('dragging the drawer back the way it came closes it', async ({ page }) => {
     const box = await openDrawer(page);
 
-    const y = box.y + box.height / 2;
-    const x = box.x + box.width - 20;
+    const y = box.y + 24;
+    const x = box.x + box.width / 2;
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(x - 30, y, { steps: 4 });
+    await page.mouse.move(x, y + 30, { steps: 4 });
     expect(await armed(page), 'the drag never armed').toBe(true);
-    await page.mouse.move(x - 160, y, { steps: 8 });
+    await page.mouse.move(x, y + 160, { steps: 8 });
     await page.mouse.up();
 
     await expect(page.locator('.filter-panel.open')).toHaveCount(0);
   });
 
-  test('a short drag snaps back rather than dismissing', async ({ page }) => {
+  test('a short drag snaps back rather than dismissing, and the gesture never swallows a plain tap on a control inside', async ({ page }) => {
     const box = await openDrawer(page);
 
-    const y = box.y + box.height / 2;
-    const x = box.x + box.width - 20;
+    const y = box.y + 24;
+    const x = box.x + box.width / 2;
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(x - 20, y, { steps: 4 });
+    await page.mouse.move(x, y + 30, { steps: 4 });
     expect(await armed(page), 'the drag never armed').toBe(true);
     await page.mouse.up();
 
     await expect(page.locator('.filter-panel.open')).toHaveCount(1);
-  });
 
-  test('the gesture never swallows a plain tap on a control inside the panel', async ({ page }) => {
-    await openDrawer(page);
     await page.getByRole('button', { name: /close filters/i }).click();
     await expect(page.locator('.filter-panel.open')).toHaveCount(0);
   });

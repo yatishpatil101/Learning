@@ -36,62 +36,56 @@ const chrome = (page) =>
 test.describe('Landscape phone', () => {
   test.use({ viewport: { width: 915, height: 412 } });
 
-  test('top and bottom chrome both shrink, staying under a quarter of the viewport', async ({ page }) => {
-    await seedConsent(page);
-    await page.goto('/');
-    await expect(page.locator('nav.dz-bottom-nav')).toBeVisible();
-
-    const c = await chrome(page);
-    // 47 + 44 = 91 of 412. Before the landscape rules this was the desktop bar plus a
-    // full-height tab bar, over 30% of the viewport.
-    expect(c.rowH).toBe(47);
-    expect(c.navH).toBe(44);
-    expect(c.pct).toBeLessThan(25);
-  });
-
-  test('the docking token tracks the real navbar height', async ({ page }) => {
-    await seedConsent(page);
-    await page.goto('/');
-    // --dz-top-inset is where sticky sub-headers dock. If it and the rendered row
-    // disagree, every sub-header slides under the navbar. The row now takes its height
-    // *from* the token, so this asserts that wiring rather than two literals matching
-    // by luck — hence comparing them to each other, not just to 47px.
-    const inset = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--dz-top-inset').trim(),
-    );
-    const rowH = (await chrome(page)).rowH;
-    expect(inset).toBe('47px');
-    expect(rowH).toBe(parseFloat(inset));
-  });
-
-  test('tabs go icon-only but keep their accessible names and the 44px floor', async ({ page }) => {
+  test('top and bottom chrome shrink, the docking token tracks them and the tabs keep their names and 44px floor', async ({ page }) => {
     await seedConsent(page);
     await page.goto('/');
     const bar = page.locator('nav.dz-bottom-nav');
+    await expect(bar).toBeVisible();
 
-    // Labels are hidden for space, so the name must come from aria-label.
-    await expect(bar.getByRole('link', { name: /^Reels$/ })).toBeVisible();
-    await expect(bar.getByRole('link', { name: /^Search$/ })).toBeVisible();
+    await test.step('top and bottom chrome both shrink, staying under a quarter of the viewport', async () => {
+      const c = await chrome(page);
+      // 47 + 44 = 91 of 412. Before the landscape rules this was the desktop bar plus a
+      // full-height tab bar, over 30% of the viewport.
+      expect(c.rowH).toBe(47);
+      expect(c.navH).toBe(44);
+      expect(c.pct).toBeLessThan(25);
+    });
 
-    const label = bar.locator('.dz-bottom-nav__label').first();
-    await expect(label).toBeHidden();
+    await test.step('the docking token tracks the real navbar height', async () => {
+      // --dz-top-inset is where sticky sub-headers dock. If it and the rendered row
+      // disagree, every sub-header slides under the navbar. The row takes its height
+      // *from* the token, so this asserts that wiring rather than two literals matching
+      // by luck — hence comparing them to each other, not just to 47px.
+      const inset = await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--dz-top-inset').trim(),
+      );
+      const rowH = (await chrome(page)).rowH;
+      expect(inset).toBe('47px');
+      expect(rowH).toBe(parseFloat(inset));
+    });
 
-    // Shrinking the bar must never take a slot below the tap-target minimum.
-    const heights = await bar.locator('.dz-bottom-nav__tab').evaluateAll((els) =>
-      els.map((e) => e.getBoundingClientRect().height),
-    );
-    expect(heights.length).toBeGreaterThan(0);
-    for (const h of heights) expect(h).toBeGreaterThanOrEqual(44);
-  });
+    await test.step('tabs go icon-only but keep their accessible names and the 44px floor', async () => {
+      // Labels are hidden for space, so the name must come from aria-label.
+      await expect(bar.getByRole('link', { name: /^Reels$/ })).toBeVisible();
+      await expect(bar.getByRole('link', { name: /^Search$/ })).toBeVisible();
 
-  test('the raised centre button stops overhanging the shorter bar', async ({ page }) => {
-    await seedConsent(page);
-    await page.goto('/');
-    const bar = page.locator('nav.dz-bottom-nav');
-    const barBox = await bar.boundingBox();
-    const fabBox = await bar.locator('.dz-bottom-nav__fab').boundingBox();
-    // At 56px the circle overhung by 8px; on a 44px bar that would collide with content.
-    expect(fabBox.y).toBeGreaterThanOrEqual(barBox.y - 1);
+      const label = bar.locator('.dz-bottom-nav__label').first();
+      await expect(label).toBeHidden();
+
+      // Shrinking the bar must never take a slot below the tap-target minimum.
+      const heights = await bar.locator('.dz-bottom-nav__tab').evaluateAll((els) =>
+        els.map((e) => e.getBoundingClientRect().height),
+      );
+      expect(heights.length).toBeGreaterThan(0);
+      for (const h of heights) expect(h).toBeGreaterThanOrEqual(44);
+    });
+
+    await test.step('the raised centre button stops overhanging the shorter bar', async () => {
+      const barBox = await bar.boundingBox();
+      const fabBox = await bar.locator('.dz-bottom-nav__fab').boundingBox();
+      // At 56px the circle overhung by 8px; on a 44px bar that would collide with content.
+      expect(fabBox.y).toBeGreaterThanOrEqual(barBox.y - 1);
+    });
   });
 });
 
@@ -116,7 +110,7 @@ test.describe('Dynamic type', () => {
       document.documentElement.style.fontSize = v + 'px';
     }, px);
 
-  test('bottom-bar labels actually scale with the root font size', async ({ page }) => {
+  test('bottom-bar labels scale with the root font size and at 200% type nothing bursts the bar or the page', async ({ page }) => {
     await seedConsent(page);
     await page.goto('/');
     const label = page.locator('.dz-bottom-nav__label').first();
@@ -134,12 +128,6 @@ test.describe('Dynamic type', () => {
     await setRootFont(page, 32);
     const after = await label.evaluate((e) => getComputedStyle(e).fontSize);
     expect(after).toBe('24px');
-  });
-
-  test('at 200% type nothing bursts the bar or the page', async ({ page }) => {
-    await seedConsent(page);
-    await page.goto('/');
-    await setRootFont(page, 32);
 
     const r = await page.evaluate(() => {
       const nav = document.querySelector('.dz-bottom-nav');

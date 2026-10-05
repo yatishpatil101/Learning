@@ -7,13 +7,28 @@ import isTopDialog from '../lib/isTopDialog.js';
 export default function useModalDialog(open, onClose) {
   const panelRef = useRef(null);
 
+  /* Its own effect, keyed only on `open`: the effect below also re-runs whenever `onClose` changes
+     identity, and restoring focus there would eject the user from a dialog that is still open.
+     Declared first so it reads the opener before the effect below moves focus into the panel. */
+  useEffect(() => {
+    if (!open) return undefined;
+    const opener = document.activeElement;
+    return () => {
+      // A trigger whose dialog navigated away is gone from the document; focusing it would take
+      // focus off the page the user just arrived at.
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
       // Only the topmost dialog answers, so Escape closes the sheet on top rather than the page
       // behind it — and a stacked dialog does not steal the key from the one the user is in.
-      if (!isTopDialog(panelRef.current)) return;
-      if (e.key === 'Escape') { onClose?.(); return; }
+      // `defaultPrevented` covers a dialog that closed on this very keypress: React flushes between
+      // listeners, so the one beneath would otherwise find itself topmost and close as well.
+      if (e.defaultPrevented || !isTopDialog(panelRef.current)) return;
+      if (e.key === 'Escape') { e.preventDefault(); onClose?.(); return; }
       if (e.key !== 'Tab') return;
       const panel = panelRef.current;
       if (!panel) return;
@@ -25,23 +40,12 @@ export default function useModalDialog(open, onClose) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKey);
-    /* Most callers pass an inline `onClose`, so this effect re-runs on every keystroke — hence
-       claiming focus only when it is not already in the panel. */
-    if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
+    /* Most callers pass an inline `onClose`, so this effect re-runs on every parent render — hence
+       claiming focus only when it is not already in the panel, and never from a dialog stacked over it. */
+    const panel = panelRef.current;
+    if (panel && isTopDialog(panel) && !panel.contains(document.activeElement)) panel.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
-
-  /* Its own effect, keyed only on `open`: the effect above also re-runs whenever `onClose` changes
-     identity, and restoring focus there would eject the user from a dialog that is still open. */
-  useEffect(() => {
-    if (!open) return undefined;
-    const opener = document.activeElement;
-    return () => {
-      // A trigger whose dialog navigated away is gone from the document; focusing it would take
-      // focus off the page the user just arrived at.
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, [open]);
 
   return panelRef;
 }

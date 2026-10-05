@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Marks EVERY failing field red, scrolls to + focuses the first via `data-err`, and returns the
 // first message for a single toast.
@@ -175,16 +175,22 @@ function flashDraftSaved() {
   s._t = setTimeout(() => { s.classList.remove('is-on'); }, 1400);
 }
 
-export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['name', 'mobile'], omit = [], enabled = true } = {}) {
+export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['name', 'mobile'], omit = [], enabled = true, onRestore = null } = {}) {
   const [restored, setRestored] = useState(false);
   const firstRun = useRef(true);
   const cleared = useRef(false);
+  const skipSnapshot = useRef(null);
   const timer = useRef(null);
+  const onRestoreRef = useRef(onRestore);
+  const restoredKey = useRef(null);
 
-  // Restore once on mount. Only fields the user actually filled override the
-  // form's defaults — empty draft values must not wipe smart defaults.
+  useEffect(() => { onRestoreRef.current = onRestore; }, [onRestore]);
+
+  // Restore once per key, as soon as the draft is enabled. Only fields the user actually filled
+  // override the form's defaults — empty draft values must not wipe smart defaults.
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || restoredKey.current === key) return;
+    restoredKey.current = key;
     try {
       const saved = JSON.parse(localStorage.getItem(key));
       if (saved && typeof saved === 'object' && draftHasContent(saved, ignore)) {
@@ -194,25 +200,27 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
           const isEmpty = v == null || v === '' || (Array.isArray(v) && v.length === 0);
           if (!isEmpty) nonEmptyFields[k] = v;
         }
-        setForm((f) => ({ ...f, ...nonEmptyFields }));
+        const restoredFields = onRestoreRef.current ? onRestoreRef.current(nonEmptyFields) : nonEmptyFields;
+        if (restoredFields && typeof restoredFields === 'object') {
+          setForm((f) => ({ ...f, ...restoredFields }));
+        }
         setRestored(true);
       }
     } catch {
       /* ignore malformed draft */
     }
-    // key identity read once; setForm is stable
+    // setForm is stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, enabled]);
 
-  /* Serialise during render and debounce on the RESULT: every caller rebuilds `form` each render,
-     so keying on its identity would re-arm the timer forever and never write the draft. `omit` is
-     applied HERE, at the only point anything reaches disk. */
+  /* Debounce the serialised result; `form` identity changes every render and would starve writes. */
   const snapshot = enabled ? JSON.stringify(omitKeys(form, omit)) : null;
 
   useEffect(() => {
     if (!enabled) return undefined;
     if (firstRun.current) { firstRun.current = false; return undefined; }
     if (cleared.current) return undefined;
+    if (skipSnapshot.current === snapshot) { skipSnapshot.current = null; return undefined; }
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       try {
@@ -230,13 +238,21 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
   }, [key, snapshot, debounce, enabled]);
 
   const clear = useCallback(() => {
+    clearTimeout(timer.current);
     cleared.current = true;
     try { localStorage.removeItem(key); } catch { /* ignore */ }
     setRestored(false);
   }, [key]);
 
-  /* Write the draft NOW: any gate that navigates away must call this, or the unmount cleanup
-     cancels the pending debounced write and loses whatever was typed last. */
+  const discard = useCallback(() => {
+    clearTimeout(timer.current);
+    cleared.current = false;
+    skipSnapshot.current = snapshot;
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+    setRestored(false);
+  }, [key, snapshot]);
+
+  /* Navigation gates must call this before unmount cleanup cancels the pending debounced write. */
   const flush = () => {
     if (!enabled || cleared.current) return;
     clearTimeout(timer.current);
@@ -251,5 +267,5 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     if (typeof window !== 'undefined') window.location.reload();
   }, [clear]);
 
-  return { restored, clear, flush, startFresh };
+  return { restored, clear, discard, flush, startFresh };
 }

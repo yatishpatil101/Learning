@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-
-
 /* ===== Draazy design tokens ===== */
 :root {
   --brand-dark: #0f0d1a;
@@ -258,7 +256,8 @@
      extents once the label scales. 1.3 clears the full extent and still fits inside the bar. */
   line-height: 1.3;
   max-width: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -342,13 +341,7 @@
     transform: none !important;
   }
 
-  /* What a touch user needs is proof the tap registered, most of all on the mid-range Android
-     this app targets. The browser's own blue flash is suppressed on `html`, so a replacement is
-     not optional. */
-  /* `label` is deliberately absent: roughly sixty labels in this app WRAP their field, so a
-     label rule would dim the whole group the moment a finger lands in a text input. The two
-     labels that are genuinely buttons (the file pickers) carry their own rule in the wizard's
-     route sheet. */
+  /* Chrome's tap flash is suppressed globally, so touch needs an explicit pressed response. */
   a:active,
   button:not(:disabled):active,
   [role="button"]:active,
@@ -459,24 +452,11 @@
 html {
   scroll-behavior: smooth;
   overflow-x: clip;
-  /* Reserve the classic scrollbar's track whether or not one is showing. `useScrollLock` holds an
-     open overlay still by setting the root's `overflow-y: hidden`, which takes the scrollbar away
-     with it — so without a stable gutter the page behind every modal, drawer and sheet widens by
-     its width and every centred element jumps as the backdrop fades in. Desktop-only in effect:
-     phones and macOS draw overlay scrollbars, which occupy no track to reserve. */
+  /* Keeps centred content from jumping when overlays remove the classic scrollbar track. */
   scrollbar-gutter: stable;
-  /* Suppresses Chrome's own pull-to-refresh app-wide. On the four surfaces that carry
-     `usePullToRefresh` it would otherwise fire alongside it — that hook's preventDefault is
-     skipped once the browser has committed the gesture, so a fast flick gets both spinners.
-     Everywhere else the intent is the same: a gesture that hard-reloads a SPA is never what was
-     meant, and the pages that can refresh do it themselves. `contain` rather than `none` keeps
-     iOS's rubber-band bounce, which is native feel worth having, and only blocks chaining out to
-     browser UI — no page loses scroll chaining of its own. Declared here and not on body: the
-     `overflow-x: clip` above stops body's value propagating to the viewport at all. */
+  /* Blocks browser pull-to-refresh so route-owned refresh affordances do not double-fire. */
   overscroll-behavior-y: contain;
-  /* Unconditional, not under (hover: none): a touch laptop and an iPad with a trackpad both
-     report (hover: hover) and would otherwise get the flash back. Every control carries its
-     own :active response instead. */
+  /* Touch laptops can report hover, so this cannot sit under a hover/media query. */
   -webkit-tap-highlight-color: transparent;
   /* iOS inflates text in landscape, overriding the mobile type ramp at the end of this file. */
   -webkit-text-size-adjust: 100%;
@@ -521,9 +501,6 @@ label {
   -webkit-touch-callout: none;
 }
 
-/* `user-select` inherits, and roughly sixty labels in this app WRAP their field rather than
-   sitting beside it — so the rule above would otherwise reach inside and cost iOS Safari its
-   long-press Select/Paste on PAN, email and rent-amount inputs. */
 input,
 textarea,
 [contenteditable="true"] {
@@ -531,54 +508,6 @@ textarea,
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
-
-/* Devanagari: leading-none/tight clip matras and tracking-widest breaks the shirorekha. Scoped
-   by :lang(), which only matches while i18n keeps <html lang> in step. See design-system.md. */
-:lang(hi),
-:lang(mr) {
-  /* Only raises the floor: anything already looser than this is left alone. */
-  line-height: 1.7;
-}
-
-:lang(hi) .leading-none,
-:lang(mr) .leading-none,
-:lang(hi) .leading-tight,
-:lang(mr) .leading-tight,
-:lang(hi) .leading-snug,
-:lang(mr) .leading-snug { line-height: 1.45 !important; }
-
-:lang(hi) .tracking-widest,
-:lang(mr) .tracking-widest,
-:lang(hi) .tracking-wider,
-:lang(mr) .tracking-wider,
-:lang(hi) .tracking-wide,
-:lang(mr) .tracking-wide { letter-spacing: normal; }
-
-/* Clamped text measures its box in lines, so the taller Devanagari line box has
-   to be accounted for or the last line is sliced through the descenders. */
-:lang(hi) .line-clamp-1,
-:lang(mr) .line-clamp-1,
-:lang(hi) .line-clamp-2,
-:lang(mr) .line-clamp-2,
-:lang(hi) .line-clamp-3,
-:lang(mr) .line-clamp-3 { line-height: 1.55; }
-
-/* Devanagari runs 15–30% longer than the same English sentence, so buttons and
-   chips sized to fit English copy overflow. Let them grow instead of clipping. */
-:lang(hi) .btn-teal,
-:lang(mr) .btn-teal,
-:lang(hi) .btn-outline,
-:lang(mr) .btn-outline,
-:lang(hi) .dz-btn,
-:lang(mr) .dz-btn {
-  height: auto;
-  min-height: 2.5rem;
-}
-
-/* Digits render as Latin numerals throughout the app, so numeric runs keep Outfit's tabular
-   figures rather than inheriting Noto's proportional ones and jittering in aligned columns. */
-:lang(hi) .tabular-nums,
-:lang(mr) .tabular-nums { font-family: 'Outfit', system-ui, sans-serif; }
 
 /* ── Prevent browser autofill from overriding dark theme backgrounds ── */
 input:-webkit-autofill,
@@ -622,13 +551,8 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .dz-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
-/* ===== Tinted shadows: brand hue, not pure black =====
-   Gated on hover capability: touch fakes :hover on first tap and holds it, so an ungated lift
-   leaves a tapped card raised and glowing until the user taps elsewhere. `(pointer: fine)` is
-   deliberately NOT part of the query — Tailwind's `hoverOnlyWhenSupported` emits `(hover: hover)`
-   alone, and a device that is hover-capable but coarse would otherwise take the utility half of a
-   card's hover state (border, group-hover scale) without the lift these rules provide. */
 @media (hover: hover) {
+  /* Gated on hover so touch devices do not keep the last tapped card raised. */
   .property-card:hover {
     transform: translateY(-6px);
     box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
@@ -676,7 +600,6 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
    reaching the end of the list should go on scrolling the page behind it. */
 .filter-panel .filter-scroll { overscroll-behavior: contain; }
 
-.filter-scroll:hover,
 .filter-scroll:focus-within { scrollbar-color: rgba(20, 184, 166, 0.45) transparent; }
 
 .filter-scroll::-webkit-scrollbar { width: 6px; }
@@ -692,10 +615,15 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   transition: background 0.2s ease;
 }
 
-.filter-scroll:hover::-webkit-scrollbar-thumb,
 .filter-scroll:focus-within::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.45); }
 
-.filter-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.7); }
+@media (hover: hover) and (pointer: fine) {
+  .filter-scroll:hover { scrollbar-color: rgba(20, 184, 166, 0.45) transparent; }
+
+  .filter-scroll:hover::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.45); }
+
+  .filter-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.7); }
+}
 
 /* ── Hero gradient animation ── */
 @keyframes heroGradient {
@@ -1386,6 +1314,8 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
   pointer-events: auto;
 }
 
+.filter-panel__grabber { display: none; }
+
 .filter-panel {
   position: fixed;
   top: 0;
@@ -1405,6 +1335,69 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 }
 
 .filter-panel.open { transform: translateX(0); }
+
+@media (max-width: 1023.98px) {
+  .filter-panel {
+    top: auto;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    height: min(90dvh, calc(100dvh - var(--dz-safe-t, 0px) - .5rem));
+    max-height: min(90dvh, calc(100dvh - var(--dz-safe-t, 0px) - .5rem));
+    border-radius: 24px 24px 0 0;
+    transform: translateY(100%);
+    overflow: hidden;
+  }
+
+  .filter-panel.open { transform: translateY(0); }
+
+  .filter-panel__grabber {
+    display: block;
+    width: 44px;
+    height: 5px;
+    margin: 10px auto 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .22);
+    flex: 0 0 auto;
+    touch-action: none;
+  }
+
+  .filter-panel__drag-zone {
+    touch-action: none;
+  }
+
+  .filter-panel .filter-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .af-chip {
+    min-height: 44px;
+    padding-inline: .875rem .75rem;
+  }
+
+  .af-chip:active {
+    transform: scale(.98);
+  }
+
+  .af-chip svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .af-clear-all {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    padding-inline: .25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filter-overlay,
+  .filter-panel {
+    transition: none;
+  }
+}
 
 /* The mobile filters control uses a glass surface because it overlays unpredictable listing imagery.
   Teal marks filter state without competing with the primary Post action. */
@@ -2025,11 +2018,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .thumbnail img { transition: transform 0.3s ease; }
 
-/* Touch fakes :hover on the tapped element and holds it until the next tap lands elsewhere, so
-   ungated these two were states a finger could not clear: the hero stayed 5% zoomed after the
-   tap that opened the lightbox, and a thumbnail's hover is the same rule as .active, leaving two
-   of them reading as selected at once. `pointer: fine` keeps the trackpad iPad in and rules out
-   the Android devices that claim hover they cannot deliver. */
 @media (hover: hover) and (pointer: fine) {
   .main-image-wrapper:hover img { transform: scale(1.05); }
 
@@ -2197,9 +2185,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
-/* One rule for three tiles that always shared it, now that gating each separately would have
-   meant three identical media blocks. Gated because touch holds the hover on the tapped tile,
-   which on this page means a teal border a finger cannot clear. */
 @media (hover: hover) and (pointer: fine) {
 
   .detail-card:hover,
@@ -2324,9 +2309,7 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   justify-content: center;
   gap: 0.5rem;
   padding: calc(env(safe-area-inset-top, 0px) + 1rem) calc(env(safe-area-inset-right, 0px) + 1rem) calc(env(safe-area-inset-bottom, 0px) + 1rem) calc(env(safe-area-inset-left, 0px) + 1rem);
-  /* Nothing here scrolls, and the three overlays that use this class are hand-rolled rather than
-     going through <Modal>, so they never get its body scroll lock. Without this the photo's own
-     swipe handler also drags the listing behind it, and a downward swipe fires pull-to-refresh. */
+  /* Hand-rolled overlays do not get <Modal>'s scroll lock; block page drag behind the photo. */
   touch-action: none;
   animation: dzLbFade 0.25s ease;
 }
@@ -2346,16 +2329,12 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 }
 
 .dz-lightbox img {
-  /* 100%, not 92vw: the overlay's padding already holds the photo off the edges, and on a
-     landscape notched phone the insets make the content box narrower than 92vw — which let the
-     photo overflow a box that, being touch-action: none, cannot be scrolled to reach the rest. */
+  /* The overlay padding already accounts for safe areas, so 100% is safer than viewport width. */
   max-width: 100%;
   /* dvh, not vh: vh is the viewport with the URL bar collapsed, so on load the photo plus its
      caption stood taller than the screen actually showing them. */
   max-height: 82dvh;
-  /* One of the three overlays is the floor plan, which exists to be enlarged to read room
-     dimensions and has no swipe handler of its own, so the overlay's touch-action would leave it
-     un-zoomable. Single-finger pan stays blocked, so the photo lightbox's swipe is untouched. */
+  /* Floor plans need pinch-zoom even though the overlay blocks single-finger page drag. */
   touch-action: pinch-zoom;
   border-radius: 1rem;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
@@ -2370,9 +2349,7 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .dz-lb-close {
   position: absolute;
-  /* An absolutely positioned child resolves against its ancestor's PADDING box, so the safe-area
-     padding on .dz-lightbox does not move this button — on a notched phone it landed under the
-     status bar. It has to carry the inset itself. */
+  /* Safe-area padding on the overlay does not move an absolutely positioned child. */
   top: calc(env(safe-area-inset-top, 0px) + 1.25rem);
   right: calc(env(safe-area-inset-right, 0px) + 1.25rem);
   width: 44px;
@@ -2678,10 +2655,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .prop-row img { transition: transform .5s ease; }
 
-/* Gated: on touch the lift and the teal border stay on the last row tapped, which on the owner's
-   own list of properties reads as a selection the page never made. `(pointer: fine)` is left out
-   for the reason given with the card lifts above — the row also carries `group-hover:` utilities,
-   which Tailwind emits under `(hover: hover)` alone, and the two halves must not split. */
 @media (hover: hover) {
   .prop-row:hover {
     border-color: rgba(20, 184, 166, .25);
@@ -2917,12 +2890,19 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 .notif {
   background: rgba(255, 255, 255, .04);
   border: 1px solid rgba(255, 255, 255, .06);
+  min-height: 64px;
   transition: all .25s ease;
 }
 
-.notif:hover {
-  border-color: rgba(20, 184, 166, .2);
-  background: rgba(255, 255, 255, .06);
+.notif:active {
+  transform: scale(.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notif:hover {
+    border-color: rgba(20, 184, 166, .2);
+    background: rgba(255, 255, 255, .06);
+  }
 }
 
 .notif.unread { border-left: 3px solid var(--teal-2); }
@@ -3235,10 +3215,7 @@ label.lbl {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  /* dvh, not vh: the box is the visible viewport, so a vh gutter is measured against a taller
-     one and the card starts lower than the 5% asked for. The document is rendered at
-     viewport-fit=cover, so the last of the scroll — Cancel / Post request — needs the indicator
-     inset added or it sits under the bar. */
+  /* dvh plus the indicator inset keeps the bottom action row out from under mobile browser chrome. */
   padding: 5dvh 1rem calc(5dvh + var(--dz-safe-b));
   background: rgba(8, 7, 15, .7);
   backdrop-filter: blur(6px);
@@ -3281,6 +3258,7 @@ label.lbl {
 }
 
 .dz-input::placeholder { color: #9ca3af; }
+textarea.dz-input { height: auto; padding: .625rem 1rem; line-height: 1.5; }
 
 .dz-input:focus {
   border-color: rgba(20, 184, 166, .5);

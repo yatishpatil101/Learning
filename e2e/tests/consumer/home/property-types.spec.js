@@ -8,20 +8,22 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
 // [tile title, expected deal, expected chip labels]
 const TILES = [
   ['Flats', 'buy', ['Flat']],
-  ['Commercial', 'buy', ['Commercial']],
-  ['Plots / Land', 'buy', ['Open Plot']],
+  ['Commercial', null, ['Commercial']],
+  ['Plots / Land', 'buy', ['Open Plot', 'Farm Land']],
   ['Villas & Houses', 'buy', ['Independent House', 'Villa']],
 ];
 
 for (const [title, deal, chips] of TILES) {
   test(`"${title}" tile routes to listings with its type filter active`, async ({ page }) => {
     await page.goto(`${BASE}/`);
-    await page.getByRole('button', { name: title }).first().click();
+    await page.getByRole('link', { name: new RegExp(`^${escapeRegExp(title)}\\b`) }).first().click();
 
     // Landed on listings on the correct deal tab.
     await expect(page).toHaveURL(/\/listings\?/);
     await expect(page).toHaveURL(new RegExp(`type=`));
-    await expect(page.getByRole('heading', { name: new RegExp(`Properties for ${deal === 'rent' ? 'Rent' : 'Sale'} in Pune`) })).toBeVisible();
+    const actualDeal = new URL(page.url()).searchParams.get('deal') || deal;
+    if (deal) expect(actualDeal).toBe(deal);
+    await expect(page.getByRole('heading', { name: new RegExp(`Properties for ${actualDeal === 'rent' ? 'Rent' : 'Sale'} in Pune`) })).toBeVisible();
 
     // Each expected type shows as a removable active-filter chip.
     for (const label of chips) {
@@ -32,13 +34,13 @@ for (const [title, deal, chips] of TILES) {
 
 test('"Flatmates" tile routes to the Flatmates finder', async ({ page }) => {
   await page.goto(`${BASE}/`);
-  await page.getByRole('button', { name: 'Flatmates' }).first().click();
+  await page.getByRole('link', { name: /^Flatmates\b/ }).first().click();
   await expect(page).toHaveURL(/\/flatmates/);
 });
 
 test('"Flats" tile actually filters results to matching types', async ({ page }) => {
   await page.goto(`${BASE}/`);
-  await page.getByRole('button', { name: 'Flats' }).first().click();
+  await page.getByRole('link', { name: /^Flats\b/ }).first().click();
   await expect(page.getByRole('button', { name: /Remove filter Flat/i })).toBeVisible();
 
   // Flats (Buy) has stock in the seed data → at least one property card renders.
@@ -46,3 +48,7 @@ test('"Flats" tile actually filters results to matching types', async ({ page })
   await cards.first().waitFor({ timeout: 10000 });
   expect(await cards.count()).toBeGreaterThan(0);
 });
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

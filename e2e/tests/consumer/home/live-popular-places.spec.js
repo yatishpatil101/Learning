@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-test('clicking "Baner" routes to listings with Baner as an active locality filter', async ({ page }) => {
+test('clicking "Baner" routes to listings with Baner as an active locality filter and the results follow it', async ({ page }) => {
   await page.goto(`${BASE}/`);
 
   await page.getByRole('button', { name: 'Baner', exact: true }).click();
@@ -17,6 +17,15 @@ test('clicking "Baner" routes to listings with Baner as an active locality filte
   // Shown as a removable "Active filters" chip (the Localities filter is now a
   // dropdown, so the chip is the presentation-agnostic source of truth).
   await expect(page.getByRole('button', { name: /Remove filter Baner/i })).toBeVisible();
+
+  // Every rendered property card names the selected locality.
+  const cards = page.locator('a[href^="/property/"]');
+  await cards.first().waitFor({ timeout: 10000 });
+  const count = await cards.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    await expect(cards.nth(i)).toContainText(/Baner/i);
+  }
 });
 
 test('a rent place ("Viman Nagar") carries the rent deal + locality filter', async ({ page }) => {
@@ -26,19 +35,4 @@ test('a rent place ("Viman Nagar") carries the rent deal + locality filter', asy
 
   await expect(page).toHaveURL(/\/listings\?deal=rent&loc=Viman(%20|\+)Nagar/);
   await expect(page.getByRole('button', { name: /Remove filter Viman Nagar/i })).toBeVisible();
-});
-
-test('results are actually filtered to the selected place', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-  await page.getByRole('button', { name: 'Baner', exact: true }).click();
-
-  await expect(page.getByRole('button', { name: /Remove filter Baner/i })).toBeVisible();
-  // Every rendered property card names the selected locality.
-  const cards = page.locator('a[href^="/property/"]');
-  await cards.first().waitFor({ timeout: 10000 });
-  const count = await cards.count();
-  expect(count).toBeGreaterThan(0);
-  for (let i = 0; i < count; i++) {
-    await expect(cards.nth(i)).toContainText(/Baner/i);
-  }
 });

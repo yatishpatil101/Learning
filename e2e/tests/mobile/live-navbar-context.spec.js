@@ -14,76 +14,78 @@ async function inViewportX(locator, viewportWidth) {
 }
 
 test.describe('Mobile navbar — context-aware left slot', () => {
-  test('Home (mobile) shows the city pill', async ({ page, login }) => {
+  test('the phone top bar picks its left slot by context, keeps the account pill in view and logs no errors', async ({ page, login }) => {
+    test.slow();
     await login.asBuyer();
+    const errors = trackErrors(page);
     await page.setViewportSize(MOBILE);
-    await page.goto(`/`);
-    await expect(page.getByRole('button', { name: /City: Pune/i })).toBeVisible();
-  });
 
-  test('The Buy/Rent segmented toggle is gone everywhere', async ({ page, login }) => {
-    await login.asBuyer();
-    await page.setViewportSize(MOBILE);
-    await page.goto(`/listings?deal=rent`);
-    await expect(page.getByRole('group', { name: 'Listing type' })).toHaveCount(0);
-    // City pill is still hidden on listings (mobile).
-    await expect(page.getByRole('button', { name: /City: Pune/i })).toBeHidden();
-  });
+    await test.step('Home (mobile) shows the city pill', async () => {
+      await page.goto(`/`);
+      await expect(page.getByRole('button', { name: /City: Pune/i })).toBeVisible();
+    });
 
-  test('Non-home pages show a compact icon-only Back button (no page-name pill)', async ({ page, login }) => {
-    await login.asBuyer();
-    await page.setViewportSize(MOBILE);
-    // Flatmates must NOT show a redundant "Flatmates" pill.
-    await page.goto(`/flatmates`);
-    const back = page.getByRole('button', { name: /Go back/i });
-    await expect(back).toBeVisible();
-    await expect(back).not.toContainText(/Flatmates/i);
-    await expect(page.getByRole('button', { name: /Back to/i })).toHaveCount(0);
-  });
+    await test.step('The Buy/Rent segmented toggle is gone everywhere', async () => {
+      await page.goto(`/listings?deal=rent`);
+      await expect(page.getByRole('group', { name: 'Listing type' })).toHaveCount(0);
+      // City pill is still hidden on listings (mobile).
+      await expect(page.getByRole('button', { name: /City: Pune/i })).toBeHidden();
+    });
 
-  test('Account pill stays visible (in viewport) on every page', async ({ page, login }) => {
-    await login.asBuyer();
-    await page.setViewportSize(MOBILE);
-    for (const path of ['/', '/listings?deal=rent', '/services', '/flatmates']) {
-      await page.goto(path);
-      // The hamburger that used to sit beside it is gone — the bottom tab bar owns
-      // navigation now — so the account pill is the top bar's only trailing control.
-      const account = page.getByRole('button', { name: /Account menu/i });
-      await expect(page.getByRole('button', { name: /Toggle menu/i })).toHaveCount(0);
-      await expect(account).toBeVisible();
-      await inViewportX(account, MOBILE.width);
-    }
-  });
+    await test.step('Non-home pages show a compact icon-only Back button (no page-name pill)', async () => {
+      // Flatmates must NOT show a redundant "Flatmates" pill.
+      await page.goto(`/flatmates`);
+      const back = page.getByRole('button', { name: /Go back/i });
+      await expect(back).toBeVisible();
+      await expect(back).not.toContainText(/Flatmates/i);
+      await expect(page.getByRole('button', { name: /Back to/i })).toHaveCount(0);
+    });
 
-  /* D98b: signed in on /listings the phone top bar carried seven targets across 360px,
-     with the account pill landing exactly on the right edge. Compare is the only one of
-     the seven whose destination has somewhere else to live, so below `lg` it moves into
-     the account drawer. The count is the point of the test — anything re-added inline
-     puts the pill back on the edge — and so is the reachability check under it: a route
-     must not lose its only mobile entry point to a density fix. */
-  test('the signed-in phone top bar sheds Compare to the account drawer', async ({ page, login }) => {
-    await login.asBuyer();
-    await page.setViewportSize({ width: 360, height: 640 });
-    await page.goto(`/listings?deal=rent`);
+    await test.step('Account pill stays visible (in viewport) on every page', async () => {
+      for (const path of ['/', '/listings?deal=rent', '/services', '/flatmates']) {
+        await page.goto(path);
+        // The hamburger that used to sit beside it is gone — the bottom tab bar owns
+        // navigation now — so the account pill is the top bar's only trailing control.
+        const account = page.getByRole('button', { name: /Account menu/i });
+        await expect(page.getByRole('button', { name: /Toggle menu/i })).toHaveCount(0);
+        await expect(account).toBeVisible();
+        await inViewportX(account, MOBILE.width);
+      }
+    });
 
-    const row = page.locator('.dz-topbar__row');
-    await expect(row.locator('a:visible, button:visible')).toHaveCount(6);
-    await expect(row.locator('a[href="/compare"]')).toBeHidden();
+    await test.step('Back button navigates to the previous in-app page', async () => {
+      await page.goto(`/`);
+      await page.goto(`/services`);
+      await page.getByRole('button', { name: /Go back/i }).click();
+      await expect(page).toHaveURL(`/`);
+    });
 
-    // Still reachable, one tap deeper.
-    await page.getByRole('button', { name: /Account menu/i }).click();
-    const drawerCompare = page.locator('a[href="/compare"]:visible');
-    await expect(drawerCompare).toHaveCount(1);
-    await drawerCompare.click();
-    await expect(page).toHaveURL(/\/compare/);
-  });
+    await test.step('No console errors while navigating the redesigned navbar', async () => {
+      await page.goto(`/listings?deal=buy`);
+      expect(errors, errors.join('\n')).toEqual([]);
+    });
 
-  test('Back button navigates to the previous in-app page', async ({ page, login }) => {    await login.asBuyer();
-    await page.setViewportSize(MOBILE);
-    await page.goto(`/`);
-    await page.goto(`/services`);
-    await page.getByRole('button', { name: /Go back/i }).click();
-    await expect(page).toHaveURL(`/`);
+    /* D98b: signed in on /listings the phone top bar carried seven targets across 360px,
+       with the account pill landing exactly on the right edge. Compare is the only one of
+       the seven whose destination has somewhere else to live, so below `lg` it moves into
+       the account drawer. The count is the point of the test — anything re-added inline
+       puts the pill back on the edge — and so is the reachability check under it: a route
+       must not lose its only mobile entry point to a density fix. */
+    await test.step('the signed-in phone top bar sheds Compare to the account drawer', async () => {
+      await page.setViewportSize({ width: 360, height: 640 });
+      await page.goto(`/listings?deal=rent`);
+
+      const row = page.locator('.dz-topbar__row');
+      await expect(row.locator('a:visible, button:visible')).toHaveCount(6);
+      await expect(row.locator('a[href="/compare"]')).toBeHidden();
+
+      // Still reachable, one tap deeper.
+      await page.getByRole('button', { name: /Account menu/i }).click();
+      const drawerCompare = page.locator('a[href="/compare"]:visible');
+      await expect(drawerCompare).toHaveCount(1);
+      await drawerCompare.click();
+      await expect(page).toHaveURL(/\/compare/);
+    });
   });
 
   test('Desktop keeps the city pill on non-home pages and shows no back button', async ({ page, login }) => {
@@ -92,16 +94,5 @@ test.describe('Mobile navbar — context-aware left slot', () => {
     await page.goto(`/services`);
     await expect(page.getByRole('button', { name: /City: Pune/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Go back/i })).toBeHidden();
-  });
-
-  test('No console errors while navigating the redesigned navbar', async ({ page, login }) => {
-    await login.asBuyer();
-    const errors = trackErrors(page);
-    await page.setViewportSize(MOBILE);
-    await page.goto(`/`);
-    await page.goto(`/listings?deal=buy`);
-    await page.goto(`/services`);
-    await page.goto(`/flatmates`);
-    expect(errors, errors.join('\n')).toEqual([]);
   });
 });

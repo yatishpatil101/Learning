@@ -14,6 +14,7 @@ import { AppFlagsProvider, useAppFlags } from '../../context/AppFlagsContext.jsx
 import { PricingProvider } from '../../context/PricingContext.jsx';
 import { PostChooserProvider } from '../../context/PostChooserContext.jsx';
 import { chromeFor } from '../../lib/chrome.js';
+import { isInternal as isInternalUser } from '../../lib/auth.js';
 
 /* Full-screen block for consumer pages while maintenance mode is on. */
 function MaintenanceOverlay() {
@@ -37,7 +38,7 @@ function ConsumerLayoutContent() {
 
   // The banner rides along rather than being left behind the early return: maintenance and a dead
   // uplink look identical, and it sits above the overlay because the overlay tops everything else.
-  const isInternal = user && (user.role === 'admin' || user.role === 'staff');
+  const isInternal = isInternalUser(user);
   if (flags.maintenanceMode === true && !isInternal) {
     return (
       <>

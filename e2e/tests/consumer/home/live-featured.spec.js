@@ -9,9 +9,7 @@ import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-// Console errors that are environmental noise (CDN images, map tiles, favicon).
-
-test('Featured rail shows real properties and links to details', async ({ page }) => {
+test('Featured rail shows real properties, and a card opens its details page directly', async ({ page }) => {
   const errors = trackErrors(page);
 
   await page.goto(`${BASE}/`);
@@ -28,13 +26,8 @@ test('Featured rail shows real properties and links to details', async ({ page }
   await expect(page.locator('section span[title="Verified"]').first()).toBeVisible();
 
   expect(errors, `console errors: ${errors.join('\n')}`).toHaveLength(0);
-});
 
-test('clicking a featured card opens the property details page directly', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-
-  const firstCard = page.locator('section a[href^="/property/"]').first();
-  await firstCard.waitFor({ timeout: 10000 });
+  const firstCard = cards.first();
   const href = await firstCard.getAttribute('href');
 
   await firstCard.click();
@@ -43,6 +36,5 @@ test('clicking a featured card opens the property details page directly', async 
   await expect(page).toHaveURL(new RegExp(href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   await expect(page).not.toHaveURL(/\/listings/);
 
-  // The property details page rendered a contact/enquiry affordance.
-  await expect(page.getByRole('button', { name: /contact|enquire|interested|call|whatsapp/i }).first()).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: /contact owner/i }).first()).toBeVisible({ timeout: 10000 });
 });

@@ -1,12 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 /** How long a settled value waits for another one before it is lifted. See `COALESCE` below. */
-const COALESCE_MS = 120;
+const COALESCE_MS = 450;
 
-/**
- * Hold a slider's in-flight value locally and lift it to the owner only when the value is committed.
- * Native-`change` reasoning, COALESCE and why not debounce: docs/system/cross-cutting.md
- */
+/** Native-`change` reasoning, COALESCE and why not debounce: docs/system/cross-cutting.md */
 export function useCommitOnRelease(value, onCommit) {
   const [live, setLive] = useState(null);
   const [seen, setSeen] = useState(value);

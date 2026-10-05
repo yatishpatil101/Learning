@@ -50,13 +50,7 @@ if ('scrollRestoration' in history) {
 
 const app = (
   <StrictMode>
-    {/* The backstop, and only the backstop. The boundary that matters day to day is the one inside
-        each layout, around the route outlet — it keeps the navbar and the bottom nav alive so a
-        broken page is an inconvenience rather than a dead end. This one exists for the cases that
-        boundary cannot see: a provider that throws while initialising, or the chrome itself. There
-        is nothing left to preserve at that point, so its fallback offers a reload and a link home
-        rather than pretending a re-render will help. No `resetKey`: outside the router there is no
-        navigation to reset on. */}
+    {/* The boundary that matters day to day is the one inside each layout, around the route outlet. */}
     <ErrorBoundary scope="app">
     <BrowserRouter>
       <AuthProvider>
@@ -65,17 +59,11 @@ const app = (
               clears on sign-out by watching that context. */}
           <SavedProvider>
             <SavedSearchProvider>
-              {/* Same reasoning again: five surfaces ask which societies the caller follows, and
-                  the finder and the directory ask once per rendered row. Held here so that is one
-                  request rather than one per card (D227). */}
+              {/* One follow-state request here prevents per-card requests. */}
               <FollowProvider>
-              {/* Also caller-scoped, and read during render rather than awaited: the paywall, the
-                  Feature action and the pricing card all ask which plan is held while drawing.
-                  Holding it here makes that one request instead of one per asker. */}
+              {/* Plan is read during render by paywall and pricing surfaces. */}
               <PlanProvider>
-              {/* Also caller-scoped and read during render: the opt-in identity badge decides which
-                  trust ribbon or nudge to draw across the profile, dashboard and contact flows.
-                  Held here so that is one request, not one per asker. */}
+              {/* One verification request feeds badges across profile, dashboard and contact flows. */}
               <VerificationProvider>
               {/* Same reasoning: the inbox is caller-scoped, so the unread count loads on sign-in
                   and zeroes on sign-out rather than reading an anonymous store. */}

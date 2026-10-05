@@ -1,34 +1,20 @@
 import { useId, useState } from 'react';
 import Icon from '../Icon.jsx';
+/* A section that collapses on phones/tablets (tap the header row) but stays permanently open from lg: upward. */
 
-/* A section that collapses on phones/tablets (tap the header row) but stays
-   permanently open from lg: upward. Same idea as `CollapsibleCard` in
-   dashboard/ProfileTab.jsx and `FooterCol` in layout/Footer.jsx, generalised so
-   the property page can reuse it without a third copy.
-
-   The difference from those two: the toggle is an *overlay* button rather than a
-   wrapper around the heading. Property headings are wrapped in <Tip> (which
-   clones its child and makes it focusable), and nesting that inside a <button>
-   would produce interactive-in-interactive markup. Laying a transparent
-   lg:hidden button over the header row keeps the existing heading markup
-   byte-for-byte identical while still giving phones a full-row 44px tap target.
-
-   Desktop renders exactly as before: the button is `lg:hidden` and the panel is
-   `lg:block`, so no JS breakpoint detection and no desktop regression. */
 export default function MobileCollapse({
   header,
   summary,
   label,
   defaultOpen = false,
   className = '',
-  headerClassName = '',
   children,
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   return (
     <div className={className}>
-      <div className={'relative flex items-center justify-between gap-3 min-h-[44px] pr-7 lg:min-h-0 lg:pr-0 ' + headerClassName}>
+      <div className="relative flex items-center justify-between gap-3 min-h-[44px] pr-7 lg:min-h-0 lg:pr-0">
         {header}
         <button
           type="button"

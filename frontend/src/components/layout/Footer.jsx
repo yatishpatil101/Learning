@@ -3,7 +3,6 @@ import { Link } from 'react-router';
 import Icon from '../Icon.jsx';
 import LogoMark from '../brand/LogoMark.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { useHelpPath } from '../../lib/useHelp.js';
 
 const SOCIAL = {
   facebook: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z',
@@ -21,21 +20,8 @@ const Soc = ({ k, label, href, hover }) => (
     </svg>
   </a>
 );
+/* A footer column that collapses on phones (tap the heading) but stays open from sm: upward. */
 
-/* A footer column that collapses on phones (tap the heading) but stays open from
-   sm: upward. The three link columns are ~600px of dead weight at the bottom of
-   every page on mobile — an accordion keeps them reachable without making every
-   page that much longer to scroll past.
-
-   Collapsed, the three of these are a *list*, so they are spaced like one: the
-   grid gap is removed on mobile (see the grid below) and each column carries its
-   own top rule instead. Rows then land on a single repeating 48px rhythm rather
-   than floating 40px apart with nothing between them — which is what made the
-   collapsed footer read as three stranded labels in a lot of empty space.
-
-   Mirrors the existing `CollapsibleCard` pattern in dashboard/ProfileTab.jsx:
-   the panel is `sm:block` and the chevron is `sm:hidden`, so the desktop grid
-   renders exactly as it does today with no JS breakpoint detection. */
 const FooterCol = ({ title, children }) => {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -58,23 +44,13 @@ const FooterCol = ({ title, children }) => {
 
 export default function Footer() {
   const { flagEnabled } = useAppFlags();
-  /* Help routes are the one place in the app where the URL carries the language
-     (/hi/help/...). Linking to the unprefixed path from a prefixed page does not
-     merely look untidy: HelpLangRoute reads the prefix and calls changeLanguage()
-     on it, and that write persists to `dzLang` device-wide — so a Hindi reader
-     clicking "FAQ" here used to be reset to English across the whole app. */
-  const hp = useHelpPath();
   return (
     <footer className="pt-10 sm:pt-14 pb-6 sm:pb-8 relative" style={{ background: '#12101f' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-        {/* ── Main content: 4-column grid ──
-            gap-0 on phones: the collapsed columns are a divided list, so their own
-            top rules carry the separation, and the bottom bar's rule closes it.
-            From sm: the real grid gap and the block spacing return. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 sm:gap-10 lg:gap-8 mb-0 sm:mb-12">
-
           {/* Column 1 — brand + social */}
+
           <div className="sm:col-span-2 lg:col-span-1 pb-6 sm:pb-0">
             <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 inline-flex items-center gap-2.5 mb-4">
               <LogoMark className="w-9 h-9 shrink-0 text-teal-400" />
@@ -91,8 +67,8 @@ export default function Footer() {
               <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
             </div>
           </div>
-
           {/* Column 2 — Explore links */}
+
           <FooterCol title="Explore">
             <ul className="space-y-3">
               {[
@@ -113,14 +89,14 @@ export default function Footer() {
               ))}
             </ul>
           </FooterCol>
-
           {/* Column 3 — Company links */}
+
           <FooterCol title="Company">
             <ul className="space-y-3">
               {[
-                ['Help centre', hp('/help')],
-                ['FAQ', hp('/help/faq')],
-                ['What\u2019s new', hp('/help/changelog')],
+                ['Help centre', '/help'],
+                ['FAQ', '/help/faq'],
+                ['What\u2019s new', '/help/changelog'],
                 ['Privacy policy', '/privacy'],
                 ['Terms of service', '/terms'],
                 ['Refund policy', '/refund-policy'],
@@ -145,8 +121,8 @@ export default function Footer() {
               </li>
             </ul>
           </FooterCol>
-
           {/* Column 4 — Contact */}
+
           <FooterCol title="Contact">
             <address className="not-italic space-y-3">
               <a href="tel:+919876543210" className="flex items-center gap-2.5 group">
@@ -176,12 +152,11 @@ export default function Footer() {
           </FooterCol>
 
         </div>
-
         {/* ── Bottom bar ── */}
+
         <div className="border-t border-white/5 pt-5 sm:pt-7 flex flex-col sm:flex-row items-center justify-between gap-3">
+          {/* Standalone links in a row, not prose — so they carry the 44px floor on phones. */}
           <p className="text-xs text-gray-600 order-2 sm:order-1">© 2026 Draazy. All rights reserved. Made with care in Pune.</p>
-          {/* Standalone links in a row, not prose — so they carry the 44px floor on
-              phones. `sm:` puts the original compact footer density back. */}
           <nav className="flex items-center gap-5 order-1 sm:order-2" aria-label="Legal links">
             {[['Privacy', '/privacy'], ['Terms', '/terms']].map(([label, to]) => (
               <Link key={label} to={to} className="tap-target sm:min-h-0 sm:min-w-0 inline-flex items-center text-xs text-gray-600 hover:text-gray-400 transition-colors">{label}</Link>

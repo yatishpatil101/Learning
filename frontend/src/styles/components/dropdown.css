@@ -53,12 +53,8 @@
   height: 0.85rem;
 }
 
-/* Listings sort picker: shares one row with the view toggles, so it needs a fixed
-   pill width rather than the base `width: 100%` above - that declaration sits
-   after @tailwind utilities, so a w-* utility on the same element loses to it.
-   Stays shrinkable so very narrow phones ellipsis the label instead of wrapping
-   the row. */
 .dz-dropdown.dz-dd-sort {
+  /* Shares a row with view toggles, so fixed width prevents wrapping on narrow listing bars. */
   flex: 0 1 126px;
   width: 126px;
 }
@@ -70,11 +66,8 @@
   }
 }
 
-/* Photo-category picker: a subtle caption laid directly ON the thumbnail (over a
-   gradient scrim), so it reads as part of the photo — not a strip below it. Stays
-   quiet (borderless, 20px tall) with white text for legibility over the image;
-   the chevron alone invites a click to change the room type. */
 .dz-dropdown--sm.dz-dd-photocat {
+  /* Caption sits on thumbnails, so the trigger must stay compact and transparent. */
   width: 100%;
   --dd-trigger-pad: 0 0.4rem;
 }
@@ -208,13 +201,6 @@
   pointer-events: auto;
 }
 
-/* ── Dropdown as a bottom sheet (phones) ──
-   Select/MultiSelect anchor their portaled menu to the trigger with inline
-   geometry. On a phone that lands the list under the user's own hand, and for a
-   searchable field the keyboard then eats most of what's left. Below 640px the
-   component stops writing inline geometry (see `sheet` in Select/MultiSelect) and
-   these rules take over: full-width, docked to the bottom edge, scrim behind,
-   grab handle on top. Desktop never gets the class, so nothing here applies. */
 .dz-dropdown__scrim {
   position: fixed;
   inset: 0;
@@ -225,6 +211,7 @@
 }
 
 .dz-dropdown__menu--sheet {
+  /* Phone dropdowns dock as sheets so options stay thumb-reachable above browser chrome. */
   position: fixed;
   left: 0;
   right: 0;
@@ -244,6 +231,34 @@
 
 .dz-dropdown__menu--sheet.is-portal-open {
   transform: translateY(0);
+}
+
+.dz-dropdown__menu--picker {
+  top: calc(var(--dz-vv-top, 0px) + env(safe-area-inset-top, 0px) + 0.75rem);
+  bottom: var(--dz-vv-bottom, 0px);
+  max-height: none;
+}
+
+.dz-dropdown__menu--picker .dz-dropdown__search {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dz-dropdown__search-close {
+  flex: 0 0 auto;
+  min-height: var(--control-h);
+  padding: 0 0.625rem;
+  background: transparent;
+  border: 0;
+  color: var(--dd-accent);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.dz-dropdown__search-close:active {
+  opacity: 0.6;
 }
 
 /* Grab handle. Sticky rather than static because the sheet is itself the
@@ -272,9 +287,6 @@
   top: 1.375rem;
 }
 
-/* Overflow ("More") menu presented as an action sheet on phones — same docking,
-   scrim and handle as the dropdown sheet above, but the panel's own look comes
-   from utility classes in Menu.jsx. */
 .dz-action-sheet {
   position: fixed;
   left: 0;
@@ -291,6 +303,7 @@
 }
 
 .dz-action-sheet::before {
+  /* Overflow menus use the same grab handle as sheets to signal they dismiss by dragging down. */
   content: '';
   position: sticky;
   top: 0;
@@ -378,6 +391,14 @@
 .dz-dropdown__option .opt-label {
   flex: 1;
   white-space: nowrap;
+}
+
+/* Sits inside a card header, so it takes the card's squarer radius and drops the
+   floating shadow that bled onto the row beneath it. */
+.dz-dropdown.dd-type-filter {
+  --dd-trigger-radius: 0.75rem;
+  --dd-trigger-shadow: none;
+  --dd-trigger-shadow-hover: none;
 }
 
 .dz-dropdown.dd-type-filter .dz-dropdown__value {

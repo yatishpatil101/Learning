@@ -49,67 +49,64 @@ async function openSheet(page) {
 }
 
 test.describe('Mobile date & time pickers', () => {
-  test('the calendar docks to the bottom edge, full width', async ({ page, login }) => {
+  test('the calendar docks to the bottom edge, full width, keeps every day on screen and dismisses', async ({ page, login }) => {
     await login.asTenant();
     await page.goto('/tenant-profile');
     const cal = await openSheet(page);
-
     const viewport = page.viewportSize();
-    const box = await rect(cal);
 
-    // Full-bleed: spans the viewport rather than sitting in a 275px card.
-    expect(box.x).toBeLessThanOrEqual(1);
-    expect(box.width).toBeGreaterThanOrEqual(viewport.width - 2);
+    await test.step('the calendar docks to the bottom edge, full width', async () => {
+      const box = await rect(cal);
 
-    // The inline anchoring `place()` writes on desktop must have been cleared,
-    // or it would fight the sheet rules and win.
-    expect(await cal.evaluate((el) => ({ left: el.style.left, top: el.style.top })))
-      .toEqual({ left: '', top: '' });
+      // Full-bleed: spans the viewport rather than sitting in a 275px card.
+      expect(box.x).toBeLessThanOrEqual(1);
+      expect(box.width).toBeGreaterThanOrEqual(viewport.width - 2);
+      expect(await cal.evaluate((el) => getComputedStyle(el).borderBottomLeftRadius)).toBe('0px');
+
+      // The inline anchoring `place()` writes on desktop must have been cleared,
+      // or it would fight the sheet rules and win.
+      expect(await cal.evaluate((el) => ({ left: el.style.left, top: el.style.top })))
+        .toEqual({ left: '', top: '' });
+    });
+
+    await test.step('every day cell stays on screen and the sheet dismisses', async () => {
+      // A sheet whose grid runs off the bottom is unusable, and is exactly what the
+      // docking rules exist to prevent.
+      const last = await rect(cal.locator('.dz-cal__day').last());
+      expect(last.bottom).toBeLessThanOrEqual(viewport.height);
+
+      // Tapping above the sheet (the backdrop) closes it.
+      await page.mouse.click(viewport.width / 2, 20);
+      await expect(cal).toBeHidden();
+    });
   });
 
-  test('every day cell stays on screen and the sheet dismisses', async ({ page, login }) => {
-    await login.asTenant();
-    await page.goto('/tenant-profile');
-    const cal = await openSheet(page);
-
-    // A sheet whose grid runs off the bottom is unusable, and is exactly what the
-    // docking rules exist to prevent.
-    const viewport = page.viewportSize();
-    const last = await rect(cal.locator('.dz-cal__day').last());
-    expect(last.bottom).toBeLessThanOrEqual(viewport.height);
-
-    // Tapping above the sheet (the backdrop) closes it.
-    await page.mouse.click(viewport.width / 2, 20);
-    await expect(cal).toBeHidden();
-  });
-
-  test('the schedule-visit picker docks rather than floating over its own sheet', async ({ page, login }) => {
+  test('the schedule-visit date and time pickers dock rather than floating over their own sheet', async ({ page, login }) => {
     await login.asBuyer();
     await page.goto('/schedule-visit');
-    const cal = await openSheet(page);
-
     const viewport = page.viewportSize();
-    expect((await rect(cal)).width).toBeGreaterThanOrEqual(viewport.width - 2);
-  });
 
-  test('the time picker docks too — both dialogs share the breakpoint', async ({ page, login }) => {
-    await login.asBuyer();
-    await page.goto('/schedule-visit');
+    await test.step('the date picker docks', async () => {
+      const cal = await openSheet(page);
+      expect((await rect(cal)).width).toBeGreaterThanOrEqual(viewport.width - 2);
+    });
 
-    const time = page.locator('.dz-datefield').last();
-    await expect(time).toBeVisible({ timeout: 20_000 });
-    await time.click();
+    await test.step('the time picker docks too — both dialogs share the breakpoint', async () => {
+      await page.goto('/schedule-visit');
+      const time = page.locator('.dz-datefield').last();
+      await expect(time).toBeVisible({ timeout: 20_000 });
+      await time.click();
 
-    /* `.dz-timepicker` reuses the `.dz-cal` shell, so the sheet rules are supposed
-       to convert both dialogs. Its own `width` declaration sits later in the
-       stylesheet at equal specificity and used to beat the full-bleed rule, docking
-       a 250px stub against the left edge — hence the explicit width assertion. */
-    const picker = page.locator('.dz-cal');
-    await expect(picker).toBeVisible();
-    await expect(page.locator('.dz-timepicker')).toBeVisible();
-    await expectDockedToBottom(page, picker);
+      /* `.dz-timepicker` reuses the `.dz-cal` shell, so the sheet rules are supposed
+         to convert both dialogs. Its own `width` declaration sits later in the
+         stylesheet at equal specificity and used to beat the full-bleed rule, docking
+         a 250px stub against the left edge — hence the explicit width assertion. */
+      const picker = page.locator('.dz-cal');
+      await expect(picker).toBeVisible();
+      await expect(page.locator('.dz-timepicker')).toBeVisible();
+      await expectDockedToBottom(page, picker);
 
-    const viewport = page.viewportSize();
-    expect((await rect(picker)).width).toBeGreaterThanOrEqual(viewport.width - 2);
+      expect((await rect(picker)).width).toBeGreaterThanOrEqual(viewport.width - 2);
+    });
   });
 });

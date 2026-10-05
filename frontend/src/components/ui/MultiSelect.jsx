@@ -3,16 +3,18 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
+import useVisualViewportInsets from '../../lib/useVisualViewportInsets.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
+import { isSearchableList } from './dropdownSearch.js';
+/* Selection order is meaningful here (it drives the trigger summary), so an order-sensitive compare is the right
+   equality for "has the parent caught up". */
 
-/* Selection order is meaningful here (it drives the trigger summary), so an
-   order-sensitive compare is the right equality for "has the parent caught up". */
 const sameValues = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+/* Mirrors Select.jsx for visual and keyboard parity, but holds an array and keeps the menu open while the user
+   toggles choices. */
 
-/* Mirrors Select.jsx for visual and keyboard parity, but holds an array and keeps the menu open
-   while the user toggles choices. */
 const MultiSelect = forwardRef(function MultiSelect({
   values = [],
   onChange,
@@ -29,16 +31,15 @@ const MultiSelect = forwardRef(function MultiSelect({
   onPick,
   noResultsText,
 }, ref) {
+  /* Resolved at render rather than as a default parameter: a default is evaluated against whatever language was
+     active on first mount and would never follow a later switch. */
   const { t } = useTranslation();
-  /* Resolved at render rather than as a default parameter: a default is evaluated
-     against whatever language was active on first mount and would never follow a
-     later switch. */
   const noResults = noResultsText || t('ui.noMatches');
   const opts = useMemo(
     () => options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)),
     [options],
   );
-  const isSearchable = searchable ?? (asyncSearch ? true : opts.length >= 8);
+  const isSearchable = isSearchableList(searchable, asyncSearch, opts.length);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -50,11 +51,11 @@ const MultiSelect = forwardRef(function MultiSelect({
   const searchRef = useRef(null);
   useImperativeHandle(ref, () => triggerRef.current, []);
   const [portalOpen, setPortalOpen] = useState(false);
+  /* On phones the menu docks to the bottom edge as a sheet instead of hanging off the trigger. */
   const listId = useId();
-  /* On phones the menu docks to the bottom edge as a sheet instead of hanging off
-     the trigger: an anchored panel there opens under the thumb's own hand and is
-     routinely half-covered by the keyboard when the field is searchable. */
   const sheet = useSheetViewport();
+  const picker = sheet && isSearchable;
+  useVisualViewportInsets(open && picker);
 
   const selectedSet = useMemo(() => new Set(values), [values]);
   const summary = useMemo(
@@ -87,8 +88,8 @@ const MultiSelect = forwardRef(function MultiSelect({
     setAsyncOpts([]);
     setLoading(false);
   }, []);
-
   // Debounced live search — mirrors Select; races guarded by a cancelled flag.
+
   useEffect(() => {
     if (!asyncSearch || !open) return undefined;
     const q = query.trim();
@@ -128,9 +129,9 @@ const MultiSelect = forwardRef(function MultiSelect({
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
-
   // Fixed positioning against the trigger so the portalled menu escapes any ancestor
   // overflow/transform trap and can flip up near the viewport edge.
+
   const position = useCallback(() => {
     const trigger = triggerRef.current;
     const menu = menuRef.current;
@@ -169,19 +170,19 @@ const MultiSelect = forwardRef(function MultiSelect({
       window.removeEventListener('resize', onAnchor);
     };
   }, [open, position, visible.length]);
-
   /* A sheet covers the page, so the page behind it must not scroll with it. */
-  useScrollLock(open && sheet);
 
+  useScrollLock(open && sheet);
   // Focused here rather than from an inline ref callback, which would steal focus back on every
   // re-render the async live-search triggers.
+
   useLayoutEffect(() => {
     if (!open || !isSearchable) return;
     searchRef.current?.focus({ preventScroll: true });
   }, [open, isSearchable]);
+  /* A parent applying `onChange` inside a transition leaves `values` at the pre-click array, so building the next
+     toggle off the prop discards every rapid pick but the last. */
 
-  /* A parent applying `onChange` inside a transition leaves `values` at the pre-click array, so
-     building the next toggle off the prop discards every rapid pick but the last. */
   const pendingRef = useRef(null);
   const toggle = useCallback((opt) => {
     if (opt.disabled) return;
@@ -196,8 +197,8 @@ const MultiSelect = forwardRef(function MultiSelect({
     if (!has && onPick) onPick(opt);
     if (autoClose) close();
   }, [onChange, values, autoClose, close, onPick]);
-
   /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
+
   const swipe = useSwipeDismiss(close);
 
   const onKeyDown = (e) => {
@@ -234,9 +235,8 @@ const MultiSelect = forwardRef(function MultiSelect({
         }
         break;
       case 'Escape':
+        /* Escape closes the innermost thing only. */
         e.preventDefault();
-        /* Escape closes the innermost thing only. Without this the event reaches the document-level
-           handlers the surrounding dialogs register and dismisses the whole form behind the menu. */
         e.stopPropagation();
         close();
         break;
@@ -268,14 +268,13 @@ const MultiSelect = forwardRef(function MultiSelect({
 
       {open && typeof document !== 'undefined'
         ? createPortal(
+              /* Scrim: a sheet is a modal surface, so the page behind it has to read as dismissed rather than merely covered. */
             <>
-              {/* Scrim: a sheet is a modal surface, so the page behind it has to
-                  read as dismissed rather than merely covered. */}
               {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div
                 ref={menuRef}
                 {...(sheet ? swipe : null)}
-                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', picker && 'dz-dropdown__menu--picker', portalOpen && 'is-portal-open')}
                 role="listbox"
                 aria-multiselectable="true"
                 id={listId}
@@ -293,6 +292,11 @@ const MultiSelect = forwardRef(function MultiSelect({
                       placeholder={t('ui.searchPlaceholder')}
                       ref={searchRef}
                     />
+                    {picker ? (
+                      <button type="button" className="dz-dropdown__search-close" onClick={close}>
+                        {t('ui.pickerCancel')}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
 
