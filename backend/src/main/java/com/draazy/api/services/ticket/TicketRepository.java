@@ -2,6 +2,7 @@ package com.draazy.api.services.ticket;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,11 +23,12 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
 
     @Query("""
             select t from Ticket t
-            where (:team is null or t.team = :team)
+            where (:allTeams = true or t.team in :teams)
               and (:status is null or t.status = :status)
             order by t.createdAt desc
             """)
-    Page<Ticket> findForBoard(@Param("team") String team,
+    Page<Ticket> findForBoard(@Param("allTeams") boolean allTeams,
+            @Param("teams") List<String> teams,
             @Param("status") String status,
             Pageable pageable);
 

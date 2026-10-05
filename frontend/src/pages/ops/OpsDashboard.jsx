@@ -2,16 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArrowRight, CheckCircle2, ClipboardList, Clock, ConciergeBell, Inbox, ShieldAlert } from 'lucide-react';
 import { listTicketQueue } from '../../services/ticketService.js';
-import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import { DoughnutChart, BarChart, PALETTE } from '../../components/charts/index.jsx';
 
-/* Deterministic 8-week resolved series seeded from team so it's stable across reloads. */
-function resolvedSeries(team, done) {
-  let s = 0;
-  for (let i = 0; i < (team || 'x').length; i++) s += (team || 'x').charCodeAt(i);
+function resolvedSeries(done) {
+  let s = 7;
   const out = [];
   for (let i = 0; i < 8; i++) { s = (s * 1664525 + 1013904223) >>> 0; out.push(3 + (s % 6)); }
   // Nudge last bucket toward the real resolved count for realism
@@ -19,26 +16,11 @@ function resolvedSeries(team, done) {
   return out;
 }
 
-/* Teams whose work is a service request — one desk, filtered. The five per-team routes these used
-   to point at are now redirects into this one, so linking straight here saves a bounce. Teams not
-   listed (loans) have no service-request type and use the shared tickets queue. */
-const WORKFLOW_ROUTE = {
-  rental: '/ops/drafting-desk?type=rental',
-  legal: '/ops/drafting-desk?type=legal',
-  interior: '/ops/drafting-desk?type=interior',
-  packers: '/ops/drafting-desk?type=packers',
-  valuation: '/ops/drafting-desk?type=valuation',
-};
-
 export default function OpsDashboard() {
-  const { team, role } = useAuth();
   const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0 }));
 
   useEffect(() => {
     let alive = true;
-    /* No `team` argument. `TicketService.list` scopes a staff caller to their own desk and an admin
-       to everything, so passing `role === 'admin' ? undefined : team` was the component restating a
-       server rule — two copies of one decision, which is how they end up disagreeing (D44). */
     listTicketQueue({ size: 100 })
       .then((res) => alive && setState({ status: 'ready', items: res.items, total: res.total }))
       /* Zero tickets and an unreadable queue must not render the same tiles. */
@@ -49,7 +31,7 @@ export default function OpsDashboard() {
   if (state.status === 'error') {
     return (
       <div>
-        <PageHeader title="My Dashboard" subtitle={role === 'admin' ? 'All service teams' : `Team: ${team}`} />
+        <PageHeader title="My Dashboard" subtitle="Your scoped service queue" />
         <div className="dz-card flex items-start gap-3 p-5 text-sm text-amber-200">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
@@ -77,12 +59,12 @@ export default function OpsDashboard() {
     { label: 'Total', value: state.total, icon: ClipboardList, tint: 'text-brand-teal bg-brand-teal/15' },
   ];
 
-  const weeks = resolvedSeries(team, counts.resolved);
+  const weeks = resolvedSeries(counts.resolved);
   const recent = tickets.slice(0, 6);
 
   return (
     <div>
-      <PageHeader title="My Dashboard" subtitle={role === 'admin' ? 'All service teams' : `Team: ${team}`} />
+      <PageHeader title="My Dashboard" subtitle="Your scoped service queue" />
 
       {/* KPI tiles */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -120,10 +102,10 @@ export default function OpsDashboard() {
       {/* Latest requests (list) */}
       <div className="dz-card p-4">
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-bold">Latest requests for your team</h3>
+          <h3 className="font-bold">Latest requests</h3>
           <div className="flex gap-2">
-            {team && WORKFLOW_ROUTE[team] && <Link to={WORKFLOW_ROUTE[team]} className="dz-btn dz-btn-ghost py-1 text-xs">Workflow <ArrowRight className="h-3.5 w-3.5" /></Link>}
-            <Link to="/ops/requests" className="dz-btn dz-btn-ghost py-1 text-xs">All tickets <ArrowRight className="h-3.5 w-3.5" /></Link>
+            <Link to="/admin/drafting-desk" className="dz-btn dz-btn-ghost py-1 text-xs">Workflow <ArrowRight className="h-3.5 w-3.5" /></Link>
+            <Link to="/admin/services" className="dz-btn dz-btn-ghost py-1 text-xs">All tickets <ArrowRight className="h-3.5 w-3.5" /></Link>
           </div>
         </div>
         {recent.length ? (
@@ -136,7 +118,7 @@ export default function OpsDashboard() {
                   <div className="text-xs text-gray-400">{t.id} · {t.assignedTo ? `Assigned to ${t.assignedTo}` : 'Unassigned'}</div>
                 </div>
                 <Badge status={t.status} />
-                <Link to="/ops/requests" className="dz-btn dz-btn-ghost py-1 text-xs">Open</Link>
+                <Link to="/admin/services" className="dz-btn dz-btn-ghost py-1 text-xs">Open</Link>
               </div>
             ))}
           </div>

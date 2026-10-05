@@ -21,7 +21,7 @@ import java.util.List;
  *     Added 2026-08-08: the mapper already read this id to look up the name and then discarded it,
  *     so the contract declared a field the wire never carried (found by {@code SpecSchemaParityTest}).
  * @param author     display name; {@code null} for a message whose author has since been removed
- * @param authorRole {@code buyer|owner|staff|admin}, captured at write time
+ * @param authorRole {@code buyer|owner|staff|manager|admin}, captured at write time
  * @param attachments files sent with it, oldest first, empty when there are none (D49). Never null.
  *     The signed URLs inside are minted for this read and expire
  */

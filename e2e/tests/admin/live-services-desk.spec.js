@@ -1,0 +1,212 @@
+/**
+ * `/admin/services` — the gaps `live-admin-services.spec.js` leaves, against the live API.
+ *
+ * That file proves Start, the modal's assign + resolve + additive note, the status vocabulary, the
+ * desk label and the router guard. This one covers the rest of what an operator does on the board:
+ * reads the counts, narrows the queue, exports it, resolves from the row, parks a ticket on
+ * Waiting, and is told when the board cannot be read — plus the writes the API refuses to people
+ * the screen would never have shown a button to.
+ *
+ * Every ticket is raised by the spec with a run-stamped subject; the board is shared and
+ * append-only, so no locator or count depends on its position or its total.
+ */
+import fs from 'node:fs';
+import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
+import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
+import { appReady } from '../../helpers/app.js';
+
+const run = () => `E2E svc desk ${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+
+async function raise(request, subject, { team = 'packers', priority } = {}) {
+  const res = await request.post(`${API}/tickets`, {
+    headers: await authHeaders(ACTORS.tenant),
+    data: { team, subject, priority, body: 'Two-bedroom move, ground floor to third floor.' },
+  });
+  expect(res.status(), await res.text()).toBe(201);
+  return (await res.json()).id;
+}
+
+const adminBoard = async (request) => {
+  const res = await request.get(`${API}/tickets?size=100`, { headers: await authHeaders(ACTORS.admin) });
+  expect(res.status()).toBe(200);
+  return (await res.json()).content;
+};
+
+const adminPatch = async (request, id, data) => {
+  const res = await request.patch(`${API}/tickets/${id}`, { headers: await authHeaders(ACTORS.admin), data });
+  expect(res.status(), await res.text()).toBe(200);
+};
+
+const serverTicket = async (request, id) => (await adminBoard(request)).find((t) => t.id === id);
+
+const pick = async (page, ariaLabel, option) => {
+  await page.getByLabel(ariaLabel, { exact: true }).click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+};
+
+const openDesk = async (page, login, path = '/admin/services') => {
+  await login.asAdmin();
+  await page.goto(path);
+  await appReady(page);
+  await expect(page.getByRole('heading', { name: 'Service Requests' })).toBeVisible();
+};
+
+const kpi = (page, label) => page.getByText(label, { exact: true }).locator('xpath=following-sibling::div[1]');
+const rowOf = (page, text) => page.getByRole('row').filter({ hasText: text });
+
+test('the tiles tally the board the API serves, and each filter and the CSV narrow to the ticket they name', async ({ page, request, login }) => {
+  test.slow();
+  const tag = run();
+  const urgent = `${tag} urgent`;
+  const loans = `${tag} loans`;
+  const parked = `${tag} parked`;
+  await raise(request, urgent, { priority: 'urgent' });
+  await raise(request, loans, { team: 'loans', priority: 'low' });
+  const parkedId = await raise(request, parked, { priority: 'high' });
+  await adminPatch(request, parkedId, { status: 'waiting' });
+
+  const board = await adminBoard(request);
+  const count = (status) => board.filter((t) => t.status === status).length;
+  expect(count('open'), 'the three raised tickets leave the board with open work on it').toBeGreaterThan(0);
+
+  await openDesk(page, login);
+  await expect(kpi(page, 'Open requests')).toHaveText(String(count('open')));
+  await expect(kpi(page, 'In Progress requests')).toHaveText(String(count('in-progress')));
+  await expect(kpi(page, 'Resolved requests')).toHaveText(String(count('resolved')));
+  await expect(kpi(page, 'Total requests')).toHaveText(String(board.length));
+
+  await page.getByPlaceholder('Search id, customer, detail…').fill(tag);
+  await expect(rowOf(page, tag)).toHaveCount(3);
+  await expect(page.getByText(new RegExp(`^3 of ${board.length} requests$`))).toBeVisible();
+
+  await pick(page, 'Filter by status', 'Waiting');
+  await expect(rowOf(page, tag)).toHaveCount(1);
+  await expect(rowOf(page, parked)).toHaveCount(1);
+  await expect(rowOf(page, parked).getByRole('button', { name: 'Start' }), 'a waiting ticket is not offered Start').toHaveCount(0);
+  await expect(rowOf(page, parked).getByRole('button', { name: 'Resolve' })).toHaveCount(0);
+  await pick(page, 'Filter by status', 'All statuses');
+
+  await pick(page, 'Filter by priority', 'Urgent');
+  await expect(rowOf(page, tag)).toHaveCount(1);
+  await expect(rowOf(page, urgent)).toBeVisible();
+  await expect(rowOf(page, urgent).getByText('urgent', { exact: true })).toBeVisible();
+
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const csv = fs.readFileSync(await (await download).path(), 'utf8');
+  expect(csv.split('\n')[0]).toBe('"ID","Service","Desk","Customer","Mobile","Detail","Priority","Assigned","Status","Created"');
+  expect(csv, 'the export is the filtered view').toContain(urgent);
+  expect(csv).not.toContain(loans);
+  expect(csv).not.toContain(parked);
+  await pick(page, 'Filter by priority', 'All priorities');
+
+  await pick(page, 'Filter by desk', 'Home Loans');
+  await expect(rowOf(page, tag)).toHaveCount(1);
+  await expect(rowOf(page, loans)).toBeVisible();
+
+  await page.getByPlaceholder('Search id, customer, detail…').fill(`${tag} no such ticket`);
+  await expect(page.getByRole('cell', { name: 'No requests match' })).toBeVisible();
+});
+
+test('Resolve on the row closes an in-progress ticket on the server and moves the tiles with it', async ({ page, request, login }) => {
+  const subject = run();
+  const id = await raise(request, subject);
+  await adminPatch(request, id, { status: 'in-progress' });
+
+  await openDesk(page, login);
+  await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
+  const row = rowOf(page, subject);
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole('button', { name: 'Start' })).toHaveCount(0);
+  await expect(row.getByText(/today|\d+d open/)).toBeVisible();
+
+  const inProgress = Number(await kpi(page, 'In Progress requests').innerText());
+  const resolved = Number(await kpi(page, 'Resolved requests').innerText());
+
+  await row.getByRole('button', { name: 'Resolve' }).click();
+  await expect(page.getByRole('alert')).toContainText('Request resolved');
+
+  expect((await serverTicket(request, id)).status).toBe('resolved');
+  await expect(row.getByRole('button', { name: 'Resolve' })).toHaveCount(0);
+  await expect(row.getByText(/today|\d+d open/), 'a resolved ticket carries no age chip').toHaveCount(0);
+  await expect(kpi(page, 'In Progress requests')).toHaveText(String(inProgress - 1));
+  await expect(kpi(page, 'Resolved requests')).toHaveText(String(resolved + 1));
+});
+
+test('a deep link opens the ticket, and Save parks it on Waiting with a note without assigning it', async ({ page, request, login }) => {
+  const subject = run();
+  const id = await raise(request, subject);
+  const customer = (await apiLogin(ACTORS.tenant)).user;
+  const admin = (await apiLogin(ACTORS.admin)).user;
+  const note = `Waiting on the customer to confirm the date ${subject}`;
+
+  await openDesk(page, login, `/admin/services?open=${id}`);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText(`Request ${id}`, { exact: true })).toBeVisible();
+  await expect(dialog).toContainText(customer.name);
+  await expect(dialog).toContainText(ACTORS.tenant);
+  await expect(dialog.getByText('Unassigned')).toBeVisible();
+  await expect(dialog.getByText('No notes yet.')).toBeVisible();
+
+  await pick(page, 'Status', 'Waiting');
+  await dialog.getByPlaceholder('Add an internal note…').fill(note);
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert')).toContainText('Request updated');
+  await expect(dialog).toHaveCount(0);
+
+  const after = await serverTicket(request, id);
+  expect(after.status).toBe('waiting');
+  expect(after.assignee, 'leaving Assign to unchanged does not assign').toBeFalsy();
+  expect(after.notes.map((n) => n.text)).toEqual([note]);
+
+  await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
+  const row = rowOf(page, subject);
+  await expect(row.getByText('waiting', { exact: true })).toBeVisible();
+  await row.getByRole('button', { name: 'Open' }).click();
+  await expect(dialog.getByText(note)).toBeVisible();
+  await expect(dialog).toContainText(admin.name);
+  await expect(dialog.getByText('No notes yet.')).toHaveCount(0);
+});
+
+test('a board that cannot be read says so instead of showing an empty one', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.route(/\/api\/tickets(\?|$)/, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'The ticket board is unavailable.' }),
+    }));
+  await page.goto('/admin/services');
+
+  await expect(page.getByRole('heading', { name: 'Service Requests' })).toBeVisible();
+  await expect(page.getByText('The ticket board is unavailable.')).toBeVisible();
+  await expect(page.getByText('Total requests', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No requests match')).toHaveCount(0);
+  await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+test('writes to a ticket are refused to a buyer, to nobody, and to another desk — and leave it as it was', async ({ request }) => {
+  const id = await raise(request, run());
+  const url = `${API}/tickets/${id}`;
+  const attempts = [
+    ['no session', {}],
+    ['a buyer', await authHeaders(ACTORS.buyer)],
+    ['the loans desk', await authHeaders(STAFF.loans)],
+  ];
+
+  for (const [who, headers] of attempts) {
+    const patch = await request.patch(url, { headers, data: { status: 'closed' } });
+    expect([401, 403], `${who} may not change the status`).toContain(patch.status());
+    const note = await request.post(`${url}/notes`, { headers, data: { body: 'Sneaked in.' } });
+    expect([401, 403], `${who} may not add a note`).toContain(note.status());
+  }
+
+  const untouched = await serverTicket(request, id);
+  expect(untouched.status).toBe('open');
+  expect(untouched.notes ?? []).toHaveLength(0);
+
+  const own = await request.patch(url, { headers: await authHeaders(STAFF.packers), data: { status: 'in-progress' } });
+  expect(own.status(), 'the desk that owns the ticket is let through, so the refusals above were about who asked').toBe(200);
+  expect((await serverTicket(request, id)).status).toBe('in-progress');
+});

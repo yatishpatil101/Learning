@@ -21,7 +21,7 @@ const ACTIVE = {
 };
 
 const STATUS_META = {
-  awaiting_payment: { label: 'Payment pending', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'clock' },
+  awaiting_payment: { label: 'Unpaid · not submitted', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'clock' },
   awaiting_party: { label: 'Waiting for the other party', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'hourglass' },
   submitted: { label: 'Submitted', color: '#a5b4fc', bg: 'rgba(99,102,241,.2)', icon: 'inbox' },
   docs_review: { label: 'Documents under review', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'folder-check' },
@@ -37,6 +37,8 @@ const activeStep = (status) => (ACTIVE[status] == null ? 0 : ACTIVE[status]);
 
 export const stepStates = (status) => {
   if (status === 'completed') return STEPS.map(() => 'done');
+  // Unpaid is not submitted: nothing is in progress until the payment lands.
+  if (status === 'awaiting_payment') return STEPS.map(() => 'todo');
   const active = activeStep(status);
   return STEPS.map((_, index) => (index < active ? 'done' : index === active ? 'active' : 'todo'));
 };

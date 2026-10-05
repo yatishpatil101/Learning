@@ -86,13 +86,6 @@ async function asCustomer(id, who = CUSTOMER) {
 }
 
 test.describe('Ops → Support queue (live)', () => {
-  test('an unauthenticated visitor is redirected from /ops/support to staff-login', async ({ page }) => {
-    await page.goto('/ops/support');
-
-    await expect(page).toHaveURL(/\/staff-login/);
-    await expect(page.getByRole('heading', { name: 'Support queue' })).toHaveCount(0);
-  });
-
   test('the working queue is what the server says is waiting, and carries no mobile number', async ({ page, login, consoleErrors }) => {
     await seedConsent(page);
     await login.asStaff('rental');

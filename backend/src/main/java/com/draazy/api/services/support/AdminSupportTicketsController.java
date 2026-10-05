@@ -2,6 +2,7 @@ package com.draazy.api.services.support;
 
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Roles;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -53,7 +54,8 @@ public class AdminSupportTicketsController {
      *     answerable
      */
     @GetMapping(Routes.Admin.SUPPORT_TICKETS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_TICKETS_READ)
     public PageResponse<AdminSupportTicketDto> queue(
             @RequestParam(required = false) Boolean awaitingReply,
             @PageableDefault(size = 20) Pageable pageable) {

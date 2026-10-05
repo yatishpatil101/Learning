@@ -252,15 +252,15 @@ test.describe('admin service requests desk', () => {
    * first day.
    *
    * The identity worth naming is a **staffer**. She holds a real back-office session, signs in on
-   * the same `/staff-login` screen the admin uses, opens `/ops/drafting-desk` every day, and — as
+   * the same `/staff-login` screen the admin uses, opens her own desk page every day, and — as
    * the last two assertions below prove — the ticket API answers her `200`. She is exactly the
    * caller for whom "is anyone there?", "is this a back-office account?" and "may this account read
-   * tickets?" all say yes. The admin console is nonetheless `roles={['admin']}`, so she is turned
-   * away at the router.
+   * tickets?" all say yes. The services overview is nonetheless `roles: ['admin', 'manager']` in
+   * `adminModules.js`, so `ModuleRoute` sends her back to her own `/staff` portal.
    *
-   * That makes the shape of this guard worth stating plainly, because it is the opposite of the one
-   * on `/ops/drafting-desk`: there the router is permissive and the *API* narrows what you see, here
-   * the API is ops-wide and the *router* is the narrower of the two. Asserting a 403 for the staffer
+   * That makes the shape of this guard worth stating plainly: staff desk pages are function-scoped,
+   * but `/admin/services` is admin/manager-only while the ticket API can still answer staff. The API
+   * is ops-wide and the *router* is the narrower of the two. Asserting a 403 for the staffer
    * would therefore be asserting a rule that does not exist — and would fail today, against a
    * server that is behaving correctly.
    *
@@ -268,15 +268,15 @@ test.describe('admin service requests desk', () => {
    * a statement about the console rather than about her account being broken; the admin's `200` is
    * what stops a `GET /tickets` that refused everybody from satisfying the buyer's `403`.
    *
-   * Mutation-proved twice, each reddening one assertion and no other. Adding `staff` to the admin
-   * `RoleRoute` in `App.jsx` reddens the staffer's redirect. The buyer's `403` needed *both* layers
+   * Mutation-proved twice, each reddening one assertion and no other. Adding `staff` to the
+   * `services` module `roles` in `adminModules.js` reddens the staffer's redirect. The buyer's `403` needed *both* layers
    * broken to move, which is itself worth recording: relaxing `OPS_MAY_READ_TICKETS` to
    * `isAuthenticated()` on `TicketsController#list` is not enough on its own, because
    * `TicketService#list` independently refuses a non-admin caller with no desk. With the annotation
    * relaxed and that branch forced open, the assertion went red carrying the proof in its own
    * message — the buyer holding page 1 of 3 of the board, another customer's name and mobile on it.
    */
-  test('the console is admin-only at the router — narrower than the API it reads — and a buyer is refused both', async ({ page, request }) => {
+  test('the services overview is admin/manager-only at the router — narrower than the API it reads — and a buyer is refused both', async ({ page, request }) => {
     await page.goto('/admin/services');
     await expect(page).toHaveURL(/\/staff-login/);
 
@@ -285,10 +285,10 @@ test.describe('admin service requests desk', () => {
     await expect(page).toHaveURL(/\/staff-login/);
     await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
 
-    /* The adversarial identity: a working back-office account, refused the console anyway. */
+    /* The adversarial identity: a working back-office account, sent back to her own portal. */
     await signIn(page, STAFF.packers, { screen: 'staff' });
     await page.goto('/admin/services');
-    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page).toHaveURL(/\/staff$/);
     await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
 
     const board = async (mobile) => {

@@ -22,7 +22,7 @@ import { classNames } from '../../lib/format.js';
  * nothing was there.
  *
  * @param {object} props
- * @param {string} props.entityType - 'listing' | 'user' | 'review' | 'report'
+ * @param {string} props.entityType - 'listing' | 'user' | 'review' | 'report' | 'service_request'
  * @param {string} props.entityId - the record ID
  * @param {string} props.value - controlled textarea value
  * @param {(v: string) => void} props.onChange - controlled setter
@@ -112,7 +112,7 @@ export default function InternalNote({ entityType, entityId, value, onChange, sh
  * being non-empty before calling — the label says "optional", and an action taken without a note is
  * the ordinary case, not a failure.
  *
- * @param {'listing'|'user'|'review'|'report'} entityType
+ * @param {'listing'|'user'|'review'|'report'|'service_request'} entityType
  * @param {string} entityId
  * @param {string} text
  * @param {string} [action] the decision this note was filed beside
@@ -133,7 +133,7 @@ export { addNote as submitNote };
  * says so in the toast it was already showing. The moderator finds out while they still have the
  * words in front of them.
  *
- * @param {'listing'|'user'|'review'|'report'} entityType
+ * @param {'listing'|'user'|'review'|'report'|'service_request'} entityType
  * @param {string} entityId
  * @param {string} text the textarea's contents; blank means the moderator chose not to note
  *   anything, which is the ordinary case and not a failure

@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
+import com.draazy.api.security.Roles;
 import com.draazy.api.security.Teams;
 import com.draazy.api.services.support.AdminSupportTicketDto;
 import jakarta.persistence.EntityManager;
@@ -22,17 +23,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-/**
- * The customer-facing support thread, and the ops queue over it.
- *
- * <p>Three properties carry this suite. <strong>The list at {@code GET /support/tickets} is the
- * caller's own</strong>, for staff and admin as well — spec fix S47, and the reason is that "every
- * support conversation on the platform" in one unpaged array is a PII export, not a feature.
- * <strong>The read model has two sides</strong> (D50): each is set by the other party writing and
- * cleared only by its own party reading, so neither can mark the other as caught up. And
- * <strong>the platform-wide view is a different operation</strong> (D51) — paged, staff/admin only,
- * summaries rather than threads.
- */
 @DisplayName("Slice 12 — support tickets: the customer's thread with the platform")
 class SupportTicketEndpointsTest extends ServiceFixtures {
 
@@ -42,6 +32,8 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
     /** Distinctive enough that a substring search for it is a real leak check. */
     private static final String SECRET = "the card was declined three times";
 
+    // The assertions here are about the independence of the two unread signals, which a single shared column cannot
+    // provide.
     @Nested
     @DisplayName("scope")
     class Scope {
@@ -61,8 +53,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$[0].status").value("open"))
                     .andExpect(jsonPath("$[0].messages", hasSize(1)));
 
-            // An admin reading this endpoint sees their own tickets, not the platform's. Ops triage
-            // has its own paged, team-scoped board at GET /tickets.
             mvc.perform(get(Routes.SupportTickets.BASE)
                             .header(HttpHeaders.AUTHORIZATION, bearer(boss)))
                     .andExpect(status().isOk())
@@ -81,7 +71,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
                     .andExpect(status().isOk());
 
-            // 404, not 403 — a 403 would confirm the ticket exists.
             mvc.perform(get(Routes.SupportTickets.BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(other)))
                     .andExpect(status().isNotFound());
@@ -110,7 +99,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             expectUnread(asha, id, false);
 
             replyTicket(asha, id, "any update?", 201);
-            // Answering your own ticket gives you nothing new to read.
+
             expectUnread(asha, id, false);
 
             replyTicket(desk, id, "we are looking into it", 201);
@@ -121,7 +110,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(status().isNoContent());
             expectUnread(asha, id, false);
 
-            // Idempotent — the client marks read every time it opens the ticket.
             mvc.perform(post(Routes.SupportTickets.READ, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
                     .andExpect(status().isNoContent());
@@ -140,21 +128,10 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
                     .andExpect(status().isNoContent());
 
-            // Still unread. Clearing it here would tell Asha she had read a reply she has not seen.
             expectUnread(asha, id, true);
         }
     }
 
-    /**
-     * Debt D50 — the second column, and the only thing that makes the queue below a queue.
-     *
-     * <p>The old arrangement was not wrong so much as half-built: one boolean has to mean one thing,
-     * and what it meant was the customer's side. A staff member could read and answer any ticket and
-     * had no way to see which ones were waiting on them. The assertions here are all about the
-     * <em>independence</em> of the two signals, because that is the property a single overloaded
-     * column cannot have and the one a careless merge would quietly destroy — a shared flag still
-     * passes every "reply sets unread" test, and fails only when both sides are in play at once.
-     */
     @Nested
     @DisplayName("the two-sided read model (D50)")
     class TwoSided {
@@ -185,14 +162,15 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             expectAwaitingReply(desk, id, false);
 
             replyTicket(desk, id, "processing it", 201);
+            // Both sides have something outstanding — the state one boolean cannot represent.
             expectUnread(asha, id, true);
-            // Answering does not put the ticket back on your own queue.
+
             expectAwaitingReply(desk, id, false);
 
             markRead(asha, id);
             replyTicket(asha, id, "any update?", 201);
             expectAwaitingReply(desk, id, true);
-            // ...nor does it give the writer something new to read.
+
             expectUnread(asha, id, false);
         }
 
@@ -205,7 +183,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
 
             replyTicket(desk, id, "we are on it", 201);
             replyTicket(asha, id, "thanks, one more thing", 201);
-            // Both sides have something outstanding — the state one boolean cannot represent.
+
             expectUnread(asha, id, true);
             expectAwaitingReply(desk, id, true);
 
@@ -219,16 +197,8 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
         }
     }
 
-    /**
-     * Debt D51 — the platform-wide list S47 removed and nothing replaced.
-     *
-     * <p>S47 was right to narrow {@code GET /support/tickets} to the caller's own tickets: one
-     * operation cannot be a bare array for a customer and a page envelope for an admin. What it left
-     * behind was an ops team that could answer any ticket and find none. The tests that matter here
-     * are the two failure modes of "just add the list back": that it is genuinely paged rather than
-     * an array with a page-shaped wrapper, and that it is a summary rather than every message body
-     * on the platform in one response.
-     */
+    // `GET /support/tickets` stays the caller's own; this paged summary queue is how staff find every ticket without
+    // every message body.
     @Nested
     @DisplayName("the ops queue (D51)")
     class OpsQueue {
@@ -244,10 +214,25 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             queue(desk).andExpect(status().isOk()).andExpect(jsonPath("$.content", hasSize(1)));
             queue(boss).andExpect(status().isOk()).andExpect(jsonPath("$.content", hasSize(1)));
 
-            // 403 rather than a filtered-to-nothing 200: the caller is asking for a surface that is
-            // not theirs, not for rows that happen not to exist.
             queue(asha).andExpect(status().isForbidden());
             mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)).andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("a scoped staff account needs the support function")
+        void supportFunctionRequired() throws Exception {
+            User asha = customer("9840000151");
+            User desk = scopedStaff("9840000152", "[]");
+            String id = raiseTicket(asha, "Permission probe");
+
+            queue(desk).andExpect(status().isForbidden());
+            mvc.perform(get(Routes.SupportTickets.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isForbidden());
+            replyTicket(desk, id, "looking", 403);
+            mvc.perform(post(Routes.SupportTickets.READ, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isForbidden());
         }
 
         @Test
@@ -259,6 +244,8 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             raiseTicket(asha, "Second");
             raiseTicket(asha, "Third");
 
+            // The order is fixed server-side, so an unknown property here would otherwise be a 500
+            // any caller can trigger with a guess (api-standards.md §5).
             mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk))
                             .param("size", "2"))
@@ -282,8 +269,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
         void sortIsStripped() throws Exception {
             User desk = staff("9840000146", Teams.RENTAL);
 
-            // The order is fixed server-side, so an unknown property here would otherwise be a 500
-            // any caller can trigger with a guess (api-standards.md §5).
             mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk))
                             .param("sort", "notAColumn,desc"))
@@ -314,7 +299,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$.content", hasSize(1)))
                     .andExpect(jsonPath("$.content[0].subject").value("Already handled"));
 
-            // Omitted is the archive, not a synonym for either.
             queue(desk).andExpect(jsonPath("$.content", hasSize(2)));
         }
 
@@ -331,9 +315,8 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$.content[0].raiser").value("Asha Patil"))
                     .andReturn().getResponse().getContentAsString();
 
-            // Absent, not empty: the thread is read one ticket at a time at GET /support/tickets/{id},
-            // and a page of twenty threads is the unbounded response the page envelope was meant to
-            // prevent. The ops board's private `notes` has no counterpart here at all.
+            // Absent, not empty: the thread is read one ticket at a time at GET /support/tickets/{id}, and a page of
+            // twenty threads is the unbounded response the page envelope was meant to prevent.
             assertThat(body).doesNotContain(SECRET).doesNotContain("\"messages\"")
                     .doesNotContain("\"notes\"").doesNotContain("9840000149");
             assertThat(AdminSupportTicketDto.class.getRecordComponents())
@@ -350,14 +333,14 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
         void replyIsRendered() throws Exception {
             User asha = customer("9840000121");
             User desk = staff("9840000122", Teams.RENTAL);
-            String id = raiseTicket(asha, "Question about boost");
+            String id = raiseTicket(asha, "Question about plans");
 
             mvc.perform(post(Routes.SupportTickets.MESSAGES, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"body\":\"Boosts run for seven days.\"}"))
+                            .content("{\"body\":\"Plans renew yearly.\"}"))
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.body").value("Boosts run for seven days."))
+                    .andExpect(jsonPath("$.body").value("Plans renew yearly."))
                     .andExpect(jsonPath("$.author").value("Rohit Desk"))
                     .andExpect(jsonPath("$.authorRole").value("staff"))
                     .andExpect(jsonPath("$.id").isNotEmpty());
@@ -376,13 +359,11 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             String id = raiseTicket(asha, "Receipt never arrived");
             replyTicket(desk, id, "Re-sending it now.", 201);
 
-            // `author_id` is nullable, and the seed for the e2e database exercises exactly this row:
-            // a desk message written by nobody in particular. The mapper's name lookup had always
-            // skipped nulls, but the projection dereferenced the same id unconditionally, so one
-            // authorless message turned the entire thread — for the customer who raised it — into a
-            // 500 with no way to read past it.
+            // `author_id` is nullable, and the seed for the e2e database exercises exactly this row: a desk message
+            // written by nobody in particular.
             jdbc.update("update support_ticket_messages set author_id = null where ticket_id = ? and author_role = 'staff'",
                     UUID.fromString(id));
+
             // The row is already managed; without this the read answers from the first-level cache
             // and the column change is invisible to the assertion below.
             em.flush();
@@ -407,8 +388,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
             raiseRaw(asha, "{\"subject\":\"Help\"}", 422);
         }
     }
-
-    // --- fixtures -------------------------------------------------------------------------
 
     private String raiseTicket(User caller, String subject) throws Exception {
         String json = mvc.perform(post(Routes.SupportTickets.BASE)
@@ -444,13 +423,6 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                 .andExpect(jsonPath("$.unread").value(expected));
     }
 
-    /**
-     * The desk's side, read where it is actually published — the ops queue.
-     *
-     * <p>Deliberately not asserted against the entity or the customer's {@code SupportTicket}: the
-     * point of D50 is that the desk has a signal <em>it can see</em>, and a test that reads the
-     * column directly would still pass on the day nothing exposed it.
-     */
     private void expectAwaitingReply(User ops, String id, boolean expected) throws Exception {
         queue(ops)
                 .andExpect(status().isOk())
@@ -462,6 +434,17 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
         return mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
                 .header(HttpHeaders.AUTHORIZATION, bearer(caller))
                 .param("size", "100"));
+    }
+
+    private User scopedStaff(String mobile, String functionsJson) {
+        User user = new User(mobile, Roles.Wire.STAFF);
+        user.setName("Rohit Desk");
+        user.setTeam(Teams.RENTAL);
+        user.setMobileVerified(true);
+        User saved = users.saveAndFlush(user);
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
+                + "VALUES (?::uuid, ?::jsonb)", saved.getId().toString(), functionsJson);
+        return saved;
     }
 
     private void markRead(User caller, String id) throws Exception {

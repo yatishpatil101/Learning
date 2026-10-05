@@ -16,7 +16,7 @@
  *
  * ## 2. Author role
  *
- * `authorRole` is `buyer|owner|staff|admin`; the page's bubbles key on `by: 'customer'|'staff'`.
+ * `authorRole` is `buyer|owner|staff|manager|admin`; the page's bubbles key on `by: 'customer'|'staff'`.
  * Anything that is not staff-side is the customer — including `owner`, because an owner raising a
  * support ticket is a customer of support. Getting this backwards renders the reader's own message
  * as if support had sent it.
@@ -42,7 +42,7 @@ function epoch(iso) {
 }
 
 /** Staff-side roles. Everything else — buyer, owner, null — is the person who raised the ticket. */
-const STAFF_ROLES = new Set(['staff', 'admin']);
+const STAFF_ROLES = new Set(['staff', 'manager', 'admin']);
 
 /** One wire `Message` → one thread bubble. */
 export function toMessage(m) {

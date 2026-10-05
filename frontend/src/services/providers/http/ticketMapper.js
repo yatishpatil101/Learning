@@ -59,7 +59,7 @@ export function toViewModel(dto) {
   return {
     id: dto.id,
     subject: dto.subject || '',
-    team: dto.team || null,
+    desk: dto.team || null,
     priority: dto.priority || 'medium',
     status: dto.status || 'open',
     propertyId: dto.propertyId || null,
@@ -114,7 +114,7 @@ export const toClaim = (userId) => ({ assigneeId: String(userId || '') });
  */
 export function toCreate(data) {
   const body = { subject: String(data?.subject || '').trim() };
-  if (data?.team) body.team = data.team;
+  if (data?.desk) body.team = data.desk;
   if (data?.priority) body.priority = data.priority;
   if (data?.propertyId) body.propertyId = data.propertyId;
   if (data?.body) body.body = String(data.body).trim();

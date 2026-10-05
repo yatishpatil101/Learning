@@ -34,11 +34,12 @@ async function seedRequest() {
   return dto;
 }
 
-/** Sign the valuation staffer in and land on the desk, scoped to the type we seeded. */
+/** Sign the valuation staffer in and land on the valuation desk through the retired bookmark. */
 async function openDesk(page, login) {
   await login.asStaff(TYPE);
   await page.goto(`/ops/drafting-desk?type=${TYPE}`);
-  await expect(page.getByRole('heading', { name: 'Drafting desk' })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/valuation/);
+  await expect(page.getByRole('heading', { name: 'Property Valuation' })).toBeVisible();
   // In live mode the screen must render the queue, not the offline panel.
   await expect(page.getByText(/needs the live API/i)).toHaveCount(0);
 }
@@ -49,54 +50,47 @@ const ourCard = (page) => page.locator('button.dz-card').filter({ hasText: OUR_F
 test.describe('Drafting desk in the field', () => {
   test.beforeEach(async () => { await seedRequest(); });
 
-  test('the queue falls back to stacked cards instead of a cut-off table', async ({ page, login }) => {
+  test('the queue stacks into touch-sized cards and the open record is touch-sized and error-free', async ({ page, login, consoleErrors }) => {
+    test.slow();
     await openDesk(page, login);
 
-    // Table.jsx renders the mobileCard branch below `sm` and hides the grid; a
-    // queue with no card renderer would be a horizontally-clipped table here.
-    await expect(ourCard(page)).toBeVisible();
-    await expect(page.getByRole('table')).toBeHidden();
-  });
+    await test.step('the queue falls back to stacked cards instead of a cut-off table', async () => {
+      // Table.jsx renders the mobileCard branch below `sm` and hides the grid; a
+      // queue with no card renderer would be a horizontally-clipped table here.
+      await expect(ourCard(page)).toBeVisible();
+      await expect(page.getByRole('table')).toBeHidden();
+    });
 
-  test('a queue card is a real touch target, not a dense table row', async ({ page, login }) => {
-    await openDesk(page, login);
+    await test.step('a queue card is a real touch target, not a dense table row', async () => {
+      /* The card *is* the control — the desk has no separate "Open" button on a phone. It carries
+         three lines of content, so this fails only if someone turns the card back into a row. */
+      const box = await ourCard(page).boundingBox();
+      expect(box, 'the card is laid out').not.toBeNull();
+      expect(box.height, 'card height').toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
+    });
 
-    /* The card *is* the control — the desk has no separate "Open" button on a phone. It carries
-       three lines of content, so this fails only if someone turns the card back into a row. */
-    const card = ourCard(page);
-    await expect(card).toBeVisible();
-    const box = await card.boundingBox();
-    expect(box, 'the card is laid out').not.toBeNull();
-    expect(box.height, 'card height').toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
-  });
+    await test.step('every control in the open record clears the touch minimum', async () => {
+      /* The read-only checklist has no named controls, so this sweeps whatever the sheet renders and
+         refuses to report a pass on an empty sweep — otherwise it passes loudest when nothing opened. */
+      await ourCard(page).click();
 
-  test('every control in the open record clears the touch minimum', async ({ page, login }) => {
-    /* The read-only checklist has no named controls, so this sweeps whatever the sheet renders and
-       refuses to report a pass on an empty sweep — otherwise it passes loudest when nothing opened. */
-    await openDesk(page, login);
-    await ourCard(page).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
 
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+      const undersized = await dialog.locator('button:visible, a[href]:visible').evaluateAll(
+        (els, floor) => els
+          .map((el) => ({ el, r: el.getBoundingClientRect() }))
+          .filter(({ r }) => r.width > 0 && r.height > 0)
+          .filter(({ r }) => r.height < floor)
+          .map(({ el, r }) => `${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30)} @${Math.round(r.height)}px`),
+        MIN_TAP - TAP_EPSILON,
+      );
 
-    const undersized = await dialog.locator('button:visible, a[href]:visible').evaluateAll(
-      (els, floor) => els
-        .map((el) => ({ el, r: el.getBoundingClientRect() }))
-        .filter(({ r }) => r.width > 0 && r.height > 0)
-        .filter(({ r }) => r.height < floor)
-        .map(({ el, r }) => `${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30)} @${Math.round(r.height)}px`),
-      MIN_TAP - TAP_EPSILON,
-    );
+      const total = await dialog.locator('button:visible, a[href]:visible').count();
+      expect(total, 'the sheet must render controls, or this sweep proves nothing').toBeGreaterThan(0);
+      expect(undersized, 'controls below the touch floor').toEqual([]);
+    });
 
-    const total = await dialog.locator('button:visible, a[href]:visible').count();
-    expect(total, 'the sheet must render controls, or this sweep proves nothing').toBeGreaterThan(0);
-    expect(undersized, 'controls below the touch floor').toEqual([]);
-  });
-
-  test('the detail sheet logs no console errors on a phone', async ({ page, login, consoleErrors }) => {
-    await openDesk(page, login);
-    await ourCard(page).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
     expect(consoleErrors).toEqual([]);
   });
 });

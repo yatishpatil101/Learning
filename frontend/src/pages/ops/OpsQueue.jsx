@@ -38,11 +38,8 @@ const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
  */
 const WINDOW = 100;
 
-/* Shared queue used by every ops team page. `team` scopes the tickets, but only as a *request* —
-   `TicketService.list` decides what a caller may see and refuses a staffer another desk by name
-   (the same server-side rule as D44 for service requests). The board no longer recomputes that
-   rule client-side; it asks and renders the answer, including the refusal. */
-export default function OpsQueue({ title, subtitle, team = null }) {
+/* Shared service desk queue. Server-side scoping decides what a caller may see. */
+export default function OpsQueue({ title, subtitle }) {
   const { toast } = useToast();
   const { user, role } = useAuth();
   const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0, error: '' }));
@@ -57,14 +54,14 @@ export default function OpsQueue({ title, subtitle, team = null }) {
   const load = useCallback(() => {
     let alive = true;
     setState((s) => ({ ...s, status: 'loading' }));
-    listTicketQueue({ team: team || undefined, size: WINDOW })
+    listTicketQueue({ size: WINDOW })
       .then((res) => alive && setState({ status: 'ready', items: res.items, total: res.total, error: '' }))
       /* Not `items: []`. A queue that renders an unread failure as an empty board is how a desk
          goes home early — and a 403 here is information, not an outage: it means this account was
          refused a desk that is not theirs, which is a sentence worth showing. */
       .catch((e) => alive && setState({ status: 'error', items: [], total: 0, error: e?.message || 'The queue could not be read.' }));
     return () => { alive = false; };
-  }, [team]);
+  }, []);
 
   useEffect(load, [load, nonce]);
 
@@ -153,7 +150,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
   if (state.status === 'loading') return <Loading />;
 
   const windowed = state.total > all.length;
-  const showTeam = !team && role === 'admin';
+  const showDesk = role === 'admin';
   const columns = [
     {
       key: 'customer',
@@ -165,7 +162,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         </div>
       ),
     },
-    ...(showTeam ? [{ key: 'team', header: 'Team', render: (t) => <span className="capitalize">{t.team}</span> }] : []),
+    ...(showDesk ? [{ key: 'desk', header: 'Desk', render: (t) => <span className="capitalize">{t.desk}</span> }] : []),
     { key: 'detail', header: 'Detail', render: (t) => t.detail || '—' },
     { key: 'priority', header: 'Priority', render: (t) => <span className={classNames('font-medium capitalize', PRIORITY[t.priority])}>{t.priority}</span> },
     { key: 'assignedTo', header: 'Assignee', render: (t) => t.assignedTo || <span className="text-gray-500">Unassigned</span> },
@@ -201,7 +198,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
         <span className={classNames('font-medium capitalize', PRIORITY[t.priority])}>{t.priority}</span>
-        {showTeam ? (<><span className="text-gray-600">·</span><span className="capitalize">{t.team}</span></>) : null}
+        {showDesk ? (<><span className="text-gray-600">·</span><span className="capitalize">{t.desk}</span></>) : null}
         <span className="text-gray-600">·</span>
         <span>{t.assignedTo || 'Unassigned'}</span>
         {t.value ? (<><span className="text-gray-600">·</span><span>{fmtINR(t.value)}</span></>) : null}
@@ -220,9 +217,9 @@ export default function OpsQueue({ title, subtitle, team = null }) {
 
   const doExport = () =>
     exportCsv(
-      `draazy-${team || 'requests'}.csv`,
-      ['ID', 'Team', 'Service', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assignee', 'Value', 'Status', 'Created'],
-      rows.map((t) => [t.id, t.team, t.service, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.value || 0, t.status, asDate(t.createdAt)]),
+      'draazy-requests.csv',
+      ['ID', 'Desk', 'Service', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assignee', 'Value', 'Status', 'Created'],
+      rows.map((t) => [t.id, t.desk, t.service, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.value || 0, t.status, asDate(t.createdAt)]),
     );
 
   return (
@@ -308,7 +305,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
               {[
                 ['Customer', detail.customer],
                 ['Mobile', detail.mobile],
-                ['Team', detail.team],
+                ['Desk', detail.desk],
                 ['Value', detail.value ? fmtINR(detail.value) : '—'],
                 ['Created', fmtAgo(detail.createdAt)],
                 ['Detail', detail.detail || '—'],
@@ -321,10 +318,10 @@ export default function OpsQueue({ title, subtitle, team = null }) {
             </dl>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block text-gray-400">Status</span>
                 <Select value={detail.status} onChange={(v) => setTicketStatus(detail.id, v)} options={STATUS_OPTS} ariaLabel="Set status" />
-              </label>
+              </div>
               <div className="flex items-end">
                 <button onClick={() => claim(detail)} disabled={detail.assignedTo === meName} className="dz-btn dz-btn-ghost w-full disabled:opacity-60">
                   {detail.assignedTo ? `Assigned: ${detail.assignedTo}` : 'Assign to me'}

@@ -285,9 +285,16 @@ class ServiceWaitlistTest extends AbstractApiTest {
         staff.setMobileVerified(true);
         staff.setTeam(Teams.PACKERS);
 
+        User saved = users.saveAndFlush(staff);
+        jdbc.update("""
+                INSERT INTO back_office_permissions (user_id, permissions)
+                VALUES (?::uuid, ?::jsonb)
+                ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                """, saved.getId().toString(), "[\"support\",\"desk:packers\"]");
+
         mvc.perform(get(Routes.Tickets.BASE)
                         .header(HttpHeaders.AUTHORIZATION,
-                                "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(staff))))
+                                "Bearer " + jwtService.issueAccessToken(saved)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.mobile == '" + mobile + "')].subject")
                         .value(SUBJECT))

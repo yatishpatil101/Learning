@@ -1,13 +1,10 @@
 /**
  * HTTP ticket provider — the ops work board (`/ops/requests`), live against `GET|POST /tickets`.
  *
- * ## Team scoping is the server's
+ * ## Desk scoping is the server's
  *
- * `TicketService.list` narrows a staff caller to their own desk and **403s** a staffer who names
- * somebody else's, exactly as `ServiceDeskAuthority` does for service requests. Computing
- * `team || (role === 'admin' ? undefined : myTeam)` in the component would be a client-side
- * restatement of a server rule and therefore a place for the two to disagree. The board sends what
- * the user asked for and lets the server answer.
+ * `TicketService.list` narrows a staff caller to their own desk. The client does not pass desk
+ * filters for access; it asks for the queue and renders what the server allows.
  *
  * ## What is deliberately absent
  *
@@ -27,15 +24,13 @@ import { toClaim, toCreate, toNote, toViewModel, toViewModelPage, toWireStatus }
  * early, and a 403 here is *information* — it means a staffer asked for a desk that is not theirs,
  * which the caller turns into a sentence rather than a blank table.
  *
- * `team` is sent when given even for a staff caller who can only have one: the server's answer to
- * "show me the legal queue" when you are on valuation is a refusal with a reason, and suppressing
- * the request client-side would replace that reason with silence.
+ * No desk is sent here; staff scoping is derived from back-office functions server-side.
  */
-export async function listTicketQueue({ team, status, page = 0, size = 20 } = {}) {
+export async function listTicketQueue({ status, team, page = 0, size = 20 } = {}) {
   const query = { page, size };
-  if (team) query.team = team;
   const wire = toWireStatus(status);
   if (wire) query.status = wire;
+  if (team) query.team = team;
   return toViewModelPage(await get('/tickets', query), { page, size });
 }
 
@@ -92,7 +87,7 @@ export async function createTicket(data) {
  * given number was already on the list, so the server answers 201 either way.
  *
  * **Not routed through `toCreate`.** That mapper is for the ops board's own shape; this endpoint
- * takes three fields and derives everything else — team, subject, priority — server-side, precisely
+ * takes three fields and derives everything else — desk, subject, priority — server-side, precisely
  * so an anonymous caller cannot put a lead on the legal desk. Passing a ticket-shaped object here
  * would suggest those fields mean something, and they are ignored.
  *

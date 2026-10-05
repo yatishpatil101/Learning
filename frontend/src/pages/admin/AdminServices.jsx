@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { CheckCircle2, Clock, ConciergeBell, Download, ExternalLink, Inbox, Loader, Play, Save } from 'lucide-react';
+import { CheckCircle2, Clock, ConciergeBell, Download, ExternalLink, Hand, Inbox, Loader, Play, Save } from 'lucide-react';
 import { addTicketNote, claimTicket, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
 import { listTeamMembers } from '../../services/teamService.js';
-import { TEAMS, TEAM_LABEL } from '../../lib/data/tickets.js';
+import { TEAMS as SERVICE_DESKS, TEAM_LABEL as DESK_LABEL } from '../../lib/data/tickets.js';
+import { deskFromFunction } from '../../lib/adminModules.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Stat from '../../components/ui/Stat.jsx';
 import Table from '../../components/ui/Table.jsx';
@@ -43,7 +45,7 @@ const PRIORITY_OPTS = [
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
 ];
-const TEAM_OPTS = [{ value: '', label: 'All teams' }, ...TEAMS.map((t) => ({ value: t, label: TEAM_LABEL[t] }))];
+const DESK_OPTS = [{ value: '', label: 'All desks' }, ...SERVICE_DESKS.map((d) => ({ value: d, label: DESK_LABEL[d] }))];
 const MODAL_STATUS_OPTS = STATUS_OPTS.filter((o) => o.value);
 
 /* Every count and filter above the table is computed across rows, so a page of the list would make
@@ -52,6 +54,7 @@ const MODAL_STATUS_OPTS = STATUS_OPTS.filter((o) => o.value);
 const WINDOW = 100;
 
 const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+const memberDesks = (s) => (s.functions || []).map(deskFromFunction).filter(Boolean);
 
 /**
  * What to call a ticket.
@@ -87,9 +90,10 @@ function AgeChip({ ticket }) {
   );
 }
 
-export default function AdminServices() {
+export default function AdminServices({ desk = '' }) {
   const { toast } = useToast();
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
+  const { user, role } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [tickets, setTickets] = useState(null);
@@ -97,7 +101,7 @@ export default function AdminServices() {
   const [loadError, setLoadError] = useState('');
 
   const [q, setQ] = useState('');
-  const [fTeam, setFTeam] = useState('');
+  const [fDesk, setFDesk] = useState('');
   const [fStat, setFStat] = useState('');
   const [fPrio, setFPrio] = useState('');
 
@@ -105,10 +109,10 @@ export default function AdminServices() {
   const [form, setForm] = useState({ assigneeId: '', status: 'open', note: '' });
 
   const reload = useCallback(async () => {
-    const res = await listTicketQueue({ size: WINDOW });
+    const res = await listTicketQueue({ size: WINDOW, team: desk || undefined });
     setTickets(res.items);
     return res.items;
-  }, []);
+  }, [desk]);
 
   useEffect(() => {
     let alive = true;
@@ -117,8 +121,9 @@ export default function AdminServices() {
        "Priya" into an id if it has the directory. `OpsQueue` has no directory and is therefore
        self-claim only — this console is the one screen that can hand work to a named colleague. */
     Promise.all([
-      listTicketQueue({ size: WINDOW }),
-      listTeamMembers().catch(() => []),
+      listTicketQueue({ size: WINDOW, team: desk || undefined }),
+      // `GET /users` is refused to desk staff, who can only claim for themselves.
+      role === 'staff' ? [] : listTeamMembers().catch(() => []),
     ]).then(([res, members]) => {
       if (!alive) return;
       setTickets(res.items);
@@ -133,7 +138,9 @@ export default function AdminServices() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [desk, role]);
+
+  const title = desk ? DESK_LABEL[desk] || desk : 'Service Requests';
 
   const openTicket = useCallback((t) => {
     setOpenId(t.id);
@@ -167,27 +174,24 @@ export default function AdminServices() {
     const query = q.toLowerCase();
     return T.filter((t) => {
       return (
-        (!fTeam || t.team === fTeam) &&
+        (!fDesk || t.desk === fDesk) &&
         (!fStat || t.status === fStat) &&
         (!fPrio || t.priority === fPrio) &&
         (!query || (t.id + ' ' + titleOf(t) + ' ' + t.customer + ' ' + (t.detail || '') + ' ' + (t.mobile || '')).toLowerCase().includes(query))
       );
     });
-  }, [tickets, q, fTeam, fStat, fPrio]);
+  }, [tickets, q, fDesk, fStat, fPrio]);
 
-  /* Active back-office accounts on this desk. `listTeamMembers` already narrows to `staff`+`admin`,
-     so the filter here is the team and whether the account is still live — assigning work to a
-     suspended colleague is a silent way to lose a ticket. */
-  const teamStaff = useCallback(
-    (team) => staff.filter((s) => s.status === 'active' && (s.teams || []).includes(team)),
+  const deskStaff = useCallback(
+    (desk) => staff.filter((s) => s.status === 'active' && memberDesks(s).includes(desk)),
     [staff],
   );
 
   const doExport = () => {
     exportCsv(
       'draazy-service-requests.csv',
-      ['ID', 'Service', 'Team', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
-      rows.map((t) => [t.id, titleOf(t), TEAM_LABEL[t.team] || t.team, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
+      ['ID', 'Service', 'Desk', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
+      rows.map((t) => [t.id, titleOf(t), DESK_LABEL[t.desk] || t.desk, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
     );
   };
 
@@ -201,12 +205,21 @@ export default function AdminServices() {
      refused move still leaves the ticket owned by someone, which is the safer half to land. */
   const startTicket = async (t) => {
     try {
-      const first = t.assignedTo ? null : teamStaff(t.team)[0];
+      const first = t.assignedTo ? null : deskStaff(t.desk)[0];
       if (first) patch(await claimTicket(t.id, first.id));
       patch(await setTicketStatus(t.id, 'in-progress'));
       toast('Marked in progress');
     } catch (e) {
       toast(e?.message || 'That request could not be started.', 'error');
+    }
+  };
+
+  const claimForMe = async (t) => {
+    try {
+      patch(await claimTicket(t.id, user?.id));
+      toast('Assigned to you');
+    } catch (e) {
+      toast(e?.message || 'That request could not be claimed.', 'error');
     }
   };
 
@@ -265,7 +278,7 @@ export default function AdminServices() {
      land nowhere. */
   const notice = (body) => (
     <div>
-      <PageHeader title="Service Requests" subtitle="Route, assign and resolve customer service requests" />
+      <PageHeader title={title} subtitle="Route, assign and resolve customer service requests" />
       <div className="flex flex-col items-center justify-center py-20 text-center">{body}</div>
     </div>
   );
@@ -287,6 +300,11 @@ export default function AdminServices() {
 
   const rowActions = (t) => (
     <>
+      {!t.assignedTo && user?.id && t.status !== 'resolved' && t.status !== 'closed' ? (
+        <button onClick={() => claimForMe(t)} className="dz-btn dz-btn-ghost px-2.5 py-1 text-xs">
+          <Hand className="h-3.5 w-3.5" /> Claim
+        </button>
+      ) : null}
       {t.status === 'open' ? (
         <button onClick={() => startTicket(t)} className="dz-btn dz-btn-primary px-2.5 py-1 text-xs">
           <Play className="h-3.5 w-3.5" /> Start
@@ -320,9 +338,9 @@ export default function AdminServices() {
     ...(optionEnabled('services.priority') ? [{ key: 'priority', header: 'Priority', render: (t) => <Badge status={t.priority} /> }] : []),
     { key: 'assignedTo', header: 'Assigned', render: (t) => (t.assignedTo ? t.assignedTo : <span className="text-gray-500">—</span>) },
     ...(optionEnabled('services.teamRouting') ? [{
-      key: 'team',
-      header: 'Team',
-      render: (t) => <span className="text-sm">{TEAM_LABEL[t.team] || t.team}</span>,
+      key: 'desk',
+      header: 'Desk',
+      render: (t) => <span className="text-sm">{DESK_LABEL[t.desk] || t.desk}</span>,
     }] : []),
     {
       key: 'status',
@@ -352,7 +370,7 @@ export default function AdminServices() {
           <div className="truncate font-semibold">{titleOf(t)}</div>
           <div className="mt-0.5 text-xs text-gray-500">
             {t.id}
-            {optionEnabled('services.teamRouting') ? <> · {TEAM_LABEL[t.team] || t.team}</> : null}
+            {optionEnabled('services.teamRouting') ? <> · {DESK_LABEL[t.desk] || t.desk}</> : null}
           </div>
         </div>
         <div className="shrink-0 text-right">
@@ -379,14 +397,14 @@ export default function AdminServices() {
      The blank option is "leave as it is", not "unassign": unassigning has its own sentinel on the
      server and no control on this screen asks for it. */
   const staffOpts = active
-    ? [{ value: '', label: '— Leave unchanged —' }, ...teamStaff(active.team).map((s) => ({ value: s.id, label: s.name }))]
+    ? [{ value: '', label: '— Leave unchanged —' }, ...deskStaff(active.desk).map((s) => ({ value: s.id, label: s.name }))]
     : [{ value: '', label: '— Leave unchanged —' }];
 
   const kv = active
     ? [
         ['Request ID', active.id],
         ['Service', titleOf(active)],
-        ['Team', TEAM_LABEL[active.team] || active.team],
+        ['Desk', DESK_LABEL[active.desk] || active.desk],
         ['Status', label(active.status)],
         ['Priority', label(active.priority)],
         ['Value', fmtINR(active.value || 0)],
@@ -401,7 +419,7 @@ export default function AdminServices() {
   return (
     <div>
       <PageHeader
-        title="Service Requests"
+        title={title}
         subtitle="Route, assign and resolve customer service requests"
         actions={
           <button onClick={doExport} className="dz-btn dz-btn-ghost">
@@ -419,7 +437,7 @@ export default function AdminServices() {
 
       <div className="dz-card mb-4 flex flex-wrap items-center gap-3 p-3">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search id, customer, detail…" className="dz-input w-full sm:max-w-[240px]" />
-        {optionEnabled('services.teamRouting') && <Select value={fTeam} onChange={setFTeam} options={TEAM_OPTS} ariaLabel="Filter by team" className="max-w-[200px]" />}
+        {!desk && optionEnabled('services.teamRouting') && <Select value={fDesk} onChange={setFDesk} options={DESK_OPTS} ariaLabel="Filter by desk" className="max-w-[200px]" />}
         <Select value={fStat} onChange={setFStat} options={STATUS_OPTS} ariaLabel="Filter by status" className="max-w-[160px]" />
         {optionEnabled('services.priority') && <Select value={fPrio} onChange={setFPrio} options={PRIORITY_OPTS} ariaLabel="Filter by priority" className="max-w-[150px]" />}
         <span className="ml-auto text-sm text-gray-400">
@@ -455,7 +473,7 @@ export default function AdminServices() {
                   {optionEnabled('services.priority') && <Badge status={active.priority} />}
                   {optionEnabled('services.teamRouting') && (
                     <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-gray-300">
-                      {TEAM_LABEL[active.team] || active.team}
+                      {DESK_LABEL[active.desk] || active.desk}
                     </span>
                   )}
                 </div>
@@ -486,12 +504,12 @@ export default function AdminServices() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {optionEnabled('services.staffAssignment') && (
                   <div>
-                    <label className="mb-1 block text-xs text-gray-400">Assign to</label>
+                    <div className="mb-1 block text-xs text-gray-400">Assign to</div>
                     <Select value={form.assigneeId} onChange={(v) => setForm((f) => ({ ...f, assigneeId: v }))} options={staffOpts} ariaLabel="Assign to" />
                   </div>
                 )}
                 <div>
-                  <label className="mb-1 block text-xs text-gray-400">Status</label>
+                  <div className="mb-1 block text-xs text-gray-400">Status</div>
                   <Select value={form.status} onChange={(v) => setForm((f) => ({ ...f, status: v }))} options={MODAL_STATUS_OPTS} ariaLabel="Status" />
                 </div>
               </div>

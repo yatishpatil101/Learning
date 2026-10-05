@@ -7,7 +7,7 @@
  * different entities that unfortunately share a noun: **support** tickets are a customer's own
  * conversation with the company (`/support`, `support_tickets`), while these are the **ops work
  * board** — a row per piece of work a desk owes somebody (`tickets`, `/ops/requests`), with a
- * team, a priority, an assignee and internal notes the customer never sees. The exports here are
+ * desk, a priority, an assignee and internal notes the customer never sees. The exports here are
  * named `…TicketQueue` / `…TicketNote` so that an import list makes it obvious which one is in
  * play.
  *
@@ -20,8 +20,8 @@
  *
  * ## The rules that are no longer this layer's business
  *
- * - **Team scoping.** A staff caller sees their own desk and is refused another by name; an admin
- *   sees everything. `TicketService.list` decides, the component does not narrow.
+ * - **Desk scoping.** A staff caller sees the server-derived desk scope; an admin sees everything.
+ *   `TicketService.list` decides, the component does not narrow.
  * - **Which statuses exist.** `TicketStatuses` — `open`, `in-progress`, `waiting`, `resolved`,
  *   `closed`. An unknown one is a 400 rather than a row that renders as a blank chip.
  * - **Whether an assignee is real.** An id that does not resolve to an ops user is a 404.
@@ -37,7 +37,7 @@ const provider = createProvider('ticket');
  * true past page 1. Sort is fixed server-side and index-backed (V21) — sending `?sort=` is an
  * unmapped-property 500, so this never offers one.
  *
- * @param {{team?:string, status?:string, page?:number, size?:number}} [opts]
+ * @param {{status?:string, page?:number, size?:number}} [opts]
  * @returns {Promise<{items:object[], total:number, page:number, size:number}>}
  */
 export const listTicketQueue = async (opts) => (await provider()).listTicketQueue(opts);

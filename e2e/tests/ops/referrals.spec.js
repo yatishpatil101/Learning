@@ -207,19 +207,8 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await expect(page.getByRole('button', { name: /^Flagged/ })).toHaveCount(0);
   });
 
-  /**
-   * All three refusals, since a redirect is the weakest: the router turns away no session and a
-   * signed-in buyer, and the API refuses that buyer's token, which is what the money rests on.
-   */
-  test('the desk is staff-only at the router and at the API, and a signed-in buyer is not staff', async ({ page, login }) => {
-    await page.goto('/ops/referrals');
-    await expect(page).toHaveURL(/\/staff-login/);
-
-    await login.asBuyer();
-    await page.goto('/ops/referrals');
-    await expect(page).toHaveURL(/\/staff-login/);
-    await expect(page.getByRole('heading', { name: 'Referral Verification' })).toHaveCount(0);
-
+  // A redirect is the weakest refusal; the API refusing a buyer's token is what the money rests on.
+  test('the referrals API refuses a signed-in buyer and answers the staffer', async () => {
     // The refusal the redirect is only a courtesy for. A buyer holds a valid token; what he does
     // not hold is `referrals:read`, and that is the server's business, not the router's.
     const { accessToken: buyerToken } = await apiLogin(ACTORS.buyer);

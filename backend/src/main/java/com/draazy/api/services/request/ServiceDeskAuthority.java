@@ -5,6 +5,7 @@ import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.Roles;
 import com.draazy.api.security.Teams;
+import java.util.Set;
 
 /**
  * Which ops desk a caller may act for, and which requests that lets them touch (D44).
@@ -40,22 +41,22 @@ final class ServiceDeskAuthority {
      * @throws BadRequestException if a team is named that is not in the closed vocabulary
      * @throws ForbiddenException  if the caller has no desk, or names one that is not theirs
      */
-    static String deskFilterFor(AuthPrincipal caller, String requestedTeam) {
+    static String deskFilterFor(AuthPrincipal caller, String requestedTeam, Set<String> desks) {
         String requested = blankToNull(requestedTeam);
         if (requested != null && !Teams.isKnown(requested)) {
             throw new BadRequestException("Unknown team: " + requested);
         }
-        if (Roles.Wire.ADMIN.equals(caller.role())) {
+        if (Roles.Wire.ADMIN.equals(caller.role()) || Roles.Wire.MANAGER.equals(caller.role())) {
             return requested;
         }
-        if (caller.team() == null) {
+        if (desks.isEmpty()) {
             throw new ForbiddenException(
                     "Your account is not on an ops desk yet, so there is no queue to show.");
         }
-        if (requested != null && !requested.equals(caller.team())) {
-            throw new ForbiddenException("You can only see the " + caller.team() + " queue.");
+        if (requested != null && !desks.contains(requested)) {
+            throw new ForbiddenException("You can only see your assigned queues.");
         }
-        return caller.team();
+        return requested == null && desks.size() == 1 ? desks.iterator().next() : requested;
     }
 
     /**
@@ -73,14 +74,14 @@ final class ServiceDeskAuthority {
      *
      * @throws ForbiddenException if the caller has no desk, or the request is on another one
      */
-    static ServiceRequest onCallersDesk(AuthPrincipal caller, ServiceRequest request) {
-        if (Roles.Wire.ADMIN.equals(caller.role())) {
+    static ServiceRequest onCallersDesk(AuthPrincipal caller, ServiceRequest request, Set<String> desks) {
+        if (Roles.Wire.ADMIN.equals(caller.role()) || Roles.Wire.MANAGER.equals(caller.role())) {
             return request;
         }
-        if (caller.team() == null) {
+        if (desks.isEmpty()) {
             throw new ForbiddenException("Your account is not on an ops desk yet.");
         }
-        if (!caller.team().equals(request.getTeam())) {
+        if (!desks.contains(request.getTeam())) {
             throw new ForbiddenException(
                     "That request belongs to the " + request.getTeam() + " desk.");
         }

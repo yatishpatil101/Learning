@@ -1,5 +1,5 @@
-import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/liveAuth.js';
+import { test, expect } from '../../../fixtures/live.js';
+import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
 
 /*
  * Consumer support against the live API — `/support` behind ProtectedRoute, `/contact` public.
@@ -24,8 +24,7 @@ import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/li
  *      not per file, so a ticket minted on a named actor outlives this file. Creation runs on a
  *      throwaway account too.
  *
- * Fixtures: `ACTORS.buyer` (Rahul) is read-only here — he is used only for the two tests that
- * render the shell. Nothing in this file changes a seeded actor.
+ * Nothing in this file changes a seeded actor.
  */
 
 /**
@@ -61,29 +60,38 @@ async function openSupport(page) {
   await expect(page.getByRole('heading', { name: 'Help & Support' })).toBeVisible();
 }
 
+/** One seeded question, quoted exactly. Chosen because its answer is the platform's core claim. */
+const ANCHOR_Q = 'Is Draazy really zero brokerage?';
+
+/** A second, from a different category, so the assertion is not about one lucky row. */
+const OTHER_Q = 'How do I report a suspicious listing or user?';
+
+/** The categories the nine seeded FAQ rows carry. Asserted as a subset, so adding a tenth is not a failure. */
+const FAQ_CATEGORIES = ['General', 'Trust', 'Seekers', 'Owners', 'Payments', 'Services', 'Coverage'];
 test.describe('Consumer support — live API', () => {
-  test('guards /support: an unauthenticated visitor is redirected to /signin', async ({ page }) => {
+  test('guards /support behind sign-in, while /contact stays public', async ({ page, consoleErrors }) => {
+    await seedConsent(page);
     await page.goto('/support');
     await expect(page).toHaveURL(/\/signin/);
     await expect(page).toHaveURL(/next=/);
     await expect(page.getByRole('heading', { name: 'Help & Support' })).toHaveCount(0);
+
+    await page.goto('/contact');
+    await expect(page.getByRole('heading', { name: 'Get in touch' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Send an enquiry' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send enquiry' })).toBeVisible();
+    expect(consoleErrors).toEqual([]);
   });
 
-  test('a signed-in buyer sees the support UI: ticket form, contact card and FAQ', async ({ page }) => {
+  test('a new account sees the support shell and the empty state for a ticket list the server holds nothing for', async ({ page, consoleErrors }) => {
     await seedConsent(page);
-    await signedInAs(page, ACTORS.buyer);
+    const mobile = await signedInAsNew(page);
     await openSupport(page);
 
     await expect(page.getByRole('heading', { name: 'Raise a new ticket' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Submit ticket' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your tickets' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Frequently asked questions' })).toBeVisible();
-  });
-
-  test('shows the empty state for an account the server holds no tickets for', async ({ page }) => {
-    await seedConsent(page);
-    const mobile = await signedInAsNew(page);
-    await openSupport(page);
 
     /* The premise is asserted rather than assumed. A seeded actor could acquire a ticket from any
        other spec in the run; a throwaway account cannot, and saying so here means a failure names
@@ -92,6 +100,7 @@ test.describe('Consumer support — live API', () => {
 
     await expect(page.getByText('No tickets yet')).toBeVisible();
     await expect(page.getByText("Raise a ticket and it'll show up here.")).toBeVisible();
+    expect(consoleErrors).toEqual([]);
   });
 
   test('creating a ticket opens the thread carrying the id the server minted, and lists it', async ({ page }) => {
@@ -144,22 +153,52 @@ test.describe('Consumer support — live API', () => {
     await expect(page.getByText(ticket.id, { exact: true }).first()).toBeVisible();
   });
 
-  test('loads the support page with no console errors', async ({ page, consoleErrors }) => {
-    await seedConsent(page);
-    await signedInAs(page, ACTORS.buyer);
-    await openSupport(page);
-    expect(consoleErrors).toEqual([]);
-  });
+  /* The copy is identical in the mock and on the server, so no text assertion proves where it came
+     from. Provenance is the wait on `GET /api/faqs`, armed before navigation because the fetch fires
+     from an effect during first paint; the API half is read without a browser so a UI regression and
+     a contract regression cannot be mistaken for each other. Order is deliberately not asserted. */
+  test('the FAQ list is a public read that needs no session, and the help page renders what the server returned', async ({ page, login }) => {
+    await test.step('GET /api/faqs answers with no Authorization header', async () => {
+      // No header at all, not a signed-out session: only that proves the route is genuinely public.
+      const res = await fetch(`${API}/faqs`);
+      expect(res.status).toBe(200);
 
-  test('/contact is public and renders the enquiry form for a signed-out visitor', async ({ page, consoleErrors }) => {
-    await seedConsent(page);
-    await page.goto('/contact');
+      const faqs = await res.json();
+      expect(Array.isArray(faqs)).toBe(true);
+      expect(faqs.length).toBeGreaterThanOrEqual(9);
 
-    await expect(page.getByRole('heading', { name: 'Get in touch' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Send an enquiry' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Send enquiry' })).toBeVisible();
-    expect(consoleErrors).toEqual([]);
+      const anchor = faqs.find((f) => f.question === ANCHOR_Q);
+      expect(anchor).toBeTruthy();
+      expect(anchor.id).toBeTruthy();
+      expect(anchor.category).toBe('General');
+      expect(anchor.answer).toContain('zero brokerage');
+
+      // A question with no answer would open an accordion onto nothing.
+      expect(faqs.every((f) => f.id && f.question && f.answer)).toBe(true);
+
+      const seen = new Set(faqs.map((f) => f.category));
+      for (const category of FAQ_CATEGORIES) expect(seen.has(category)).toBe(true);
+    });
+
+    await test.step('the help page asks for the list and renders it as openable accordions', async () => {
+      await login.asBuyer();
+
+      const faqsRequest = page.waitForResponse(
+        (r) => new URL(r.url()).pathname.endsWith('/api/faqs') && r.status() === 200,
+      );
+      await page.goto('/support');
+      await faqsRequest;
+
+      await expect(page.getByRole('heading', { name: 'Frequently asked questions' })).toBeVisible();
+
+      // The button, not the text: a list rendered as inert paragraphs would not open.
+      const anchor = page.getByRole('button', { name: ANCHOR_Q });
+      await expect(anchor).toBeVisible();
+      await expect(page.getByRole('button', { name: OTHER_Q })).toBeVisible();
+
+      await anchor.click();
+      await expect(page.getByText('zero brokerage', { exact: false }).first()).toBeVisible();
+    });
   });
 });
-
 

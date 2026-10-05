@@ -246,17 +246,13 @@ class TicketQueueTest extends ServiceFixtures {
         }
 
         @Test
-        @DisplayName("re-teaming a ticket moves it out of the caller's own board")
+        @DisplayName("re-teaming a ticket to an unheld desk is refused")
         void reteamingMovesItAway() throws Exception {
             User buyer = customer("9820000320");
             String id = create(buyer, "{\"subject\":\"Agreement\",\"team\":\"legal\"}", 201);
             User legal = staff("9820000321", Teams.LEGAL);
 
-            patchTicket(legal, id, "{\"team\":\"rental\"}", 200);
-            mvc.perform(get(Routes.Tickets.BASE)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content", hasSize(0)));
+            patchTicket(legal, id, "{\"team\":\"rental\"}", 403);
         }
 
         @Test
