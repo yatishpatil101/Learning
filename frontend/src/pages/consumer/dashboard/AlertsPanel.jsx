@@ -12,10 +12,6 @@ const CHANNEL_META = {
   sms: { label: 'SMS', icon: 'smartphone' },
 };
 
-/* The cadence the server's enum already supported and the UI could not reach: the row carried a
-   two-state Switch, so `instant` and `weekly` were unreachable and switching off and on again
-   flattened whatever you held to `daily` (D84). A native <select> rather than a custom menu — it is
-   keyboard- and screen-reader-correct for free, and on a phone it opens the platform picker. */
 const FREQ_LABEL = { off: 'Off', instant: 'Instant', daily: 'Daily', weekly: 'Weekly' };
 
 const fmtDate = (ts) => {
@@ -27,7 +23,7 @@ const fmtDate = (ts) => {
 export default function AlertsPanel() {
   // Shared with the Overview stat card and the match-count effect, so deleting an alert here does
   // not leave the count above it claiming a stale number until a reload.
-  const { searches: alerts, setFrequency, remove } = useSavedSearches();
+  const { searches: alerts, status, setFrequency, remove, reload } = useSavedSearches();
   const activeCount = alerts.filter((a) => a.alerts).length;
 
   const onFrequency = (id, frequency) => setFrequency(id, frequency);
@@ -43,7 +39,18 @@ export default function AlertsPanel() {
         action={<Link to="/listings" className="text-teal-400 text-sm font-medium hover:text-teal-300">Browse listings →</Link>}
       />
 
-      {alerts.length === 0 ? (
+      {status === 'loading' ? (
+        <div className="space-y-3" aria-label="Loading alerts">
+          {[0, 1].map((n) => (
+            <div key={n} className="h-24 animate-pulse rounded-2xl border border-white/8 bg-white/[0.03]" />
+          ))}
+        </div>
+      ) : status === 'error' ? (
+        <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-6 py-10 text-center">
+          <p className="text-sm font-semibold text-white">Couldn't load your alerts.</p>
+          <button type="button" onClick={() => { void reload().catch(() => {}); }} className="mt-4 min-h-[44px] rounded-xl border border-white/10 px-5 text-sm font-semibold text-teal-200">Retry</button>
+        </div>
+      ) : alerts.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-12 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
             <Icon name="bell-plus" className="h-6 w-6 text-amber-400" />
@@ -64,8 +71,9 @@ export default function AlertsPanel() {
             const isShare = a.kind === 'flatmates';
             const chips = isShare ? flatmateCriteriaChips(a) : criteriaChips(a);
             const viewHref = isShare ? `/flatmates?view=${normalizeTab(a.tab)}` : '/listings';
+            const matchCount = Number(a.matchCount ?? 0);
             return (
-              <div key={a.id} className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div key={a.id} data-testid="dashboard-alert-row" className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     {isShare && (
@@ -77,6 +85,7 @@ export default function AlertsPanel() {
                     {a.newCount > 0 && (
                       <span className="shrink-0 rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-bold text-teal-300">{a.newCount} new</span>
                     )}
+                    <span data-testid="dashboard-alert-match-count" className="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-teal-300">{matchCount} matches</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {chips.map((c, i) => (

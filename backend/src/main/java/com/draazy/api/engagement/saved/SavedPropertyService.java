@@ -15,17 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The authenticated user's property shortlist — a personal preference rather than a business
- * record, so saves and unsaves are preference toggles, not auditable state changes.
- *
- * <p><strong>Paged, though it was not always.</strong> This Javadoc used to argue the list was
- * "structurally bounded" because one user is the growth limit — but it named no structure, and
- * there is none: nothing caps how many listings a user may shortlist. The endpoint returned
- * {@code PropertySummary}, a 22-field object, once per save, forever. api-standards.md §5.1 permits
- * a bare array where growth is bounded <em>or</em> explicitly capped in the service; this was
- * neither, and "one user's clicks" is a rate, not a bound.
- */
+/** Shortlists are user preferences, not auditable business records, and can grow unbounded. */
 @Service
 public class SavedPropertyService {
 
@@ -40,18 +30,8 @@ public class SavedPropertyService {
         this.propertyMapper = propertyMapper;
     }
 
-    /**
-     * The caller's saved listings as full card projections, newest-saved first, paged.
-     *
-     * <p>Two queries: a paged id list from the join table, then a batch fetch of that page's
-     * entities. The mapper produces the contract {@link PropertySummary} without ever leaking the
-     * JPA entity.
-     *
-     * <p>Saved-order is restored after {@code findAllById}, which does not guarantee it. Rows whose
-     * property has since been hard-deleted drop out, which is why the returned content can be
-     * shorter than the page size while {@code totalElements} still counts the join rows — the
-     * alternative is a page with holes in it.
-     */
+    /** The mapper produces the contract {@link PropertySummary} without ever leaking the JPA entity.
+     * Saved-order is restored after {@code findAllById}, which does not guarantee it. */
     @Transactional(readOnly = true)
     public Page<PropertySummary> listSaved(UUID userId, Pageable pageable) {
         Page<UUID> ids = savedPropertyRepo.findSavedPropertyIds(userId, pageable);
@@ -68,12 +48,7 @@ public class SavedPropertyService {
         return new PageImpl<>(content, ids.getPageable(), ids.getTotalElements());
     }
 
-    /**
-     * Idempotently add a property to the caller's shortlist. Validates existence first so we
-     * never write a dangling FK (which would 500 on the constraint).
-     *
-     * @throws NotFoundException if the property does not exist
-     */
+    /** Validates existence first so we never write a dangling FK (which would 500 on the constraint). */
     @Transactional
     public void save(UUID userId, UUID propertyId) {
         if (!propertyRepo.existsById(propertyId)) {

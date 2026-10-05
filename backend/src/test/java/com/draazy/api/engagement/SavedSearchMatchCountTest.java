@@ -18,22 +18,16 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/**
- * D227 — a saved search reports how many listings match it, counted by the server.
- *
- * <p>The defect this closes was in the browser: the notifications screen and the dashboard
- * retention strip both fetched one page of the catalogue ({@code size=100}) and counted the matches
- * themselves. That is correct exactly while the catalogue fits on one page and silently wrong
- * afterwards, with nothing failing — the number simply stops growing, and it stops growing for the
- * users with the broadest searches, who are the ones the strip exists to bring back.
- *
- * <p>These tests seed a locality and a deliberately absurd BHK so the assertions are exact numbers
- * rather than "greater than the fixtures". The seeded demo catalogue has no 99-BHK homes.
- */
+// ? a saved search reports how many listings match it, counted by the server.
+// The absurd BHK fixture makes assertions exact, not "greater than existing fixtures".
 @DisplayName("Saved searches — how many listings match this alert, counted server-side")
 class SavedSearchMatchCountTest extends AbstractApiTest {
 
@@ -81,7 +75,12 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
     }
 
     private Property listing(User owner, String title, String deal, String bhk, String status) {
-        Property p = new Property(owner, title, deal, "apartment", 31000L, NAME, "Pune");
+        return listing(owner, title, deal, "apartment", 31000L, bhk, status);
+    }
+
+    private Property listing(User owner, String title, String deal, String type, long price,
+            String bhk, String status) {
+        Property p = new Property(owner, title, deal, type, price, NAME, "Pune");
         p.setLocalitySlug(SLUG);
         p.setBhk(new BigDecimal(bhk));
         p.setStatus(status);
@@ -99,7 +98,7 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
     void countsMatchesRegardlessOfAge() {
         User user = owner("9820600001");
         seedLocality();
-        SavedSearch search = alert(user,
+        alert(user,
                 "{\"deal\":\"rent\",\"localities\":[\"" + SLUG + "\"],\"bhk\":[99]}");
 
         Property ancient = listing(user, "Old 99BHK", "rent", "99", "approved");
@@ -113,7 +112,7 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         em.clear();
 
         assertThat(only(user).matchCount()).isEqualTo(2);
-        assertThat(search.getNewCount()).isZero();
+        assertThat(only(user).newCount()).isZero();
     }
 
     @Test
@@ -184,7 +183,7 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
     void omittedFacetsDoNotNarrow() {
         User user = owner("9820600005");
         seedLocality();
-        // No bhk at all: every rented home in the locality matches, whatever its size.
+
         alert(user, "{\"deal\":\"rent\",\"localities\":[\"" + SLUG + "\"]}");
 
         listing(user, "99 here", "rent", "99", "approved");
@@ -194,6 +193,171 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         em.clear();
 
         assertThat(only(user).matchCount()).isEqualTo(2);
+    }
+
+    private record Home(String deal, String type, long price, String bhk, String furnishing) {
+        Home(String deal, String bhk) {
+            this(deal, "apartment", 31000L, bhk, null);
+        }
+    }
+
+    static Stream<Arguments> narrowingFacets() {
+        String in = "{\"deal\":\"%s\",\"localities\":[\"" + SLUG + "\"],%s}";
+        return Stream.of(
+                Arguments.of("budget range excludes out-of-range homes",
+                        in.formatted("rent", "\"rent\":[0,30000]"),
+                        List.of(new Home("rent", "apartment", 31000L, "99", null)), 0),
+                Arguments.of("an in-range budget still counts matching homes",
+                        in.formatted("rent", "\"rent\":[30000,32000]"),
+                        List.of(new Home("rent", "apartment", 31000L, "99", null)), 1),
+                Arguments.of("the UI's open-ended budget top is treated as unbounded",
+                        in.formatted("buy", "\"budget\":[0,50000000]"),
+                        List.of(new Home("buy", "apartment", 60000000L, "4", null)), 1),
+                Arguments.of("open-ended BHK chips match larger homes without widening to every BHK",
+                        in.formatted("buy", "\"bhk\":[\"3plus\"]"),
+                        List.of(new Home("buy", "apartment", 9000000L, "4", null),
+                                new Home("buy", "apartment", 9000000L, "2", null)), 1),
+                Arguments.of("garbage BHK tokens are ignored without aborting the read",
+                        in.formatted("rent", "\"bhk\":[\"1e999999\"]"),
+                        List.of(new Home("rent", "1"), new Home("rent", "2")), 2),
+                Arguments.of("property type narrows the count",
+                        in.formatted("buy", "\"types\":[\"villa\"]"),
+                        List.of(new Home("buy", "villa", 9000000L, "4", null),
+                                new Home("buy", "apartment", 9000000L, "4", null)), 1),
+                Arguments.of("furnishing narrows rent alerts",
+                        in.formatted("rent", "\"furnishing\":[\"furnished\"]"),
+                        List.of(new Home("rent", "apartment", 31000L, "2", "furnished"),
+                                new Home("rent", "apartment", 31000L, "2", "unfurnished")), 1),
+                Arguments.of("legacy postedBy saved-search criteria is ignored",
+                        in.formatted("rent", "\"postedBy\":\"agent\""),
+                        List.of(new Home("rent", "2")), 1));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("narrowingFacets")
+    @DisplayName("saved facets narrow the live-match count")
+    void facetNarrowsMatches(String label, String filters, List<Home> homes, int expected) {
+        User user = owner("9820600012");
+        seedLocality();
+        alert(user, filters);
+
+        for (Home home : homes) {
+            Property p = listing(user, "Home", home.deal(), home.type(), home.price(), home.bhk(),
+                    "approved");
+            if (home.furnishing() != null) {
+                p.setFurnishing(home.furnishing());
+                properties.saveAndFlush(p);
+            }
+        }
+        em.flush();
+        em.clear();
+
+        assertThat(only(user).matchCount()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("facing, bathrooms and food saved facets match the public search semantics")
+    void residentialFacetsMatchSearchSemantics() {
+        User user = owner("9820600021");
+        seedLocality();
+        alert(user, "{\"deal\":\"rent\",\"localities\":[\"" + SLUG
+                + "\"],\"facing\":\"east\",\"minBaths\":2,\"food\":\"nonveg\"}");
+
+        Property match = listing(user, "East two bath", "rent", "2", "approved");
+        match.setFacing("East");
+        match.setBathrooms(2);
+        match.setFormDetails(Map.of("food", "any"));
+        properties.saveAndFlush(match);
+        Property unstatedBath = listing(user, "East bath unstated", "rent", "2", "approved");
+        unstatedBath.setFacing("east");
+        unstatedBath.setFormDetails(Map.of("foodPref", "nonveg"));
+        properties.saveAndFlush(unstatedBath);
+        Property veg = listing(user, "Veg only", "rent", "2", "approved");
+        veg.setFacing("east");
+        veg.setBathrooms(2);
+        veg.setFormDetails(Map.of("foodPref", "veg"));
+        properties.saveAndFlush(veg);
+        Property wrongFacing = listing(user, "West", "rent", "2", "approved");
+        wrongFacing.setFacing("west");
+        wrongFacing.setBathrooms(2);
+        wrongFacing.setFormDetails(Map.of("food", "any"));
+        properties.saveAndFlush(wrongFacing);
+        em.flush();
+        em.clear();
+
+        assertThat(only(user).matchCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a saved Jain-only food facet counts only listings whose owner stated Jain")
+    void jainFoodFacetMatchesStatedRuleOnly() {
+        User user = owner("9820600029");
+        seedLocality();
+        alert(user, "{\"deal\":\"rent\",\"localities\":[\"" + SLUG + "\"],\"food\":\"jain\"}");
+
+        Property jain = listing(user, "Jain only", "rent", "2", "approved");
+        jain.setFormDetails(Map.of("foodPref", "jain"));
+        properties.saveAndFlush(jain);
+        Property veg = listing(user, "Veg only", "rent", "2", "approved");
+        veg.setFormDetails(Map.of("foodPref", "veg"));
+        properties.saveAndFlush(veg);
+        properties.saveAndFlush(listing(user, "Food unstated", "rent", "2", "approved"));
+        em.flush();
+        em.clear();
+
+        assertThat(only(user).matchCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("commercial shell and pre-leased saved facets read JSONB")
+    void commercialJsonFacetsNarrowMatches() {
+        User user = owner("9820600022");
+        seedLocality();
+        alert(user, "{\"deal\":\"buy\",\"localities\":[\"" + SLUG
+                + "\"],\"shell\":\"bareShell\",\"preLeased\":true}");
+
+        Property leasedBare = listing(user, "Leased bare", "buy", "commercial", 9000000L, "0", "approved");
+        leasedBare.setFormDetails(Map.of("shellType", "bareShell", "tenancyStatus", "leased"));
+        properties.saveAndFlush(leasedBare);
+        Property vacantBare = listing(user, "Vacant bare", "buy", "commercial", 9000000L, "0", "approved");
+        vacantBare.setFormDetails(Map.of("shellType", "bareShell", "tenancyStatus", "vacant"));
+        properties.saveAndFlush(vacantBare);
+        Property leasedWarm = listing(user, "Leased warm", "buy", "commercial", 9000000L, "0", "approved");
+        leasedWarm.setFormDetails(Map.of("shellType", "warmShell", "tenancyStatus", "leased"));
+        properties.saveAndFlush(leasedWarm);
+        em.flush();
+        em.clear();
+
+        assertThat(only(user).matchCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("NA and area saved facets compare against area converted to square feet")
+    void landAreaFacetsNormalizeUnits() {
+        User user = owner("9820600023");
+        seedLocality();
+        alert(user, "{\"deal\":\"buy\",\"localities\":[\"" + SLUG
+                + "\"],\"na\":\"sanctioned\",\"minArea\":43000,\"maxArea\":44000}");
+
+        Property acre = listing(user, "One acre", "buy", "farmland", 9000000L, "0", "approved");
+        acre.setArea(new BigDecimal("1"));
+        acre.setAreaUnit("acre");
+        acre.setFormDetails(Map.of("naStatus", "sanctioned"));
+        properties.saveAndFlush(acre);
+        Property sqft = listing(user, "Small plot", "buy", "plot", 9000000L, "0", "approved");
+        sqft.setArea(new BigDecimal("1000"));
+        sqft.setAreaUnit("sqft");
+        sqft.setFormDetails(Map.of("naStatus", "sanctioned"));
+        properties.saveAndFlush(sqft);
+        Property deemed = listing(user, "Deemed acre", "buy", "farmland", 9000000L, "0", "approved");
+        deemed.setArea(new BigDecimal("1"));
+        deemed.setAreaUnit("acre");
+        deemed.setFormDetails(Map.of("naStatus", "deemed"));
+        properties.saveAndFlush(deemed);
+        em.flush();
+        em.clear();
+
+        assertThat(only(user).matchCount()).isEqualTo(1);
     }
 
     @Test
@@ -207,8 +371,6 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         em.flush();
         em.clear();
 
-        // A saved search with no deal is not "match everything" — it is a row whose facets were
-        // never filled in, and telling its owner the size of the catalogue would be a fabrication.
         assertThat(only(user).matchCount()).isZero();
     }
 
@@ -218,8 +380,7 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         User user = owner("9820600007");
         seedLocality();
         SavedSearch search = alert(user, "{\"deal\":\"rent\"}");
-        // jsonb rejects a non-JSON string, so the reachable bad shape is valid JSON that is not an
-        // object — which is what a client sending an array of facets would produce.
+
         jdbc.update("update saved_searches set filters = '[]'::jsonb where id = ?", search.getId());
         listing(user, "99BHK", "rent", "99", "approved");
         em.flush();
@@ -229,24 +390,29 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a flatmates alert counts zero — this number is about the listings catalogue")
-    void flatmatesAlertsAreNotCounted() {
+    @DisplayName("a flatmates alert counts the flatmate board using its own facets")
+    void flatmatesAlertsAreCounted() {
         User user = owner("9820600008");
         seedLocality();
-        listing(user, "99BHK", "rent", "99", "approved");
+        jdbc.update("""
+                insert into flatmate_seeker_posts
+                    (user_id, name, gender, budget, localities, tags, mod_status)
+                values (?, 'D227 Seeker', 'female', 18000, '[\"D227 Flatmate Town\"]'::jsonb,
+                    '[\"Vegetarian\"]'::jsonb, 'approved')
+                """, user.getId());
         em.flush();
         em.clear();
 
         SavedSearchResponse created = savedSearches.create(user.getId(),
                 new SavedSearchCreateRequest("Flatmate in " + NAME, "flatmates", null,
                         Map.of("deal", "rent", "localities", List.of(SLUG), "bhk", List.of(99)),
-                        Map.of("locality", SLUG), null, null));
+                        Map.of("tab", "team-up", "locality", "D227 Flatmate Town",
+                                "budgetMin", 15000, "budget", 20000,
+                                "gender", "female", "habits", List.of("Vegetarian")),
+                        null, null));
 
-        // The filters blob would match if it were read, and it deliberately is not: a flatmates
-        // alert watches a different catalogue, and reporting listings matches against it would be
-        // a number about the wrong thing.
-        assertThat(created.matchCount()).isZero();
-        assertThat(only(user).matchCount()).isZero();
+        assertThat(created.matchCount()).isEqualTo(1);
+        assertThat(only(user).matchCount()).isEqualTo(1);
     }
 
     @Test
@@ -257,8 +423,8 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         seedLocality();
         alert(searcher, "{\"deal\":\"rent\",\"localities\":[\"" + SLUG + "\"],\"bhk\":[99]}");
 
-        // The catalogue is public: a searcher's count is over every live listing, not only their
-        // own. That is the opposite of the own-listing duplicate check (D226) and deliberately so.
+        // The catalogue is public: a searcher's count is over every live listing, not only their own.
+        // That is the opposite of the own-listing duplicate check and deliberately so.
         listing(poster, "Somebody else's 99BHK", "rent", "99", "approved");
         em.flush();
         em.clear();
@@ -285,5 +451,26 @@ class SavedSearchMatchCountTest extends AbstractApiTest {
         // number on the next list read would look like the alert found nothing.
         assertThat(created.matchCount()).isEqualTo(1);
         assertThat(created.newCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("creating identical criteria returns the existing saved search")
+    void duplicateCriteriaReturnsExistingSearch() {
+        User user = owner("9820600020");
+        seedLocality();
+        Map<String, Object> filters = Map.of("deal", "rent", "localities", List.of(SLUG),
+                "bhk", List.of(98, 99));
+        Map<String, Object> sameFilters = Map.of("bhk", List.of(99, 98),
+                "localities", List.of(SLUG), "deal", "rent");
+
+        SavedSearchResponse first = savedSearches.create(user.getId(),
+                new SavedSearchCreateRequest("First", "listings", "rent " + SLUG,
+                        filters, null, null, null));
+        SavedSearchResponse second = savedSearches.create(user.getId(),
+                new SavedSearchCreateRequest("Second", "listings", "rent " + SLUG,
+                        sameFilters, null, null, null));
+
+        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(savedSearches.list(user.getId())).hasSize(1);
     }
 }

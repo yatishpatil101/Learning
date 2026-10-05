@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createSavedSearch,
   deleteSavedSearch,
@@ -7,72 +7,104 @@ import {
 } from '../services/savedSearchService.js';
 import { useAuth } from './AuthContext.jsx';
 
-/**
- * The caller's saved searches and their alert preferences.
- *
- * ## Why a context rather than an effect per consumer
- *
- * Three components read this list on the *same* dashboard render — `Dashboard` for the stat card,
- * `AlertsPanel` for the list, `useDashboardData` for the match counts — and `Notifications` reads it
- * on its own page. As four independent effects that is three duplicate requests to draw one screen,
- * and worse, three copies of the list that drift the moment one of them mutates it: today
- * `AlertsPanel` deletes an alert and the stat card above it keeps counting it until a reload.
- *
- * This is a smaller problem than the one `SavedContext` solves (that one was per-card, so it scaled
- * with the page), but it is the same shape and the same fix.
- *
- * ## Signed out
- *
- * The list is caller-scoped and the API 401s without a session, so this holds an empty list. The
- * signed-out *lead capture* path is deliberately not routed through here — see `createSavedSearch`
- * in the http provider for why it has no server home yet.
- */
+/* The API 401s without a session, so signed-out lead capture bypasses this context. */
 const SavedSearchContext = createContext(null);
+const FOREGROUND_RELOAD_MS = 30000;
 
 export function SavedSearchProvider({ children }) {
   const { isIn } = useAuth();
   const [searches, setSearches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(isIn ? 'loading' : 'ready');
+  const [error, setError] = useState(null);
+  const lastForegroundReload = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ silent = false } = {}) => {
+    if (!isIn) {
+      setSearches([]);
+      setError(null);
+      setStatus('ready');
+      return [];
+    }
+    if (!silent) {
+      setLoading(true);
+      setStatus('loading');
+    }
     const next = await listSavedSearches();
     setSearches(next);
+    setError(null);
+    setStatus('ready');
+    if (!silent) setLoading(false);
     return next;
-  }, []);
+  }, [isIn]);
 
   useEffect(() => {
     if (!isIn) {
       setSearches([]);
+      setError(null);
+      setStatus('ready');
       return undefined;
     }
     let alive = true;
     setLoading(true);
+    setStatus('loading');
     listSavedSearches()
-      .then((next) => { if (alive) setSearches(next); })
-      // An unreachable alert list renders as "no alerts yet" rather than taking the dashboard down.
-      // The empty state invites the user to create one, which is a recoverable wrong answer; a
-      // thrown error in a panel that sits beside five others is not.
-      .catch(() => { if (alive) setSearches([]); })
+      .then((next) => {
+        if (!alive) return;
+        setSearches(next);
+        setError(null);
+        setStatus('ready');
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setError(err);
+        setStatus('error');
+      })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [isIn]);
+
+  useEffect(() => {
+    if (!isIn) return undefined;
+    const maybeReload = () => {
+      if (document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastForegroundReload.current < FOREGROUND_RELOAD_MS) return;
+      lastForegroundReload.current = now;
+      refresh({ silent: true }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', maybeReload);
+    window.addEventListener('focus', maybeReload);
+    return () => {
+      document.removeEventListener('visibilitychange', maybeReload);
+      window.removeEventListener('focus', maybeReload);
+    };
+  }, [isIn, refresh]);
 
   const create = useCallback(async (record) => {
     const created = await createSavedSearch(record);
     // Prepend rather than refetch: the list is newest-first and we already hold the new row, so a
     // round trip here would only re-fetch what we just sent.
-    if (created) setSearches((prev) => [created, ...prev]);
+    if (created) {
+      setSearches((prev) => [created, ...prev]);
+      setError(null);
+      setStatus('ready');
+    }
     return created;
   }, []);
 
-  /**
-   * Change one search's alert cadence. Optimistic, with rollback — same reasoning as the
-   * saved-property heart.
-   *
-   * `alerts` is recomputed here rather than left to the next refresh so the "n active" count above
-   * the list moves with the picker; it is derived from the cadence, never the other way round
-   * (D84 — a boolean round trip is what used to flatten `instant` into `daily`).
-   */
+  const reload = useCallback(async () => {
+    try {
+      return await refresh();
+    } catch (err) {
+      setError(err);
+      setStatus('error');
+      setLoading(false);
+      throw err;
+    }
+  }, [refresh]);
+
+  /* Recompute `alerts` locally so the active count moves with the cadence picker. */
   const setFrequency = useCallback(async (id, frequency) => {
     let previous;
     setSearches((prev) => prev.map((s) => {
@@ -100,8 +132,8 @@ export function SavedSearchProvider({ children }) {
   }, [searches]);
 
   const value = useMemo(
-    () => ({ searches, count: searches.length, loading, create, setFrequency, remove, refresh }),
-    [searches, loading, create, setFrequency, remove, refresh],
+    () => ({ searches, count: searches.length, loading, status, error, create, setFrequency, remove, reload, refresh: reload }),
+    [searches, loading, status, error, create, setFrequency, remove, reload],
   );
   return <SavedSearchContext.Provider value={value}>{children}</SavedSearchContext.Provider>;
 }
@@ -115,8 +147,11 @@ const EMPTY = {
   searches: [],
   count: 0,
   loading: false,
+  status: 'ready',
+  error: null,
   create: async () => null,
   setFrequency: async () => {},
   remove: async () => {},
+  reload: async () => [],
   refresh: async () => [],
 };

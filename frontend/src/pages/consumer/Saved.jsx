@@ -3,96 +3,64 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
+import { CARD_SIZES } from '../../lib/imgSrcSet.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { fmtINR } from '../../lib/format.js';
-import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
-import CategorySwitcher from './saved/CategorySwitcher.jsx';
 import { toSavedCard } from './flatmates/helpers.js';
 import * as flatmateService from '../../services/flatmateService.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { ActionSheet, AlertsRow, SkeletonRows, SwipeCard, UndoRow } from './saved/SavedPageParts.jsx';
 import '../../styles/routes/saved.css';
 
 const CATEGORIES = [
-  { key: 'buy', label: 'For Sale', labelKey: 'catBuyLabel', icon: 'home', desc: 'Properties you want to buy', descKey: 'catBuyDesc' },
-  { key: 'rent', label: 'For Rent', labelKey: 'catRentLabel', icon: 'key', desc: 'Rentals you shortlisted', descKey: 'catRentDesc' },
-  { key: 'flatmates', label: 'Flatmates & Rooms', labelKey: 'catFlatmatesLabel', icon: 'users-round', desc: 'Shared living saves', descKey: 'catFlatmatesDesc' },
+  { key: 'all', label: 'All', labelKey: 'catAllLabel', icon: 'heart' },
+  { key: 'buy', label: 'Buy', labelKey: 'catBuyLabel', icon: 'home' },
+  { key: 'rent', label: 'Rent', labelKey: 'catRentLabel', icon: 'key' },
+  { key: 'flatmates', label: 'Rooms', labelKey: 'catRoomsLabel', icon: 'users-round' },
 ];
 
 const SORTS = [['newest', 'Newest', 'sortNewest'], ['price-desc', 'Price: High to Low', 'sortPriceHigh'], ['price-asc', 'Price: Low to High', 'sortPriceLow']];
+const UNDO_WINDOW_MS = 8000;
 
 /* How long a swiped-away card stays undoable before the removal commits. */
-const UNDO_WINDOW_MS = 5000;
+const isUnavailable = (status) => status && !['active', 'approved', 'live'].includes(String(status).toLowerCase());
+/* The flatmate half of the shortlist. */
 
-const statusLabelFor = (status) => {
-  if (!status || status === 'active') return '';
-  return status.charAt(0).toUpperCase() + status.slice(1);
-};
-
-/* The flatmate half of the shortlist. Saves are server-side and keys only, so the card is joined on
-   read and is current by construction — which makes this a fetch rather than a synchronous read. */
 async function readFlatmateSaves() {
   const page = await flatmateService.listFlatmateSaves();
   return (page?.items || []).map(toSavedCard).filter(Boolean);
 }
-
-/* A component rather than an inline hook call because hooks can't run inside a `.map()`. `pan-y`
-   keeps the page's vertical scroll with the browser while the gesture claims the horizontal axis. */
-function SwipeCard({ onRemove, className, children }) {
-  const swipe = useSwipeDismiss(onRemove, { axis: 'x' });
-  return (
-    <div {...swipe} data-testid="saved-card" className={className} style={{ touchAction: 'pan-y' }}>
-      {children}
-    </div>
-  );
-}
-
-/* Focus moves onto Undo because the control that caused the removal unmounts with the card — focus
-   would otherwise fall to `<body>`, far from an escape hatch that expires in five seconds. */
-function UndoRow({ label, undoLabel, undoAria, onUndo }) {
-  const btn = useRef(null);
-  useEffect(() => { btn.current?.focus(); }, []);
-  return (
-    <div role="status" className="property-card rounded-2xl overflow-hidden flex items-center justify-between gap-3 p-4">
-      <span className="flex items-center gap-2 min-w-0 text-sm text-gray-300">
-        <Icon name="trash-2" className="w-4 h-4 flex-shrink-0 text-gray-500" />
-        <span className="truncate">{label}</span>
-      </span>
-      <button
-        ref={btn}
-        onClick={onUndo}
-        aria-label={undoAria}
-        className="shrink-0 min-h-[44px] px-4 rounded-xl border border-white/10 text-teal-300 text-sm font-semibold hover:border-teal-400/40 hover:bg-white/5 transition-colors"
-      >
-        {undoLabel}
-      </button>
-    </div>
-  );
-}
+/* Focus moves onto Undo because the control that caused the removal unmounts with the card — focus would otherwise
+   fall to `<body>`, far from an escape hatch that expires in five seconds. */
 
 export default function Saved() {
   const { t: tr } = useTranslation();
   const { toast } = useToast();
   const { isIn } = useAuth();
   const [mounted, setMounted] = useState(false);
-  const [tab, setTab] = useState('buy');
+  const [tab, setTab] = useState('all');
   const [sort, setSort] = useState('newest');
   const [removing, setRemoving] = useState(() => new Set());
-  /* Ids removed but not yet committed — they render as an undo row instead of a card. Every removal
-     path goes through here, or the people who cannot swipe get the destructive half only. */
-  const [pendingRemoval, setPendingRemoval] = useState(() => new Set());
+  /* Ids removed but not yet committed — they render as an undo row instead of a card. */
+  const [pendingRemoval, setPendingRemoval] = useState(() => new Map());
+  const [alerting, setAlerting] = useState(() => new Set());
+  const [actionCard, setActionCard] = useState(null);
   const undoTimers = useRef(new Map());
+  const pendingRef = useRef(new Map());
+  const commitRef = useRef(() => {});
 
   const savedList = useSaved();
-  const { create: createSavedSearch } = useSavedSearches();
+  const savedSearches = useSavedSearches();
+  /* The shared shortlist already holds the rows, so this is a pure reshape — hence useMemo, not an effect with its
+     own fetch, which would cost a request per card. */
 
-  /* The shared shortlist already holds the rows, so this is a pure reshape — hence useMemo, not an
-     effect with its own fetch, which would cost a request per card. */
   const dynamicSaved = useMemo(() => savedList.items.map((p) => {
     const isRent = p.deal === 'rent';
+    const locality = p.locality || 'Pune';
     return {
       id: p.id,
       // `remove()` below addresses `DELETE /me/saved/{propId}` with the row's primary key, not the
@@ -100,11 +68,11 @@ export default function Saved() {
       uuid: p.uuid,
       cat: isRent ? 'rent' : 'buy',
       title: p.title || p.type || 'Property',
-      loc: p.locality ? `${p.locality}, Pune` : 'Pune',
+      loc: locality,
       price: typeof p.price === 'number' ? (isRent ? `₹${p.price.toLocaleString('en-IN')}/mo` : fmtINR(p.price)) : (p.price || ''),
       priceNum: typeof p.price === 'number' ? p.price : 0,
       createdAt: p.createdAt || 0,
-      statusLabel: statusLabelFor(p.status),
+      unavailable: isUnavailable(p.status),
       deal: isRent ? 'rent' : 'buy',
       localitySlug: p.locality || '',
       bhkNum: p.bhkNum || null,
@@ -112,15 +80,13 @@ export default function Saved() {
       bhk: p.bhk || (p.bhkNum ? `${p.bhkNum} BHK` : ''),
       area: p.area ? `${p.area.toLocaleString('en-IN')} sq.ft.` : '',
       bath: p.bath ? `${p.bath} Bath` : '',
-      img: p.image || p.img || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80',
+      img: p.image || p.img || null,
       fromStore: true,
     };
   }), [savedList.items]);
 
+  /* Load the flatmate half once per identity. */
   const [cards, setCards] = useState([]);
-
-  /* Load the flatmate half once per identity. Failures leave the list empty and say so in the
-     console rather than blanking the property half, which is a different provider entirely. */
   const loadFlatmateSaves = useCallback(
     () => readFlatmateSaves()
       .then((rows) => { setCards(rows); return rows; })
@@ -129,9 +95,9 @@ export default function Saved() {
   );
   useEffect(() => { loadFlatmateSaves(); }, [loadFlatmateSaves, isIn]);
 
-  /* Re-reads both halves: refreshing only one would leave the gesture looking like it half worked
-     on a page that shows the two interleaved. */
-  const refreshShortlist = savedList.refresh;
+  /* Re-reads both halves: refreshing only one would leave the gesture looking like it half worked on a page that
+     shows the two interleaved. */
+  const refreshShortlist = savedList.reload || savedList.refresh;
   const ptr = usePullToRefresh(useCallback(
     () => Promise.resolve(refreshShortlist()).catch(() => {}).then(loadFlatmateSaves),
     [refreshShortlist, loadFlatmateSaves],
@@ -142,106 +108,159 @@ export default function Saved() {
     return () => clearTimeout(t);
   }, []);
 
-  const remove = (id) => {
-    setRemoving((s) => new Set(s).add(id));
-    setTimeout(() => {
-      const card = allCards.find((c) => c.id === id);
+        /* Drop it locally first so the card leaves with the animation, then tell the server. */
       // If it came from the property shortlist, unsave it there — `dynamicSaved` is derived from the
       // context, so the card disappears when that write lands rather than from a second local list.
-      if (card && card.fromStore) {
-        savedList.toggle(id, card.uuid);
-      } else if (card && card.cat === 'flatmates') {
-        /* Drop it locally first so the card leaves with the animation, then tell the server. A
-           refused unsave puts it back, or it reappears on the next visit with no explanation. */
-        setCards((arr) => arr.filter((c) => c.id !== id));
-        flatmateService.unsaveFlatmatePost(card.saveKind, String(card.id).slice(2))
-          .catch((e) => {
+  const commitRemoval = useCallback((card, { animate = true } = {}) => {
+    if (!card) return;
+    if (!animate) {
+      void (async () => {
+        let ok = true;
+        if (card.fromStore) ok = await savedList.unsave(card.id, card.uuid);
+        else if (card.cat === 'flatmates') {
+          try {
+            await flatmateService.unsaveFlatmatePost(card.saveKind, String(card.id).slice(2));
+          } catch (e) {
+            ok = false;
             console.warn('[saved] flatmate unsave failed', e);
-            setCards((arr) => (arr.some((c) => c.id === id) ? arr : [card, ...arr]));
-          });
+          }
+        }
+        if (!ok) toast(tr('saved.updateFailed'), 'error');
+      })();
+      return;
+    }
+    const finish = async () => {
+      let ok = true;
+      if (card.fromStore) ok = await savedList.unsave(card.id, card.uuid);
+      else if (card.cat === 'flatmates') {
+        setCards((arr) => arr.filter((c) => c.id !== card.id));
+        try {
+          await flatmateService.unsaveFlatmatePost(card.saveKind, String(card.id).slice(2));
+        } catch (e) {
+          ok = false;
+          console.warn('[saved] flatmate unsave failed', e);
+          setCards((arr) => (arr.some((c) => c.id === card.id) ? arr : [card, ...arr]));
+        }
       } else {
-        setCards((arr) => arr.filter((c) => c.id !== id));
+        setCards((arr) => arr.filter((c) => c.id !== card.id));
       }
+      if (!ok) toast(tr('saved.updateFailed'), 'error');
       setRemoving((s) => {
         const next = new Set(s);
-        next.delete(id);
+        next.delete(card.id);
         return next;
       });
-    }, 400);
-  };
+    };
+    setRemoving((s) => new Set(s).add(card.id));
+    setTimeout(finish, 400);
+  }, [savedList, toast, tr]);
 
-  /* Stage the card as undoable, then commit on a timer. Shared by the swipe and by
-     the per-card remove buttons. */
-  const stageRemove = (id) => {
-    if (pendingRemoval.has(id)) return;
-    setPendingRemoval((s) => new Set(s).add(id));
+  useEffect(() => { commitRef.current = commitRemoval; }, [commitRemoval]);
+
+  /* Stage the card as undoable, then commit on a timer. Shared by the swipe and by the per-card remove buttons. */
+  const stageRemove = useCallback((card) => {
+    if (!card || pendingRef.current.has(card.id)) return;
+    const next = new Map(pendingRef.current);
+    next.set(card.id, card);
+    pendingRef.current = next;
+    setPendingRemoval(next);
     const timer = setTimeout(() => {
-      undoTimers.current.delete(id);
-      setPendingRemoval((s) => { const next = new Set(s); next.delete(id); return next; });
-      remove(id);
+      undoTimers.current.delete(card.id);
+      const remaining = new Map(pendingRef.current);
+      remaining.delete(card.id);
+      pendingRef.current = remaining;
+      setPendingRemoval(remaining);
+      commitRemoval(card);
     }, UNDO_WINDOW_MS);
-    undoTimers.current.set(id, timer);
-  };
+    undoTimers.current.set(card.id, timer);
+  }, [commitRemoval]);
 
   const undoRemove = (id) => {
     clearTimeout(undoTimers.current.get(id));
     undoTimers.current.delete(id);
-    setPendingRemoval((s) => { const next = new Set(s); next.delete(id); return next; });
+    const next = new Map(pendingRef.current);
+    next.delete(id);
+    pendingRef.current = next;
+    setPendingRemoval(next);
   };
-
   // Never leave a commit timer running after the page unmounts — it would remove a
   // card the user can no longer see, let alone undo.
+
   useEffect(() => {
     const timers = undoTimers.current;
-    return () => { timers.forEach(clearTimeout); timers.clear(); };
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+      pendingRef.current.forEach((card) => commitRef.current(card, { animate: false }));
+      pendingRef.current = new Map();
+    };
   }, []);
 
   // Turn a saved property into an opt-in alert for similar listings (same intent,
   // locality and configuration, within a ±15% price band). Surfaces in Dashboard → Alerts.
-  const createAlert = (c) => {
-    const isRent = c.deal === 'rent';
-    const lo = c.priceNum ? Math.round(c.priceNum * 0.85) : undefined;
-    const hi = c.priceNum ? Math.round(c.priceNum * 1.15) : undefined;
-    const f = {
-      deal: isRent ? 'rent' : 'buy',
-      types: [],
-      bhk: c.bhkNum ? [String(c.bhkNum)] : [],
-      localities: c.localitySlug ? [c.localitySlug] : [],
-      budget: !isRent && lo ? [lo, hi] : undefined,
-      rent: isRent && lo ? [lo, hi] : undefined,
-    };
-    createSavedSearch({ ...buildAlertRecord(f), query: '' });
-    toast(tr('saved.alertToast'), 'success');
+  const createAlert = async (c) => {
+    if (alerting.has(c.id)) return;
+    setAlerting((s) => new Set(s).add(c.id));
+    try {
+      const isRent = c.deal === 'rent';
+      const lo = c.priceNum ? Math.round(c.priceNum * 0.85) : undefined;
+      const hi = c.priceNum ? Math.round(c.priceNum * 1.15) : undefined;
+      const f = {
+        deal: isRent ? 'rent' : 'buy',
+        types: [],
+        bhk: c.bhkNum ? [String(c.bhkNum)] : [],
+        localities: c.localitySlug ? [c.localitySlug] : [],
+        budget: !isRent && lo ? [lo, hi] : undefined,
+        rent: isRent && lo ? [lo, hi] : undefined,
+      };
+      await savedSearches.create({ ...buildAlertRecord(f), query: '' });
+      toast(tr('saved.alertToast'), 'success');
+      setActionCard(null);
+    } catch {
+      toast(tr('saved.alertFailed'), 'error');
+    } finally {
+      setAlerting((s) => {
+        const next = new Set(s);
+        next.delete(c.id);
+        return next;
+      });
+    }
   };
 
   const allCards = useMemo(() => {
     const existingIds = new Set(cards.map((c) => c.id));
-    const merged = [...cards, ...dynamicSaved.filter((d) => !existingIds.has(d.id))];
-    return merged;
+    return [...cards, ...dynamicSaved.filter((d) => !existingIds.has(d.id))];
   }, [cards, dynamicSaved]);
 
   const counts = useMemo(() => {
-    const m = {};
-    CATEGORIES.forEach((c) => { m[c.key] = 0; });
+    const m = { all: allCards.length, buy: 0, rent: 0, flatmates: 0 };
     allCards.forEach((c) => { m[c.cat] = (m[c.cat] || 0) + 1; });
     return m;
   }, [allCards]);
+  /* Shared by the pill strip, the bottom-sheet switcher and the per-category empty state, so the three can never
+     drift apart on a rename. */
 
-  const activeCat = CATEGORIES.find((c) => c.key === tab) || CATEGORIES[0];
-  /* Shared by the pill strip, the bottom-sheet switcher and the per-category empty
-     state, so the three can never drift apart on a rename. */
   const catLabel = useCallback((c) => (c ? tr('saved.' + c.labelKey, { defaultValue: c.label }) : ''), [tr]);
-  const catDesc = useCallback((c) => (c ? tr('saved.' + c.descKey, { defaultValue: c.desc }) : ''), [tr]);
-  const activeCatLabel = catLabel(activeCat);
-  const activeCatDesc = catDesc(activeCat);
   const items = useMemo(() => {
-    const filtered = allCards.filter((c) => c.cat === tab);
+    const filtered = tab === 'all' ? allCards : allCards.filter((c) => c.cat === tab);
     return [...filtered].sort((a, b) => {
       if (sort === 'newest') return (b.createdAt || 0) - (a.createdAt || 0);
       const diff = (a.priceNum || 0) - (b.priceNum || 0);
       return sort === 'price-asc' ? diff : -diff;
     });
   }, [allCards, tab, sort]);
+
+  const summaryParts = useMemo(() => {
+    const homes = counts.buy + counts.rent;
+    const rooms = counts.flatmates;
+    return [
+      homes ? tr('saved.homeCount', { count: homes }) : '',
+      rooms ? tr('saved.roomCount', { count: rooms }) : '',
+    ].filter(Boolean).join(' · ');
+  }, [counts.buy, counts.rent, counts.flatmates, tr]);
+
+  const isLoading = savedList.status === 'loading';
+  const isError = savedList.status === 'error';
 
   return (
     <div ref={ptr.ref} className="saved-page">
@@ -252,32 +271,23 @@ export default function Saved() {
           className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
           style={{ top: `calc(var(--dz-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
         >
-          <Icon
-            name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
-            className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
-            style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
-          />
+          <Icon name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'} className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')} style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }} />
         </div>
       )}
       <div className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className={'mb-6 sm:mb-10 fade-in' + (mounted ? ' visible' : '')}>
+          <div className={'mb-5 sm:mb-8 fade-in' + (mounted ? ' visible' : '')}>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-semibold mb-3">
               <Icon name="heart" className="w-3.5 h-3.5" /> {tr('saved.badge')}
             </span>
             <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">{tr('saved.title')}</h1>
-            {allCards.length > 0 && (
-              <p className="text-gray-400 text-sm">
-                {tr('saved.summaryPrefix')} <span className="text-teal-400 font-semibold">{allCards.length}</span>{' '}
-                {tr('saved.summaryCount', { count: allCards.length })}
-              </p>
-            )}
+            {summaryParts && <p className="text-gray-400 text-sm"><span className="text-teal-400 font-semibold">{summaryParts}</span></p>}
           </div>
+          {/* Signed-out shortlists are real — Reels, Compare and the map detail panel all write dzSavedProps while
+             logged out. */}
 
-          {/* Signed-out shortlists are real — Reels, Compare and the map detail panel all write
-              dzSavedProps while logged out. Show the device's list rather than a login wall. */}
           {!isIn && (
-            <div className={'mb-6 sm:mb-8 flex flex-col gap-3 rounded-2xl border border-teal-400/20 bg-teal-500/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between fade-in' + (mounted ? ' visible' : '')}>
+            <div className={'mb-5 flex flex-col gap-3 rounded-2xl border border-teal-400/20 bg-teal-500/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between fade-in' + (mounted ? ' visible' : '')}>
               <div className="flex items-start gap-3 min-w-0">
                 <Icon name="cloud-off" className="w-5 h-5 flex-shrink-0 text-teal-300 mt-0.5" />
                 <div className="min-w-0">
@@ -285,52 +295,50 @@ export default function Saved() {
                   <p className="text-[13px] text-gray-400">{tr('saved.guestBody')}</p>
                 </div>
               </div>
-              <Link
-                to="/signin?reason=saved&next=%2Fsaved"
-                className="btn-teal shrink-0 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl text-white text-sm font-semibold"
-              >
+              <Link to="/signin?reason=saved&next=%2Fsaved" className="btn-teal shrink-0 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl text-white text-sm font-semibold">
                 <Icon name="log-in" className="w-4 h-4" /> {tr('saved.guestCta')}
               </Link>
             </div>
           )}
 
-          {allCards.length > 0 ? (
+          {isLoading ? (
+            <SkeletonRows />
+          ) : isError ? (
+            <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-5 text-center">
+              <p className="text-sm font-semibold text-white">{tr('saved.loadError')}</p>
+              <button type="button" onClick={() => { void savedList.reload().catch(() => {}); }} className="mt-4 min-h-[44px] rounded-xl border border-white/10 px-5 text-sm font-semibold text-teal-200">
+                {tr('saved.retry')}
+              </button>
+            </div>
+          ) : allCards.length > 0 ? (
             <>
-              {/* Three pills across a 360px viewport truncate their own labels and leave no room for
-                  the descriptions, so phones get a bottom sheet instead. Tablet and desktop keep the strip. */}
-              <CategorySwitcher
-                categories={CATEGORIES}
-                activeKey={tab}
-                counts={counts}
-                onSelect={setTab}
-                labelFor={catLabel}
-                descFor={catDesc}
-              />
-              <div className={'saved-tabs hidden sm:flex sm:items-center sm:flex-wrap sm:justify-center sm:gap-2.5 sm:mb-10 fade-in' + (mounted ? ' visible' : '')}>
+              {/* Three pills across a 360px viewport truncate their own labels and leave no room for the
+                 descriptions, so phones get a bottom sheet instead. */}
+              <div className={'saved-tabs mb-4 flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.03] p-1 fade-in' + (mounted ? ' visible' : '')}>
                 {CATEGORIES.map((c) => (
                   <button
                     key={c.key}
                     onClick={() => setTab(c.key)}
                     aria-pressed={tab === c.key}
-                    className={'saved-tab seg text-sm font-semibold min-h-[44px] px-5 py-2.5 rounded-xl text-gray-300 flex items-center justify-start gap-2 flex-shrink-0 whitespace-nowrap min-w-0' + (tab === c.key ? ' active' : '')}
+                    className={'saved-tab seg min-h-[44px] flex-1 rounded-xl px-2 py-2 text-center text-xs font-semibold text-gray-300 sm:text-sm' + (tab === c.key ? ' active' : '')}
                   >
-                    <Icon name={c.icon} className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">{catLabel(c)}</span>
-                    <span className="tab-count px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0">{counts[c.key]}</span>
+                    <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                      <Icon name={c.icon} className="h-3.5 w-3.5 flex-shrink-0 max-[389px]:hidden" />
+                      <span>{catLabel(c)}</span>
+                      <span className="tab-count rounded-full px-1.5 py-0.5 text-[10px]">{counts[c.key]}</span>
+                    </span>
                   </button>
                 ))}
               </div>
 
+              <AlertsRow searches={savedSearches.searches} status={savedSearches.status} isIn={isIn} />
+
               {items.length > 0 && (
-                <div className={'flex items-center justify-end mb-6 fade-in' + (mounted ? ' visible' : '')}>
+                <div className={'flex items-center justify-end mb-4 sm:mb-6 fade-in' + (mounted ? ' visible' : '')}>
                   <label className="flex items-center gap-2 text-sm text-gray-400">
                     <Icon name="sliders-horizontal" className="w-4 h-4 text-teal-400" />
                     <span className="hidden sm:inline">{tr('saved.sortBy')}</span>
-                    <select
-                      value={sort}
-                      onChange={(e) => setSort(e.target.value)}
-                      className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-400/50"
-                    >
+                    <select value={sort} onChange={(e) => setSort(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-400/50">
                       {SORTS.map(([v, label, tk]) => <option key={v} value={v} className="bg-[#0f0d1a]">{tr('saved.' + tk, { defaultValue: label })}</option>)}
                     </select>
                   </label>
@@ -338,92 +346,73 @@ export default function Saved() {
               )}
 
               {items.length > 0 ? (
-                <>
-                  {/* The gesture is invisible until someone tries it, so say it once.
-                      Phone-only: there is no swipe on a desktop pointer. */}
-                  <p className="sm:hidden -mt-2 mb-3 flex items-center gap-1.5 text-[12px] text-gray-500">
-                    <Icon name="chevron-left" className="w-3.5 h-3.5" /> {tr('saved.swipeToRemove')}
-                  </p>
-                  <div key={tab} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+                  /* The gesture is invisible until someone tries it, so say it once. */
+                <div key={tab} className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-6 lg:grid-cols-3 lg:gap-8">
                   {items.map((c, i) => (pendingRemoval.has(c.id) ? (
-                    <UndoRow
-                      key={c.id}
-                      label={tr('saved.removedTitle', { title: c.title })}
-                      undoLabel={tr('saved.undo')}
-                      undoAria={tr('saved.undoAria', { title: c.title })}
-                      onUndo={() => undoRemove(c.id)}
-                    />
+                    <UndoRow key={c.id} label={tr('saved.removedTitle', { title: c.title })} undoLabel={tr('saved.undo')} undoAria={tr('saved.undoAria', { title: c.title })} onUndo={() => undoRemove(c.id)} />
                   ) : (
                     <SwipeCard
                       key={c.id}
-                      onRemove={() => stageRemove(c.id)}
-                      className={
-                        'property-card rounded-2xl overflow-hidden fade-in' +
-                        (mounted ? ' visible' : '') +
-                        (removing.has(c.id) ? ' removing' : '') +
-                        ` fade-in-delay-${(i % 3) + 1}`
-                      }
+                      card={c}
+                      onRemove={() => stageRemove(c)}
+                      onAction={setActionCard}
+                      className={'property-card rounded-2xl overflow-hidden fade-in' + (mounted ? ' visible' : '') + (removing.has(c.id) ? ' removing' : '') + ` fade-in-delay-${(i % 3) + 1}`}
                     >
-                      <Link to={`/property/${c.id}`} className="block">
-                        <div className="card-image relative h-44 sm:h-56">
-                          <PropertyImage src={c.img} alt={c.title} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                          <div className="absolute top-4 right-4 w-10 h-10 rounded-xl bg-black/30 backdrop-blur-md flex items-center justify-center"><Icon name="heart" weight="fill" className="w-5 h-5 text-red-400" /></div>
-                          <div className="absolute top-4 left-4"><span className="type-badge px-3 py-1.5 rounded-full text-xs font-semibold text-teal-300 backdrop-blur-md">{c.badge}</span></div>
-                          <div className="absolute bottom-4 left-4"><p className="text-2xl font-bold text-white">{c.price}</p></div>
-                        </div>
-                      </Link>
-                      <div className="p-5">
-                        <Link to={`/property/${c.id}`} className="block mb-3">
-                          <h3 className="text-lg font-bold text-white mb-1 hover:text-teal-400 transition-colors">{c.title}</h3>
-                          <div className="flex items-center gap-1.5 text-gray-400 text-sm"><Icon name="map-pin" className="w-3.5 h-3.5 text-teal-400" /> {c.loc}</div>
-                        </Link>
-                        {c.cat !== 'flatmates' && (
-                          <div className="flex items-center gap-2 mb-3 text-sm">
-                            <span className="font-semibold text-white">{c.price}</span>
-                            <span className="text-gray-600">·</span>
-                            <span className="inline-flex items-center gap-1 text-teal-400 text-xs font-medium"><span className="w-1.5 h-1.5 rounded-full bg-teal-400" />{c.statusLabel || tr('saved.available')}</span>
+                      <div className="flex min-h-[96px] items-center gap-3 p-2 md:block md:min-h-0 md:p-0">
+                        <Link to={c.cat === 'flatmates' ? '/flatmates' : `/property/${c.id}`} className="saved-row-link flex min-w-0 flex-1 items-center gap-3 md:block">
+                          <div className="card-image relative h-[88px] w-[88px] flex-shrink-0 rounded-xl md:h-56 md:w-full md:rounded-none">
+                            <PropertyImage src={c.img} sizes={`(max-width: 767px) 88px, ${CARD_SIZES}`} alt={c.title} className="w-full h-full object-cover" />
+                            <div className="hidden md:block absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                            <div className="hidden md:block absolute top-4 left-4"><span className="type-badge px-3 py-1.5 rounded-full text-xs font-semibold text-teal-300 backdrop-blur-md">{c.badge}</span></div>
+                            <div className="hidden md:block absolute bottom-4 left-4"><p className="text-2xl font-bold text-white">{c.price}</p></div>
                           </div>
-                        )}
-                        <div className="flex items-center gap-4 mb-4 pb-4 border-b border-white/5">
-                          {c.cat === 'flatmates' ? (
-                            <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Icon name={c.kind === 'group' ? 'users-round' : 'user'} className="w-3.5 h-3.5" /> {c.sub}</div>
-                          ) : (
+                          <div className="min-w-0 flex-1 md:p-5">
+                            <div className="flex items-start gap-2 md:block">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-base font-bold text-white md:text-lg">{c.price}</p>
+                                <h3 className="truncate text-sm font-semibold text-white md:mt-2 md:text-lg">{c.title}</h3>
+                                <p className="mt-0.5 truncate text-xs text-gray-400 md:text-sm">{c.cat === 'flatmates' ? c.sub : [c.bhk, c.loc].filter(Boolean).join(' · ')}</p>
+                              </div>
+                              {c.unavailable && <span className="shrink-0 rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold text-rose-200">{tr('saved.noLongerAvailable')}</span>}
+                            </div>
+                          </div>
+                        </Link>
+                        <div className="hidden md:mx-5 md:mb-5 md:flex md:items-center md:gap-3 md:border-t md:border-white/5 md:pt-4">
+                          {c.cat !== 'flatmates' ? (
                             <>
-                              <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Icon name="bed-double" className="w-3.5 h-3.5" /> {c.bhk}</div>
-                              <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Icon name="maximize" className="w-3.5 h-3.5" /> {c.area}</div>
-                              <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Icon name="bath" className="w-3.5 h-3.5" /> {c.bath}</div>
+                              <span className="text-xs text-gray-400">{[c.bhk, c.area, c.bath].filter(Boolean).join(' · ')}</span>
+                              <span className="ml-auto flex items-center gap-2">
+                                <button type="button" disabled={alerting.has(c.id)} onClick={() => { void createAlert(c); }} title={tr('saved.createAlertAria')} aria-label={tr('saved.createAlertAria')} className="w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-300 flex items-center justify-center transition-colors disabled:opacity-60">
+                                  <Icon name={alerting.has(c.id) ? 'loader-2' : 'bell-plus'} className={'w-4 h-4' + (alerting.has(c.id) ? ' animate-spin' : '')} />
+                                </button>
+                                <button type="button" onClick={() => stageRemove(c)} title={tr('saved.removeFromSaved')} aria-label={tr('saved.removeFromSaved')} className="remove-btn w-11 h-11 shrink-0 rounded-xl border border-white/10 text-red-300 flex items-center justify-center">
+                                  <Icon name="heart" weight="fill" className="w-4 h-4" />
+                                </button>
+                              </span>
                             </>
+                          ) : (
+                            <button type="button" onClick={() => stageRemove(c)} className="remove-btn w-full min-h-[44px] py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium flex items-center justify-center gap-2">
+                              <Icon name="trash-2" className="w-4 h-4" /> {tr('saved.removeBtn')}
+                            </button>
                           )}
                         </div>
-                        {c.cat !== 'flatmates' ? (
-                          <div className="flex items-center gap-2">
-                            <Link
-                              to={`/contact?ref=${encodeURIComponent(c.id)}&subject=${encodeURIComponent(c.cat === 'rent' ? 'Renting this property' : 'Buying this property')}`}
-                              className="btn-teal flex-1 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"
-                            >
-                              <Icon name="mail" className="w-4 h-4" /> {tr('saved.contact')}
-                            </Link>
-                            <button onClick={() => createAlert(c)} title={tr('saved.createAlertAria')} aria-label={tr('saved.createAlertAria')} className="w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-300 hover:text-teal-300 hover:border-teal-400/40 flex items-center justify-center transition-colors">
-                              <Icon name="bell-plus" className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => stageRemove(c.id)} title={tr('saved.removeFromSaved')} aria-label={tr('saved.removeFromSaved')} className="remove-btn w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-400 flex items-center justify-center">
-                              <Icon name="trash-2" className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={() => stageRemove(c.id)} className="remove-btn w-full min-h-[44px] py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium flex items-center justify-center gap-2"><Icon name="trash-2" className="w-4 h-4" /> {tr('saved.removeBtn')}</button>
-                        )}
+                        <div className="flex flex-col gap-2 md:hidden">
+                          <button type="button" onClick={() => setActionCard(c)} aria-label={tr('saved.moreActions')} className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl border border-white/10 text-xl leading-none text-gray-300">
+                            ⋯
+                          </button>
+                          <button type="button" onClick={() => stageRemove(c)} title={tr('saved.removeFromSaved')} aria-label={tr('saved.removeFromSaved')} className="remove-btn grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl border border-white/10 text-red-300">
+                            <Icon name="heart" weight="fill" className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </SwipeCard>
                   )))}
-                  </div>
-                </>
+                </div>
               ) : (
                 <div className="text-center py-20">
-                  <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5"><Icon name={activeCat.icon} className="w-9 h-9 text-gray-600" /></div>
-                  <h2 className="text-xl font-bold text-white mb-2">{tr('saved.emptyCatTitle', { cat: activeCatLabel.toLowerCase() })}</h2>
-                  <p className="text-gray-500 mb-7 max-w-md mx-auto">{tr('saved.emptyCatBody', { desc: activeCatDesc.toLowerCase() })}</p>
+                  <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5"><Icon name="heart" className="w-9 h-9 text-gray-600" /></div>
+                  <h2 className="text-xl font-bold text-white mb-2">{tr('saved.emptyCatTitle', { cat: catLabel(CATEGORIES.find((c) => c.key === tab)).toLowerCase() })}</h2>
+                  <p className="text-gray-500 mb-7 max-w-md mx-auto">{tr('saved.emptyCatBody')}</p>
                   <Link to="/listings" className="btn-teal inline-flex items-center gap-2 px-7 py-3 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20"><Icon name="search" className="w-4 h-4" /> {tr('saved.browseProperties')}</Link>
                 </div>
               )}
@@ -438,6 +427,16 @@ export default function Saved() {
           )}
         </div>
       </div>
+      <ActionSheet
+        card={actionCard}
+        onClose={() => setActionCard(null)}
+        onAlert={(card) => { void createAlert(card); }}
+        onRemove={(card) => { setActionCard(null); stageRemove(card); }}
+        alerting={actionCard ? alerting.has(actionCard.id) : false}
+        createAlertLabel={tr('saved.createAlertAria')}
+        removeLabel={tr('saved.removeBtn')}
+        closeLabel={tr('saved.closeActions', { defaultValue: 'Close saved actions' })}
+      />
     </div>
   );
 }

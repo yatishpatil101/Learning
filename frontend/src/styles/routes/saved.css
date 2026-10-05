@@ -1,14 +1,10 @@
-/* Saved / shortlist page (Tier 1 - route CSS, imported from pages/consumer/Saved.jsx). Moved from index.css. All rules are .saved-page-scoped. */
 .saved-page .property-card {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Gated for the same reason as the global `.property-card:hover` in index.css: touch fakes a
-   hover on first tap and holds it, so an ungated lift leaves a tapped card raised. These are
-   `.saved-page`-scoped, so they outrank the gated global rule and would defeat it here. */
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .saved-page .property-card:hover {
     transform: translateY(-6px);
     border-color: rgba(20, 184, 166, 0.2);
@@ -17,6 +13,12 @@
 
   .saved-page .property-card:hover .card-image img {
     transform: scale(1.08);
+  }
+
+  .saved-page .remove-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.3);
   }
 }
 
@@ -38,10 +40,12 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.saved-page .remove-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.3);
+.saved-page .remove-btn:active {
+  transform: scale(0.97);
+}
+
+.saved-page .saved-row-link {
+  -webkit-touch-callout: none;
 }
 
 .saved-page .fade-in-delay-1 {

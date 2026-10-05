@@ -2,11 +2,8 @@
 /* LIVE: signed-in recent searches, a server table because a browser cannot keep the per-account
    promise. Anonymous history stays device-local, so the last test asserts the absence of any call. */
 import { test, expect } from '@playwright/test';
-import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
+import { trackErrors } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
-
-/** See the long note in `property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
-const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 const RAIL = `${API}/me/recent-searches`;
 const RAIL_PATH = '/api/me/recent-searches';
@@ -45,17 +42,15 @@ test.describe('LIVE: recent searches against the real API', () => {
   let apiFails;
 
   test.beforeEach(async ({ page }) => {
-    errors = [];
+    errors = trackErrors(page);
     apiFails = [];
     page.on('response', (r) => {
       if (r.url().includes('/api/') && r.status() >= 400) apiFails.push(`${r.status()} ${new URL(r.url()).pathname}`);
     });
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e)));
   });
 
   test.afterEach(() => {
-    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+    expect(errors, `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
   test('a search from Home is written to the account and read back by a second browser', async ({ page, browser }) => {

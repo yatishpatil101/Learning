@@ -9,8 +9,8 @@ package com.draazy.api.engagement.search;
  *   <li>OpenAPI: {@code SavedSearch.channel} / {@code SavedSearchCreate.channel}</li>
  * </ul>
  *
- * <p>WhatsApp is the schema default, which is the right default for Pune: it is the channel
- * property seekers actually read.
+ * <p>Saved-search alerts are currently delivered in-app only. Legacy clients may still send the
+ * older channel names; the service stores and responds with {@link #PUSH}.
  *
  * <p><strong>{@code sms} was missing from both halves until V27.</strong> The contract has listed it
  * since the beginning, but the old V8's CHECK constraint and this pattern both omitted it — so an SMS alert
@@ -23,16 +23,16 @@ public final class AlertChannels {
     private AlertChannels() {
     }
 
-    /** WhatsApp message. The schema default. */
+    /** Legacy WhatsApp value accepted from old clients. */
     public static final String WHATSAPP = "whatsapp";
 
-    /** SMS. The fallback for a number with no WhatsApp account. */
+    /** Legacy SMS value accepted from old clients. */
     public static final String SMS = "sms";
 
-    /** Email. */
+    /** Legacy email value accepted from old clients. */
     public static final String EMAIL = "email";
 
-    /** In-app / device push notification. */
+    /** In-app notification. */
     public static final String PUSH = "push";
 
     /** Validation pattern for request input. */

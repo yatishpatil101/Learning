@@ -47,7 +47,7 @@ class SavedSearchUpdateTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("frequency and channel can both be changed")
+    @DisplayName("frequency changes keep saved-search delivery in-app")
     void preferencesAreUpdatable() throws Exception {
         User u = seeker("9820000001");
         String id = createSearch(u);
@@ -58,7 +58,7 @@ class SavedSearchUpdateTest extends AbstractApiTest {
                         .content("{\"alertFrequency\":\"weekly\",\"channel\":\"email\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.alertFrequency").value("weekly"))
-                .andExpect(jsonPath("$.channel").value("email"));
+                .andExpect(jsonPath("$.channel").value("push"));
     }
 
     /**
@@ -78,8 +78,7 @@ class SavedSearchUpdateTest extends AbstractApiTest {
                         .content("{\"alertFrequency\":\"off\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.alertFrequency").value("off"))
-                // Omitted fields are left alone rather than reset to their defaults.
-                .andExpect(jsonPath("$.channel").value("whatsapp"));
+                .andExpect(jsonPath("$.channel").value("push"));
     }
 
     @Test

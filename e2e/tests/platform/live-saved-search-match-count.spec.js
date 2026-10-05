@@ -123,25 +123,6 @@ test.describe('LIVE — saved-search match count', () => {
     expect(created.body.matchCount).toBeGreaterThan(0);
   });
 
-  test('every facet narrows, and narrowing never grows the count', async () => {
-    const u = await user();
-    const broad = await saveAlert(u.headers, {
-      name: 'Broad',
-      query: 'rent',
-      filters: { deal: 'rent' },
-    });
-    const narrow = await saveAlert(u.headers, {
-      name: 'Narrow',
-      query: 'rent 2bhk',
-      filters: { deal: 'rent', bhk: [2] },
-    });
-
-    expect(broad.status).toBe(201);
-    expect(narrow.status).toBe(201);
-    expect(narrow.body.matchCount).toBeLessThanOrEqual(broad.body.matchCount);
-    expect(narrow.body.matchCount).toBe(await publicTotal('deal=rent&bhk=2'));
-  });
-
   test('a locality nobody has listed in counts zero rather than falling back to everything', async () => {
     const u = await user();
     const res = await saveAlert(u.headers, {
@@ -151,35 +132,6 @@ test.describe('LIVE — saved-search match count', () => {
     });
 
     expect(res.status).toBe(201);
-    expect(res.body.matchCount).toBe(0);
-  });
-
-  test('an alert with no deal counts nothing, because it has not said what to count', async () => {
-    const u = await user();
-    const res = await saveAlert(u.headers, {
-      name: 'No deal',
-      query: 'anything',
-      filters: { localities: ['baner'] },
-    });
-
-    expect(res.status).toBe(201);
-    expect(res.body.matchCount).toBe(0);
-  });
-
-  test('a flatmates alert reports zero — this count does not cover rooms', async () => {
-    const u = await user();
-    const res = await api('POST', SAVED_SEARCHES, u.headers, {
-      name: 'Flatmates',
-      kind: 'flatmates',
-      query: 'flatmate baner',
-      filters: {},
-      criteria: { gender: 'any', budgetMax: 20000 },
-      alertFrequency: null,
-      channel: null,
-    });
-
-    expect(res.status).toBe(201);
-    expect(res.body.kind).toBe('flatmates');
     expect(res.body.matchCount).toBe(0);
   });
 

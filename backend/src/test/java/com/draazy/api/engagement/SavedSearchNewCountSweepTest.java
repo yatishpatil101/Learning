@@ -14,7 +14,6 @@ import com.draazy.api.support.AbstractApiTest;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,7 +77,7 @@ class SavedSearchNewCountSweepTest extends AbstractApiTest {
         matching.setLocalitySlug(seededLocalitySlug);
         matching.setBhk(new BigDecimal("99"));
         matching.setStatus("approved");
-        matching = properties.saveAndFlush(matching);
+        properties.saveAndFlush(matching);
 
         Property wrongDeal = new Property(owner, "99BHK D7 Buy", "buy", "apartment", 9000000L,
                 "D7 Test Locality", "Pune");
@@ -101,8 +100,5 @@ class SavedSearchNewCountSweepTest extends AbstractApiTest {
         SavedSearch second = searches.findById(search.getId()).orElseThrow();
         assertThat(second.getNewCount()).isZero();
         assertThat(updatedAgain).isGreaterThanOrEqualTo(1);
-
-        // Keep variable used so static analysis doesn't collapse setup intent.
-        assertThat(matching.getId()).isInstanceOf(UUID.class);
     }
 }

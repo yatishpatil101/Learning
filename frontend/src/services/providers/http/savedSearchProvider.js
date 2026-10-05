@@ -1,23 +1,9 @@
-/**
- * HTTP saved-search provider.
- *
- * The mapping lives here rather than in a separate `savedSearchMapper.js` because it is one pair of
- * functions over one shape; the property slice has a mapper module because it maps four different
- * payloads. A file per translation is not the rule, a testable translation is.
- */
+/** The mapping lives here rather than in a separate `savedSearchMapper.js` because it is one pair of functions over
+ * one shape; the property slice has a mapper module because it maps four different payloads. */
 import { del, get, patch, post } from '../../http.js';
 
-/**
- * Server row → the flat record the UI is written against.
- *
- * `filters` is spread onto the top level because every consumer reads facets directly — `rec.deal`,
- * `rec.bhk`, `rec.localities` in `criteriaChips`, `countMatches` and the alert cards. Leaving them
- * nested would mean each of those silently seeing `undefined` and rendering an alert with no
- * criteria: no error, just an empty chip row that looks like the user saved nothing.
- *
- * The spread is first so a server-level field can never be shadowed by a same-named key that ended
- * up inside the free-form `filters` blob.
- */
+/** `filters` is spread onto the top level because every consumer reads facets directly — `rec.deal`, `rec.bhk`,
+ * `rec.localities` in `criteriaChips`, `countMatches` and the alert cards. */
 function toViewModel(row) {
   const filters = row?.filters && typeof row.filters === 'object' ? row.filters : {};
   return {
@@ -27,39 +13,23 @@ function toViewModel(row) {
     name: row.name ?? undefined,
     query: row.query ?? '',
     criteria: row.criteria ?? undefined,
-    // `label` is in TOP_LEVEL, so it is never written into the filters blob — there is no route by
-    // which `filters.label` could be populated by this client, and a fallback to it read as if
-    // there were one. The fallback to `name` is a different matter and is required: `toCreateRequest`
-    // below sends the human summary as `name` precisely because `SavedSearchCreate` has no `label`
-    // field, and for a listings alert the server leaves the stored `label` null. Reading only
-    // `row.label` therefore drops, on the way back, the one value the write path took care to send —
-    // so every alert the UI creates returns label-less and the retention strip titles them all
-    // "your saved search". Check both sides of a seam together; a same-named field is evidence of
-    // nothing.
+    /** `label` is in TOP_LEVEL, so it is never written into the filters blob — there is no route by which
+     * `filters.label` could be populated by this client, and a fallback to it read as if there were one. */
     label: row.label || row.name || '',
     mobile: row.mobile ?? undefined,
     alertFrequency: row.alertFrequency || 'daily',
     // Derived so the existing Switch and the `s.alerts !== false` guards keep working unchanged.
     alerts: (row.alertFrequency || 'daily') !== 'off',
     channel: row.channel || 'whatsapp',
-    newCount: row.newCount ?? 0,
-    // How many listings match this alert right now, counted by the server over the whole
-    // catalogue (D227). The browser used to count this itself out of `listProperties({})`, which
-    // returns one page — right only while the catalogue was smaller than a page. `?? 0` rather
-    // than `undefined` so `matchCount > 0` behaves the same against an older server.
+    newCount: row.newCount ?? undefined,
+    /** `?? 0` rather than `undefined` so `matchCount > 0` behaves the same against an older server. */
     matchCount: row.matchCount ?? 0,
     at: row.createdAt ? Date.parse(row.createdAt) : Date.now(),
   };
 }
 
-/**
- * Flat record → `SavedSearchCreate`.
- *
- * Everything that is not a named contract field is a facet, so the filters blob is assembled by
- * exclusion rather than by listing facets explicitly. Listing them would mean this function has to
- * be edited every time a new filter is added to search — and the failure mode of forgetting is a
- * facet that is silently dropped from the alert, which then quietly matches too much.
- */
+/** Everything that is not a named contract field is a facet, so the filters blob is assembled by exclusion rather
+ * than by listing facets explicitly. */
 const TOP_LEVEL = new Set([
   'id', 'kind', 'name', 'query', 'criteria', 'label', 'mobile',
   'alertFrequency', 'alerts', 'channel', 'newCount', 'matchCount', 'at',
@@ -73,25 +43,14 @@ function toCreateRequest(record = {}) {
   const kind = record.kind || 'listings';
   return {
     kind,
-    // The wire calls the human summary `name`; the cards call it `label`. `SavedSearchCreate` has
-    // no `label` field at all, and the server derives the stored label from `name` or leaves it
-    // null — "the user-given name wins; otherwise there is nothing to invent". Since `label` is
-    // also excluded from the filters blob by TOP_LEVEL, sending only `record.name` meant every
-    // alert built by a card (which sets `label` and never `name`) was stored label-less: the
-    // dashboard titled them all "Saved search" and the match notification said "your saved
-    // search" instead of naming the criteria.
+    /** Since `label` is also excluded from the filters blob by TOP_LEVEL, sending only `record.name` meant every
+     * alert built by a card (which sets `label` and never `name`) was stored label-less. */
     name: record.name || record.label,
-    // The server requires a query for a listings alert and forbids relying on it for flatmates.
-    // Several call sites save a filter-only alert with `query: ''`, so fall back to the label —
-    // it is the human summary of exactly those filters, which is what the user would have typed.
+    /** Several call sites save a filter-only alert with `query: ''`, so fall back to the label — it is the human
+     * summary of exactly those filters, which is what the user would have typed. */
     query: kind === 'flatmates' ? undefined : (record.query || record.label || ''),
     filters,
-    // A flatmates alert is refused (422 `criteriaSuppliedForFlatmates`) without `criteria`, and no
-    // caller supplies one: `buildFlatmateAlertRecord` returns the facets flat, so the loop above
-    // sweeps every one of them into `filters` and leaves `criteria` undefined. The facets *are* the
-    // criteria for this kind — sending them under both names is what the server asks for and what
-    // the tab, locality, budget, gender and habits mean. Without this, every "Get alerted" and
-    // "Save search" on the flatmates board fails, which is how it shipped.
+    /* Flatmate alerts need criteria; callers provide flat facets, so this lifts them. */
     criteria: record.criteria ?? (kind === 'flatmates' ? filters : undefined),
     alertFrequency: record.alertFrequency || (record.alerts === false ? 'off' : 'daily'),
     channel: record.channel || 'whatsapp',
@@ -106,14 +65,7 @@ export async function listSavedSearches() {
 }
 
 export async function createSavedSearch(record = {}) {
-  // The signed-out lead path (NotifyMeCard, FlatmateAlertCard) passes a `mobile` so the alert can
-  // be claimed after sign-in. The server has no home for that: `POST /me/saved-searches` is
-  // caller-scoped and `SavedSearchCreate` carries no mobile, so the call would 401 for exactly the
-  // visitor it exists to capture.
-  //
-  // Failing loudly is the same convention `propertyProvider` uses for unshipped admin moderation:
-  // the alternative is writing to localStorage while every read comes from the server, which
-  // produces an alert the user was told they created and can never see again (D85).
+  /** Saved-search creation is caller-scoped; anonymous lead capture needs its own endpoint. */
   if (record.mobile) {
     throw new Error(
       '[savedSearch] Anonymous lead capture is not supported by the API: POST /me/saved-searches is '

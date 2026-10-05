@@ -45,11 +45,20 @@ class SavedSearchCapTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the eleventh saved search is a 409, and the cap is per-user not global")
+    @DisplayName("the eleventh saved search is a 409, per-user not global, and deleting one frees a slot")
     void eleventhIsRejected() throws Exception {
         User u = seeker("9820001001");
+        String firstId = null;
         for (int n = 1; n <= MAX; n++) {
-            createSearch(u, n);
+            String body = mvc.perform(post("/me/saved-searches")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(u))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"search " + n + "\",\"query\":\"q" + n + "\"}"))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            if (n == 1) {
+                firstId = body.replaceAll("(?s).*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+            }
         }
 
         mvc.perform(post("/me/saved-searches")
@@ -64,25 +73,8 @@ class SavedSearchCapTest extends AbstractApiTest {
         mvc.perform(get("/me/saved-searches").header(HttpHeaders.AUTHORIZATION, bearer(other)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
-    }
 
-    @Test
-    @DisplayName("deleting one frees a slot, so the cap is a ceiling not a lifetime quota")
-    void deletingFreesASlot() throws Exception {
-        User u = seeker("9820001003");
-        String firstId = null;
-        for (int n = 1; n <= MAX; n++) {
-            String body = mvc.perform(post("/me/saved-searches")
-                            .header(HttpHeaders.AUTHORIZATION, bearer(u))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"name\":\"search " + n + "\",\"query\":\"q" + n + "\"}"))
-                    .andExpect(status().isCreated())
-                    .andReturn().getResponse().getContentAsString();
-            if (n == 1) {
-                firstId = body.replaceAll("(?s).*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
-            }
-        }
-
+        // The cap is a ceiling, not a lifetime quota.
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .delete("/me/saved-searches/" + firstId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u)))

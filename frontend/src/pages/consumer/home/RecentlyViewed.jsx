@@ -43,7 +43,7 @@ export default function RecentlyViewed() {
           {items.map((p) => (
             <Link key={p.id} to={`/property/${p.id}`} className="property-card glass rounded-2xl overflow-hidden group flex flex-col">
               <div className="relative overflow-hidden" style={{ aspectRatio: '16/10' }}>
-                <PropertyImage src={p.image || p.img} alt={p.title} width={400} height={250} className="w-full h-full object-cover" loading="lazy" />
+                <PropertyImage src={p.image || p.img} sizes="(max-width: 1023px) 50vw, 300px" alt={p.title} width={400} height={250} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <span className="absolute bottom-2 left-2.5 text-sm font-extrabold text-white tabular-nums" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>{priceLabel(p)}</span>
               </div>

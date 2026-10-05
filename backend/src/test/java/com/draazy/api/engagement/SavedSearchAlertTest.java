@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.engagement.search.SavedSearch;
+import com.draazy.api.engagement.search.SavedSearchCreateRequest;
 import com.draazy.api.engagement.search.SavedSearchRepository;
+import com.draazy.api.engagement.search.SavedSearchResponse;
 import com.draazy.api.engagement.search.SavedSearchService;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -15,8 +17,12 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
@@ -32,7 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  * <p><strong>Why the cadence is tested and not just the send.</strong> Sending on every sweep
  * would be the easy half and would break the promise in the other direction: "Daily" delivered
  * every thirty minutes is not a partial implementation of the user's choice, it is the opposite of
- * it under the same label. {@link #dailyDoesNotFireTwiceInADay} is the assertion that matters most
+ * it under the same label. {@link #dailyCadenceIsMeasuredFromTheLastAlert} is the assertion that matters most
  * here, because it is the one that fails if someone later "simplifies" the due check away.
  *
  * <p>Notifications are counted through {@code jdbc} rather than the repository so the assertion is
@@ -152,55 +158,35 @@ class SavedSearchAlertTest extends AbstractApiTest {
      * The regression this whole column exists to prevent. The sweep runs every thirty minutes; a
      * daily alert must survive forty-eight of those without sending twice.
      */
-    @Test
-    @DisplayName("daily does not fire twice in a day, even as more homes arrive")
-    void dailyDoesNotFireTwiceInADay() {
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "twenty minutes later it does not fire twice in a day | 20 | 1",
+            "a day later the cadence has elapsed so it fires again | 1500 | 2"
+    })
+    @DisplayName("daily is measured from the last alert, even as more homes arrive")
+    void dailyCadenceIsMeasuredFromTheLastAlert(String label, long minutesLater, int expectedAlerts) {
         User user = owner("9820940003");
         locality();
         SavedSearch search = alertFor(user, "daily");
-        listing(user, "D94 morning match");
+        listing(user, "D94 first match");
         em.flush();
         em.clear();
 
         savedSearches.recomputeNewCounts(Instant.now());
         assertThat(alertsFor(user)).isEqualTo(1);
 
-        // A second wave, and a second sweep, twenty minutes later.
+        // A second wave, and a second sweep.
         jdbc.update("update saved_searches set updated_at = ? where id = ?",
                 Timestamp.from(Instant.now().minusSeconds(60)), search.getId());
-        listing(user, "D94 afternoon match");
+        listing(user, "D94 second match");
         em.flush();
         em.clear();
 
-        savedSearches.recomputeNewCounts(Instant.now().plus(20, ChronoUnit.MINUTES));
+        savedSearches.recomputeNewCounts(Instant.now().plus(minutesLater, ChronoUnit.MINUTES));
 
         assertThat(alertsFor(user))
                 .as("daily must not become half-hourly just because inventory moved")
-                .isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("the cadence is measured from the last alert, so a day later it fires again")
-    void afterTheCadenceElapsesItFiresAgain() {
-        User user = owner("9820940004");
-        locality();
-        SavedSearch search = alertFor(user, "daily");
-        listing(user, "D94 day one");
-        em.flush();
-        em.clear();
-
-        savedSearches.recomputeNewCounts(Instant.now());
-        assertThat(alertsFor(user)).isEqualTo(1);
-
-        jdbc.update("update saved_searches set updated_at = ? where id = ?",
-                Timestamp.from(Instant.now().minusSeconds(60)), search.getId());
-        listing(user, "D94 day two");
-        em.flush();
-        em.clear();
-
-        savedSearches.recomputeNewCounts(Instant.now().plus(25, ChronoUnit.HOURS));
-
-        assertThat(alertsFor(user)).isEqualTo(2);
+                .isEqualTo(expectedAlerts);
     }
 
     /**
@@ -226,5 +212,34 @@ class SavedSearchAlertTest extends AbstractApiTest {
         assertThat(alertsFor(user))
                 .as("the count falling from 1 to 0 is not an event")
                 .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("flatmate newCount excludes profiles older than the alert baseline")
+    void flatmateSweepCountsOnlyNewRows() {
+        User user = owner("9820940006");
+        SavedSearchResponse created = savedSearches.create(user.getId(),
+                new SavedSearchCreateRequest("Old flatmate alert", "flatmates", null, null,
+                        Map.of("tab", "team-up", "locality", "D94 Flatmate Town",
+                                "budgetMin", 10000, "budget", 20000,
+                                "gender", "female", "habits", List.of("Vegetarian")),
+                        null, null));
+        Instant baseline = Instant.now().minusSeconds(60);
+        jdbc.update("update saved_searches set updated_at = ? where id = ?::uuid",
+                Timestamp.from(baseline), created.id());
+        jdbc.update("""
+                insert into flatmate_seeker_posts
+                    (user_id, name, gender, budget, localities, tags, mod_status, created_at)
+                values (?, 'Old Seeker', 'female', 18000, '[\"D94 Flatmate Town\"]'::jsonb,
+                    '[\"Vegetarian\"]'::jsonb, 'approved', ?)
+                """, user.getId(), Timestamp.from(baseline.minusSeconds(86_400)));
+        em.flush();
+        em.clear();
+
+        savedSearches.recomputeNewCounts(Instant.now());
+
+        SavedSearch after = searches.findById(java.util.UUID.fromString(created.id())).orElseThrow();
+        assertThat(after.getNewCount()).isZero();
+        assertThat(alertsFor(user)).isZero();
     }
 }

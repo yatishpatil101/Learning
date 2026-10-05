@@ -3,17 +3,19 @@ package com.draazy.api.engagement.search;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
-import com.draazy.api.catalog.property.PropertyRepository;
-import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.trust.Notifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,10 +34,9 @@ import tools.jackson.databind.ObjectMapper;
  * <p><strong>D227 — {@code matchCount} is computed on the read, reversing half of that
  * refusal.</strong> D8.8 declined to run any search on a list read, calling it "an N+1 of
  * full-text searches on a user-facing read endpoint". Two of those three objections turned out not
- * to apply. It is not full-text: {@link PropertyRepository#countVisibleWithFilters} is an indexed
- * {@code count(*)} over three equality facets, returning one number and no rows. It is not
- * unbounded: {@link #MAX_SAVED_SEARCHES} caps the fan-out at ten, and the endpoint is one user
- * reading their own short list. What remains true is that it is an N+1, and it is accepted, because
+ * to apply. It returns one number and no rows. It is not unbounded:
+ * {@link #MAX_SAVED_SEARCHES} caps the fan-out at ten, and the endpoint is one user reading their
+ * own short list. What remains true is that it is an N+1, and it is accepted, because
  * the alternative shipped the defect this fixes — the count was being computed in the browser over
  * one page of the catalogue ({@code size=100}), so it was right only while the catalogue was
  * smaller than a page and silently wrong forever after, with nothing failing.
@@ -47,11 +48,12 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class SavedSearchService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(SavedSearchService.class);
     private static final int SWEEP_BATCH_SIZE = 200;
 
     private final SavedSearchRepository repo;
-    private final PropertyRepository properties;
     private final SavedSearchMapper mapper;
+    private final SavedSearchMatchCounter counter;
     private final ObjectMapper objectMapper;
 
     /**
@@ -63,11 +65,11 @@ public class SavedSearchService {
      */
     private final Notifier notifier;
 
-    public SavedSearchService(SavedSearchRepository repo, PropertyRepository properties,
-            SavedSearchMapper mapper, ObjectMapper objectMapper, Notifier notifier) {
+    public SavedSearchService(SavedSearchRepository repo, SavedSearchMapper mapper,
+            SavedSearchMatchCounter counter, ObjectMapper objectMapper, Notifier notifier) {
         this.repo = repo;
-        this.properties = properties;
         this.mapper = mapper;
+        this.counter = counter;
         this.objectMapper = objectMapper;
         this.notifier = notifier;
     }
@@ -114,10 +116,6 @@ public class SavedSearchService {
     /** Create a new saved search. Returns 201 with the created resource. */
     @Transactional
     public SavedSearchResponse create(UUID userId, SavedSearchCreateRequest request) {
-        if (repo.countByUserId(userId) >= MAX_SAVED_SEARCHES) {
-            throw new ConflictException("You can keep at most " + MAX_SAVED_SEARCHES
-                    + " saved searches. Delete one to add another.");
-        }
         String kind = request.kind() == null || request.kind().isBlank()
                 ? "listings" : request.kind().strip();
         if (!"listings".equals(kind) && !"flatmates".equals(kind)) {
@@ -125,22 +123,34 @@ public class SavedSearchService {
                     "Unknown alert kind: '" + kind + "'. Expected listings or flatmates.");
         }
 
-        // Which payload each kind requires is asserted on the request record, so a missing one is
-        // the contract's 422 with the field named rather than a 400 from here.
+        String filters = request.filters() == null ? "{}" : serializeFilters(request.filters());
+        String criteria = request.criteria() == null ? null : serializeFilters(request.criteria());
+        String newKey = duplicateKey(kind, "flatmates".equals(kind) ? criteria : filters,
+                "flatmates".equals(kind) ? null : request.query());
+        for (SavedSearch existing : repo.findByUserIdOrderByCreatedAtDesc(userId)) {
+            String existingJson = "flatmates".equals(kind) ? existing.getCriteria() : existing.getFilters();
+            if (kind.equals(existing.getKind())
+                    && newKey.equals(duplicateKey(kind, existingJson, existing.getQuery()))) {
+                return mapper.toResponse(existing).withMatchCount(countMatchingNow(existing));
+            }
+        }
+        if (repo.countByUserId(userId) >= MAX_SAVED_SEARCHES) {
+            throw new ConflictException("You can keep at most " + MAX_SAVED_SEARCHES
+                    + " saved searches. Delete one to add another.");
+        }
+
         SavedSearch entity = "flatmates".equals(kind)
-                ? SavedSearch.forFlatmates(userId, serializeFilters(request.criteria()), label(request))
+                ? SavedSearch.forFlatmates(userId, criteria, label(request))
                 : new SavedSearch(userId, request.query());
 
         entity.setName(request.name());
         if (request.filters() != null) {
-            entity.setFilters(serializeFilters(request.filters()));
+            entity.setFilters(filters);
         }
         if (request.alertFrequency() != null) {
             entity.setAlertFrequency(request.alertFrequency());
         }
-        if (request.channel() != null) {
-            entity.setChannel(request.channel());
-        }
+        entity.setChannel(AlertChannels.PUSH);
         SavedSearch saved = repo.saveAndFlush(entity);
         return mapper.toResponse(saved).withMatchCount(countMatchingNow(saved));
     }
@@ -173,7 +183,7 @@ public class SavedSearchService {
             entity.setAlertFrequency(request.alertFrequency());
         }
         if (request.channel() != null) {
-            entity.setChannel(request.channel());
+            entity.setChannel(AlertChannels.PUSH);
         }
         SavedSearch saved = repo.saveAndFlush(entity);
         return mapper.toResponse(saved).withMatchCount(countMatchingNow(saved));
@@ -211,6 +221,42 @@ public class SavedSearchService {
         return json;
     }
 
+    private String duplicateKey(String kind, String json, String query) {
+        String normalizedQuery = query == null ? "" : query.strip().toLowerCase(Locale.ROOT);
+        return kind + ":" + canonicalJson(json) + ":" + normalizedQuery;
+    }
+
+    private String canonicalJson(String json) {
+        try {
+            return objectMapper.writeValueAsString(canonical(mapper.jsonStringToObject(json)));
+        } catch (RuntimeException bad) {
+            return "{}";
+        }
+    }
+
+    private Object canonical(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> sorted = new TreeMap<>();
+            map.forEach((key, nested) -> sorted.put(String.valueOf(key), canonical(nested)));
+            return sorted;
+        }
+        if (value instanceof Collection<?> values) {
+            return values.stream()
+                    .map(this::canonical)
+                    .sorted(Comparator.comparing(this::canonicalText))
+                    .toList();
+        }
+        return value;
+    }
+
+    private String canonicalText(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (RuntimeException bad) {
+            return String.valueOf(value);
+        }
+    }
+
     /**
      * D7: periodic recomputation of saved-search {@code new_count}.
      *
@@ -242,7 +288,13 @@ public class SavedSearchService {
             List<SavedSearch> changed = new ArrayList<>();
             for (SavedSearch search : chunk) {
                 Instant baseline = search.getUpdatedAt() == null ? search.getCreatedAt() : search.getUpdatedAt();
-                int count = countMatchingSince(search, baseline);
+                int count;
+                try {
+                    count = countMatchingSince(search, baseline);
+                } catch (RuntimeException failedSearch) {
+                    LOG.warn("Skipping saved-search count for {}", search.getId(), failedSearch);
+                    continue;
+                }
                 int previous = search.getNewCount();
                 if (previous != count) {
                     search.setNewCount(count);
@@ -310,7 +362,8 @@ public class SavedSearchService {
      * listing for the same reason.
      */
     private void alert(SavedSearch search, int count, Instant now) {
-        String what = count == 1 ? "1 new home" : count + " new homes";
+        String noun = "flatmates".equals(search.getKind()) ? "match" : "home";
+        String what = count == 1 ? "1 new " + noun : count + " new " + noun + "s";
         String which = search.getName() == null || search.getName().isBlank()
                 ? (search.getLabel() == null || search.getLabel().isBlank()
                         ? "your saved search" : search.getLabel())
@@ -334,99 +387,13 @@ public class SavedSearchService {
     /**
      * How many live listings match this saved search right now, ignoring when they were posted.
      *
-     * <p>The same read as {@link #countMatchingSince} with the recency bound removed — see
-     * {@link PropertyRepository#countVisibleWithFilters} for why the two share one query.
+     * <p>The same matcher as {@link #countMatchingSince} with the recency bound removed.
      */
     private int countMatchingNow(SavedSearch search) {
         return countMatching(search, null);
     }
 
     private int countMatching(SavedSearch search, Instant baseline) {
-        if (!"listings".equals(search.getKind())) {
-            return 0;
-        }
-        Map<String, Object> filters = filterMap(search);
-        String deal = textOrNull(filterText(filters, "deal"));
-        if (deal == null) {
-            return 0;
-        }
-        List<String> localities = lowerList(filters, "localities");
-        List<Integer> bhk = intList(filters, "bhk");
-
-        List<String> localitiesParam = localities.isEmpty() ? List.of("__none__") : localities;
-        List<Integer> bhkParam = bhk.isEmpty() ? List.of(Integer.MIN_VALUE) : bhk;
-
-        long count = properties.countVisibleWithFilters(
-                PropertyStatus.APPROVED,
-                baseline == null,
-                baseline == null ? Instant.EPOCH : baseline,
-                deal.toLowerCase(Locale.ROOT),
-                localities.isEmpty(),
-                localitiesParam,
-                bhk.isEmpty(),
-                bhkParam);
-        return (int) count;
-    }
-
-    /**
-     * The stored {@code filters} document, parsed once.
-     *
-     * <p>Each facet reader used to parse the column itself, so counting one saved search
-     * deserialized the same blob three times. Harmless at one call per sweep tick; not harmless
-     * once the list endpoint counts up to {@link #MAX_SAVED_SEARCHES} rows on a read a user
-     * triggers.
-     *
-     * <p>A malformed or non-object blob answers an empty map rather than throwing. {@code filters}
-     * is free-form jsonb with no schema, so an unreadable one is a row that matches nothing — not
-     * a 500 on a list read the user cannot fix.
-     */
-    private Map<String, Object> filterMap(SavedSearch search) {
-        Object parsed = mapper.jsonStringToObject(search.getFilters());
-        if (!(parsed instanceof Map<?, ?> map)) {
-            return Map.of();
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        map.forEach((key, value) -> out.put(String.valueOf(key), value));
-        return out;
-    }
-
-    private String filterText(Map<String, Object> filters, String key) {
-        Object raw = filters.get(key);
-        return raw == null ? null : String.valueOf(raw);
-    }
-
-    private List<String> lowerList(Map<String, Object> filters, String key) {
-        if (!(filters.get(key) instanceof List<?> list)) {
-            return List.of();
-        }
-        return list.stream()
-                .map(String::valueOf)
-                .map(v -> v.toLowerCase(Locale.ROOT))
-                .toList();
-    }
-
-    private List<Integer> intList(Map<String, Object> filters, String key) {
-        if (!(filters.get(key) instanceof List<?> list)) {
-            return List.of();
-        }
-        return list.stream()
-                .map(this::toInt)
-                .filter(v -> v != null)
-                .toList();
-    }
-
-    private Integer toInt(Object value) {
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (RuntimeException bad) {
-            return null;
-        }
-    }
-
-    private static String textOrNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+        return counter.count(search, baseline);
     }
 }

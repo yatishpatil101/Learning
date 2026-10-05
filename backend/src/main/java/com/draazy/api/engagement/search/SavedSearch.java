@@ -78,7 +78,7 @@ public class SavedSearch extends BaseEntity {
 
     @Column(name = "channel", nullable = false)
     @Setter
-    private String channel = "whatsapp";
+    private String channel = AlertChannels.PUSH;
 
     @Column(name = "new_count", nullable = false)
     @Setter

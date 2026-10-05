@@ -21,7 +21,7 @@ import jakarta.validation.constraints.Pattern;
  * @param filters         optional facet filters (free-form object, stored as jsonb)
  * @param criteria        the flatmates filter set — required when {@code kind} is flatmates
  * @param alertFrequency  default "daily" if absent
- * @param channel         default "whatsapp" if absent
+ * @param channel         accepted for old clients; saved-search alerts are delivered in-app
  */
 public record SavedSearchCreateRequest(
         String name,

@@ -14,12 +14,11 @@ import java.time.Instant;
  * @param label           short human summary for the alert card
  * @param mobile          set only for the signed-out lead path
  * @param alertFrequency  off|instant|daily|weekly
- * @param channel         whatsapp|sms|email|push
+ * @param channel         push — alerts are delivered in-app; legacy stored channels are not exposed
  * @param newCount        stored column — matches that arrived since the sweep's last baseline, and
  *                        zero again once the alert has gone out. See D8.8 on the service.
- * @param matchCount      computed on the read — how many live listings match these facets at all,
- *                        regardless of age. Zero on a flatmates alert, which this count does not
- *                        cover. Not a column; see D227 on the service.
+ * @param matchCount      computed on the read — how many live rows match these facets at all,
+ *                        regardless of age. Not a column; see D227 on the service.
  */
 public record SavedSearchResponse(
         String id,
@@ -46,6 +45,6 @@ public record SavedSearchResponse(
      */
     SavedSearchResponse withMatchCount(int count) {
         return new SavedSearchResponse(id, name, kind, query, filters, criteria, label, mobile,
-                alertFrequency, channel, newCount, count, createdAt);
+                alertFrequency, AlertChannels.PUSH, newCount, count, createdAt);
     }
 }
