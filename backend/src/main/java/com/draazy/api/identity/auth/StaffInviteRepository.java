@@ -16,4 +16,7 @@ public interface StaffInviteRepository extends JpaRepository<StaffInvite, UUID> 
 
     /** Is this account still waiting for its holder to choose a password? */
     boolean existsByUserIdAndRedeemedAtIsNull(UUID userId);
+
+    /** Reissue supersedes the open invite; the partial unique index allows one open row. */
+    void deleteByUserIdAndRedeemedAtIsNull(UUID userId);
 }

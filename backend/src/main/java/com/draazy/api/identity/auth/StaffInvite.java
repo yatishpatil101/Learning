@@ -12,13 +12,10 @@ import lombok.Getter;
  * A single-use invite that lets one back-office colleague set their own password. Maps
  * {@code staff_invites} (V71, tech debt D206).
  *
- * <p><strong>What it is for.</strong> V67 stopped one administrator minting a colleague alone, but
- * the create form still carried a {@code password} field — so the maker chose the credential the
- * new account would sign in with, and the checker's co-signature attested to a row rather than to a
- * person. A row here means the account has no usable password and cannot authenticate at all until
- * the human it belongs to redeems the token and chooses one. Neither administrator ever sees that
- * token: it is handed straight to {@link com.draazy.api.provider.StaffInviteSender} and never
- * returned to an HTTP caller.
+ * <p><strong>What it is for.</strong> The create form once carried a {@code password} field, so the
+ * creator chose the credential the new account would sign in with. A row here means the account has
+ * no usable password and cannot authenticate until the human it belongs to redeems the token and
+ * chooses one. The raw token is returned once to the creator and never stored in plain text.
  *
  * <p><strong>Only the digest of the secret is stored.</strong> The token given to the invitee is
  * {@code <id>.<secret>}: the id is a selector that fetches exactly this row, and the secret is
@@ -42,8 +39,7 @@ public class StaffInvite extends BaseEntity {
     private String tokenHash;
 
     /**
-     * The administrator who minted the account. Kept for the audit trail only — this person is
-     * deliberately never told the token, which is the whole content of D206.
+     * The administrator or manager who minted the account.
      */
     @Column(name = "created_by", nullable = false, updatable = false)
     private UUID createdBy;

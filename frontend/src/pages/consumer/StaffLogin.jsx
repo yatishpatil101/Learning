@@ -1,217 +1,181 @@
-import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
-import { useTranslation } from 'react-i18next';
-import { Home, Send, LogIn } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import QRCode from 'qrcode';
+import { LogIn, ShieldCheck, Copy } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { sendOtp as sendOtpSvc } from '../../services/authService.js';
-import { useMobileInput } from '../../lib/hooks.js';
-import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
-import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
-import MobileField from '../../components/MobileField.jsx';
+import { staffEnrol, staffLogin } from '../../services/authService.js';
 import { safeInAppPath } from '../../lib/authIntent.js';
-import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
+import StaffShell, { STAFF_FIELD } from '../../components/auth/StaffShell.jsx';
+import { portalBase } from '../../lib/adminModules.js';
 
-// Where a team lands after signing in. Every service-request team lands on the one drafting desk
-// with its own type pre-selected; loans has no request type, so it gets the tickets queue.
-const TEAM_HOME = {
-  rental: '/ops/drafting-desk?type=rental',
-  legal: '/ops/drafting-desk?type=legal',
-  loans: '/ops/requests',
-  interior: '/ops/drafting-desk?type=interior',
-  packers: '/ops/drafting-desk?type=packers',
-  valuation: '/ops/drafting-desk?type=valuation',
-};
-
+/* Password, then an authenticator code; a first sign-in sets the authenticator up and shows the
+   recovery codes once. The server decides role and functions. docs/flows/consumer/auth.md § Staff login */
 export default function StaffLogin() {
-  /* This console is English everywhere except one line: `otp.sendError` is an i18n key by
-     contract, so a staffer whose device is set to hi/mr reads that one refusal in their own
-     language inside an otherwise English screen. Left that way deliberately — pinning it to
-     `{ lng: 'en' }` would mean the only sentence explaining why a code never arrived is the one
-     sentence the reader might not be able to read. */
-  const { t } = useTranslation();
-  const { login, logout } = useAuth();
+  const { staffVerify, staffConfirm } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  /* Staff sign in through the ordinary mobile-OTP route, and the server — not this page — decides
-     their role and team. See `docs/flows/consumer/auth.md` § Staff login. */
-  const mobile = useMobileInput('');
-  const [mobileErr, setMobileErr] = useState(false);
-  const [signInError, setSignInError] = useState(null);
-  const [verifying, setVerifying] = useState(false);
-  const [otpSpent, setOtpSpent] = useState(false);
-  const [otpCanBeRenewed, setOtpCanBeRenewed] = useState(true);
-  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
+  const [step, setStep] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [challenge, setChallenge] = useState('');
+  const [enrolment, setEnrolment] = useState(null);
+  const [qr, setQr] = useState('');
+  const [code, setCode] = useState('');
+  const [recovery, setRecovery] = useState(null);
+  const [copied, setCopied] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  /* Only administrators open the admin console; an ops staffer's permission atoms widen what the
-     API grants them inside the service portal rather than promoting them to another shell. */
-  const homeFor = (who) => {
-    if (who.role === 'admin') return '/admin';
-    const team = (who.teams && who.teams[0]) || who.team;
-    /* `hasOwn`, because the team name is the server's string and a bare index would answer
-       `TEAM_HOME['constructor']` with a function — which `navigate()` would then receive
-       instead of a path. Same guard, same reason, as the one in `otpVerifyError`. */
-    return Object.hasOwn(TEAM_HOME, team) ? TEAM_HOME[team] : '/ops';
-  };
-
-  /* Two separate questions, both load-bearing: `safeInAppPath` (shared, so the doors cannot drift)
-     answers "is it a usable path", and the role checks answer "may this account go there". */
-  const safeNext = (forRole, def) => {
+  /* Two separate questions: `safeInAppPath` (shared, so the doors cannot drift) answers "is it a
+     usable path", and the role checks answer "may this account go there". */
+  const safeNext = (who) => {
     const n = safeInAppPath(params.get('next'));
-    if (!n) return def;
+    if (!n) return portalBase(who);
     const lower = n.toLowerCase();
-    if (lower.startsWith('/admin') && forRole !== 'admin') return def;
-    if (lower.startsWith('/ops') && forRole !== 'staff' && forRole !== 'admin') return def;
+    if (/^\/(admin|staff)(\/|$)/.test(lower) && !['admin', 'manager', 'staff'].includes(who.role)) return portalBase(who);
     return n;
   };
 
-  const sendOtp = () => {
-    if (!mobile.valid) {
-      setMobileErr(true);
-      return;
-    }
-    setMobileErr(false);
-    setSignInError(null);
-    otp.send(mobile.value);
-  };
+  useEffect(() => {
+    setQr('');
+    if (!enrolment) return undefined;
+    let live = true;
+    QRCode.toDataURL(enrolment.otpauthUri, { margin: 1, width: 200 }).then(
+      (url) => live && setQr(url),
+      () => {},
+    );
+    return () => { live = false; };
+  }, [enrolment]);
 
-  /** The roles the internal console exists for. Anything else is a consumer at the wrong door. */
-  const INTERNAL = new Set(['admin', 'staff']);
-
-  const verify = async () => {
-    if (otpSpent) return;
-    if (otp.otp.length !== 6) {
-      otp.setOtpError(true);
-      return;
-    }
-
-    setVerifying(true);
-    setSignInError(null);
+  const run = async (action) => {
+    setBusy(true);
+    setError(null);
     try {
-      // The server verifies the code and answers with the account — including the role and team
-      // it really holds.
-      const who = await login({ mobile: mobile.value, otp: otp.otp, remember: true });
-
-      if (!INTERNAL.has(who?.role)) {
-        // Ending the session is deliberate: the code was valid, so leaving it open would sign a
-        // buyer in through the staff entrance and merely decline to redirect them.
-        await logout();
-        setSignInError(
-          'That number is not an internal account. Staff and administrators are added by an '
-            + 'existing admin — sign in at the main site instead.',
-        );
-        return;
-      }
-
-      navigate(safeNext(who.role, homeFor(who)), { replace: true });
+      await action();
     } catch (err) {
-      /* The server's own sentence is kept — this console is internal and English-only — and so is
-         the count, since the same per-code guess budget is spent here. */
-      const left = err?.attemptsRemaining;
-      const message = err?.message || 'That code did not work. Please try again.';
-      const outcome = classifyOtpVerifyError(err);
-      setOtpSpent(outcome.terminal);
-      setOtpCanBeRenewed(!outcome.terminal || outcome.resendable === true);
-      if (typeof left !== 'number') {
-        setSignInError(message);
-      } else if (left > 0) {
-        setSignInError(`${message} — ${left} ${left === 1 ? 'try' : 'tries'} left before this code is blocked.`);
-      } else {
-        // Zero is the last allowed guess reporting back: the code is spent, so the next submit can
-        // only be refused. Saying "try again" here would be an instruction that cannot work.
-        setSignInError(`${message} — that was the last try. Request a new code.`);
+      if (err?.code === 'staff_sign_in_expired') {
+        setStep('password');
+        setPassword('');
+        setChallenge('');
+        setEnrolment(null);
       }
-      // Set the message FIRST: if a reload starts, it is never read; if the heal is refused, it is.
+      setCode('');
+      setError(err?.message || 'Something went wrong. Please try again.');
       healStaleShell(err);
     } finally {
-      setVerifying(false);
+      setBusy(false);
     }
   };
 
+  const submitPassword = (e) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setError('Enter your work email and password.');
+      return;
+    }
+    run(async () => {
+      const res = await staffLogin({ email: email.trim(), password });
+      setChallenge(res.challenge);
+      if (res.mfa === 'enrol') {
+        setEnrolment(await staffEnrol({ challenge: res.challenge }));
+        setStep('enrol');
+      } else {
+        setStep('totp');
+      }
+    });
+  };
+
+  const submitCode = (e) => {
+    e.preventDefault();
+    if (!code.trim()) {
+      setError('Enter the code.');
+      return;
+    }
+    run(async () => {
+      if (step === 'enrol') {
+        const { user, recoveryCodes } = await staffConfirm({ challenge, code: code.trim() });
+        setRecovery({ user, codes: recoveryCodes });
+        setStep('codes');
+      } else {
+        const who = await staffVerify({ challenge, code: code.trim() });
+        navigate(safeNext(who), { replace: true });
+      }
+    });
+  };
+
+  const errorLine = error && (
+    <p id="staff-login-error" role="alert" className="mb-3 text-center text-xs text-red-400">{error}</p>
+  );
+
+  if (step === 'codes') {
+    return (
+      <StaffShell title="Save your recovery codes" subtitle="Each works once if you lose your phone. They won't be shown again.">
+        <ul id="staff-recovery-codes" tabIndex={-1} aria-label="Recovery codes" className="mb-4 grid grid-cols-2 gap-2 font-mono text-sm outline-none">
+          {recovery.codes.map((c) => <li key={c} className="rounded-lg bg-white/5 px-2 py-1.5 text-center">{c}</li>)}
+        </ul>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(recovery.codes.join('\n')).then(() => setCopied('Copied'), () => setCopied('Copy failed — write them down'))}
+          className="dz-control mb-3 w-full justify-center gap-2"
+        >
+          <Copy className="h-4 w-4" /> <span aria-live="polite">{copied || 'Copy codes'}</span>
+        </button>
+        <button type="button" onClick={() => navigate(safeNext(recovery.user), { replace: true })} className="dz-control dz-control--action w-full justify-center gap-2">
+          I've saved them — continue
+        </button>
+      </StaffShell>
+    );
+  }
+
+  if (step === 'password') {
+    return (
+      <StaffShell title="Sign in to your workspace" subtitle="Admin & service-team access only.">
+        <form onSubmit={submitPassword} noValidate>
+          <label htmlFor="staff-email" className="mb-2 block text-xs font-semibold text-gray-300">Work email</label>
+          <input id="staff-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
+          <label htmlFor="staff-password" className="mb-2 block text-xs font-semibold text-gray-300">Password</label>
+          <input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
+          {errorLine}
+          <button type="submit" disabled={busy} className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
+            <LogIn className="h-4 w-4" /> {busy ? 'Checking…' : 'Continue'}
+          </button>
+        </form>
+      </StaffShell>
+    );
+  }
+
+  const enrolling = step === 'enrol';
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center p-5">
-      <div className="w-full max-w-md">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#6366f1] to-[#14b8a6]">
-            <Home className="h-6 w-6 text-white" />
+    <StaffShell
+      title={enrolling ? 'Set up your authenticator' : 'Enter your code'}
+      subtitle={enrolling ? 'Scan with Google Authenticator, Microsoft Authenticator or similar.' : 'From your authenticator app, or a recovery code.'}
+    >
+      <form onSubmit={submitCode} noValidate>
+        {enrolling && (
+          <div className="mb-4 flex flex-col items-center gap-2">
+            {qr && <img src={qr} alt="Authenticator QR code" width="200" height="200" className="rounded-lg bg-white p-1" />}
+            <code id="staff-totp-secret" className="break-all text-center text-xs text-gray-400">{enrolment?.secret}</code>
           </div>
-          <div>
-            <div className="text-xl font-extrabold">Draazy</div>
-            <div className="-mt-0.5 text-[11px] text-gray-400">Internal Console</div>
-          </div>
-        </div>
-
-        <div className="dz-card rounded-2xl p-7">
-          <h1 className="mb-1 text-lg font-bold">Sign in to your workspace</h1>
-          <p className="mb-5 text-sm text-gray-400">Admin & service-team access only.</p>
-
-          {/* No role or team picker: the server returns the account's own, and a control that
-              visibly does nothing is a worse lie than no control. */}
-          <p className="mb-4 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2 text-[12px] leading-relaxed text-gray-400">
-            Sign in with the mobile number on your internal account. Your console and team come
-            from that account — there is nothing to choose here.
-          </p>
-
-          <div className="mb-4">
-            <label htmlFor="staff-mobile" className="mb-2 block text-xs font-semibold text-gray-300">
-              Mobile number <span className="text-rose-400">*</span>
-            </label>
-            <MobileField id="staff-mobile" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setMobileErr(false); }} error={mobileErr} disabled={otp.sending || verifying} placeholder="Enter mobile number" />
-            {mobileErr && <p className="mt-1.5 text-xs text-red-400">Enter a valid 10-digit mobile number.</p>}
-          </div>
-
-          <p id="staff-otp-status" role="alert" className={otp.otpError || otp.sendError || signInError ? 'mb-2 text-center text-xs text-red-400' : 'sr-only'}>{otp.otpError ? 'Incorrect or incomplete OTP.' : (otp.sendError ? t(otp.sendError) : signInError)}</p>
-
-          {!otp.otpSent ? (
-            <>
-              <button
-                type="button"
-                onClick={sendOtp}
-                disabled={otp.sending}
-                className="dz-control dz-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
-              </button>
-            </>
-          ) : (
-            <div className="mt-4">
-              <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-[12px] text-emerald-200">
-                OTP sent via SMS to <span className="font-semibold">+91 {mobile.value}</span>
-              </div>
-              <p className="mb-2 text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</p>
-              <div className="mb-2">
-                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); if (!otpSpent) setSignInError(null); }} error={otp.otpError || !!signInError} />
-              </div>
-              <div className="mb-3 text-center text-[11px] text-gray-500">
-                Didn't get it?{' '}
-                <button
-                  type="button"
-                  onClick={async () => { if (await otp.resend(mobile.value)) { setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } }}
-                  disabled={!otp.canResend || otp.sending || !otpCanBeRenewed}
-                  className="font-semibold text-teal-400 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={verify}
-                disabled={verifying || otpSpent}
-                className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <LogIn className="h-4 w-4" /> {verifying ? 'Signing in…' : 'Verify & sign in'}
-              </button>
-            </div>
-          )}
-
-          {/* No demo "sign in as <team>" shortcuts: minting a session from a hardcoded mobile
-              with no code exchanged is the thing a real sign-in exists to prevent. */}
-        </div>
-        <p className="mt-5 text-center text-[11px] text-gray-600">
-          Internal access only · every action is logged.{' '}
-          <Link to="/" className="text-teal-400 hover:underline">Back to site</Link>
-        </p>
-      </div>
-    </div>
+        )}
+        <label htmlFor="staff-code" className="mb-2 block text-xs font-semibold text-gray-300">
+          {enrolling ? '6-digit code from the app' : 'Code'}
+        </label>
+        <input
+          id="staff-code"
+          autoComplete="one-time-code"
+          inputMode={enrolling ? 'numeric' : 'text'}
+          autoCapitalize="off"
+          maxLength={32}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          className={STAFF_FIELD + ' mb-4 text-center tracking-widest'}
+        />
+        {errorLine}
+        <button type="submit" disabled={busy} className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
+          <ShieldCheck className="h-4 w-4" /> {busy ? 'Checking…' : enrolling ? 'Confirm & sign in' : 'Sign in'}
+        </button>
+      </form>
+    </StaffShell>
   );
 }

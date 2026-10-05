@@ -70,8 +70,7 @@ class StaffInviteTest extends AbstractApiTest {
         return body.replaceAll("(?s).*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }
 
-    // Replace the account's invite hash with the digest of SECRET and return the token its holder
-    // would have been sent — the real token is dispatched and never returned to any caller.
+    // Replace the account's invite hash with the digest of SECRET and return the token the holder uses.
     private String plantToken(String userId) {
         em.flush();
         String inviteId = jdbc.queryForObject(
@@ -120,12 +119,6 @@ class StaffInviteTest extends AbstractApiTest {
                 .andReturn().getResponse().getStatus();
     }
 
-    private void approve(User checker, String userId) throws Exception {
-        mvc.perform(post(Routes.Users.APPROVE.replace("{id}", userId))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(checker)))
-                .andExpect(status().isOk());
-    }
-
     private static String sha256Hex(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -141,13 +134,11 @@ class StaffInviteTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the maker cannot sign in as the colleague they had approved")
-    void theMakerCannotSignInAsTheColleagueTheyHadApproved() throws Exception {
+    @DisplayName("the creator cannot sign in as the colleague before invite redemption")
+    void theCreatorCannotSignInAsTheColleagueBeforeRedemption() throws Exception {
         User maker = admin("9866041001", "maker@example.com");
-        User checker = admin("9866041002", "checker@example.com");
 
-        String hireId = createStaffAs(maker, "9866041003", "hire@example.com", Roles.Wire.ADMIN);
-        approve(checker, hireId);
+        String hireId = createStaffAs(maker, "9866041003", "hire@example.com", Roles.Wire.STAFF);
 
         // 401 rather than 403: no password hash means the credential path refuses before any gate
         // is consulted, indistinguishable from a mistyped password to the maker.
@@ -167,35 +158,15 @@ class StaffInviteTest extends AbstractApiTest {
     }
 
     // An account with no password is not unreachable: POST /auth/login needs no password, so a
-    // maker who typed their own mobile would hold the account outright once approved.
+    // creator who typed their own mobile would hold the account outright without the invite gate.
     @Test
-    @DisplayName("an un-activated account cannot sign in by OTP either, even once approved")
+    @DisplayName("an un-activated account cannot sign in by OTP either")
     void anUnactivatedAccountCannotSignInByOtp() throws Exception {
         User maker = admin("9866041010", "maker2@example.com");
-        User checker = admin("9866041011", "checker2@example.com");
         String mobile = "9866041012";
         String hireId = createStaffAs(maker, mobile, "otp-hire@example.com", Roles.Wire.STAFF);
-        approve(checker, hireId);
 
         assertThat(otpLogin(mobile)).isEqualTo(403);
-    }
-
-    // Password-set and approval are independent by design; this pins that redeeming does not walk
-    // around the second-administrator rule.
-    @Test
-    @DisplayName("redeeming an invite does not bypass the second administrator")
-    void redeemingDoesNotBypassApproval() throws Exception {
-        User maker = admin("9866041020", "maker3@example.com");
-        User checker = admin("9866041021", "checker3@example.com");
-        String hireId = createStaffAs(maker, "9866041022", "eager@example.com", Roles.Wire.STAFF);
-
-        assertThat(redeem(plantToken(hireId), HOLDERS_CHOICE)).isEqualTo(204);
-        assertThat(staffLogin("eager@example.com", HOLDERS_CHOICE))
-                .as("a redeemed but unapproved account must still be refused")
-                .isEqualTo(403);
-
-        approve(checker, hireId);
-        assertThat(staffLogin("eager@example.com", HOLDERS_CHOICE)).isEqualTo(200);
     }
 
     // A token that silently reset the password on every presentation would be a permanent
@@ -204,9 +175,7 @@ class StaffInviteTest extends AbstractApiTest {
     @DisplayName("an invite is single-use — a second redemption is refused and changes nothing")
     void anInviteIsSingleUse() throws Exception {
         User maker = admin("9866041030", "maker4@example.com");
-        User checker = admin("9866041031", "checker4@example.com");
         String hireId = createStaffAs(maker, "9866041032", "once@example.com", Roles.Wire.STAFF);
-        approve(checker, hireId);
 
         String token = plantToken(hireId);
         assertThat(redeem(token, HOLDERS_CHOICE)).isEqualTo(204);
@@ -301,11 +270,21 @@ class StaffInviteTest extends AbstractApiTest {
                 String.class, hireId)).isNull();
     }
 
-    // Bootstrap path writes no approval row, so nothing else holds the account shut; if the invite
-    // were skipped a sole admin could mint a colleague against their own mobile and sign in by OTP.
     @Test
-    @DisplayName("the bootstrap escape still issues an invite")
-    void theBootstrapEscapeStillIssuesAnInvite() throws Exception {
+    @DisplayName("a password within 72 characters but past BCrypt's 72 bytes is refused, not a 500")
+    void aPasswordPastBcryptBytesIsRefused() throws Exception {
+        User maker = admin("9866041073", "maker9@example.com");
+        String hireId = createStaffAs(maker, "9866041074", "bytes@example.com", Roles.Wire.STAFF);
+
+        assertThat(redeem(plantToken(hireId), "पासवर्ड".repeat(5))).isEqualTo(422);
+        assertThat(jdbc.queryForObject("SELECT password_hash FROM users WHERE id = ?::uuid",
+                String.class, hireId)).isNull();
+    }
+
+    // If the invite were skipped, an admin could mint a colleague against their own mobile and sign in by OTP.
+    @Test
+    @DisplayName("staff creation issues an invite")
+    void staffCreationIssuesAnInvite() throws Exception {
         jdbc.update("UPDATE users SET role = 'buyer' WHERE role = 'admin'");
         User solo = admin("9866041080", "solo@example.com");
         String mobile = "9866041082";
@@ -313,10 +292,6 @@ class StaffInviteTest extends AbstractApiTest {
         String hireId = createStaffAs(solo, mobile, "bootstrap@example.com", Roles.Wire.STAFF);
 
         em.flush();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_account_approvals",
-                Integer.class))
-                .as("premise: this is the escape path, so there is no approval row")
-                .isZero();
         // OTP path deliberately: it needs no credential, so it is the only one still open if the
         // invite were skipped here. A password login would 401 for want of a hash and prove nothing.
         assertThat(otpLogin(mobile)).isEqualTo(403);
