@@ -5,33 +5,34 @@ category: getting-started
 audience: everyone
 order: 1
 featured: true
-updated: 2026-07-28
-summary: Draazy connects tenants and buyers directly with verified property owners in Pune — no brokers, no brokerage.
+updated: 2026-10-01
+summary: Draazy connects tenants and buyers directly with property owners in Pune — no brokers, no brokerage.
 tags: [basics, overview, brokerage]
 ---
 
-Draazy is a Pune-first property marketplace that puts you in touch with **verified owners directly**. There is no broker in the middle, which means no brokerage fee and no one filtering what you get to see.
+Draazy is a Pune-first property marketplace that puts you in touch with **owners directly**. There is no broker in the middle, which means no brokerage fee and no one filtering what you get to see.
 
 ## How it is different
 
-Most portals sell your phone number to agents. We do the opposite — owners list their own property, we verify them, and you contact them yourself.
+Most portals sell your phone number to agents. We do the opposite — owners list their own property, broker listings are not allowed, and you contact the owner through Draazy.
 
 - **Zero brokerage.** You never pay us a commission on rent or sale.
-- **Owner-verified listings.** Every listing is tied to a verified identity before it goes live.
+- **Owner-only supply.** Owners, or a family member listing for them, can post. Agents and brokers cannot.
+- **Badges where checks are complete.** Identity, ownership, RERA and society badges are shown separately so you know what has been checked.
 - **Real availability.** Owners confirm availability regularly; stale listings are pulled down.
-- **Local depth.** Locality guides, commute times and society-level data for Pune specifically.
+- **Local depth.** Smart search, live filter counts, locality guides, commute times and society-level data for Pune specifically.
 
 ## What you can do here
 
 ### If you are looking for a home
 
-Search with filters that matter (budget, BHK, furnishing, pet-friendly, commute time), shortlist properties, compare them side by side, and book a site visit — all without speaking to an agent.
+Search with filters that matter (budget, BHK, furnishing, pet-friendly, commute time), shortlist properties, save alerts, compare them side by side, and book a site visit — all without speaking to an agent.
 
 Start at [Searching & visits](/help/c/search-visits).
 
 ### If you own a property
 
-List it in a few minutes, get it verified, and receive enquiries from tenants whose profiles you can actually see before you respond.
+List it in a few minutes, pause or resume it from your dashboard, add optional verification evidence, and receive contact requests from tenants whose profiles you can read before you respond.
 
 Start at [Listing your property](/help/c/listing).
 

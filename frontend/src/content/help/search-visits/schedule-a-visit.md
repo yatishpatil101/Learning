@@ -5,7 +5,7 @@ category: search-visits
 audience: tenant
 order: 4
 featured: true
-updated: 2026-09-22
+updated: 2026-10-04
 summary: How to book an in-person or video visit, what to check when you are there, and what to do if the owner does not turn up.
 tags: [visit, viewing, checklist, video]
 ---
@@ -16,9 +16,9 @@ From any property page, tap **Schedule visit**. Pick **in person** or **video wa
 
 The owner is notified and has to confirm the slot. Until they do, your visit reads **Awaiting confirmation**. Track everything under **Dashboard → Visits**.
 
-There is no limit on how many visits you can hold, but you can only have **one live request per property** — booking the same listing again edits the request you already sent rather than adding a second one.
+There is no limit on how many visits you can hold, but you can only have **one live request per property**. If you already have one, manage or move that visit from your dashboard instead of sending a duplicate.
 
-If the owner reschedules, the visit goes back to awaiting confirmation so both sides re-agree on the new slot. Cancel anything you no longer want; owners see your history.
+If either side reschedules, the visit goes back to awaiting confirmation so both sides re-agree on the new slot. Cancel anything you no longer want; owners see your history.
 
 > [!NOTE]
 > A visit the owner marks as completed is what unlocks your **Visited** review on that listing. Reviews are gated on a visit the owner confirmed actually happened, which is why a booked-but-unconfirmed visit does not unlock one.
@@ -60,7 +60,7 @@ If the owner reschedules, the visit goes back to awaiting confirmation so both s
 
 ## If the owner does not show up
 
-Raise it with [Support](/support) with the listing and the slot. Our team marks the visit as a no-show — it is not something either side can record against the other unilaterally — and repeated no-shows count against the listing.
+The owner can mark a confirmed visit as a no-show. If that is wrong, raise it with [Support](/support) with the listing and the slot.
 
 ## Related
 

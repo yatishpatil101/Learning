@@ -4,7 +4,7 @@ slug: invoices-and-refunds
 category: payments
 audience: everyone
 order: 2
-updated: 2026-09-22
+updated: 2026-10-04
 summary: Where to find your invoices, what is refundable, and how long a refund takes.
 tags: [invoice, refund, gst, billing, receipt]
 ---
@@ -29,18 +29,19 @@ The binding terms are in the [Refund Policy](/refund-policy). In summary:
 
 | Situation | Refundable |
 | --- | --- |
-| Plan cancelled within 24 hours, unused | Full |
-| Plan cancelled mid-term | Pro-rata, minus used period |
-| Featured placement already delivered | No |
-| Service not delivered (e.g. agreement not drafted) | Full |
+| Subscription cancelled within 7 days, unused | Full |
+| Annual subscription within 30 days, with fewer than 3 premium features used | Pro-rata |
+| Subscription after 7 days, or used | Not refundable |
+| Service not delivered | Full |
+| Rent agreement, before the stamp duty is paid on GRAS | Refundable up to what you paid |
+| Rent agreement, after the stamp duty is paid | Government charges are spent; only eligible service-fee or overpayment refunds can come back |
 | Service partially delivered | Case by case |
 | Duplicate or failed-but-charged payment | Full |
 
 ### Timelines
 
-- Approved refunds are initiated within **3 working days**
-- Your bank or card issuer takes a further **5–7 working days**
-- UPI refunds are usually faster, 1–3 working days
+- Approved refunds are processed within **5–7 business days**
+- Your bank, card issuer or UPI app may take longer to show the credit
 
 ## Requesting a refund
 

@@ -4,16 +4,16 @@ slug: photos-that-convert
 category: listing
 audience: owner
 order: 2
-updated: 2026-07-26
-summary: Photography is the highest-leverage thing an owner controls. Here is how to shoot a flat properly with a phone.
-tags: [photos, listing, owner]
+updated: 2026-10-01
+summary: Shoot the right photos for the listing wizard's gallery limit, using only your phone.
+tags: [photos, listing, owner, gallery]
 ---
 
 Tenants decide in about four seconds whether to open your listing. Photos are that decision.
 
 ## The shot list
 
-Take at least eight, in this order:
+Take at least eight if the current gallery limit allows it. The platform default is ten photos, and the wizard shows the current limit before you upload.
 
 1. **Living room**, from the doorway corner, shooting into the room
 2. **Kitchen**, showing counter length and storage
@@ -52,7 +52,7 @@ Take at least eight, in this order:
 
 ## Video and reels
 
-You can add a walkthrough video. Shoot it slowly, hallway to room, in the order someone would actually walk. Good walkthroughs also surface on [Reels](/reels), which is free extra reach.
+You can add a YouTube walkthrough link. Shoot it slowly, hallway to room, in the order someone would actually walk. Changing the video on a live listing sends it for a quick re-check.
 
 ## Related
 

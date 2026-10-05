@@ -4,7 +4,7 @@ slug: paying-rent-online
 category: payments
 audience: tenant
 order: 3
-updated: 2026-08-31
+updated: 2026-10-04
 summary: Paying rent through Draazy is coming. Until it does, record what you already pay and the Rent Wallet works out your yearly total, deposit and HRA.
 tags: [rent, payment, hra, receipt, upi]
 ---
@@ -14,15 +14,13 @@ not move money, and there is nothing to set up. Keep paying your landlord howeve
 
 ## What you can do now
 
-Record the home you rent under **Dashboard → Finances** — your Rent Wallet — the address, your monthly rent, your
-deposit and the date the lease started. That is all it takes. The Wallet then works out, and keeps
-up to date on its own:
+Record the home you rent under **Dashboard → Finances** — your Rent Wallet — the address, landlord name, monthly rent, deposit, lease start and optional lease end. That is all it takes. The Wallet then works out, and keeps up to date on its own:
 
 - **What you have paid this financial year**, and since the lease began
 - **Your HRA exemption**, computed the way the Income Tax Act does it — the lowest of the three limbs
 - **What your deposit would have earned** had it been sitting in a liquid fund instead
 
-You enter it once. Nothing needs to be logged month by month.
+You enter it once. Nothing needs to be logged month by month, and no owner approves it.
 
 ## What it is not
 

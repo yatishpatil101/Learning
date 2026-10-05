@@ -4,7 +4,7 @@ slug: societies-and-localities
 category: search-visits
 audience: tenant
 order: 5
-updated: 2026-09-22
+updated: 2026-10-04
 summary: Research a building or a neighbourhood before you shortlist a flat in it, and contribute what you know if you live there.
 tags: [society, locality, area, research, reviews, follow]
 ---
@@ -29,8 +29,8 @@ Each society has a hub with five tabs:
 | --- | --- |
 | Overview | Specs, amenities, age, and a summary rating |
 | Homes | Flats currently on sale or on rent in that building, on Draazy |
-| Reviews | Ratings, with a resident badge where we could confirm the reviewer lives there |
-| Community | Questions and answers, tips, notices and events |
+| Reviews & Q&A | Ratings, questions and answers, with resident badges on Q&A where we can confirm the author lives there |
+| Community | Tips, resident picks, photos, notices and events |
 | Location | Map, connectivity and what is nearby |
 
 > [!TIP]
@@ -38,13 +38,13 @@ Each society has a hub with five tabs:
 
 ## Contributing
 
-Anyone signed in can follow a society, leave a review, ask a question or answer one. There is no identity check for any of that — see [How we verify](/help/a/how-we-verify).
+Anyone signed in can follow a society, leave a review, ask a question, answer one, or contribute tips, picks and photos. Resident confirmation is separate from identity verification — see [How we verify](/help/a/how-we-verify).
 
 ## If you actually live there
 
 Confirming you are a resident of that building — your flat, confirmed by OTP or by the committee — is separate from identity verification, and it unlocks more:
 
-- Your reviews carry a **resident** badge
+- Your Q&A posts can carry a **resident** badge
 - You can post notices and events to the community tab
 - You can propose a correction to the building's details, its location pin or its WhatsApp group link
 

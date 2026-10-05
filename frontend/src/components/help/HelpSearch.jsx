@@ -3,10 +3,8 @@ import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { excerptFor } from '../../lib/help.js';
-import { useHelpSearch, useHelpPath } from '../../lib/useHelp.js';
-
-/* Enter goes to the full results page rather than staying in the dropdown, so a query is always
-   shareable as a URL. */
+import { useHelpSearch } from '../../lib/useHelp.js';
+/* Enter goes to the full results page rather than staying in the dropdown, so a query is always shareable as a URL. */
 
 export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
   const { t } = useTranslation();
@@ -16,7 +14,6 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
   const navigate = useNavigate();
-  const hp = useHelpPath();
 
   const results = useHelpSearch(query, 6);
 
@@ -27,9 +24,9 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
-
   // "/" focuses search from anywhere in the help centre, the convention every
   // docs site uses. Ignored while the user is typing in another field.
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== '/' || e.metaKey || e.ctrlKey) return;
@@ -45,7 +42,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
   const go = (slug) => {
     setOpen(false);
     setQuery('');
-    navigate(hp(`/help/a/${slug}`));
+    navigate(`/help/a/${slug}`);
   };
 
   const submit = (e) => {
@@ -54,7 +51,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
     const q = query.trim();
     if (q.length >= 2) {
       setOpen(false);
-      navigate(hp(`/help/search?q=${encodeURIComponent(q)}`));
+      navigate(`/help/search?q=${encodeURIComponent(q)}`);
     }
   };
 
@@ -138,7 +135,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
               </ul>
               <button
                 type="button"
-                onClick={() => { setOpen(false); navigate(hp(`/help/search?q=${encodeURIComponent(query.trim())}`)); }}
+                onClick={() => { setOpen(false); navigate(`/help/search?q=${encodeURIComponent(query.trim())}`); }}
                 className="tap-target flex w-full items-center border-t border-white/5 px-4 py-2.5 text-left text-xs font-semibold text-teal-400 hover:bg-white/[0.04]"
               >
                 {t('help.seeAllResults', { query: query.trim() })}

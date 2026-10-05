@@ -4,7 +4,7 @@ slug: home-loans-legal
 category: services
 audience: buyer
 order: 3
-updated: 2026-07-23
+updated: 2026-10-04
 summary: What to verify before buying a property in Pune, and how the loan and legal services fit together.
 tags: [home loan, legal, title, buying, emi]
 ---
@@ -13,19 +13,16 @@ Buying is where the money and the risk both scale. Two services matter here.
 
 ## Legal title verification
 
-[Property legal](/services/property-legal) runs a lawyer-led check before you commit. It covers:
+[Property legal](/services/property-legal) connects you with the legal desk before you commit. It covers:
 
 - **Title chain** — 30 years of ownership history, establishing clear title
-- **Encumbrance certificate** — existing mortgages or charges on the property
-- **RERA registration** — for under-construction projects, verified against the MahaRERA register
-- **Approvals** — commencement certificate, occupancy certificate, sanctioned plan
-- **Society dues and NOC**
-- **Litigation search**
+- **Encumbrance certificate and certified copies** — existing mortgages, charges and past registered documents
+- **Sale deed drafting and registration** — the deed, Sub-Registrar appointment and execution
+- **Stamp duty and registration fees** — computation, GRAS payment and e-stamp handling
+- **Mutation and society transfer support** — municipal records, 7/12 records and society share-certificate transfer after registration
 
 > [!IMPORTANT]
 > Do the legal check **before** paying any token amount, not after. Token amounts are routinely non-refundable, and the defects that matter — a disputed title chain, a missing occupancy certificate — are exactly the ones you cannot see on a site visit.
-
-Typical turnaround is 5–7 working days for a resale flat.
 
 ## Home loans
 

@@ -5,20 +5,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Contract schema {@code ContentItem} — one CMS row of any of the four managed types (S55).
- *
- * <p>One flat record rather than a {@code oneOf} of four, because the {@code {type}} path parameter
- * is already the discriminator: a caller of {@code /admin/content/faqs} knows it is reading FAQs
- * before the response arrives. Fields belonging to the other three types are null.
- *
- * <p>{@code archived} is the reason this exists at all rather than reusing the public
- * {@code AnnouncementResponse} and friends. The ops screen has an Archived tab; the public
- * endpoints must never say whether a hidden row exists.
- *
- * <p>{@code translations} is the only field all four types share (D2), so unlike its neighbours it
- * is never null on any of the four branches below.
- */
 public record ContentItem(
         UUID id,
         String type,
@@ -42,12 +28,6 @@ public record ContentItem(
         Integer position,
         Map<String, Map<String, String>> translations) {
 
-    /**
-     * Map any of the four entities onto the flat shape.
-     *
-     * <p>{@code instanceof} rather than a per-type mapper: the four cases are three lines each and
-     * live better side by side, where a field added to one type is visibly absent from the others.
-     */
     static ContentItem from(SoftDeleteEntity entity) {
         return switch (entity) {
             case AnnouncementEntity a -> new ContentItem(a.getId(), ContentTypes.ANNOUNCEMENTS,

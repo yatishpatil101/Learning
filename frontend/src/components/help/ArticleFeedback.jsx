@@ -5,25 +5,24 @@ import Icon from '../Icon.jsx';
 import { getFeedback, saveFeedback } from '../../lib/help.js';
 import { submitHelpFeedback } from '../../services/contentService.js';
 
-/* localStorage is the widget's own memory (a returning reader sees "thanks"); the POST is the
-   measurement. The caller keys this on the slug, so deriving state in an effect would flash stale. */
-export default function ArticleFeedback({ slug, title, lang }) {
+/* localStorage is the widget's own memory (a returning reader sees "thanks"); the POST is the measurement. */
+export default function ArticleFeedback({ slug, title }) {
   const { t } = useTranslation();
   const remembered = () => getFeedback(slug);
   const [choice, setChoice] = useState(() => remembered()?.helpful ?? null);
   const [comment, setComment] = useState('');
   const [sent, setSent] = useState(() => !!remembered());
-
   // Fire-and-forget on purpose: the reader has answered and been thanked, and there is nothing
   // they could do about an upload failure. Loud in dev only.
+
   const report = (helpful, reason) => {
-    submitHelpFeedback({ slug, lang, helpful, comment: reason }).catch((err) => {
+    submitHelpFeedback({ slug, helpful, comment: reason }).catch((err) => {
       if (import.meta.env.DEV) console.warn('[help] feedback upload failed', err);
     });
   };
-
   // Double-click is guarded only by `setSent(true)` running in the same tick as the handler, so
   // React removes the button before the second click lands. Moving it after an await reopens it.
+
   const pick = (helpful) => {
     setChoice(helpful);
     if (helpful) {
@@ -78,8 +77,6 @@ export default function ArticleFeedback({ slug, title, lang }) {
             aria-describedby="feedback-hint feedback-privacy"
             className="mt-3 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-teal-400/50 focus:outline-none"
           />
-          {/* Said before the prose is typed: a box asking "what was missing?" on a support-adjacent
-              surface collects phone numbers, and the notice reduces how much of that we store. */}
           <p id="feedback-privacy" className="mt-2 text-xs text-gray-400">{t('help.feedbackPrivacy')}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button

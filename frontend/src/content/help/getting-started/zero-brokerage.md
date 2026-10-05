@@ -5,7 +5,7 @@ category: getting-started
 audience: everyone
 order: 2
 featured: true
-updated: 2026-07-28
+updated: 2026-10-04
 summary: We never take a cut of your rent or sale price. Here is what is free, what is paid, and how Draazy makes money.
 tags: [brokerage, pricing, fees]
 ---
@@ -15,10 +15,11 @@ Zero brokerage means exactly one thing: **Draazy never takes a percentage of you
 ## What is always free
 
 - Browsing and searching every listing
-- Viewing owner contact details on verified listings
+- Sending owner contact requests and chatting after the owner approves
 - Shortlisting, comparing and saving searches
 - Scheduling a site visit
 - Posting a basic property listing as an owner
+- Pausing, resuming and editing your own listing
 - Raising a support ticket
 
 ## What is paid, and why
@@ -27,19 +28,20 @@ We charge for optional things that cost us real money to deliver:
 
 | What | Who buys it | Roughly |
 | --- | --- | --- |
-| Featured placement & extra contacts | Owners | Plan-based |
-| Rent agreement with e-stamp & delivery | Either party | From ₹999 |
+| More live listings and featured placement | Owners | Plan-based |
+| Unlimited owner contacts and saved-search priority | Seekers | Plan-based |
+| Rent agreement with e-stamp and delivery | Either party | Fee plus statutory charges |
 | Packers & movers, interiors, valuation | Movers | Quote-based |
 | Legal title verification | Buyers | Quote-based |
 
-You can see current pricing on the [Plans page](/plans), and the detail in [Plans explained](/help/a/plans-explained).
+The price you pay is shown on the plan or service checkout, and the detail is in [Plans explained](/help/a/plans-explained).
 
 ## The catch people expect
 
 There isn't a hidden one, but two things are worth knowing:
 
 1. **Owners set their own terms.** Deposit, notice period and maintenance are negotiated between you and the owner. We do not set or guarantee them.
-2. **Some owners still work with agents offline.** If someone asks you for brokerage after finding a listing here, that is not a Draazy charge — [report it](/help/a/report-a-listing) and we will act on the listing.
+2. **Agents and brokers cannot list.** If someone asks you for brokerage after finding a listing here, that is not a Draazy charge - [report it](/help/a/report-a-listing) and we will act on the listing.
 
 > [!WARNING]
 > Never pay a token amount, deposit or "booking fee" to anyone claiming to represent Draazy. We do not collect rent or deposits on an owner's behalf. See [Spotting a scam](/help/a/spot-a-scam).

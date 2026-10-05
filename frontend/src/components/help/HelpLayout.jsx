@@ -5,17 +5,17 @@ import Icon from '../Icon.jsx';
 import HelpSearch from './HelpSearch.jsx';
 import HelpSidebar from './HelpSidebar.jsx';
 import { isStaff } from '../../lib/help.js';
-import { useHelpTree, useHelpPath } from '../../lib/useHelp.js';
+import { useHelpTree } from '../../lib/useHelp.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import useScrollLock from '../../hooks/useScrollLock.js';
 import useModalDialog from '../../hooks/useModalDialog.js';
+/* `prefixed: false` marks a destination outside the help centre: /support has no language prefix, so passing it
+   through the help path helper would produce /mr/support, which does not exist. */
 
-/* `prefixed: false` marks a destination outside the help centre: /support has no language prefix,
-   so passing it through the help path helper would produce /mr/support, which does not exist. */
 const UTILITY_LINKS = [
-  ['help.faq', '/help/faq', 'help-circle', true],
-  ['help.changelog', '/help/changelog', 'megaphone', true],
-  ['help.contactSupport', '/support', 'life-buoy', false],
+  ['help.faq', '/help/faq', 'help-circle'],
+  ['help.changelog', '/help/changelog', 'megaphone'],
+  ['help.contactSupport', '/support', 'life-buoy'],
 ];
 
 export default function HelpLayout({ children, wide = false, title }) {
@@ -24,7 +24,6 @@ export default function HelpLayout({ children, wide = false, title }) {
   const { pathname } = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { sections, categories, articles } = useHelpTree();
-  const hp = useHelpPath();
 
   useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
@@ -53,7 +52,7 @@ export default function HelpLayout({ children, wide = false, title }) {
             <Icon name="menu" className="w-4 h-4" /> {t('help.topics')}
           </button>
 
-          <Link to={hp('/help')} className="hidden shrink-0 items-center gap-2 lg:flex">
+          <Link to="/help" className="hidden shrink-0 items-center gap-2 lg:flex">
             <Icon name="book-open" className="w-5 h-5 text-teal-400" />
             <span className="text-sm font-bold text-white">{t('help.centre')}</span>
           </Link>
@@ -63,10 +62,10 @@ export default function HelpLayout({ children, wide = false, title }) {
           </div>
 
           <nav aria-label={t('help.searchSections')} className="hidden shrink-0 items-center gap-1 lg:flex">
-            {UTILITY_LINKS.map(([key, to, icon, prefixed]) => (
+            {UTILITY_LINKS.map(([key, to, icon]) => (
               <Link
                 key={to}
-                to={prefixed ? hp(to) : to}
+                to={to}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white"
               >
                 <Icon name={icon} className="w-3.5 h-3.5" /> {t(key)}
@@ -134,10 +133,10 @@ export default function HelpLayout({ children, wide = false, title }) {
             </div>
 
             <div className="grid grid-cols-3 gap-1 border-t border-white/10 p-3 pb-[calc(0.75rem+var(--dz-safe-b))]">
-              {UTILITY_LINKS.map(([key, to, icon, prefixed]) => (
+              {UTILITY_LINKS.map(([key, to, icon]) => (
                 <Link
                   key={to}
-                  to={prefixed ? hp(to) : to}
+                  to={to}
                   className="tap-target flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-[11px] font-medium text-gray-400 hover:bg-white/5 hover:text-white"
                 >
                   <Icon name={icon} className="w-4 h-4" /> {t(key)}

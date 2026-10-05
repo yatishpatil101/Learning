@@ -15,31 +15,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * CMS authoring — the write side of the four lists {@link ContentService} publishes.
- *
- * <p><strong>Why one polymorphic service instead of four.</strong> The contract puts all four
- * behind {@code /admin/content/{type}}, and the operations really are identical: list, create,
- * patch, archive, restore. Four controllers would be four copies of the same five methods
- * differing only in a repository reference. The per-type knowledge that genuinely differs — which
- * fields exist, which are required — lives in exactly two places: each entity's {@code apply}, and
- * {@link #requireFor}.
- *
- * <p><strong>Everything here is audited.</strong> CMS copy is the platform speaking in its own
- * voice: a banner is a promise about price, an FAQ is a statement about what the platform does with
- * a tenant's money. "Who published this and when" is not bookkeeping, it is the answer to a
- * complaint.
- */
 @Service
 public class AdminContentService {
 
-    /**
-     * Ceiling on a CMS list response.
-     *
-     * <p>These stay bare arrays because they are editor-curated reference data (api-standards.md
-     * §5.1), but an array response must have a bound: nothing stops ops adding a thousand FAQs, and
-     * "small in practice" is a measurement rather than a guarantee.
-     */
+    // These stay bare arrays because they are editor-curated reference data (api-standards.md §5.1).
     static final int MAX_ITEMS = 500;
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt");
@@ -59,7 +38,6 @@ public class AdminContentService {
         this.audit = audit;
     }
 
-    /** {@code GET /admin/content/{type}} — newest first, archived rows included. */
     @Transactional(readOnly = true)
     public List<ContentItem> list(String type) {
         PageRequest capped = PageRequest.of(0, MAX_ITEMS, NEWEST_FIRST);
@@ -72,7 +50,6 @@ public class AdminContentService {
         return rows.stream().map(ContentItem::from).toList();
     }
 
-    /** {@code POST /admin/content/{type}}. */
     @Transactional
     public ContentItem create(AuthPrincipal caller, String type, ContentWrite write) {
         String kind = require(type);
@@ -104,7 +81,6 @@ public class AdminContentService {
         return ContentItem.from(saved);
     }
 
-    /** {@code PATCH /admin/content/{type}/{id}} — absent fields are left unchanged. */
     @Transactional
     public ContentItem update(AuthPrincipal caller, String type, String id, ContentWrite write) {
         String kind = require(type);
@@ -115,11 +91,11 @@ public class AdminContentService {
         return ContentItem.from(entity);
     }
 
-    /** {@code POST /admin/content/{type}/{id}/archive} — soft delete; the public list drops it. */
     @Transactional
     public ContentItem archive(AuthPrincipal caller, String type, String id) {
         String kind = require(type);
         SoftDeleteEntity entity = load(kind, id);
+
         // Idempotent on purpose: two ops clicking Archive on the same row is not a conflict, and a
         // 409 here would only teach them to reload and click again.
         if (!entity.isArchived()) {
@@ -129,7 +105,6 @@ public class AdminContentService {
         return ContentItem.from(entity);
     }
 
-    /** {@code POST /admin/content/{type}/{id}/restore}. */
     @Transactional
     public ContentItem restore(AuthPrincipal caller, String type, String id) {
         String kind = require(type);
@@ -141,7 +116,6 @@ public class AdminContentService {
         return ContentItem.from(entity);
     }
 
-    /** Dispatch {@code apply} to the concrete type — the entities do not share a write interface. */
     private static void applyTo(SoftDeleteEntity entity, ContentWrite write) {
         switch (entity) {
             case AnnouncementEntity a -> a.apply(write);
@@ -167,12 +141,7 @@ public class AdminContentService {
         return found.orElseThrow(() -> NotFoundException.of("Content item"));
     }
 
-    /**
-     * The one field each type cannot be created without.
-     *
-     * <p>Checked here rather than left to the database's not-null constraint so the caller gets a
-     * 400 naming the field instead of a 409 naming an index.
-     */
+    // The one field each type cannot be created without.
     private static void requireFor(String kind, ContentWrite w) {
         String missing = switch (kind) {
             case ContentTypes.ANNOUNCEMENTS -> blank(w.title()) ? "title" : null;
@@ -185,32 +154,11 @@ public class AdminContentService {
         }
     }
 
-    /**
-     * The three values {@code announcements.severity} will actually accept.
-     *
-     * <p>These are not a Java enum because the column is {@code text} with a {@code CHECK}
-     * constraint (V8), and duplicating the list as an enum would give two places to change it and
-     * no mechanism to keep them agreeing. Named here so the failure is a 400 that says which values
-     * are allowed, rather than a constraint violation naming an index the caller has never heard
-     * of.
-     *
-     * <p><strong>The contract used to advertise a different set.</strong> {@code ContentItemWrite}
-     * declared {@code [info, warning, critical]} - offering {@code critical}, which the database
-     * rejects, and omitting {@code success}, which it accepts and which the read schema
-     * {@code Announcement} has always listed. A client following the published contract would have
-     * been handed a 500 for doing exactly as it was told. The spec is corrected alongside this
-     * check; the two now agree because they are both describing the constraint rather than each
-     * other.
-     */
+    // The spec and this check both describe the DB constraint, not each other.
+    // These are not a Java enum because the column is `text` with a `CHECK` constraint (the migration).
     private static final Set<String> SEVERITIES = Set.of("info", "success", "warning");
 
-    /**
-     * Reject a severity the column will not store.
-     *
-     * <p>Null passes, because null means "leave alone" on PATCH and "no severity" on POST, and the
-     * column is nullable. Only announcements carry the field; sending it to any other type is
-     * ignored, consistent with every other cross-type field on {@link ContentWrite}.
-     */
+    // Null passes, because null means "leave alone" on PATCH and "no severity" on POST, and the column is nullable.
     private static void checkSeverity(String kind, ContentWrite w) {
         if (!ContentTypes.ANNOUNCEMENTS.equals(kind) || w.severity() == null) {
             return;

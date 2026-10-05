@@ -1,16 +1,10 @@
 import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
-import { useHelpPath } from '../../lib/useHelp.js';
-
-/* Grouped navigation for the help centre: section → category → article.
- *
- * Rendered twice — once as a sticky desktop rail, once inside the mobile drawer
- * in HelpLayout — so it takes no layout responsibility of its own beyond the list. */
+/* Grouped navigation for the help centre: section → category → article. */
 
 export default function HelpSidebar({ sections, categories, articles, onNavigate }) {
   const { t } = useTranslation();
-  const hp = useHelpPath();
   return (
     <nav aria-label={t('help.helpTopics')} className="space-y-7">
       {sections.map((section) => {
@@ -32,7 +26,7 @@ export default function HelpSidebar({ sections, categories, articles, onNavigate
                 return (
                   <div key={category.id}>
                     <NavLink
-                      to={hp(`/help/c/${category.id}`)}
+                      to={`/help/c/${category.id}`}
                       onClick={onNavigate}
                       className={({ isActive }) =>
                         `flex items-center gap-2 text-sm font-semibold transition-colors ${
@@ -47,7 +41,7 @@ export default function HelpSidebar({ sections, categories, articles, onNavigate
                         {inCategory.map((article) => (
                           <li key={article.slug}>
                             <NavLink
-                              to={hp(`/help/a/${article.slug}`)}
+                              to={`/help/a/${article.slug}`}
                               onClick={onNavigate}
                               className={({ isActive }) =>
                                 `block rounded-md py-1.5 pl-2 pr-1 text-[13px] leading-snug transition-colors ${

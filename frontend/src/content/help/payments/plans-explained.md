@@ -5,8 +5,8 @@ category: payments
 audience: owner
 order: 1
 featured: true
-updated: 2026-09-22
-summary: What each plan includes, how listing and contact allowances work, and who genuinely needs one.
+updated: 2026-10-04
+summary: What each plan includes, how listing slots and contact allowances work, and who genuinely needs one.
 tags: [plans, pricing, featured, owner, contacts, referral]
 ---
 
@@ -23,23 +23,20 @@ tags: [plans, pricing, featured, owner, contacts, referral]
 
 ## What owner plans add
 
-| Feature | What it does |
+| Plan | What it adds |
 | --- | --- |
-| More active listings | Free is 1. The paid tiers raise it, up to unlimited on the top tier. |
-| Featured placement | Outranks every other signal on the default Relevance sort, in your locality |
-| Boost | A time-boxed surge — 7 days by default — useful in a listing's first week |
-| Unlimited owner contacts | The 15-contact cap is lifted on your account |
-| Dedicated manager | Top tier only: a person who screens enquiries and coordinates visits |
+| Owner Plus — yearly | 2 active listings, featured placement on every listing, priority support and unlimited owner contacts |
+| Owner Pro — yearly | 5 active listings, featured placement on every listing, one rent agreement included, a dedicated manager and unlimited owner contacts |
 
-Featuring and boosting are self-serve on a paid plan; on the free plan the controls are visible but locked.
+Current prices are on the [Plans page](/plans). Featured placement applies to every listing while your paid plan is active.
 
 ## If you are searching, not listing
 
-There is a seeker plan too. It exists for one reason: the free account includes 15 owner contacts in total, and a serious search in a competitive locality can spend those. The plan lifts the cap — see [Contacting owners](/help/a/contacting-owners) for how the quota is counted.
+There is a seeker plan too: **Seeker Plus**, billed monthly. It exists for one reason: the free account includes 15 owner contacts in total, and a serious search in a competitive locality can spend those. The plan lifts the cap — see [Contacting owners](/help/a/contacting-owners) for how the quota is counted.
 
 ## Earning allowance instead of buying it
 
-Every qualified referral adds to your allowance for free — **+15 owner contacts** on the seeker side, extra listing slots on the owner side. Your code is on the [Plans page](/plans). Referrals are reviewed for fraud, so a reward appears once the referral qualifies, not the moment someone signs up.
+Every qualified referral adds **+15 owner contacts** for free, and every three qualified referrals add one extra listing slot and one free rent agreement. Your code is on the [Plans page](/plans). Referrals are reviewed for fraud, so a reward appears once the referral qualifies, not the moment someone signs up.
 
 ## Who a plan is worth it for
 
@@ -57,7 +54,7 @@ Every qualified referral adds to your allowance for free — **+15 owner contact
 - Your price is above comparables. Paid placement in front of the wrong price just buys you more people leaving
 
 > [!IMPORTANT]
-> Featured placement increases *views*. It does not fix a listing problem. If your photos, price or verification are weak, a plan amplifies a listing that people are already choosing not to enquire on. It also only applies on the default Relevance sort — a buyer who sorts by price or by newest never sees the boost.
+> Featured placement increases *views*. It does not fix a listing problem. If your photos, price or verification are weak, a plan amplifies a listing that people are already choosing not to enquire on. It also only applies on the default Relevance sort — a buyer who sorts by price or by newest never sees it.
 
 ## Billing
 

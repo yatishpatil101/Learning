@@ -1,14 +1,8 @@
-/* Help centre content is compiled at build time by scripts/vite-plugin-help-content.mjs; English is
-   canonical and an untranslated article falls back to it rather than disappearing.
-
-   `access: 'staff'` content is a separate chunk fetched only after a staff sign-in. That is NOT a
-   permission boundary — it is served unauthenticated to anyone who guesses its URL. */
-
+/* English help content is canonical; staff-only content loads after staff sign-in. */
 import {
   sections as rawSections,
   categories as rawCategories,
   articles as rawArticles,
-  translations as rawTranslations,
   changelog as rawChangelog,
 } from 'virtual:help-content';
 
@@ -21,8 +15,7 @@ export function isStaff(user) {
   return !!user && STAFF_ROLES.has(user.role);
 }
 
-
-const NO_STAFF_CONTENT = { sections: [], categories: [], articles: [], translations: {}, loaded: false };
+const NO_STAFF_CONTENT = { sections: [], categories: [], articles: [], loaded: false };
 
 let staffContent = NO_STAFF_CONTENT;
 let staffRequest = null;
@@ -43,7 +36,6 @@ export function loadStaffContent() {
         sections: mod.sections,
         categories: mod.categories,
         articles: mod.articles,
-        translations: mod.translations,
         loaded: true,
       };
       staffListeners.forEach((notify) => notify());
@@ -57,64 +49,41 @@ export function onStaffContent(notify) {
   return () => staffListeners.delete(notify);
 }
 
-/** Normalise an i18next language tag (`mr-IN`, `HI`) to a content language. */
-function normalizeLang(lang) {
-  const short = String(lang || 'en').toLowerCase().split('-')[0];
-  return rawTranslations[short] ? short : 'en';
-}
-
-/** Overlay the translated surface onto the canonical English article. */
-function localize(article, lang, staffTranslations) {
-  if (lang === 'en') return { ...article, translated: true, lang: 'en' };
-  const t = rawTranslations[lang]?.[article.slug] ?? staffTranslations?.[lang]?.[article.slug];
-  if (!t) return { ...article, translated: false, lang: 'en' };
-  return { ...article, ...t, translated: true, lang };
-}
-
-/** Pick the translated label for a section or category, falling back to English. */
-function localizeTaxonomy(item, lang) {
-  const t = lang !== 'en' && item.i18n ? item.i18n[lang] : null;
-  return t ? { ...item, ...t } : item;
-}
-
 const byOrder = (items) => items.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
 /* `staff` is passed in rather than read from a module global, so the "may this reader have it"
    decision stays at one visible call site (lib/useHelp.js). */
-export function helpTree(lang, staff = NO_STAFF_CONTENT) {
-  const L = normalizeLang(lang);
-  const sections = byOrder([...rawSections, ...staff.sections]).map((s) => localizeTaxonomy(s, L));
+export function helpTree(staff = NO_STAFF_CONTENT) {
+  const sections = byOrder([...rawSections, ...staff.sections]);
   const sectionIds = new Set(sections.map((s) => s.id));
   const categories = byOrder([...rawCategories, ...staff.categories])
-    .filter((c) => sectionIds.has(c.section))
-    .map((c) => localizeTaxonomy(c, L));
+    .filter((c) => sectionIds.has(c.section));
   const categoryIds = new Set(categories.map((c) => c.id));
   const articles = [...rawArticles, ...staff.articles]
     .filter((a) => categoryIds.has(a.category))
-    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
-    .map((a) => localize(a, L, staff.translations));
-  return { sections, categories, articles, lang: L };
+    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
+  return { sections, categories, articles };
 }
 
-export function getCategory(id, lang, staff) {
-  return helpTree(lang, staff).categories.find((c) => c.id === id) || null;
+export function getCategory(id, staff) {
+  return helpTree(staff).categories.find((c) => c.id === id) || null;
 }
 
-export function articlesInCategory(id, lang, staff) {
-  return helpTree(lang, staff).articles.filter((a) => a.category === id);
+export function articlesInCategory(id, staff) {
+  return helpTree(staff).articles.filter((a) => a.category === id);
 }
 
 /** Featured articles for the landing page's "Start here" row. */
-export function featuredArticles(lang, limit = 6, staff) {
-  const { articles } = helpTree(lang, staff);
+export function featuredArticles(limit = 6, staff) {
+  const { articles } = helpTree(staff);
   const featured = articles.filter((a) => a.featured);
   return (featured.length ? featured : articles).slice(0, limit);
 }
 
 /** Previous/next within the same category, ordered as the sidebar is. */
-export function articleNeighbours(article, lang, staff) {
+export function articleNeighbours(article, staff) {
   if (!article) return { prev: null, next: null };
-  const siblings = articlesInCategory(article.category, lang, staff);
+  const siblings = articlesInCategory(article.category, staff);
   const i = siblings.findIndex((a) => a.slug === article.slug);
   return {
     prev: i > 0 ? siblings[i - 1] : null,
@@ -123,8 +92,7 @@ export function articleNeighbours(article, lang, staff) {
 }
 
 /* A scored substring match rather than a fuzzy index: the corpus is a few dozen articles, and
-   exact substrings are more predictable for a help centre. Search runs over the *localized*
-   article, so an untranslated one keeps its English body and stays findable from any language. */
+   exact substrings are more predictable for a help centre. */
 
 const FIELD_WEIGHTS = [
   { key: 'title', weight: 12 },
@@ -140,8 +108,6 @@ function fieldValue(article, key) {
   return article[key] || '';
 }
 
-/* JavaScript's \b is defined against [A-Za-z0-9_], so it never fires next to a Devanagari
-   character. Testing for a separator instead gives Marathi queries the whole-word bonus too. */
 const SEPARATOR = /[\s.,;:!?()[\]{}"'—–\-/\\|]/;
 
 function hasWordStart(haystack, term) {
@@ -169,7 +135,7 @@ export function searchHelp(query, opts = {}) {
   if (q.length < 2) return [];
 
   const terms = q.split(/\s+/).filter(Boolean);
-  const { articles } = helpTree(opts.lang, opts.staff);
+  const { articles } = helpTree(opts.staff);
   const results = [];
 
   for (const article of articles) {
@@ -196,9 +162,6 @@ export function searchHelp(query, opts = {}) {
   return opts.limit ? results.slice(0, opts.limit) : results;
 }
 
-/* Stored locally for now. When the backend lands this becomes a POST; the shape below is what
-   that endpoint should accept. */
-
 const FEEDBACK_KEY = 'dz_help_feedback_v1';
 
 function readFeedback() {
@@ -224,7 +187,6 @@ export function saveFeedback(slug, helpful, comment = '') {
   }
 }
 
-
 const RECENT_KEY = 'dz_help_recent_v1';
 const RECENT_MAX = 5;
 
@@ -236,11 +198,11 @@ export function markViewed(slug) {
   } catch { /* storage unavailable — recents are a nicety, not a requirement */ }
 }
 
-export function recentArticles(lang, staff) {
+export function recentArticles(staff) {
   let slugs = [];
   try {
     slugs = JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
   } catch { /* ignore */ }
-  const { articles } = helpTree(lang, staff);
+  const { articles } = helpTree(staff);
   return slugs.map((s) => articles.find((a) => a.slug === s)).filter(Boolean);
 }

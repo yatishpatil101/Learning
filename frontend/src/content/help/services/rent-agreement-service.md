@@ -5,32 +5,33 @@ category: services
 audience: everyone
 order: 1
 featured: true
-updated: 2026-07-23
-summary: Drafting, e-stamping, Aadhaar e-signing and doorstep delivery — what you get, what it costs, how long it takes.
-tags: [rent agreement, e-stamp, service, legal]
+updated: 2026-10-04
+summary: Co-fill, drafting, Article 36A charges, draft approval, registration and refunds for a rent agreement.
+tags: [rent agreement, e-stamp, service, legal, co-fill]
 ---
 
-[Rent agreement](/services/rent-agreement) handles the whole document end to end so neither party has to visit a registrar's office.
+[Rent agreement](/services/rent-agreement) guides the owner and tenant through a Maharashtra Leave & Licence draft and the registration workflow.
 
 ## What is included
 
 - A drafted agreement based on your terms
-- Maharashtra **e-stamp** at the correct duty
-- **Aadhaar-based e-signing** for both parties
-- Online registration where applicable
-- A digitally signed PDF, plus optional printed doorstep delivery
+- Maharashtra Article 36A stamp duty and registration-fee calculation
+- Co-fill invites, so the other side enters their own identity details and papers
+- Draft review, amendments and approval before registration
+- Registered copy upload and tracking after the Sub-Registrar step
 
-Pricing starts at **₹999** and varies with rent, deposit and whether you want registration and physical delivery.
+The Draazy service fee **plus GST** is shown in the cost breakdown before you pay, with Article 36A stamp duty, registration fee and any other statutory charges itemised separately.
 
 ## The process
 
-1. **Enter terms** — parties, property, rent, deposit, notice, lock-in, maintenance.
-2. **Review the draft** — you get an editable draft within a few hours; both parties can request changes.
-3. **Pay** — the fee plus stamp duty, itemised.
-4. **e-Sign** — both parties authenticate with Aadhaar OTP. No physical presence needed.
-5. **Delivery** — signed PDF immediately; printed copy in 2–4 working days if selected.
+1. **Enter details** — Property, Owner, Tenant, Terms, Witnesses and Review are the six form steps.
+2. **Invite the other side** — tenant or owner can co-fill their own details from a secure invite.
+3. **File documents** — PAN, Aadhaar, photos, ownership proof and witness details are checked before checkout.
+4. **Pay** — service fee plus government charges, itemised.
+5. **Review the draft** — Draazy shares a versioned draft; either side can approve or request changes.
+6. **Register** — after approval, the registered copy is uploaded back to the request tracker.
 
-Typical end-to-end time is **24–48 hours** once both parties respond promptly.
+The tracker shows Submitted, Documents, Draft & approval, Registration and Ready. Timelines depend on how quickly both parties provide documents and approve the draft.
 
 ## What you should check in the draft
 
@@ -52,7 +53,7 @@ By convention the tenant pays, but it is negotiable and often split. Whoever pay
 
 ## Cancelling
 
-Full refund before drafting starts. Once the draft is delivered, the drafting component is non-refundable; stamp duty is refunded if it has not been paid to the government. See [Invoices, refunds and receipts](/help/a/invoices-and-refunds).
+Everything you paid is refundable until the stamp duty is paid to the government on GRAS. After that the duty and registration charges are spent, and only eligible service-fee or overpayment refunds can come back. See [Invoices, refunds and receipts](/help/a/invoices-and-refunds).
 
 ## Related
 

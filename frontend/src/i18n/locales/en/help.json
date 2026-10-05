@@ -84,10 +84,6 @@
     "contactUs": "Contact us",
     "deflectTitle": "Check the help centre first",
     "deflectBody": "Guides on deposits, verification, listings, payments and refunds — answered instantly.",
-    "notTranslatedTitle": "This article is not available in your language yet",
-    "notTranslatedBody": "You are reading the English version. We translate articles as they are written — the rest of the help centre is already in your language.",
-    "translationBehindTitle": "This translation is behind the English version",
-    "translationBehindBody": "Something on this page changed recently and the translation has not caught up. For the current answer, <1>read it in English</1>.",
     "runbooks": "Runbooks"
   }
 }

@@ -4,8 +4,8 @@ slug: contacting-owners
 category: renting
 audience: tenant
 order: 1
-updated: 2026-09-22
-summary: How the owner-approval contact request works, how many owner contacts you get, and how to write an enquiry that gets a reply.
+updated: 2026-10-04
+summary: How owner approval, masked contact details, contact allowance and in-app chat work.
 tags: [enquiry, contact, owner, messaging, quota]
 ---
 
@@ -18,13 +18,16 @@ Tapping does not hand you a phone number. It sends the owner a **contact request
 | State | What you see |
 | --- | --- |
 | Pending | Request sent. The owner has not answered yet. |
-| Approved | The full number is revealed, and you can call or message. |
+| Approved | The contact path opens. You can message in-app, and any phone action shown for that owner appears only after approval. |
 | Declined | The owner passed. This is final for that listing. |
 
 Tapping again on the same listing does not send a second request — it shows you where the first one stands.
 
-> [!NOTE]
-> Some owners prefer to keep their number private even after approving. There you will see **Approved — owner prefers in-app chat**, and the conversation stays in the app.
+The owner's number is never shown before approval. For many listings the safe next step is in-app chat rather than taking the conversation off-platform.
+
+## Messages
+
+[Messages](/messages) has **Chats** for approved conversations and **Requests** for pending ones. You can archive or mute a thread, and block or report a person from the thread menu.
 
 ## Do I need to be identity-verified?
 

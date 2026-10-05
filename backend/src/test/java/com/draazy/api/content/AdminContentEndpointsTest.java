@@ -53,7 +53,7 @@ class AdminContentEndpointsTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName("CMS " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
     }
 
     private String staff() {

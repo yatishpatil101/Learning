@@ -4,8 +4,8 @@ slug: tenant-profiles
 category: owner-tools
 audience: owner
 order: 2
-updated: 2026-07-26
-summary: What is in a tenant profile, how much of it is verified, and where the line is on tenant preferences.
+updated: 2026-10-04
+summary: What is in a tenant profile, what is verified, and where the line is on tenant preferences.
 tags: [tenant, screening, profile, owner]
 ---
 
@@ -17,15 +17,16 @@ Every enquiry carries the tenant's profile. It is the closest thing to screening
 | --- | --- |
 | Name | No — self-declared |
 | Mobile number | **Yes** — OTP |
-| Government ID | Yes, if the tenant completed KYC |
-| Occupation & employer | No |
-| Household composition | No |
+| Identity status | Yes, if the tenant completed KYC |
+| Occupation | No |
+| Monthly income | No |
+| Occupants | No |
 | Move-in date | No |
-| Pets | No |
-| Previous tenancy | No |
+| Prior landlord note | No |
+| About the tenant | No |
 
 > [!NOTE]
-> A verified number and completed KYC tell you the person is real and traceable. Everything else is self-declared — verify it yourself before signing.
+> A verified number and completed identity check tell you the person is real and traceable. The profile score is computed by Draazy from saved profile fields, but the underlying job, income and household answers are still self-declared — verify them yourself before signing.
 
 ## Sensible verification before signing
 

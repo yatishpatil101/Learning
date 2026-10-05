@@ -11,7 +11,6 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
-/** The rationale for every column below is in the {@code COMMENT ON} clauses of {@code V36}. */
 @Entity
 @Table(name = "help_article_feedback")
 @Getter
@@ -41,6 +40,10 @@ public class HelpFeedback {
     @Setter
     @Column(name = "user_id", updatable = false)
     private UUID userId;
+
+    @Setter
+    @Column(name = "ip_hash", updatable = false)
+    private String ipHash;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

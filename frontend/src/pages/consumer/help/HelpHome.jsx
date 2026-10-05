@@ -4,16 +4,13 @@ import Icon from '../../../components/Icon.jsx';
 import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import HelpSearch from '../../../components/help/HelpSearch.jsx';
 import { ArticleCard, CategoryCard } from '../../../components/help/HelpCards.jsx';
-import { useHelpTree, useFeaturedArticles, useRecentArticles, useHelpLang, useHelpPath } from '../../../lib/useHelp.js';
+import { useHelpTree, useFeaturedArticles, useRecentArticles } from '../../../lib/useHelp.js';
 import { useHelpSeo } from '../../../lib/useHelpSeo.js';
+/* Help centre landing page. Uses the `wide` shell — the topic rail is redundant here because the whole page is the
+   topic index. */
 
-/* Help centre landing page.
-   Uses the `wide` shell — the topic rail is redundant here because the whole
-   page is the topic index. */
+/* Slugs surfaced as "Popular" under the search box. */
 
-/* Slugs surfaced as "Popular" under the search box. Chosen rather than derived:
-   these are the three questions support answers most often, and a computed
-   "most viewed" would only rank whatever we happened to link to first. */
 const POPULAR = ['zero-brokerage', 'spot-a-scam', 'post-a-listing'];
 
 export default function HelpHome() {
@@ -21,15 +18,14 @@ export default function HelpHome() {
   const { sections, categories, articles } = useHelpTree();
   const featured = useFeaturedArticles(4);
   const recent = useRecentArticles().slice(0, 3);
-  const hp = useHelpPath();
-  useHelpSeo('/help', useHelpLang());
+  useHelpSeo('/help');
 
   const titleFor = (id) => categories.find((c) => c.id === id)?.title || '';
   const countIn = (id) => articles.filter((a) => a.category === id).length;
 
   return (
+      /* Hero */
     <HelpLayout wide title={t('help.centre')}>
-      {/* Hero */}
       <section className="py-6 text-center sm:py-12">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-teal-300">
           <Icon name="book-open" className="w-3.5 h-3.5" /> {t('help.centre')}
@@ -40,11 +36,9 @@ export default function HelpHome() {
         </p>
         <div className="mx-auto mt-6 max-w-xl">
           <HelpSearch variant="hero" />
+        {/* "Popular:" reads like a sentence but behaves like a nav row — every item is a destination, not prose — so
+           WCAG 2.5.8's inline-text exemption should not be doing the work here. */}
         </div>
-        {/* "Popular:" reads like a sentence but behaves like a nav row — every item is
-            a destination, not prose — so WCAG 2.5.8's inline-text exemption should not
-            be doing the work here. Laid out as a wrapped flex row of real targets
-            instead of inline links in a <p>, which is what made them 186x15. */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-1 gap-y-1 text-xs text-gray-600">
           <span>{t('help.popular')}</span>
           {POPULAR.map((slug, i) => {
@@ -53,14 +47,14 @@ export default function HelpHome() {
             return (
               <span key={slug} className="inline-flex items-center gap-1">
                 {i > 0 && <span className="text-gray-700" aria-hidden="true">·</span>}
-                <Link to={hp(`/help/a/${slug}`)} className="tap-target inline-flex items-center px-1 text-gray-500 hover:text-teal-400">{a.title}</Link>
+                <Link to={`/help/a/${slug}`} className="tap-target inline-flex items-center px-1 text-gray-500 hover:text-teal-400">{a.title}</Link>
               </span>
             );
           })}
         </div>
       </section>
-
       {/* Recently viewed — only once there is history worth showing */}
+
       {recent.length > 0 && (
         <section className="mb-12">
           <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-gray-500">
@@ -70,7 +64,7 @@ export default function HelpHome() {
             {recent.map((a) => (
               <Link
                 key={a.slug}
-                to={hp(`/help/a/${a.slug}`)}
+                to={`/help/a/${a.slug}`}
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs text-gray-400 transition-colors hover:border-teal-400/40 hover:text-teal-300"
               >
                 <Icon name="history" className="w-3.5 h-3.5" /> {a.title}
@@ -79,8 +73,8 @@ export default function HelpHome() {
           </div>
         </section>
       )}
-
       {/* Start here */}
+
       {featured.length > 0 && (
         <section className="mb-14">
           <h2 className="mb-4 text-lg font-bold text-white">{t('help.startHere')}</h2>
@@ -91,8 +85,8 @@ export default function HelpHome() {
           </div>
         </section>
       )}
-
       {/* Browse by section */}
+
       {sections.map((section) => {
         const inSection = categories.filter((c) => c.section === section.id);
         if (!inSection.length) return null;
@@ -116,8 +110,8 @@ export default function HelpHome() {
           </section>
         );
       })}
-
       {/* Escalation */}
+
       <section className="mb-8 rounded-2xl border border-white/10 bg-white/[0.03] p-6 sm:p-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -125,10 +119,6 @@ export default function HelpHome() {
             <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-gray-400">{t('help.needAPersonBody')}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            {/* min-h-[44px] rather than py-3: these two sit side by side and py-2.5
-                already leaves them 42px, so two pixels of padding would do it — but
-                a min-height says what the rule actually is and survives someone
-                changing the font size later. */}
             <Link
               to="/support"
               className="inline-flex items-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2.5 min-h-[44px] text-sm font-semibold text-white transition-colors hover:bg-teal-400"

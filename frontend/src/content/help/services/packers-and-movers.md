@@ -4,19 +4,19 @@ slug: packers-and-movers
 category: services
 audience: everyone
 order: 2
-updated: 2026-07-23
-summary: Get comparable quotes from vetted movers, and avoid the pricing games the industry is known for.
+updated: 2026-10-04
+summary: Request a callback from the relocation desk, compare mover quotes, and avoid the pricing games the industry is known for.
 tags: [packers, movers, shifting, quote]
 ---
 
-[Packers & movers](/services/packers-movers) collects quotes from vetted Pune movers against one standard inventory, so the numbers are actually comparable.
+[Packers & movers](/services/packers-movers) takes your service type, from and to locations, home size and preferred move date, then the relocation desk calls back with a quote from a verified partner.
 
 ## Getting a quote
 
-1. Enter your current and destination addresses, and floors and lift availability at both ends.
-2. Build the inventory — rooms, large furniture, appliances, two-wheeler or car if applicable.
-3. Choose the date and whether you need packing, or transport only.
-4. Receive quotes within a few hours, itemised on the same basis.
+1. Choose the service you need — local shifting, intercity relocation, packing, office/commercial move, vehicle transport or storage.
+2. Enter where you are moving from and to.
+3. Add the home size and preferred move date.
+4. Submit the request and the relocation desk calls you back with the next steps.
 
 ## What a quote should itemise
 
@@ -35,7 +35,7 @@ tags: [packers, movers, shifting, quote]
 
 Transit insurance is worth taking for anything above roughly ₹1 lakh of contents. Two forms exist:
 
-- **All-risk** — covers damage in handling and transit. Costs about 2–3% of declared value.
+- **All-risk** — covers damage in handling and transit. The mover quotes it against your declared value.
 - **Transit-only** — covers accident and fire only, and is much cheaper. It will not cover a dropped television.
 
 Declare the value honestly; under-declaring voids the claim.
@@ -46,18 +46,11 @@ Declare the value honestly; under-declaring voids the claim.
 - Photograph anything already damaged, and the packed load
 - Keep valuables, documents and jewellery with you — never in the truck
 - Do not sign the delivery receipt until you have checked the count
-- Report damage within 24 hours, in writing, with photos
+- Report damage quickly, in writing, with photos
 
-## Costs, roughly
+## Costs
 
-| Move | Typical range |
-| --- | --- |
-| 1 BHK within Pune | ₹6,000 – ₹14,000 |
-| 2 BHK within Pune | ₹10,000 – ₹22,000 |
-| 3 BHK within Pune | ₹16,000 – ₹35,000 |
-| Pune → Mumbai, 2 BHK | ₹22,000 – ₹40,000 |
-
-Month-end and the first weekend of the month are the most expensive; mid-month weekdays are the cheapest.
+The app does not publish a rate card. Your final quote depends on home size, inventory, distance, packing scope, insurance and the move date. Month-end and the first weekend of the month are usually the most expensive; mid-month weekdays are usually cheaper.
 
 ## Related
 

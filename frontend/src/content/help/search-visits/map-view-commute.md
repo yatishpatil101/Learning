@@ -4,7 +4,7 @@ slug: map-view-commute
 category: search-visits
 audience: tenant
 order: 3
-updated: 2026-09-22
+updated: 2026-10-04
 summary: Search around a place rather than by locality name — the more useful question in Pune.
 tags: [map, commute, locality, travel time]
 ---
@@ -13,7 +13,7 @@ Locality names are a poor proxy for convenience. Wakad to Hinjawadi is four kilo
 
 ## Using map view
 
-Open [Listings](/listings?view=map) or switch to the map toggle above the results. Pan and zoom, and the results follow the area you are looking at. Tap any pin to see the listing.
+Open [Listings](/listings?view=map) or switch to the map toggle above the results. Map view is area-first: choose one to five localities, then the map shows pins from the current filtered results in those areas. Pan and zoom to inspect the pins; change the locality or other filters to change the result set. Tap any pin to see the listing.
 
 ## Near a place
 
@@ -32,7 +32,7 @@ Both draw a radius around the point you chose. Travel time is converted to a by-
 
 ## Commute times on a property
 
-Every property and society page carries a **Commute to work** tile: the estimated drive time by road from that address to Pune's major employment hubs. It is a drive-time estimate, so a two-wheeler will usually beat it and public transport will not.
+Property and society location sections show commute or connectivity information when Draazy has enough location data for that address. Treat it as a drive-time estimate: a two-wheeler will usually beat it and public transport will not.
 
 ## Locality intelligence
 
@@ -46,7 +46,7 @@ Tap any locality name to open its [locality page](/locality), which covers:
 
 ## Nearby search from a property
 
-On any property page, the **Nearby** tab shows what is around it — daily needs, transport and comparable listings in the same building or society.
+On a property page, the **Location** tab shows what is around it — daily needs, transport and comparable listings in the same building or society when available.
 
 ## Related
 

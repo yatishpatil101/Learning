@@ -4,8 +4,8 @@ slug: offers-and-closing
 category: renting
 audience: everyone
 order: 5
-updated: 2026-09-22
-summary: How to make and negotiate an offer, what Under Offer means, and the two-sided step that actually closes a property.
+updated: 2026-10-04
+summary: How to make and negotiate an offer, what Under Offer means, and how owner acceptance closes a rental.
 tags: [offer, negotiate, counter, finalize, under offer, deal]
 ---
 
@@ -27,14 +27,14 @@ You have **one offer per property**. Changing your mind does not create a second
 | Accepted | Agreed |
 | Declined | Finished, for that offer |
 
-You can accept the owner's counter outright, or counter it back. There is no limit on the rounds.
+You can agree to the owner's counter amount or counter it back. Agreeing sends that amount back for the owner's acceptance, so the owner still has the final say. There is no limit on the rounds.
 
 > [!NOTE]
 > An accepted offer is an agreement on price. It does **not** close the property — that is a separate step below, which is what lets you agree a number and still walk away after the paperwork check.
 
 ## Under Offer
 
-An owner can mark a property **Under Offer** while they work through a shortlist. It stays visible and searchable; it is a signal, not a removal, and the owner can add or remove the interested parties behind it.
+An owner can mark a property **Under Offer** while they work through a shortlist. It stays visible and searchable; it is a signal, not a removal.
 
 ## Closing
 
@@ -43,7 +43,7 @@ Closing is deliberately two-sided:
 1. You use **Request to finalize**.
 2. The owner accepts.
 
-On the owner's acceptance three things happen at once: the property is marked sold or rented and comes off the market, **every other pending finalize request on that property is automatically declined**, and — for a rental — your tenancy record is created so rent, documents and your [Rent Passport](/help/a/paying-rent-online) have something to attach to.
+On the owner's acceptance three things happen at once: the property is marked sold or rented and comes off the market, **every other pending finalize request on that property is automatically declined**, and — for a rental — your tenancy record is created so rent and documents have a place to attach.
 
 You can withdraw your own request any time before the owner acts on it. If the owner declines, you can ask again; declining has no other effect.
 

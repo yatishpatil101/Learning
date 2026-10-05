@@ -1,11 +1,7 @@
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
-import { useHelpPath } from '../../lib/useHelp.js';
-
-/* Small presentational pieces shared across the help centre pages.
-   Kept together because each is a handful of lines and they are always used
-   in combination. */
+/* Small presentational pieces shared across the help centre pages. */
 
 export function Breadcrumbs({ trail }) {
   const { t } = useTranslation();
@@ -29,10 +25,9 @@ export function Breadcrumbs({ trail }) {
 
 export function CategoryCard({ category, count }) {
   const { t } = useTranslation();
-  const hp = useHelpPath();
   return (
     <Link
-      to={hp(`/help/c/${category.id}`)}
+      to={`/help/c/${category.id}`}
       className="group flex h-full flex-col rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:border-teal-400/40 hover:bg-white/[0.05]"
     >
       <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-teal-400/10">
@@ -49,10 +44,9 @@ export function CategoryCard({ category, count }) {
 
 export function ArticleCard({ article, categoryTitle }) {
   const { t } = useTranslation();
-  const hp = useHelpPath();
   return (
     <Link
-      to={hp(`/help/a/${article.slug}`)}
+      to={`/help/a/${article.slug}`}
       className="group flex h-full flex-col rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:border-teal-400/40 hover:bg-white/[0.05]"
     >
       {categoryTitle && (
@@ -68,10 +62,9 @@ export function ArticleCard({ article, categoryTitle }) {
 }
 
 export function ArticleRow({ article }) {
-  const hp = useHelpPath();
   return (
     <Link
-      to={hp(`/help/a/${article.slug}`)}
+      to={`/help/a/${article.slug}`}
       className="group flex items-start gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.04]"
     >
       <Icon name="file-text" className="mt-0.5 w-4 h-4 shrink-0 text-gray-600 group-hover:text-teal-400" />
@@ -82,8 +75,8 @@ export function ArticleRow({ article }) {
     </Link>
   );
 }
-
 /** Shown when a category, search or filter produces nothing. */
+
 export function EmptyState({ icon = 'search', title, children }) {
   return (
     <div className="rounded-xl border border-dashed border-white/10 px-6 py-12 text-center">

@@ -5,6 +5,8 @@ import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { listFaqs } from '../../services/contentService.js';
 import { getCookieConsent } from '../CookieConsent.jsx';
+import useScrollLock from '../../hooks/useScrollLock.js';
+import useSheetViewport from '../../lib/useSheetViewport.js';
 import { rankAnswers, LOW_CONFIDENCE } from '../../lib/assistant/match.js';
 import {
   ASSISTANT,
@@ -13,32 +15,31 @@ import {
   ROUTE_SUGGESTIONS,
   KB,
 } from '../../data/assistant.js';
+/* Draaz — the always-on help assistant. */
 
-/* Draaz — the always-on help assistant. Rules-based (no backend): answers are ranked from the
-   curated KB in data/assistant.js. Mounted once by ConsumerLayout on every consumer page. */
+/* Deliberately not migrated from the older `dz_nestor_*` keys: an existing thread is a transcript of a conversation
+   with a differently-named bot. */
 
-/* Deliberately not migrated from the older `dz_nestor_*` keys: an existing thread is a transcript
-   of a conversation with a differently-named bot. */
 const MSG_KEY = 'dz_draaz_msgs';
 const NUDGE_KEY = 'dz_draaz_nudge';
-const NUDGE_TIMEOUT_MS = 6000; // auto-clear the first-visit hint after a few seconds
-/* The hint is an introduction, so it has a budget of two sightings and the count lives in
-   localStorage — the 6s auto-hide counts as one, or the bubble greets again on the next route. */
+/* The hint is an introduction, so it has a budget of two sightings and the count lives in localStorage — the 6s
+   auto-hide counts as one, or the bubble greets again on the next route. */
+const NUDGE_TIMEOUT_MS = 6000;
 const NUDGE_MAX_SHOWS = 2;
 
 function nudgeShows() {
   try {
     const n = Number(localStorage.getItem(NUDGE_KEY));
     return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch { return NUDGE_MAX_SHOWS; } // storage blocked → stay quiet
+  } catch { return NUDGE_MAX_SHOWS; }
 }
 
 function recordNudgeShown() {
-  try { localStorage.setItem(NUDGE_KEY, String(nudgeShows() + 1)); } catch { /* ignore */ }
+  try { localStorage.setItem(NUDGE_KEY, String(nudgeShows() + 1)); } catch {}
 }
+/* Routes where the user is deciding or transacting: the ~110px bubble lands on the price band or the wizard's first
+   field. */
 
-/* Routes where the user is deciding or transacting: the ~110px bubble lands on the price band or
-   the wizard's first field. Suppressed below `lg` only, in CSS (`max-lg:hidden`), not in JS. */
 const NUDGE_MUTED = ['/property/', '/list-property', '/checkout', '/schedule-visit', '/signin', '/signup'];
 
 let msgSeq = 0;
@@ -55,12 +56,11 @@ function loadMsgs() {
     if (Array.isArray(parsed) && parsed.every((m) => m && typeof m === 'object' && m.id && m.role)) {
       return parsed;
     }
-  } catch { /* ignore */ }
+  } catch {}
   return [];
 }
+/* Turn a KB entry into a bot message. */
 
-/* Turn a KB entry into a bot message. KB actions with `ask` (no `to`) become
-   follow-up query chips; everything else navigates. */
 function botFromEntry(entry, extra) {
   return { id: uid(), role: 'bot', text: entry.a, actions: entry.actions || [], ...extra };
 }
@@ -84,49 +84,52 @@ export default function AssistantWidget() {
   const inputRef = useRef(null);
 
   // Load FAQs once so the matcher can answer them too (best-effort).
+  const sheet = useSheetViewport();
+  useScrollLock(open && sheet);
+
   useEffect(() => {
     let alive = true;
     listFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
     return () => { alive = false; };
   }, []);
-
   // Persist the thread across route changes / refresh within the session.
-  useEffect(() => {
-    try { sessionStorage.setItem(MSG_KEY, JSON.stringify(msgs)); } catch { /* ignore */ }
-  }, [msgs]);
 
+  useEffect(() => {
+    try { sessionStorage.setItem(MSG_KEY, JSON.stringify(msgs)); } catch {}
+  }, [msgs]);
   // Seed the greeting the first time the panel opens with an empty thread.
+
   useEffect(() => {
     if (open && msgs.length === 0) {
       setMsgs([{ id: uid(), role: 'bot', text: ASSISTANT.greeting, quick: true }]);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- greeting should run only when opened
   // Auto-scroll to the newest message; focus the composer on open.
+
   useEffect(() => {
     if (!open) return;
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
   }, [msgs, open]);
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
-
   // Esc closes the panel.
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === 'Escape' && setOpen(false);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
-
   // Track cookie-consent visibility (dispatched by CookieConsent) so the FAB can
   // step aside on small screens while the user is choosing cookies.
+
   useEffect(() => {
     const onBar = (e) => setCookieBar(!!e.detail?.visible);
     window.addEventListener('pn:cookie-banner', onBar);
     return () => window.removeEventListener('pn:cookie-banner', onBar);
   }, []);
-
   // Auto-clear the hint: a timeout spends a sighting exactly as an explicit close does.
   // The ref guard is because StrictMode double-invokes effects, which spent the whole budget.
+
   const nudgeCounted = useRef(false);
   useEffect(() => {
     if (!showNudge) return undefined;
@@ -142,14 +145,14 @@ export default function AssistantWidget() {
     setShowNudge(false);
     // Closing it by hand is a clearer "no" than letting it time out, so spend the
     // whole budget rather than one sighting.
-    try { localStorage.setItem(NUDGE_KEY, String(NUDGE_MAX_SHOWS)); } catch { /* ignore */ }
+    try { localStorage.setItem(NUDGE_KEY, String(NUDGE_MAX_SHOWS)); } catch {}
   }, []);
 
   const openPanel = useCallback(() => { setOpen(true); dismissNudge(); }, [dismissNudge]);
 
   const push = useCallback((...m) => setMsgs((prev) => [...prev, ...m]), []);
-
   // Core: answer a free-text (or chip) query from the KB.
+
   const ask = useCallback((text) => {
     const q = String(text || '').trim();
     if (!q) return;
@@ -200,8 +203,8 @@ export default function AssistantWidget() {
   const resetThread = useCallback(() => {
     setMsgs([{ id: uid(), role: 'bot', text: ASSISTANT.greeting, quick: true }]);
   }, []);
-
   // Context-aware suggestion chips for the current route (longest-prefix match).
+
   const suggestions = useMemo(() => {
     const key = Object.keys(ROUTE_SUGGESTIONS)
       .filter((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))
@@ -209,10 +212,11 @@ export default function AssistantWidget() {
     const ids = ROUTE_SUGGESTIONS[key] || ROUTE_SUGGESTIONS['/'];
     return ids.map((id) => KB.find((e) => e.id === id)).filter(Boolean);
   }, [pathname]);
-
   // Extra clearance over transient page-owned bars --dz-bottom-inset cannot see.
+
   // ponytail: fold these into --dz-bottom-inset if a third such bar shows up.
   const detailBar = pathname.startsWith('/property/')
+    || /^\/flatmates\/(room|group|post)\//.test(pathname)
     || pathname === '/society'
     || pathname.startsWith('/society/')
     || pathname === '/contact';
@@ -223,15 +227,16 @@ export default function AssistantWidget() {
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
-
+  const centerClass = open ? 'max-sm:left-4 max-sm:flex max-sm:justify-center' : '';
   // Ops can hide the assistant via settings.flags.assistant (defaults on). Kept
   // after all hooks so the hook order stays stable.
+
   if (!flagEnabled('assistant')) return null;
 
   return (
-    /* `pointer-events-none` on the layer, `-auto` on each control: this fixed layer covers a
-       240px column of the corner and was swallowing the smart-search submit on a 360px phone. */
-    <div className={`dz-assistant-layer pointer-events-none fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass}`}>
+    /* `pointer-events-none` on the layer, `-auto` on each control: this fixed layer covers a 240px column of the
+       corner and was swallowing the smart-search submit on a 360px phone. */
+    <div className={`dz-assistant-layer pointer-events-none fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass} ${centerClass}`}>
       {open ? (
         <Panel
           msgs={msgs}
@@ -258,8 +263,8 @@ export default function AssistantWidget() {
     </div>
   );
 }
-
 /* ── Floating action button + first-visit nudge ─────────────────────────────── */
+
 function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
   return (
     <div className="flex flex-col items-end gap-2">
@@ -267,9 +272,9 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
         <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
           <button
             onClick={onDismissNudge}
+            /* A 44px circle would be bigger than the bubble it closes, so `.tap-extend` puts the target back under
+               the finger while the glyph stays 20px. */
             aria-label="Dismiss"
-            /* A 44px circle would be bigger than the bubble it closes, so `.tap-extend` puts
-               the target back under the finger while the glyph stays 20px. */
             className="tap-extend pointer-events-auto absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
           >
             <Icon name="x" className="h-3 w-3" />
@@ -288,8 +293,8 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
     </div>
   );
 }
-
 /* ── Chat panel ─────────────────────────────────────────────────────────────── */
+
 function Panel({
   msgs, threadRef, inputRef, input, setInput, onSubmit,
   suggestions, onSuggest, onAction, onClose, onMinimize, onReset,
@@ -298,17 +303,14 @@ function Panel({
     <div
       role="dialog"
       aria-label="Draaz help assistant"
-      /* `pointer-events-auto` because the layer above is `-none`; the open panel is a
-         real surface and every part of it — thread, scrollbar, input — must take taps. */
-      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-[min(384px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
+      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-full max-w-[384px] sm:w-[384px] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
     >
-      {/* Signature: a soft teal aurora — clipped to the header so it never
-         bleeds into the chat thread. */}
+      {/* Signature: a soft teal aurora — clipped to the header so it never bleeds into the chat thread. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 overflow-hidden">
         <div className="absolute -top-14 left-1/2 h-28 w-64 -translate-x-1/2 rounded-full bg-teal-500/15 blur-3xl" />
       </div>
-
       {/* Header */}
+
       <header className="relative z-10 flex items-center gap-3 bg-gradient-to-b from-white/[0.06] to-transparent px-4 py-3.5">
         <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] shadow-lg shadow-teal-500/30 ring-1 ring-white/20">
           <Icon name="sparkles" weight="fill" className="h-5 w-5 text-white" />
@@ -333,13 +335,13 @@ function Panel({
       </header>
 
       {/* Thread */}
-      <div ref={threadRef} className="relative z-10 flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+      <div ref={threadRef} className="relative z-10 flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-4 py-4">
         {msgs.map((m) => (
           <Bubble key={m.id} m={m} onAction={onAction} />
         ))}
       </div>
-
       {/* Contextual suggestion chips */}
+
       {suggestions.length ? (
         <div className="relative z-10 px-3 pt-2.5">
           <div className="flex flex-wrap gap-1.5">
@@ -355,8 +357,8 @@ function Panel({
           </div>
         </div>
       ) : null}
-
       {/* Composer */}
+
       <div aria-hidden className="relative z-10 mx-4 mt-2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       <form onSubmit={onSubmit} className="relative z-10 flex items-center gap-2 p-3">
         <input
@@ -379,8 +381,8 @@ function Panel({
     </div>
   );
 }
-
 /* ── One message bubble (+ its action / related / escalation chips) ──────────── */
+
 function Bubble({ m, onAction }) {
   const isUser = m.role === 'user';
   return (
@@ -418,8 +420,8 @@ function Bubble({ m, onAction }) {
           ))}
         </div>
       ) : null}
-
       {/* Show the quick-start actions right under the very first greeting. */}
+
       {!isUser && m.quick ? (
         <div className="flex flex-wrap gap-1.5">
           {QUICK_ACTIONS.map((a) => (

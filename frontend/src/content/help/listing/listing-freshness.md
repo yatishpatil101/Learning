@@ -4,9 +4,9 @@ slug: listing-freshness
 category: listing
 audience: owner
 order: 4
-updated: 2026-09-22
-summary: How the freshness signal works, what happens when a listing goes unconfirmed, and how to keep yours ranking.
-tags: [freshness, ranking, expiry, owner]
+updated: 2026-10-01
+summary: Freshness, pausing, re-checks and what to do when your listing is no longer available.
+tags: [freshness, ranking, expiry, owner, pause]
 ---
 
 A marketplace is only useful if what it shows is actually available. Freshness is how we enforce that.
@@ -36,7 +36,7 @@ Tenants abandon a platform after two or three wasted calls on properties that ar
 On the default **Relevance** sort, listings are scored. In descending order of weight:
 
 1. **Featured placement** — the only paid term, and it outranks everything below it
-2. **Verified owner** — ID and selfie reviewed by our trust team
+2. **ID verified owner** — ID and selfie reviewed by our trust team
 3. **Ownership verified** — ownership documents seen, and still current
 4. **RERA registered** — a valid registration number on the project
 5. **Freshness** — Active, then Ageing, then Stale. Dormant scores zero.
@@ -45,6 +45,12 @@ On the default **Relevance** sort, listings are scored. In descending order of w
 Every term except the first is free and within your control, and no amount of completeness substitutes for a verification. See [Plans explained](/help/a/plans-explained) before assuming visibility is something you have to buy.
 
 Switching the sort to **Newest** or a price order turns all of this off — including featured placement. A buyer who picks an order gets that order.
+
+## Pause, rented or take down
+
+Use **Pause** when you are temporarily not taking enquiries. A paused listing is hidden from search but still counts toward your plan limit, and its direct link can still resolve for someone who already has it.
+
+Use **Resume** when you are ready again. It returns a paused live listing to search without a new moderation decision, unless an edit already queued a re-check.
 
 ## When you rent it out
 
