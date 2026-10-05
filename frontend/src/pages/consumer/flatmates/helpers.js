@@ -1,4 +1,15 @@
+import { uploadPersonalDocument } from '../../../services/documentService.js';
+import { localityByName, slugifyLocality } from '../../../data/localities.js';
 import { MOVE_LBL, LOCALITIES, LOCALITY_COORDS } from './constants.js';
+import { headlineOf } from '../../../lib/headline.js';
+
+export const detailPath = (kind, id) => `/flatmates/${kind}/${encodeURIComponent(id)}`;
+export const roomEditHref = (id) => `/list-property?flatmate=1&editRoom=${encodeURIComponent(id)}`;
+export const segClass = (active) => 'seg text-sm font-semibold px-4 min-h-11 lg:min-h-10 inline-flex items-center rounded-full text-gray-300 box-border' + (active ? ' active' : '');
+
+export const roomTitle = (r) => r.title || r.society || `${r.flatType || 'Room'} in ${r.localities?.[0] || r.locality || 'Pune'}`;
+export const seekerTitle = (r) => r.title || r.name || 'Flatmate';
+export const seekerHeadline = (p) => headlineOf('', `${String(p.occupation || '').trim() || 'Flatmate'} looking for a room${p.localities?.length ? ' in ' + p.localities.join(', ') : ''}`);
 
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 const avatarGrad = (g) => (g === 'female' ? 'from-pink-500 to-rose-400' : g === 'male' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
@@ -7,12 +18,33 @@ const genderLabel = (g) => (g === 'female' ? 'Woman' : g === 'male' ? 'Man' : 'F
 const genderPref = (g) => (g === 'female' ? 'Women only' : g === 'male' ? 'Men only' : 'Anyone');
 const foodLabel = (f) => (f === 'veg' ? 'Veg only' : f === 'nonveg' ? 'Non-veg ok' : 'Any food');
 const perHead = (g) => Math.round(g.rent / g.seatsTotal);
-const seatsLeft = (g) => {
-  // `seatsOpen` is the honest count for a backfill into an occupied flat, and what the
-  // owner reopen/close controls adjust; groups without it fall back to capacity.
-  if (g && g.seatsOpen != null) return Math.max(0, Math.min(g.seatsTotal, g.seatsOpen));
-  return Math.max(0, g.seatsTotal - g.members.length);
+const shareFloor = (g) => (g.preferences?.rentMin ? Math.round(g.preferences.rentMin / g.seatsTotal) : null);
+const moneyRange = (lo, hi, tr) => {
+  if (lo && hi) return lo === hi ? inr(hi) : `${inr(lo)} – ${inr(hi)}`;
+  if (hi) return tr('flatmates.upToAmount', { amount: inr(hi) });
+  return lo ? tr('flatmates.fromAmount', { amount: inr(lo) }) : null;
 };
+const seekerBudget = (p) => (+p.budgetMax > +p.budget ? `${inr(p.budget)} – ${inr(p.budgetMax)}` : inr(p.budget));
+const bhkText = (bhk) => (bhk?.length ? `${bhk.map((b) => (b === '4' ? '4+' : b)).join(' / ')} BHK` : null);
+const groupListingsUrl = (p) => {
+  const q = new URLSearchParams({ deal: 'rent' });
+  if (p.localities?.length) q.set('loc', p.localities.map((l) => localityByName(l)?.slug ?? slugifyLocality(l)).join(','));
+  if (p.bhk?.length) q.set('bhks', p.bhk.map((b) => (b === '4' ? '4plus' : b)).join(','));
+  if (p.rentMax) q.set('rent', `${p.rentMin || 0}-${p.rentMax}`);
+  if (p.depositMax) q.set('deposit', `${p.depositMin || 0}-${p.depositMax}`);
+  if (p.furnishing) q.set('furn', p.furnishing);
+  if (p.bachelors) q.set('tenants', 'bachelors');
+  if (p.gatedOnly) q.set('amen', 'security');
+  return `/listings?${q}`;
+};
+const groupLocalities = (g) => (g.localities?.length ? g.localities : [g.locality].filter(Boolean));
+const maxOpenSeats = (g) => Math.max(0, g.seatsTotal - (g.members?.length || 0));
+const MAX_GROUP_SEATS = 12;
+const seatsLeft = (g) => {
+  if (g && g.seatsOpen != null) return Math.max(0, Math.min(maxOpenSeats(g), g.seatsOpen));
+  return maxOpenSeats(g);
+};
+const seatCeiling = (kind, item) => (kind === 'group' ? seatsLeft(item) + MAX_GROUP_SEATS - item.seatsTotal : maxOpenSeats(item));
 const allVerified = (g) => g.members.length > 0 && g.members.every((m) => m.verified);
 const policyAvatar = (p) => (p === 'women' ? 'from-pink-500 to-rose-400' : p === 'men' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
 
@@ -51,9 +83,9 @@ const hostVerifiedFor = (item, reviewStatus) => {
   if (item.verificationTier === 'tenant') return reviewStatus === 'approved';
   return false;
 };
-/* Free text is the server's `q`; what it deliberately does not match (names, display-only
-   labels) is in docs/flows/consumer/flatmates.md § Server-side board search. */
 
+/* Free text is the server's `q`; what it deliberately does not match (names, display-only
+ * labels) is in docs/flows/consumer/flatmates.md § Server-side board search. */
 // Approximate age of a post in minutes. Uses an exact createdAt when available,
 // otherwise parses the human "time" label ("Just now", "2 hours ago", "1 day ago").
 const recencyMins = (item) => {
@@ -66,64 +98,58 @@ const recencyMins = (item) => {
   return m[2].startsWith('min') ? n : m[2].startsWith('hour') ? n * 60 : m[2].startsWith('day') ? n * 1440 : n * 10080;
 };
 
-// Relevance to the viewer's own live request. Budgets are compared as overlapping
-// affordability bands so the match is symmetric rather than one number's percentage gap.
-const budgetOf = (x) => (x.budget != null ? x.budget : x.rent != null ? Math.round(x.rent / (x.seatsTotal || 1)) : null);
-const bandsOverlap = (a, b, tol) => a * (1 - tol) <= b * (1 + tol) && b * (1 - tol) <= a * (1 + tol);
+const kInr = (n) => (n >= 1000 ? `₹${Math.round(n / 1000)}k` : inr(n));
+const genderClash = (a, b) => a && b && a !== 'any' && b !== 'any' && a !== b;
 
-const matchScore = (item, me) => {
-  if (!me) return 0;
-  let s = 0;
-  const mine = new Set(me.localities || []);
-  const theirs = item.localities || (item.locality ? [item.locality] : []);
-  if (theirs.some((l) => mine.has(l))) s += 3;
-  const mb = budgetOf(me), tb = budgetOf(item);
-  if (mb && tb) {
-    if (bandsOverlap(mb, tb, 0.12)) s += 2; // affordability ranges overlap tightly
-    else if (bandsOverlap(mb, tb, 0.28)) s += 1; // within reach
-  }
-  if (me.gender && item.gender && (item.gender === me.gender || item.gender === 'any')) s += 1;
-  s += Math.max(0, 2 - recencyMins(item) / 1440); // small freshness nudge
-  return s;
-};
-
-// Null unless the viewer has a live post to compare against, so cards stay clean for
-// signed-out and unposted users.
-const matchTier = (item, me) => {
+const matchFor = (item, me) => {
   if (!me) return null;
-  const s = matchScore(item, me);
-  if (s >= 5) return 'great';
-  if (s >= 3) return 'good';
+  const theirs = item.localities || (item.locality ? [item.locality] : []);
+  const locality = theirs.find((l) => (me.localities || []).includes(l));
+  if (!locality || genderClash(me.gender, item.gender)) return null;
+  const lo = +me.budget || 0, hi = Math.max(lo, +me.budgetMax || 0);
+  const price = +item.budget || 0, priceMax = Math.max(price, +item.budgetMax || 0);
+  const budget = lo ? (hi > lo ? `${kInr(lo)}–${kInr(hi).slice(1)}` : kInr(lo)) : '';
+  if (!lo || !price) return { tier: 'good', locality, budget };
+  const overlaps = (tol) => price <= hi * (1 + tol) && priceMax >= lo * (1 - tol);
+  if (overlaps(0.12)) return { tier: 'great', locality, budget };
+  if (overlaps(0.28)) return { tier: 'good', locality, budget };
   return null;
 };
 
-// No client-side verified predicate and no client-side sort: re-ordering one server-ordered
-// page makes the top of page 2 outrank the bottom of page 1. `matchScore` stays for the badge.
-
-
+/* No client-side verified predicate and no client-side sort: re-ordering one server-ordered
+ * page makes the top of page 2 outrank the bottom of page 1. */
 // Whether a post is fresh enough to flag as new. Tied to real post age (< 24h)
 // so the signal stays honest — no fabricated "active now" states.
 const isFresh = (item) => recencyMins(item) < 1440;
 
-// Reads a card's stored move-in ('now', a legacy bucket, or an ISO date). The "within N
-// days" filter lives server-side, because that is a fact about the request, not the row.
-const moveInLabel = (v) => {
+const isDateVal = (v) => typeof v === 'string' && v.includes('-');
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const moveInLabel = (v, prefix = 'By ') => {
   if (v === 'now') return 'Immediately';
   if (MOVE_LBL[v]) return MOVE_LBL[v];
-  if (typeof v === 'string' && v.includes('-')) {
+  if (isDateVal(v)) {
+    if (v <= todayIso()) return 'Immediately';
     const d = new Date(v + 'T00:00:00');
-    if (!Number.isNaN(d.getTime())) return 'By ' + d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    if (!Number.isNaN(d.getTime())) return prefix + d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   }
   return 'Flexible';
+};
+
+const moveInByForm = (iso) => (iso && iso <= todayIso() ? 'now' : iso || '');
+const moveInByWire = (v, stored) => {
+  if (v !== 'now') return v || null;
+  return stored && stored <= todayIso() ? stored : todayIso();
 };
 
 // Images and PDFs only, matching the input's `accept`, so nothing else can become "evidence".
 // An oversized file is recorded present-but-not-inlined, unread, so it can't freeze the tab.
 const AGREEMENT_MAX_BYTES = 3 * 1024 * 1024;
 const AGREEMENT_MIME_RE = /^(image\/|application\/pdf)/;
-const readAgreementDoc = (file) => new Promise((resolve) => {
-  if (!file) { resolve(null); return; }
-  if (!AGREEMENT_MIME_RE.test(file.type || '')) { resolve(null); return; }
+const readLocalAgreement = (file) => new Promise((resolve) => {
   const meta = { name: file.name, size: file.size, mime: file.type };
   if ((file.size || 0) > AGREEMENT_MAX_BYTES) { resolve({ ...meta, dataUrl: null, tooLarge: true }); return; }
   const reader = new FileReader();
@@ -131,12 +157,17 @@ const readAgreementDoc = (file) => new Promise((resolve) => {
   reader.onerror = () => resolve({ ...meta, dataUrl: null });
   reader.readAsDataURL(file);
 });
+const readAgreementDoc = async (file) => {
+  if (!file || !AGREEMENT_MIME_RE.test(file.type || '')) return null;
+  const [local, stored] = await Promise.all([
+    readLocalAgreement(file),
+    uploadPersonalDocument({ category: 'Rent agreement', file }),
+  ]);
+  return { ...local, id: stored.id };
+};
 
-// Shared by the group and room create paths so the Tenant-tier evidence rule cannot drift.
-const hasAgreementEvidence = (doc) => !!(doc && (doc.dataUrl || doc.tooLarge));
+const hasAgreementEvidence = (doc) => !!doc?.id;
 
-// Preview images the Saved page (and pending-chat cards) use for people/groups,
-// which don't carry a photo of their own. Rooms bring their own `img`.
 const FLATMATE_IMG = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
 
@@ -151,13 +182,13 @@ const toSavedCard = (item) => {
       saveKind: 'room',
       cat: 'flatmates',
       kind: 'room',
-      title: item.society || 'Room',
+      title: roomTitle(item),
       loc: loc ? loc + ', Pune' : 'Pune',
       price: inr(item.budget) + '/mo',
       priceNum: Number(item.budget) || 0,
       badge: 'Room',
       sub: [item.flatType, item.roomType].filter(Boolean).join(' · '),
-      img: item.img || item.photos?.[0] || FLATMATE_IMG,
+      img: item.img || item.cover || FLATMATE_IMG,
     };
   }
   if (item.kind === 'group') {
@@ -183,9 +214,9 @@ const toSavedCard = (item) => {
     saveKind: 'post',
     cat: 'flatmates',
     kind: 'flatmate',
-    title: item.name || 'Flatmate',
+    title: seekerTitle(item),
     loc: loc ? loc + ', Pune' : 'Pune',
-    price: inr(item.budget) + '/mo',
+    price: seekerBudget(item) + '/mo',
     priceNum: Number(item.budget) || 0,
     badge: 'Flatmate',
     sub: [genderLabel(item.gender), item.age, item.occupation].filter(Boolean).join(' · '),
@@ -200,14 +231,12 @@ const hashStr = (s) => {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 };
-// A stable offset of up to ~±0.005° (~550 m) keyed off the post id.
 const jitterFor = (id) => {
   const h = hashStr(String(id || ''));
   const dLat = (((h >>> 16) & 0xffff) / 0xffff - 0.5) * 0.01;
   const dLng = ((h & 0xffff) / 0xffff - 0.5) * 0.01;
   return [dLat, dLng];
 };
-// Seekers/rooms carry localities[]; groups carry a single locality string.
 const primaryLocality = (post) => (post && (post.locality || (Array.isArray(post.localities) ? post.localities[0] : ''))) || '';
 const withCoords = (post) => {
   if (!post || (post.lat != null && post.lng != null)) return post;
@@ -217,20 +246,12 @@ const withCoords = (post) => {
   return { ...post, lat: base[0] + jLat, lng: base[1] + jLng };
 };
 
-/* Filtering, ordering, counting and paging are the server's — no client-side copy, because two
-   predicates over one field intersect to the narrower. docs/flows/consumer/flatmates.md. */
-
-/* `BUDGET_MAX` is a sentinel, not a price: the top of the scale reads as "any", so a dearer post
-   still reaches a seeker sitting there. The floor has none — ₹0 is the real bottom of the market. */
 export const BUDGET_MIN = 0;
 export const BUDGET_MAX = 40000;
 
-/** True when the range is wide open, i.e. the budget filter is narrowing nothing. */
 export const budgetIsAny = (b) => b[0] <= BUDGET_MIN && b[1] >= BUDGET_MAX;
 
-/* An untouched control means "the host did not say", which is a different answer from a stated
-   zero — a notice period of 0 days is a real and common term between flatmates. Omitting the key
-   keeps the two apart all the way to the column, where null carries the same distinction. */
+/* Omitting the key keeps the two apart all the way to the column, where null carries the same distinction. */
 const numeric = (name, raw) => (raw === '' || raw == null ? {} : { [name]: Number(raw) });
 const terms = (f) => ({
   ...numeric('noticePeriodDays', f.noticePeriodDays),
@@ -239,4 +260,4 @@ const terms = (f) => ({
   ...(f.electricityBilling ? { electricityBilling: f.electricityBilling } : {}),
 });
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, numeric, terms, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, shareFloor, moneyRange, seekerBudget, bhkText, groupLocalities, groupListingsUrl, maxOpenSeats, MAX_GROUP_SEATS, seatCeiling, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchFor, isFresh, moveInLabel, isDateVal, todayIso, moveInByForm, moveInByWire, readAgreementDoc, hasAgreementEvidence, toSavedCard, numeric, terms, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

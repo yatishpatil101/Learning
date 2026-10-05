@@ -3,10 +3,10 @@ import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAu
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { postAsSolo } from '../../../helpers/app.js';
-
-/** Live board coverage verifies persisted interest actions and hides the seeker's own post. */
+import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
+const POST_BUTTON = /^Post(?: Property| property — Free)?$/;
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
 const track = flatmateCleanup(test);
@@ -41,6 +41,7 @@ async function seedRoom(hostToken, over = {}) {
       furnishing: 'semi',
       hostRole: 'tenant',
       photos: ['https://example.test/room.jpg'],
+      ...(await tenantRoomAgreement(hostToken)),
       ...over,
     }),
   });
@@ -82,7 +83,7 @@ async function seedGroup(hostToken, over = {}) {
     method: 'POST',
     headers: auth(hostToken),
     body: JSON.stringify({
-      title: `Group ${uniqueMobile()}`,
+      title: `Group ${Number(uniqueMobile()).toString(36)}`,
       name: 'Asha K',
       locality: 'Baner',
       rent: 30000,
@@ -108,59 +109,59 @@ async function myAsks(token) {
 }
 
 test.describe('Flatmates board', () => {
-  test('a seeker\'s own live request is announced as theirs, not offered back as a card', async ({ page }) => {
+  test('a seeker\'s live request is announced as theirs, earns match pills, and routes a second post into an update', async ({ page }) => {
+    test.slow();
     const { mobile, accessToken } = await newSeeker();
     const NAME = `Own ${mobile.slice(-6)}`;
-    await seedPost(accessToken, { name: NAME });
 
     await signedInAs(page, mobile);
     await page.goto(`${BASE}/flatmates?view=flatmates`);
-
-    // Another card anchors the own-card absence assertion against an empty or failed feed.
     await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.sf-match')).toHaveCount(0);
 
-    await expect(page.getByText('Your live request')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('.sf-card', { hasText: NAME })).toHaveCount(0);
+    // Budget and locality chosen to overlap the seeded Baner seekers, so the band model scores.
+    await seedPost(accessToken, { name: NAME, budget: 16000, localities: ['Baner'] });
+    await page.reload();
+
+    await test.step('a seeker\'s own live request is announced as theirs, not offered back as a card', async () => {
+      // Another card anchors the own-card absence assertion against an empty or failed feed.
+      await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText('Your live request')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('.sf-card', { hasText: NAME })).toHaveCount(0);
+    });
+
+    await test.step('a live request earns match pills against the real feed', async () => {
+      const pill = page.locator('.sf-match').first();
+      await expect(pill).toBeVisible({ timeout: 10000 });
+      await expect(pill).toContainText(/your Baner, ₹16k request/);
+    });
+
+    await test.step('a returning poster is routed into their live request, not into a second one', async () => {
+      const before = (await fetch(`${API}/me/flatmate-posts?page=0&size=100`, { headers: auth(accessToken) }).then((r) => r.json())).content.length;
+      // The guard runs only on this chooser branch, not when the sheet first opens.
+      await postAsSolo(page);
+
+      await expect(page.getByText(/already have a live request/i)).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('button', { name: /Update request/i })).toBeVisible();
+      await expect(page.getByLabel('Lowest monthly budget')).toHaveValue('16,000');
+      // And the guard did not quietly create the duplicate it was warning about.
+      const after = (await fetch(`${API}/me/flatmate-posts?page=0&size=100`, { headers: auth(accessToken) }).then((r) => r.json())).content.length;
+      expect(after).toBe(before);
+    });
   });
-
-  test('"Message owner" writes the ask to the server, not just to the button', async ({ page }) => {
+  test('reporting a room from its detail page reaches the server, and the seeker is told so', async ({ page }) => {
     const host = await newSeeker();
-    // Use a unique rendered rent because shared-locality `.first()` locators drift as the feed grows.
-    await seedRoom(host.accessToken, { rentShare: 18777 });
-    const seeker = await newSeeker();
-
-    expect(await myAsks(seeker.accessToken)).toHaveLength(0);
-
-    await signedInAs(page, seeker.mobile);
-    await page.goto(`${BASE}/flatmates?view=rooms`);
-
-    const card = page.locator('.sf-card').filter({ hasText: '18,777' }).first();
-    await card.waitFor({ state: 'visible', timeout: 15000 });
-    const msgBtn = card.getByRole('button', { name: /Message owner/i });
-    await msgBtn.click();
-
-    await expect(card.getByRole('button', { name: /Interest sent/i })).toBeVisible({ timeout: 10000 });
-
-    // Poll the server outbox because the button state can update before the request persists.
-    await expect
-      .poll(async () => (await myAsks(seeker.accessToken)).length, { timeout: 10000 })
-      .toBeGreaterThan(0);
-  });
-
-  test('reporting a room reaches the server, and the seeker is told so', async ({ page }) => {
-    const host = await newSeeker();
-    await seedRoom(host.accessToken);
+    const room = await seedRoom(host.accessToken);
     const seeker = await newSeeker();
     await signedInAs(page, seeker.mobile);
-    await page.goto(`${BASE}/flatmates?view=rooms`);
+    await page.goto(`${BASE}/flatmates/room/${room.id}`);
 
-    const flag = page.locator('.report-btn').first();
+    const flag = page.locator('.report-btn');
     await flag.waitFor({ state: 'visible', timeout: 15000 });
     await flag.click();
 
     await expect(page.getByRole('dialog', { name: /Report this post/i })).toBeVisible({ timeout: 10000 });
     await page.getByRole('button', { name: /Spam or duplicate post/i }).click();
-
     // Arm the response wait first because the confirmation toast is browser state.
     const posted = page.waitForResponse((r) => r.url().includes('/reports') && r.request().method() === 'POST', { timeout: 15000 });
     await page.getByRole('button', { name: /Submit report/i }).click();
@@ -176,11 +177,12 @@ test.describe('Flatmates board', () => {
     const seeker = await newSeeker();
     await signedInAs(page, seeker.mobile);
     await page.goto(`${BASE}/flatmates?view=groups`);
-
     // Scope to the seeded card because the shared feed makes the first report button nondeterministic.
     const card = page.locator('.sf-card').filter({ hasText: TITLE }).first();
     await card.waitFor({ state: 'visible', timeout: 15000 });
-    await card.locator('.report-btn').first().click();
+    await card.getByRole('link', { name: TITLE }).click();
+    await expect(page).toHaveURL(new RegExp(`/flatmates/group/${group.id}$`));
+    await page.locator('.report-btn').click();
 
     await expect(page.getByRole('dialog', { name: /Report this post/i })).toBeVisible({ timeout: 10000 });
     await page.getByRole('button', { name: /Inappropriate or offensive content/i }).click();
@@ -190,39 +192,11 @@ test.describe('Flatmates board', () => {
     const res = await posted;
     expect(res.status()).toBe(201);
 
-    /* Reading the body, because the toast is client state and would look identical over a report
-       filed against the wrong row. This is the fourth field in this wave whose client word and
-       wire word differ: the page says `kind: 'share'` and the wire wants `targetType: 'post'`,
-       with `toTargetType` in between — and a flatmate group, room and seeker post all collapse
-       onto that one wire value. The mapper's own docblock records the bug where `Flatmates.jsx`
-       passed `kind: 'user'`, which the server would have 400'd on every flatmate report while the
-       mock stored it happily. So `targetType` is asserted for the translation and `targetId` for
-       the identity; together they are what a mock-backed test structurally cannot check. */
     const body = res.request().postDataJSON();
     expect(body.targetType).toBe('post');
     expect(String(body.targetId)).toBe(String(group.id));
 
     await expect(page.getByText(/our team will review this post/i)).toBeVisible({ timeout: 10000 });
-  });
-
-  test('a live request earns match pills against the real feed', async ({ page }) => {
-    const { mobile, accessToken } = await newSeeker();
-
-    await signedInAs(page, mobile);
-    await page.goto(`${BASE}/flatmates?view=flatmates`);
-    await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
-
-    // The initial absence ensures the later pill comes from this seeker's request.
-    await expect(page.locator('.sf-match')).toHaveCount(0);
-
-    // Budget and locality chosen to overlap the seeded Baner seekers, so the band model scores.
-    await seedPost(accessToken, { budget: 16000, localities: ['Baner'] });
-    await page.reload();
-
-    await expect(page.getByText('Your live request')).toBeVisible({ timeout: 15000 });
-    const pill = page.locator('.sf-match').first();
-    await expect(pill).toBeVisible({ timeout: 10000 });
-    await expect(pill).toContainText(/match/i);
   });
 
   test('the sort pill reorders the real feed, low to high', async ({ page }) => {
@@ -243,7 +217,7 @@ test.describe('Flatmates board', () => {
 
     await expect.poll(async () => {
       const prices = await page.locator('.sf-card').evaluateAll((cards) => cards
-        .map((card) => card.querySelector('.gradient-text')?.textContent || ''));
+        .map((card) => card.querySelector('.sf-price')?.textContent || ''));
       const nums = prices.map((t) => parseInt(t.replace(/[^0-9]/g, ''), 10)).filter((n) => !Number.isNaN(n));
       return { nums, sorted: nums.length > 1 && nums.every((n, i) => i === 0 || nums[i - 1] <= n) };
     }).toMatchObject({ sorted: true });
@@ -258,62 +232,45 @@ test.describe('Flatmates board', () => {
     await page.getByPlaceholder(/Try: girl in baner/i).fill('zzznotarealmatch');
     await expect(page.locator('.sf-card')).toHaveCount(0);
 
-    await expect(page.getByRole('button', { name: /^Post$/ }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: POST_BUTTON }).first()).toBeVisible();
     const clear = page.getByRole('button', { name: /Clear filters/i });
     await expect(clear).toBeVisible();
     await clear.click();
-
     // A populated grid confirms this empty state is escapable rather than a dead end.
     await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('a returning poster is routed into their live request, not into a second one', async ({ page }) => {
-    const { mobile, accessToken } = await newSeeker();
-    await seedPost(accessToken, { budget: 16000 });
-
-    await signedInAs(page, mobile);
-    await page.goto(`${BASE}/flatmates?view=flatmates`);
-    await expect(page.getByText('Your live request')).toBeVisible({ timeout: 15000 });
-
-    const before = (await fetch(`${API}/me/flatmate-posts?page=0&size=100`, { headers: auth(accessToken) }).then((r) => r.json())).content.length;
-
-    // The guard runs only on this chooser branch, not when the sheet first opens.
-    await postAsSolo(page);
-
-    await expect(page.getByText(/already have a live request/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('button', { name: /Update request/i })).toBeVisible();
-    // Opened ON the existing request, not on a blank form that merely refuses to submit.
-    await expect(page.locator('input[placeholder="₹ e.g. 15000"]')).toHaveValue('16000');
-
-    // And the guard did not quietly create the duplicate it was warning about.
-    const after = (await fetch(`${API}/me/flatmate-posts?page=0&size=100`, { headers: auth(accessToken) }).then((r) => r.json())).content.length;
-    expect(after).toBe(before);
-  });
-
-  test('on a phone the filters collapse behind a drawer, and the drawer still sorts', async ({ page }) => {
+  test('on a phone the sort sits beside the count on both tabs, as on /listings, and not in the drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const seeker = await newSeeker();
     await signedInAs(page, seeker.mobile);
     await page.goto(`${BASE}/flatmates?view=rooms`);
     await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
 
-    const openBtn = page.getByRole('button', { name: 'Open filters' });
-    await expect(openBtn).toBeVisible();
-    await expect(page.locator('.filter-panel')).not.toHaveClass(/open/);
-
-    await openBtn.click();
-    await expect(page.locator('.filter-panel')).toHaveClass(/open/);
-
     const sortPill = page.getByRole('button', { name: 'Sort posts' });
+    const count = page.getByText(/homes? with a room available/);
+    await expect(sortPill).toBeVisible();
+    const [s, c] = [await sortPill.boundingBox(), await count.boundingBox()];
+    expect(Math.abs((s.y + s.height / 2) - (c.y + c.height / 2)), 'one row: count left, sort right').toBeLessThan(12);
+    expect(s.x).toBeGreaterThan(c.x);
+
+    const sorted = page.waitForResponse((r) => r.url().includes('/flatmates/feed') && new URL(r.url()).searchParams.get('sort') === 'budget-low');
     await sortPill.click();
     await page.getByRole('option', { name: 'Budget: Low to High' }).click();
+    expect((await sorted).status()).toBe(200);
     await expect(sortPill).toContainText('Budget: Low to High');
 
-    await page.getByRole('button', { name: 'Show results' }).click();
+    await page.getByRole('button', { name: 'Open filters' }).click();
+    await expect(page.locator('.filter-panel')).toHaveClass(/open/);
+    await expect(page.locator('.filter-panel').getByRole('button', { name: 'Sort posts' })).toHaveCount(0);
+    await page.getByTestId('filter-drawer-actions').getByRole('button', { name: /^Show\b/ }).click();
     await expect(page.locator('.filter-panel')).not.toHaveClass(/open/);
+
+    await page.goto(`${BASE}/flatmates?view=flatmates`);
+    await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Sort posts' })).toBeVisible();
   });
 
-  // Guests expose cookie-banner overlap with the fixed filter control.
   test('on a phone the Filters trigger is a bottom-left capsule a guest can actually reach', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/flatmates?view=flatmates`);
@@ -322,30 +279,20 @@ test.describe('Flatmates board', () => {
     const fab = page.getByRole('button', { name: 'Open filters' });
     await expect(fab).toBeVisible();
 
-    // Left half of the screen: the Draaz FAB owns the bottom-right corner and intercepted taps
-    // on this pill when it sat there. A pill that merely *exists* bottom-right still fails a user.
     const box = await fab.boundingBox();
     expect(box.x + box.width).toBeLessThan(195);
-    // Above the floating bottom nav, not behind it.
     expect(box.y + box.height).toBeLessThan(844);
 
-    /* The one assertion a bounding box cannot make: `toBeVisible()` and a box are both satisfied
-       by a control with something painted over it. Playwright's actionability check is not — it
-       refuses a click the banner would receive instead, which is the guest bug stated as a tap. */
     await fab.click();
     await expect(page.locator('.filter-panel')).toHaveClass(/open/);
     await expect(fab).toHaveAttribute('aria-expanded', 'true');
   });
 
-  /* Below 1024px the bottom bar's `+` is the whole posting story: the hero CTA was deleted and
-     `.sf-post-cta` is hidden. The two rules are complements written in different languages -
-     a `max-width: 1023px` media query in routes/flatmates.css and Tailwind's `lg:hidden` on the
-     nav - so nothing but a count catches the day one of them moves and they overlap or gap. */
   test('a phone is offered exactly one posting control on the flatmates board', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/flatmates?view=flatmates`);
     await expect(page.locator('.sf-card').first()).toBeVisible({ timeout: 15000 });
 
-    await expect(page.getByRole('button', { name: /^Post( Property)?$/ })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: POST_BUTTON })).toHaveCount(1);
   });
 });

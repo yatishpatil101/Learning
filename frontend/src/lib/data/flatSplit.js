@@ -7,7 +7,8 @@ export const bedroomsOf = (bhk) => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
-export const maxRoomsForBhk = (bhk) => (bedroomsOf(bhk) === 4 ? Infinity : (bedroomsOf(bhk) || 1) + 1);
+// A stored 4 predates the 5+ pill and may mean "4 or more", so it stays unbounded alongside 5+.
+export const maxRoomsForBhk = (bhk) => (bedroomsOf(bhk) >= 4 ? Infinity : (bedroomsOf(bhk) || 1) + 1);
 export const ROOM_SHARE_MAX = 3;
 
 /* A room is a bedroom in somebody's home, so only a home can be let one at a time: a shop, a

@@ -3,15 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { APIProvider, Map, AdvancedMarker, InfoWindow } from '@vis.gl/react-google-maps';
 import Icon from '../../../components/Icon.jsx';
 import { LOCALITY_COORDS } from './constants.js';
-import { inr, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel, FLATMATE_IMG } from './helpers.js';
+import { inr, seekerBudget, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel, roomTitle, seekerTitle, FLATMATE_IMG } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../../lib/mapsConfig.js';
 import { getActiveCityGeo } from '../../../lib/geoConfig.js';
 import MapUnavailable from '../../../components/property/MapUnavailable.jsx';
 
 const MAX_ROWS = 3;
-const IW_OFFSET = [0, -22]; // stable identity so vis.gl doesn't re-run setOptions each render
+const IW_OFFSET = [0, -22];
 
+// stable identity so vis.gl doesn't re-run setOptions each render
 const PREFIX = { group: 'g', room: 'r', seeker: 's' };
 
 // A map cluster is a mixed feed just like the list, so this dispatches on the
@@ -19,11 +20,9 @@ const PREFIX = { group: 'g', room: 'r', seeker: 's' };
 function rowModel(item, t) {
   if (item.kind === 'room') {
     return {
-      prefix: 'r', title: item.society, verified: !!item.verified,
+      prefix: 'r', title: roomTitle(item), verified: !!item.verified,
       meta: inr(item.budget) + t('flatmates.perMonth') + ' · ' + (item.roomType || item.flatType || t('flatmates.roomFallback')),
-      // Same chain `helpers.js` and `RoomCard` use: `item.img` is `undefined` on every
-      // server-backed room, which emits `photos` instead.
-      thumb: item.img || item.photos?.[0] || FLATMATE_IMG, avatarText: null, avatarGrad: 'from-teal-500 to-indigo-500',
+      thumb: item.img || item.cover || FLATMATE_IMG, avatarText: null, avatarGrad: 'from-teal-500 to-indigo-500',
     };
   }
   if (item.kind === 'group') {
@@ -35,8 +34,8 @@ function rowModel(item, t) {
     };
   }
   return {
-    prefix: 's', title: item.name, verified: !!item.verified,
-    meta: inr(item.budget) + t('flatmates.perMonth') + ' · ' + moveInLabel(item.moveIn),
+    prefix: 's', title: seekerTitle(item), verified: !!item.verified,
+    meta: seekerBudget(item) + t('flatmates.perMonth') + ' · ' + moveInLabel(item.moveIn),
     thumb: null, avatarText: initials(item.name), avatarGrad: avatarGrad(item.gender),
   };
 }
@@ -80,7 +79,7 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
       </button>
       <div className="dz-sp-rowact">
         {action}
-        <button type="button" className={'dz-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey)}><Icon name="bookmark" /></button>
+        <button type="button" className={'dz-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey)}><Icon name="heart" /></button>
       </div>
     </div>
   );
@@ -123,8 +122,8 @@ function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin,
           {...frame}
           mapId={GOOGLE_MAPS_MAP_ID}
           colorScheme="DARK"
-          /* Not greedy: this map is 460px inside a scrolling page, so a greedy map would swallow
-             every one-finger drag. Cooperative hands those back to the page and pans on two. */
+          /* Not greedy: this map is 460px inside a scrolling page, so a greedy map would
+           * swallow every one-finger drag. */
           gestureHandling="cooperative"
           clickableIcons={false}
           mapTypeControl={false}

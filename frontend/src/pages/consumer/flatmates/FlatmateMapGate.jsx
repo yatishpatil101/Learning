@@ -2,13 +2,8 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NearPlaceField from './NearPlaceField.jsx';
 
-/* Flatmates map is "area-first": the aggregated bubble map is calmest and most
-   useful once the seeker focuses on a handful of localities (mirrors the Listings
-   MapGate). Shown in place of the map until the user picks 1–maxAreas areas OR
-   searches a place (a proximity search self-focuses the map to the point's radius).
-   Two gated states:
-     • no areas → a "focus your map" picker of localities that actually hold posts.
-     • too many areas (> maxAreas) → a trim-down prompt with a list-view fallback. */
+/* Two gated states: • no areas → a "focus your map" picker of localities that actually hold posts. • too many areas
+   (> maxAreas) → a trim-down prompt with a list-view fallback. */
 export default function FlatmateMapGate({ areas, selected, onToggle, maxAreas, onSwitchList, kindWord, filters, setF, filtersActive, onClearFilters }) {
   const { t } = useTranslation();
   const kindText = t('flatmates.kind_' + kindWord);
@@ -55,7 +50,7 @@ export default function FlatmateMapGate({ areas, selected, onToggle, maxAreas, o
           <>
             <h3 className="text-xl font-bold text-white">{t('flatmates.focusTitle')}</h3>
             <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
-              {t('flatmates.focusIntroPre')} {kindText} {t('flatmates.focusIntroSuf')} <span className="text-teal-300 font-semibold">{maxAreas}</span>.
+              {t('flatmates.focusIntro', { max: maxAreas })}
             </p>
 
             {visibleAreas.length ? (
@@ -91,7 +86,6 @@ export default function FlatmateMapGate({ areas, selected, onToggle, maxAreas, o
               </div>
             )}
 
-            {/* Or narrow by proximity — precise, over per-post coordinates. */}
             <div className="mt-7 pt-6 border-t border-white/10 text-left">
               <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-300">
                 <Icon name="map-pinned" className="w-3.5 h-3.5 text-teal-300" /> {t('flatmates.orSearchNearPlace')}

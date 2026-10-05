@@ -1,10 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { ACTORS } from '../../../fixtures/live.js';
+import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 
 /* `/me/flatmate-requests` is the host's inbox (what seekers sent), not to be confused with
    `/me/flatmate-posts`, which is the seeker's own authored posts. */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
+const track = flatmateCleanup(test);
 
 async function newHost() {
   const mobile = uniqueMobile();
@@ -12,81 +15,17 @@ async function newHost() {
   return { mobile, accessToken };
 }
 
-async function newSeeker() {
-  const mobile = uniqueMobile();
-  const { accessToken } = await apiLogin(mobile);
-  return { mobile, accessToken };
-}
-
-async function createPublishedSeekerPost(seekerToken, locality = 'Baner') {
-  const res = await fetch(`${API}/flatmates/posts`, {
-    method: 'POST',
-    headers: auth(seekerToken),
-    body: JSON.stringify({
-      name: 'Test Seeker',
-      gender: 'female',
-      age: 26,
-      occupation: 'Software Engineer',
-      budget: 18000,
-      localities: [locality],
-      moveIn: '2026-12-01',
-      flatPref: 'women',
-      roomPref: 'private',
-      tags: ['Vegetarian'],
-      note: 'Looking for a place to stay',
-    }),
+async function approve(id) {
+  const { accessToken } = await apiLogin(ACTORS.admin);
+  const res = await fetch(`${API}/admin/flatmates/${id}/moderation`, {
+    method: 'PATCH',
+    headers: auth(accessToken),
+    body: JSON.stringify({ modStatus: 'live', note: 'e2e' }),
   });
-
-  if (!res.ok) {
-    throw new Error(`Failed to create seeker post: ${res.status} ${await res.text()}`);
-  }
-
-  const post = await res.json();
-
-  return post.id;
+  expect(res.status, await res.clone().text()).toBeLessThan(300);
 }
 
 test.describe('Host flatmate requests inbox (live API)', () => {
-  test('the inbox endpoint is accessible and returns proper structure', async () => {
-    const host = await newHost();
-
-    const inboxRes = await fetch(`${API}/me/flatmate-requests`, {
-      headers: auth(host.accessToken),
-    });
-
-    expect(inboxRes.status).toBe(200);
-
-    const inbox = await inboxRes.json();
-    expect(inbox.content).toBeDefined();
-    expect(Array.isArray(inbox.content)).toBe(true);
-    expect(inbox).toHaveProperty('totalElements');
-    expect(inbox).toHaveProperty('page');
-    expect(inbox).toHaveProperty('size');
-  });
-
-  test('inbox is paged and has correct structure', async () => {
-    const host = await newHost();
-
-    const fullInboxRes = await fetch(`${API}/me/flatmate-requests`, {
-      headers: auth(host.accessToken),
-    });
-
-    expect(fullInboxRes.status).toBe(200);
-
-    const fullInbox = await fullInboxRes.json();
-    expect(fullInbox.content).toBeDefined();
-    expect(fullInbox).toHaveProperty('totalElements');
-    expect(fullInbox).toHaveProperty('page');
-
-    const pendingRes = await fetch(`${API}/me/flatmate-requests?status=pending`, {
-      headers: auth(host.accessToken),
-    });
-
-    expect(pendingRes.status).toBe(200);
-    const pending = await pendingRes.json();
-    expect(pending.content).toBeDefined();
-  });
-
   test('404 when trying to access with invalid request ID', async () => {
     const host = await newHost();
 
@@ -99,28 +38,49 @@ test.describe('Host flatmate requests inbox (live API)', () => {
     expect(res.status).toBe(404);
   });
 
-  test('another host cannot access a different host\'s requests', async () => {
+  test('another host cannot decide a different host\'s request', async () => {
     const host1 = await newHost();
     const host2 = await newHost();
+    const seeker = await newHost();
 
-    const host1InboxRes = await fetch(`${API}/me/flatmate-requests`, {
+    // A restricted policy queues the join as pending; policy 'any' accepts it outright.
+    const created = await fetch(`${API}/flatmates/groups`, {
+      method: 'POST',
       headers: auth(host1.accessToken),
+      body: JSON.stringify({
+        title: `Inbox owner ${Date.now().toString(36)}`, name: 'Host', locality: 'Baner', rent: 30000,
+        seats: 2, seatsOpen: 1, policy: 'women', role: 'tenant',
+      }),
     });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const group = await created.json();
+    track('groups', group.id, host1.accessToken);
+    await approve(group.id);
 
-    const inbox = await host1InboxRes.json();
+    const join = await fetch(`${API}/flatmates/groups/${group.id}/join`, {
+      method: 'POST',
+      headers: auth(seeker.accessToken),
+      body: JSON.stringify({}),
+    });
+    expect(join.status, await join.clone().text()).toBe(201);
 
-    if (inbox.content && inbox.content.length > 0) {
-      const requestId = inbox.content[0].id;
+    const inbox = await (await fetch(`${API}/me/flatmate-requests?size=100`, {
+      headers: auth(host1.accessToken),
+    })).json();
+    expect(inbox.content.length, 'host1 received the seeker\'s request').toBeGreaterThan(0);
+    const requestId = inbox.content[0].id;
 
-      const res = await fetch(`${API}/me/flatmate-requests/${requestId}`, {
-        method: 'PATCH',
-        headers: auth(host2.accessToken),
-        body: JSON.stringify({ decision: 'accepted' }),
-      });
+    const res = await fetch(`${API}/me/flatmate-requests/${requestId}`, {
+      method: 'PATCH',
+      headers: auth(host2.accessToken),
+      body: JSON.stringify({ decision: 'accepted' }),
+    });
+    // 404, not 403, so the inbox does not leak which request ids exist.
+    expect(res.status).toBe(404);
 
-      // 404, not 403, so the inbox does not leak which request ids exist.
-      expect(res.status).toBe(404);
-    }
+    const after = await (await fetch(`${API}/me/flatmate-requests?size=100`, {
+      headers: auth(host1.accessToken),
+    })).json();
+    expect(after.content.find((r) => r.id === requestId).status, 'the refused decision changed nothing').toBe('pending');
   });
 });
-

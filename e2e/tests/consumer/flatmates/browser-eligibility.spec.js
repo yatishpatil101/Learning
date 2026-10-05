@@ -1,26 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
-
-/**
- * Browser half of the group-host tier contract.
- *
- * `live-eligibility.spec.js` owns the route-level derivation rules. This file proves that an
- * owner-tier group returned by the real public feed becomes an Owner-verified card and survives
- * the board's Verified only control. An identity room is deliberately created alongside it because
- * both rows belong on Move in now; an all-presence assertion would also pass if the control did not
- * filter anything.
- *
- * Tenant-review card states are intentionally not claimed here. The API has the review routes, but
- * `useFlatmates` still obtains `reviewStatus` from the mock-only localStorage review map. A live
- * tenant row therefore has no browser-readable pending or approved state. See the retained mocks
- * for those explicitly unmigrated browser claims.
- */
+import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 const track = flatmateCleanup(test);
+
 const uniqueTitle = (kind) => `Live ${kind} tier ${Date.now().toString(36)} in Baner`;
 
 async function publish(groupId) {
@@ -64,6 +51,7 @@ async function createRoom(token, society) {
       foodPref: 'any',
       hostRole: 'tenant',
       photos: ['https://cdn.example/live-identity-room.jpg'],
+      ...(await tenantRoomAgreement(token)),
     }),
   });
   const room = await response.json();
@@ -84,7 +72,7 @@ async function openFilters(page) {
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }
 
-test('an owner-tier group renders Owner-verified and Verified only removes a real identity group', async ({ page }) => {
+test('an owner-tier group renders Owner-verified and Verified only removes a real unapproved tenant room', async ({ page }) => {
   const { accessToken: ownerToken } = await apiLogin(ACTORS.owner);
   const listings = await (await fetch(`${API}/me/listings?size=50`, { headers: auth(ownerToken) })).json();
   const listing = listings.content.find((row) => row.status === 'approved');
@@ -105,16 +93,16 @@ test('an owner-tier group renders Owner-verified and Verified only removes a rea
   expect(ownerGroup.verificationTier).toBe('owner');
 
   const { accessToken: identityToken } = await apiLogin(uniqueMobile());
-  const identityRoom = await createRoom(identityToken, `Live identity room ${Date.now().toString(36)}`);
-  expect(identityRoom.verificationTier).toBe('identity');
+  const identityRoom = await createRoom(identityToken, `Live tenant review room ${Date.now().toString(36)}`);
+  expect(identityRoom.verificationTier).toBe('tenant');
 
-  await signedInAs(page, ACTORS.owner);
+  await signedInAsNew(page);
   await openMoveIn(page);
   const ownerCard = page.locator('.sf-card', { hasText: ownerTitle }).first();
   const identityCard = page.locator(`[data-sf-id="r:${identityRoom.id}"]`);
   await expect(ownerCard).toBeVisible({ timeout: 15_000 });
   await expect(identityCard).toBeVisible({ timeout: 15_000 });
-  await expect(ownerCard.getByText('Owner-verified', { exact: true })).toBeVisible();
+  await expect(ownerCard.getByRole('img', { name: 'Owner-verified', exact: true })).toBeVisible();
 
   await openFilters(page);
   await page.getByRole('button', { name: 'Verified only', exact: true }).click();

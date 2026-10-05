@@ -1,8 +1,8 @@
 import { digits as digitsOf, norm } from './identityNorm.js';
+import { readUser } from '../auth.js';
 
 const STORE_KEY = 'draazyFlatmatePosts';
 const GROUPS_KEY = 'draazyFlatmateGroups';
-const VERIFIED_KEY = 'draazySeekerVerified';
 const INTERESTS_KEY = 'draazyFlatmateInterests';
 
 const get = (k, def) => {
@@ -21,19 +21,17 @@ const set = (k, v) => {
 };
 
 const PENDING_REQ_KEY = 'dzPendingRequests';
+const currentUserId = () => readUser()?.id ?? null;
 
 /* Failures are logged rather than swallowed: the caller shows a success toast, so a silently
    lost write tells the user their message was sent when it wasn't. */
 export const pushPendingRequest = (req) => {
   try {
-    set(PENDING_REQ_KEY, [...get(PENDING_REQ_KEY, []), req]);
+    set(PENDING_REQ_KEY, [...get(PENDING_REQ_KEY, []), { ...req, userId: currentUserId() }]);
     return true;
   } catch (e) { console.warn('[flatmates] pending-request write failed', e); return false; }
 };
 
-/** KNOWN GAP: `drainPendingChats` in `providers/http/conversationProvider.js` empties this queue
-    once Messages is opened, after which this answers `false` — so a later `already_interested`
-    409 re-stages the ask beside the real server thread. */
 const hasLocalThread = (propertyId) => {
   const queued = get(PENDING_REQ_KEY, []);
   return Array.isArray(queued) && queued.some((r) => r?.propertyId === propertyId);
@@ -178,16 +176,6 @@ export const evaluateHostEligibility = ({ mobile, tier, address } = {}) => {
   return { fingerprint, overCap, duplicate, flagForReview, blocked: overCap || duplicate, reason };
 };
 
-export const isSeekerVerified = (userKey) => {
-  const map = get(VERIFIED_KEY, {});
-  return !!map[userKey];
-};
-export const setSeekerVerified = (userKey) => {
-  const map = get(VERIFIED_KEY, {});
-  map[userKey] = true;
-  set(VERIFIED_KEY, map);
-};
-
 /* Keyed by the OWNER's mobile, so the same consent is remembered if the tenant reopens the form. */
 const CONSENT_KEY = 'draazyOwnerConsent';
 export const getOwnerConsents = () => get(CONSENT_KEY, {});
@@ -256,11 +244,7 @@ export const getMyRequest = (userMobile, userName) => {
   });
 };
 
-/* Memory, not truth: it knows only about asks made from THIS device, so it is written from the
-   outcome of a call and is never consulted to decide whether to make one — doing that made the
-   server's 409 unreachable. Scoped by requester, or the next person to sign in on this browser
-   would see the previous one's asks as "Interest sent" and have no button left to press. */
-
+/* Scope asks by requester so the next browser user does not inherit "Interest sent" state. */
 /** The asks `mobile` has made from this browser, as the `interests` map the page keys on. */
 export const getAskedInterests = (mobile) => (digitsOf(mobile) ? get(INTERESTS_KEY, {})[digitsOf(mobile)] || {} : {});
 /** Remember an ask that the provider confirmed — either accepted, or 409'd as a duplicate. */
@@ -271,5 +255,3 @@ export const rememberAsk = (mobile, key) => {
   all[who] = { ...(all[who] || {}), [key]: true };
   set(INTERESTS_KEY, all);
 };
-
-

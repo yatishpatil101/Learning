@@ -1,7 +1,3 @@
-/**
- * Wire ↔ seam translation for flatmates: rooms, groups, seeker posts and requests. Most fields pass
- * straight through; the notes below cover only where the two sides genuinely disagree.
- */
 
 /** Moderation states a row is public in. Mirrors `FlatmateVocabulary.MOD_PUBLIC`. */
 export const MOD_PUBLIC = ['live', 'approved'];
@@ -12,33 +8,25 @@ export const MOD_PENDING = 'pending';
 /** True when a row is visible to people other than its author. */
 export const isPubliclyVisible = (modStatus) => MOD_PUBLIC.includes(modStatus || 'live');
 
-/**
- * Every 409 here arrives as `error: "conflict"`, so the reason lives in a trailing message marker.
- * Both providers normalise it onto `ApiError.code` so a call site can branch without parsing prose.
- */
+/** Both providers normalise it onto `ApiError.code` so a call site can branch without parsing prose. */
 export const CONFLICT_ALREADY_INTERESTED = 'already_interested';
 export const CONFLICT_GROUP_FULL = 'group_full';
+export const CONFLICT_GROUP_LIMIT = 'group_limit';
 
-/**
- * The trailing `(marker)` itself. Exported so the providers can strip it from the message after
- * lifting it onto `code` — one pattern, so the matcher and the eraser cannot drift apart.
- */
+/** Exported so the providers can strip it from the message after lifting it onto `code` — one pattern, so the matcher
+ * and the eraser cannot drift apart. */
 export const CONFLICT_MARKER = /\s*\(([a-z_]+)\)\s*$/;
 
-/**
- * The sub-code a 409 carries, or `null`. End-anchored on the trailing `(marker)` because the prose
- * around it is copy. `FlatmateConflicts` owns the spellings — edit both sides in one commit.
- */
+/** The sub-code a 409 carries, or `null`. End-anchored on the trailing `(marker)` because the prose around it is
+ * copy. */
 export function conflictSubCode(err) {
   if (err?.status !== 409) return null;
   const hit = CONFLICT_MARKER.exec(err.message || '');
   return hit ? hit[1] : null;
 }
 
-/**
- * Seats are set by the host and must never be inferred from `members.length` — a group can be
- * growing or full at any size. Arithmetic is only a fallback for legacy rows missing `seatsOpen`.
- */
+/** Seats are set by the host and must never be inferred from `members.length` — a group can be growing or full at any
+ * size. */
 export function seatsLeftOf(row) {
   if (row?.seatsOpen != null) return Math.max(0, Number(row.seatsOpen));
   const total = Number(row?.seatsTotal) || 0;
@@ -64,15 +52,12 @@ export const initialsOf = (name) =>
     .join('')
     .toUpperCase();
 
-/**
- * Wire `FlatmateRoomDto` → the seam's room shape. The wire's one `budget` field means asking rent
- * on a room and a ceiling on a seeker post, so `priceBasis` travels with it to disambiguate.
- */
 export function toRoomViewModel(row) {
   const modStatus = row?.modStatus || 'live';
   return {
     id: row?.id || '',
     kind: 'room',
+    title: row?.title || '',
     propertyId: row?.propertyId || null,
     roomKind: row?.roomKind || 'bedroom',
     roomType: row?.roomType || 'Private room',
@@ -138,9 +123,12 @@ export function toRoomViewModel(row) {
     availableFrom: row?.availableFrom || null,
     tags: row?.tags || [],
     note: row?.note || '',
+    cover: row?.cover || row?.photos?.[0] || null,
     photos: row?.photos || [],
     status: row?.status || 'active',
     createdAt: row?.createdAt ? Date.parse(row.createdAt) : Date.now(),
+    // Only the host's own detail read carries it; the edit form prefills from it.
+    host: row?.host || null,
   };
 }
 
@@ -150,6 +138,7 @@ export function toSeekerPostViewModel(row) {
   return {
     id: row?.id || '',
     kind: 'post',
+    title: row?.title || '',
     name: row?.name || '',
     gender: row?.gender || 'any',
     age: row?.age == null ? null : Number(row.age),
@@ -164,9 +153,7 @@ export function toSeekerPostViewModel(row) {
     roomPref: row?.roomPref || 'any',
     tags: row?.tags || [],
     note: row?.note || '',
-    /* The seeker's own gate: "only verified people may contact me". Distinct from `verified`,
-       which is whether *they* are verified. Conflating the two would let an unverified seeker
-       demand verification of others while providing none, or hide a verified seeker's post. */
+    /* Required-contact verification and author verification are separate server decisions. */
     verifiedContactOnly: !!row?.verifiedContactOnly,
     verified: !!row?.verified,
     modStatus,
@@ -182,9 +169,11 @@ export function toSeekerPostViewModel(row) {
 export function toGroupViewModel(row) {
   const modStatus = row?.modStatus || 'live';
   const members = (row?.members || []).map((m) => ({
+    id: m?.id || '',
     name: m?.name || '',
     initials: m?.initials || initialsOf(m?.name),
     verified: !!m?.verified,
+    host: !!m?.host,
   }));
   return {
     id: row?.id || '',
@@ -209,9 +198,8 @@ export function toGroupViewModel(row) {
     // Ops' verdict on the host's claim to the flat — see `toRoomViewModel` for why it stays null.
     reviewStatus: row?.reviewStatus || null,
     agreementDeclared: !!row?.agreementDeclared,
-    /* Owner consent is the anti-broker guardrail: a *tenant* subletting seats needs the flat
-       owner's acknowledgement. `ownerConsent` is whether it was given; `ownerConsentMobile` is who
-       gave it. A group without it is not blocked, it is flagged — the server decides, not this. */
+    /** `ownerConsent` is whether it was given; `ownerConsentMobile` is who gave it. A group without it is not
+     * blocked, it is flagged — the server decides, not this. */
     ownerConsent: !!row?.ownerConsent,
     ownerConsentMobile: row?.ownerConsentMobile || '',
     addressFingerprint: row?.addressFingerprint || '',
@@ -223,13 +211,31 @@ export function toGroupViewModel(row) {
     ownerName: row?.ownerName || '',
     ownerMobile: row?.ownerMobile || '',
     createdAt: row?.createdAt ? Date.parse(row.createdAt) : Date.now(),
+    // Null unless the group is still looking for a flat — then `rent` is the top of its budget.
+    preferences: toGroupPreferences(row?.preferences),
+    hunting: !!row?.preferences,
+    localities: row?.preferences?.localities?.length ? [...row.preferences.localities] : (row?.locality ? [row.locality] : []),
   };
 }
 
-/**
- * Wire `FlatmateRequestDto` → the seam's shape. One table backs two flows: a `join` on an open-policy
- * group is already accepted, a room `request` is pending — hence the `awaitingDecision` predicate.
- */
+const moneyOrNull = (v) => (v == null || v === '' ? null : Number(v));
+
+function toGroupPreferences(p) {
+  if (!p) return null;
+  return {
+    localities: p.localities || [],
+    bhk: p.bhk || [],
+    rentMin: moneyOrNull(p.rentMin),
+    rentMax: moneyOrNull(p.rentMax),
+    depositMin: moneyOrNull(p.depositMin),
+    depositMax: moneyOrNull(p.depositMax),
+    gatedOnly: !!p.gatedOnly,
+    bachelors: !!p.bachelors,
+    furnishing: p.furnishing || null,
+    moveInBy: p.moveInBy || null,
+  };
+}
+
 export function toRequestViewModel(row) {
   const status = row?.status || 'pending';
   return {
@@ -252,10 +258,8 @@ export function toRequestViewModel(row) {
   };
 }
 
-/**
- * Mirrors the server's closed vocabularies so an unknown value is dropped rather than spent on a
- * 400 the user reads as "search is broken". Must stay in step with `FlatmateVocabulary`.
- */
+/** Mirrors the server's closed vocabularies so an unknown value is dropped rather than spent on a 400 the user reads
+ * as "search is broken". */
 export const VOCAB = {
   gender: ['any', 'male', 'female'],
   food: ['any', 'veg', 'nonveg'],

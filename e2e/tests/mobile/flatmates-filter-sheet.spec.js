@@ -1,31 +1,23 @@
 import { test, expect } from '@playwright/test';
 import { API } from '../../helpers/liveAuth.js';
 
-/* Both browse sheets render `components/ui/FilterGroup`, so the first test holds each of them to one
- * chrome contract independently. Mobile-only: the desktop filter row does not collapse. */
-
-/** Cookie bar overlaps bottom-anchored chrome; pre-seed consent like the other mobile specs do. */
+// Both browse sheets share FilterGroup, so each must satisfy the chrome contract.
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
-    } catch { /* storage unavailable — the bar just stays up */ }
+    } catch {}
   });
 }
 
-/** Scoped to the open drawer: /flatmates also keeps the desktop filter grid in the DOM, so an
- *  unscoped slider lookup resolves to two elements and fails strict mode. */
+// Scope to the open drawer because the desktop filter grid stays in the DOM.
 const sheet = (page) => page.locator('.filter-panel');
 
-/**
- * The shape of every section in the open sheet. Structural rather than pixel-based: a screenshot
- * diff would fail on the section names, which are different by design.
- */
+// Structural rather than pixel-based: a screenshot diff would fail on the section names, which are different by design.
 const sectionShape = (page) =>
   sheet(page).locator('.filter-group').evaluateAll((groups) =>
     groups.map((g) => ({
       icon: !!g.querySelector('.fg-header svg'),
-      // The button is what makes a collapsed section openable at all.
       toggle: !!g.querySelector('button.fg-header[aria-expanded]'),
       summary: !!g.querySelector('.fg-summary'),
       chevron: !!g.querySelector('.fg-chev'),
@@ -33,8 +25,7 @@ const sectionShape = (page) =>
     })),
   );
 
-/* `.filter-fab` rather than role+name: the two accessible names differ and change once a filter is
-   set. The long timeout is real — on /listings the pill only exists once the catalogue answers. */
+// `.filter-fab` rather than role+name: the two accessible names differ and change once a filter is set.
 async function openFilters(page, path) {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
   const fab = page.locator('.filter-fab');
@@ -46,19 +37,14 @@ async function openFilters(page, path) {
 const openListingsFilters = (page) => openFilters(page, '/listings');
 const openFlatmatesFilters = (page) => openFilters(page, '/flatmates');
 
-/* Found by its `.rng-wrap` control, not its header text, whose accessible name changes as the value
-   does. The `has:` locator must be rooted at `page` — Playwright re-queries it per candidate. */
+// Found by its `.rng-wrap` control, not its header text, whose accessible name changes as the value does.
 const budgetGroup = (page) =>
   sheet(page).locator('.filter-group', { has: page.locator('.rng-wrap') });
 
-/** Card ids currently rendered, e.g. ['s:...', 'r:...']. */
 const cardIds = (page) =>
   page.locator('[data-sf-id]').evaluateAll((els) => els.map((e) => e.dataset.sfId));
 
-/**
- * Move one thumb of the sheet's budget slider. The prototype setter plus `input` is the React
- * escape; the `change` on top is what `useCommitOnRelease` commits on, so it must re-filter.
- */
+// `change` is what `useCommitOnRelease` commits on, so it must re-filter.
 async function setThumb(page, name, value) {
   await sheet(page).getByRole('slider', { name }).evaluate((el, v) => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -66,7 +52,6 @@ async function setThumb(page, name, value) {
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }, value);
-  // Past the 120ms commit window, then let the filter memos settle.
   await page.waitForTimeout(400);
 }
 
@@ -74,8 +59,7 @@ test.describe('Flatmates filter sheet', () => {
   test('draws its sections with the same chrome as the /listings sheet', async ({ page }) => {
     await withConsent(page);
 
-    /* /listings first, as the reference: it proves the chrome contract is satisfiable, so a
-       flatmates sheet that fails it has genuinely forked. */
+    // `/listings` proves the chrome contract is satisfiable before flatmates is checked.
     await openListingsFilters(page);
     const listings = await sectionShape(page);
     expect(listings.length).toBeGreaterThan(2);
@@ -87,58 +71,73 @@ test.describe('Flatmates filter sheet', () => {
     expect(flatmates.every((s) => s.icon && s.toggle && s.summary && s.chevron && s.body)).toBe(true);
   });
 
-  test('every untouched section reads "Any" rather than nothing at all', async ({ page }) => {
+  test('the sheet reads Any when untouched, collapses, pins its actions, and reports and clears a budget', async ({ page }) => {
     await withConsent(page);
     await openFlatmatesFilters(page);
 
-    /* A blank read-out is indistinguishable from one that failed to render. Also guards the i18n
-       seam: `FilterGroup` is shared, so a page-scoped key would render as "listings.any". */
-    const summaries = await sheet(page).locator('.fg-summary').allInnerTexts();
-    expect(summaries.length).toBeGreaterThan(2);
-    expect(summaries.every((s) => s.trim() === 'Any')).toBe(true);
-    // "Any" is the absence of a filter, so none of them may wear the teal set-value tint.
-    await expect(sheet(page).locator('.fg-summary.active')).toHaveCount(0);
-  });
+    await test.step('every untouched section reads "Any" rather than nothing at all', async () => {
+      // Also guards the i18n seam: `FilterGroup` is shared, so a page-scoped key would render as "listings.any".
+      const summaries = await sheet(page).locator('.fg-summary').allInnerTexts();
+      expect(summaries.length).toBeGreaterThan(2);
+      expect(summaries.every((s) => s.trim() === 'Any')).toBe(true);
+      // "Any" is the absence of a filter, so none of them may wear the teal set-value tint.
+      await expect(sheet(page).locator('.fg-summary.active')).toHaveCount(0);
+    });
 
-  test('a section collapses and reopens from its header', async ({ page }) => {
-    await withConsent(page);
-    await openFlatmatesFilters(page);
+    await test.step('a section collapses and reopens from its header', async () => {
+      const group = budgetGroup(page);
+      const header = group.locator('button.fg-header');
+      const slider = sheet(page).getByRole('slider', { name: /budget maximum/i });
 
-    const group = budgetGroup(page);
-    const header = group.locator('button.fg-header');
-    const slider = sheet(page).getByRole('slider', { name: /budget maximum/i });
+      await expect(header).toHaveAttribute('aria-expanded', 'true');
+      await expect(slider).toBeVisible();
 
-    await expect(header).toHaveAttribute('aria-expanded', 'true');
-    await expect(slider).toBeVisible();
+      await header.click();
+      await expect(header).toHaveAttribute('aria-expanded', 'false');
+      await expect(group).toHaveClass(/collapsed/);
 
-    await header.click();
-    await expect(header).toHaveAttribute('aria-expanded', 'false');
-    await expect(group).toHaveClass(/collapsed/);
+      await header.click();
+      await expect(header).toHaveAttribute('aria-expanded', 'true');
+      await expect(slider).toBeVisible();
+    });
 
-    await header.click();
-    await expect(header).toHaveAttribute('aria-expanded', 'true');
-    await expect(slider).toBeVisible();
-  });
+    const actions = page.getByTestId('filter-drawer-actions');
+    const show = actions.getByRole('button', { name: /^(Show \d+ results?|No matches)$/ });
 
-  test('the budget header reports the range once one is chosen', async ({ page }) => {
-    await withConsent(page);
-    await openFlatmatesFilters(page);
+    await test.step('Clear and Show stay pinned while the sheet scrolls, as on /listings', async () => {
+      await expect(actions.getByRole('button', { name: 'Clear', exact: true })).toBeInViewport();
+      await expect(show).toBeInViewport();
+
+      const body = sheet(page).locator('.filter-scroll');
+      await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect(sheet(page).locator('.sf-filter-sheet > *').last()).toBeInViewport();
+      await expect(show).toBeInViewport();
+    });
 
     const summary = budgetGroup(page).locator('.fg-summary');
-    await expect(summary).toHaveText('Any');
 
-    await setThumb(page, /budget maximum/i, 12000);
+    await test.step('the budget header reports the range once one is chosen', async () => {
+      await expect(summary).toHaveText('Any');
 
-    await expect(summary).not.toHaveText('Any');
-    await expect(summary).toContainText('12,000');
-    // Teal tint: the header has to look set, not merely read set.
-    await expect(summary).toHaveClass(/active/);
+      await setThumb(page, /budget maximum/i, 12000);
+
+      await expect(summary).not.toHaveText('Any');
+      await expect(summary).toContainText('12,000');
+      // Teal tint: the header has to look set, not merely read set.
+      await expect(summary).toHaveClass(/active/);
+    });
+
+    await test.step('Clear resets it and Show closes the sheet', async () => {
+      await actions.getByRole('button', { name: 'Clear', exact: true }).click();
+      await expect(summary).toHaveText('Any');
+
+      await show.click();
+      await expect(sheet(page)).not.toHaveClass(/open/);
+    });
   });
 
   test('the budget filter has a floor, and a post priced below it drops out', async ({ page }) => {
-    /* Both posts are read off the live feed and asserted present at the default range first —
-       otherwise `not.toContain` is satisfied by a card that never rendered. */
-    const feed = await fetch(`${API}/flatmates/posts?size=100`).then((r) => r.json());
+    const feed = await fetch(`${API}/flatmates/feed?tab=team-up&size=100`).then((r) => r.json());
     const priced = feed.content
       .filter((p) => Number.isFinite(p.budget) && p.budget > 0 && p.budget <= 40000)
       .sort((a, b) => a.budget - b.budget);
@@ -163,8 +162,8 @@ test.describe('Flatmates filter sheet', () => {
     await setThumb(page, /budget minimum/i, floor);
     await page.getByRole('button', { name: /close filters/i }).click();
 
-    const after = await cardIds(page);
-    expect(after).not.toContain(`s:${cheap.id}`);
-    expect(after).toContain(`s:${dear.id}`);
+    await expect.poll(() => cardIds(page), { timeout: 15_000 }).not.toContain(`s:${cheap.id}`);
+    expect(await cardIds(page)).toContain(`s:${dear.id}`);
   });
+
 });

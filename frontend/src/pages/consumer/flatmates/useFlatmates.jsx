@@ -9,55 +9,35 @@ import { usePostChooser } from '../../../context/PostChooserContext.jsx';
 import { digits } from '../../../lib/contact.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
-import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
-import * as propertyService from '../../../services/propertyService.js';
-import * as rentService from '../../../services/rentService.js';
-import { FLATMATE_IMG } from './helpers.js';
+import { FLATMATE_IMG, detailPath, roomTitle } from './helpers.js';
 import { normalizeTab } from './model.js';
+import { SHARE_OPENER, SEEKER_OPENER } from './openers.js';
 import { useFlatmateDiscovery, emptyFilters } from './useFlatmateDiscovery.jsx';
 import { useFlatmateSupply } from './useFlatmateSupply.jsx';
+import { useGroupPickers } from './useGroupPickers.js';
 
 export { emptyFilters };
-// Map view stays fast and legible when the user focuses on a handful of areas
-// first (mirrors the Listings map gate). Picking one area is enough to unlock it.
 export const MAP_MAX_AREAS = 5;
-
-/* Opening message per share intent, so the owner learns how many people are
-   coming in the first line rather than three messages later. */
-const SHARE_OPENER = {
-  solo: "Hi! I'm interested in the room you listed. Is it still available?",
-  bring: "Hi! I'm interested in this room and I'd be taking it with someone I know — so two of us in total. Is it still available?",
-  match: "Hi! I'm interested in this room and I'd like to split it with another flatmate. Is it still available, and are you open to two people sharing it?",
-};
-
-/* The opener sent with a seeker-post interest. Rooms have three (above) because the share intent
-   changes what the host is being asked; a seeker post has one. */
-const SEEKER_OPENER = "Hi! I'm interested in sharing a flat. Let's connect.";
+const DETAIL_KIND = { r: 'room', g: 'group', s: 'post' };
 
 /* The provider merges the seed and drops moderated rows, so a flagged post disappears from the
-   public board — but not from the owner's dashboard, which labels it instead. */
+ * public board — but not from the owner's dashboard, which labels it instead. */
 const MY_PAGE = 200;
 const interestKey = ({ kind, targetId }) => (kind === 'room' || kind === 'group' ? `${kind}-${targetId}` : targetId);
 
-/* The shortlist speaks two dialects: cards key their bookmark `r:|g:|s:`, while the server names
-   the table (`room|group|post`) because a flatmate save has no single id space. */
+/* The shortlist speaks two dialects: cards key their bookmark `r:|g:|s:`, while the server names the table
+   (`room|group|post`) because a flatmate save has no single id space. */
 const SAVE_KIND_BY_PREFIX = { r: 'room', g: 'group', s: 'post' };
 const SAVE_PREFIX_BY_KIND = { room: 'r', group: 'g', post: 's' };
 const savedKey = (kind, id) => `${SAVE_PREFIX_BY_KIND[kind] || 's'}:${id}`;
-/** `'r:abc'` → `{ kind: 'room', id: 'abc' }`; `null` for anything that does not parse. */
+/* `'r:abc'` → `{ kind: 'room', id: 'abc' }`; `null` for anything that does not parse. */
 const parseSavedKey = (key) => {
   const kind = SAVE_KIND_BY_PREFIX[String(key).slice(0, 1)];
   const id = String(key).slice(2);
   return kind && id ? { kind, id } : null;
 };
 
-/* Only meaningful on a status-complete read: public search is floored to approved and carries no
-   `status`. Three spellings, because moderation and the older verification flows both write it. */
-const isApproved = (listing) => /approved|verified|live/i.test(String(listing?.status || ''));
-
-// Orchestrator: page context, the shared collections, nav state and the demand-side interactions.
-// Discovery and supply are composed as sub-hooks and spread into the public shape.
 export function useFlatmates() {
   const rootRef = useScrollReveal([]);
   const { t } = useTranslation();
@@ -85,18 +65,9 @@ export function useFlatmates() {
     () => user ? flatmateService.myFlatmateRooms({ size: MY_PAGE }).then((page) => page.items) : Promise.resolve([]),
     [user?.mobile],
   );
-  /* Supply handlers access discovery callbacks through this ref after discovery is initialized. */
-  const searchRef = useRef({ refresh: () => {}, patchItems: () => {} });
-  /* Expose room-only optimistic updates and merge their patches back into the mixed result page. */
-  const setRooms = useCallback((updater) => {
-    searchRef.current.patchItems((items) => {
-      const patched = updater(items.filter((x) => x.kind === 'room'));
-      const byId = new Map(patched.map((r) => [r.id, r]));
-      return items.map((x) => (x.kind === 'room' && byId.has(x.id) ? byId.get(x.id) : x));
-    });
-  }, []);
+  const searchRef = useRef({ refresh: () => {} });
   /* Server-backed and caller-scoped, so it is restored on identity change: a browser-local map
-     made a room bookmarked on a phone invisible on a laptop. */
+   * made a room bookmarked on a phone invisible on a laptop. */
   const [saved, setSaved] = useState({});
   useEffect(() => {
     let alive = true;
@@ -114,8 +85,8 @@ export function useFlatmates() {
       });
     return () => { alive = false; };
   }, [user?.mobile]);
-  /* The sent-interest outbox is the CTA's source of truth, and it is the provider's answer rather
-     than this browser's taps — a second device would otherwise offer a duplicate action. */
+  /* The sent-interest outbox is the CTA's source of truth, and it is the provider's answer rather than this browser's
+     taps — a second device would otherwise offer a duplicate action. */
   const [interests, setInterests] = useState({});
   useEffect(() => {
     let alive = true;
@@ -123,7 +94,7 @@ export function useFlatmates() {
     flatmateService.myFlatmateInterests()
       .then((rows) => {
         if (!alive) return;
-        setInterests(Object.fromEntries(rows.map((row) => [interestKey(row), true])));
+        setInterests(Object.fromEntries(rows.map((row) => [interestKey(row), row])));
       })
       .catch((error) => {
         if (alive) {
@@ -133,10 +104,8 @@ export function useFlatmates() {
       });
     return () => { alive = false; };
   }, [user?.mobile]);
-  const [reportTarget, setReportTarget] = useState(null);
 
-    /* Supply mutations await owner-scoped refreshes before reporting success.
-      Discovery owns the board-search refresh lifecycle. */
+  /* Supply mutations await owner-scoped refreshes before reporting success. */
   const refresh = useCallback(async () => {
     searchRef.current.refresh();
     const [mine, mineGroups, mineRooms] = await Promise.allSettled([
@@ -157,7 +126,6 @@ export function useFlatmates() {
   // groups carry ownerMobile/ownerName, so seed groups never show owner controls.
   const ownsGroup = (g) => {
     if (!user || !g) return false;
-    // The authoritative answer, and the only one a public feed row can support (see `myGroups`).
     if (g.id && myGroupIds.has(g.id)) return true;
     const owner = digits(g.ownerMobile).slice(-10);
     // Require an exact mobile match and never fall through to the weaker name check, so a name
@@ -174,41 +142,16 @@ export function useFlatmates() {
     const nm = (user.name || '').trim().toLowerCase();
     return !!nm && !!r.owner && r.owner.trim().toLowerCase() === nm;
   };
-  const supply = useFlatmateSupply({ refresh, setRooms, user, authLoading, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost, myPostsStatus });
+  const supply = useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: navigate, setInterests, ownsGroup, myPost, myPostsStatus });
   const { groupOpen, isVerified, setVerifyOpen, openPostModal } = supply;
-
-  /* The owner's own Ops-verified listings, offered when they create a group as the owner. Why the
-     owner-scoped read: `docs/system/frontend-data-seam.md` § Owner-scoped pickers. */
-  const [myApprovedListings, myApprovedListingsStatus, , retryMyApprovedListings, myApprovedListingsError] = useAsyncList(
-    () => propertyService.myListings(user).then((list) => list.filter(isApproved)),
-    [user?.mobile, groupOpen],
-    !!user,
-  );
-  /* The caller's active tenancies, so a sitting tenant can post a replacement in a tap. Why
-     `toRentalCards`: `docs/system/frontend-data-seam.md` § Owner-scoped pickers. */
-  const [myTenancies, myTenanciesStatus, , retryMyTenancies, myTenanciesError] = useAsyncList(
-    () => rentService.myTenancies()
-      .then((list) => list.filter((tenancy) => tenancy.status !== 'ended'))
-      .then(toRentalCards),
-    [user?.mobile, groupOpen],
-    !!user,
-  );
+  const pickers = useGroupPickers(user, groupOpen);
 
   const discovery = useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, openPostModal, onPost: openPostChooser });
-  const { setF, activeList } = discovery;
-  searchRef.current = { refresh: discovery.refreshSearch, patchItems: discovery.patchItems };
+  const { setF } = discovery;
+  searchRef.current = { refresh: discovery.refreshSearch };
 
-  /* Maps review state for rendered cards; verified filtering remains server-side. */
-  const reviewMap = useMemo(() => {
-    const map = {};
-    activeList.forEach((row) => {
-      if (row?.id && row.reviewStatus) map[row.id] = row.reviewStatus;
-    });
-    return map;
-  }, [activeList]);
-
-  /* Optimistic, then reconciled: a bookmark that waits for a round trip feels broken. Signed out,
-     the tap goes to sign-in — an anonymous list could never be merged into the real one. */
+  /* Signed out, the tap goes to sign-in — an anonymous list could never be merged into the real
+   * one. */
   const onSave = async (k) => {
     const key = parseSavedKey(k);
     if (!key) return;
@@ -231,8 +174,7 @@ export function useFlatmates() {
       toast(t('flatmates.saveFailed'), 'error');
     }
   };
-    /* The server owns interest records; this hook owns optimistic button state.
-      Duplicate conflicts remain server-resolved rather than being suppressed client-side. */
+  /* The server owns interest records; this hook owns optimistic button state. */
   const onInterest = async (r) => {
     if (!user) { sendToSignIn('contact'); return; }
     if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
@@ -254,7 +196,6 @@ export function useFlatmates() {
       return;
     }
     rememberAsk(user.mobile, r.id);
-    // The Messages hand-off (mirrors HTML flatmates.html behavior).
     recordAskLocally(ask);
 
     toast(t('flatmates.interestSentToast', { name: r.name }));
@@ -266,9 +207,10 @@ export function useFlatmates() {
     if (!user) { sendToSignIn('contact'); return; }
     const key = 'room-' + room.id;
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
+    const name = room.society || roomTitle(room);
     // Room view models provide `photos`, so the chat preview uses its first photo as a fallback.
     const ask = {
-      request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img || room.photos?.[0] || FLATMATE_IMG }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
+      request: { propertyId: key, property: { title: room.society ? 'Room in ' + room.society : name, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img || room.cover || FLATMATE_IMG }, party: { name, avatar: name.slice(0, 2).toUpperCase() }, firstMessage: opener },
     };
     setInterests((m) => ({ ...m, [key]: true }));
     try {
@@ -277,7 +219,7 @@ export function useFlatmates() {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, key);
         recordAskLocally(ask);
-        toast(t('flatmates.enquiryAlreadyRecorded', { society: room.society }));
+        toast(t('flatmates.enquiryAlreadyRecorded', { society: name }));
         return;
       }
       setInterests((m) => { const n = { ...m }; delete n[key]; return n; });
@@ -287,12 +229,8 @@ export function useFlatmates() {
     rememberAsk(user.mobile, key);
     recordAskLocally(ask);
 
-    toast(t('flatmates.messageSentOwner', { society: room.society }));
+    toast(t('flatmates.messageSentOwner', { society: name }));
   };
-
-  // Cards pass a target descriptor; rooms map to the admin "listings" queue, flatmates and groups
-  // to the "users" queue.
-  const onReport = (target) => setReportTarget(target);
 
   // Interest state is device-scoped; repeat requests remain a server-resolved conflict.
   const interestedFor = (item) => {
@@ -302,29 +240,11 @@ export function useFlatmates() {
     return !!interests[item.id];
   };
 
-  // No detail route exists for flatmate posts — every post lives on the list, so "Go to posting"
-  // switches to the list, narrows to the locality, then scrolls to and highlights the card.
-  const [pendingScroll, setPendingScroll] = useState(null);
-  const goToPosting = (kind, id, locality) => {
+  const goToPosting = (prefix, id, locality) => {
+    if (id) { navigate(detailPath(DETAIL_KIND[prefix], id)); return; }
     setViewMode('list');
     if (locality) setF({ locality });
-    setPendingScroll({ kind, id, at: Date.now() });
   };
-  useEffect(() => {
-    if (!pendingScroll || viewMode !== 'list') return;
-    let flash;
-    const t = setTimeout(() => {
-      const el = document.querySelector(`[data-sf-id="${pendingScroll.kind}:${pendingScroll.id}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('sf-flash');
-        flash = setTimeout(() => el.classList.remove('sf-flash'), 1700);
-      }
-      setPendingScroll(null);
-    }, 90);
-    return () => { clearTimeout(t); clearTimeout(flash); };
-  /* Rerun when rendered results change so an awaited card can be found. */
-  }, [pendingScroll, viewMode, activeList]);
 
   return {
     rootRef,
@@ -337,27 +257,17 @@ export function useFlatmates() {
     viewMode,
     setViewMode,
     myPost,
-    myApprovedListings,
-    myApprovedListingsStatus,
-    myApprovedListingsError,
-    retryMyApprovedListings,
-    myTenancies,
-    myTenanciesStatus,
-    myTenanciesError,
-    retryMyTenancies,
+    ...pickers,
     ownsGroup,
     ownsRoom,
-    reviewMap,
+    myRooms,
+    myGroups,
     onSave,
     onInterest,
     onRoomInterest,
-    onReport,
     interestedFor,
     goToPosting,
     saved,
-    interests,
-    reportTarget,
-    setReportTarget,
     feedFailed: discovery.searchStatus === 'error',
     feedError: discovery.searchError,
     retryFeeds: discovery.retrySearch,

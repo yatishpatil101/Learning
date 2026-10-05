@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
+import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 const track = flatmateCleanup(test);
@@ -14,6 +15,7 @@ let addresses = 0;
 const newSociety = () => `Terms Test ${Date.now().toString(36)}-${(addresses += 1)}`;
 
 async function postRoom(token, overrides = {}) {
+  const agreement = await tenantRoomAgreement(token);
   const res = await fetch(`${API}/flatmates/rooms`, {
     method: 'POST',
     headers: auth(token),
@@ -25,6 +27,7 @@ async function postRoom(token, overrides = {}) {
       rentShare: 16000,
       availableFrom: '2026-12-01',
       photos: ['https://cdn.example.com/room.png'],
+      ...agreement,
       ...overrides,
     }),
   });
@@ -38,25 +41,6 @@ async function createdRoom(token, overrides = {}) {
   track('rooms', room.id, token);
   return room;
 }
-
-/* What a host actually uploads when they tick "I'm a tenant". The server reads the flag, the
-   document, the registration number and both dates together, and anything short of all four files
-   at identity tier — which is 201, because an undocumented post is still a legal post, just not a
-   certified one. Only the four together reach a publishing tier, so a fixture short of them tests
-   the moderation gate rather than the photo rule this spec is about. */
-const TENANT_CLAIM = {
-  agreementDeclared: true,
-  agreementDoc: {
-    mime: 'image/png',
-    name: 'agreement.png',
-    size: 70,
-    dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
-      + 'AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  },
-  agreementRegNo: 'PNE-3/5566/2025',
-  agreementRegisteredOn: '2025-10-01',
-  agreementValidTill: '2027-09-01',
-};
 
 test.describe('flatmate terms, occupancy and the budget range', () => {
   test('a room carries its occupancy and its four terms back out of the server', async () => {
@@ -186,10 +170,10 @@ test.describe('flatmate terms, occupancy and the budget range', () => {
   test('a room may be posted before it has been photographed, but not published', async () => {
     const token = await newHost();
 
-    const pictured = await createdRoom(token, TENANT_CLAIM);
-    expect(pictured.modStatus, 'a photographed room at a publishing tier goes live').toBe('live');
+    const pictured = await createdRoom(token);
+    expect(pictured.modStatus, 'below owner tier even a photographed room waits for Ops').toBe('pending');
 
-    const pictureless = await createdRoom(token, { ...TENANT_CLAIM, photos: [] });
+    const pictureless = await createdRoom(token, { photos: [] });
     expect(pictureless.photos, 'an omitted gallery must arrive empty, not null').toEqual([]);
     expect(pictureless.modStatus, 'a pictureless room must not put itself on the board').toBe('pending');
   });

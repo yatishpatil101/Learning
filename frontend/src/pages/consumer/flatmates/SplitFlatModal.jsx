@@ -2,25 +2,24 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { inr } from './helpers.js';
+import { moneyWords } from '../list-property/format.js';
 import { ROOM_KIND_ORDER, ROOM_KINDS } from './model.js';
-import { maxRoomsForBhk, capBoundsFor, ROOM_SHARE_MAX, bedroomsOf } from '../../../lib/data/flatSplit.js';
+import { maxRoomsForBhk, capBoundsFor, bedroomsOf } from '../../../lib/data/flatSplit.js';
 
-/* The owner answers only what they may decide: which rooms exist, each room's rent, and how many
-   people may live in the FLAT. Per-room occupancy is the tenants' call, so it stays emergent. */
-
+/* The owner answers only what they may decide: which rooms exist, each room's rent, and how
+ * many people may live in the FLAT. */
 const blankRoom = (roomKind) => ({ roomKind, rent: '', deposit: '' });
 const digits = (v) => String(v ?? '').replace(/\D/g, '').slice(0, 7);
 const grouped = (v) => (v ? Number(v).toLocaleString('en-IN') : '');
 
 export default function SplitFlatModal({ listing, onClose, onConfirm }) {
   const { t } = useTranslation();
-  /* Both shapes a listing carries its BHK in. `Number(listing.bhk)` is NaN for "3 BHK", which
-     would seed one room and a flat cap of one: a split the owner cannot confirm. */
+  /* `Number(listing.bhk)` is NaN for "3 BHK", which would seed one room and a flat cap of one:
+   * a split the owner cannot confirm. */
   const bhk = bedroomsOf(listing?.bhkNum ?? listing?.bhk) || 1;
   const roomCap = maxRoomsForBhk(bhk);
-  // Seeded with the flat's bedrooms, leaving the hall an explicit opt-in: letting a partitioned
-  // living room is the choice societies and rent agreements most often object to.
   const [rooms, setRooms] = useState(() => Array.from({ length: Math.min(bhk, 4) }, (_, i) => blankRoom(i === 0 ? 'master' : 'bedroom')));
   const bounds = useMemo(() => capBoundsFor(rooms.length), [rooms.length]);
   const [cap, setCap] = useState(() => String(Math.min(bhk, 4)));
@@ -32,8 +31,6 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
   const capNum = Number(cap) || 0;
   const capValid = capNum >= bounds.min && capNum <= bounds.max;
   const totalRent = rooms.reduce((n, r) => n + (Number(r.rent) || 0), 0);
-  /* Derived, not stored in state: confirm is disabled until both hold, so a stored error could
-     only ever be shown by a path that cannot be reached — say what is missing instead. */
   const blocker = !rooms.every((r) => Number(r.rent) > 0)
     ? t('flatmates.splitErrRent')
     : !capValid ? t('flatmates.splitErrCap', { min: bounds.min, max: bounds.max }) : '';
@@ -60,7 +57,7 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
       <p className="text-xs text-gray-400 leading-relaxed">{t('flatmates.splitSubtitle')}</p>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 flex items-center gap-3">
-        {listing?.image && <img src={listing.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />}
+        {listing?.image && <PropertyImage src={listing.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />}
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white truncate">{listing?.title}</p>
           <p className="text-[11px] text-gray-400">{[bhk ? bhk + ' BHK' : '', listing?.locality].filter(Boolean).join(' · ')}</p>
@@ -102,15 +99,16 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
                   <span aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">₹</span>
                   <input id={`split-rent-${i}`} inputMode="numeric" value={grouped(r.rent)} onChange={(e) => setRoom(i, { rent: digits(e.target.value) })} placeholder="14,000" className="field w-full rounded-xl pl-7 pr-3 h-11 text-sm" />
                 </div>
+                {moneyWords(r.rent) && <p className="mt-1.5 ml-1 text-xs text-gray-500">{moneyWords(r.rent)}</p>}
               </div>
               <div>
                 <label htmlFor={`split-deposit-${i}`} className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1">{t('flatmates.splitDeposit')}</label>
                 <div className="relative">
                   <span aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">₹</span>
-                  {/* Once a rent exists, the "2× rent" convention can be shown as the number it
-                      means, so leaving the box empty is an informed choice rather than a blank. */}
+
                   <input id={`split-deposit-${i}`} inputMode="numeric" value={grouped(r.deposit)} onChange={(e) => setRoom(i, { deposit: digits(e.target.value) })} placeholder={r.rent ? grouped(Number(r.rent) * 2) : t('flatmates.splitDepositAuto')} className="field w-full rounded-xl pl-7 pr-3 h-11 text-sm" />
                 </div>
+                                  {moneyWords(r.deposit) && <p className="mt-1.5 ml-1 text-xs text-gray-500">{moneyWords(r.deposit)}</p>}
               </div>
             </div>
 
@@ -129,10 +127,7 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
       {Number.isFinite(roomCap) && <p className="mt-2 text-[11px] text-gray-500">{t('flatmates.splitRoomCapNote', { count: roomCap, bhk })}</p>}
 
       <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
-        <p id="split-cap-label" className="text-xs font-medium text-gray-300">{t('flatmates.splitCapLabel')}</p>
-        {/* The owner's only occupancy call. Tenants choose whether to take a room
-            alone or split it; this is the ceiling those choices must fit inside. */}
-        <p className="mt-1 mb-2.5 text-[11px] text-gray-500 leading-relaxed">{t('flatmates.splitCapHelp', { max: ROOM_SHARE_MAX })}</p>
+        <p id="split-cap-label" className="mb-2.5 text-xs font-medium text-gray-300">{t('flatmates.splitCapLabel')}</p>
         <div role="group" aria-labelledby="split-cap-label" className="flex flex-wrap gap-2">
           {Array.from({ length: bounds.max - bounds.min + 1 }, (_, i) => bounds.min + i).map((n) => (
             <button
@@ -140,8 +135,6 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
               type="button"
               onClick={() => setCap(String(n))}
               aria-pressed={capNum === n}
-              /* `.seg` is emitted after Tailwind's utilities, so it owns the height and centres
-                 nothing on a fine pointer — size by min-width, centre explicitly. */
               className={'seg inline-flex items-center justify-center min-w-[2.75rem] px-3 rounded-xl text-sm font-semibold' + (capNum === n ? ' active text-white' : ' text-gray-400')}
             >{n}</button>
           ))}
@@ -153,7 +146,6 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
           <span className="text-xs text-gray-300">{t('flatmates.splitTotalIfFull')}</span>
           <span className={'text-base font-bold ' + (totalRent ? 'gradient-text' : 'text-gray-500')}>{inr(totalRent)}</span>
         </div>
-        <p className="mt-1.5 text-[11px] text-gray-400 leading-relaxed">{t('flatmates.splitWholeFlatNote')}</p>
       </div>
     </Modal>
   );

@@ -53,7 +53,7 @@ test.describe('LIVE: caller-scoped flatmate state', () => {
     await page.goto('/dashboard');
     await myPosts;
 
-    await page.getByRole('complementary').getByRole('button', { name: 'My Properties' }).click();
+    await page.getByRole('complementary').getByRole('button', { name: 'My Properties' }).first().click();
     await expect(page.getByText(`Looking to share — ${post.localities[0]}`, { exact: true })).toBeVisible();
 
     const ownRequest = page.waitForResponse((response) =>
@@ -61,7 +61,7 @@ test.describe('LIVE: caller-scoped flatmate state', () => {
     );
     await page.goto('/flatmates?view=team-up');
     await ownRequest;
-    await expect(page.getByText('Your request · in review', { exact: true })).toBeVisible();
+    await expect(page.getByText('Your live request', { exact: true })).toBeVisible();
     await expect(page.getByText('Dashboard Seeker', { exact: false })).toBeVisible();
   });
 

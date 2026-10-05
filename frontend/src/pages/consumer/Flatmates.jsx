@@ -6,48 +6,38 @@ import '../../styles/routes/flatmates.css';
 import FilterBar from './flatmates/FilterBar.jsx';
 import FlatmateMapGate from './flatmates/FlatmateMapGate.jsx';
 import Results from './flatmates/Results.jsx';
-import PostModal from './flatmates/PostModal.jsx';
-import GroupModal from './flatmates/GroupModal.jsx';
+import SupplyModals from './flatmates/SupplyModals.jsx';
 import VerifyIdentityRedirect from '../../components/auth/VerifyIdentityRedirect.jsx';
-import OwnerConsentModal from '../../components/auth/OwnerConsentModal.jsx';
 import Empty from './flatmates/Empty.jsx';
-import ReportModal from '../../components/ReportModal.jsx';
-import { SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { useFlatmates, emptyFilters, MAP_MAX_AREAS } from './flatmates/useFlatmates.jsx';
 const FlatmateMap = lazy(() => import('./flatmates/FlatmateMap.jsx'));
 
 export default function Flatmates() {
+  const fm = useFlatmates();
   const {
-    rootRef, t, openPostModal, user, isVerified, openVerify,
+    rootRef, t, user, isVerified, openVerify,
     filters, setF, viewMode, setViewMode, seg, budgetLbl,
     smartSearchFlat, setFilters, tab, sortMode, onSort, clearFilters,
     flatmateTabs, mapGated, gateAreas, mapAreas, toggleMapArea, kindWord,
     filtersActive, mapItems, setMapAreas, onInterest, onRoomInterest, onJoin,
-    onSave, saved, interestedFor, goToPosting, myPost, markFilled,
-    deleteMyRequest, activeList, otherCount, switchTab, interests, onReport,
-    ownsGroup, deleteGroup, setGroupSeats, setRoomSeats, setRoomPeople, reissueAgreement, ownsRoom, reviewMap,
-    toast, activeFilterCount, raiseHint, postOpen,
+    onSave, saved, interestedFor, goToPosting, myPost, myRooms, myGroups,
+    activeList, otherCount, switchTab,
+    ownsGroup, ownsRoom,
+    toast, activeFilterCount, raiseHint,
     openPostChooser,
-    setPostOpen, submitPost, postFormRef, postDraft, post, setPost,
-    postErr, editingId, groupOpen, setGroupOpen, submitGroup, grpFormRef, grpDraft,
-    grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
-    myApprovedListingsStatus, retryMyApprovedListings, myTenanciesStatus, retryMyTenancies,
-    prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
-    verifyOpen, setVerifyOpen, reportTarget, setReportTarget,
+    verifyOpen, setVerifyOpen,
     feedFailed, feedError, retryFeeds, total, verifiedTotal, page, goToPage, pageCount,
     loaded, searching,
-  } = useFlatmates();
+  } = fm;
   return (
     <div ref={rootRef} className="sf-page">
       <div className="pt-6 pb-20 min-h-[100dvh]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Hero */}
+
           <Hero user={user} isVerified={isVerified} openVerify={openVerify} />
 
-          {/* Filter strip — category tabs are merged into the card as one deck */}
-          <FilterBar filters={filters} setF={setF} viewMode={viewMode} setViewMode={setViewMode} seg={seg} budgetLbl={budgetLbl} smartSearchFlat={smartSearchFlat} setFilters={setFilters} emptyFilters={emptyFilters} tab={tab} sortMode={sortMode} onSort={onSort} onReset={clearFilters} tabs={flatmateTabs} />
+          <FilterBar filters={filters} setF={setF} viewMode={viewMode} setViewMode={setViewMode} seg={seg} budgetLbl={budgetLbl} smartSearchFlat={smartSearchFlat} setFilters={setFilters} emptyFilters={emptyFilters} tab={tab} sortMode={sortMode} onSort={onSort} onReset={clearFilters} tabs={flatmateTabs} searching={searching} total={total} loaded={loaded} />
 
-          {/* Map view */}
           {viewMode === 'map' ? (
             mapGated ? (
               <FlatmateMapGate
@@ -100,51 +90,17 @@ export default function Flatmates() {
             </div>
             )
           ) : (
-            <Results tab={tab} myPost={myPost} openPostModal={openPostModal} markFilled={markFilled} deleteMyRequest={deleteMyRequest} activeList={activeList} total={total} verifiedTotal={verifiedTotal} page={page} pageCount={pageCount} onGoToPage={goToPage} loaded={loaded} searching={searching} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} interests={interests} onInterest={onInterest} onRoomInterest={onRoomInterest} onReport={onReport} onJoin={onJoin} ownsGroup={ownsGroup} onDeleteGroup={deleteGroup} onSeatsChange={setGroupSeats} onRoomSeatsChange={setRoomSeats} onRoomPeopleChange={setRoomPeople} onReissueAgreement={reissueAgreement} ownsRoom={ownsRoom} reviews={reviewMap} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: [filters.budget[0], raiseHint.budget] })} feedFailed={feedFailed} feedError={feedError} onRetryFeeds={retryFeeds} />
+            <Results tab={tab} myPost={myPost} myRooms={myRooms} myGroups={myGroups} activeList={activeList} total={total} verifiedTotal={verifiedTotal} page={page} pageCount={pageCount} onGoToPage={goToPage} loaded={loaded} searching={searching} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} ownsGroup={ownsGroup} ownsRoom={ownsRoom} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: [filters.budget[0], raiseHint.budget] })} feedFailed={feedFailed} feedError={feedError} onRetryFeeds={retryFeeds} sortMode={sortMode} onSort={onSort} />
           )}
         </div>
       </div>
 
-      {/* Post request modal */}
-      {postOpen && (
-        <PostModal setPostOpen={setPostOpen} submitPost={submitPost} postFormRef={postFormRef} postDraft={postDraft} post={post} setPost={setPost} postErr={postErr} editingId={editingId} seg={seg} />
-      )}
+      <SupplyModals s={fm} />
 
-      {/* Create group modal */}
-      {groupOpen && (
-        <GroupModal setGroupOpen={setGroupOpen} submitGroup={submitGroup} grpFormRef={grpFormRef} grpDraft={grpDraft} grp={grp} setGrp={setGrp} grpErr={grpErr} myListings={myApprovedListings} myListingsStatus={myApprovedListingsStatus} retryMyListings={retryMyApprovedListings} myTenancies={myTenancies} myTenanciesStatus={myTenanciesStatus} retryMyTenancies={retryMyTenancies} onAttachProperty={prefillGroupFromListing} onAttachTenancy={prefillGroupFromTenancy} onRequestConsent={openConsent} />
-      )}
-
-      {/* Owner-consent OTP ping (tenant replacement track) */}
-      {consentOpen && (
-        <OwnerConsentModal
-          ownerMobile={grp.consentMobile}
-          title={grp.title}
-          locality={grp.locality}
-          onClose={() => setConsentOpen(false)}
-          onVerified={() => { setGrp((g) => ({ ...g, consentVerified: true })); toast(t('flatmates.ownerConsentConfirmedToast'), 'success'); }}
-        />
-      )}
-
-      {/* Verify seeker modal */}
       {verifyOpen && (
         <VerifyIdentityRedirect
           source="flatmates"
           onClose={() => setVerifyOpen(false)}
-        />
-      )}
-
-      {/* `share`, not `user`: the server validates the reason against the target type, and a room, a
-          group and a seeker are all posts — `filled` makes no sense for a person, so `user` is a 400. */}
-      {reportTarget && (
-        <ReportModal
-          target={reportTarget}
-          kind={reportTarget.kind || 'share'}
-          reasons={SHARE_REPORT_REASONS}
-          title={t('flatmates.reportTitle')}
-          success={t('flatmates.reportSuccess')}
-          onClose={() => setReportTarget(null)}
-          toast={toast}
         />
       )}
     </div>

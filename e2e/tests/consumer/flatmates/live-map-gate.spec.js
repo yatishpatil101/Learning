@@ -10,34 +10,28 @@ import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-test('map view opens on the focus gate, not the bubble map', async ({ page }) => {
+test('map view opens on the focus gate, picking an area unlocks the bubbles, and switching tabs re-gates', async ({ page }) => {
   await page.goto(`${BASE}/flatmates?view=flatmates`);
   await page.getByRole('button', { name: 'Map' }).click();
-  await expect(page.getByRole('heading', { name: /Focus your map/i })).toBeVisible();
-  await expect(page.locator('.map-pin')).toHaveCount(0);
+
+  await test.step('map view opens on the focus gate, not the bubble map', async () => {
+    await expect(page.getByRole('heading', { name: /Focus your map/i })).toBeVisible();
+    await expect(page.locator('.map-pin')).toHaveCount(0);
+  });
+
+  await test.step('picking a focus area unlocks the bubble map', async () => {
+    await page.locator('[data-sf-area]').first().waitFor({ timeout: 20000 });
+    await page.locator('[data-sf-area]').first().click();
+    await expect(page.locator('.map-pin').first()).toBeVisible({ timeout: 20000 });
+  });
+
+  await test.step('switching tabs re-gates the map', async () => {
+    // Still in map view, but a new tab starts unfocused — the gate returns.
+    await page.getByRole('button', { name: /Team up/i }).first().click();
+    await expect(page.getByRole('heading', { name: /Focus your map/i })).toBeVisible();
+    await expect(page.locator('.map-pin')).toHaveCount(0);
+  });
 });
-
-test('picking a focus area unlocks the bubble map', async ({ page }) => {
-  await page.goto(`${BASE}/flatmates?view=flatmates`);
-  await page.getByRole('button', { name: 'Map' }).click();
-  await page.locator('[data-sf-area]').first().waitFor({ timeout: 20000 });
-  await page.locator('[data-sf-area]').first().click();
-  await expect(page.locator('.map-pin').first()).toBeVisible({ timeout: 20000 });
-});
-
-test('switching tabs re-gates the map', async ({ page }) => {
-  await page.goto(`${BASE}/flatmates?view=flatmates`);
-  await page.getByRole('button', { name: 'Map' }).click();
-  await page.locator('[data-sf-area]').first().waitFor({ timeout: 20000 });
-  await page.locator('[data-sf-area]').first().click();
-  await expect(page.locator('.map-pin').first()).toBeVisible({ timeout: 20000 });
-
-  // Still in map view, but a new tab starts unfocused — the gate returns.
-  await page.getByRole('button', { name: /Team up/i }).first().click();
-  await expect(page.getByRole('heading', { name: /Focus your map/i })).toBeVisible();
-  await expect(page.locator('.map-pin')).toHaveCount(0);
-});
-
 test('a Near-a-Place radius deep link narrows the list to nearby posts', async ({ page }) => {
   await page.goto(`${BASE}/flatmates?view=flatmates`);
   await page.locator('.sf-card').first().waitFor({ timeout: 10000 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -7,19 +7,11 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import DualRange from '../../../components/ui/DualRange.jsx';
 import { FilterGroup } from '../../../components/ui/FilterGroup.jsx';
+import useSwipeDismiss from '../../../lib/useSwipeDismiss.js';
 import NearPlaceField from './NearPlaceField.jsx';
 import { LOCALITIES } from './constants.js';
-import { inr, BUDGET_MIN, BUDGET_MAX, budgetIsAny } from './helpers.js';
+import { inr, BUDGET_MIN, BUDGET_MAX, budgetIsAny, isDateVal, todayIso } from './helpers.js';
 import { TAB_MOVE_IN, TAB_TEAM_UP } from './model.js';
-
-// A move-in filter value is either the sentinel 'now' (immediate), '' (any) or an
-// ISO date string from the picker — only the last contains a '-'.
-const isDateVal = (v) => typeof v === 'string' && v.includes('-');
-// Local-time today as ISO, so the picker cannot offer a past move-in date.
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 // One labelled cell. `className` lets a cell claim explicit grid placement (Near-a-place owns the
 // tall right column).
@@ -32,8 +24,7 @@ function Field({ label, children, className = '' }) {
   );
 }
 
-/* Mobile gets the collapsible `FilterGroup`, desktop plain cells. Module scope: defined inside
-   `FilterControls` this would be a new component type every render, remounting mid-keystroke. */
+/* Mobile gets the collapsible `FilterGroup`, desktop plain cells. */
 function Section({ sheet, icon, label, summary, className, children }) {
   if (!sheet) return <Field label={label} className={className}>{children}</Field>;
   return <FilterGroup icon={icon} title={label} summary={summary}>{children}</FilterGroup>;
@@ -52,8 +43,6 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
   const showMoveIn = true;
   const showSharing = tab === TAB_TEAM_UP;
   const showBath = tab === TAB_MOVE_IN;
-  /* Every read-out is '' at the default, which is the contract `FilterGroup` reads: it prints
-     "Any" itself. A formatted default here would light every section up on arrival. */
   const genderOptions = [['', t('flatmates.gEveryone')], ['female', t('flatmates.gWomen')], ['male', t('flatmates.gMen')]];
   const summaries = {
     budget: budgetIsAny(filters.budget) ? '' : budgetLbl,
@@ -62,8 +51,8 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
     // so test for 'min' — testing for 'km' would label an untouched radius in minutes.
     near: filters.near ? `${filters.nearLabel || t('flatmates.fNearPlace')} · ${filters.nearRadius} ${filters.nearMode === 'min' ? t('flatmates.unitMin') : t('flatmates.unitKm')}` : '',
     moveIn: filters.moveIn === 'now' ? t('flatmates.immediate') : isDateVal(filters.moveIn) ? filters.moveIn : '',
-    /* Empty at the default, NOT the label of the default button: "Everyone" is right on a pill you
-       choose from, but as a read-out it claims a filter is set and lights the narrowing tint. */
+    /* Empty at the default, NOT the label of the default button: "Everyone" is right on a pill you choose from, but
+       as a read-out it claims a filter is set and lights the narrowing tint. */
     gender: filters.gender ? (genderOptions.find(([g]) => g === filters.gender) || [])[1] || '' : '',
     sharing: filters.sharing ? t('flatmates.nSharing', { n: filters.sharing }) : '',
     habits: filters.habits.join(', '),
@@ -72,8 +61,7 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
   };
   return (
     <>
-      {/* Commits on RELEASE, not per step, so a drag is one re-filter. BUDGET_MAX is the top of
-          the scale and means "no ceiling" — see helpers.js. */}
+
       <Section sheet={sheet} icon="indian-rupee" label={t('flatmates.fBudget')} summary={summaries.budget}>
         <div className="w-full lg:w-3/4">
           <DualRange
@@ -114,8 +102,8 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
         </Section>
       )}
       <Section sheet={sheet} icon="users-round" label={genderLabel} summary={summaries.gender}>
-        {/* `aria-pressed` so the selected option is announced, not just tinted: the `seg()` class
-            is the only other signal, and a screen reader cannot see it. */}
+
+        {/* `aria-pressed` so the selected option is announced, not just tinted by `seg()`. */}
         <div className="flex gap-2">
           {genderOptions.map(([g, label]) => <button key={label} onClick={() => setF({ gender: g })} aria-pressed={filters.gender === g} className={seg(filters.gender === g)}>{label}</button>)}
         </div>
@@ -150,58 +138,91 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
   );
 }
 
-export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, budgetLbl, smartSearchFlat, setFilters, emptyFilters, tab, sortMode, onSort, onReset, tabs }) {
+export const flatmateSortOptions = (t) => [
+  { value: 'match', label: t('flatmates.sortMatch') },
+  { value: 'verified', label: t('flatmates.sortVerified') },
+  { value: 'newest', label: t('flatmates.sortNewest') },
+  { value: 'budget-low', label: t('flatmates.sortBudgetLow') },
+  { value: 'budget-high', label: t('flatmates.sortBudgetHigh') },
+];
+
+export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, budgetLbl, smartSearchFlat, emptyFilters, tab, sortMode, onSort, onReset, tabs, searching = false, total = 0, loaded = false }) {
   const { t } = useTranslation();
-  const SORT_OPTIONS = [
-    { value: 'match', label: t('flatmates.sortMatch') },
-    { value: 'verified', label: t('flatmates.sortVerified') },
-    { value: 'newest', label: t('flatmates.sortNewest') },
-    { value: 'budget-low', label: t('flatmates.sortBudgetLow') },
-    { value: 'budget-high', label: t('flatmates.sortBudgetHigh') },
-  ];
+  const [qDraft, setQDraft] = useState(filters.q);
+  const [smartClearPending, setSmartClearPending] = useState(false);
+  const qInputRef = useRef(null);
+  const sawSmartLoadingRef = useRef(false);
+  const SORT_OPTIONS = flatmateSortOptions(t);
   const genderLabel = tab === TAB_MOVE_IN ? t('flatmates.roomFor') : t('flatmates.lookingFor');
   const [drawer, setDrawer] = useState(false);
+  const swipe = useSwipeDismiss(() => setDrawer(false), { axis: 'y', query: '(max-width: 1023.98px) and (pointer: coarse)', allowScrollableTop: true });
+  useEffect(() => {
+    if (!drawer) return undefined;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setDrawer(false); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [drawer]);
+  useEffect(() => { setQDraft(filters.q); }, [filters.q]);
+  useEffect(() => {
+    if (smartClearPending) return undefined;
+    if (qDraft === filters.q) return undefined;
+    const timer = window.setTimeout(() => setF({ q: qDraft }), 800);
+    return () => window.clearTimeout(timer);
+  }, [filters.q, qDraft, setF, smartClearPending]);
+  useEffect(() => {
+    if (!smartClearPending) return;
+    if (searching) {
+      sawSmartLoadingRef.current = true;
+      return;
+    }
+    if (!sawSmartLoadingRef.current) return;
+    sawSmartLoadingRef.current = false;
+    setSmartClearPending(false);
+    setQDraft('');
+  }, [searching, smartClearPending]);
+  const submitSmartSearch = () => {
+    const query = qInputRef.current?.value ?? qDraft;
+    if (smartSearchFlat(query)) {
+      sawSmartLoadingRef.current = false;
+      setSmartClearPending(true);
+    }
+  };
   const activeCount = Object.keys(emptyFilters).filter((k) => {
-    // The near radius/mode/label describe one "Near a place" filter, not distinct
-    // ones — only `near` itself counts (matches Flatmates's activeFilterCount).
     if (k === 'q' || k === 'nearLabel' || k === 'nearRadius' || k === 'nearMode') return false;
-    /* `budget` is a [min, max] tuple, so it needs the bounds test: the `Array.isArray` rule below
-       is right for `habits` but permanently true of a range, and the badge would never read 0. */
     if (k === 'budget') return !budgetIsAny(filters.budget);
     const def = emptyFilters[k];
     return Array.isArray(def) ? filters[k].length > 0 : filters[k] !== def;
   }).length;
   const fieldProps = { filters, setF, seg, budgetLbl, genderLabel, tab };
-  /* Collapsed so inventory clears the fold, but opened when a filter is already set — hiding the
-     cause of a narrowed list is worse than the scroll. docs/flows/consumer/flatmates.md § Discovery. */
+  /* Collapsed so inventory clears the fold, but opened when a filter is already set — hiding
+   * the cause of a narrowed list is worse than the scroll. */
   const [showFilters, setShowFilters] = useState(() => activeCount > 0);
   return (
     <>
-      <div className="glass rounded-2xl p-3.5 sm:p-5 mb-4 sm:mb-5 reveal">
-        {/* Category tabs sit flush on top of the search card so tabs + search +
-            actions read as one control deck (no floating strip above). */}
+      <div className="glass rounded-2xl p-3 sm:p-5 mb-3 sm:mb-5 reveal">
+
         {tabs && <div className="mb-2.5 pb-2.5 sm:mb-3 sm:pb-3 border-b border-white/10">{tabs}</div>}
-        {/* Search + view toggle + (desktop) sort/reset in one control bar, so inventory sits
-            higher than it would below a tall filter block. */}
-        <div className="flex flex-col gap-2.5 lg:gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-          <div className="flex items-center gap-2 lg:flex-1 lg:min-w-[180px] lg:max-w-[600px]">
+
+        <div className="flex items-center gap-2 lg:gap-3 lg:flex-wrap" role="search">
+          <div className="flex items-center gap-2 flex-1 min-w-0 lg:min-w-[180px] lg:max-w-[600px]">
             <div className="relative flex-1 min-w-0">
               <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input value={filters.q} onChange={(e) => setF({ q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') smartSearchFlat(); }} type="text" enterKeyHint="search" className="sf-search-field field w-full rounded-full pl-9 pr-12 lg:pr-4 h-11 lg:h-10 text-sm" placeholder={t('flatmates.searchPlaceholder')} />
-              {/* Size comes from INSET, never a height: on a 44px bar that is a 36px circle and it
-                  stays circular by construction. `tap-extend` gives it the 44px touch target. */}
-              <button type="button" onClick={smartSearchFlat} aria-label={t('flatmates.smartSearch')} className="sf-search-go tap-extend lg:hidden absolute top-1 bottom-1 right-1 w-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+              <input ref={qInputRef} value={qDraft} onChange={(e) => { sawSmartLoadingRef.current = false; setSmartClearPending(false); setQDraft(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) submitSmartSearch(); }} type="text" enterKeyHint="search" aria-label={t('flatmates.smartSearch')} className="sf-search-field field w-full rounded-full pl-9 pr-12 lg:pr-4 h-11 lg:h-10 text-sm" placeholder={t('flatmates.searchPlaceholder')} />
+
+              {/* Size comes from INSET, never a height: on a 44px bar that is a 36px circle and it stays circular by
+                 construction. */}
+              <button type="button" onClick={submitSmartSearch} aria-label={t('flatmates.smartSearch')} className="sf-search-go tap-extend lg:hidden absolute top-1 bottom-1 right-1 w-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
             </div>
             <div className="hidden lg:flex shrink-0">
-              <button type="button" onClick={smartSearchFlat} className="btn-teal gap-2 whitespace-nowrap"><Icon name="search" className="w-4 h-4" /> {t('flatmates.smartSearch')}</button>
+              <button type="button" onClick={submitSmartSearch} className="btn-teal gap-2 whitespace-nowrap"><Icon name="search" className="w-4 h-4" /> {t('flatmates.smartSearch')}</button>
             </div>
           </div>
-          <div className="flex items-center gap-2 lg:contents">
-            {/* Mobile's Filters trigger is not here — it is the floating capsule below,
-                same as the listings page. */}
+          <div className="flex items-center gap-2 shrink-0 lg:contents">
+
+            {/* Mobile's Filters trigger is not here — it is the floating capsule below. */}
             <div className="sf-seg ml-auto">
-              <button type="button" onClick={() => setViewMode('list')} className={'sf-seg__btn' + (viewMode === 'list' ? ' is-active' : '')} aria-pressed={viewMode === 'list'}><Icon name="list" className="w-4 h-4" /> {t('flatmates.viewList')}</button>
-              <button type="button" onClick={() => setViewMode('map')} className={'sf-seg__btn' + (viewMode === 'map' ? ' is-active' : '')} aria-pressed={viewMode === 'map'}><Icon name="map" className="w-4 h-4" /> {t('flatmates.viewMap')}</button>
+              <button type="button" onClick={() => setViewMode('list')} className={'sf-seg__btn' + (viewMode === 'list' ? ' is-active' : '')} aria-pressed={viewMode === 'list'}><Icon name="list" className="w-4 h-4" /> <span className="max-sm:sr-only">{t('flatmates.viewList')}</span></button>
+              <button type="button" onClick={() => setViewMode('map')} className={'sf-seg__btn' + (viewMode === 'map' ? ' is-active' : '')} aria-pressed={viewMode === 'map'}><Icon name="map" className="w-4 h-4" /> <span className="max-sm:sr-only">{t('flatmates.viewMap')}</span></button>
             </div>
             <div className="hidden lg:flex items-center gap-2">
               <button
@@ -209,27 +230,24 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
                 onClick={() => setShowFilters((v) => !v)}
                 aria-expanded={showFilters}
                 aria-controls="sf-desktop-filters"
-                className={'inline-flex items-center gap-1.5 px-3 h-10 rounded-xl border text-sm font-semibold t-all shrink-0 ' + (showFilters ? 'border-teal-400/60 bg-teal-500/25 text-teal-100' : 'border-teal-400/40 bg-teal-500/15 text-teal-100 hover:bg-teal-500/25')}
+                className={'inline-flex items-center gap-1.5 px-3 h-10 min-h-11 lg:min-h-10 rounded-xl border text-sm font-semibold t-all shrink-0 ' + (showFilters ? 'border-teal-400/60 bg-teal-500/25 text-teal-100' : 'border-teal-400/40 bg-teal-500/15 text-teal-100 hover:bg-teal-500/25')}
               >
                 <Icon name="sliders-horizontal" className="w-4 h-4" /> {t('flatmates.filters')}
                 {activeCount > 0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-400 text-gray-900 text-[10px] font-bold leading-none">{activeCount}</span>}
               </button>
               <span className="text-xs font-medium text-gray-400 whitespace-nowrap">{t('flatmates.sortBy')}</span>
               <Select value={sortMode} onChange={onSort} options={SORT_OPTIONS} className="w-44" ariaLabel={t('flatmates.ariaSortPosts')} />
-              <button onClick={onReset} className="btn-ghost text-sm font-medium text-gray-300 px-4 h-10 rounded-full inline-flex items-center gap-1.5"><Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('flatmates.reset')}</button>
+              <button onClick={onReset} aria-label={t('flatmates.reset')} className="btn-ghost text-sm font-medium text-gray-300 px-4 h-10 min-h-11 lg:min-h-10 rounded-full inline-flex items-center gap-1.5"><Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('flatmates.clearFilters')}</button>
             </div>
           </div>
         </div>
 
-        {/* Filters — aligned 3-column grid (desktop only), collapsed by default so
-            inventory clears the fold. See the note on `showFilters` above. */}
         <div id="sf-desktop-filters" className={(showFilters ? 'hidden lg:grid' : 'hidden') + ' grid-cols-3 gap-x-5 gap-y-5 mt-4'}>
           <FilterControls {...fieldProps} />
         </div>
       </div>
 
-      {/* The thumb arc gets the same `.filter-fab` capsule the listings board uses — placement
-          rules in docs/flows/consumer/flatmates.md. `aria-expanded`: the drawer leaves it focusable. */}
+      {/* `aria-expanded`: the drawer leaves it focusable. */}
       <button
         type="button"
         onClick={() => setDrawer(true)}
@@ -245,32 +263,45 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
         ) : null}
       </button>
 
-      {/* Mobile filter drawer */}
-      <div className={'filter-overlay lg:hidden ' + (drawer ? 'open' : '')} onClick={() => setDrawer(false)} />
-      {/* `p-6` dropped because `.sf-page .filter-panel` already overrides all four sides — the split
-          its own comment warns against. `inert` while closed for the same reason the account drawer
-          carries it: the panel keeps its shape through the slide-out, so its buttons stay focusable
-          and it stays announced as a modal dialog while parked off-screen. */}
-      <div className={'filter-panel lg:hidden ' + (drawer ? 'open' : '')} role="dialog" aria-label={t('flatmates.filters')} aria-modal="true" inert={!drawer}>
-        <div className="flex items-center justify-between mb-6">
+      <button
+        type="button"
+        className={'filter-overlay border-0 p-0 lg:hidden ' + (drawer ? 'open' : '')}
+        onClick={() => setDrawer(false)}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- swipe needs one drag surface. */}
+      <div {...swipe} className={'filter-panel lg:hidden flex flex-col ' + (drawer ? 'open' : '')} role="dialog" aria-label={t('flatmates.filters')} aria-modal="true" inert={!drawer}>
+        <div className="filter-panel__grabber" aria-hidden="true" />
+        <div className="filter-panel__drag-zone flex items-center justify-between px-5 pt-3 pb-3 shrink-0">
           <h3 className="text-lg font-bold text-white">{t('flatmates.filters')}{activeCount > 0 && <span className="ml-2 text-sm font-medium text-teal-300">· {t('flatmates.nActive', { count: activeCount })}</span>}</h3>
-          <button onClick={() => setDrawer(false)} className="w-11 h-11 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center hover:bg-white/10 t-all" aria-label={t('flatmates.ariaCloseFilters')}>
+          <button onClick={() => setDrawer(false)} className="w-11 h-11 rounded-lg flex items-center justify-center hover:bg-white/10 t-all" aria-label={t('flatmates.ariaCloseFilters')}>
             <Icon name="x" className="w-5 h-5 text-gray-400" />
           </button>
         </div>
-        {/* Same section chrome, spacing and slider as the /listings filter sheet — see
-            `Section` above and `.sf-filter-sheet` in styles/routes/filters.css. */}
-        <div className="sf-filter-sheet">
-          <FilterControls {...fieldProps} variant="sheet" />
-        </div>
-        <div className="mt-5 pt-5 border-t border-white/10">
-          <Field label={t('flatmates.sortBy')}>
-            <Select value={sortMode} onChange={onSort} options={SORT_OPTIONS} className="w-full" ariaLabel={t('flatmates.ariaSortPosts')} />
-          </Field>
-          <div className="flex items-center gap-2 mt-4">
-            <button onClick={onReset} className="btn-ghost flex-1 text-sm font-medium text-gray-300 h-11 rounded-full inline-flex items-center justify-center gap-1.5"><Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('flatmates.reset')}</button>
-            <button onClick={() => setDrawer(false)} className="btn-teal flex-1 h-11 rounded-full text-sm font-semibold text-white">{t('flatmates.showResults')}</button>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pb-6 filter-scroll">
+          <div className="sf-filter-sheet">
+            <FilterControls {...fieldProps} variant="sheet" />
           </div>
+        </div>
+        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: '#1a1730' }}>
+          <span className="sr-only" aria-live="polite">
+            {loaded ? (total === 0 ? t('flatmates.noMatchesSr') : t('flatmates.resultsMatch', { count: total })) : ''}
+          </span>
+          <button onClick={onReset} className="btn btn-secondary shrink-0">{t('flatmates.clear')}</button>
+          <button
+            onClick={() => setDrawer(false)}
+            className={'btn flex-1 min-w-0 ' + (loaded && total === 0 ? 'btn-secondary' : 'btn-primary')}
+          >
+            <span className="truncate">
+              {!loaded
+                ? t('flatmates.showResults')
+                : total === 0
+                  ? t('flatmates.noMatchesShort')
+                  : <>{t('flatmates.showBtn')} <span className="font-extrabold tabular-nums">{total}</span> {t('flatmates.resultNoun', { count: total })}</>}
+            </span>
+          </button>
         </div>
       </div>
     </>
