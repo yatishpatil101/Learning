@@ -3,57 +3,62 @@ import assert from 'node:assert/strict';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import * as documents from '../src/pages/consumer/list-property/constants.js';
 import { computeProgress } from '../src/pages/consumer/list-property/progress.js';
-import { prepareUpload } from '../src/lib/uploads/prepareUpload.js';
-import { PDF_GUIDANCE } from '../src/lib/uploads/policy.js';
+import { uploadType } from '../src/lib/uploads/policy.js';
 
 const file = { name: 'proof.pdf', mime: 'application/pdf' };
 const form = { deal: 'buy', propertyType: 'flat' };
 const progress = (docs, deal = 'buy') => computeProgress({ form: { ...form, deal }, documents: docs });
+const PNG_BYTES = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII='), (c) => c.charCodeAt(0));
 
-test('every property type offers the same sale and rent badge requirements', () => {
+test('badge evidence uses one title document for sale and one offered document for rent', () => {
+  assert.deepEqual(
+    documents.docsFor('buy', 'flat', 'office').filter((d) => d.verifies).map((d) => d.key),
+    ['Index II', 'Share Certificate'],
+  );
+  assert.deepEqual(
+    documents.docsFor('rent', 'flat', 'office').filter((d) => d.verifies).map((d) => d.key),
+    ['Electricity Bill', 'Index II', 'Share Certificate', 'Property Tax Receipt'],
+  );
+  assert.deepEqual(
+    documents.docsFor('buy', 'openplot', 'office').filter((d) => d.verifies).map((d) => d.key),
+    ['7/12 Extract', '8A Extract', 'Property Card'],
+  );
   for (const { value: propertyType } of documents.PROPERTY_TYPES) {
     for (const deal of ['buy', 'rent']) {
       const offered = documents.docsFor(deal, propertyType, 'office');
-      const badge = offered.filter((d) => d.verifies).map((d) => d.key);
-      assert.deepEqual(badge, deal === 'buy'
-        ? ['Electricity Bill', 'Property Tax Receipt', 'Index II']
-        : ['Electricity Bill', 'Property Tax Receipt'], `${propertyType} ${deal}`);
       assert.equal(new Set(offered.map((d) => d.key)).size, offered.length);
-      assert.equal(offered.find((d) => d.key === 'Electricity Bill').originalPdf, true);
-      assert.ok(!badge.includes('Sale Deed') && !badge.includes('7/12 Extract'));
+      assert.equal(offered.some((d) => d.originalPdf), false);
+      assert.ok(!offered.some((d) => /\b(aadhaar|pan)\b/i.test(d.key)));
     }
   }
 });
 
-test('badge preparation counts alternative bills once and never substitutes a deed for Index II', () => {
+test('badge preparation counts one qualifying document and never substitutes a bill for sale title', () => {
   const complete = documents.badgeDocumentProgress;
   assert.equal(typeof complete, 'function');
-  assert.equal(complete('rent', {}), 0);
-  assert.equal(complete('rent', { 'Electricity Bill': file }), 1);
-  assert.equal(complete('rent', { 'Property Tax Receipt': file }), 1);
-  assert.equal(complete('rent', { 'Ownership Proof': file }), 0);
-  assert.equal(complete('buy', { 'Index II': file }), 0.5);
-  assert.equal(complete('buy', { 'Electricity Bill': file, 'Sale Deed': file }), 0.5);
-  assert.equal(complete('buy', { 'Index II': file, 'Property Tax Receipt': file }), 1);
-  assert.equal(complete('buy', { 'Index II': file, 'Electricity Bill': file, 'Property Tax Receipt': file }), 1);
-  assert.equal(complete('unknown', { 'Electricity Bill': file }), 0.5);
+  assert.equal(complete('rent', 'flat', {}), 0);
+  assert.equal(complete('rent', 'flat', { 'Electricity Bill': file }), 1);
+  assert.equal(complete('rent', 'flat', { 'Property Tax Receipt': file }), 1);
+  assert.equal(complete('rent', 'flat', { 'Ownership Proof': file }), 0);
+  assert.equal(complete('buy', 'flat', { 'Electricity Bill': file }), 0);
+  assert.equal(complete('buy', 'flat', { 'Index II': file }), 1);
+  assert.equal(complete('buy', 'flat', { 'Share Certificate': file }), 1);
+  assert.equal(complete('buy', 'openplot', { 'Property Card': file }), 1);
 });
 
-test('listing progress gives both address alternatives equal credit without requiring both', () => {
-  const bill = progress({ 'Index II': file, 'Electricity Bill': file });
-  const tax = progress({ 'Index II': file, 'Property Tax Receipt': file });
-  const both = progress({ 'Index II': file, 'Electricity Bill': file, 'Property Tax Receipt': file });
-  assert.deepEqual(bill, tax);
-  assert.deepEqual(bill, both);
-  assert.ok(bill.pct > progress({ 'Index II': file }).pct);
+test('listing progress treats sale title as the badge evidence and rent as any offered document', () => {
+  const index = progress({ 'Index II': file });
+  const share = progress({ 'Share Certificate': file });
+  assert.deepEqual(index, share);
+  assert.equal(computeProgress({ form, photos: Array(5).fill('photo'), documents: { 'Electricity Bill': file } }).nudge, 'evidence');
   assert.ok(progress({ 'Electricity Bill': file }, 'rent').pct > progress({}, 'rent').pct);
 });
 
-test('electricity upload rejects images and oversized originals before starting a worker', async () => {
-  const png = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'bill.png', { type: 'image/png' });
-  await assert.rejects(prepareUpload(png, { document: true, originalPdf: true }), /original.*PDF/i);
+test('badge document type policy accepts images and PDFs', async () => {
+  const png = new File([PNG_BYTES], 'bill.png', { type: 'image/png' });
+  assert.equal(await uploadType(png, true), 'image/png');
   const pdf = new File(['%PDF-1.7\n', new Uint8Array(1_000_000)], 'bill.pdf', { type: 'application/pdf' });
-  await assert.rejects(prepareUpload(pdf, { document: true, originalPdf: true }), /original.*under 1 MB/i);
+  assert.equal(await uploadType(pdf, true), 'application/pdf');
 });
 
 // Signature-shaped dictionaries exercise the preservation branch, not cryptographic validity.
@@ -72,7 +77,6 @@ test('PDF worker preserves small signature-bearing bytes and never recommends st
     await self.onmessage({ data: { file: new File([bytes, new Uint8Array(1_000_000).fill(32)], 'large-signed.pdf', { type: 'application/pdf' }) } });
     assert.match(output.error, /signature|signed/i);
     assert.doesNotMatch(output.error, /unsigned/i);
-    assert.doesNotMatch(PDF_GUIDANCE, /unsigned copy/i);
   } finally {
     if (originalSelf === undefined) delete globalThis.self;
     else globalThis.self = originalSelf;

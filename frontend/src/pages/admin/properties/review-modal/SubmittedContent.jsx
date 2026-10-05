@@ -1,43 +1,33 @@
-import { Image as ImageIcon, MapPin, FileText } from 'lucide-react';
+import { ExternalLink, Image as ImageIcon, MapPin, FileText } from 'lucide-react';
+import { titleCase } from '../../societies/helpers.jsx';
 
 /* Verbatim, because the details grid can only say a field was filled in: deciding whether a listing is real
    means reading the prose, and a pending listing has no public page to read it on. */
 
-const unitLine = (details) => {
-  if (!details) return null;
-  const parts = [details.flatNumber, details.tower, details.society, details.street, details.landmark]
-    .filter((p) => typeof p === 'string' && p.trim());
-  return parts.length ? parts.join(', ') : null;
-};
+const text = (v) => (typeof v === 'string' ? v.trim() : '');
+const joined = (...parts) => parts.map(text).filter(Boolean).join(', ');
 
 const block = 'rounded-2xl border border-white/10 bg-white/[0.03] p-4';
 const heading = 'mb-3 flex items-center gap-2 text-sm font-bold text-gray-200';
-const dtClass = 'text-[11px] font-semibold uppercase tracking-wide text-gray-400';
-/* The map pin's value is a coordinate pair and a link, never a run of owner prose, so it is the one
-   line here that does not want `break-words`. */
-const ddClass = 'break-words font-semibold text-gray-100';
+const dtClass = 'text-[11px] text-gray-500';
+const ddClass = 'mt-0.5 break-words text-sm font-semibold text-gray-100';
+const missing = <span className="font-medium text-amber-300">Not given</span>;
 
-/* The gallery is owner-supplied text that this panel turns into an `href` and an `img src`, and the
-   reviewer opening it is staff. A `javascript:` or `data:` entry would run in the console's origin
-   on click, so only the one scheme a photograph can legitimately arrive over is honoured; a
-   relative path resolves against our own origin and is fine. Anything else is shown as the raw
-   string, which is also the more useful thing for a reviewer to see.
-
-   `https:` only, deliberately, even though an `http:` image is merely broken rather than dangerous:
-   the page CSP already refuses to load one, so honouring it here produces an `<a>` a reviewer can
-   click through to a plaintext address while the thumbnail beside it stays empty — the one
-   presentation that invites a click and shows nothing to judge it by. */
+/** Owner-supplied gallery text becomes `href` and `img src`, so only https or same-origin is allowed. */
 const safePhotoUrl = (src) => {
   if (typeof src !== 'string' || !src.trim()) return null;
   try {
-    return new URL(src, window.location.origin).protocol === 'https:' ? src : null;
+    const url = new URL(src, window.location.origin);
+    return url.protocol === 'https:' || url.origin === window.location.origin ? src : null;
   } catch {
     return null;
   }
 };
 
 export function SubmittedPhotos({ listing }) {
-  const photos = Array.isArray(listing.gallery) ? listing.gallery.filter(Boolean) : [];
+  const photos = Array.isArray(listing.gallery) && listing.gallery.filter(Boolean).length
+    ? listing.gallery.filter(Boolean)
+    : [listing.image].filter(Boolean);
   return (
     <div className={block}>
       <h4 className={heading}>
@@ -61,7 +51,7 @@ export function SubmittedPhotos({ listing }) {
               <a key={i} href={src} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-xl border border-white/10">
                 <img
                   src={src}
-                  alt={`Submitted photo ${i + 1} of ${listing.title || 'this listing'}`}
+                  alt={`Submitted ${i + 1} of ${listing.title || 'this listing'}`}
                   loading="lazy"
                   className="h-28 w-full object-cover transition group-hover:scale-105"
                 />
@@ -90,50 +80,53 @@ export function SubmittedDescription({ listing }) {
   );
 }
 
+function Row({ label, value, wide }) {
+  return (
+    <div className={wide ? 'col-span-full' : undefined}>
+      <dt className={dtClass}>{label}</dt>
+      <dd className={ddClass}>{value || missing}</dd>
+    </div>
+  );
+}
+
 export function SubmittedLocation({ listing }) {
-  const unit = unitLine(listing.formDetails);
+  const d = listing.formDetails || {};
+  const society = text(d.society) || (listing.societySlug ? titleCase(listing.societySlug) : '');
+  const unit = joined(d.flatNumber, d.tower);
+  const near = joined(d.street, d.landmark);
+  /* The map pin is coordinates plus a Google Maps link, never owner prose. */
   const hasPin = Number.isFinite(listing.lat) && Number.isFinite(listing.lng);
   return (
     <div className={block}>
       <h4 className={heading}><MapPin className="h-4 w-4 text-brand-teal" /> Location</h4>
-      <dl className="space-y-2 text-sm">
-        {unit ? (
-          <div>
-            <dt className={dtClass}>Unit</dt>
-            <dd className={ddClass}>{unit}</dd>
-          </div>
-        ) : null}
-        <div>
-          <dt className={dtClass}>Address</dt>
-          <dd className={ddClass}>{listing.address || <span className="text-amber-300">Not submitted</span>}</dd>
-        </div>
-        <div>
-          <dt className={dtClass}>Locality {'\u00B7'} city {'\u00B7'} PIN</dt>
-          <dd className={ddClass}>
-            {[listing.locality, listing.city, listing.pincode].filter(Boolean).join(' \u00B7 ') || '\u2014'}
-          </dd>
-        </div>
-        <div>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+        <Row wide label="Address" value={text(listing.address)} />
+        {society ? <Row label="Society / building" value={society} /> : null}
+        {unit ? <Row label="Flat / tower" value={unit} /> : null}
+        {near ? <Row label="Street / landmark" value={near} /> : null}
+        <Row label="Locality" value={listing.locality} />
+        <Row label="City" value={listing.city} />
+        <Row label="PIN code" value={text(listing.pincode)} />
+        <div className="col-span-full">
           <dt className={dtClass}>Map pin</dt>
-          <dd className="font-semibold text-gray-100">
+          <dd className="mt-0.5 text-sm">
             {hasPin ? (
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${listing.lat},${listing.lng}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-teal-300 underline underline-offset-2"
+                className="inline-flex items-center gap-1.5 font-semibold text-teal-300 hover:text-teal-200"
               >
-                {listing.lat.toFixed(5)}, {listing.lng.toFixed(5)}
+                Open in Google Maps <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="font-normal tabular-nums text-gray-500">{listing.lat.toFixed(5)}, {listing.lng.toFixed(5)}</span>
               </a>
             ) : (
-              <span className="text-amber-300">No pin placed</span>
+              <span className="font-medium text-amber-300">No pin placed</span>
             )}
           </dd>
         </div>
       </dl>
-      <p className="mt-3 text-[11px] text-gray-500">
-        Address and unit details are staff-only and are never shown on the public listing.
-      </p>
+      <p className="mt-3 text-[11px] text-gray-500">Address and unit are staff-only, never shown publicly.</p>
     </div>
   );
 }

@@ -1,12 +1,11 @@
 package com.draazy.api.moderation.verification;
 
+import com.draazy.api.catalog.property.ListingProgress;
+import com.draazy.api.moderation.signal.ListingSignals;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Wire shape of the verification case file (contract {@code PropertyReview}): the checklist, the
- * owner&lt;-&gt;ops thread oldest first, and the decision with its note and timestamp.
- */
+// Case file wire shape: checklist, oldest-first thread, and decision metadata.
 public record PropertyReviewResponse(
         String propertyId,
         String status,
@@ -14,19 +13,21 @@ public record PropertyReviewResponse(
         List<ChecklistEntry> checklist,
         List<MessageEntry> messages,
         String notes,
+        String reasonCode,
+        String reasonNote,
+        OverrideRequest overrideRequest,
+        ListingSignals signals,
         Instant decidedAt,
-        String lifecycleTrack,
-        String lifecycleStage) {
+        ListingProgress progress) {
 
-    /** One checklist line. */
     public record ChecklistEntry(String item, boolean pass) {
     }
 
-    /**
-     * One thread message (contract {@code VerificationMessage}); {@code from} is derived server-side.
-     * {@code internal} marks a staff-only finding, and is uniformly false in the owner's copy.
-     */
+    // from is server-derived; internal is always false in the owner's copy.
     public record MessageEntry(String id, String from, String body, Instant at, boolean read,
             boolean internal, boolean clarificationRequested) {
+    }
+
+    public record OverrideRequest(String id, String requestedBy, String reason, Instant at) {
     }
 }

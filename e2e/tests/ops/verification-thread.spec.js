@@ -1,11 +1,10 @@
-/* The verification case file, all of it one server transaction. Fixtures go through
-   `POST /me/listings`, not the wizard, which writes rows the duplicate detector never sees. */
+// The verification case file, all of it one server transaction.
 import { expect, test, STAFF } from '../../fixtures/live.js';
-import { API, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';
+import { API, apiLogin, uploadedListingPhotos, uniqueMobile } from '../../helpers/liveAuth.js';
+import { tickChecklistWithFetch } from '../../helpers/moderation.js';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
-/** A meter number unique to this test, for the reason in the file header. */
 const meterNo = () => `MSEDCL-E2E-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;
 
 async function api(method, path, token, body) {
@@ -24,14 +23,14 @@ async function ok(method, path, token, body) {
   return res.body;
 }
 
-/** A registered owner nobody else in the suite shares, plus their token. */
+// A registered owner nobody else in the suite shares, plus their token.
 async function freshOwner() {
   const mobile = uniqueMobile();
   const { accessToken } = await apiLogin(mobile);
   return { mobile, token: accessToken };
 }
 
-/** One listing, created on the wire so the server's duplicate detector actually sees it. */
+// One listing, created on the wire so the server's duplicate detector actually sees it.
 async function createListing(token, { meter, address } = {}) {
   const created = await ok('POST', '/me/listings', token, {
     title: '2BHK in Kothrud',
@@ -42,6 +41,7 @@ async function createListing(token, { meter, address } = {}) {
     locality: 'Kothrud',
     city: 'Pune',
     floor: 4,
+    images: await uploadedListingPhotos(token),
     ...(meter ? { electricityMeterNo: meter } : {}),
     ...(address ? { address } : {}),
   });
@@ -93,9 +93,7 @@ test.describe('LIVE: the verification case file', () => {
     // Approved first: `Property.requestRecheck` refuses on anything not publicly visible, so a
     // pending listing produces no work item.
     const { accessToken: staffToken } = await apiLogin(STAFF.rental);
-    // Opening the case file is a separate call from deciding it (`PropertyReviewModal` calls it on
-    // open); creating a listing opens no case, so `decide` on an un-opened one answers 404.
-    await ok('POST', `/properties/${id}/verification`, staffToken);
+    await tickChecklistWithFetch(id, auth(staffToken));
     await ok('POST', `/properties/${id}/verification/decision`, staffToken,
       { decision: 'approve', note: 'e2e fixture' });
 

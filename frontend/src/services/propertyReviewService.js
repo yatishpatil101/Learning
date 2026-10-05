@@ -1,7 +1,3 @@
-/**
- * Property verification — the owner↔ops case file behind a listing's approval. Listing approval,
- * documentary ownership and identity KYC are three separate decisions; identity lives elsewhere.
- */
 import { createProvider } from './config.js';
 import { isInternal, readUser } from '../lib/auth.js';
 
@@ -12,12 +8,12 @@ export async function getOwnershipVerification(propertyId) {
   return (await provider()).getOwnershipVerification(propertyId);
 }
 
-/** Staff with properties:write only. Raw vault DTOs carry short-lived signed `url` values. */
+/** Staff with property verification access only. Raw vault DTOs carry short-lived signed `url` values. */
 export async function listOwnershipDocuments(propertyId) {
   return (await provider()).listOwnershipDocuments(propertyId);
 }
 
-/** Record { docType, documentId, issuedOn, subjectName }; this does not grant a badge. */
+/** Record { docType, documentId, issuedAt, subjectName }; this does not grant a badge. */
 export async function recordOwnershipEvidence(propertyId, evidence) {
   return (await provider()).recordOwnershipEvidence(propertyId, evidence);
 }
@@ -30,6 +26,16 @@ export async function verifyOwnership(propertyId) {
 /** Withdraw the badge with a required reason, retaining the evidence history. */
 export async function revokeOwnershipVerification(propertyId, reason) {
   return (await provider()).revokeOwnershipVerification(propertyId, reason);
+}
+
+/** Owner only: ask for the badge once the vault holds the papers. Idempotent while open. */
+export async function requestOwnershipVerification(propertyId) {
+  return (await provider()).requestOwnershipVerification(propertyId);
+}
+
+/** Staff: answer an open badge request without granting it; the owner is told `reason`. */
+export async function declineOwnershipVerification(propertyId, reason) {
+  return (await provider()).declineOwnershipVerification(propertyId, reason);
 }
 
 /** The case file, or `null` if this listing has never been submitted. */
@@ -52,39 +58,36 @@ export async function markPropertyReviewRead(propertyId) {
   return (await provider()).markPropertyReviewRead(propertyId);
 }
 
-/**
- * @param item the exact checklist text, e.g. `'Electricity bill'`; an unknown one is a 404
- * @param pass `true` to tick, `false` to untick — one line per call, to avoid last-write-wins races
- */
 export async function setPropertyReviewChecklistItem(propertyId, item, pass) {
   return (await provider()).setPropertyReviewChecklistItem(propertyId, item, pass);
 }
 
-/**
- * @param decision `approve` or `reject`; one call also moves the listing's public status
- * @param note     free text; on a rejection this is the reason the owner is shown
- */
-export async function decidePropertyReview(propertyId, decision, note) {
-  return (await provider()).decidePropertyReview(propertyId, decision, note);
+export async function decidePropertyReview(propertyId, decision, options) {
+  return (await provider()).decidePropertyReview(propertyId, decision, options);
 }
 
-/** The staff queue — every case file, newest touched first. Paged; there is no server-side filter. */
+export async function requestPropertyReviewOverride(propertyId, reason) {
+  return (await provider()).requestPropertyReviewOverride(propertyId, reason);
+}
+
+export async function approvePropertyReviewOverride(propertyId, requestId, note) {
+  return (await provider()).approvePropertyReviewOverride(propertyId, requestId, note);
+}
+
+export async function propertyReviewOverrideAvailable() {
+  return Boolean((await provider()).OVERRIDE_REQUESTS_ENABLED);
+}
+
+/** The staff queue, newest touched first. `{ unread: true }` narrows it to cases holding an unopened owner reply. */
 export async function listPropertyReviewQueue(params) {
   return (await provider()).listPropertyReviewQueue(params);
 }
 
-/**
- * Owner queue, newest touched first; avoids per-card reads for status and unread counts.
- * Rows carry no listing detail — join the screen's listings by `propertyId`.
- */
 export async function listMyPropertyReviews(params) {
   return (await provider()).listMyPropertyReviews(params);
 }
 
-/**
- * Messages from the other side the reader has not seen, derived from the loaded thread. The
- * reader's side comes from the session, never a caller-supplied role that could gate authorization.
- */
+/** The reader's side comes from the session, never a caller-supplied role that could gate authorization. */
 export function unreadFrom(caseFile) {
   const theirs = isInternal(readUser()) ? 'owner' : 'ops';
   const messages = Array.isArray(caseFile?.messages) ? caseFile.messages : [];

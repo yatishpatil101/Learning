@@ -1,15 +1,13 @@
 package com.draazy.api.moderation.verification;
 
+import com.draazy.api.catalog.property.ListingProgress;
 import java.time.Instant;
 
-/**
- * Paged queue shape for {@code /admin/property-reviews} and {@code /me/property-reviews}. {@code
- * unread} means the opposite side on each route — a message is unread to whoever did not send it.
- */
 public record PropertyReviewSummary(
         String propertyId,
         String status,
         String reviewer,
+        String reviewerName,
         int unread,
         Instant decidedAt,
         Instant updatedAt,
@@ -17,6 +15,7 @@ public record PropertyReviewSummary(
         String propertyImage,
         String lastMessage,
         Instant lastMessageAt,
-        String lifecycleTrack,
-        String lifecycleStage) {
+        String reasonCode,
+        String reasonNote,
+        ListingProgress progress) {
 }

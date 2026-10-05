@@ -33,27 +33,29 @@ class ReviewLifecycleTest extends AbstractApiTest {
                 25000L, "Baner", "Pune"));
     }
 
-    private void message(Property p, User actor, String json, String stage) throws Exception {
+    private void message(Property p, User actor, String json, String step, boolean needsInfo) throws Exception {
         mvc.perform(post("/properties/" + p.getId() + "/verification/messages")
                 .header("Authorization", bearer(actor)).contentType(MediaType.APPLICATION_JSON).content(json))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.lifecycleStage").value(stage));
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.progress.step").value(step))
+                .andExpect(needsInfo ? jsonPath("$.progress.flags").value(org.hamcrest.Matchers.hasItem("needs_info"))
+                        : jsonPath("$.progress.flags").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("needs_info"))));
     }
 
     @AfterEach void cleanupAudit() {
         actors.forEach(id -> jdbc.update("delete from audit_log where actor = ?", id));
     }
 
-    @Test void onlyExplicitStaffClarificationChangesTheStage() throws Exception {
+    @Test void onlyExplicitStaffClarificationRaisesNeedsInfoAndTheOwnerReplyClearsIt() throws Exception {
         User owner = user("9800011901", "owner");
         User staff = user("9800011902", "staff");
         Property p = listing(owner);
-        message(p, staff, "{\"body\":\"Hello\"}", "submitted");
+        message(p, staff, "{\"body\":\"Hello\"}", "submitted", false);
         mvc.perform(post("/properties/" + p.getId() + "/verification/start")
                 .header("Authorization", bearer(staff)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("in_review"));
-        message(p, staff, "{\"body\":\"Need proof\",\"clarificationRequested\":true}", "clarification");
-        message(p, staff, "{\"body\":\"Thank you\"}", "clarification");
-        message(p, owner, "{\"body\":\"Here is the answer\"}", "in_review");
+                .andExpect(status().isOk()).andExpect(jsonPath("$.progress.step").value("in_review"));
+        message(p, staff, "{\"body\":\"Need proof\",\"clarificationRequested\":true}", "in_review", true);
+        message(p, staff, "{\"body\":\"Thank you\"}", "in_review", true);
+        message(p, owner, "{\"body\":\"Here is the answer\"}", "in_review", false);
         properties.flush();
         assertThat(jdbc.queryForObject("select count(*) from review_messages m join property_reviews r "
                 + "on r.id=m.review_id where r.property_id=? and m.clarification_requested", Long.class,
@@ -69,10 +71,6 @@ class ReviewLifecycleTest extends AbstractApiTest {
                 .andExpect(status().isForbidden());
     }
 
-    /**
-     * Tick every line the case file opened with: the approval gate refuses a decision while any line is open, so
-     * a fixture that skips this asserts against a 409 it never meant to provoke.
-     */
     private void tickChecklist(Property p, User staff) throws Exception {
         String caseFile = mvc.perform(get("/properties/" + p.getId() + "/verification")
                 .header("Authorization", bearer(staff))).andExpect(status().isOk())
@@ -86,10 +84,6 @@ class ReviewLifecycleTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * Publication is one act, but it still needs a locality: an approved listing with no slug is unreachable
-     * from every search surface, so the approval would file a listing nobody can find and call it live.
-     */
     @Test void approvingAnUnfiledListingIsRefusedUntilItsLocalityExists() throws Exception {
         User owner = user("9800011904", "owner");
         User staff = user("9800011905", "staff");
@@ -112,10 +106,17 @@ class ReviewLifecycleTest extends AbstractApiTest {
         properties.saveAndFlush(property);
     }
 
-    /**
-     * The single publication route: approving at the verification desk both records the verification and puts the
-     * listing on the site, because a two-step approval is how one sat verified-but-invisible with nobody's name on it.
-     */
+    // Verification approval also publishes; the old two-step path left
+    // verified listings invisible with no owner.
+    private void hardBrokerSignal(Property property, User reporter) {
+        jdbc.update("""
+                insert into reports (target_type, target_id, reporter_id, reason, details, status)
+                values ('user', ?, ?, 'brokerage', 'broker', 'open'),
+                       ('user', ?, ?, 'brokerage', 'broker', 'actioned')
+                """, property.getOwner().getId().toString(), reporter.getId(),
+                property.getOwner().getId().toString(), reporter.getId());
+    }
+
     @Test void approvingAtTheDeskVerifiesAndPublishesInOneStep() throws Exception {
         User owner = user("9800011906", "owner");
         User staff = user("9800011907", "staff");
@@ -128,40 +129,33 @@ class ReviewLifecycleTest extends AbstractApiTest {
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.lifecycleStage").value("live"));
-        mvc.perform(get("/properties/" + p.getId())).andExpect(status().isOk())
-                .andExpect(jsonPath("$.lifecycleTrack").value("owner"));
+                .andExpect(jsonPath("$.progress.track").value("owner"))
+                .andExpect(jsonPath("$.progress.step").value("live"));
+        mvc.perform(get("/properties/" + p.getId())).andExpect(status().isOk());
         properties.flush();
         assertThat(jdbc.queryForObject("select status from properties where id=?", String.class,
                 p.getId())).isEqualTo("approved");
-        assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id=?", String.class,
-                p.getId())).isEqualTo("live");
     }
 
-    @Test void manualLiveCannotSkipVerification() throws Exception {
-        User staff = user("9800011908", "staff");
-        Property p = listing(user("9800011909", "owner"));
+    @Test void deskApprovalStillNeedsTheSecondApproverOnAHardSignal() throws Exception {
+        User staff = user("9800011920", "staff");
+        User reporter = user("9800011921", "buyer");
+        Property p = listing(user("9800011922", "owner"));
         fileLocality(p);
-        mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
-                .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lifecycleStage\":\"live\",\"reason\":\"Try to bypass\"}"))
-                .andExpect(status().isConflict());
-    }
+        mvc.perform(post("/properties/" + p.getId() + "/verification")
+                .header("Authorization", bearer(staff))).andExpect(status().isCreated());
+        tickChecklist(p, staff);
+        hardBrokerSignal(p, reporter);
 
-    @Test void correctionPersistsAndCannotCrossTracks() throws Exception {
-        User staff = user("9800011910", "staff");
-        Property p = listing(user("9800011911", "owner"));
-        mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
+        mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lifecycleStage\":\"in_review\",\"reason\":\"Resumed review\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("in_review"));
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("second_approver_required"));
+
         properties.flush();
-        assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id=?", String.class,
-                p.getId())).isEqualTo("in_review");
-        mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
-                .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lifecycleStage\":\"photos_docs\",\"reason\":\"Wrong track\"}"))
-                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select status from properties where id= ?", String.class,
+                p.getId())).isEqualTo("pending");
     }
 
     @Test void staffOwnerCannotVerifyOrPublishTheirOwnListing() throws Exception {
@@ -170,10 +164,6 @@ class ReviewLifecycleTest extends AbstractApiTest {
         mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staffOwner)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\"}"))
-                .andExpect(status().isForbidden());
-        mvc.perform(patch("/properties/" + p.getId() + "/lifecycle")
-                .header("Authorization", bearer(staffOwner)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"lifecycleStage\":\"verified\",\"reason\":\"Self-check\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -186,23 +176,95 @@ class ReviewLifecycleTest extends AbstractApiTest {
                 .header("Authorization", bearer(staff))).andExpect(status().isForbidden());
     }
 
-    @Test void staffTrackRecordsAnAuthenticatedOpenButDoesNotPublish() throws Exception {
+    @Test void staffTrackRecordsAnAuthenticatedOpenWithoutConfirmingOrPublishing() throws Exception {
         User owner = user("9800011915", "owner");
         Property p = listing(owner);
         p.markPostedOnBehalf("some-other-staff");
         properties.saveAndFlush(p);
-        assertThat(p.getLifecycleStage()).isNull();
         mvc.perform(post("/me/listings/" + p.getId() + "/opened")
                 .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
         properties.flush();
-        assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id=?", String.class,
-                p.getId())).isEqualTo("opened");
-        p.recordLifecycleMedia();
-        properties.saveAndFlush(p);
+        java.sql.Timestamp firstOpen = jdbc.queryForObject(
+                "select claim_link_opened_at from properties where id= ?", java.sql.Timestamp.class, p.getId());
+        assertThat(firstOpen).isNotNull();
         mvc.perform(post("/me/listings/" + p.getId() + "/opened")
                 .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
-        assertThat(p.getLifecycleStage()).isEqualTo("photos_docs");
+        properties.flush();
         assertThat(p.getStatus()).isEqualTo("pending");
+        assertThat(p.getOwnerConfirmedAt()).isNull();
+        assertThat(jdbc.queryForObject("select claim_link_opened_at from properties where id= ?",
+                java.sql.Timestamp.class, p.getId())).isEqualTo(firstOpen);
+    }
+
+    @Test void staffPostedListingPublishesOnlyAfterTheOwnerConfirms() throws Exception {
+        User maker = user("9800011930", "staff");
+        User checker = user("9800011931", "staff");
+        User owner = user("9800011932", "owner");
+        Property p = listing(owner);
+        p.markPostedOnBehalf(maker.getId().toString());
+        fileLocality(p);
+        mvc.perform(post("/properties/" + p.getId() + "/verification")
+                .header("Authorization", bearer(owner))).andExpect(status().isCreated());
+        tickChecklist(p, checker);
+        mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
+                .header("Authorization", bearer(checker)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("owner_not_confirmed"));
+
+        mvc.perform(post("/me/listings/" + p.getId() + "/confirm")
+                .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
+        properties.flush();
+        java.sql.Timestamp confirmed = jdbc.queryForObject(
+                "select owner_confirmed_at from properties where id= ?", java.sql.Timestamp.class, p.getId());
+        assertThat(confirmed).isNotNull();
+        mvc.perform(post("/me/listings/" + p.getId() + "/confirm")
+                .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
+        properties.flush();
+        assertThat(jdbc.queryForObject("select owner_confirmed_at from properties where id= ?",
+                java.sql.Timestamp.class, p.getId())).isEqualTo(confirmed);
+        assertThat(jdbc.queryForObject("select count(*) from notifications where user_id= ? and type= ?",
+                Long.class, maker.getId(), "listing.owner_confirmed")).isEqualTo(1);
+
+        mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
+                .header("Authorization", bearer(checker)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.progress.track").value("staff"))
+                .andExpect(jsonPath("$.progress.step").value("live"));
+    }
+
+    @Test void onlyTheOwnerOfAStaffPostedListingCanConfirmIt() throws Exception {
+        User owner = user("9800011933", "owner");
+        Property ownPosted = listing(owner);
+        mvc.perform(post("/me/listings/" + ownPosted.getId() + "/confirm")
+                .header("Authorization", bearer(owner))).andExpect(status().isConflict());
+        Property staffPosted = listing(owner);
+        staffPosted.markPostedOnBehalf("some-other-staff");
+        properties.saveAndFlush(staffPosted);
+        mvc.perform(post("/me/listings/" + staffPosted.getId() + "/confirm")
+                .header("Authorization", bearer(user("9800011934", "owner")))).andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("select owner_confirmed_at from properties where id= ?",
+                java.sql.Timestamp.class, staffPosted.getId())).isNull();
+    }
+
+    @Test void ownerTrackOpenRecordsNothing() throws Exception {
+        User owner = user("9800011990", "owner");
+        Property p = listing(owner);
+        mvc.perform(post("/me/listings/" + p.getId() + "/opened")
+                .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select claim_link_opened_at from properties where id= ?",
+                java.sql.Timestamp.class, p.getId())).isNull();
+    }
+
+    @Test void anotherUsersOpenIsNotFound() throws Exception {
+        Property p = listing(user("9800011991", "owner"));
+        p.markPostedOnBehalf("some-other-staff");
+        properties.saveAndFlush(p);
+        mvc.perform(post("/me/listings/" + p.getId() + "/opened")
+                .header("Authorization", bearer(user("9800011992", "owner")))).andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("select claim_link_opened_at from properties where id= ?",
+                java.sql.Timestamp.class, p.getId())).isNull();
     }
 
     @Test void liveRecheckStaysLiveAfterVerification() throws Exception {
@@ -218,7 +280,7 @@ class ReviewLifecycleTest extends AbstractApiTest {
         mvc.perform(post("/properties/" + p.getId() + "/verification/decision")
                 .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lifecycleStage").value("live"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.progress.step").value("live"));
         assertThat(p.getStatus()).isEqualTo("approved");
         assertThat(p.isRecheckPending()).isFalse();
     }
@@ -234,12 +296,9 @@ class ReviewLifecycleTest extends AbstractApiTest {
                                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("prepared"))
                                 .andReturn().getResponse().getContentAsString();
                 String messageId = com.jayway.jsonpath.JsonPath.read(result, "$.id");
-                assertThat(p.getLifecycleStage()).isNull();
-                mvc.perform(post("/properties/" + p.getId() + "/outreach/" + messageId + "/sent")
-                                .header("Authorization", bearer(staff))).andExpect(status().isNoContent());
-                properties.flush();
-                assertThat(p.getLifecycleStage()).isEqualTo("link_sent");
-                assertThat(jdbc.queryForObject("select status from outbound_message where id=?::uuid",
-                                String.class, messageId)).isEqualTo("sent");
+                assertThat(p.getClaimLinkSentAt()).isNull();
+                mvc.perform(get("/properties/" + p.getId() + "/outreach").header("Authorization", bearer(staff)))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$[?(@.id == '" + messageId + "')].status").value("prepared"));
         }
 }

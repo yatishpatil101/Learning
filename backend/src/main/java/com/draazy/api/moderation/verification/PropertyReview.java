@@ -15,10 +15,6 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * The moderation record for one listing under review (table {@code property_reviews}). Not a
- * duplicate of {@code properties.status}: that is visibility, this is the case file behind it.
- */
 @Entity
 @Table(name = "property_reviews")
 @Getter
@@ -31,27 +27,21 @@ public class PropertyReview extends AuditedEntity {
     @Setter
     private String status = "pending";
 
-    /** Display handle of the staff member who took the case. Free text, per the V5 schema. */
     @Column(name = "reviewer")
     private String reviewer;
 
     @Column(name = "notes")
     private String notes;
 
+    @Column(name = "reason_code")
+    private String reasonCode;
+
     @Column(name = "decided_at")
     private Instant decidedAt;
 
-    /**
-     * When anyone last said anything in this thread, and what the ops queue sorts on. Never null —
-     * a case nobody has spoken in carries the moment it was opened, so no index-defeating coalesce.
-     */
     @Column(name = "last_message_at", nullable = false)
     private Instant lastMessageAt = Instant.now();
 
-    /**
-     * Cascaded because a checklist item has no meaning outside its review — it is a component of the
-     * case file, not an entity anything else references.
-     */
     @OneToMany(mappedBy = "review", cascade = CascadeType.ALL, orphanRemoval = true,
             fetch = FetchType.LAZY)
     private List<ReviewChecklistItem> checklist = new ArrayList<>();
@@ -62,14 +52,13 @@ public class PropertyReview extends AuditedEntity {
     private List<ReviewMessage> messages = new ArrayList<>();
 
     protected PropertyReview() {
-        // JPA
+
     }
 
     public PropertyReview(UUID propertyId) {
         this.propertyId = propertyId;
     }
 
-    /** Add a checklist item, keeping both sides of the association consistent. */
     public void addChecklistItem(String item) {
         checklist.add(new ReviewChecklistItem(this, item));
     }
@@ -82,10 +71,7 @@ public class PropertyReview extends AuditedEntity {
         return add(senderId, body, false, clarificationRequested);
     }
 
-    /**
-     * A note only staff can read. Takes no sender: the platform writes these, and inventing a system
-     * user would put a fictional participant in a thread whose value is being an accurate record.
-     */
+    // No sender: a system user would add a fictional participant to the thread.
     public ReviewMessage addInternalNote(String body) {
         return add(null, body, true, false);
     }
@@ -93,17 +79,17 @@ public class PropertyReview extends AuditedEntity {
     private ReviewMessage add(UUID senderId, String body, boolean internal, boolean clarificationRequested) {
         ReviewMessage message = new ReviewMessage(this, senderId, body, internal, clarificationRequested);
         messages.add(message);
-        /* Touch the parent, or the ops queue never learns anything was said: review_messages owns
-         * the association, so adding a child leaves property_reviews clean and the case does not move. */
+
         this.lastMessageAt = Instant.now();
         return message;
     }
 
-    public void decide(String status, String reviewer, String note) {
+    public void decide(String status, String reviewer, String note, String reasonCode) {
         this.status = status;
         this.reviewer = reviewer;
         this.notes = note;
         this.decidedAt = Instant.now();
+        this.reasonCode = reasonCode;
     }
 
     public void begin(String reviewer) {
@@ -112,14 +98,11 @@ public class PropertyReview extends AuditedEntity {
         }
     }
 
-    /**
-     * Put a decided case back on the desk. Reviewer and notes stay, being the record under answer; the
-     * checklist does not, since its ticks describe documents the resubmission has just replaced.
-     */
     public void reopen() {
-        this.status = "pending";
+        this.status = PropertyReviewStatuses.STORED_PENDING;
         this.decidedAt = null;
-        this.checklist.forEach(line -> line.setPass(false));
+        this.reasonCode = null;
+        this.checklist.forEach(ReviewChecklistItem::reset);
     }
 
 }

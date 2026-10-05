@@ -1,90 +1,75 @@
 package com.draazy.api.moderation.verification;
 
+import com.draazy.api.catalog.property.PropertyLifecycle;
+import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.trust.ListingCaseNotes;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Opens verification case files, and is the one way anything outside this slice speaks to a listing's owner.
- * Reached through {@link ListingCaseNotes} because {@code catalog} may not import {@code moderation}.
- */
+// Catalog reaches this through ListingCaseNotes because it may not import moderation.
 @Service
 public class VerificationCases implements ListingCaseNotes {
 
-    /**
-     * The checklist a new case starts with. A rental is a lighter check than a sale because the risk
-     * is lighter: a bad tenancy costs a deposit, a bad sale costs a house.
-     */
-    private static final List<String> RENT_CHECKLIST = List.of(
-            "Index II", "Electricity bill", "Aadhaar card");
-
-    private static final List<String> BUY_CHECKLIST = List.of(
-            "Ownership proof (Sale deed / Index II)",
-            "Property tax receipt",
-            "Owner government ID (Aadhaar / PAN)",
-            "Society NOC / Maintenance receipt",
-            "Encumbrance certificate",
-            "Listing photos match the property");
-
-    private static final String DEAL_RENT = "rent";
+    // Rental has a lighter checklist because tenancy risk is lighter than sale risk.
+    static final List<String> CHECKLIST = List.of(
+            "Photos are real and match the listing",
+            "Not a duplicate of another listing",
+            "Details and location look right");
 
     private final PropertyReviewRepository reviews;
+    private final AuditService audit;
 
-    public VerificationCases(PropertyReviewRepository reviews) {
+    public VerificationCases(PropertyReviewRepository reviews, AuditService audit) {
         this.reviews = reviews;
+        this.audit = audit;
     }
 
-    /**
-     * This listing's case file, opened with its checklist if absent. Read-then-lock because the property id
-     * is UNIQUE; {@code MANDATORY} so the row commits with the write that justified it and holds the lock.
-     */
+    // MANDATORY keeps case creation in the write that justified it and holds the lock.
     @Transactional(propagation = Propagation.MANDATORY)
     public PropertyReview ensure(UUID propertyId, String deal) {
         Optional<PropertyReview> existing = reviews.findByPropertyId(propertyId);
         if (existing.isPresent()) {
-            return existing.get();
+            PropertyReview review = existing.get();
+            reconcilePendingChecklist(review);
+            return review;
         }
         reviews.lockCaseFileFor(propertyId);
         return reviews.findByPropertyId(propertyId).orElseGet(() -> {
             PropertyReview created = new PropertyReview(propertyId);
-            checklistFor(deal).forEach(created::addChecklistItem);
+            CHECKLIST.forEach(created::addChecklistItem);
+
             // saveAndFlush, not save: the checklist items are transient until insert, so plain save is
             // correct only until a checklist entry gains a generated id.
             return reviews.saveAndFlush(created);
         });
     }
 
-    /**
-     * Close a file whose verdict was reached elsewhere, so it stops reading {@code pending} beside a live
-     * listing. Creates nothing, leaves the checklist blank, and skips a file that already agrees.
-     */
+    @EventListener
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recordExternalDecision(UUID propertyId, String status, String reviewer, String reason) {
-        reviews.findByPropertyId(propertyId)
-                .filter(review -> review.getDecidedAt() == null || !status.equals(review.getStatus()))
-                .ifPresent(review -> review.decide(status, reviewer,
-                        "Decided from the moderation queue, without the document checklist."
-                                + (reason == null || reason.isBlank() ? "" : " " + reason.trim())));
+    public void resetOnReentry(PropertyLifecycle.ReviewReentered event) {
+        reviews.findByPropertyId(event.propertyId()).ifPresent(review -> {
+            review.reopen();
+            reconcilePendingChecklist(review);
+            audit.record(event.actorId(), event.actorRole(), "property.verification.checklist.reset",
+                    "property", event.propertyId().toString(), null, "{}");
+        });
     }
 
-    /**
-     * Post a platform note, opening the case file if absent: the file is the ops work item, so a note with
-     * nowhere to land warns nobody. {@code MANDATORY} must stay here, as the call below self-invokes.
-     */
+    // Opens the case if absent because a note with nowhere to land warns nobody.
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void post(UUID propertyId, String deal, String body) {
         write(propertyId, deal, body, false);
     }
 
-    /**
-     * The staff-only half: the duplicate probe names another listing, so an owner who could read it would
-     * have an oracle for pending rows. The re-post guard matters because the probe re-runs on every edit.
-     */
+    // Staff-only because duplicate notes would otherwise reveal pending rows to owners.
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void postInternalOnce(UUID propertyId, String deal, String body) {
@@ -103,12 +88,26 @@ public class VerificationCases implements ListingCaseNotes {
         } else {
             review.addMessage(null, body);
         }
+
         // saveAndFlush: a new message is a transient child of a managed collection, so deferring the
         // persist to commit leaves its id and timestamp null for readers in the same transaction.
         reviews.saveAndFlush(review);
     }
 
-    private static List<String> checklistFor(String deal) {
-        return DEAL_RENT.equals(deal) ? RENT_CHECKLIST : BUY_CHECKLIST;
+    static List<ReviewChecklistItem> ordered(PropertyReview review) {
+        return review.getChecklist().stream()
+                .sorted(Comparator.comparingInt(item -> CHECKLIST.indexOf(item.getItem())))
+                .toList();
+    }
+
+    private static void reconcilePendingChecklist(PropertyReview review) {
+        List<String> items = review.getChecklist().stream().map(ReviewChecklistItem::getItem).toList();
+
+        if ((review.getDecidedAt() != null && !PropertyReviewStatuses.NEEDS_INFO.equals(review.getStatus()))
+                || (items.size() == CHECKLIST.size() && Set.copyOf(items).equals(Set.copyOf(CHECKLIST)))) {
+            return;
+        }
+        review.getChecklist().clear();
+        CHECKLIST.forEach(review::addChecklistItem);
     }
 }

@@ -9,15 +9,12 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * A rejection must carry its reason: the owner has nothing else to act on. Reported against
- * {@code note} rather than the body, so the console can mark the field the reviewer must fill in.
- */
+// Report against note so the console can mark the field the reviewer must fill in.
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = RejectionNeedsReason.Validator.class)
 public @interface RejectionNeedsReason {
-    String message() default "is required when rejecting: the owner is shown this reason";
+    String message() default "is required for needs_info or reject";
 
     Class<?>[] groups() default {};
 
@@ -29,13 +26,13 @@ public @interface RejectionNeedsReason {
         @Override
         public boolean isValid(PropertyVerificationController.DecisionRequest body,
                 ConstraintValidatorContext context) {
-            if (body == null || !"reject".equals(body.decision())
-                    || (body.note() != null && !body.note().isBlank())) {
+            if (body == null || (!"reject".equals(body.decision()) && !"needs_info".equals(body.decision()))
+                    || (body.reasonCode() != null && !body.reasonCode().isBlank())) {
                 return true;
             }
             context.disableDefaultConstraintViolation();
             context.buildConstraintViolationWithTemplate(context.getDefaultConstraintMessageTemplate())
-                    .addPropertyNode("note")
+                    .addPropertyNode("reasonCode")
                     .addConstraintViolation();
             return false;
         }

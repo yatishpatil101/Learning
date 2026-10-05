@@ -17,6 +17,7 @@ import com.draazy.api.security.Roles;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,10 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Verification thread — participant-or-staff, tested here because a role sweep cannot verify a
- * service-layer rule. Denials answer 404 so the code is not an existence oracle.
- */
+// Verification thread — participant-or-staff, tested here because a role sweep cannot verify a service-layer rule.
 @DisplayName("Verification thread — participant-or-staff, and both halves of a decision")
 class VerificationThreadTest extends AbstractApiTest {
 
@@ -55,6 +53,14 @@ class VerificationThreadTest extends AbstractApiTest {
         u.setName("User " + mobile);
         u.setMobileVerified(true);
         User saved = users.saveAndFlush(u);
+        if (Roles.Wire.STAFF.equals(role)) {
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                    """, saved.getId().toString(),
+                    "[\"kyc\",\"propertyVerification\",\"listingModeration\",\"support\",\"content\",\"reports\",\"desk:rental\"]");
+        }
         createdActors.add(saved.getId().toString());
         return saved;
     }
@@ -66,7 +72,7 @@ class VerificationThreadTest extends AbstractApiTest {
         p.setArea(new BigDecimal("900"));
         p.setStatus(PropertyStatus.PENDING);
         p = properties.saveAndFlush(p);
-        documents.saveAndFlush(new com.draazy.api.documents.vault.Document(p.getId(), "Index II",
+        documents.saveAndFlush(new com.draazy.api.documents.vault.Document(p.getId(), "Not a duplicate of another listing",
                 "proof.pdf", "test/verification-proof", 100, "application/pdf"));
         return p;
     }
@@ -75,10 +81,6 @@ class VerificationThreadTest extends AbstractApiTest {
         return "/properties/" + p.getId() + "/verification" + suffix;
     }
 
-    /**
-     * Everything an approval needs beyond the reviewer's intent: a locality to be filed under, and every checklist
-     * line ticked. Both are refused with a 409, so a fixture that skips this asserts against an unintended conflict.
-     */
     private void readyForApproval(Property p, User ops) throws Exception {
         p.setLocalitySlug(jdbc.queryForObject("select slug from localities limit 1", String.class));
         properties.saveAndFlush(p);
@@ -92,6 +94,24 @@ class VerificationThreadTest extends AbstractApiTest {
                     .content("{\"item\":\"" + item + "\",\"pass\":true}"))
                     .andExpect(status().isOk());
         }
+    }
+
+    private void hardBrokerSignal(Property p, User reporter) {
+        jdbc.update("""
+                insert into reports (target_type, target_id, reporter_id, reason, details, status)
+                values ('user', ?, ?, 'brokerage', 'broker', 'open'),
+                       ('user', ?, ?, 'brokerage', 'broker', 'actioned')
+                """, p.getOwner().getId().toString(), reporter.getId(),
+                p.getOwner().getId().toString(), reporter.getId());
+    }
+
+    private void duplicateConflict(Property p) {
+        User other = user("9820000599", Roles.Wire.OWNER);
+        p.setElectricityMeterKey("meter-conflict");
+        Property duplicate = listing(other, p.getDeal());
+        duplicate.setElectricityMeterKey("meter-conflict");
+        properties.saveAndFlush(p);
+        properties.saveAndFlush(duplicate);
     }
 
     @Test
@@ -110,15 +130,14 @@ class VerificationThreadTest extends AbstractApiTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"let me in\"}"))
                 .andExpect(status().isNotFound());
 
-        // The owner, by contrast, reads their own case file.
         mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, owner))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.checklist.length()").value(3));
     }
 
     @Test
-    @DisplayName("the checklist is the rent one for a rental and the longer buy one for a sale")
-    void theChecklistMatchesTheDeal() throws Exception {
+    @DisplayName("new case files use the three-fact checklist for rentals and sales")
+    void newCaseFilesUseTheThreeFactChecklist() throws Exception {
         User owner = user("9820000503", Roles.Wire.OWNER);
         Property rental = listing(owner, "rent");
         Property sale = listing(owner, "buy");
@@ -129,7 +148,7 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.checklist.length()").value(3));
         mvc.perform(post(path(sale, "")).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.checklist.length()").value(6));
+                .andExpect(jsonPath("$.checklist.length()").value(3));
 
         // Re-submit is idempotent (property_reviews.property_id UNIQUE): row count is the only
         // evidence, since two cases would each carry three lines. properties.flush() first.
@@ -156,8 +175,7 @@ class VerificationThreadTest extends AbstractApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"body\":\"Index II attached\",\"from\":\"ops\"}"))
                 .andExpect(status().isCreated())
-                // A client-supplied "from" is ignored: it is derived from the authenticated sender,
-                // or an owner could post as ops in their own case file.
+
                 .andExpect(jsonPath("$.messages[0].from").value("owner"));
 
         mvc.perform(post(path(listing, "/messages")).header(HttpHeaders.AUTHORIZATION, opsToken)
@@ -188,7 +206,7 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].propertyId").value(listing.getId().toString()))
-                .andExpect(jsonPath("$.content[0].status").value("pending"));
+                .andExpect(jsonPath("$.content[0].status").value("in_review"));
 
         mvc.perform(get(ADMIN_PROPERTY_REVIEWS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -208,19 +226,167 @@ class VerificationThreadTest extends AbstractApiTest {
         readyForApproval(listing, ops);
         mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"decision\":\"approve\",\"note\":\"docs check out\"}"))
+                .content("{\"decision\":\"approve\",\"note\":\"docs check out\","
+                        + "\"expectedStatus\":\"in_review\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PropertyStatus.APPROVED));
 
         properties.flush();
+
         // Both halves move together now: there is no state in which the case file says approved and
         // the listing is still invisible, because that gap had nobody's name on it.
         assertThat(jdbc.queryForObject("select status from properties where id = ?",
                 String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
-        assertThat(jdbc.queryForObject("select lifecycle_stage from properties where id = ?",
-                String.class, listingId)).isEqualTo("live");
         assertThat(jdbc.queryForObject("select status from property_reviews where property_id = ?",
                 String.class, listingId)).isEqualTo(PropertyStatus.APPROVED);
+    }
+
+    @Test
+    @DisplayName("a hard broker signal needs a second staff approver")
+    void hardSignalApprovalNeedsSecondApprover() throws Exception {
+        User owner = user("9820000531", Roles.Wire.OWNER);
+        User ops = user("9820000532", Roles.Wire.STAFF);
+        User peer = user("9820000533", Roles.Wire.STAFF);
+        User poster = user("9820000534", Roles.Wire.STAFF);
+        User reporter = user("9820000535", Roles.Wire.BUYER);
+        Property listing = listing(owner, "rent");
+        listing.markPostedOnBehalf(poster.getId().toString());
+        listing.confirmByOwner();
+        properties.saveAndFlush(listing);
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        readyForApproval(listing, ops);
+        hardBrokerSignal(listing, reporter);
+
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\",\"note\":\"checklist passed\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("second_approver_required"));
+        mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signals.hardBlock").value(true));
+
+        String response = mvc.perform(post(path(listing, "/override-requests"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Hard broker signal reviewed\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.overrideRequest.requestedBy").value(ops.getId().toString()))
+                .andReturn().getResponse().getContentAsString();
+        String requestId = com.jayway.jsonpath.JsonPath.read(response, "$.overrideRequest.id");
+
+        mvc.perform(post(path(listing, "/override-requests/" + requestId + "/approve"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"same staff\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path(listing, "/override-requests/" + requestId + "/approve"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"owner\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path(listing, "/override-requests/" + requestId + "/approve"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(poster))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"poster\"}"))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(post(path(listing, "/override-requests/" + requestId + "/approve"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(peer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"second approval\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"));
+        String ownerView = mvc.perform(get(path(listing, ""))
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.notes").doesNotExist())
+                .andExpect(jsonPath("$.messages[0].body")
+                        .value("\u2705 Your property has been verified and is now live."))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(ownerView).doesNotContain("second approval");
+
+        properties.flush();
+        assertThat(jdbc.queryForObject("select status from properties where id = ?",
+                String.class, listing.getId())).isEqualTo(PropertyStatus.APPROVED);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_log
+                where entity = 'property_override_request'
+                  and action in ('property.verification.override.requested',
+                                 'property.verification.override.approved')
+                  and entity_id = ?
+                """, Integer.class, requestId)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("an unresolved cross-owner duplicate conflict needs a second staff approver")
+    void duplicateConflictApprovalNeedsSecondApprover() throws Exception {
+        User owner = user("9820000540", Roles.Wire.OWNER);
+        User ops = user("9820000541", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+        duplicateConflict(listing);
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        readyForApproval(listing, ops);
+
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("second_approver_required"));
+        mvc.perform(post(path(listing, "/override-requests"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Cross-owner duplicate reviewed\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.overrideRequest.requestedBy").value(ops.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("a final rejection reopens only through a second staff approver")
+    void finalRejectReversalNeedsSecondApprover() throws Exception {
+        User owner = user("9820000536", Roles.Wire.OWNER);
+        User ops = user("9820000537", Roles.Wire.STAFF);
+        User peer = user("9820000538", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"reject\",\"reasonCode\":\"broker\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("rejected"));
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"pending\",\"reason\":\"appeal accepted\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("second_approver_required"));
+
+        String response = mvc.perform(post(path(listing, "/override-requests"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Owner appeal has evidence\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String requestId = com.jayway.jsonpath.JsonPath.read(response, "$.overrideRequest.id");
+
+        mvc.perform(post(path(listing, "/override-requests/" + requestId + "/approve"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(peer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"reopen\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("in_review"));
+
+        properties.flush();
+        assertThat(jdbc.queryForObject("select status from properties where id = ?",
+                String.class, listing.getId())).isEqualTo(PropertyStatus.PENDING);
+        assertThat(jdbc.queryForObject("select status from property_reviews where property_id = ?",
+                String.class, listing.getId())).isEqualTo(PropertyStatus.PENDING);
     }
 
     @Test
@@ -238,17 +404,17 @@ class VerificationThreadTest extends AbstractApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"decision\":\"approve\",\"note\":\"Index II matched.\"}"))
                 .andExpect(status().isOk())
+
                 // "ops" is derived from the sender like every other message, not hard-coded on the
                 // decision path — so a staff member deciding cannot be rendered as the owner.
                 .andExpect(jsonPath("$.messages[0].from").value("ops"))
+
                 // Non-null only because decide() flushes: id and createdAt are assigned at insert.
                 .andExpect(jsonPath("$.messages[0].id").isNotEmpty())
                 .andExpect(jsonPath("$.messages[0].body")
                         .value("\u2705 Your property has been verified and is now live."
                                 + " Index II matched."));
 
-        // Rejection is read back by the *owner*, so the sentence is a persisted row rather than console paint.
-        // A reason is mandatory — a rejection with nothing to act on is a dead end.
         mvc.perform(post(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated());
         mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
@@ -256,19 +422,156 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
         mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"decision\":\"reject\",\"note\":\"The Index II is illegible.\"}"))
+                .content("{\"decision\":\"reject\",\"reasonCode\":\"document_unreadable\","
+                        + "\"note\":\"The Index II is illegible.\"}"))
                 .andExpect(status().isOk());
         mvc.perform(get(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.messages[0].body").value(
-                        "\u26D4 Your property could not be approved.\nReason: The Index II is"
-                                + " illegible.\nPlease address this and reply here to resubmit."));
+                        "\u26D4 Your property could not be approved.\nReason: Please upload a readable document."
+                                + " The Index II is illegible."));
     }
 
-    /**
-     * Deciding must drain {@code recheck_requested_at}. Both verdicts because {@code approve}
-     * clears {@code flagReason}, tempting a fix that leaves {@code reject} stranding the row.
-     */
+    @Test
+    @DisplayName("needs_info pauses the case until the owner replies")
+    void needsInfoOwnerReplyResubmits() throws Exception {
+        User owner = user("9820000523", Roles.Wire.OWNER);
+        User ops = user("9820000524", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"item\":\"Photos are real and match the listing\",\"pass\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"needs_info\",\"reasonCode\":\"photos_not_real\","
+                        + "\"note\":\"Use current photos.\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("needs_info"))
+                .andExpect(jsonPath("$.reasonCode").value("photos_not_real"))
+                .andExpect(jsonPath("$.reasonNote").value("Use current photos."))
+                .andExpect(jsonPath("$.progress.flags").value(org.hamcrest.Matchers.hasItem("needs_info")))
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Photos are real and match the listing')].pass")
+                        .value(false));
+
+        mvc.perform(post(path(listing, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Uploaded current photos.\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("in_review"))
+                .andExpect(jsonPath("$.progress.step").value("in_review"))
+                .andExpect(jsonPath("$.progress.flags").isEmpty());
+    }
+
+    @Test
+    @DisplayName("staff can decide a needs-info case after the owner fixes it")
+    void staffCanDecideAfterNeedsInfo() throws Exception {
+        User owner = user("9820000560", Roles.Wire.OWNER);
+        User ops = user("9820000561", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"needs_info\",\"reasonCode\":\"photos_not_real\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("needs_info"));
+        readyForApproval(listing, ops);
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\",\"expectedStatus\":\"needs_info\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"));
+    }
+
+    @Test
+    @DisplayName("staff clarification requests become needs-info decisions")
+    void staffClarificationRequestBecomesNeedsInfo() throws Exception {
+        User owner = user("9820000562", Roles.Wire.OWNER);
+        User ops = user("9820000563", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Please upload a readable sale deed.\","
+                        + "\"clarificationRequested\":true}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("needs_info"))
+                .andExpect(jsonPath("$.reasonCode").value("other"))
+                .andExpect(jsonPath("$.reasonNote").value("Please upload a readable sale deed."))
+                .andExpect(jsonPath("$.progress.flags").value(org.hamcrest.Matchers.hasItem("needs_info")));
+    }
+
+    @Test
+    @DisplayName("a final rejection is not reopened by an owner message")
+    void rejectedOwnerMessageDoesNotResubmit() throws Exception {
+        User owner = user("9820000525", Roles.Wire.OWNER);
+        User ops = user("9820000526", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"reject\",\"reasonCode\":\"broker\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("rejected"));
+        mvc.perform(post(path(listing, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"I am the owner.\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("rejected"));
+
+        properties.flush();
+        assertThat(jdbc.queryForObject("select status from properties where id = ?",
+                String.class, listing.getId())).isEqualTo(PropertyStatus.REJECTED);
+    }
+
+    @Test
+    @DisplayName("expectedStatus detects stale decisions before any verdict is written")
+    void expectedStatusRejectsStaleDecision() throws Exception {
+        User owner = user("9820000527", Roles.Wire.OWNER);
+        User ops = user("9820000528", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\",\"expectedStatus\":\"approved\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("stale_decision"));
+    }
+
+    @Test
+    @DisplayName("reasonCode is validated for needs_info and reject")
+    void reasonCodeIsValidated() throws Exception {
+        User owner = user("9820000529", Roles.Wire.OWNER);
+        User ops = user("9820000530", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"needs_info\",\"reasonCode\":\"wat\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_reason_code"));
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"reject\",\"reasonCode\":\"other\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("reason_note_required"));
+    }
+
+    // Deciding must drain `recheck_requested_at`.
+    // Both verdicts because `approve` clears `flagReason`, tempting a fix that leaves `reject` stranding the row.
     @Test
     @DisplayName("either verdict clears a pending stays-live re-check")
     void aDecisionClearsThePendingRecheck() throws Exception {
@@ -280,6 +583,7 @@ class VerificationThreadTest extends AbstractApiTest {
             listing.setStatus(PropertyStatus.APPROVED);
             listing.requestRecheck(List.of("price"));
             properties.saveAndFlush(listing);
+
             // requestRecheck is a no-op on a non-public listing, so asserting the queue actually
             // has something to drain guards against a fixture that silently queues nothing.
             assertThat(listing.isRecheckPending())
@@ -291,7 +595,8 @@ class VerificationThreadTest extends AbstractApiTest {
             readyForApproval(listing, ops);
             mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"decision\":\"" + decision + "\",\"note\":\"re-checked\"}"))
+                    .content("{\"decision\":\"" + decision + "\",\"reasonCode\":\"wrong_details\","
+                            + "\"note\":\"re-checked\"}"))
                     .andExpect(status().isOk());
 
             properties.flush();
@@ -322,10 +627,7 @@ class VerificationThreadTest extends AbstractApiTest {
                 String.class, own.getId())).isEqualTo(PropertyStatus.PENDING);
     }
 
-    /**
-     * Checklist was seeded at {@code initiate} and never read back, so every tick lived only in the
-     * reviewer's browser. What matters is a <em>second</em> reviewer seeing it.
-     */
+    // What matters is a second reviewer seeing it.
     @Test
     @DisplayName("a tick persists, is addressed by item text, and the next reviewer sees it")
     void tickingAChecklistLineOutlivesTheReviewersSession() throws Exception {
@@ -336,41 +638,56 @@ class VerificationThreadTest extends AbstractApiTest {
 
         mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated())
+
                 // Baseline stated positively — a filter for ticked lines returning nothing is
                 // also what an absent checklist returns.
                 .andExpect(jsonPath("$.checklist.length()").value(3))
-                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(false));
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Photos are real and match the listing')].pass")
+                        .value(false));
 
         mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"item\":\"Electricity bill\",\"pass\":true}"))
+                .content("{\"item\":\"Photos are real and match the listing\",\"pass\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(true))
-                .andExpect(jsonPath("$.checklist[?(@.item == 'Index II')].pass").value(false));
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Photos are real and match the listing')].pass")
+                        .value(true))
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Not a duplicate of another listing')].pass")
+                        .value(false));
 
-        // A different staff member, a different session, a different request.
         mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(colleague)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(true));
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Photos are real and match the listing')].pass")
+                        .value(true));
 
-        // Read the column via JdbcTemplate: same persistence context means the response reads
-        // would pass even if the tick never left memory, and JdbcTemplate skips Hibernate's auto-flush.
         properties.flush();
         assertThat(jdbc.queryForObject(
                 "select pass from property_review_checklist c join property_reviews r on r.id = c.review_id"
                         + " where r.property_id = ? and c.item = ?",
-                Boolean.class, listing.getId(), "Electricity bill")).isTrue();
+                Boolean.class, listing.getId(), "Photos are real and match the listing")).isTrue();
+        Map<String, Object> attribution = jdbc.queryForMap(
+                "select checked_by, checked_at from property_review_checklist c"
+                        + " join property_reviews r on r.id = c.review_id"
+                        + " where r.property_id = ? and c.item = ?",
+                listing.getId(), "Photos are real and match the listing");
+        assertThat(attribution.get("checked_by").toString()).isEqualTo(ops.getId().toString());
+        assertThat(attribution.get("checked_at")).isNotNull();
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_log
+                where actor = ? and action = 'property.verification.checklist'
+                  and entity_id = ? and metadata->>'item' = ?
+                  and metadata->>'pass' = 'true'
+                """, Integer.class, ops.getId().toString(), listing.getId().toString(),
+                "Photos are real and match the listing")).isEqualTo(1);
 
         // Unticking is the same call — a reviewer who ticked the wrong line must be able to undo it
         // without reopening the case.
         mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"item\":\"Electricity bill\",\"pass\":false}"))
+                .content("{\"item\":\"Photos are real and match the listing\",\"pass\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(false));
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Photos are real and match the listing')].pass")
+                        .value(false));
 
-        // An item that is not on this deal's list is a 404, not a silent no-op: a console ticking a
-        // line the server has never heard of is out of step with the case file and should be told.
         mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"item\":\"Encumbrance certificate\",\"pass\":true}"))
@@ -388,14 +705,42 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
         mvc.perform(patch(path(own, "/checklist")).header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"item\":\"Index II\",\"pass\":true}"))
+                .content("{\"item\":\"Photos are real and match the listing\",\"pass\":true}"))
                 .andExpect(status().isForbidden());
     }
 
-    /**
-     * The one queue route with no role guard, so a wrong owner filter would hand every owner
-     * every other owner's case files.
-     */
+    // No role guard here; owner filtering is the only protection between case files.
+    @Test
+    @DisplayName("the desk queue filters by status and names the reviewer; the owner queue does not")
+    void deskQueueFiltersByStatusAndNamesTheReviewer() throws Exception {
+        User owner = user("9820000521", Roles.Wire.OWNER);
+        User ops = user("9820000522", Roles.Wire.STAFF);
+        Property mine = listing(owner, "rent");
+        mvc.perform(post(path(mine, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(mine, "/start")).header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk());
+        String row = "$.content[?(@.propertyId == '" + mine.getId() + "')]";
+
+        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "in_review").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.status != 'in_review')]").isEmpty())
+                .andExpect(jsonPath(row + ".reviewer").value(ops.getId().toString()))
+                .andExpect(jsonPath(row + ".reviewerName").value("User 9820000522"));
+        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "approved").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(row).isEmpty());
+        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "flagged")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reviewerName").doesNotExist());
+    }
+
     @Test
     @DisplayName("the owner queue returns only my listings, with ops' unread messages counted")
     void ownerQueueIsScopedToTheCallerAndCountsTheOtherSide() throws Exception {
@@ -427,7 +772,6 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].propertyId").value(mine.getId().toString()))
                 .andExpect(jsonPath("$.content[0].unread").value(1));
 
-        // The same page, from the desk's end: the owner's message is the one waiting on ops.
         mvc.perform(get("/admin/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
@@ -445,7 +789,6 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
                         .value(1));
 
-        // A user with no listings gets an empty page, not a 403: nothing here is privileged.
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0));

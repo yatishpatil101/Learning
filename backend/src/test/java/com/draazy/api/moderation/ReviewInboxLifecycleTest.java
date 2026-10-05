@@ -47,7 +47,7 @@ class ReviewInboxLifecycleTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].propertyImage").value("https://example.test/home.jpg"))
                 .andExpect(jsonPath("$.content[0].lastMessage").value("Please confirm the address"))
                 .andExpect(jsonPath("$.content[0].unread").value(1))
-                .andExpect(jsonPath("$.content[0].lifecycleStage").value("submitted"));
+                .andExpect(jsonPath("$.content[0].progress.step").value("submitted"));
         mvc.perform(get("/properties/" + p.getId() + "/verification")
                 .header("Authorization", bearer(owner))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.messages.length()").value(1))
@@ -55,12 +55,10 @@ class ReviewInboxLifecycleTest extends AbstractApiTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(
                         review.getMessages().getLast().getId().toString()))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private duplicate"))));
-        mvc.perform(get("/me/property-reviews/unread-count").header("Authorization", bearer(owner)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.count").value(1));
         mvc.perform(post("/properties/" + p.getId() + "/verification/read")
                 .header("Authorization", bearer(owner))).andExpect(status().isNoContent());
-        mvc.perform(get("/me/property-reviews/unread-count").header("Authorization", bearer(owner)))
-                .andExpect(jsonPath("$.count").value(0));
+        mvc.perform(get("/me/property-reviews").header("Authorization", bearer(owner)))
+                .andExpect(jsonPath("$.content[0].unread").value(0));
     }
 
     @Test void internalOnlyCaseIsInvisibleInBothOwnerReads() throws Exception {
@@ -73,26 +71,25 @@ class ReviewInboxLifecycleTest extends AbstractApiTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
         mvc.perform(get("/properties/" + p.getId() + "/verification")
                 .header("Authorization", bearer(owner))).andExpect(status().isNotFound());
-        mvc.perform(get("/me/property-reviews/unread-count").header("Authorization", bearer(owner)))
-                .andExpect(jsonPath("$.count").value(0));
     }
 
-    @Test void revokedReaderCannotFallBackToOtherOwnersConversation() throws Exception {
+    @Test void staffWithoutReviewFunctionGetsRedactedConversation() throws Exception {
         User staff = user("9800011922", "staff");
+        jdbc.update("insert into back_office_permissions(user_id,permissions) values (?,?::jsonb)",
+                staff.getId(), "[\"propertyVerification\"]");
         Property p = listing(user("9800011923", "owner"));
         reviews.saveAndFlush(new PropertyReview(p.getId()));
         String token = bearer(staff);
         mvc.perform(get("/properties/" + p.getId() + "/verification").header("Authorization", token))
                 .andExpect(status().isOk());
-        jdbc.update("insert into back_office_permissions(user_id,permissions) values (?,?::jsonb)",
-                staff.getId(), "[\"properties:write\"]");
+        jdbc.update("update back_office_permissions set permissions = ?::jsonb where user_id = ?",
+                "[\"support\"]", staff.getId());
         mvc.perform(get("/properties/" + p.getId() + "/verification").header("Authorization", token))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence[0].docType").doesNotExist());
         mvc.perform(post("/properties/" + p.getId() + "/verification/messages").header("Authorization", token)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"Hello\"}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/me/property-reviews/unread-count").header("Authorization", token))
-                .andExpect(jsonPath("$.count").value(0));
+                .andExpect(status().isCreated());
     }
 
     @Test void ownerChecklistUsesActualVaultRowsNotUnmaintainedCounter() throws Exception {
@@ -106,7 +103,7 @@ class ReviewInboxLifecycleTest extends AbstractApiTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.checklist.length()").value(3));
     }
 
-    @Test void persistedDocumentUploadAdvancesStaffTrackButNeverPublishes() throws Exception {
+    @Test void persistedDocumentUploadNeverMovesProgressOrPublishes() throws Exception {
         User owner = user("9800011925", "owner");
         Property p = listing(owner);
         p.setImages(java.util.List.of());
@@ -120,26 +117,11 @@ class ReviewInboxLifecycleTest extends AbstractApiTest {
                         bytes.toByteArray())).param("category", "Index II")
                 .header("Authorization", bearer(owner))).andExpect(status().isCreated());
         properties.flush();
-        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
-                "select lifecycle_stage from properties where id=?", String.class, p.getId()))
-                .isEqualTo("photos_docs");
+        org.assertj.core.api.Assertions.assertThat(
+                com.draazy.api.catalog.property.ListingProgress.of(p, true).step()).isEqualTo("created");
         org.assertj.core.api.Assertions.assertThat(p.getStatus()).isEqualTo("pending");
         org.assertj.core.api.Assertions.assertThat(documents.existsByPropertyIdAndServiceRequestIdIsNull(p.getId()))
                 .isTrue();
     }
 
-    @Test void unreadAggregateIsNotLimitedToTheRequestedInboxPage() throws Exception {
-        User owner = user("9800011926", "owner");
-        for (int i = 0; i < 3; i++) {
-            PropertyReview review = new PropertyReview(listing(owner).getId());
-            review.addMessage(null, "Public reply " + i);
-            review.addInternalNote("Private finding");
-            reviews.saveAndFlush(review);
-        }
-        mvc.perform(get("/me/property-reviews?size=1").header("Authorization", bearer(owner)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.totalElements").value(3));
-        mvc.perform(get("/me/property-reviews/unread-count").header("Authorization", bearer(owner)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.count").value(3));
-    }
 }

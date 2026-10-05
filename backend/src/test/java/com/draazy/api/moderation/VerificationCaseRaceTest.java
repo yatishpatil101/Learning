@@ -23,10 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Opening a verification case file is idempotent under concurrency. No {@code @Transactional} —
- * {@code AbstractApiTest}'s rollback would hide every collision — so {@link #cleanUp()} is load-bearing.
- */
+// No `@Transactional`: `AbstractApiTest`'s rollback would hide every collision, so #cleanUp() is load-bearing.
 @SpringBootTest
 @DisplayName("Verification case files under concurrency — one listing, one case file")
 class VerificationCaseRaceTest {
@@ -40,10 +37,8 @@ class VerificationCaseRaceTest {
                                 .isInstanceOf(org.springframework.dao.OptimisticLockingFailureException.class);
                 Property current = properties.findById(propertyId).orElseThrow();
                 assertThat(current.getStatus()).isEqualTo("approved");
-                assertThat(current.getLifecycleStage()).isEqualTo("live");
         }
 
-    /** Distinct from every mobile elsewhere: these rows commit, so a shared number becomes another test's fixture. */
     private static final String OWNER_MOBILE = "9876000221";
 
     /** Enough to lose the race reliably on a machine with spare cores; small enough to stay quick. */
@@ -76,10 +71,6 @@ class VerificationCaseRaceTest {
         propertyId = properties.saveAndFlush(p).getId();
     }
 
-    /**
-     * Ordered children first, then the case file, listing, owner. SQL rather than repositories so a
-     * half-created fixture from a failed run stays removable.
-     */
     @AfterEach
     void cleanUp() {
         jdbc.update("""
@@ -121,10 +112,7 @@ class VerificationCaseRaceTest {
         return n == null ? 0 : n;
     }
 
-    /**
-     * Both halves asserted separately: nobody may be handed an error, and exactly one case file may
-     * exist. Checklist count catches a fix that reused the row but re-seeded it.
-     */
+    // Checklist count catches a fix that reused the row but re-seeded it.
     @Test
     @DisplayName("four simultaneous opens of one listing produce one case file and no errors")
     void concurrentOpensDoNotCollideOnTheUniqueIndex() {
@@ -138,14 +126,11 @@ class VerificationCaseRaceTest {
                 .as("property_id is UNIQUE — the fix must not be to stop enforcing that")
                 .isEqualTo(1);
         assertThat(checklistRows())
-                .as("the rental checklist, seeded once and not once per racer")
+                .as("the checklist, seeded once and not once per racer")
                 .isEqualTo(3);
     }
 
-    /**
-     * Every open after the first takes the fast path — it must not take the lock, and it must
-     * create nothing. Separate class so this is proved on a cold code path.
-     */
+    // Every open after the first takes the fast path — it must not take the lock, and it must create nothing.
     @Test
     @DisplayName("racing an existing case file returns the same one, and creates nothing")
     void concurrentOpensOfAnExistingCaseFileAreReads() {
