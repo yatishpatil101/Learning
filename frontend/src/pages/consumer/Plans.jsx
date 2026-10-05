@@ -4,23 +4,15 @@ import Icon from '../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { usePricing } from '../../context/PricingContext.jsx';
 import { listPlans } from '../../services/planService.js';
-import { getDealFees } from '../../services/feesService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 /**
- * The plan catalogue is the price.
- *
- * `POST /me/subscription` charges whatever the server's plan row says, and `SubscribeRequest`
- * carries no price, so any client number is a *claim about* the charge rather than the charge.
- * Quote a card from the back-office Fees panel instead and the customer can be shown ₹999 and
- * billed ₹2,499. Same for the rent-agreement platform fee: `platform_fees('rent')` is what
- * checkout bills from, while `FEE_DEFAULTS.rentAgreementPlatform` is a bundled guess.
- *
- * So every figure here is fetched — plans from the catalogue, the rent fee from the same
- * `GET /fees` the rent-agreement sidebar reads. `fee()` survives only as the pre-resolution and
- * failed-fetch fallback: a pricing page that renders a stale number still converts; one that
- * renders a blank does not.
+ * Every price here is the admin Fees tab's: the server prices paid plans in `GET /plans` and the
+ * rent row of `GET /fees` from that schedule, and charges the same figures. Cards read the
+ * catalogue because it is what `POST /me/subscription` bills; `fee()` (from `GET /pricing`, the
+ * same schedule) is only the pre-resolution and failed-fetch fallback — a pricing page that renders
+ * a stale number still converts, one that renders a blank does not.
  */
 const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
@@ -36,24 +28,9 @@ const ownerPlans = (t, fee) => [
   { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1'), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
 ];
 /**
- * @param rentFee the published rent-agreement platform fee, already formatted.
- * @param price   resolves a plan slug to the price the customer will actually be charged — the
- *                catalogue row when it has resolved, the configured fee only as a fallback. It is
- *                the same resolver the cards use, passed in for the same reason `fee` was: these
- *                builders run at module scope, so a module-scope read would capture whatever the
- *                bundle shipped with and never hear about a change.
- *
- *                It must be this resolver and not `fee()` directly. `GET /pricing` and `GET /plans`
- *                are two different tables answering two different questions, and if they disagree
- *                an FAQ answering "how much are the owner plans" from the fee schedule quotes one
- *                number directly beneath a card quoting another for the same plan. A backend test
- *                pins the two together, so the
- *                numbers now agree — which is exactly why this still reads the catalogue. Agreement
- *                is an invariant somebody maintains, not a property of the data; the moment an
- *                operator edits one table the prose must follow the one that is charged, and a
- *                resolver that was switched back to `fee()` while they happened to match would
- *                reintroduce the bug silently, with nothing on screen to show for it until a
- *                customer was quoted a price they would not be billed.
+ * @param rentFee the rent-agreement platform fee, already formatted.
+ * @param price   resolves a plan slug to the price the card shows, so the FAQ prose cannot quote a
+ *                different number than the card for the same plan.
  */
 const plansFaqs = (t, rentFee, price) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
@@ -209,26 +186,7 @@ export default function Plans() {
       .catch(() => { if (alive) setCatalogue({}); });
     return () => { alive = false; };
   }, []);
-  // The rent-agreement platform fee, from the same published schedule the wizard's sidebar and the
-  // checkout read. Null until it resolves and after a failure; both fall through to `fee()`.
-  // Deliberately a second request rather than something folded into the plan catalogue: these are
-  // two different tables on the server (`plans` and `platform_fees`) answering two different
-  // questions, and pretending otherwise here is how the numbers drifted apart in the first place.
-  const [rentPlatformFee, setRentPlatformFee] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    getDealFees('rent')
-      .then((row) => { if (alive && row && row.platformFee != null) setRentPlatformFee(row.platformFee); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  /**
-   * The published fee, formatted, or the configured fallback. A `null` `platformFee` is treated as
-   * unpublished rather than free — `feesService`'s header is explicit that null means "not
-   * published, not zero", and a marketing page that renders ₹0 for an unpublished charge is a
-   * worse lie than a stale one.
-   */
-  const RENT_FEE = rentPlatformFee == null ? fee('rentAgreementPlatform') : rupees(rentPlatformFee);
+  const RENT_FEE = fee('rentAgreementPlatform');
   /** Server price when the catalogue has this plan, otherwise the card's configured fallback. */
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
   const SEEKER = seekerPlans(t, fee).map(priced);

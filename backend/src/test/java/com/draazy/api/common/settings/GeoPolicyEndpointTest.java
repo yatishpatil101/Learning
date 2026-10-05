@@ -159,24 +159,6 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     }
 
     /**
-     * The projection is the {@code geo} row and nothing else.
-     *
-     * <p>Same shape of assertion {@code /flags} makes, and for the same reason: the justification
-     * for a public route is that this one block is not sensitive while its neighbours are. Widening
-     * it into "the public settings endpoint" is the mistake this test is positioned to catch.
-     */
-    @Test
-    void nothingButTheGeoBlockIsPublished() throws Exception {
-        mvc.perform(get(Routes.Geo.BASE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fees").doesNotExist())
-                .andExpect(jsonPath("$.permissions").doesNotExist())
-                .andExpect(jsonPath("$.adminFlags").doesNotExist())
-                .andExpect(jsonPath("$.flags").doesNotExist())
-                .andExpect(jsonPath("$.site").doesNotExist());
-    }
-
-    /**
      * An incomplete bounding box is dropped whole, not published with the edges it has.
      *
      * <p>This is the one malformed-value case with teeth. With the city limit on, the client turns

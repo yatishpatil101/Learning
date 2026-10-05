@@ -10,13 +10,11 @@ import lombok.Getter;
  * The published cost of doing a deal on the platform, one row per deal intent (V1
  * {@code platform_fees}).
  *
- * <p><strong>This is not the platform's price list.</strong> The two are easy to confuse because
- * both are called "fees". This table answers "what will this <em>transaction</em> cost me?" —
- * brokerage, platform fee, stamp duty, registration, GST — and is public, because a buyer comparing
- * Draazy against a broker needs the number before signing up. The price list (plan prices, the
- * rent-payment convenience percentage) lives in {@code settings('fees')}, is read server-side by
- * {@code common.settings.PlatformSettings}, and is published by the admin settings endpoint. They
- * are deliberately kept apart: one is a marketing promise, the other is operational configuration.
+ * <p>This answers "what will this <em>transaction</em> cost me?" — brokerage, platform fee, stamp
+ * duty, registration, GST — and is public. The platform's own prices live in {@code settings('fees')}
+ * (the admin Fees tab), read through {@code common.settings.PlatformSettings}; the rent row's
+ * {@link #platformFee} and {@link #gst} are superseded by that schedule wherever they are quoted or
+ * billed, so the admin console stays the one place a price is set.
  *
  * <p>Reference data — seeded by {@code R__DML_seed_reference_data.sql}, never written by application
  * code, so no setters. Only the columns the contract's {@code Fees} schema names are mapped;
@@ -35,6 +33,8 @@ import lombok.Getter;
 @Table(name = "platform_fees")
 @Getter
 public class PlatformFee {
+
+    public static final String RENT = "rent";
 
     /**
      * The deal intent this breakdown applies to ({@code buy} or {@code rent}) — and the primary key,

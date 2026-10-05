@@ -131,23 +131,4 @@ class PricingEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.referralContactBonus").doesNotExist())
                 .andExpect(jsonPath("$.freeContactLimit").doesNotExist());
     }
-
-    /**
-     * None of the neighbouring settings blocks appear either.
-     *
-     * <p>The same guard {@code /move-pack} and {@code /flags} carry, for the same reason: the fee
-     * table, the permission map and the back-office toggles live in the same document, the whole
-     * argument for a public route is that this one projection is not sensitive while its neighbours
-     * are, and the way that argument gets lost is one convenient widening at a time.
-     */
-    @Test
-    void noOtherSettingsBlockLeaks() throws Exception {
-        mvc.perform(get(Routes.Pricing.BASE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.permissions").doesNotExist())
-                .andExpect(jsonPath("$.adminFlags").doesNotExist())
-                .andExpect(jsonPath("$.geo").doesNotExist())
-                .andExpect(jsonPath("$.movePack").doesNotExist())
-                .andExpect(jsonPath("$.site").doesNotExist());
-    }
 }

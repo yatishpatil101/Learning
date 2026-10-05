@@ -5,8 +5,9 @@
  *
  * ## Why this domain exists
  *
- * The server bills from its `platform_fees('rent')` row — `platformFee + stampDuty + registration
- * + gst`. The rent-agreement wizard must not price itself from the Maharashtra Art. 36A formula
+ * The server bills a rent agreement as the admin Fees tab's `rentAgreementPlatform` + its GST + the
+ * statutory lines, and serves that same platform fee and GST on the `rent` row here. The
+ * rent-agreement wizard must not price itself from the Maharashtra Art. 36A formula
  * and a ₹500/₹1000 registration rule: two pieces of code computing a price from two data sources
  * agree only by coincidence, and a checkout that meets a different number than the
  * sidebar promised is not a rounding bug, it is the customer being quoted one price and charged

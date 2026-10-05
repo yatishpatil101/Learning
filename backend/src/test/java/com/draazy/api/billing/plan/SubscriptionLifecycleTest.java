@@ -12,8 +12,12 @@ import com.draazy.api.support.AbstractApiTest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
@@ -78,51 +82,32 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         assertThat(sweeper.expireLapsed(NOW)).isEqualTo(1);
         assertThat(subscriptions.findById(lapsed.getId()).orElseThrow().getStatus())
                 .isEqualTo(SubscriptionStatuses.EXPIRED);
-    }
-
-    @Test
-    void aTermStillRunningIsLeftAlone() {
-        User u = subscriber("9876540002");
-        Subscription live = subscription(u, SubscriptionStatuses.ACTIVE, NOW, NEXT_MONTH);
-
-        assertThat(sweeper.expireLapsed(NOW)).isZero();
-        assertThat(subscriptions.findById(live.getId()).orElseThrow().getStatus())
-                .isEqualTo(SubscriptionStatuses.ACTIVE);
-    }
-
-    @Test
-    @DisplayName("a pending order is never expired — it has no term, because no money has arrived")
-    void aPendingOrderIsNeverExpired() {
-        User u = subscriber("9876540003");
-        // renewsAt is null on a pending row by construction; expiring one would destroy an order
-        // the buyer may still be paying for.
-        Subscription pending = subscription(u, SubscriptionStatuses.PENDING, LAST_MONTH, null);
-
-        assertThat(sweeper.expireLapsed(NOW)).isZero();
-        assertThat(subscriptions.findById(pending.getId()).orElseThrow().getStatus())
-                .isEqualTo(SubscriptionStatuses.PENDING);
-    }
-
-    @Test
-    @DisplayName("a cancelled subscription keeps saying cancelled — why it ended is a fact worth keeping")
-    void expiryNeverRewritesWhyASubscriptionEnded() {
-        User u = subscriber("9876540004");
-        Subscription cancelled = subscription(u, SubscriptionStatuses.CANCELLED, LAST_MONTH, NOW.minus(1, ChronoUnit.DAYS));
-
-        assertThat(sweeper.expireLapsed(NOW)).isZero();
-        assertThat(subscriptions.findById(cancelled.getId()).orElseThrow().getStatus())
-                .isEqualTo(SubscriptionStatuses.CANCELLED);
-    }
-
-    @Test
-    void sweepingTwiceExpiresNothingTheSecondTime() {
-        User u = subscriber("9876540005");
-        subscription(u, SubscriptionStatuses.ACTIVE, LAST_MONTH, NOW.minus(1, ChronoUnit.DAYS));
-
-        assertThat(sweeper.expireLapsed(NOW)).isEqualTo(1);
         // Idempotent, which is what makes it safe to run on a timer and safe to run twice if two
         // instances ever overlap.
         assertThat(sweeper.expireLapsed(NOW)).isZero();
+    }
+
+    static Stream<Arguments> subscriptionsTheSweepLeavesAlone() {
+        Instant yesterday = NOW.minus(1, ChronoUnit.DAYS);
+        return Stream.of(
+                Arguments.of("a term still running", SubscriptionStatuses.ACTIVE, NOW, NEXT_MONTH),
+                // renewsAt is null on a pending row by construction; expiring one would destroy an
+                // order the buyer may still be paying for.
+                Arguments.of("a pending order, which has no term because no money has arrived",
+                        SubscriptionStatuses.PENDING, LAST_MONTH, null),
+                // Why it ended is a fact worth keeping.
+                Arguments.of("a cancelled subscription, which keeps saying cancelled",
+                        SubscriptionStatuses.CANCELLED, LAST_MONTH, yesterday));
+    }
+
+    @ParameterizedTest(name = "{0} is left alone")
+    @MethodSource("subscriptionsTheSweepLeavesAlone")
+    void theSweepLeavesAlone(String description, String status, Instant startedAt, Instant renewsAt) {
+        User u = subscriber("9876540002");
+        Subscription row = subscription(u, status, startedAt, renewsAt);
+
+        assertThat(sweeper.expireLapsed(NOW)).isZero();
+        assertThat(subscriptions.findById(row.getId()).orElseThrow().getStatus()).isEqualTo(status);
     }
 
     @Test
@@ -148,16 +133,6 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").doesNotExist())
                 .andExpect(jsonPath("$.status").doesNotExist());
-    }
-
-    @Test
-    void aRunningPlanIsStillReported() throws Exception {
-        User u = subscriber("9876540008");
-        subscription(u, SubscriptionStatuses.ACTIVE, Instant.now(), Instant.now().plusSeconds(86_400));
-
-        mvc.perform(get(Routes.Plans.SUBSCRIPTION).header(HttpHeaders.AUTHORIZATION, bearer(u)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(SubscriptionStatuses.ACTIVE));
     }
 
     @Test

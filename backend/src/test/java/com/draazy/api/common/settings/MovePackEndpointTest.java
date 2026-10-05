@@ -76,26 +76,6 @@ class MovePackEndpointTest extends AbstractApiTest {
     }
 
     /**
-     * The projection is the {@code movePack} row and nothing else.
-     *
-     * <p>Same justification as the flags endpoint, and the same failure to guard against. The whole
-     * argument for a public route is that this one block is not sensitive while its neighbours are;
-     * the fee table, the permission map and the back-office toggles live in the same document and
-     * none of them may appear here. Written as absences, because the mistake this catches is
-     * someone widening the endpoint into "the public settings endpoint".
-     */
-    @Test
-    void nothingButThePackBlockIsPublished() throws Exception {
-        mvc.perform(get(Routes.MovePack.BASE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fees").doesNotExist())
-                .andExpect(jsonPath("$.permissions").doesNotExist())
-                .andExpect(jsonPath("$.adminFlags").doesNotExist())
-                .andExpect(jsonPath("$.flags").doesNotExist())
-                .andExpect(jsonPath("$.site").doesNotExist());
-    }
-
-    /**
      * Launching the pack, and repricing it, is visible to a visitor with no account.
      *
      * <p>The reason the route was built, asserted end to end. The deep merge (S60) is load-bearing

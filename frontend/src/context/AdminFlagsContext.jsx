@@ -5,10 +5,10 @@ const AdminFlagsContext = createContext(null);
 
 const DEFAULT_ADMIN_FLAGS = {
   tab: { analytics: true, finance: true, reports: true, support: true, flatmates: true, services: true },
-  dash: { smartAlerts: true, sla: true, scorecard: true, glanceRevenue: true, glanceTraffic: true },
+  dash: { sla: true, glanceRevenue: true, glanceTraffic: true },
   analytics: { traffic: true, engagement: true, anonymous: true, conversion: true, geography: true, supplyGap: true, pricing: true, sla: true },
   finance: { charts: true, transactions: true, models: true },
-  properties: { bulkOps: true, csvExport: true, commsLog: true, qualityScore: true },
+  properties: { csvExport: true, commsLog: true, qualityScore: true },
   users: { enabled: true, timeline: true, bulkOps: true, csvExport: true },
   services: { enabled: true, priority: true, teamRouting: true, staffAssignment: true },
   enquiries: { visits: true, deals: true, funnelTime: true },
@@ -18,8 +18,8 @@ const DEFAULT_ADMIN_FLAGS = {
   staffActivity: { enabled: true, kpis: true, leaderboard: true },
 };
 
-/* `read=false` for the ops shell: `AdminLayoutInner` calls `useAdminFlags()` for both variants, but
-   `GET /admin/settings` is admin-only, so for a staffer that read is a guaranteed 403 per page. */
+/* `read=false` without `settings:read`: `GET /admin/settings` is admin-only, so the read would be a
+   guaranteed 403 per page. Those callers see every tab flag as on; atoms still gate the modules. */
 export function AdminFlagsProvider({ children, read = true }) {
   const [adminFlags, setAdminFlags] = useState(DEFAULT_ADMIN_FLAGS);
   const [loading, setLoading] = useState(read);
@@ -45,8 +45,8 @@ export function AdminFlagsProvider({ children, read = true }) {
 
   const setFlag = useCallback(async (section, key, value) => {
     setAdminFlags((prev) => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
-    /* Send only the flag that changed, never the merged block: both ends deep-merge, and after a
-       failed load the block form would persist `DEFAULT_ADMIN_FLAGS` over the real configuration. */
+    /* Send only the edited flag: after a failed load, block writes would persist
+       `DEFAULT_ADMIN_FLAGS` over the real configuration. */
     await updateSettings({ adminFlags: { [section]: { [key]: value } } });
   }, []);
 

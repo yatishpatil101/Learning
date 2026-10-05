@@ -95,7 +95,6 @@
       "models": true
     },
     "properties": {
-      "bulkOps": true,
       "csvExport": true,
       "commsLog": true,
       "qualityScore": true

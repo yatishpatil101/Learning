@@ -1,25 +1,45 @@
 package com.draazy.api.billing.plan;
 
+import com.draazy.api.common.settings.PlatformSettings;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.ToLongFunction;
 import org.springframework.stereotype.Component;
 
 /**
  * Entity→wire projection for plans and subscriptions.
  *
- * <p>Hand-written rather than generated: both projections are three lines of field copying plus the
- * {@code UUID → String} id convention, and {@code api-standards.md} §8.1 prefers the shortest
- * correct form over a MapStruct interface for a mapping this thin. Nothing here is trust-shaped —
- * a plan is public and a subscription is only ever returned to its own holder.
+ * <p>A paid plan's price is the admin fee schedule's figure, not {@code plans.price}, so the
+ * catalogue, the checkout and the charge all follow the admin Fees tab. Keyed by the seeded id
+ * because the seed may rename a plan but never re-ids one.
  */
 @Component
 public class PlanMapper {
+
+    private static final Map<UUID, ToLongFunction<PlatformSettings>> ADMIN_PRICED = Map.of(
+            UUID.fromString("b1000000-0000-4000-8000-000000000002"), PlatformSettings::ownerPlanYearly,
+            UUID.fromString("b1000000-0000-4000-8000-000000000003"), PlatformSettings::ownerProYearly,
+            UUID.fromString("b1000000-0000-4000-8000-000000000004"), PlatformSettings::seekerPlusTopup);
+
+    private final PlatformSettings settings;
+
+    public PlanMapper(PlatformSettings settings) {
+        this.settings = settings;
+    }
+
+    public long price(Plan plan) {
+        ToLongFunction<PlatformSettings> adminPrice = ADMIN_PRICED.get(plan.getId());
+        return adminPrice == null ? plan.getPrice() : adminPrice.applyAsLong(settings);
+    }
 
     public PlanDto toDto(Plan plan) {
         return new PlanDto(
                 plan.getId().toString(),
                 plan.getName(),
                 plan.getAudience(),
-                plan.getPrice(),
+                price(plan),
                 plan.getBillingCycle(),
                 plan.getListingLimit(),
                 plan.getContactLimit(),
@@ -27,7 +47,7 @@ public class PlanMapper {
     }
 
     public List<PlanDto> toPlanDtos(List<Plan> plans) {
-        return plans.stream().map(this::toDto).toList();
+        return plans.stream().map(this::toDto).sorted(Comparator.comparingLong(PlanDto::price)).toList();
     }
 
     public SubscriptionDto toDto(Subscription subscription) {

@@ -38,7 +38,7 @@ const APP_FLAG_SECTIONS = [
       { key: 'listingVerification', label: 'Listing verification', desc: 'Require admin approval before publishing new listings' },
       { key: 'kycBadgeEnabled', label: 'Verified badge (identity review)', desc: 'Offer the opt-in identity verification flow — a trust signal, not a posting or contact gate' },
       { key: 'ownerPhonePrivacy', label: 'Owner phone privacy', desc: 'Mask owner phone numbers from non-verified buyers' },
-      { key: 'paidFeaturedListings', label: 'Paid featured listings', desc: 'Owners can pay to feature/boost their listing' },
+      { key: 'paidFeaturedListings', label: 'Paid featured listings', desc: 'Owners can pay to feature their listing' },
       { key: 'zeroBrokerage', label: 'Zero brokerage', desc: 'Advertise zero-brokerage model on platform' },
     ],
   },
@@ -49,7 +49,7 @@ const APP_FLAG_SECTIONS = [
     icon: CreditCard,
     flags: [
       { key: 'subscriptionPlans', label: 'Subscription plans', desc: 'Tiered plans for owners (Basic, Pro, Premium)' },
-      { key: 'referralRewards', label: 'Referral rewards', desc: 'Let users earn free owner contacts and listing slots by referring instead of paying. Off = paid plans are the only way past a quota.' },
+      { key: 'referralRewards', label: 'Referral rewards', desc: 'Show the refer-and-earn routes to free owner contacts and listing slots. Off hides them; bonuses already earned still count.' },
       { key: 'societySaaS', label: 'Society SaaS', desc: 'Society management module (maintenance, notices)' },
     ],
   },

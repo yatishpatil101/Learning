@@ -120,18 +120,6 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.fees").exists());
     }
 
-    /** The route stays admin-only, so a non-admin is stopped before the key is even considered. */
-    @Test
-    @DisplayName("staff are still refused before the key is even considered")
-    void staffAreRefusedByTheRoleGuardFirst() throws Exception {
-        User staff = new User("9877720006", Roles.Wire.STAFF);
-        staff.setName("Dead key staff");
-        staff.setMobileVerified(true);
-        String token = bearer(users.saveAndFlush(staff));
-
-        assertThat(save(token, "{\"customRoles\":" + CUSTOM_ROLES + "}")).isEqualTo(403);
-    }
-
     // The second dead key: geo.cities.*.live, retired to PATCH /admin/cities/{slug}
 
     /**

@@ -4,6 +4,7 @@ import { Save, Download, History, AlertTriangle } from 'lucide-react';
 import { listCities, updateCityLive } from '../../services/cityService.js';
 import { onGeoChange } from '../../lib/geoConfig.js';
 import { getSettings, updateSettings } from '../../services/settingsService.js';
+import { DEFAULT_MAX_PHOTOS, MAX_PHOTOS_CEILING, MIN_PHOTOS_CAP } from '../../lib/uploads/policy.js';
 import { listAuditLog } from '../../services/auditService.js';
 import { classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -51,20 +52,16 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
 }
 
 const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flags', 'Feature flags'], ['audit', 'Audit log']];
+const DEFAULT_GROUPS_PER_PERSON = 2;
+const MAX_GROUPS_CEILING = 10;
 
-/**
- * First segment of a UUID, for a column that must show an identifier. Nothing is lost: the full
- * value is on the element's `title` and in the CSV export.
- */
+/** Shortened only visually; the full UUID remains in title text and CSV export. */
 const shortId = (id) => {
   const s = String(id || '');
   return s.length > 8 ? `${s.slice(0, 8)}…` : s;
 };
 
-/**
- * The audit row's `metadata` rendered as one line — what the server sent, not a sentence about it.
- * `from`/`to` lead because that is the pair a reader is looking for.
- */
+/** `from`/`to` lead because that pair is what an audit reader scans for first. */
 const describe = (metadata) => {
   if (!metadata || typeof metadata !== 'object') return '';
   const parts = [];
@@ -108,10 +105,7 @@ const humanize = (k) =>
     .replace('Sms', 'SMS')
     .replace('Emi', 'EMI');
 
-/**
- * Alphabetical, not live-first the way `GET /cities` serves it: re-sorting on `live` would move a
- * pill out from under the operator's cursor the instant they toggled it (WCAG 3.2.2).
- */
+/** Alphabetical order avoids moving a city pill under the cursor the instant it is toggled. */
 const sortCities = (rows = []) => [...rows].sort(
   (a, b) => String(a.name || '').localeCompare(String(b.name || '')),
 );
@@ -161,10 +155,7 @@ export default function AdminSettings() {
     return () => { alive = false; };
   }, []);
 
-  /**
-   * `listCities()` and not the cached `geoConfig.getCities()`: that cache falls back to the built-in
-   * roster, and a launch toggle built on a guessed `slug` would appear to work.
-   */
+  /** `listCities()` avoids `geoConfig`'s built-in fallback, which would make guessed slugs look live. */
   const loadCityRoster = useCallback(async () => {
     try {
       const rows = await listCities();
@@ -178,22 +169,13 @@ export default function AdminSettings() {
 
   useEffect(() => { loadCityRoster(); }, [loadCityRoster]);
 
-  /**
-   * Re-read on every shared geo-cache refresh: otherwise this component's state is a third copy of
-   * the truth that never reconciles with the other two.
-   */
+  /** Re-read on shared geo-cache refresh so this panel does not become a stale third copy. */
   useEffect(() => onGeoChange(loadCityRoster), [loadCityRoster]);
 
-  /**
-   * A stable identity for the Maps panel's `geo` prop: an inline `settings.geo || {}` is a new
-   * object each render, and the panel re-syncs its form — losing a half-typed bounding box.
-   */
+  /** Stable identity keeps the Maps panel from re-syncing over a half-typed bounding box. */
   const geo = useMemo(() => settings?.geo || {}, [settings?.geo]);
 
-  /**
-   * `reloadAudit` is a counter, so re-confirming an action can ask for a fresh read. A failed fetch
-   * must say so: an empty table under "Audit log" reads as "nothing has happened".
-   */
+  /** A failed audit-log fetch must not render as an empty log. */
   useEffect(() => {
     if (tab !== 'audit') return undefined;
     let live = true;
@@ -267,6 +249,26 @@ export default function AdminSettings() {
   const saveSite = () => persist({ site: settings.site }, 'Site details saved');
   const saveFees = () => persist({ fees: settings.fees }, 'Fee schedule saved');
 
+  const maxPhotos = settings.listings?.maxPhotos ?? DEFAULT_MAX_PHOTOS;
+  const setMaxPhotos = (v) => setSettings((s) => ({ ...s, listings: { ...s.listings, maxPhotos: v === '' ? '' : Number(v) } }));
+  const saveMaxPhotos = () => {
+    if (!Number.isInteger(maxPhotos) || maxPhotos < MIN_PHOTOS_CAP || maxPhotos > MAX_PHOTOS_CEILING) {
+      toast(`Choose a whole number from ${MIN_PHOTOS_CAP} to ${MAX_PHOTOS_CEILING}.`, 'error');
+      return;
+    }
+    persist({ listings: { maxPhotos } }, 'Photo limit saved');
+  };
+
+  const maxGroups = settings.flatmates?.maxGroupsPerPerson ?? DEFAULT_GROUPS_PER_PERSON;
+  const setMaxGroups = (v) => setSettings((s) => ({ ...s, flatmates: { ...s.flatmates, maxGroupsPerPerson: v === '' ? '' : Number(v) } }));
+  const saveMaxGroups = () => {
+    if (!Number.isInteger(maxGroups) || maxGroups < 1 || maxGroups > MAX_GROUPS_CEILING) {
+      toast(`Choose a whole number from 1 to ${MAX_GROUPS_CEILING}.`, 'error');
+      return;
+    }
+    persist({ flatmates: { maxGroupsPerPerson: maxGroups } }, 'Group limit saved');
+  };
+
   // Move-in Pack: admin-owned prices + launch toggle (consumer /services reads settings.movePack).
   const movePack = settings.movePack || { enabled: false, items: {} };
   const setMovePackItem = (k, v) => setSettings((s) => ({ ...s, movePack: { ...movePack, items: { ...movePack.items, [k]: Number(v) || 0 } } }));
@@ -287,10 +289,6 @@ export default function AdminSettings() {
     );
   };
 
-  /**
-   * Optimistic, rolling back **only the failed row** — a whole-roster snapshot would clobber a
-   * concurrent launch. `pendingCity` keeps a second click out while the first is in flight.
-   */
   const saveCityLaunchState = async (city, live) => {
     if (pendingCity) return false;
     setPendingCity(city.slug);
@@ -314,7 +312,6 @@ export default function AdminSettings() {
     return true;
   };
 
-  // Confirmation-gated app flag toggle
   const requestAppFlagToggle = (k) => {
     const nextVal = !settings.flags[k];
     setConfirm({
@@ -351,8 +348,8 @@ export default function AdminSettings() {
     if (!audit.length) { toast('Nothing to export'); return; }
     exportCsv(
       'draazy-audit-log.csv',
-      ['When', 'Actor', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
-      audit.map((a) => [a.at, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
+      ['When', 'Actor', 'Actor ID', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
+      audit.map((a) => [a.at, a.actorName, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
     );
     toast('Audit log exported');
   };
@@ -365,11 +362,9 @@ export default function AdminSettings() {
     {
       key: 'actor',
       header: 'Actor',
-      /* The id, not a name: `/admin/audit-log` carries `actor` as a UUID only, and a browser-read
-         display name would be this session's, not the actor's. See tasks/DECISIONS-NEEDED.md. */
       render: (a) => (
         <span className="block">
-          <span className="font-mono text-xs text-gray-300" title={a.actor}>{shortId(a.actor)}</span>
+          <span className="text-sm text-gray-200" title={a.actor}>{a.actorName}</span>
           {a.actorRole ? <span className="ml-2 text-[0.68rem] uppercase tracking-wide text-gray-500">{a.actorRole}</span> : null}
         </span>
       ),
@@ -402,7 +397,7 @@ export default function AdminSettings() {
   const auditCard = (a) => (
     <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
-        <span className="font-mono text-xs font-semibold text-gray-200" title={a.actor}>{shortId(a.actor)}</span>
+        <span className="truncate text-sm font-semibold text-gray-200" title={a.actor}>{a.actorName}</span>
         <span className="shrink-0 rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-indigo-300">{a.action}</span>
       </div>
       {a.entity ? (
@@ -430,18 +425,50 @@ export default function AdminSettings() {
 
       {/* General */}
       {tab === 'general' && (
-        <div className="dz-card max-w-2xl p-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {SITE_FIELDS.map(([k, label]) => (
-              <label key={k} className="text-sm">
-                <span className="mb-1 block text-gray-400">{label}</span>
-                <input value={settings.site[k] ?? ''} onChange={(e) => setSite(k, e.target.value)} className="dz-input" />
-              </label>
-            ))}
+        <div className="max-w-2xl space-y-5">
+          <div className="dz-card p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {SITE_FIELDS.map(([k, label]) => (
+                <label key={k} className="text-sm">
+                  <span className="mb-1 block text-gray-400">{label}</span>
+                  <input value={settings.site[k] ?? ''} onChange={(e) => setSite(k, e.target.value)} className="dz-input" />
+                </label>
+              ))}
+            </div>
+            <button onClick={saveSite} className="dz-btn dz-btn-primary mt-5">
+              <Save className="h-4 w-4" /> Save details
+            </button>
           </div>
-          <button onClick={saveSite} className="dz-btn dz-btn-primary mt-5">
-            <Save className="h-4 w-4" /> Save details
-          </button>
+          <div className="dz-card p-5">
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <div>
+                <label htmlFor="settings-max-photos" className="block text-gray-300">Max photos per listing</label>
+                <p id="settings-max-photos-hint" className="text-xs text-gray-500">
+                  Applies to every property type and flatmate room, from {MIN_PHOTOS_CAP} to {MAX_PHOTOS_CEILING}. Owners over the limit must remove photos before their next photo edit.
+                </p>
+              </div>
+              <input id="settings-max-photos" aria-describedby="settings-max-photos-hint" type="number" min={MIN_PHOTOS_CAP} max={MAX_PHOTOS_CEILING} step={1} value={maxPhotos}
+                onChange={(e) => setMaxPhotos(e.target.value)} className="dz-input w-24 text-right" />
+            </div>
+            <button onClick={saveMaxPhotos} className="dz-btn dz-btn-primary mt-5">
+              <Save className="h-4 w-4" /> Save photo limit
+            </button>
+          </div>
+          <div className="dz-card p-5">
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <div>
+                <label htmlFor="settings-max-groups" className="block text-gray-300">Max flatmate groups per person</label>
+                <p id="settings-max-groups-hint" className="text-xs text-gray-500">
+                  Groups joined plus requests waiting, from 1 to {MAX_GROUPS_CEILING}. Groups a person hosts don't count.
+                </p>
+              </div>
+              <input id="settings-max-groups" aria-describedby="settings-max-groups-hint" type="number" min={1} max={MAX_GROUPS_CEILING} step={1} value={maxGroups}
+                onChange={(e) => setMaxGroups(e.target.value)} className="dz-input w-24 text-right" />
+            </div>
+            <button onClick={saveMaxGroups} className="dz-btn dz-btn-primary mt-5">
+              <Save className="h-4 w-4" /> Save group limit
+            </button>
+          </div>
         </div>
       )}
 

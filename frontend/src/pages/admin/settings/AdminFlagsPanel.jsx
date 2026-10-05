@@ -5,9 +5,7 @@ import Switch from '../../../components/ui/Switch.jsx';
 
 const ADMIN_FLAG_SECTIONS = [
   { section: 'dash', title: 'Dashboard', desc: 'Control which dashboard sections are visible', hasTabFlag: false, critical: true, options: [
-    { key: 'smartAlerts', label: 'Smart alerts', desc: 'Auto-generated operational alerts', cost: 'medium' },
     { key: 'sla', label: 'SLA health', desc: 'Service level compliance panel', cost: 'medium' },
-    { key: 'scorecard', label: 'Daily scorecard', desc: 'Staff performance snapshot', cost: 'medium' },
     { key: 'glanceRevenue', label: 'Revenue tile', desc: 'Revenue KPI in At a Glance', cost: 'low' },
     { key: 'glanceTraffic', label: 'Traffic tile', desc: 'Visits Today KPI in At a Glance', cost: 'low' },
   ] },
@@ -26,7 +24,6 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'models', label: 'Financial models', desc: 'Subscription & payout calculations', cost: 'low' },
   ] },
   { section: 'properties', title: 'Properties', desc: 'Options within the properties management page', hasTabFlag: false, critical: true, options: [
-    { key: 'bulkOps', label: 'Bulk operations', desc: 'Multi-select batch actions', cost: 'low' },
     { key: 'csvExport', label: 'CSV export', desc: 'Export property data to CSV', cost: 'low' },
     { key: 'commsLog', label: 'Communication timeline', desc: 'Owner communication history', cost: 'high' },
     { key: 'qualityScore', label: 'Quality score', desc: 'Listing completeness indicators', cost: 'low' },

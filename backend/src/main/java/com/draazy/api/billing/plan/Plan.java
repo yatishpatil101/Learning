@@ -25,7 +25,8 @@ public class Plan extends AuditedEntity {
     @Column(name = "audience")
     private String audience;
 
-    /** Whole rupees for one {@link #billingCycle}. Zero means free. */
+    /** Whole rupees for one {@link #billingCycle}; zero means free. Ignored for plans the admin fee
+     * schedule prices — see {@link PlanMapper#price}. */
     @Column(name = "price", nullable = false)
     private long price;
 
