@@ -9,6 +9,7 @@ import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -38,11 +39,13 @@ public class FlatmateModerationController {
 
     private final FlatmateModerationService service;
     private final FlatmateTrustReconciler reconciler;
+    private final FlatmateModerationDetails details;
 
     public FlatmateModerationController(FlatmateModerationService service,
-            FlatmateTrustReconciler reconciler) {
+            FlatmateTrustReconciler reconciler, FlatmateModerationDetails details) {
         this.service = service;
         this.reconciler = reconciler;
+        this.details = details;
     }
 
     /** {@code GET /admin/flatmate-reviews} (contract {@code listFlatmateReviews}) — paged, because
@@ -56,7 +59,6 @@ public class FlatmateModerationController {
         return PageResponse.of(service.queue(status, flagged, pageable), dto -> dto);
     }
 
-    /** {@code PATCH /admin/flatmate-reviews/{id}} (contract {@code decideFlatmateReview}). */
     @PatchMapping(Routes.Moderation.FLATMATE_REVIEW_BY_ID)
     @PreAuthorize(FLATMATES_WRITE)
     public FlatmateReviewDto decide(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
@@ -64,16 +66,20 @@ public class FlatmateModerationController {
         return service.decideReview(principal, id, body.decision(), body.note());
     }
 
-    /** {@code GET /admin/flatmates/moderation}. Oldest first by default: newest-first starves the
-     * person who has been waiting longest. */
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
     @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateModerationQueueDto> moderationQueue(
             @RequestParam(defaultValue = "post") String kind,
-            @RequestParam(required = false) String modStatus,
+            @RequestParam(required = false) List<String> modStatus,
             @PageableDefault(size = 20, sort = "createdAt",
                     direction = Sort.Direction.ASC) Pageable pageable) {
         return PageResponse.of(service.moderationQueue(kind, modStatus, pageable), dto -> dto);
+    }
+
+    @GetMapping(Routes.Moderation.FLATMATE_MODERATION_DETAIL)
+    @PreAuthorize(FLATMATES_READ)
+    public FlatmateModerationDetailDto detail(@PathVariable UUID id) {
+        return details.find(id);
     }
 
     /** {@code PATCH /admin/flatmates/{id}/moderation}. 200 with no body: the contract declares no
@@ -107,15 +113,15 @@ public class FlatmateModerationController {
     public record ModerationRequest(@NotBlank String modStatus, @Size(max = 600) String note) {
     }
 
-    /** {@code GET /admin/group-applications} (contract {@code listGroupApplications}) — paged. */
     @GetMapping(Routes.Moderation.GROUP_APPLICATIONS)
     @PreAuthorize(FLATMATES_READ)
     public PageResponse<GroupApplicationDto> applications(
-            @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.applications(pageable), dto -> dto);
+            @RequestParam(required = false) List<String> modStatus,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return PageResponse.of(service.applications(modStatus, pageable), dto -> dto);
     }
 
-    /** Named "decide" by the contract, but it writes the <em>moderation</em> axis only — the owner's
+    /** Named "decide" by the contract, but it writes the moderation axis only — the owner's
      * accept/decline is theirs alone. See {@link FlatmateModerationService}. */
     @PatchMapping(Routes.Moderation.GROUP_APPLICATION_BY_ID)
     @PreAuthorize(FLATMATES_WRITE)

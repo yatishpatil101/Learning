@@ -20,8 +20,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Two independent axes, kept independent: verification ({@link #decideReview}) asks whether a host
- * proved their claim, moderation ({@link #moderate}) whether a post may be seen at all. */
 @Service
 public class FlatmateModerationService {
 
@@ -112,14 +110,15 @@ public class FlatmateModerationService {
                 host == null ? null : host.getMobile());
     }
 
-    /** One {@code kind} per call: three tables with three shapes cannot share a page count.
-     * {@code recheck} is a selector, not a seventh {@code MOD_STATUS} — a re-checked post stays visible. */
     @Transactional(readOnly = true)
-    public Page<FlatmateModerationQueueDto> moderationQueue(String kind, String modStatus,
+    public Page<FlatmateModerationQueueDto> moderationQueue(String kind, List<String> modStatus,
             Pageable pageable) {
-        boolean recheck = SELECTOR_RECHECK.equals(FlatmateVocabulary.blankToNull(modStatus));
-        String state = recheck ? null : FlatmateVocabulary.orDefault(modStatus,
-                FlatmateVocabulary.MOD_STATUS, FlatmateVocabulary.MOD_PENDING, "modStatus");
+        List<String> requested = nonBlank(modStatus);
+        boolean recheck = requested.contains(SELECTOR_RECHECK);
+        if (recheck && requested.size() > 1) {
+            throw new BadRequestException("modStatus=recheck cannot be combined with other states.");
+        }
+        List<String> states = recheck ? List.of() : modStates(requested, FlatmateVocabulary.MOD_PENDING);
         Pageable order = recheck ? byWorkItemAge(pageable) : pageable;
 
         return switch (FlatmateVocabulary.require(kind == null ? "" : kind.strip(),
@@ -129,7 +128,7 @@ public class FlatmateModerationService {
             case FlatmateModerationQueueDto.KIND_POST -> {
                 Page<FlatmateSeekerPost> page = recheck
                         ? posts.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : posts.findByModStatusAndArchivedFalse(state, order);
+                        : posts.findByModStatusInAndArchivedFalse(states, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateSeekerPost::getUserId).toList());
                 yield page.map(p -> FlatmateModerationQueueDto.of(p, names.get(p.getUserId())));
@@ -137,7 +136,7 @@ public class FlatmateModerationService {
             case FlatmateModerationQueueDto.KIND_ROOM -> {
                 Page<FlatmateRoom> page = recheck
                         ? rooms.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : rooms.findByModStatusAndArchivedFalse(state, order);
+                        : rooms.findByModStatusInAndArchivedFalse(states, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateRoom::getHostId).toList());
                 yield page.map(r -> FlatmateModerationQueueDto.of(r, names.get(r.getHostId())));
@@ -145,12 +144,26 @@ public class FlatmateModerationService {
             default -> {
                 Page<FlatmateGroup> page = recheck
                         ? groups.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : groups.findByModStatusAndArchivedFalse(state, order);
+                        : groups.findByModStatusInAndArchivedFalse(states, order);
                 Map<UUID, String> names = namesOf(
                         page.getContent().stream().map(FlatmateGroup::getHostId).toList());
                 yield page.map(g -> FlatmateModerationQueueDto.of(g, names.get(g.getHostId())));
             }
         };
+    }
+
+    private static List<String> nonBlank(List<String> values) {
+        return values == null ? List.of() : values.stream()
+                .map(FlatmateVocabulary::blankToNull).filter(java.util.Objects::nonNull).toList();
+    }
+
+    private static List<String> modStates(List<String> requested, String fallback) {
+        if (requested.isEmpty()) {
+            return fallback == null ? List.of() : List.of(fallback);
+        }
+        return requested.stream()
+                .map(s -> FlatmateVocabulary.require(s, FlatmateVocabulary.MOD_STATUS, "modStatus"))
+                .distinct().toList();
     }
 
     /** Oldest work item first, overriding the caller's sort: on the re-check board the SLA is the age
@@ -174,46 +187,64 @@ public class FlatmateModerationService {
      * report has an id, not a taxonomy. Any pending re-check is dropped whatever the verdict. */
     @Transactional
     public void moderate(AuthPrincipal caller, UUID targetId, String modStatus, String note) {
-        String verdict = FlatmateVocabulary.require(
+        String requested = FlatmateVocabulary.require(
                 modStatus == null ? "" : modStatus.strip(),
                 FlatmateVocabulary.MOD_STATUS, "modStatus");
+        String verdict = FlatmateVocabulary.MOD_LIVE.equals(requested)
+                ? FlatmateVocabulary.MOD_APPROVED : requested;
 
-        String kind;
-        if (posts.findById(targetId).map(p -> {
+        Moderated item = posts.findById(targetId).map(p -> {
+            String before = p.getModStatus();
             p.setModStatus(verdict);
             p.getRecheck().clear();
+            p.getExpiry().restart();
             posts.saveAndFlush(p);
-            return true;
-        }).orElse(false)) {
-            kind = "flatmateSeekerPost";
-        } else if (rooms.findById(targetId).map(r -> {
+            return new Moderated("flatmateSeekerPost", "post", p.getUserId(), before);
+        }).or(() -> rooms.findById(targetId).map(r -> {
+            String before = r.getModStatus();
             r.setModStatus(verdict);
             r.getRecheck().clear();
+            r.getExpiry().restart();
             rooms.saveAndFlush(r);
-            return true;
-        }).orElse(false)) {
-            kind = "flatmateRoom";
-        } else if (groups.findById(targetId).map(g -> {
+            return new Moderated("flatmateRoom", "room", r.getHostId(), before);
+        })).or(() -> groups.findById(targetId).map(g -> {
+            String before = g.getModStatus();
             g.setModStatus(verdict);
             g.getRecheck().clear();
+            g.getExpiry().restart();
             groups.saveAndFlush(g);
-            return true;
-        }).orElse(false)) {
-            kind = "flatmateGroup";
-        } else {
-            throw NotFoundException.of("Flatmate post");
-        }
+            return new Moderated("flatmateGroup", "group", g.getHostId(), before);
+        })).orElseThrow(() -> NotFoundException.of("Flatmate post"));
 
-        // The note is internal and never surfaced to consumers, so the audit row is where it lives.
-        audit.record(caller, "flatmate.moderate", kind, targetId.toString(),
+        tellAuthor(item, targetId, verdict);
+
+        audit.record(caller, "flatmate.moderate", item.auditKind(), targetId.toString(),
                 "modStatus", verdict + (note == null ? "" : " — " + note));
     }
 
-    /** Titles, rent and member counts are joined in rather than stored on the row, so the screen
-     * never shows a price that stopped being true when the owner edited their listing. */
+    private record Moderated(String auditKind, String linkKind, UUID authorId, String before) {
+    }
+
+    private void tellAuthor(Moderated item, UUID targetId, String verdict) {
+        boolean wasPublic = FlatmateVocabulary.isPublic(item.before());
+        boolean isPublic = FlatmateVocabulary.isPublic(verdict);
+        String link = FlatmateLinks.of(item.linkKind(), targetId);
+        if (isPublic && !wasPublic) {
+            notifier.notify(item.authorId(), "flatmate.moderated.live", "Your flatmate ad is live",
+                    "People can now see it and contact you.", link);
+        } else if (!isPublic && !verdict.equals(item.before())
+                && ("rejected".equals(verdict) || "removed".equals(verdict))) {
+            notifier.notify(item.authorId(), "flatmate.moderated." + verdict,
+                    "Your flatmate ad is not live", "It did not pass our review.", link);
+        }
+    }
+
     @Transactional(readOnly = true)
-    public Page<GroupApplicationDto> applications(Pageable pageable) {
-        Page<FlatmateGroupApplication> page = applications.findByOrderByCreatedAtDesc(pageable);
+    public Page<GroupApplicationDto> applications(List<String> modStatus, Pageable pageable) {
+        List<String> states = modStates(nonBlank(modStatus), null);
+        Page<FlatmateGroupApplication> page = states.isEmpty()
+                ? applications.findByOrderByCreatedAtDesc(pageable)
+                : applications.findByModStatusIn(states, pageable);
         List<GroupApplicationDto> hydrated = applicationHydrator.hydrate(page.getContent());
         return new PageImpl<>(hydrated, page.getPageable(), page.getTotalElements());
     }
@@ -245,16 +276,10 @@ public class FlatmateModerationService {
         if (!grantsBadge || review.badgeable()) {
             return;
         }
-        // Which of badgeable()'s conditions failed, purely to say so. The decision was made above.
-        if (!review.isOwnerConsent()) {
-            throw new ValidationException(
-                    "The flat's owner has not confirmed this sub-let, so the Tenant-verified badge"
-                            + " cannot be granted. Ask the host to send the owner a consent OTP;"
-                            + " the row will say Consent verified once it is done.");
-        }
         throw new ValidationException(
-                "The registered agreement number, registration date and validity date are "
-                        + "required before the Tenant-verified badge can be granted.");
+                "The flat's owner has not confirmed this sub-let, so the Tenant-verified badge"
+                        + " cannot be granted. Ask the host to send the owner a consent OTP;"
+                        + " the row will say Consent verified once it is done.");
     }
 
     private void tellHost(FlatmateReview review, boolean approved, String reason) {
@@ -265,6 +290,6 @@ public class FlatmateModerationService {
                 approved
                         ? "Thanks — we have checked your agreement and your post now shows as verified."
                         : "We could not verify your post. " + reason,
-                "/flatmates");
+                FlatmateLinks.of(review));
     }
 }

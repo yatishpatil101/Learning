@@ -1,14 +1,17 @@
 package com.draazy.api.engagement.flatmate;
 
 import com.draazy.api.security.AuthPrincipal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** Decides <em>visibility</em> — may a stranger see this post — which is deliberately not the question
- * the review queue answers (<em>verification</em>). A tenant-tier post is live and unbadged. */
+/** Decides visibility — may a stranger see this post — which is deliberately not the question
+ * the review queue answers (verification). A tenant-tier post is live and unbadged. */
 @Component
 class FlatmatePublication {
+
+    static final String UNREVIEWED = "new post";
 
     private final FlatmateGuardrails guardrails;
     private final FlatmateReviewRepository reviews;
@@ -56,7 +59,7 @@ class FlatmatePublication {
             });
         }
 
-    /** The room twin of {@link #recordOwnerConsent(UUID)}. Consent is commonly taken <em>after</em>
+    /** The room twin of {@link #recordOwnerConsent(UUID)}. Consent is commonly taken after
      * the post exists; without this the queued review keeps {@code owner_consent = false} forever. */
         void recordOwnerConsentForRoom(UUID roomId) {
         reviews.findByRoomId(roomId)
@@ -67,28 +70,36 @@ class FlatmatePublication {
             });
         }
 
-    /** Owner and tenant tiers publish; only {@code identity} waits. {@code flagged} overrides the tier
-     * — the guardrail fires on behaviour, which a good tier does not excuse. */
-    String stateFor(String tier, boolean flagged) {
-        if (flagged || FlatmateVocabulary.TIER_IDENTITY.equals(tier)) {
-            return FlatmateVocabulary.MOD_PENDING;
+    String stateFor(String tier, boolean flagged, boolean flatless) {
+        if (!flagged && (flatless || FlatmateVocabulary.TIER_OWNER.equals(tier))) {
+            return FlatmateVocabulary.MOD_LIVE;
         }
-        return FlatmateVocabulary.MOD_LIVE;
+        return FlatmateVocabulary.MOD_PENDING;
+    }
+
+    static void queueUnreviewed(ModerationRecheck recheck, String state, boolean flatless) {
+        if (flatless) {
+            recheck.settle(state, List.of(UNREVIEWED));
+        }
     }
 
     /** The eligibility result is read for its flag, never its verdict — {@code blocked()} is always true
-     * for a post that already exists. The ladder is consulted only for its power to <em>lower</em>. */
+     * for a post that already exists. The ladder is consulted only for its power to lower. */
     void reapplyAfterEdit(AuthPrincipal caller, String tier, FlatmateEditImpact impact,
             FlatmateSupplyPost post, FlatmateGuardrails.Address address) {
         var eligibility = guardrails.evaluate(caller.userId(), tier, address);
         post.setAddressFingerprint(eligibility.fingerprint());
         post.setFlagForReview(eligibility.flagForReview());
+        post.setModStatus(post.getExpiry().revive(post.getModStatus()));
         String standing = post.getModStatus();
         boolean wasPublic = FlatmateVocabulary.isPublic(standing);
-        String ladder = stateFor(tier, eligibility.flagForReview());
+        boolean selfPublished = FlatmateVocabulary.MOD_LIVE.equals(standing);
+        boolean flatless = post instanceof FlatmateGroup group && group.isHunting();
+        String ladder = stateFor(tier, eligibility.flagForReview(), flatless);
         boolean photoLessRoom = post instanceof FlatmateRoom room && room.getPhotos().isEmpty();
-        boolean lowered = impact.remoderationRequired() || !wasPublic
-            || photoLessRoom || FlatmateVocabulary.MOD_PENDING.equals(ladder);
+        boolean lowered = impact.remoderationRequired() || !wasPublic || photoLessRoom
+            || eligibility.flagForReview()
+            || (selfPublished && FlatmateVocabulary.MOD_PENDING.equals(ladder));
         String state = lowered ? FlatmateVocabulary.MOD_PENDING : standing;
         post.setModStatus(state);
         post.getRecheck().settle(state, impact.rechecked());

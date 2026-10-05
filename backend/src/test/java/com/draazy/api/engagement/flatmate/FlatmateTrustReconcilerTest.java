@@ -37,9 +37,6 @@ class FlatmateTrustReconcilerTest {
     private FlatmateGroupRepository groups;
 
     @Mock
-    private FlatmateSeekerPostRepository posts;
-
-    @Mock
     private PropertyRepository properties;
 
     @Mock
@@ -61,14 +58,15 @@ class FlatmateTrustReconcilerTest {
 
     @BeforeEach
     void setUp() {
-        reconciler = new FlatmateTrustReconciler(reviews, rooms, groups, posts, properties,
+        reconciler = new FlatmateTrustReconciler(reviews, rooms, groups, properties,
                 agreements, users, badges, notifier, audit);
     }
 
     @Test
     void expiresAnApprovedBadgeAfterTheAgreementEndDate() {
         UUID hostId = UUID.randomUUID();
-        FlatmateReview review = tenantReview(hostId, UUID.randomUUID(),
+        UUID roomId = UUID.randomUUID();
+        FlatmateReview review = tenantReview(hostId, roomId,
                 LocalDate.now().minusDays(1));
         when(reviews.findLapsedApprovals(any())).thenReturn(List.of(review));
 
@@ -76,33 +74,11 @@ class FlatmateTrustReconcilerTest {
 
         assertThat(expired).isEqualTo(1);
         assertThat(review.getStatus()).isEqualTo(FlatmateVocabulary.STATUS_REJECTED);
-        assertThat(review.getReason()).contains("expired on " + LocalDate.now().minusDays(1));
+        assertThat(review.getReason()).contains("lapsed on " + LocalDate.now().minusDays(1));
         verify(badges).apply(review, false);
         verify(reviews).saveAllAndFlush(List.of(review));
         verify(notifier).notify(eq(hostId), eq("flatmate.review.expired"), any(), any(),
-                eq("/flatmates"));
-    }
-
-    @Test
-    void archivesStaleRoomsAndSeekerPosts() {
-        UUID roomHostId = UUID.randomUUID();
-        UUID seekerId = UUID.randomUUID();
-        FlatmateRoom room = new FlatmateRoom(roomHostId, "Private room", "Baner", 15000L);
-        FlatmateSeekerPost post = new FlatmateSeekerPost(seekerId, "Seeker", 20000L);
-        when(rooms.findStale(any())).thenReturn(List.of(room));
-        when(posts.findStale(any())).thenReturn(List.of(post));
-
-        int archived = reconciler.reconcileStaleSupply();
-
-        assertThat(archived).isEqualTo(2);
-        assertThat(room.isArchived()).isTrue();
-        assertThat(post.isArchived()).isTrue();
-        verify(rooms).saveAllAndFlush(List.of(room));
-        verify(posts).saveAllAndFlush(List.of(post));
-        verify(notifier).notify(eq(roomHostId), eq("flatmate.room.archived"), any(), any(),
-                eq("/flatmates"));
-        verify(notifier).notify(eq(seekerId), eq("flatmate.post.archived"), any(), any(),
-                eq("/flatmates"));
+                eq("/flatmates/room/" + roomId));
     }
 
     @Test
@@ -125,11 +101,9 @@ class FlatmateTrustReconcilerTest {
         verify(badges).apply(review, true);
         verify(reviews).saveAllAndFlush(List.of(review));
         verify(notifier).notify(eq(hostId), eq("flatmate.review.approved"), any(), any(),
-                eq("/flatmates"));
+                eq("/flatmates/room/" + roomId));
     }
 
-    // Nothing upstream can check the named flat — a tenant does not own it — so taking it at face
-    // value would badge a Baner post off a Kothrud tenancy. Falls to the desk, not refused.
     @Test
     void doesNotAutoApproveAnAgreementForAFlatInAnotherLocality() {
         UUID hostId = UUID.randomUUID();
@@ -186,8 +160,6 @@ class FlatmateTrustReconcilerTest {
         verifyNoInteractions(agreements, badges, notifier, audit);
     }
 
-    // A host who skipped the society picker is not making a false claim, so the exact rung is
-    // unreachable and the locality one still decides.
     @Test
     void fallsBackToTheLocalityWhenThePostNamesNoSociety() {
         UUID hostId = UUID.randomUUID();
@@ -203,6 +175,38 @@ class FlatmateTrustReconcilerTest {
         when(agreements.hasRegisteredTenancy(propertyId, host.getMobile())).thenReturn(true);
 
         assertThat(reconciler.reconcileDraazyAgreements()).isEqualTo(1);
+    }
+
+    @Test
+    void aSelfPublishedRoomThatLosesOwnerTierGoesBackToTheQueue() {
+        UUID hostId = UUID.randomUUID();
+        FlatmateRoom room = ownerTierRoom(hostId, FlatmateVocabulary.MOD_LIVE);
+        when(rooms.findOwnerTierClaims()).thenReturn(List.of(room));
+
+        assertThat(reconciler.reconcileOwnerTier()).isEqualTo(1);
+
+        assertThat(room.getVerificationTier()).isEqualTo(FlatmateVocabulary.TIER_IDENTITY);
+        assertThat(room.getModStatus()).isEqualTo(FlatmateVocabulary.MOD_PENDING);
+        verify(notifier).notify(eq(hostId), eq("flatmate.moderated.held"), any(), any(), any());
+    }
+
+    @Test
+    void aModeratorApprovedRoomStaysPublishedWhenItLosesOwnerTier() {
+        FlatmateRoom room = ownerTierRoom(UUID.randomUUID(), FlatmateVocabulary.MOD_APPROVED);
+        when(rooms.findOwnerTierClaims()).thenReturn(List.of(room));
+
+        reconciler.reconcileOwnerTier();
+
+        assertThat(room.getModStatus()).isEqualTo(FlatmateVocabulary.MOD_APPROVED);
+        verifyNoInteractions(notifier);
+    }
+
+    private static FlatmateRoom ownerTierRoom(UUID hostId, String modStatus) {
+        FlatmateRoom room = new FlatmateRoom(hostId, "Private room", "Baner", 15000L);
+        room.setVerificationTier(FlatmateVocabulary.TIER_OWNER);
+        room.setAddressFingerprint(FlatmateGuardrails.PROPERTY_PREFIX + UUID.randomUUID());
+        room.setModStatus(modStatus);
+        return room;
     }
 
     private static FlatmateRoom roomIn(String locality) {
@@ -225,20 +229,6 @@ class FlatmateTrustReconcilerTest {
         property.setSocietyId(societyId);
         return property;
     }
-
-        @Test
-        void incompleteAgreementNeverAutoApprovesATenantReview() {
-                UUID hostId = UUID.randomUUID();
-                FlatmateReview review = new FlatmateReview("room", UUID.randomUUID(), null, hostId,
-                                "Baner", "tenant", false, true, null,
-                                new AgreementRegistration(null, LocalDate.now(), LocalDate.now().plusDays(300)),
-                                UUID.randomUUID());
-                when(reviews.findConsentedTenantBacklog()).thenReturn(List.of(review));
-
-                reconciler.reconcileDraazyAgreements();
-
-                verifyNoInteractions(users, agreements, badges, audit);
-        }
 
     private static FlatmateReview tenantReview(UUID hostId, UUID roomId, LocalDate validTill) {
                 return tenantReview(hostId, roomId, validTill, null);

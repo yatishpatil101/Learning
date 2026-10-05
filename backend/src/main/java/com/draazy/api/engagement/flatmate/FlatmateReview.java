@@ -12,8 +12,6 @@ import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** An Ops agreement review (V27 {@code flatmate_reviews}). A CHECK constraint keeps exactly one
- * of {@link #roomId}/{@link #groupId} populated and agreeing with {@link #kind}. */
 @Entity
 @Table(name = "flatmate_reviews")
 @Getter
@@ -92,10 +90,18 @@ public class FlatmateReview extends AuditedEntity {
         this.tenancyPropertyId = tenancyPropertyId;
     }
 
+    static final int BADGE_MONTHS = 11;
+
     void decide(String decision, String why, UUID decider) {
         this.status = decision;
         this.reason = why;
         this.decidedBy = decider;
+        AgreementRegistration current = getAgreement();
+        if (FlatmateVocabulary.STATUS_APPROVED.equals(decision)
+                && FlatmateVocabulary.TIER_TENANT.equals(tier) && current.getValidTill() == null) {
+            this.agreement = new AgreementRegistration(current.getRegNo(),
+                    current.getRegisteredOn(), LocalDate.now().plusMonths(BADGE_MONTHS));
+        }
     }
 
     /** Re-opened in place because {@code uq_flatmate_reviews_room} and its group twin allow one row
@@ -107,12 +113,20 @@ public class FlatmateReview extends AuditedEntity {
         this.tier = tier;
         this.flagForReview = flagForReview;
         this.ownerConsent = ownerConsent;
-        this.agreementDoc = agreementDoc;
-        this.agreement = agreement;
+
+        if (!namesStoredFile(agreementDoc)) {
+            this.agreementDoc = agreementDoc;
+            this.agreement = agreement;
+        }
         this.tenancyPropertyId = tenancyPropertyId;
         this.status = FlatmateVocabulary.STATUS_PENDING;
         this.reason = null;
         this.decidedBy = null;
+    }
+
+    private boolean namesStoredFile(Map<String, Object> doc) {
+        return doc != null && this.agreementDoc != null && doc.get("dataUrl") == null
+                && doc.get("id") != null && doc.get("id").equals(this.agreementDoc.get("id"));
     }
 
     void recordOwnerConsent() {
@@ -122,15 +136,15 @@ public class FlatmateReview extends AuditedEntity {
     /** One predicate for both {@code requireConsentToApprove} and the unsupervised
      * {@code FlatmateTrustReconciler} sweep, so a new condition cannot be enforced on only one. */
     boolean badgeable() {
-        return ownerConsent && getAgreement().complete();
+        return ownerConsent;
     }
 
     /** Reuses {@code rejected} rather than a status every consumer would have to learn. The DB
      * requires a reason on rejection; {@code decidedBy} stays null because no person decided. */
     void expire(LocalDate on) {
         this.status = FlatmateVocabulary.STATUS_REJECTED;
-        this.reason = "The registered agreement backing this post expired on " + on
-                + ". Upload the renewed agreement to get the badge back.";
+        this.reason = "The agreement check behind your Tenant-verified badge lapsed on " + on
+                + ". Upload your current agreement to get the badge back.";
         this.decidedBy = null;
     }
 }

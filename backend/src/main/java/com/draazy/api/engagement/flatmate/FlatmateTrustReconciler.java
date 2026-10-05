@@ -10,9 +10,7 @@ import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,16 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FlatmateTrustReconciler {
 
-    /** A judgement, not a finding. Package-visible so the tests state the same number rather than
-     * a copy of it. */
-    static final int STALE_AFTER_DAYS = 90;
-
-    private static final String STALE_REASON = "No activity for " + STALE_AFTER_DAYS + " days.";
-
     private final FlatmateReviewRepository reviews;
     private final FlatmateRoomRepository rooms;
     private final FlatmateGroupRepository groups;
-    private final FlatmateSeekerPostRepository posts;
     private final PropertyRepository properties;
     private final RegisteredTenancyLookup agreements;
     private final UserRepository users;
@@ -42,13 +33,12 @@ public class FlatmateTrustReconciler {
     private final AuditService audit;
 
     public FlatmateTrustReconciler(FlatmateReviewRepository reviews, FlatmateRoomRepository rooms,
-            FlatmateGroupRepository groups, FlatmateSeekerPostRepository posts,
+            FlatmateGroupRepository groups,
             PropertyRepository properties, RegisteredTenancyLookup agreements,
             UserRepository users, FlatmateBadges badges, Notifier notifier, AuditService audit) {
         this.reviews = reviews;
         this.rooms = rooms;
         this.groups = groups;
-        this.posts = posts;
         this.properties = properties;
         this.agreements = agreements;
         this.users = users;
@@ -63,15 +53,35 @@ public class FlatmateTrustReconciler {
     public int reconcileOwnerTier() {
         List<FlatmateRoom> staleRooms = rooms.findOwnerTierClaims().stream()
                 .filter(r -> !listingStands(r.getAddressFingerprint())).toList();
-        staleRooms.forEach(r -> r.setVerificationTier(fallbackTier(r.isAgreementDeclared())));
+        staleRooms.forEach(r -> {
+            r.setVerificationTier(fallbackTier(r.isAgreementDeclared()));
+            if (FlatmateVocabulary.MOD_LIVE.equals(r.getModStatus())) {
+                r.setModStatus(FlatmateVocabulary.MOD_PENDING);
+                r.getRecheck().clear();
+                tellHeldForReview(r.getHostId(), FlatmateLinks.of("room", r.getId()));
+            }
+        });
         rooms.saveAllAndFlush(staleRooms);
 
         List<FlatmateGroup> staleGroups = groups.findOwnerTierClaims().stream()
                 .filter(g -> !listingStands(g.getAddressFingerprint())).toList();
-        staleGroups.forEach(g -> g.setVerificationTier(fallbackTier(g.isAgreementDeclared())));
+        staleGroups.forEach(g -> {
+            g.setVerificationTier(fallbackTier(g.isAgreementDeclared()));
+            if (FlatmateVocabulary.MOD_LIVE.equals(g.getModStatus())) {
+                g.setModStatus(FlatmateVocabulary.MOD_PENDING);
+                g.getRecheck().clear();
+                tellHeldForReview(g.getHostId(), FlatmateLinks.of("group", g.getId()));
+            }
+        });
         groups.saveAllAndFlush(staleGroups);
 
         return staleRooms.size() + staleGroups.size();
+    }
+
+    private void tellHeldForReview(UUID hostId, String link) {
+        notifier.notify(hostId, "flatmate.moderated.held", "Your flatmate ad is back in review",
+                "The listing it was linked to is no longer live, so our team will check the ad"
+                        + " before it shows again.", link);
     }
 
     /** A button because the hourly tick is the wrong latency for a listing pulled precisely because
@@ -107,18 +117,18 @@ public class FlatmateTrustReconciler {
             badges.apply(review, false);
             notifier.notify(review.getHostId(), "flatmate.review.expired",
                     "Your flatmate verification has expired",
-                    review.getReason(), "/flatmates");
+                    review.getReason(), FlatmateLinks.of(review));
         }
         reviews.saveAllAndFlush(lapsed);
         return lapsed.size();
     }
 
-    /** Polled rather than hooked: the {@code /service-requests} workflow never writes back. Owner
-     * consent is NOT implied by a registered tenancy — the OTP stays compulsory. */
+    /** Polled because a second desk operator marks registration; owner OTP consent remains required. */
     @Transactional
     public int reconcileDraazyAgreements() {
         List<FlatmateReview> decided = new ArrayList<>();
         for (FlatmateReview review : reviews.findConsentedTenantBacklog()) {
+
             // The same gate a moderator would face, plus the expiry a standing badge is swept for.
             if (!review.badgeable() || review.getAgreement().expiredOn(LocalDate.now())) {
                 continue;
@@ -138,7 +148,7 @@ public class FlatmateTrustReconciler {
             notifier.notify(review.getHostId(), "flatmate.review.approved",
                     "Your flatmate post is Tenant-verified",
                     "We matched it to the rent agreement we registered for you, so there was"
-                            + " nothing left for our team to check.", "/flatmates");
+                            + " nothing left for our team to check.", FlatmateLinks.of(review));
             decided.add(review);
         }
         reviews.saveAllAndFlush(decided);
@@ -151,6 +161,7 @@ public class FlatmateTrustReconciler {
         if (claimed == null) {
             return null;
         }
+
         // The id is the host's own claim and nothing upstream verified it, so it is matched against
         // the post: exactly on society when both name one, else coarsely on locality.
         Property property = properties.findById(claimed).orElse(null);
@@ -186,37 +197,5 @@ public class FlatmateTrustReconciler {
                     .map(g -> FlatmateVocabulary.blankToNull(g.getLocality())).orElse(null);
         }
         return null;
-    }
-
-    /** {@code updatedAt} is the clock, so any edit restarts it. Archived rather than deleted, and
-     * the host is told, because ninety days of silence is evidence and not proof. */
-    @Transactional
-    public int reconcileStaleSupply() {
-        Instant cutoff = Instant.now().minus(STALE_AFTER_DAYS, ChronoUnit.DAYS);
-
-        List<FlatmateRoom> staleRooms = rooms.findStale(cutoff);
-        staleRooms.forEach(r -> {
-            r.archive(STALE_REASON);
-            tellArchived(r.getHostId(), "room");
-        });
-        rooms.saveAllAndFlush(staleRooms);
-
-        List<FlatmateSeekerPost> stalePosts = posts.findStale(cutoff);
-        stalePosts.forEach(p -> {
-            p.archive(STALE_REASON);
-            tellArchived(p.getUserId(), "post");
-        });
-        posts.saveAllAndFlush(stalePosts);
-
-        return staleRooms.size() + stalePosts.size();
-    }
-
-    private void tellArchived(UUID ownerId, String what) {
-        notifier.notify(ownerId, "flatmate." + what + ".archived",
-                "We have paused your flatmate " + what,
-                "Nobody has updated it in " + STALE_AFTER_DAYS + " days, so we have taken it off the"
-                        + " board to keep the listings seekers see current. Still looking? Put it"
-                        + " back in one tap.",
-                "/flatmates");
     }
 }

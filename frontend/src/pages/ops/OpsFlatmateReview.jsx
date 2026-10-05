@@ -1,71 +1,90 @@
-/**
- * Ops flatmates desk — three boards over `FlatmateModerationController`, live-only.
- *
- * ## Why three boards and not one screen
- *
- * The controller keeps verification and moderation on separate routes deliberately, and this page
- * keeps them on separate boards for the same reason: they are different questions about the same
- * post, with different outcomes and different consequences for getting them wrong.
- *
- *   **Verification** — *has this host proved what they claimed?* Outcome: a trust badge. A post that
- *   fails stays visible, because an unproven claim is not abuse.
- *
- *   **Moderation** — *may this be published at all?* Outcome: visibility. A post that fails is
- *   hidden, and that says nothing about whether the paperwork behind it is real.
- *
- *   **Group applications** — the same moderation axis over a third resource, alongside a status
- *   that belongs to the owner and that this desk may never write.
- *
- * A single merged status column would be a screen that cannot tell a host "we could not verify your
- * agreement" apart from "we took your post down". Those are different things to be told.
- */
-import { useState } from 'react';
-import { BedDouble, ShieldCheck, Users } from 'lucide-react';
-import { classNames } from '../../lib/format.js';
+import { useCallback, useState } from 'react';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import VerificationBoard from './flatmate/VerificationBoard.jsx';
-import ModerationBoard from './flatmate/ModerationBoard.jsx';
-import ApplicationsBoard from './flatmate/ApplicationsBoard.jsx';
+import Select from '../../components/ui/Select.jsx';
+import DateRangePills from '../../components/ui/DateRangePills.jsx';
+import { QueueState, Tabs } from './flatmate/board.jsx';
+import useFlatmateQueue, { QUEUE_TABS } from './flatmate/useFlatmateQueue.js';
+import FlatmateQueueCard, { entryKind, entrySummary } from './flatmate/FlatmateQueueCard.jsx';
+import FlatmateReviewModal from './flatmate/FlatmateReviewModal.jsx';
 
-const TITLE = 'Flatmate Moderation';
-const SUBTITLE = 'Verify what hosts claim, and decide what the board is allowed to show.';
+const EMPTY = {
+  pending: 'Nothing waiting — every flatmate post has been reviewed ✅',
+  published: 'Nothing published yet.',
+  hidden: 'Nothing hidden or removed.',
+};
 
-const BOARDS = [
-  { id: 'verification', label: 'Verification', icon: ShieldCheck, Panel: VerificationBoard },
-  { id: 'moderation', label: 'Moderation', icon: BedDouble, Panel: ModerationBoard },
-  { id: 'applications', label: 'Group applications', icon: Users, Panel: ApplicationsBoard },
+const TYPE_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'room', label: 'Room' },
+  { id: 'group', label: 'Group' },
+  { id: 'post', label: 'Seeker post' },
 ];
 
-export default function OpsFlatmateReview() {
-  const [board, setBoard] = useState('verification');
+const SORT_OPTS = [
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'newest', label: 'Newest first' },
+];
 
-  const active = BOARDS.find((b) => b.id === board) || BOARDS[0];
+const typeOf = (entry) => (entryKind(entry) === 'application' ? 'group' : entryKind(entry));
+
+const haystack = (entry) => {
+  const s = entrySummary(entry);
+  return [s.title, s.locality, s.author, entry.post?.snippet, entry.key].join(' ').toLowerCase();
+};
+
+function filterQueue(items, { type, q, days, order }) {
+  const needle = q.trim().toLowerCase();
+  const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
+  const dir = order === 'oldest' ? 1 : -1;
+  return items
+    .filter((e) => (type === 'all' || typeOf(e) === type)
+      && (!needle || haystack(e).includes(needle))
+      // An entry with no timestamp survives every cutoff rather than vanishing from the queue.
+      && (!cutoff || !e.since || e.since >= cutoff))
+    .sort((a, b) => dir * ((a.since || 0) - (b.since || 0)));
+}
+
+export default function OpsFlatmateReview() {
+  const [tab, setTab] = useState('pending');
+  const [type, setType] = useState('all');
+  const [q, setQ] = useState('');
+  const [days, setDays] = useState('');
+  const [sort, setSort] = useState('');
+  const [open, setOpen] = useState(null);
+  const loaded = useFlatmateQueue(tab);
+  const order = sort || (tab === 'pending' ? 'oldest' : 'newest');
+  const queue = { ...loaded, items: filterQueue(loaded.items, { type, q, days, order }) };
+  const filtered = loaded.items.length > 0;
+  const close = useCallback(() => setOpen(null), []);
 
   return (
     <div>
-      <PageHeader title={TITLE} subtitle={SUBTITLE} />
+      <PageHeader title="Flatmate Moderation" subtitle="Everything waiting on a decision, oldest first by default. Open one to see the full post." />
 
-      <div role="group" aria-label="Flatmate boards" className="mb-5 flex flex-wrap gap-2">
-        {BOARDS.map((b) => (
-          <button
-            key={b.id}
-            type="button"
-            aria-pressed={board === b.id}
-            onClick={() => setBoard(b.id)}
-            className={classNames(
-              'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition',
-              board === b.id
-                ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal'
-                : 'border-white/10 text-gray-300 hover:bg-white/5',
-            )}
-          >
-            <b.icon className="h-4 w-4" />{b.label}
-          </button>
-        ))}
+      <Tabs tabs={QUEUE_TABS} active={tab} onChange={setTab} label="Flatmate queues" />
+      <Tabs tabs={TYPE_TABS} active={type} onChange={setType} label="Post type" />
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title, author, locality…" aria-label="Search the queue" className="dz-input sm:w-72" />
+        <Select value={order} onChange={setSort} options={SORT_OPTS} className="sm:w-44" ariaLabel="Sort" />
+        <DateRangePills value={days} onChange={setDays} />
+        {queue.status === 'ready' ? (
+          <p role="status" className="ml-auto text-sm text-gray-400">
+            {queue.items.length} {queue.items.length === 1 ? 'item' : 'items'}
+            {queue.truncated ? ' · showing the first 100 of each kind — decide some to see the rest' : ''}
+          </p>
+        ) : null}
       </div>
 
-      {/* Keyed so switching boards remounts rather than reusing the previous board's row state. */}
-      <active.Panel key={active.id} />
+      <QueueState state={queue} onRetry={queue.reload} empty={filtered ? 'Nothing matches these filters.' : EMPTY[tab]} />
+
+      {queue.status === 'ready' && queue.items.length ? (
+        <ul className="space-y-3">
+          {queue.items.map((e) => <FlatmateQueueCard key={e.key} entry={e} onReview={setOpen} />)}
+        </ul>
+      ) : null}
+
+      {open ? <FlatmateReviewModal entry={open} onClose={close} onChanged={queue.reload} /> : null}
     </div>
   );
 }

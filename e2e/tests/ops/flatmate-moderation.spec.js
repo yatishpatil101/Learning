@@ -1,12 +1,11 @@
-/* Every fixture is minted through the consumer path, because the seed's five flatmate rows are all
- * already `approved`. `Badge` relabels the wire's `pending` as "Under Review". */
+// Every fixture is minted through the consumer path, because the seed's five flatmate rows are all already `approved`.
 import { ACTORS, expect, test } from '../../fixtures/live.js';
-import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
+import { API, E2E_OTP, apiLogin, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
+import { tenantRoomAgreement } from '../../helpers/flatmateAgreement.js';
 
 const STAFF = '9733798115';
 
-/* One host per test: the anti-broker cap counts non-owner-tier supply per host. Every name must be
- * `status = 'active'` in the seed — since V77 a suspended user's login 403s. */
+// One host per test: the anti-broker cap counts non-owner-tier supply per host.
 const HOSTS = {
   verifyApprove: { mobile: '9700000003', name: 'Arjun Rao' },
   verifyReject: { mobile: '9712728163', name: 'Aditya Iyer' },
@@ -19,8 +18,7 @@ const HOSTS = {
   quietEdit: { mobile: '9382625379', name: 'Aarav Deshpande' },
 };
 
-/* A real PDF header, not a stub: the `isViewableDoc` predicate behind the button allowlists by
- * scheme and MIME, so a render-only fixture would agree with a build whose button opens nothing. */
+// Use a real PDF header because the view button allowlists by scheme and MIME.
 const AGREEMENT_PDF = 'data:application/pdf;base64,JVBERi0xLjQKJcOkw7zDtsOfCg==';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -37,10 +35,24 @@ async function post(path, token, body) {
   return res.json();
 }
 
-/* `agreementDeclared: true` is what makes the server derive the **tenant** tier, which is what
- * enqueues a verification review. The group request spells the same two ideas `role`/`agreement`. */
-async function seedTenantRoom(host, society, agreementDoc = null) {
+async function consentTo(token, society) {
+  const ownerMobile = uniqueMobile();
+  for (const payload of [{ ownerMobile, society, locality: 'Kothrud' },
+    { ownerMobile, society, locality: 'Kothrud', otp: E2E_OTP }]) {
+    const res = await fetch(`${API}/flatmates/owner-consent`, {
+      method: 'POST',
+      headers: auth(token),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`owner consent → ${res.status} ${await res.text()}`);
+  }
+  return ownerMobile;
+}
+
+async function seedTenantRoom(host, society, agreementDoc = undefined, extra = {}) {
   const { accessToken } = await apiLogin(host.mobile);
+  const ownerConsentMobile = await consentTo(accessToken, society);
+  const agreement = await tenantRoomAgreement(accessToken);
   const room = await post('/flatmates/rooms', accessToken, {
     bhk: '2',
     roomType: 'Private room',
@@ -56,13 +68,14 @@ async function seedTenantRoom(host, society, agreementDoc = null) {
     photos: ['https://cdn.example/1.jpg'],
     note: 'Quiet building, sunny room.',
     hostRole: 'tenant',
-    agreementDeclared: true,
-    ...(agreementDoc ? { agreementDoc } : {}),
+    ...agreement,
+    ...(agreementDoc === undefined ? {} : { agreementDoc: { ...agreement.agreementDoc, ...agreementDoc } }),
+    ...extra,
+    ownerConsentMobile,
   });
   return { room, accessToken };
 }
 
-/** A seeker post — the simplest thing that lands on the Pending moderation board. */
 async function seedSeekerPost(host, freeText) {
   const { accessToken } = await apiLogin(host.mobile);
   const created = await post('/flatmates/posts', accessToken, {
@@ -79,7 +92,7 @@ async function seedSeekerPost(host, freeText) {
   return { created, accessToken };
 }
 
-/** A visible group, plus an application to a seeded rental listing. */
+// A visible group, plus an application to a seeded rental listing.
 async function seedApplication(host, title) {
   const { accessToken } = await apiLogin(host.mobile);
   const group = await post('/flatmates/groups', accessToken, {
@@ -93,8 +106,7 @@ async function seedApplication(host, title) {
     role: 'tenant',
   });
 
-  /* A group must be past moderation before it may apply, so this borrows the desk's own decision
-     route rather than reaching into the database — the same act a moderator would perform. */
+  // Use the desk decision route because groups must pass moderation before applying.
   const { accessToken: staffToken } = await apiLogin(STAFF);
   const publish = await fetch(`${API}/admin/flatmates/${group.id}/moderation`, {
     method: 'PATCH',
@@ -103,8 +115,7 @@ async function seedApplication(host, title) {
   });
   if (!publish.ok) throw new Error(`publish group → ${publish.status} ${await publish.text()}`);
 
-  /* Any seeded rental will do, and the public feed is the honest way to find one: it returns only
-     listings a stranger may see. The hosts above are buyer accounts, so none of them owns one. */
+  // The public feed returns only rentals a stranger may see.
   const listings = await fetch(`${API}/properties?deal=rent&size=5`).then((r) => r.json());
   const flat = (listings.content || [])[0];
   if (!flat) throw new Error('seedApplication: no approved rental listing in the seed');
@@ -115,18 +126,21 @@ async function seedApplication(host, title) {
   return { group, application, flat };
 }
 
-const rowFor = (page, text) => page.getByRole('row').filter({ hasText: text }).first();
+const card = (page, text) => page.getByTestId('flatmate-queue-card').filter({ hasText: text });
+const cardFor = (page, text) => card(page, text).first();
 
-/** Move between the three boards. The switcher is a button group, not tabs. */
-const openBoard = (page, label) =>
-  page.getByRole('group', { name: 'Flatmate boards' }).getByRole('button', { name: label }).click();
+const openTab = (page, label) =>
+  page.getByRole('group', { name: 'Flatmate queues' }).getByRole('button', { name: label }).click();
 
-/** Move between the tab strips inside a board. */
-const openTab = (page, group, label) =>
-  page.getByRole('group', { name: group }).getByRole('button', { name: label }).click();
+async function review(page, text) {
+  await cardFor(page, text).getByRole('button', { name: 'Review' }).click();
+  const dialog = page.getByRole('dialog', { name: /^Review / });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
 
 async function openDesk(page, login) {
-  await login.asStaff('rental');
+  if (login) await login.asStaff('rental');
   await page.goto('/ops/flatmate-review');
   await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
   // If this fires, the desk fell back to its offline panel and nothing below means anything.
@@ -134,143 +148,213 @@ async function openDesk(page, login) {
 }
 
 test.describe('Ops → flatmate desk (live)', () => {
-  test('a tenant declaration reaches Verification and approving moves it, not the post', async ({ page, login }) => {
-    const host = HOSTS.verifyApprove;
-    /* Rows are found by the society name, not the host's. Several seeded accounts share a surname,
-       and the board's own "Flat / address" column is the column a moderator scans anyway. */
-    const society = `Verify Heights ${stamp()}`;
-    const { room } = await seedTenantRoom(host, society);
-    await openDesk(page, login);
+  test('the desk has three status tabs and no board switcher, type tabs narrow the queue, and the queue can be searched, sorted and cut by date', async ({ page, login }) => {
+    await test.step('one Pending tab, three tabs in all — no board switcher', async () => {
+      await openDesk(page, login);
+      const tabs = page.getByRole('group', { name: 'Flatmate queues' }).getByRole('button');
+      await expect(tabs).toHaveText(['Pending', 'Published', 'Hidden & removed']);
+      await expect(tabs.first()).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('group', { name: 'Flatmate boards' })).toHaveCount(0);
+    });
+    await test.step('type tabs under each status narrow the queue to rooms, groups (applications included) or seeker posts', async () => {
+      const marker = `Type tab seeker ${stamp()}`;
+      await seedSeekerPost({ mobile: uniqueMobile(), name: 'Type Tab' }, marker);
+      await openDesk(page);
 
-    const row = rowFor(page, society);
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('tenant-tier');
+      const types = page.getByRole('group', { name: 'Post type' }).getByRole('button');
+      await expect(types).toHaveText(['All', 'Room', 'Group', 'Seeker post']);
+      await expect(types.first()).toHaveAttribute('aria-pressed', 'true');
+      await expect(cardFor(page, marker)).toBeVisible();
 
-    /* Masked, and masked on the server: `FlatmateReviewDto` masks in its only constructor rather
-       than trusting each client. A desk that can phone a host can be socially engineered. */
-    await expect(page.getByText(host.mobile)).toHaveCount(0);
+      const kindLabels = page.getByTestId('flatmate-queue-card').locator('span.uppercase');
+      const openType = async (label) => {
+        const tab = page.getByRole('group', { name: 'Post type' }).getByRole('button', { name: label, exact: true });
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-pressed', 'true');
+      };
 
-    await row.locator('.approve-review-btn').click();
+      await openType('Seeker post');
+      await expect(cardFor(page, marker)).toBeVisible();
+      for (const label of await kindLabels.allTextContents()) expect(label).toBe('Seeker post');
 
-    // Decided rows leave Pending, which is the whole point of a queue.
-    await expect(rowFor(page, society)).toHaveCount(0);
-    await openTab(page, 'Verification queues', 'Ops-verified');
-    await expect(rowFor(page, society)).toBeVisible();
+      await openType('Room');
+      await expect(card(page, marker)).toHaveCount(0);
+      for (const label of await kindLabels.allTextContents()) expect(label).toBe('Room');
 
-    /* "Untouched" means **still live**, not "still pending": a tenant-tier room is published the
-       moment it is posted, so the bug this catches is the approval nudging it OFF the board. Read
-       from both sides, because a queue read returning nothing would look identical to a pass. */
-    expect(room.modStatus).toBe('live');
-    const { accessToken: staffToken } = await apiLogin(STAFF);
-    const onBoard = async (state) => {
-      const queue = await fetch(`${API}/admin/flatmates/moderation?kind=room&modStatus=${state}&size=100`,
-        { headers: auth(staffToken) }).then((r) => r.json());
-      return (queue.content || []).some((q) => q.id === room.id);
-    };
-    expect(await onBoard('live')).toBe(true);
-    expect(await onBoard('pending')).toBe(false);
+      await openType('Group');
+      await expect(card(page, marker)).toHaveCount(0);
+      for (const label of await kindLabels.allTextContents()) expect(['Group', 'Group application']).toContain(label);
+
+      await openTab(page, 'Published');
+      await expect(page.getByRole('group', { name: 'Post type' }).getByRole('button', { name: 'Group', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    });
+    await test.step('the queue can be searched, sorted and cut by date like the property queues', async () => {
+      const tag = `Sort probe ${stamp()}`;
+      await seedSeekerPost({ mobile: uniqueMobile(), name: 'Sort One' }, `${tag} first`);
+      await seedSeekerPost({ mobile: uniqueMobile(), name: 'Sort Two' }, `${tag} second`);
+      await openDesk(page);
+
+      await page.getByRole('textbox', { name: 'Search the queue' }).fill(tag);
+      const cards = page.getByTestId('flatmate-queue-card');
+      await expect(cards).toHaveCount(2);
+      await expect(page.getByRole('status').filter({ hasText: 'items' })).toHaveText('2 items');
+      await expect(cards.first()).toContainText(`${tag} first`);
+
+      await page.getByRole('button', { name: 'Sort' }).click();
+      await page.getByRole('option', { name: 'Newest first' }).click();
+      await expect(cards.first()).toContainText(`${tag} second`);
+
+      await page.getByRole('button', { name: 'Today', exact: true }).click();
+      await expect(cards).toHaveCount(2);
+
+      await page.getByRole('textbox', { name: 'Search the queue' }).fill(`${tag} nothing-like-this`);
+      await expect(cards).toHaveCount(0);
+      await expect(page.getByText('Nothing matches these filters.')).toBeVisible();
+    });
   });
 
-  test('a rejection without a reason is refused before it reaches the wire', async ({ page, login }) => {
+  test('a tenant room waits in Pending for both its publish and its badge, decided separately', async ({ page, login }) => {
+    const host = HOSTS.verifyApprove;
+    // Rows are found by the society name, not the host's.
+    const society = `Verify Heights ${stamp()}`;
+    const { room } = await seedTenantRoom(host, society);
+    expect(room.modStatus).toBe('pending');
+    const onPublicBoard = async () => {
+      const feed = await fetch(`${API}/flatmates/feed?tab=move-in&locality=Kothrud&size=100`).then((r) => r.json());
+      return (feed.content || []).some((r) => r.id === room.id);
+    };
+    expect(await onPublicBoard()).toBe(false);
+    await openDesk(page, login);
+
+    await expect(cardFor(page, society)).toContainText('Badge claim · tenant');
+    await expect(cardFor(page, society)).toContainText('Awaiting publish');
+
+    let dialog = await review(page, society);
+    await expect(dialog.locator('.flatmate-badge-section')).toContainText('tenant-tier claim');
+    // Masked, and masked on the server: `FlatmateReviewDto` masks in its only constructor rather than trusting each client.
+    await expect(page.getByText(host.mobile)).toHaveCount(0);
+
+    await dialog.locator('.approve-review-btn').click();
+    await expect(dialog.locator('.flatmate-badge-section')).toContainText('approved');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+
+    await expect(cardFor(page, society)).toContainText('Awaiting publish');
+    await expect(cardFor(page, society)).not.toContainText('Badge claim');
+    expect(await onPublicBoard()).toBe(false);
+
+    dialog = await review(page, society);
+    await dialog.getByRole('button', { name: 'Publish' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await expect(card(page, society)).toHaveCount(0);
+    await openTab(page, 'Published');
+    await expect(cardFor(page, society)).toBeVisible();
+    expect(await onPublicBoard()).toBe(true);
+  });
+
+  test('a badge rejection needs a reason, and the reason is shown back', async ({ page, login }) => {
     const society = `Reject Court ${stamp()}`;
     await seedTenantRoom(HOSTS.verifyReject, society);
     await openDesk(page, login);
 
-    await rowFor(page, society).locator('.reject-review-btn').click();
+    let dialog = await review(page, society);
+    await dialog.locator('.reject-review-btn').click();
+    await expect(dialog.getByRole('button', { name: 'Confirm rejection' })).toBeDisabled();
 
-    /* The desk stops a blank reason, and `FlatmateModerationService` refuses one again if it ever
-       gets through: a host told "no" without being told why cannot fix anything. */
-    await page.getByRole('button', { name: /Confirm rejection/i }).click();
-    await expect(page.getByText(/Add a clear reason before rejecting/i)).toBeVisible();
+    await dialog.getByPlaceholder('Reason for rejection').fill('The agreement names a different flat.');
+    await dialog.getByRole('button', { name: 'Confirm rejection' }).click();
+    await expect(dialog.locator('.flatmate-badge-section')).toContainText('different flat');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
-    await page.getByPlaceholder(/Reason for rejection/i).fill('The agreement names a different flat.');
-    await page.getByRole('button', { name: /Confirm rejection/i }).click();
-
-    await expect(rowFor(page, society)).toHaveCount(0);
-    await openTab(page, 'Verification queues', 'Rejected');
-    // The reason is shown back on the row, because it is what the host was told.
-    await expect(rowFor(page, society)).toContainText('different flat');
+    await expect(cardFor(page, society)).toContainText('Awaiting publish');
+    await expect(cardFor(page, society)).not.toContainText('Badge claim');
+    dialog = await review(page, society);
+    await expect(dialog.locator('.flatmate-badge-section')).toContainText('different flat');
   });
 
-  test('a new seeker post is born Pending and publishing is what makes it public', async ({ page, login }) => {
-    const host = HOSTS.publish;
+  test('a room the host deletes leaves Pending, badge claim and all', async ({ page, login }) => {
+    const society = `Withdrawn Court ${stamp()}`;
+    const { room, accessToken } = await seedTenantRoom({ mobile: uniqueMobile() }, society);
+    await openDesk(page, login);
+    await expect(cardFor(page, society)).toContainText('Badge claim · tenant');
+
+    const del = await fetch(`${API}/flatmates/rooms/${room.id}`, { method: 'DELETE', headers: auth(accessToken) });
+    expect(del.ok).toBe(true);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
+    await expect(card(page, society)).toHaveCount(0);
+  });
+
+  test('a new seeker post is live at once, and waits on Pending as not yet reviewed until a moderator looks', async ({ page, login }) => {
     const marker = `Looking near Kothrud ${stamp()}`;
-    await seedSeekerPost(host, marker);
+    await seedSeekerPost(HOSTS.publish, marker);
+
+    const feed = await fetch(`${API}/flatmates/feed?tab=team-up&q=${encodeURIComponent(marker)}&size=100`).then((r) => r.text());
+    expect(feed.includes(marker), 'a post with no flat publishes itself').toBe(true);
+
     await openDesk(page, login);
-    await openBoard(page, 'Moderation');
+    await expect(cardFor(page, marker)).toContainText('Live · not yet reviewed');
 
-    // Default board is `post` / `pending`, which is where a brand-new post lands.
-    const row = rowFor(page, marker);
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('Under Review');
-
-    // Before publishing, the public feed cannot see it — that is the whole claim of the gate.
-    const before = await fetch(`${API}/flatmates/posts?size=100`).then((r) => r.text());
-    expect(before.includes(marker)).toBe(false);
-
-    await row.getByRole('button', { name: 'Publish' }).click();
-    await expect(rowFor(page, marker)).toHaveCount(0);
-
-    const after = await fetch(`${API}/flatmates/posts?size=100`).then((r) => r.text());
-    expect(after.includes(marker)).toBe(true);
+    const dialog = await review(page, marker);
+    await expect(dialog).toContainText('Engineer');
+    await expect(dialog).toContainText('16,000');
+    await expect(dialog.locator('.flatmate-mod-recheck')).toContainText('new post');
+    await dialog.getByRole('button', { name: 'Looks fine' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(card(page, marker)).toHaveCount(0);
   });
 
-  test('removing a post takes a note, and the free text is never truncated', async ({ page, login }) => {
-    const host = HOSTS.remove;
+  test('removing a post takes an optional note, and the free text is never truncated', async ({ page, login }) => {
     const marker = `Contact 99999 in the free text ${stamp()}`;
-    await seedSeekerPost(host, marker);
+    await seedSeekerPost(HOSTS.remove, marker);
     await openDesk(page, login);
-    await openBoard(page, 'Moderation');
 
-    const row = rowFor(page, marker);
-    /* The free text is rendered in full and never truncated: it is where a phone number goes when
-       the contact field will not take one. */
-    await expect(row).toContainText('99999');
+    const dialog = await review(page, marker);
+    await expect(dialog.locator('.flatmate-mod-text')).toHaveText(marker);
 
-    await row.getByRole('button', { name: 'Remove' }).click();
-    await page.getByPlaceholder(/Internal note/i).fill('Phone number in the free text.');
-    await page.getByRole('button', { name: /^Confirm$/ }).click();
+    await dialog.getByPlaceholder('Internal note (optional)').fill('Phone number in the free text.');
+    await dialog.getByRole('button', { name: 'Remove' }).click();
+    await expect(dialog).toHaveCount(0);
 
-    await expect(rowFor(page, marker)).toHaveCount(0);
-    await openTab(page, 'Moderation states', 'Removed');
-    await expect(rowFor(page, marker)).toBeVisible();
+    await expect(card(page, marker)).toHaveCount(0);
+    await openTab(page, 'Hidden & removed');
+    await expect(cardFor(page, marker)).toContainText('removed');
   });
 
-  test('a real group application reaches the board that could never have a row', async ({ page, login }) => {
-    const host = HOSTS.apply;
+  test('a group application can be hidden without answering for the owner', async ({ page, login }) => {
     const title = `Three of us for a 3BHK ${stamp()}`;
-    const { flat } = await seedApplication(host, title);
+    const { flat } = await seedApplication(HOSTS.apply, title);
     await openDesk(page, login);
-    await openBoard(page, 'Group applications');
+    await openTab(page, 'Published');
 
-    const row = rowFor(page, title);
-    await expect(row).toBeVisible();
-    await expect(row).toContainText(flat.title);
-    await expect(row).toContainText('per head');
-    // Two axes on one row: the owner has not answered, and ops has not taken it down.
-    await expect(row).toContainText('Under Review');
+    const application = card(page, title).filter({ hasText: 'Group application' });
+    await expect(application).toBeVisible();
 
-    /* Hiding writes the moderation column and must not answer for the owner. The button says "Hide
-       for review", never "Flag" — that word belongs to the server-raised `flag_for_review` column. */
-    await row.getByRole('button', { name: 'Hide for review' }).click();
-    await page.getByPlaceholder(/Internal note/i).fill('Group members look duplicated.');
-    await page.getByRole('button', { name: /^Confirm$/ }).click();
+    await application.getByRole('button', { name: 'Review' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Review group application' });
+    await expect(dialog).toContainText(flat.title);
+    await expect(dialog).toContainText('Per head');
+    await expect(dialog).toContainText('Owner: pending');
 
-    await expect(rowFor(page, title)).toContainText('Hidden for review');
-    await expect(rowFor(page, title)).toContainText('Under Review');
+    await dialog.getByPlaceholder('Internal note (optional)').fill('Group members look duplicated.');
+    await dialog.getByRole('button', { name: 'Hide for review' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await openTab(page, 'Hidden & removed');
+    const hidden = card(page, title).filter({ hasText: 'Group application' });
+    await expect(hidden).toContainText('Hidden for review');
+    await hidden.getByRole('button', { name: 'Review' }).click();
+    await expect(page.getByRole('dialog', { name: 'Review group application' })).toContainText('Owner: pending');
   });
 
-  /* A tenant-tier room keeps its `approved` state when its photos are swapped, so without a
-     Re-check board it sits buried among published rooms with nothing to say it changed. The quiet
-     room is asserted on the same screen: a queue that also fills with chip edits gets skimmed. */
-  test('swapping the photos on a published room puts it on Re-check, and a chip-list edit does not', async ({ page, login }) => {
+  test('swapping the photos on a published room flags a re-check, and a chip-list edit does not', async ({ page, login }) => {
     const swapped = `Swap Heights ${stamp()}`;
     const quiet = `Quiet Court ${stamp()}`;
     const { room: swapRoom, accessToken: swapToken } = await seedTenantRoom(HOSTS.swapPhoto, swapped);
     const { room: quietRoom, accessToken: quietToken } = await seedTenantRoom(HOSTS.quietEdit, quiet);
 
-    /* Published first, so what follows is an edit to something the city can already see: a room
-       still in Pending has nothing to re-check. */
+    // Publish first so the edit is to something already visible.
     const { accessToken: staffToken } = await apiLogin(STAFF);
     for (const id of [swapRoom.id, quietRoom.id]) {
       const res = await fetch(`${API}/admin/flatmates/${id}/moderation`, {
@@ -281,9 +365,7 @@ test.describe('Ops → flatmate desk (live)', () => {
       if (!res.ok) throw new Error(`publish room → ${res.status} ${await res.text()}`);
     }
 
-    /* The room PATCH takes the whole body, so both edits resend everything and differ in exactly
-       one field — the classifier has to tell them apart from two identically shaped requests. */
-    const body = (society, overrides) => ({
+    const body = async (token, society, overrides) => ({
       bhk: '2',
       roomType: 'Private room',
       attachedBath: 'attached',
@@ -298,7 +380,7 @@ test.describe('Ops → flatmate desk (live)', () => {
       photos: ['https://cdn.example/1.jpg'],
       note: 'Quiet building, sunny room.',
       hostRole: 'tenant',
-      agreementDeclared: true,
+      ...(await tenantRoomAgreement(token)),
       ...overrides,
     });
 
@@ -312,80 +394,61 @@ test.describe('Ops → flatmate desk (live)', () => {
     };
 
     const SWAPPED_IN = 'https://cdn.example/swapped-in.jpg';
-    await edit(swapRoom.id, swapToken, body(swapped, { photos: [SWAPPED_IN] }));
-    // A value the wizard only offers as one of three chips. It cannot carry a phone number, so
-    // there is nothing here for a human to read.
-    await edit(quietRoom.id, quietToken, body(quiet, { foodPref: 'veg' }));
+    await edit(swapRoom.id, swapToken, await body(swapToken, swapped, { photos: [SWAPPED_IN] }));
+    await edit(quietRoom.id, quietToken, await body(quietToken, quiet, { foodPref: 'veg' }));
 
-    /* Still up: taking a room dark every time its gallery changes teaches hosts to leave a stale
-       gallery alone, which is its own harm. */
-    const feed = await fetch(`${API}/flatmates/rooms?size=100`).then((r) => r.json());
+    const feed = await fetch(`${API}/flatmates/feed?tab=move-in&size=100`).then((r) => r.json());
     expect((feed.content || []).some((r) => r.id === swapRoom.id)).toBe(true);
 
     await openDesk(page, login);
-    await openBoard(page, 'Moderation');
-    await openTab(page, 'Which board', 'Rooms');
-    await openTab(page, 'Moderation states', 'Re-check');
 
-    const row = rowFor(page, swapped);
-    await expect(row).toBeVisible();
-    // Which field moved, named on the row: a moderator opening this board needs to know what they
-    // are being asked to look at before they look.
-    await expect(row.locator('.flatmate-mod-recheck')).toContainText('photos');
+    await expect(cardFor(page, swapped)).toContainText('Edited since review');
+    await expect(cardFor(page, quiet)).not.toContainText('Edited since review');
 
-    /* The swapped-in picture is *on the row*: a number burned into an image, or a photo lifted from
-       another listing, is invisible to a desk that only renders the text. */
-    await expect(row.locator('.flatmate-mod-photos img')).toHaveAttribute('src', SWAPPED_IN);
+    const dialog = await review(page, swapped);
+    await expect(dialog.locator('.flatmate-mod-recheck')).toContainText('photos');
+    await expect(dialog.locator('.flatmate-mod-photos img')).toHaveAttribute('src', SWAPPED_IN);
 
-    // And the quiet room is not here, on the same screen, in the same run.
-    await expect(rowFor(page, quiet)).toHaveCount(0);
-
-    /* Deciding clears the work item whatever the verdict — a board that kept decided rows would
-       grow without limit and stop being a queue. */
-    await row.getByRole('button', { name: 'Publish' }).click();
-    await expect(rowFor(page, swapped)).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Looks fine' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(cardFor(page, swapped)).not.toContainText('Edited since review');
   });
 
-  test('the uploaded agreement is openable from the row, and a row without one says so', async ({ page, login }) => {
-    /* Two hosts, not one: the anti-broker cap counts non-owner-tier supply per host, so a second
-       room under the same account would be refused and the absence half would pass vacuously. */
+  test('the uploaded agreement opens in a new tab, and uploaded photos show on the popup', async ({ page, login }) => {
+    // Use two hosts because the anti-broker cap counts supply per host.
     const withDoc = `Paper Towers ${stamp()}`;
-    const withoutDoc = `Promise Residency ${stamp()}`;
+    const UPLOADED = '/api/dev/storage/public/photos/e2e/room.jpg';
     await seedTenantRoom(HOSTS.withDoc, withDoc, {
       name: 'rent-agreement.pdf',
       size: 32,
       mime: 'application/pdf',
       dataUrl: AGREEMENT_PDF,
-    });
-    await seedTenantRoom(HOSTS.withoutDoc, withoutDoc);
+    }, { photos: [UPLOADED] });
 
     await openDesk(page, login);
-
-    /* `VerificationBoard` renders three mutually exclusive states from one field, and only
-       "openable" and "nothing at all" are reachable — the 3 MB cap is applied in the browser. */
-    await expect(rowFor(page, withDoc).getByRole('button', { name: 'View agreement' })).toBeVisible();
-
-    /* The paired absence is the one that matters: a "View agreement" button on every tenant-tier
-       row would let a moderator approve a claim with no evidence and never know it. */
-    const bare = rowFor(page, withoutDoc);
-    await expect(bare).toContainText('No document');
-    await expect(bare.getByRole('button', { name: 'View agreement' })).toHaveCount(0);
+    const dialog = await review(page, withDoc);
+    await expect(dialog.locator('.flatmate-mod-photos img')).toHaveAttribute('src', UPLOADED);
+    const downloaded = new Promise((resolve) => {
+      page.context().once('page', (tab) => tab.once('download', (d) => resolve(d.url())));
+    });
+    await dialog.getByRole('button', { name: 'View agreement' }).click();
+    expect(await downloaded).toMatch(/^blob:http/);
   });
 
-  /* `/ops/flatmate-review` carries no `FlagRoute`, so the only thing between an administrator whose
-     flatmates module is off and the desk is the guard on this redirect. The switch is
-     `adminFlags.tab.flatmates`, NOT the consumer `flatmates` flag the `flags` fixture writes. */
-  test('the retired admin route hands the operator to this desk, and will not launder a switched-off module onto it', async ({ page, login }) => {
+  // This redirect guard protects the desk when the flatmates module is off.
+  test('the retired /ops bookmark hands the operator to this desk, and will not launder a switched-off module onto it', async ({ page, login }) => {
+      // Same administrator, same navigation, module switched off.
     await page.goto('/admin/flatmates');
     await expect(page).toHaveURL(/\/staff-login/);
 
     await login.asBuyer();
+    // Prove restore through the screen because the read path differs from the write path.
     await page.goto('/admin/flatmates');
     await expect(page).toHaveURL(/\/staff-login/);
 
     await login.asAdmin();
-    await page.goto('/admin/flatmates');
-    await expect(page).toHaveURL(/\/ops\/flatmate-review$/);
+    await page.goto('/ops/flatmate-review');
+    await expect(page).toHaveURL(/\/admin\/flatmates$/);
     await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
     // She arrived at the real desk, not its offline panel — the two look alike from the URL alone.
     await expect(page.getByText(/needs the live API/i)).toHaveCount(0);
@@ -401,22 +464,19 @@ test.describe('Ops → flatmate desk (live)', () => {
 
     await setTab(false);
     try {
-      /* Same administrator, same navigation, module switched off. */
       await page.goto('/admin/flatmates');
       await expect(page).toHaveURL(/\/admin$/);
       await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toHaveCount(0);
 
-      /* And the desk is still there, still open, with the flag still off — so what refused her was
-         the redirect's own guard and not the destination being unavailable to anybody. */
+      // The retired bookmark forwards into the same gate, so it cannot reach the desk either.
       await page.goto('/ops/flatmate-review');
-      await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
+      await expect(page).toHaveURL(/\/admin$/);
+      await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toHaveCount(0);
     } finally {
       await setTab(true);
     }
 
-    /* Restored, and proved through the screen rather than through the response above: the read path
-       is a different one, and an API-only restore could leave the tab dark. */
-    await page.goto('/admin/flatmates');
-    await expect(page).toHaveURL(/\/ops\/flatmate-review$/);
+    await page.goto('/ops/flatmate-review');
+    await expect(page).toHaveURL(/\/admin\/flatmates$/);
   });
 });

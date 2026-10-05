@@ -19,9 +19,11 @@ public class FlatmateTrustSweeps {
     private static final long AFTER_STARTUP_MS = 5L * 60L * 1000L;
 
     private final FlatmateTrustReconciler reconciler;
+    private final FlatmateExpiryService expiry;
 
-    public FlatmateTrustSweeps(FlatmateTrustReconciler reconciler) {
+    public FlatmateTrustSweeps(FlatmateTrustReconciler reconciler, FlatmateExpiryService expiry) {
         this.reconciler = reconciler;
+        this.expiry = expiry;
     }
 
     @Scheduled(fixedDelay = EVERY_HOUR_MS, initialDelay = AFTER_STARTUP_MS)
@@ -36,8 +38,6 @@ public class FlatmateTrustSweeps {
         }
     }
 
-    /** Its own try/catch: an uncaught throw out of a scheduled method stops that method's whole
-     * series. */
     @Scheduled(fixedDelay = EVERY_HOUR_MS, initialDelay = AFTER_STARTUP_MS)
     public void reconcileAgreementExpiry() {
         try {
@@ -50,16 +50,16 @@ public class FlatmateTrustSweeps {
         }
     }
 
-    /** Takes down supply nobody has touched in ninety days — see {@code reconcileStaleSupply}. */
     @Scheduled(fixedDelay = EVERY_HOUR_MS, initialDelay = AFTER_STARTUP_MS)
-    public void reconcileStaleSupply() {
+    public void expireStalePosts() {
         try {
-            int archived = reconciler.reconcileStaleSupply();
-            if (archived > 0) {
-                log.info("Flatmate stale-supply sweep archived {} row(s)", archived);
+            int reminded = expiry.remindExpiring();
+            int expired = expiry.expireLapsed();
+            if (reminded + expired > 0) {
+                log.info("Flatmate expiry sweep reminded {} and expired {} post(s)", reminded, expired);
             }
         } catch (RuntimeException e) {
-            log.error("Flatmate stale-supply sweep failed; will retry on the next tick", e);
+            log.error("Flatmate expiry sweep failed; will retry on the next tick", e);
         }
     }
 

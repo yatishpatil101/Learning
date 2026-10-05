@@ -13,11 +13,9 @@ const text = (v) => {
   return s || null;
 };
 
-// A photo string is typed by the host, and the desk renders a rejected host's pictures as clickable
-// links — `javascript:` would run under the admin origin's `'unsafe-inline'` script-src.
 const httpUrl = (v) => {
   const s = text(v);
-  return s && /^https?:\/\//i.test(s) ? s : null;
+  return s && /^(https?:\/\/|\/(?![/\\]))/i.test(s) ? s : null;
 };
 
 // `hostMobile` arrives already masked from the server, so it is passed straight through — re-masking
