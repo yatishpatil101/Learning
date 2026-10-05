@@ -1,9 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { NO_BACKEND } from './no-backend-specs.js';
 
-/* The specs whose subject *is* the absence of a server. Unlike the live config it destroys nothing,
-   so `npm run test:nobackend` is safe to run while another lane is mid-flight. */
-const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
+const NB_PORT = process.env.NB_PORT;
+const BASE_URL = NB_PORT ? `http://localhost:${NB_PORT}` : process.env.BASE_URL || 'http://localhost:5173';
 const CI = !!process.env.CI;
 
 export default defineConfig({
@@ -12,8 +11,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 7_500 },
   retries: CI ? 2 : 1,
-  /* Four everywhere rather than Playwright's `cores / 2`: eleven browsers against one Vite dev
-     server produce contention timeouts that read exactly like product bugs. Matching CI. */
+  // Cap workers: too many browsers against one Vite server look like product bugs.
   workers: 4,
   fullyParallel: true,
   reporter: [
@@ -34,19 +32,18 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      /* Named explicitly rather than by exclusion: a spec that belongs to neither config runs
-         nowhere and reports nothing. Everything else is the default `playwright.config.js`. */
+      // Named explicitly rather than by exclusion: a spec that belongs to neither config runs nowhere and reports nothing.
       testMatch: NO_BACKEND,
     },
   ],
-  /* Auto-start the frontend dev server unless BASE_URL points elsewhere. */
-  webServer: process.env.BASE_URL
+  webServer: process.env.BASE_URL && !NB_PORT
     ? undefined
     : {
-        command: 'npm --prefix ../frontend run dev',
+        command: `npm --prefix ../frontend run dev${NB_PORT ? ` -- --port ${NB_PORT} --strictPort` : ''}`,
         url: BASE_URL,
         timeout: 120_000,
-        reuseExistingServer: !CI,
+        reuseExistingServer: !CI && !NB_PORT,
+        env: NB_PORT ? { VITE_PROXY_TARGET: 'http://127.0.0.1:9' } : undefined,
         stdout: 'ignore',
         stderr: 'pipe',
       },

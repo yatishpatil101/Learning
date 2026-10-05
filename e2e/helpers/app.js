@@ -94,7 +94,6 @@ export async function seed(page, {
   contactsUsed = null, referralStats = null, plan = null, referredBy = null,
 } = {}) {
   await page.addInitScript(([k, data]) => {
-    // `addInitScript` runs per navigation; this marker preserves state created during the test.
     if (sessionStorage.getItem('__e2eSeeded')) return;
     sessionStorage.setItem('__e2eSeeded', '1');
 
@@ -154,7 +153,7 @@ const whoChooser = (page) => page.getByRole('dialog', { name: /Who's looking/ })
 // A cold lazy route can accept a click before React attaches its handler, so click and assertion
 // retry as a unit; `isVisible()` reads false one frame after a success and re-clicks under the overlay.
 async function openSheet(page) {
-  const post = page.getByRole('button', { name: /^Post( Property)?$/ }).first();
+  const post = page.getByRole('button', { name: /^Post(?: Property| property — Free)?$/ }).first();
   await expect(async () => {
     await post.click();
     await expect(chooser(page)).toBeVisible({ timeout: 2000 });
@@ -175,7 +174,11 @@ export async function postAsSolo(page) {
 export async function postAsGroup(page) {
   await openSheet(page);
   await chooser(page).getByRole('button', { name: /I'm looking for a place/i }).click();
-  await whoChooser(page).getByRole('button', { name: /We're already a group/i }).click();
+  await whoChooser(page).getByRole('button', { name: /Start a flatmate group/i }).click();
+}
+
+export async function haveAFlat(page) {
+  await page.getByRole('button', { name: /I have a flat/i }).click();
 }
 
 export const FLATMATE_STORES = {
@@ -203,7 +206,6 @@ export async function approveFlatmates(page, ...kinds) {
   await page.locator('.sf-card').first().waitFor({ timeout: 10_000 }).catch(() => {});
 }
 
-// Address-less groups sort into Team up although creation returns to Move in now.
 export async function switchToTeamUp(page) {
   await page.getByRole('button', { name: /Team up/ }).first().click();
   await page.waitForTimeout(300);
@@ -215,12 +217,6 @@ export async function openFlatmateFilters(page) {
   await toggle.waitFor({ timeout: 10_000 });
   // Deep links can open the grid, so toggling only when it remains collapsed preserves it.
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-}
-
-// Property details omit an `h1`, so wait for their last-mounted owner contact control.
-export async function openProperty(page, id) {
-  await page.goto(`/property/${id}`, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('button', { name: /Request number/i }).first()).toBeVisible({ timeout: 30_000 });
 }
 
 export const cardIds = (page) =>
@@ -237,6 +233,8 @@ export async function setBudget(page, value) {
     slider.dispatchEvent(new Event('input', { bubbles: true }));
     slider.dispatchEvent(new Event('change', { bubbles: true }));
   }, value);
-  // The list memo is non-retrying, so wait for the committed filter to settle.
-  await page.waitForTimeout(400);
+  await expect.poll(() => new URL(page.url()).searchParams.get('budget') || '', { timeout: 5000 })
+    .toMatch(new RegExp(`-${value}$`));
 }
+
+export const detailCta = (page, name) => page.getByRole('button', { name }).filter({ visible: true }).first();

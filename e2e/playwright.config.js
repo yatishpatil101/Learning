@@ -1,17 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 import { NO_BACKEND } from './no-backend-specs.js';
 
-/* The default suite, against a real backend — prerequisites in `README.md`. **It resets a
-   database**: prefer the `run-live-*.ps1` lanes, which pin port, database and app URL together. */
+// **It resets a database**: prefer the `run-live-*.ps1` lanes, which pin port, database and app URL together.
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 const API_PORT = process.env.API_PORT || '8081';
+// run-fast.ps1 doubles this for parallel shards, where every backend shares the same CPU.
+const TIMEOUT_SCALE = Math.max(1, Number(process.env.E2E_TIMEOUT_SCALE) || 1);
 
-/* `tests/mobile/**` is phone-only. The path is what routes a spec to a viewport project, so the
- * desktop project needs the inverse of the same expression. */
+// `tests/mobile/**` is phone-only; the desktop project ignores the same expression.
 const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
 
-// The variable is required by the *backend* process, started by hand, so its absence here is
-// suggestive rather than conclusive — but a backend that refused to boot reads as a flaky test.
+// Only suggestive (the backend is started by hand), but a backend that refused to boot reads as a flaky test.
 if (!process.env.DRAAZY_DEV_MACHINE) {
   console.warn(
     '[live] DRAAZY_DEV_MACHINE is not set in this shell. If the backend was started without it, ' +
@@ -22,14 +21,12 @@ if (!process.env.DRAAZY_DEV_MACHINE) {
 
 export default defineConfig({
   testDir: './tests',
-  // At the *start* rather than in a teardown, so a crashed run leaves its evidence intact and the
-  // next run still begins from known rows — see global-setup.live.js.
+  // At the start rather than in a teardown, so a crashed run leaves its evidence intact.
   globalSetup: './global-setup.live.js',
-  timeout: 60_000,
-  expect: { timeout: 15_000 },
+  timeout: 60_000 * TIMEOUT_SCALE,
+  expect: { timeout: 15_000 * TIMEOUT_SCALE },
   retries: 0,
-  // The specs share seeded fixtures and a single session cache, so raising this is its own change
-  // with its own evidence.
+  // The specs share seeded fixtures and a single session cache.
   workers: 1,
   reporter: [['list']],
   use: {
@@ -37,40 +34,33 @@ export default defineConfig({
     headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    actionTimeout: 15_000,
-    navigationTimeout: 20_000,
+    actionTimeout: 15_000 * TIMEOUT_SCALE,
+    navigationTimeout: 20_000 * TIMEOUT_SCALE,
   },
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      /* Phone-only specs would otherwise run a third time at 1280px, where a 48px tap target is not
-         evidence about a phone; `NO_BACKEND` belongs to the other config. */
+      // A 48px tap target at 1280px is not evidence about a phone; `NO_BACKEND` belongs to the other config.
       testIgnore: [MOBILE, ...NO_BACKEND],
     },
     {
-      /* Specs that assert something genuinely viewport-dependent, e.g. a footer that is an accordion below
-         `sm`. `tests/mobile/**` needs no entry — the folder itself is the routing rule. */
+      /* `mobile-small` already runs all of `tests/mobile/**` at the stricter 360×640, so Pixel 7 only takes
+         specs whose assertions change with width or fold height, plus the cross-viewport list. */
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testMatch: [
-        MOBILE,
-        '**/consumer/flatmates/discovery.spec.js',
-        /* The whole flow runs inside `SplitFlatModal`, and a modal at phone width is the control
-           most likely to clip its own confirm button — a desktop run passes with it off-screen. */
-        '**/consumer/flatmates/owner-split.spec.js',
-        '**/consumer/flatmates/live-posting.spec.js',
-        /* The contact box is rendered twice on the detail page and which copy answers `Request number` is
-           layout, so a desktop run proves nothing; the exhausted upsell is a modal, likeliest to break narrow. */
+        '**/mobile/live-home-featured-first.spec.js',
+        '**/mobile/live-home-flatmates-tile.spec.js',
+        // Which contact-box copy answers `Request number` is layout; the exhausted upsell is likeliest to break narrow.
         '**/consumer/services/referral-rewards.spec.js',
         '**/platform/help/live-centre.spec.js',
-        '**/platform/help/live-i18n-urls.spec.js',
-        '**/platform/live-i18n.spec.js',
+        '**/platform/help/help-urls.spec.js',
+        '**/platform/i18n.spec.js',
       ],
     },
     {
-      /* Low-end Android baseline: the realistic median device in India, and the width where bottom chrome and
-         tap targets break first. `tests/mobile/**` only — this stresses the chrome, not the whole suite again. */
+      // Low-end Android baseline, where bottom chrome and tap targets break first; the only run of most `tests/mobile/**`.
       name: 'mobile-small',
       use: {
         ...devices['Pixel 7'],

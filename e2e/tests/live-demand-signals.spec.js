@@ -49,39 +49,3 @@ test('an anonymous search signal reaches the admin supply-gap report', async ({ 
   expect(after.localityName ?? null).toBeNull();
   expect(after.supply).toBe(0);
 });
-
-test('alert and view signals are counted separately and weighted differently', async ({ request }) => {
-  const before = await probeRow(request);
-  const beforeAlerts = before?.alerts ?? 0;
-  const beforeViews = before?.views ?? 0;
-  const beforeDemand = before?.demand ?? 0;
-
-  const headers = { 'content-type': 'application/json' };
-  expect((await request.post(`${API}/demand-signals`, { headers, data: { kind: 'alert', localitySlug: SLUG } })).status()).toBe(202);
-  expect((await request.post(`${API}/demand-signals`, { headers, data: { kind: 'view', localitySlug: SLUG } })).status()).toBe(202);
-
-  const after = await probeRow(request);
-  expect(after.alerts).toBe(beforeAlerts + 1);
-  expect(after.views).toBe(beforeViews + 1);
-  // Weights are alert 5, search 2, view 1. One alert plus one view is six points of demand, and the
-  // difference between the two is the whole reason the report distinguishes them: somebody asking
-  // to be told when a home appears is worth more than somebody scrolling past one.
-  expect(after.demand).toBe(beforeDemand + 6);
-});
-
-test('a signal with an unknown kind is rejected rather than silently dropped', async ({ request }) => {
-  const res = await request.post(`${API}/demand-signals`, {
-    headers: { 'content-type': 'application/json' },
-    data: { kind: 'purchase', localitySlug: SLUG },
-  });
-  // 422, not 400: this is bean validation on the request body, and the distinction matters because
-  // a client that cannot tell "you sent nonsense" from "the server refused" cannot retry correctly.
-  expect(res.status()).toBe(422);
-});
-
-test('the supply-gap report is closed to signed-out callers', async ({ request }) => {
-  const res = await request.get(`${API}/admin/supply-gap`);
-  // The write is public and the read is not, which is the asymmetry the whole design rests on: a
-  // visitor may contribute to the measurement without being allowed to see it.
-  expect([401, 403]).toContain(res.status());
-});

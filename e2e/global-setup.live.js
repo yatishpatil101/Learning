@@ -18,8 +18,9 @@ import { reportSeedCoverage } from './scripts/check-seed-coverage.mjs';
  *
  * ## What "baseline" means
  *
- * The three seed scripts the backend itself runs, replayed in Flyway's own order: the permission
- * map and reference data from `db/migration`, then the demo fixtures from `db/seed`. Reusing the
+ * The seed scripts the backend itself runs, replayed in Flyway's own order: the permission
+ * map and reference data from `db/migration`, the demo fixtures from `db/seed`, then the staff
+ * passwords and authenticators from `db/seed-staff`. Reusing the
  * backend's files rather than keeping a copy here is the point - a second definition of the fixture
  * contract is a second thing to forget to update, and `docs/system/fixture-registry.md` documents
  * exactly one.
@@ -44,6 +45,7 @@ const SEEDS = [
   path.join(RESOURCES, 'migration', 'R__DML_seed_permission_map.sql'),
   path.join(RESOURCES, 'migration', 'R__DML_seed_reference_data.sql'),
   path.join(RESOURCES, 'seed', 'R__zz_DML_dev_demo_data.sql'),
+  path.join(RESOURCES, 'seed-staff', 'R__zz_DML_dev_staff_credentials.sql'),
 ];
 
 function psql(args) {

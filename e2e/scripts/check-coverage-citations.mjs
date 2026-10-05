@@ -1,10 +1,5 @@
-/* Check that COVERAGE.md and the suite on disk describe each other — in both directions.
- *
- * Every spec path cited in COVERAGE.md must exist, because a stale name reads as coverage that is
- * not there. And every spec on disk must be cited, because an undocumented spec is worse: it is
- * coverage the matrix cannot tell you about, and nothing goes red. Worth re-running whenever specs
- * move or are added.
- */
+/* COVERAGE.md is a two-way gate: stale citations overstate coverage, and undocumented specs hide
+   coverage the matrix cannot report. */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -26,15 +21,8 @@ const dirs = new Set();
 
 const doc = readFileSync('COVERAGE.md', 'utf8');
 
-/* Cited spec paths look like `consumer/home/featured`. Anchor on the real
-   top-level test folders, and reject anything preceded by a slash: without both
-   guards, app routes (`/admin/team`, `/services/rent-agreement`), source paths
-   (`lib/chrome`) and plain prose ("role/flag/team") all read as citations.
-
-   Rows the doc marks `(retired …)` are skipped. The table at the foot of this file is a record of
-   what each closed item *taught*, so it names specs that were deliberately deleted — citing them
-   is the point. Counting those as gaps left this script permanently red, which is the one state a
-   gate must never sit in: a red it is meant to have, and so a red nobody reads. */
+/* Anchor path citations on real test roots and skip retired rows; otherwise app routes, source
+   paths and intentionally deleted specs become false failures. */
 const ROOTS = new Set(readdirSync(TESTS, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name));
 const RETIRED = /\(retired\b/i;
 const cited = new Set();
@@ -55,22 +43,8 @@ const missing = [...cited].filter((n) => {
   return !have.has(n) && !dirs.has(n);
 }).sort();
 
-/* Second pass: bare citations, which the scan above cannot see.
- *
- * Many specs are cited without their folder (`live-my-rental`, `maker-checker`, `emi-calculator`),
- * and the path regex requires at least one slash — so a *bare* citation would never be validated
- * at all, and this script would keep reporting "every cited spec path exists" after one of them
- * was deleted. A gate that answers green on a question it never asked is worse than no gate,
- * because the doc's header promises it did ask.
- *
- * Two things make this pass tolerable rather than noisy. It is scoped to the **spec column** —
- * the last-but-one cell of a status row — because bare names cannot be told from prose anywhere
- * else ("saved", "refer" and "finance" are all ordinary English in this document). And within
- * that cell everything from the first prose marker onward is discarded, since citations lead and
- * commentary follows: `live-listing-entitlements ("taking a listing down frees its slot")` is one
- * citation, not a citation plus four words. A bare name resolves against spec *basenames*, which
- * is what the doc's own convention means by it.
- */
+/* Bare spec names are validated only in the spec column; elsewhere ordinary prose words look like
+   basenames and would drown the gate in false positives. */
 const basenames = new Set([...have].map((h) => h.split('/').pop()));
 const STATUS = /^(✅|🟡|❌|⚠️|⬜)/u;
 const bareMissing = new Set();
@@ -90,38 +64,19 @@ for (const line of doc.split('\n')) {
   }
 }
 
-/* Third pass, and the other direction entirely.
- *
- * Everything above answers "does every cited spec exist?". Nothing answered "is every spec cited?",
- * and that is the quieter of the two failures: a stale citation is at least a name somebody can
- * look up and find missing, whereas an *undocumented* spec is invisible — the matrix reads complete,
- * and the only way to notice is to count the files yourself. A spec can be deleted or written
- * without this matrix reacting, and the header's promise that it is the index of the suite is what
- * makes the second one a lie rather than an omission.
- *
- * The entries below are the specs this matrix does not yet document. They are listed rather than
- * tolerated by a count, so each one has to be deleted from this array by hand when its row lands —
- * and the check is **two-way**: an entry that is now cited, or that no longer exists, fails the
- * gate too. That is the whole point. An allowlist that only ever suppresses becomes permanent the
- * day it is written; one that goes red when you fix something is a worklist that empties itself
- * and then, at zero, can be deleted along with this paragraph.
- */
+/* UNDOCUMENTED is a self-emptying worklist: cited or deleted entries fail so the allowlist cannot
+   become permanent. */
 const UNDOCUMENTED = [
-  'consumer/account/live-faq-translations',
-  'consumer/account/live-faqs',
   'consumer/account/live-listing-freshness',
   'consumer/live-localities',
   'consumer/live-reels',
   'consumer/live-trust-counters',
-  'consumer/property/owner-preview',
   'consumer/property/signin-gates',
   'consumer/services/live-interior-lead',
-  'consumer/services/live-move-in-pack-waitlist',
   'live-admin-content',
   'live-admin-services',
   'live-demand-signals',
   'live-service-landing-ticket',
-  'platform/live-assistant',
 ];
 
 const globPrefixes = [...cited].filter((n) => n.endsWith('*')).map((n) => n.replace(/\/?\*+$/, ''));

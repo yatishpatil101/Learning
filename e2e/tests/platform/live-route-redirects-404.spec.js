@@ -45,11 +45,11 @@ test.describe('Route redirects', () => {
     expect(page.url()).toContain('#owner-hub');
   });
 
-  test('/admin/support forwards to the services desk that absorbed it', async ({ page, login }) => {
+  test('/admin/support is the support queue, not a forward to the services overview', async ({ page, login }) => {
     await login.asAdmin();
     await page.goto('/admin/support');
-    await page.waitForURL((u) => new URL(u).pathname === '/admin/services', { timeout: 15_000 });
-    expect(new URL(page.url()).pathname).toBe('/admin/services');
+    await expect(page.getByRole('heading', { name: 'Support queue' })).toBeVisible({ timeout: 15_000 });
+    expect(new URL(page.url()).pathname).toBe('/admin/support');
   });
 });
 

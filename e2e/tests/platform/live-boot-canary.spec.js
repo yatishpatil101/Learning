@@ -1,4 +1,5 @@
 import { test, expect } from '../../fixtures/live.js';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Boot canary — does the application actually render? (tech-debt D208)
  *
@@ -16,14 +17,16 @@ import { test, expect } from '../../fixtures/live.js';
  * the shapes nobody has thought of yet, and it is the reason D208 says **one e2e
  * spec must actually render a page before any frontend wave is called verified**.
  *
- * The assertions are deliberately the two crudest facts available:
+ * The assertions are deliberately crude:
  *
- *   (a) zero `pageerror` events — an uncaught throw anywhere in bootstrap, and
- *   (b) `body.innerText()` is non-empty — the app painted *something*.
+ *   (a) zero `pageerror` events — an uncaught throw anywhere in bootstrap,
+ *   (b) `body.innerText()` is non-empty — the app painted *something*, and
+ *   (c) one structural landmark per route (a layout region or the first result
+ *       link, never copy) — the page mounted its own screen, not a stray error
+ *       shell that happens to contain text.
  *
- * Neither knows anything about the product, and that is the point: a canary that
- * asserts on copy or a specific element starts failing for design reasons and
- * gets weakened until it no longer says what it exists to say. `pageerror` is
+ * Landmarks stay structural so the canary does not start failing for design
+ * reasons and get weakened until it no longer says what it exists to say. `pageerror` is
  * used directly rather than the `consoleErrors` fixture because that fixture
  * (correctly, for its purpose) filters by provenance; here nothing is tolerable,
  * because an uncaught exception in our own bundle is exactly the failure mode.
@@ -49,19 +52,18 @@ const MIN_RENDERED_CHARS = 20;
  * would pass against a blank app — the exact false green D208 is about.
  */
 function trapPageErrors(page) {
-  const errors = [];
-  page.on('pageerror', (err) => errors.push(`${err.name}: ${err.message}`));
-  return errors;
+  return trackErrors(page);
 }
 
 /** Assert the page mounted and threw nothing on the way. */
-async function expectBooted(page, errors, label) {
+async function expectBooted(page, errors, label, landmark) {
   // Errors first: a TDZ crash leaves a blank body, so reporting "body was empty"
   // would bury the message that actually names the broken module.
   expect(errors, `${label} threw during boot`).toEqual([]);
 
   const text = ((await page.locator('body').innerText()) || '').trim();
   expect(text.length, `${label} rendered an empty body`).toBeGreaterThan(MIN_RENDERED_CHARS);
+  await expect(landmark, `${label} did not mount its own screen`).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe('Boot canary', () => {
@@ -69,14 +71,14 @@ test.describe('Boot canary', () => {
     const errors = trapPageErrors(page);
     await page.goto('/');
     await expect(page.locator('h1, h2').first()).toBeVisible({ timeout: 20_000 });
-    await expectBooted(page, errors, '/');
+    await expectBooted(page, errors, '/', page.locator('.hero-search-wrap'));
   });
 
   test('the listings route renders', async ({ page }) => {
     const errors = trapPageErrors(page);
     await page.goto('/listings');
     await expect(page.locator('h1, h2').first()).toBeVisible({ timeout: 20_000 });
-    await expectBooted(page, errors, '/listings');
+    await expectBooted(page, errors, '/listings', page.locator('a[href^="/property/"]').first());
   });
 
   test('the authenticated dashboard renders', async ({ page, login }) => {
@@ -86,14 +88,14 @@ test.describe('Boot canary', () => {
     await login.asOwner();
     await page.goto('/dashboard');
     await expect(page.locator('h1, h2').first()).toBeVisible({ timeout: 20_000 });
-    await expectBooted(page, errors, '/dashboard');
+    await expectBooted(page, errors, '/dashboard', page.getByRole('navigation', { name: 'Dashboard sections' }));
   });
 
   test('the admin console renders', async ({ page, login }) => {
     const errors = trapPageErrors(page);
-    // Signs in through the real /staff-login quick-access button and lands on /admin.
+    // Signs in through /staff-login (password + authenticator) and lands on /admin.
     await login.asAdmin();
     await expect(page.locator('h1, h2').first()).toBeVisible({ timeout: 20_000 });
-    await expectBooted(page, errors, '/admin');
+    await expectBooted(page, errors, '/admin', page.getByRole('heading', { name: 'Dashboard' }));
   });
 });
