@@ -40,30 +40,45 @@ public class RentAgreement extends AuditedEntity {
     @Column(name = "status", nullable = false)
     private String status = RentAgreementStatuses.DRAFT;
 
+    /** Pre-V39 free-text link. Rows the paid flow creates leave it null and carry {@link #finalDocumentId}. */
     @Column(name = "document_url")
     private String documentUrl;
+
+    @Column(name = "service_request_id", updatable = false)
+    private UUID serviceRequestId;
+
+    @Column(name = "final_document_id", updatable = false)
+    private UUID finalDocumentId;
+
+    @Column(name = "prepared_by", updatable = false)
+    private UUID preparedBy;
+
+    @Column(name = "verified_by")
+    private UUID verifiedBy;
 
     protected RentAgreement() {
         // JPA
     }
 
-    public RentAgreement(UUID propertyId, UUID ownerId, String tenantMobile, Long rent,
-            Long deposit, LocalDate startDate, Integer durationMonths) {
-        this.propertyId = propertyId;
-        this.ownerId = ownerId;
+    RentAgreement(PreparedAgreement prepared, String tenantMobile) {
+        this.propertyId = prepared.propertyId();
+        this.ownerId = prepared.ownerId();
         this.tenantMobile = tenantMobile;
-        this.rent = rent;
-        this.deposit = deposit;
-        this.startDate = startDate;
-        this.durationMonths = durationMonths;
+        this.rent = prepared.rent();
+        this.deposit = prepared.deposit();
+        this.startDate = prepared.startDate();
+        this.durationMonths = prepared.durationMonths();
+        this.serviceRequestId = prepared.serviceRequestId();
+        this.finalDocumentId = prepared.finalDocumentId();
+        this.preparedBy = prepared.preparedBy();
     }
 
     /** No plain {@code setStatus}: readers treat the field as evidence, so the only writer is a move
-     * the ladder allowed. A null {@code documentUrl} leaves the stored copy alone rather than erasing it. */
-    void moveTo(String next, String documentUrl) {
+     * the ladder allowed. */
+    void moveTo(String next, UUID actor) {
         this.status = next;
-        if (documentUrl != null && !documentUrl.isBlank()) {
-            this.documentUrl = documentUrl;
+        if (RentAgreementStatuses.REGISTERED.equals(next)) {
+            this.verifiedBy = actor;
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.draazy.api.documents.agreement;
 
+import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.trust.RegisteredTenancyLookup;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,6 @@ class DraazyRegisteredTenancyLookup implements RegisteredTenancyLookup {
 
     @Override
     public boolean hasRegisteredTenancy(UUID propertyId, String tenantMobile) {
-        return agreements.hasRegisteredTenancy(propertyId, tenantMobile);
+        return agreements.hasRegisteredTenancy(propertyId, MobileMask.normalise(tenantMobile));
     }
 }

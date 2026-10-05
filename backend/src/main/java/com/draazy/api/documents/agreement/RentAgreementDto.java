@@ -14,9 +14,9 @@ public record RentAgreementDto(
         String status,
         String documentUrl) {
 
-    static RentAgreementDto of(RentAgreement a) {
+    static RentAgreementDto of(RentAgreement a, String documentUrl) {
         return new RentAgreementDto(a.getId().toString(), a.getPropertyId().toString(),
                 a.getTenantMobile(), a.getRent(), a.getDeposit(), a.getStartDate(),
-                a.getDurationMonths(), a.getStatus(), a.getDocumentUrl());
+                a.getDurationMonths(), a.getStatus(), documentUrl);
     }
 }
