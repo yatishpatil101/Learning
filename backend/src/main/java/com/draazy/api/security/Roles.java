@@ -5,7 +5,7 @@ package com.draazy.api.security;
  *
  * <p>A role exists as two different strings and that is a genuine trap: the JWT {@code role} claim,
  * the {@code users.role} column, and the JSON the React client reads are all <strong>lower-case</strong>
- * ({@code buyer}/{@code owner}/{@code staff}/{@code admin}, per the OpenAPI {@code Role} enum), while
+ * ({@code buyer}/{@code owner}/{@code staff}/{@code manager}/{@code admin}), while
  * Spring Security matches <strong>upper-case</strong> authorities ({@link JwtAuthFilter} grants
  * {@code ROLE_<UPPER>}, and {@code hasRole} re-adds the prefix). Both forms are therefore kept here,
  * side by side, so the relationship is visible and neither can be typo'd in isolation.
@@ -20,9 +20,15 @@ public final class Roles {
     public static final String BUYER = "BUYER";
     public static final String OWNER = "OWNER";
     public static final String STAFF = "STAFF";
+    public static final String MANAGER = "MANAGER";
     public static final String ADMIN = "ADMIN";
 
     private Roles() {
+    }
+
+    public static boolean isBackOffice(String wireRole) {
+        return Wire.STAFF.equals(wireRole) || Wire.MANAGER.equals(wireRole)
+                || Wire.ADMIN.equals(wireRole);
     }
 
     /**
@@ -42,6 +48,9 @@ public final class Roles {
 
         /** Internal ops. Scoped further by {@code team}. */
         public static final String STAFF = "staff";
+
+        /** Internal manager. Scoped by per-account permissions, not by team. */
+        public static final String MANAGER = "manager";
 
         /** Internal administrator. */
         public static final String ADMIN = "admin";

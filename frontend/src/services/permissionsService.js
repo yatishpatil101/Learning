@@ -2,6 +2,7 @@
 // model, and a client-side union could only widen it. Every export is still async.
 export {
   getPermissionCatalogue,
+  getFunctionCatalogue,
   getMemberPermissions,
-  saveMemberPermissions,
+  saveMemberFunctions,
 } from './providers/http/permissionsProvider.js';

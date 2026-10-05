@@ -1,18 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, MessageSquareText, RotateCcw, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react';
-import { listUsers, getUserTimeline, setUserBadge, setUserStatus, setUserFlag } from '../../services/usersService.js';
+import {
+  getUserTimeline,
+  listBadgeGrants,
+  listUsers,
+  setUserBadge,
+  setUserFlag,
+  setUserStatus,
+} from '../../services/usersService.js';
 import { addNote, listNotes } from '../../services/noteService.js';
 import { MAX_PAGE_SIZE } from '../../services/apiLimits.js';
 import { fmtNum, classNames, timeAgo, avatarFor } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import BadgeApprovals from './BadgeApprovals.jsx';
 
 const ROLE_OPTS = [
   { value: '', label: 'All roles' },
@@ -53,13 +63,22 @@ const TIMELINE_STYLES = {
 
 export default function AdminUsers() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const { optionEnabled } = useAdminFlags();
+  const isAdmin = user?.role === 'admin';
+  const canManageBadges = isAdmin && hasPermission(user, 'users:write');
+  const canModerate = useCallback(
+    (u) => hasPermission(user, 'users:write') && (isAdmin || (user?.role === 'manager' && u.role === 'staff')),
+    [isAdmin, user],
+  );
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
+  const [pendingBadgeGrants, setPendingBadgeGrants] = useState([]);
   const [role, setRole] = useState('');
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [actionModal, setActionModal] = useState(null); // { user, action, copy }
+  const [actionError, setActionError] = useState('');
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
   const [timelineUser, setTimelineUser] = useState(null);
@@ -81,11 +100,18 @@ export default function AdminUsers() {
   /* One request per filter change rather than one fetch filtered in the browser: the status filter
      only exists server-side, and a client-side filter can only count what it was given. */
   const load = useCallback(async () => {
-    const page = await listUsers({ role, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE });
+    const [page, grants] = await Promise.all([
+      listUsers({ role, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE }),
+      canManageBadges ? listBadgeGrants({ status: 'pending', size: 50 }).catch((err) => {
+        toast(err?.message || 'Could not load badge approvals', 'error');
+        return { items: [] };
+      }) : Promise.resolve({ items: [] }),
+    ]);
     if (!alive.current) return;
     setRows(page.items);
     setTotal(page.total);
-  }, [role, status, q]);
+    setPendingBadgeGrants(grants.items || []);
+  }, [canManageBadges, role, status, q, toast]);
 
   // Debounced, because `q` changes on every keystroke and each change is a request.
   useEffect(() => {
@@ -93,27 +119,27 @@ export default function AdminUsers() {
     return () => clearTimeout(id);
   }, [load]);
 
-  const openAction = (user, action) => { setActionModal({ user, action, copy: ACTION_COPY[action] }); setNoteText(''); };
-  const closeAction = () => setActionModal(null);
+  const openAction = useCallback((targetUser, action) => { setActionModal({ user: targetUser, action, copy: ACTION_COPY[action] }); setNoteText(''); setActionError(''); }, []);
+  const closeAction = () => { setActionModal(null); setActionError(''); };
 
-  const openTimeline = async (user) => {
+  const openTimeline = useCallback(async (targetUser) => {
     if (!optionEnabled('users.timeline')) return;
-    setTimelineUser(user);
+    setTimelineUser(targetUser);
     setTimeline(null);
     setUserNotes(null);
     setUserNoteDraft('');
     /* Two reads, deliberately not awaited together: a timeline that fails must not blank the notes,
        and vice versa. They answer different questions about the same person. */
-    listNotes('user', user.id)
+    listNotes('user', targetUser.id)
       .then((rows) => { if (alive.current) setUserNotes(rows); })
       .catch(() => { if (alive.current) setUserNotes([]); });
     try {
-      const entries = await getUserTimeline(user.id);
+      const entries = await getUserTimeline(targetUser.id);
       if (alive.current) setTimeline(entries);
     } catch {
       if (alive.current) { setTimeline([]); toast('Could not load this user\u2019s activity', 'error'); }
     }
-  };
+  }, [optionEnabled, toast]);
   const closeTimeline = () => { setTimelineUser(null); setTimeline(null); setUserNotes(null); setUserNoteDraft(''); };
 
   /* Refetched rather than optimistically prepended: the server decides the id, the timestamp and
@@ -141,13 +167,20 @@ export default function AdminUsers() {
     if (copy.requiresReason && !noteText.trim()) return;
     setBusy(true);
     const reason = noteText.trim();
+    setActionError('');
     try {
       switch (action) {
         case 'verifyGrant':
-        case 'verifyRemove':
-          await setUserBadge(u.id, action === 'verifyGrant', reason);
-          toast(action === 'verifyGrant' ? 'Verified badge granted' : 'Verified badge removed');
+        case 'verifyRemove': {
+          const result = await setUserBadge(u.id, action === 'verifyGrant', reason);
+          if (result?.pending) {
+            setPendingBadgeGrants((current) => [result.request, ...current.filter((item) => item.id !== result.request.id)]);
+            toast('Sent for approval by another admin');
+          } else {
+            toast(action === 'verifyGrant' ? 'Verified badge granted' : 'Verified badge removed');
+          }
           break;
+        }
         case 'suspend':
           await setUserStatus(u.id, 'suspend', reason);
           toast('User suspended \u2014 their sessions have been ended', 'warning');
@@ -175,9 +208,9 @@ export default function AdminUsers() {
       closeAction();
       await load();
     } catch (err) {
-      // The server's own sentence, not a generic failure: it is the only place that knows why, and
-      // it tells the moderator what to do next.
-      toast(err?.message || 'That could not be done', 'error');
+      const message = err?.message || 'That could not be done';
+      setActionError(message);
+      toast(message, 'error');
     } finally {
       if (alive.current) setBusy(false);
     }
@@ -185,6 +218,11 @@ export default function AdminUsers() {
 
   const list = rows || [];
   const truncated = total > list.length;
+  const pendingGrantByUser = useMemo(
+    () => new Map(pendingBadgeGrants.map((grant) => [String(grant.userId), grant])),
+    [pendingBadgeGrants],
+  );
+  const pendingGrantFor = useCallback((u) => pendingGrantByUser.get(String(u.id)), [pendingGrantByUser]);
 
   const doExport = () =>
     exportCsv(
@@ -193,31 +231,40 @@ export default function AdminUsers() {
       list.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
     );
 
-  const actionButtons = (u) => (
+  const actionButtons = useCallback((u) => {
+    const pendingGrant = pendingGrantFor(u);
+    const earnedBadge = u.verified && u.badgeSource === 'identity';
+    const badgeTitle = pendingGrant ? 'Badge approval pending'
+      : earnedBadge ? 'Earned through identity review — revoke it from the KYC review record'
+        : u.verified ? 'Remove Verified badge' : 'Grant Verified badge';
+    return (
     <>
-      {optionEnabled('users.timeline') && (
+      {isAdmin && optionEnabled('users.timeline') && (
         <button onClick={() => openTimeline(u)} title="View activity" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-indigo-500/15 hover:text-indigo-300 hover:border-indigo-400/30">
           <Eye className="h-4 w-4" />
         </button>
       )}
-      {/* No `disabled` here on purpose. The badge used to be withdrawable only when a human had
-          not granted it, and the guard read an `identityVerified` field — which no provider sends
-          and the server has never carried, so it was always false and the control was always
-          enabled anyway. See tasks/todo.md: the server needs to answer 409 first. */}
-      <button
-        onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')}
-        title={u.verified ? 'Remove Verified badge' : 'Grant Verified badge'}
-        className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}
-      >
-        <ShieldCheck className="h-4 w-4" />
-      </button>
+      {canManageBadges ? (
+        <button
+          onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')}
+          disabled={!!pendingGrant || earnedBadge}
+          title={badgeTitle}
+          className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', pendingGrant ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}
+        >
+          <ShieldCheck className="h-4 w-4" />
+        </button>
+      ) : null}
+      {canModerate(u) ? (
       <button onClick={() => openAction(u, u.status === 'suspended' ? 'reactivate' : 'suspend')} disabled={u.archived} title={u.archived ? 'Restore the account before changing its status' : u.status === 'suspended' ? 'Reactivate' : 'Suspend'} className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.status === 'suspended' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-red-400/30 bg-red-500/15 text-red-300')}>
         {u.status === 'suspended' ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
       </button>
+      ) : null}
+      {isAdmin ? (
       <button onClick={() => openAction(u, u.flagged ? 'flagClear' : 'flagRaise')} title={u.flagged ? `Remove flag${u.flagReason ? ` \u2014 ${u.flagReason}` : ''}` : 'Flag for review'} className={classNames('rounded-lg border p-1.5', u.flagged ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
         <Flag className="h-4 w-4" />
       </button>
-      {u.archived ? (
+      ) : null}
+      {!canModerate(u) ? null : u.archived ? (
         <button onClick={() => openAction(u, 'restore')} title="Restore user" className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 p-1.5 text-emerald-300">
           <RotateCcw className="h-4 w-4" />
         </button>
@@ -227,7 +274,8 @@ export default function AdminUsers() {
         </button>
       )}
     </>
-  );
+    );
+  }, [canManageBadges, canModerate, isAdmin, openAction, openTimeline, optionEnabled, pendingGrantFor]);
 
   const columns = useMemo(() => [
     {
@@ -239,6 +287,7 @@ export default function AdminUsers() {
             {u.name || 'Unnamed'}
             {u.verified ? <BadgeCheck className="h-4 w-4 text-brand-teal" /> : null}
             {u.flagged ? <Flag className="h-3.5 w-3.5 text-amber-300" /> : null}
+            {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Badge pending</span> : null}
           </div>
           {/* Masked on purpose: the full number lives behind a route that logs the reveal, so the
               directory does not offer it and cannot become a bulk export. */}
@@ -257,8 +306,7 @@ export default function AdminUsers() {
       className: 'text-right whitespace-nowrap',
       render: (u) => <div className="flex justify-end gap-1.5">{actionButtons(u)}</div>,
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [optionEnabled]);
+  ], [actionButtons, pendingGrantFor]);
 
   const userCard = (u) => (
     <div className="dz-card p-3.5">
@@ -268,6 +316,7 @@ export default function AdminUsers() {
             <span className="truncate font-semibold">{u.name || 'Unnamed'}</span>
             {u.verified ? <BadgeCheck className="h-4 w-4 shrink-0 text-brand-teal" /> : null}
             {u.flagged ? <Flag className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : null}
+            {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Badge pending</span> : null}
           </div>
           <div className="mt-0.5 text-xs text-gray-400">{u.mobile}</div>
         </div>
@@ -310,6 +359,10 @@ export default function AdminUsers() {
         <Select value={status} onChange={setStatus} options={STATUS_OPTS} className="sm:w-40" ariaLabel="Filter by status" />
       </div>
 
+      {canManageBadges ? (
+        <BadgeApprovals requests={pendingBadgeGrants} currentUser={user} onReload={load} />
+      ) : null}
+
       <Table columns={columns} rows={list} pageSize={10} label="users" empty="No users match these filters." mobileCard={userCard} />
 
       <Modal
@@ -335,12 +388,7 @@ export default function AdminUsers() {
               {actionModal.copy.title} <span className="font-medium text-gray-200">{actionModal.user.name || actionModal.user.mobile}</span>?
             </p>
             <p className="mt-2 text-xs text-gray-500">{actionModal.copy.hint}</p>
-            {/* Not the shared `InternalNote` widget, deliberately. That one is collapsed behind an
-                "Internal note (optional)" toggle and reads its history from the browser's own
-                database — both wrong here. The reason is not a note *about* the action, it IS the
-                request field, mandatory for a flag and a badge, and the server is the only place it
-                is kept. A control the operator has to discover before they can proceed is a control
-                in the wrong shape. */}
+            {actionError ? <div role="alert" className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{actionError}</div> : null}
             <label className="mt-3 block">
               <span className="text-xs text-gray-400">
                 Reason {actionModal.copy.requiresReason ? <span className="text-amber-300">(required)</span> : '(optional)'}
@@ -382,10 +430,6 @@ export default function AdminUsers() {
                 </div>
               </div>
 
-              {/* Staff notes on this person (D29). Above the timeline because it is the only part
-                  of this drawer anyone can add to, and because it is what a colleague picking up
-                  the case needs first. Deliberately inter-transparent: any staff or admin reads
-                  every note here, whoever wrote it. */}
               <div data-testid="user-notes" className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-gray-200">
                   <MessageSquareText className="h-4 w-4 text-indigo-400" /> Staff notes
@@ -435,9 +479,6 @@ export default function AdminUsers() {
                 <Loading />
               ) : timeline.length > 0 ? (
                 <div className="relative pl-6 border-l border-white/10 max-h-[60vh] overflow-y-auto space-y-4">
-                  {/* The server sends facts, not sentences \u2014 { kind, entityId, at, label, status } \u2014
-                      so the wording is chosen here, where the operator's language is known. `label`
-                      is the source row's own name for itself and is rendered as-is. */}
                   {timeline.map((entry, i) => {
                     const styles = TIMELINE_STYLES[entry.kind] || { icon: Mail, dot: 'bg-gray-400', color: 'text-gray-300', title: 'Activity' };
                     const Icon = styles.icon;

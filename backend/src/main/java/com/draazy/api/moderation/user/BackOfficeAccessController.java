@@ -2,6 +2,7 @@ package com.draazy.api.moderation.user;
 
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficeFunctions;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
@@ -36,11 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class BackOfficeAccessController {
 
-    private static final String ADMIN_ONLY = "hasRole('" + Roles.ADMIN + "')";
+    private static final String MANAGER_OR_ADMIN =
+            "hasAnyRole('" + Roles.MANAGER + "', '" + Roles.ADMIN + "')";
     private static final String ACCESS_READ =
-            ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_USERS_READ;
+            MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_USERS_READ;
     private static final String ACCESS_WRITE =
-            ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE;
+            MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE;
 
     private final BackOfficeAccessService service;
 
@@ -62,11 +64,17 @@ public class BackOfficeAccessController {
         return service.catalogue();
     }
 
+    @GetMapping(Routes.Admin.FUNCTION_CATALOGUE)
+    @PreAuthorize(ACCESS_READ)
+    public List<BackOfficeFunctions.Function> functionCatalogue() {
+        return service.functionCatalogue();
+    }
+
     /** {@code GET /users/{id}/permissions} — what is stored, and what it resolves to. */
     @GetMapping(Routes.Users.PERMISSIONS)
     @PreAuthorize(ACCESS_READ)
-    public BackOfficeAccessResponse read(@PathVariable String id) {
-        return service.read(id);
+    public BackOfficeAccessResponse read(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.read(principal, id);
     }
 
     /**
@@ -81,7 +89,7 @@ public class BackOfficeAccessController {
     @PreAuthorize(ACCESS_WRITE)
     public BackOfficeAccessResponse replace(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @RequestBody PermissionsRequest body) {
-        return service.replace(principal, id, body == null ? List.of() : body.permissions());
+        return service.replace(principal, id, body == null ? List.of() : body.functionsOrPermissions());
     }
 
     /**
@@ -93,6 +101,9 @@ public class BackOfficeAccessController {
      * the service, where the account's role is known — the ceiling is per-role, so this is not a rule
      * Bean Validation could have expressed.
      */
-    public record PermissionsRequest(List<String> permissions) {
+    public record PermissionsRequest(List<String> functions, List<String> permissions) {
+        List<String> functionsOrPermissions() {
+            return functions == null ? permissions : functions;
+        }
     }
 }

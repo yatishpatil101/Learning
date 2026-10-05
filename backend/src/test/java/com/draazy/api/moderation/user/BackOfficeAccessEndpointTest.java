@@ -62,7 +62,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the catalogue is served, and every entry is module:action")
+    @DisplayName("the atom and function catalogues are served")
     void catalogueIsServed() throws Exception {
         User admin = save("9866030001", Roles.Wire.ADMIN, null);
 
@@ -72,6 +72,14 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.name == 'tickets:read')].action").value("read"))
                 .andExpect(jsonPath("$[?(@.name == 'settings:write')].adminOnly").value(true));
+        mvc.perform(get(Routes.Admin.FUNCTION_CATALOGUE)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer "
+                                + jwtService.issueAccessToken(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.name == 'kyc')].group").value("Verification"))
+                .andExpect(jsonPath("$[?(@.name == 'analytics')].label").value("Analytics"))
+                .andExpect(jsonPath("$[?(@.name == 'analytics')].group").value("Insights"))
+                .andExpect(jsonPath("$[?(@.name == 'desk:rental')].desk").value(Teams.RENTAL));
     }
 
     /**
@@ -88,7 +96,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer "
                                 + jwtService.issueAccessToken(staff)))
                 .andExpect(status().isForbidden());
-        assertThat(putPermissions(staff, target, "{\"permissions\":[\"tickets:read\"]}"))
+        assertThat(putPermissions(staff, target, "{\"functions\":[\"support\"]}"))
                 .isEqualTo(403);
     }
 
@@ -99,14 +107,14 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         User admin = save("9866030004", Roles.Wire.ADMIN, null);
         User target = save("9866030005", Roles.Wire.STAFF, Teams.RENTAL);
 
-        assertThat(putPermissions(admin, target, "{\"permissions\":[\"tickets:read\"]}"))
+        assertThat(putPermissions(admin, target, "{\"functions\":[\"analytics\",\"support\",\"desk:rental\"]}"))
                 .isEqualTo(200);
 
         String bearer = "Bearer " + jwtService.issueAccessToken(target);
         assertThat(mvc.perform(get(Routes.Tickets.BASE).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andReturn().getResponse().getStatus()).isEqualTo(200);
         assertThat(mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, bearer))
-                .andReturn().getResponse().getStatus()).isEqualTo(403);
+                .andReturn().getResponse().getStatus()).isEqualTo(200);
     }
 
     /** The response shows the outcome, not the input — see {@link BackOfficeAccessResponse}. */
@@ -121,15 +129,17 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         mvc.perform(get(route).header(HttpHeaders.AUTHORIZATION, actor))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scoped").value(false))
-                .andExpect(jsonPath("$.permissions").isEmpty())
-                .andExpect(jsonPath("$.effective").value(hasItem("tickets:read")));
+                .andExpect(jsonPath("$.functions").isEmpty())
+                .andExpect(jsonPath("$.effective").value(hasItem("dashboard:read")));
 
-        assertThat(putPermissions(admin, target, "{\"permissions\":[]}")).isEqualTo(200);
+        assertThat(putPermissions(admin, target, "{\"functions\":[]}")).isEqualTo(200);
 
         mvc.perform(get(route).header(HttpHeaders.AUTHORIZATION, actor))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scoped").value(true))
-                .andExpect(jsonPath("$.effective").isEmpty());
+                .andExpect(jsonPath("$.functions").isEmpty())
+                .andExpect(jsonPath("$.desks").isEmpty())
+                .andExpect(jsonPath("$.effective").value(hasItem("dashboard:read")));
     }
 
     /**
@@ -143,9 +153,9 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         User admin = save("9866030008", Roles.Wire.ADMIN, null);
         User target = save("9866030009", Roles.Wire.STAFF, Teams.RENTAL);
 
-        assertThat(putPermissions(admin, target, "{\"permissions\":[\"properties:verify\"]}"))
+        assertThat(putPermissions(admin, target, "{\"functions\":[\"properties:verify\"]}"))
                 .isEqualTo(422);
-        assertThat(putPermissions(admin, target, "{\"permissions\":[\"enquiries\"]}"))
+        assertThat(putPermissions(admin, target, "{\"functions\":[\"enquiries\"]}"))
                 .isEqualTo(422);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM back_office_permissions WHERE user_id = ?::uuid",
@@ -160,7 +170,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         User target = save("9866030011", Roles.Wire.STAFF, Teams.RENTAL);
 
         assertThat(putPermissions(admin, target,
-                "{\"permissions\":[\"tickets:read\",\"settings:write\"]}")).isEqualTo(422);
+                "{\"functions\":[\"support\",\"settings:write\"]}")).isEqualTo(422);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM back_office_permissions WHERE user_id = ?::uuid",
                 Integer.class, target.getId().toString())).isZero();
@@ -173,7 +183,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         User admin = save("9866030012", Roles.Wire.ADMIN, null);
         User buyer = save("9866030013", Roles.Wire.BUYER, null);
 
-        assertThat(putPermissions(admin, buyer, "{\"permissions\":[]}")).isEqualTo(422);
+        assertThat(putPermissions(admin, buyer, "{\"functions\":[]}")).isEqualTo(422);
     }
 
     /**
@@ -186,7 +196,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
     void selfEditIsRefused() throws Exception {
         User admin = save("9866030014", Roles.Wire.ADMIN, null);
 
-        assertThat(putPermissions(admin, admin, "{\"permissions\":[]}")).isEqualTo(403);
+        assertThat(putPermissions(admin, admin, "{\"functions\":[]}")).isEqualTo(403);
     }
 
     @Test
@@ -199,7 +209,53 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer "
                                 + jwtService.issueAccessToken(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"permissions\":[]}"))
+                        .content("{\"functions\":[]}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("a manager can grant staff only a subset of their own effective permissions")
+    void managerCanGrantOnlyOwnSubset() throws Exception {
+        User admin = save("9866030016", Roles.Wire.ADMIN, null);
+        User manager = save("9866030017", Roles.Wire.MANAGER, null);
+        User staff = save("9866030018", Roles.Wire.STAFF, Teams.RENTAL);
+
+        assertThat(putPermissions(admin, manager, "{\"functions\":[\"support\"]}"))
+                .isEqualTo(200);
+
+        assertThat(putPermissions(manager, staff, "{\"functions\":[\"support\"]}"))
+                .isEqualTo(200);
+        assertThat(putPermissions(manager, staff, "{\"functions\":[\"content\"]}"))
+                .isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("manager permission writes notify the administrator")
+    void managerPermissionWritesNotifyAdministrator() throws Exception {
+        User admin = save("9866030022", Roles.Wire.ADMIN, null);
+        User manager = save("9866030023", Roles.Wire.MANAGER, null);
+        User staff = save("9866030024", Roles.Wire.STAFF, Teams.RENTAL);
+
+        assertThat(putPermissions(manager, staff, "{\"functions\":[\"support\"]}"))
+                .isEqualTo(200);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM notifications
+                WHERE user_id = ?::uuid AND type = 'team.manager-action'
+                """, Integer.class, admin.getId())).isOne();
+    }
+
+    @Test
+    @DisplayName("a manager cannot read or edit manager/admin permission documents")
+    void managerCannotManagePeerOrAdminPermissions() throws Exception {
+        User manager = save("9866030019", Roles.Wire.MANAGER, null);
+        User peer = save("9866030020", Roles.Wire.MANAGER, null);
+        User admin = save("9866030021", Roles.Wire.ADMIN, null);
+        String actor = "Bearer " + jwtService.issueAccessToken(manager);
+
+        mvc.perform(get(Routes.Users.PERMISSIONS.replace("{id}", peer.getId().toString()))
+                        .header(HttpHeaders.AUTHORIZATION, actor))
+                .andExpect(status().isForbidden());
+        assertThat(putPermissions(manager, admin, "{\"functions\":[]}")).isEqualTo(403);
     }
 }

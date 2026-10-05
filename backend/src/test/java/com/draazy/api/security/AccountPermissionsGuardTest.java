@@ -87,15 +87,18 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
      * refused everybody — and a slice that quietly locked the back office would have shipped.
      */
     @Test
-    @DisplayName("an account with no document keeps its whole role baseline")
-    void noDocumentMeansTheRoleBaseline() throws Exception {
-        String staff = bearer(save("9866020001", Roles.Wire.STAFF, Teams.RENTAL));
+    @DisplayName("a staff account with no document keeps only the landing atom")
+    void noDocumentMeansRoleDefault() throws Exception {
+        User staffUser = save("9866020001", Roles.Wire.STAFF, Teams.RENTAL);
+        String staff = "Bearer " + jwtService.issueAccessToken(staffUser);
         String admin = bearer(save("9866020002", Roles.Wire.ADMIN, null));
 
-        assertThat(status(Routes.Admin.DASHBOARD, staff)).isEqualTo(200);
-        assertThat(status(Routes.Tickets.BASE, staff)).isEqualTo(200);
-        assertThat(status(Routes.Moderation.REPORTS, staff)).isEqualTo(200);
-        assertThat(status(Routes.Users.BASE, staff)).isEqualTo(200);
+        assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, staffUser.getId()))
+                .containsExactly(BackOfficePermissions.DASHBOARD_READ);
+        assertThat(status(Routes.Admin.DASHBOARD, staff)).isEqualTo(403);
+        assertThat(status(Routes.Tickets.BASE, staff)).isEqualTo(403);
+        assertThat(status(Routes.Moderation.REPORTS, staff)).isEqualTo(403);
+        assertThat(status(Routes.Users.BASE, staff)).isEqualTo(403);
         assertThat(status(Routes.Admin.SETTINGS, admin)).isEqualTo(200);
         // Not 200, and the difference is not this slice: GET /admin/audit-log with no filters
         // answers 500 on PostgreSQL 13 — AuditLogRepository.search binds every filter as an
@@ -116,14 +119,32 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
     void aDocumentNarrowsOneAccount() throws Exception {
         User scoped = save("9866020003", Roles.Wire.STAFF, Teams.RENTAL);
         User colleague = save("9866020004", Roles.Wire.STAFF, Teams.RENTAL);
-        scope(scoped.getId(), "[\"tickets:read\"]");
+        scope(scoped.getId(), "[\"support\",\"desk:rental\"]");
 
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).as("kept").isEqualTo(200);
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).as("omitted").isEqualTo(403);
+        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).as("analytics omitted").isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, bearer(scoped))).as("omitted").isEqualTo(403);
         assertThat(status(Routes.Users.BASE, bearer(scoped))).as("omitted").isEqualTo(403);
         assertThat(status(Routes.Admin.DASHBOARD, bearer(colleague)))
                 .as("the colleague on the same team was not touched").isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("analytics routes require the analytics function, not just dashboard")
+    void analyticsRoutesRequireAnalyticsFunction() throws Exception {
+        User kyc = save("9866020012", Roles.Wire.STAFF, Teams.RENTAL);
+        User analytics = save("9866020013", Roles.Wire.STAFF, Teams.RENTAL);
+        User manager = save("9866020014", Roles.Wire.MANAGER, null);
+        User admin = save("9866020015", Roles.Wire.ADMIN, null);
+        scope(kyc.getId(), "[\"kyc\"]");
+        scope(analytics.getId(), "[\"kyc\",\"analytics\"]");
+
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(kyc))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_SLA, bearer(kyc))).isEqualTo(403);
+        assertThat(status(Routes.Admin.DASHBOARD, bearer(kyc))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(analytics))).isEqualTo(200);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(manager))).isEqualTo(200);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(admin))).isEqualTo(200);
     }
 
     /**
@@ -132,27 +153,27 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
      * inexpressible.
      */
     @Test
-    @DisplayName("an empty document denies every guarded back-office route")
-    void anEmptyDocumentDeniesEverything() throws Exception {
+    @DisplayName("an empty document leaves only the landing atom")
+    void anEmptyDocumentLeavesOnlyDashboard() throws Exception {
         User scoped = save("9866020005", Roles.Wire.STAFF, Teams.RENTAL);
         scope(scoped.getId(), "[]");
 
+        assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId()))
+                .containsExactly(BackOfficePermissions.DASHBOARD_READ);
         assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, bearer(scoped))).isEqualTo(403);
     }
 
-    /** Administrators are narrowable too, or "one flat admin role" would only be half-fixed. */
     @Test
-    @DisplayName("an administrator can be narrowed off the admin-only routes")
-    void anAdministratorIsNarrowableToo() throws Exception {
-        User scoped = save("9866020006", Roles.Wire.ADMIN, null);
-        scope(scoped.getId(), "[\"dashboard:read\",\"users:read\"]");
+    @DisplayName("the administrator ignores any stored document and keeps full access")
+    void theAdministratorIsNeverNarrowed() throws Exception {
+        User admin = save("9866020006", Roles.Wire.ADMIN, null);
+        scope(admin.getId(), "[\"kyc\"]");
 
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).as("kept").isEqualTo(200);
-        assertThat(status(Routes.Admin.SETTINGS, bearer(scoped))).as("omitted").isEqualTo(403);
-        assertThat(status(Routes.Admin.AUDIT_LOG, bearer(scoped))).as("omitted").isEqualTo(403);
-        assertThat(status(Routes.Admin.FINANCE, bearer(scoped))).as("omitted").isEqualTo(403);
+        assertThat(status(Routes.Admin.SETTINGS, bearer(admin))).isEqualTo(200);
+        assertThat(status(Routes.Admin.AUDIT_LOG, bearer(admin))).isEqualTo(200);
+        assertThat(status(Routes.Admin.FINANCE, bearer(admin))).isEqualTo(200);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -178,7 +199,7 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
         User scoped = save("9866020007", Roles.Wire.STAFF, Teams.RENTAL);
         scope(scoped.getId(), """
                 ["settings:read", "settings:write", "audit:read", "finance:read", "users:write",
-                 "tickets:read"]""");
+                 "support", "desk:rental"]""");
 
         assertThat(status(Routes.Admin.SETTINGS, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Admin.AUDIT_LOG, bearer(scoped))).isEqualTo(403);
@@ -196,14 +217,22 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
     void theResolvedSetIsAlwaysASubsetOfTheBaseline() {
         User scoped = save("9866020008", Roles.Wire.STAFF, Teams.LEGAL);
         scope(scoped.getId(), """
-                ["settings:write", "audit:read", "tickets:read", "not-a-permission", "*"]""");
+                ["settings:write", "audit:read", "support", "desk:legal", "not-a-function", "*"]""");
 
         Set<String> effective =
                 accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId());
 
         assertThat(effective)
                 .isSubsetOf(BackOfficePermissions.baselineFor(Roles.Wire.STAFF))
-                .containsExactly(BackOfficePermissions.TICKETS_READ);
+                .containsExactlyInAnyOrder(
+                        BackOfficePermissions.DASHBOARD_READ,
+                        BackOfficePermissions.TICKETS_READ,
+                        BackOfficePermissions.TICKETS_WRITE,
+                        BackOfficePermissions.ENQUIRIES_READ,
+                        BackOfficePermissions.NOTES_READ,
+                        BackOfficePermissions.NOTES_WRITE,
+                        BackOfficePermissions.SERVICES_READ,
+                        BackOfficePermissions.SERVICES_WRITE);
     }
 
     /** A buyer has no back-office baseline, so there is nothing for an intersection to produce. */
@@ -259,7 +288,8 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
 
         assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);
-        assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId())).isEmpty();
+        assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId()))
+                .containsExactly(BackOfficePermissions.DASHBOARD_READ);
     }
 
     /** Nothing that is not one of our own principals is waved through. */
@@ -315,13 +345,14 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
 
     /** Every catalogued name is unique and well-formed, since the string is the stored key. */
     @Test
-    @DisplayName("the catalogue is well-formed: unique module:action names, read or write")
+    @DisplayName("the catalogue is well-formed: unique module:action names")
     void theCatalogueIsWellFormed() {
         for (BackOfficePermissions.Permission permission : BackOfficePermissions.CATALOGUE) {
             assertThat(permission.name())
                     .isEqualTo(permission.module() + ":" + permission.action());
             assertThat(permission.action())
-                    .isIn(BackOfficePermissions.READ, BackOfficePermissions.WRITE);
+                    .isIn(BackOfficePermissions.READ, BackOfficePermissions.WRITE,
+                            "verify", "moderate");
             assertThat(BackOfficePermissions.isKnown(permission.name())).isTrue();
         }
         assertThat(BackOfficePermissions.CATALOGUE)

@@ -33,7 +33,17 @@ class PermissionMapGuardTest extends AbstractApiTest {
         user.setName("Capability probe");
         user.setTeam(team);
         user.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(user));
+        User saved = users.saveAndFlush(user);
+        if (Roles.Wire.STAFF.equals(role)) {
+            String functions = team == null
+                    ? "[\"analytics\"]"
+                    : "[\"analytics\",\"support\",\"desk:" + team + "\"]";
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    """, saved.getId().toString(), functions);
+        }
+        return "Bearer " + jwtService.issueAccessToken(saved);
     }
 
     /** Replace the whole permission document. Raw SQL because the point is the stored bytes. */
@@ -104,7 +114,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
                   "admin":  ["*"]
                 }""");
 
-        assertThat(dashboardStatus(rental)).as("rental lost view_dashboard").isEqualTo(403);
+        assertThat(dashboardStatus(rental)).as("dashboard is no longer desk-scoped").isEqualTo(200);
         assertThat(ticketUpdateStatus(rental)).as("rental lost update_ticket").isEqualTo(403);
         assertThat(queueStatus(rental)).as("rental kept view_service_requests").isEqualTo(200);
         assertThat(dashboardStatus(legal)).as("legal was not touched").isEqualTo(200);
@@ -151,7 +161,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         String packers = bearer("9866010006", Roles.Wire.STAFF, Teams.PACKERS);
         storePermissions("{\"rental\":[\"view_dashboard\"],\"admin\":[\"*\"]}");
 
-        assertThat(dashboardStatus(packers)).isEqualTo(403);
+        assertThat(dashboardStatus(packers)).isEqualTo(200);
         assertThat(queueStatus(packers)).isEqualTo(403);
     }
 
@@ -191,8 +201,8 @@ class PermissionMapGuardTest extends AbstractApiTest {
         storePermissions("{\"rental\":[\"view_dashboard\"],\"admin\":[\"*\"]}");
 
         assertThat(dashboardStatus(unassigned))
-                .as("an account the document cannot name must not be exempt from it")
-                .isEqualTo(403);
+                .as("dashboard is always-on for back-office accounts")
+                .isEqualTo(200);
         assertThat(queueStatus(unassigned))
                 .as("a deskless caller must not out-rank a desked one by seeing every desk")
                 .isEqualTo(403);

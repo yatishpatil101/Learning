@@ -1,11 +1,8 @@
-/**
- * HTTP users provider; `usersService.js` is the only contract and the two-function shape
- * translation is folded in here rather than given its own mapper module.
- */
-import { get, patch, unwrapPage } from '../../http.js';
+import { get, patch, post, unwrapPage } from '../../http.js';
 
 /** `status` values the contract's `GET /users` accepts. Anything else is a 422 from the server. */
 const WIRE_STATUSES = new Set(['active', 'suspended', 'archived']);
+const BADGE_GRANTS_PATH = '/admin/badge-grants';
 
 const toRow = (u) => ({
   id: u?.id,
@@ -18,17 +15,30 @@ const toRow = (u) => ({
   joinedAt: u?.joinedAt || u?.createdAt || null,
   status: u?.status,
   verified: Boolean(u?.verified),
-  // Drives whether the badge control is offered at all — see the header.
-  identityVerified: Boolean(u?.identityVerified),
+  badgeSource: u?.badgeSource || null,
   flagged: Boolean(u?.flagged),
   flagReason: u?.flagReason || '',
   archived: u?.status === 'archived',
 });
 
-/**
- * One page of the directory. `archived` and `status` are separate query parameters because they are
- * separate columns: sending a status without pinning `archived=false` returns archived rows too.
- */
+const toBadgeGrant = (row) => ({
+  id: row?.id,
+  userId: row?.userId,
+  userName: row?.userName || '',
+  userMobileMasked: row?.userMobileMasked || '',
+  requestedBy: row?.requestedBy,
+  requestedByName: row?.requestedByName || '',
+  reason: row?.reason || '',
+  status: row?.status || 'pending',
+  decidedBy: row?.decidedBy,
+  decidedByName: row?.decidedByName || '',
+  decidedAt: row?.decidedAt || null,
+  decisionNote: row?.decisionNote || '',
+  createdAt: row?.createdAt || null,
+});
+
+/** One page of the directory. `archived` and `status` are separate query parameters because they are separate
+ * columns: sending a status without pinning `archived=false` returns archived rows too. */
 export async function listUsers({ role, status, q, page = 0, size = 20 } = {}) {
   const archived = status === 'archived';
   const res = await get('/users', {
@@ -43,25 +53,35 @@ export async function listUsers({ role, status, q, page = 0, size = 20 } = {}) {
   return { ...wrapped, items: wrapped.items.map(toRow) };
 }
 
-/**
- * The activity modal, returned exactly as the server sends it: the console builds each line's
- * sentence from `kind` through its own translation files, which is why no wording arrives.
- */
+/** The activity modal, returned exactly as the server sends it: the console builds each line's sentence from `kind`
+ * through its own translation files, which is why no wording arrives. */
 export async function getUserTimeline(id) {
   const rows = await get(`/users/${encodeURIComponent(id)}/timeline`);
   return Array.isArray(rows) ? rows : [];
 }
 
-/** Grant or withdraw the Verified badge. 409 when the badge was earned through a reviewed case. */
+/** Request a badge grant, or withdraw a hand-granted badge. */
 export async function setUserBadge(id, granted, reason) {
-  const updated = await patch(`/users/${encodeURIComponent(id)}/badge`, { granted, reason });
-  return toRow(updated);
+  const { data, status } = await patch(`/users/${encodeURIComponent(id)}/badge`, { granted, reason }, { withStatus: true });
+  return status === 202
+    ? { pending: true, request: toBadgeGrant(data) }
+    : { pending: false, user: toRow(data) };
 }
 
-/**
- * @param {'suspend'|'reactivate'|'archive'|'restore'} action named, since `'active'` is ambiguous
- * @param {string} [reason] carried by suspend and archive; ignored by the other two
- */
+export async function listBadgeGrants({ status = 'pending', page = 0, size = 50 } = {}) {
+  const res = await get(BADGE_GRANTS_PATH, { status, page, size });
+  const wrapped = unwrapPage(res, { page, size });
+  return { ...wrapped, items: wrapped.items.map(toBadgeGrant) };
+}
+
+export async function approveBadgeGrant(id, note) {
+  return toBadgeGrant(await post(`${BADGE_GRANTS_PATH}/${encodeURIComponent(id)}/approve`, { note }));
+}
+
+export async function rejectBadgeGrant(id, reason) {
+  return toBadgeGrant(await post(`${BADGE_GRANTS_PATH}/${encodeURIComponent(id)}/reject`, { reason }));
+}
+
 export async function setUserStatus(id, action, reason) {
   const base = `/users/${encodeURIComponent(id)}`;
   if (action === 'archive') return patch(`${base}/archive`, { reason });

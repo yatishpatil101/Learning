@@ -51,18 +51,16 @@ class RoleGuardSweepTest extends AbstractApiTest {
     static List<Guarded> guardedRoutes() {
         return List.of(
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.PROPERTY_STATUS), "staff"),
-                new Guarded(HttpMethod.POST, id(Routes.Moderation.PROPERTY_FEATURED), "staff"),
                 new Guarded(HttpMethod.POST, id(Routes.Moderation.PROPERTY_FLAG), "staff"),
                 new Guarded(HttpMethod.DELETE, id(Routes.Moderation.PROPERTY_FLAG), "staff"),
                 new Guarded(HttpMethod.POST, id(Routes.Moderation.VERIFICATION_DECISION), "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.VERIFICATION_CHECKLIST), "staff"),
-                // POST /reports absent by design: anyone signed in may file an abuse report.
+
                 new Guarded(HttpMethod.GET, Routes.Moderation.REPORTS, "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REPORT_BY_ID), "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REVIEW_STATUS), "staff"),
                 new Guarded(HttpMethod.GET, notesFor("property"), "staff"),
                 new Guarded(HttpMethod.POST, notesFor("property"), "staff"),
-                new Guarded(HttpMethod.PATCH, id(Routes.Moderation.NOTE_BY_ID), "staff"),
                 new Guarded(HttpMethod.GET, Routes.LocalityQueue.BASE, "staff"),
                 new Guarded(HttpMethod.PATCH,
                         Routes.LocalityQueue.BY_PROPERTY.replace("{propertyId}", ANY_ID), "staff"),
@@ -72,8 +70,6 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.ARCHIVE), "admin"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.RESTORE), "admin"),
                 new Guarded(HttpMethod.POST, Routes.Users.STAFF, "admin"),
-                new Guarded(HttpMethod.GET, Routes.Users.PENDING_APPROVALS, "admin"),
-                new Guarded(HttpMethod.POST, id(Routes.Users.APPROVE), "admin"),
                 new Guarded(HttpMethod.GET, Routes.Admin.AUDIT_LOG, "admin"));
     }
 
@@ -118,7 +114,16 @@ class RoleGuardSweepTest extends AbstractApiTest {
         User user = new User(mobile, role);
         user.setName("Guard probe " + role);
         user.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(user));
+        User saved = users.saveAndFlush(user);
+        if ("staff".equals(role)) {
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    """, saved.getId().toString(), """
+                    ["kyc","propertyVerification","listingModeration","support","content","reports","desk:rental"]
+                    """);
+        }
+        return "Bearer " + jwtService.issueAccessToken(saved);
     }
 
     private MockHttpServletRequestBuilder request(Guarded route, String bearer) {
@@ -142,7 +147,7 @@ class RoleGuardSweepTest extends AbstractApiTest {
         if (path.startsWith(Routes.LocalityQueue.BASE)) {
             return "{\"slug\":\"baner\"}";
         }
-        // Match /admin/notes before /reviews/: notes on a review live at /admin/notes/review/{id}.
+
         if (path.startsWith("/admin/notes")) {
             return "{\"text\":\"Guard probe\"}";
         }
@@ -156,11 +161,11 @@ class RoleGuardSweepTest extends AbstractApiTest {
             return "{\"decision\":\"approve\"}";
         }
         if (path.endsWith("/checklist")) {
-            return "{\"item\":\"Index II\",\"pass\":true}";
+            return "{\"item\":\"Photos are real and match the listing\",\"pass\":true}";
         }
         if (path.equals(Routes.Users.STAFF)) {
             return "{\"name\":\"Probe\",\"mobile\":\"9123456780\","
-                    + "\"email\":\"probe@example.com\",\"role\":\"staff\",\"team\":\"rental\"}";
+                    + "\"email\":\"probe@example.com\",\"role\":\"staff\",\"functions\":[\"desk:rental\"]}";
         }
         if (path.startsWith("/reports/")) {
             return "{\"status\":\"reviewing\"}";

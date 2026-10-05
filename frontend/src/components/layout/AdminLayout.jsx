@@ -2,46 +2,29 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
-  ExternalLink, LayoutDashboard, LogOut, Menu, MessageSquare,
-  X, UserPlus, BedDouble, Gift,
-  BookOpen, LifeBuoy, PenLine,
+  ExternalLink, LogOut, Menu,
+  X, UserPlus,
+  BookOpen,
 } from 'lucide-react';
 import LogoMark from '../brand/LogoMark.jsx';
 import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
-import { ADMIN_MODULES, canAccessModule, hasPermission } from '../../lib/adminModules.js';
+import { ADMIN_MODULES, canAccessModule, hasPermission, portalBase, portalPath } from '../../lib/adminModules.js';
 import { AdminFlagsProvider, useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import AdminTopbarTools from './AdminTopbarTools.jsx';
 
-const OPS_NAV = [
-  ['/ops', 'Dashboard', LayoutDashboard, true],
-  ['/ops/requests', 'Requests', MessageSquare],
-  // The two live-seam screens. Kept next to the demo queues rather than in a section of their own:
-  // an operator navigates by the work, not by which store answers.
-  ['/ops/support', 'Support queue', LifeBuoy],
-  // Fifth slot is an optional permission atom: every unscoped ops account holds identity:read, so
-  // this only hides the row from one an administrator has deliberately scoped off the queue.
-  ['/ops/kyc-review', 'KYC review', UserPlus, false, 'identity:read'],
-  // One row, not six: the five service desks are the same screen with `?type=` set, so a row per
-  // type would be five links to one page and five active-route highlights at once.
-  ['/ops/drafting-desk', 'Drafting desk', PenLine],
-  ['/ops/referrals', 'Referrals', Gift],
-  ['/ops/flatmate-review', 'Flatmate', BedDouble],
-];
-
-export default function AdminLayout({ variant = 'admin' }) {
-  // Both variants render AdminLayoutInner, which calls useAdminFlags(), so the provider must wrap
-  // both or the ops variant throws a blank screen; it only *reads* for the admin variant.
+export default function AdminLayout() {
+  const { user } = useAuth();
   return (
-    <AdminFlagsProvider read={variant === 'admin'}>
-      <AdminLayoutInner variant={variant} />
+    <AdminFlagsProvider read={hasPermission(user, 'settings:read')}>
+      <AdminLayoutInner />
     </AdminFlagsProvider>
   );
 }
 
-function AdminLayoutInner({ variant = 'admin' }) {
+function AdminLayoutInner() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { tabEnabled } = useAdminFlags();
@@ -49,11 +32,9 @@ function AdminLayoutInner({ variant = 'admin' }) {
      switched on for everyone) and the caller's own atoms (what this person may open). `adminOnly`
      is not a third filter — the atoms behind those modules are administrator-only in the server's
      catalogue, so the atom check already excludes them; the field documents which rows those are. */
-  const nav = variant === 'ops'
-    ? OPS_NAV.filter(([, , , , atom]) => !atom || hasPermission(user, atom))
-    : ADMIN_MODULES
-        .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && canAccessModule(user, m.key))
-        .map((m) => [m.path, m.label, m.icon, m.end]);
+  const nav = ADMIN_MODULES
+    .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && canAccessModule(user, m.key))
+    .map((m) => [portalPath(user, m.path), m.label, m.icon, m.end]);
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -79,11 +60,11 @@ function AdminLayoutInner({ variant = 'admin' }) {
           {/* min-h on touch only: the drawer is 280px wide with nothing beside the
               wordmark, so a taller row costs nothing there, while the desktop rail
               keeps its 56px header. */}
-          <Link to={variant === 'ops' ? '/ops' : '/admin'} className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
+          <Link to={portalBase(user)} className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
             <LogoMark className="h-8 w-8 shrink-0 text-brand-teal" />
             <span className="font-extrabold">
               Draazy
-              <span className="ml-1 text-xs font-medium text-gray-400">{variant === 'ops' ? 'Ops' : 'Admin'}</span>
+              <span className="ml-1 text-xs font-medium text-gray-400">{roleLabel(user?.role)}</span>
             </span>
           </Link>
           {/* tap-extend, not tap-target: the drawn square sits in a tight header row,
@@ -115,7 +96,14 @@ function AdminLayoutInner({ variant = 'admin' }) {
         </nav>
       </aside>
 
-      {open ? <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setOpen(false)} /> : null}
+      {open ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
 
       <div className="flex min-h-[100dvh] flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-ink/80 backdrop-blur">
@@ -124,12 +112,11 @@ function AdminLayoutInner({ variant = 'admin' }) {
               <Menu className="h-5 w-5" />
             </button>
 
-            {variant === 'admin' ? <AdminTopbarTools /> : null}
+            <AdminTopbarTools />
 
-            {/* Quick actions — desktop only */}
-            {variant === 'admin' ? (
+            {hasPermission(user, 'postOnBehalf:write') ? (
               <div className="hidden items-center gap-1.5 ml-auto lg:flex">
-                <button onClick={() => navigate('/admin/post-on-behalf')} className="flex items-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-300 hover:bg-teal-500/20 transition">
+                <button onClick={() => navigate(portalPath(user, '/admin/post-on-behalf'))} className="flex items-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-300 hover:bg-teal-500/20 transition">
                   <UserPlus className="h-3.5 w-3.5" /> Post on Behalf
                 </button>
                 <button onClick={() => navigate('/')} className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/10 transition" title="View live site">
@@ -142,8 +129,7 @@ function AdminLayoutInner({ variant = 'admin' }) {
                 the back-office shell, and someone checking an SLA mid-queue should not
                 lose the queue they are working. Both variants get it — ops needs the
                 runbooks more than admin does. Alignment is already handled upstream:
-                AdminTopbarTools is flex-1 on the admin variant, and the ops variant
-                renders a flex-1 spacer, so no margin is needed here. */}
+                AdminTopbarTools is flex-1, so no margin is needed here. */}
             <a
               href="/help/c/ops-playbook"
               target="_blank"
@@ -165,7 +151,6 @@ function AdminLayoutInner({ variant = 'admin' }) {
                   <div className="text-sm font-semibold">{user?.name || 'Admin'}</div>
                   <div className="text-[11px] text-gray-400">
                     {roleLabel(user?.role)}
-                    {user?.team ? ' · ' + user.team : ''}
                   </div>
                 </div>
                 <button onClick={doLogout} aria-label="Log out" className="tap-extend relative rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white transition" title="Log out">

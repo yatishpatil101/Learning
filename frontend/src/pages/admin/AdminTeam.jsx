@@ -1,32 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Ban, Check, Clock, Info, Pencil, Plus, RotateCcw, ShieldCheck, UsersRound } from 'lucide-react';
+import { Ban, Check, Copy, Info, KeyRound, Pencil, Plus, RotateCcw, Smartphone } from 'lucide-react';
 /* Team members come through the services seam. Permissions do not go through the seam at
    all — see `services/permissionsService.js` for why. */
 import {
   listTeamMembers, saveTeamMember, setTeamMemberStatus,
-  listPendingApprovals, approveTeamMember,
+  resetTeamMemberTwoFactor, reissueTeamMemberInvite,
 } from '../../services/teamService.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import {
-  getPermissionCatalogue, getMemberPermissions, saveMemberPermissions,
+  getFunctionCatalogue, getMemberPermissions, saveMemberFunctions,
 } from '../../services/permissionsService.js';
 // No client-side audit write: every write on this page is a server call that records its own audit
 // row from the authenticated actor, which the browser cannot read back anyway.
-import { OPS_TEAMS, permissionLabel } from '../../lib/adminModules.js';
 import { roleLabel } from '../../lib/auth.js';
-import { classNames, isoToDisplay } from '../../lib/format.js';
+import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import HScroll from '../../components/ui/HScroll.jsx';
 
-const ROLE_OPTS = [
-  { value: 'manager', label: 'Manager — scoped admin access' },
-  { value: 'admin', label: 'Administrator — full access' },
+const STAFF_ROLE_OPTS = [
   { value: 'staff', label: 'Ops staff — service portal' },
+];
+const ADMIN_ROLE_OPTS = [
+  ...STAFF_ROLE_OPTS,
+  { value: 'manager', label: 'Manager — admin console' },
 ];
 
 const ROLE_TONE = {
@@ -35,12 +36,9 @@ const ROLE_TONE = {
   staff: 'bg-sky-500/15 text-sky-300 border-sky-400/30',
 };
 
-const teamLabel = (t) => OPS_TEAMS.find((o) => o.value === t)?.label || t;
+const FUNCTION_GROUPS = ['Verification', 'Listings', 'Service desks', 'Support', 'Content'];
 const digits10 = (m) => String(m || '').replace(/\D/g, '').slice(-10);
 
-/* Set inequality, not array inequality — the permission grid renders in the catalogue's order but
-   the loaded document is in whatever order it was stored, so comparing positionally would report a
-   change on every open. */
 const changedFrom = (before, after) => {
   const a = new Set(before || []);
   const b = new Set(after || []);
@@ -60,7 +58,6 @@ const StatusPill = ({ status }) => (
   </span>
 );
 
-/* Shared checkbox grid used for the ops-team picker and the permission grid. */
 function CheckGrid({ items, isOn, onToggle }) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -85,168 +82,186 @@ function CheckGrid({ items, isOn, onToggle }) {
   );
 }
 
+function FunctionChecklist({ functions, selected, onToggle }) {
+  return (
+    <div className="space-y-3">
+      {FUNCTION_GROUPS.map((group) => {
+        const items = functions.filter((fn) => fn.group === group);
+        if (!items.length) return null;
+        return (
+          <section key={group}>
+            <div className="mb-1.5 text-xs font-semibold text-gray-400">{group}</div>
+            <CheckGrid
+              items={items.map((fn) => ({ key: fn.name, label: fn.label }))}
+              isOn={(name) => selected.includes(name)}
+              onToggle={onToggle}
+            />
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function FunctionChips({ names, labels, empty = 'Dashboard only' }) {
+  if (!names?.length) return <span className="text-xs text-gray-500">{empty}</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {names.slice(0, 4).map((name) => (
+        <span key={name} className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-medium text-gray-200">
+          {labels.get(name) || name}
+        </span>
+      ))}
+      {names.length > 4 ? <span className="text-[11px] text-gray-500">+{names.length - 4}</span> : null}
+    </div>
+  );
+}
+
 export default function AdminTeam() {
   const { toast } = useToast();
   const { t } = useTranslation();
-  const [tab, setTab] = useState('members');
+  const { user: me } = useAuth();
   const [members, setMembers] = useState(null);
-  const [pending, setPending] = useState([]);
-  const [approving, setApproving] = useState(null);
+  const [signingIn, setSigningIn] = useState(null);
   /* The atoms an administrator may hand out, in the server's own order. Loaded once: it is a
      compile-time constant of the server, not a per-caller answer, and re-fetching it per modal
      open would make opening a member's record two round trips instead of one. */
   const [catalogue, setCatalogue] = useState([]);
+  const [myFunctions, setMyFunctions] = useState([]);
   const [memberModal, setMemberModal] = useState(null); // form object or null
-  const [pendingError, setPendingError] = useState(null);
+  const [inviteDialog, setInviteDialog] = useState(null);
+  const [inviteCopied, setInviteCopied] = useState('');
+  const isAdmin = me?.role === 'admin';
+  const roleOptions = isAdmin ? ADMIN_ROLE_OPTS : STAFF_ROLE_OPTS;
+  const functionLabels = useMemo(() => new Map(catalogue.map((fn) => [fn.name, fn.label])), [catalogue]);
 
-  /* Every mutation on this page can be refused by the server, and a refusal an operator never sees
-     is indistinguishable from a confident wrong answer. `role_change_unsupported`
-     is the one failure this client raises itself, so it is the one with a translated message; the
-     rest carry the server's own wording, which names the fix and must not be reworded here. */
-  const failed = (err) => toast(
+  const failed = useCallback((err) => toast(
     err?.code === 'role_change_unsupported' ? t('team.errors.roleChangeUnsupported') : (err?.message || t('team.errors.generic')),
     'error',
-  );
+  ), [t, toast]);
 
-  const reload = () => listTeamMembers()
+  const reload = useCallback(() => listTeamMembers()
     .then(setMembers)
-    .catch(failed);
+    .catch(failed), [failed]);
 
-  /* Admin-only live, unlike the directory read beside it — a scoped manager who can open this page
-     can still be refused here. Report that in place rather than showing an empty queue, which would
-     read as "nobody is waiting". */
-  const reloadPending = () => listPendingApprovals()
-    .then((p) => { setPending(p); setPendingError(null); })
-    .catch((err) => { setPending([]); setPendingError(err?.message || t('team.errors.generic')); });
+  useEffect(() => { reload(); }, [reload]);
 
-  useEffect(() => { reload(); reloadPending(); }, []);
-
-  /* A catalogue that fails to load leaves the grid empty rather than falling back to a hard-coded
-     list. A hard-coded list is exactly what this page used to hold, and the failure it caused was
-     silent: it offered names the server did not enforce. An empty grid is visibly broken. */
   useEffect(() => {
     let alive = true;
-    getPermissionCatalogue()
+    getFunctionCatalogue()
       .then((c) => { if (alive) setCatalogue(Array.isArray(c) ? c : []); })
       .catch(failed);
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [failed]);
 
-  const activeAdmins = useMemo(() => (members || []).filter((m) => m.role === 'admin' && m.status === 'active'), [members]);
+  useEffect(() => {
+    if (isAdmin || !me?.id) {
+      setMyFunctions([]);
+      return undefined;
+    }
+    let alive = true;
+    getMemberPermissions(me.id)
+      .then((doc) => { if (alive) setMyFunctions(doc.functions || doc.permissions || []); })
+      .catch(() => { if (alive) setMyFunctions([]); });
+    return () => { alive = false; };
+  }, [isAdmin, me?.id]);
 
-  /* All the table can say about access without a request per row. It deliberately does not recompute
-     the effective module set: that answer is the server's, and inventing a second one here is what
-     this removes. The real document is one click away in the member's own record. */
   const accessSummary = (m) => {
-    if (m.role === 'admin') return 'Every module';
-    if (m.role === 'staff') return m.teams?.length ? m.teams.map(teamLabel).join(', ') : 'No teams assigned';
+    if (m.role === 'admin') return 'Every function';
+    if (m.role === 'manager') return 'All functions';
+    if (m.role === 'staff') return m.functions?.length ? `${m.functions.length} functions` : 'Dashboard only';
     return 'Open the record to see';
   };
 
-  /* New accounts default to Ops staff, not Manager: `manager` is an admin-console permission label
-     and not one of the contract's roles (`Role = buyer|owner|staff|admin`), so a live create with it
-     is refused. Defaulting to a role that cannot be created would make the primary action fail. */
-  const openNewMember = () => setMemberModal({ id: null, name: '', mobile: '', email: '', role: 'staff', teams: [], status: 'active', permissions: null, loadedPermissions: null, effective: [], scoped: false, permissionsError: null });
+  const openNewMember = () => setMemberModal({ id: null, name: '', mobile: '', email: '', role: 'staff', functions: [], status: 'active', functionsError: null });
 
-  /* Fetched on open, not shipped on the directory row: an access-control document should not ride
-     along in a list of eighty people to render a summary nobody asked for. Both `permissions` and
-     `effective` are shown, because a document may only *narrow* — an atom ticked here that the role
-     never had stays off, and an operator not shown that will believe they granted it. */
   const openEditMember = (m) => {
     setMemberModal({
       id: m.id, name: m.name || '', mobile: m.mobile || '', email: m.email || '',
-      role: m.role || 'staff', teams: [...(m.teams || [])], status: m.status || 'active',
-      permissions: null, loadedPermissions: null, effective: [], scoped: false, permissionsError: null,
+      role: m.role || 'staff', functions: null, loadedFunctions: null, functionsError: null,
     });
+    if (m.role !== 'staff') {
+      setMemberModal((prev) => (prev && prev.id === m.id ? { ...prev, functions: [...(m.functions || [])], loadedFunctions: [...(m.functions || [])] } : prev));
+      return;
+    }
     getMemberPermissions(m.id)
       .then((doc) => setMemberModal((prev) => (prev && prev.id === m.id
         ? {
           ...prev,
-          permissions: doc.scoped ? [...(doc.permissions || [])] : [...(doc.effective || [])],
-          effective: doc.effective || [],
-          scoped: !!doc.scoped,
-          // What was on screen when it loaded, so an untouched grid can be left alone on save.
-          loadedPermissions: doc.scoped ? [...(doc.permissions || [])] : [...(doc.effective || [])],
+          functions: [...(doc.functions || doc.permissions || [])],
+          loadedFunctions: [...(doc.functions || doc.permissions || [])],
         }
         : prev)))
       .catch((err) => setMemberModal((prev) => (prev && prev.id === m.id
-        ? { ...prev, permissionsError: err?.message || t('team.errors.generic') }
+        ? { ...prev, functionsError: err?.message || t('team.errors.generic') }
         : prev)));
   };
 
-  /* Which atoms this account could ever hold. An operations account cannot be granted an
-     administrator-only atom — the server's baseline excludes it and the PUT would be refused with
-     422 — so the row is hidden rather than offered and then rejected. */
   const grantable = useMemo(
-    () => catalogue.filter((p) => !p.adminOnly || memberModal?.role === 'admin'),
-    [catalogue, memberModal?.role],
+    () => catalogue.filter((fn) => isAdmin || myFunctions.includes(fn.name)
+      // A manager may keep or remove what the administrator granted, even if it cannot grant it.
+      || memberModal?.loadedFunctions?.includes(fn.name)),
+    [catalogue, isAdmin, myFunctions, memberModal?.loadedFunctions],
   );
 
+  const [saving, setSaving] = useState(false);
   const saveMember = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await persistMember();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const persistMember = async () => {
     const f = memberModal;
     const name = f.name.trim();
     const mobile = digits10(f.mobile);
+    const email = f.email.trim();
     if (!name) return toast('Name is required', 'error');
     /* Only a new account carries a mobile. An existing one shows the masked directory value
        (`97XXXXX115`), which is five digits and would fail this check forever; and `PATCH /users/{id}`
        does not accept the field anyway, so there is nothing to validate. */
     if (!f.id) {
       if (mobile.length !== 10) return toast('Enter a valid 10-digit mobile number', 'error');
+      if (!email) return toast('Email is required', 'error');
       /* A courtesy, not the rule: the directory returns masked mobiles, so this catches only the
          obvious case and the server's own 409 is what actually refuses a duplicate. */
       if (members.some((m) => digits10(m.mobile) === mobile)) return toast('Another member already uses this mobile', 'error');
     }
     const current = f.id ? members.find((m) => m.id === f.id) : null;
-    /* A staff account is keyed in the permission map by its desk, so the server refuses one without
-       a team (422). Caught here because the team picker is on this form and a server refusal would
-       arrive as a toast after the modal had already taken a mobile and an email. Only on create:
-       team is immutable afterwards, and `saveTeamMember` already refuses a change to it with a 409. */
-    if (!f.id && f.role === 'staff' && !f.teams.length) {
-      return toast('Choose a team for this staff account', 'error');
-    }
-    // Guardrail on the edit form: the contract has no role-change route at all, so demoting the
-    // final active administrator is a console-only path and has to be stopped in the console.
-    if (current) {
-      const wasLastAdmin = current.role === 'admin' && current.status === 'active' && activeAdmins.length <= 1;
-      const staysActiveAdmin = f.role === 'admin' && (f.status || 'active') === 'active';
-      if (wasLastAdmin && !staysActiveAdmin) return toast('Cannot demote or suspend the last active administrator', 'error');
-    }
     const payload = {
       id: f.id,
       name,
       // Never on an edit: it is not a field the update route accepts, and the value on screen is
       // the mask, so sending it would put a redaction on the wire as if it were a number.
       mobile: f.id ? undefined : mobile,
-      email: f.email.trim(),
+      email,
       role: f.role,
-      teams: f.role === 'staff' ? f.teams : [],
+      functions: f.role === 'staff' ? f.functions || [] : [],
       status: f.status || 'active',
     };
-    const rec = await saveTeamMember(payload, current || null).catch((err) => { failed(err); return null; });
-    if (!rec) return;
-    /* A second request on purpose: different guard, different refusals — folding it into the profile
-       save would let a rejected permission edit discard a corrected email. Sent only once the
-       document has arrived (PUTting null would erase it) and only when the grid changed, since an
-       unscoped account shows its baseline ticked and there is no route that removes a document. */
-    if (f.id && Array.isArray(f.permissions) && changedFrom(f.loadedPermissions, f.permissions)) {
+    const saved = await saveTeamMember(payload, current || null).catch((err) => { failed(err); return null; });
+    if (!saved) return;
+    if (f.id && f.role === 'staff' && Array.isArray(f.functions) && changedFrom(f.loadedFunctions, f.functions)) {
       try {
-        await saveMemberPermissions(f.id, f.permissions);
+        await saveMemberFunctions(f.id, f.functions);
       } catch (err) {
         failed(err);
+        return;
       }
     }
-    toast(rec.approval && !rec.approval.approvedAt
-      ? t('team.toast.awaitingApproval', { name: rec.name })
-      : `Member ${f.id ? 'updated' : 'created'}`, 'success');
+    toast(`Member ${f.id ? 'updated' : 'created'}`, 'success');
     setMemberModal(null);
+    if (!f.id && saved.inviteUrl) {
+      setInviteDialog({ url: saved.inviteUrl, name });
+      setInviteCopied('');
+    }
     reload();
-    reloadPending();
   };
 
-  /* No client-side pre-check on the last administrator: the platform's floor lives in
-     `AdministratorGuard`, which counts under an advisory lock, where this page could only answer
-     from the list it happened to be holding. Let the refusal come back from the provider. */
   const toggleMemberStatus = async (m) => {
     const next = m.status === 'active' ? 'suspended' : 'active';
     try {
@@ -258,22 +273,42 @@ export default function AdminTeam() {
     reload();
   };
 
-  const approveMember = async (m) => {
-    setApproving(m.id);
+  const SIGN_IN_ACTIONS = {
+    reset: { run: resetTeamMemberTwoFactor, ask: 'Reset two-factor for', done: 'must set up a new authenticator' },
+    invite: { run: reissueTeamMemberInvite, ask: 'Create a new invite for', done: 'has a fresh invite link' },
+  };
+  const canManageMember = (m) => (me?.role === 'admin' ? m.role !== 'admin' : m.role === 'staff');
+  const signInAction = async (m, kind) => {
+    const a = SIGN_IN_ACTIONS[kind];
+    if (!window.confirm(`${a.ask} ${m.name}? They will be signed out everywhere.`)) return;
+    setSigningIn(m.id);
     try {
-      await approveTeamMember(m.id);
-      toast(t('team.toast.approved', { name: m.name }), 'success');
+      const result = await a.run(m.id);
+      if (kind === 'invite' && result?.inviteUrl) {
+        setInviteDialog({ url: result.inviteUrl, name: m.name });
+        setInviteCopied('');
+      }
+      toast(`${m.name} ${a.done}`, 'success');
     } catch (err) {
       failed(err);
     } finally {
-      setApproving(null);
+      setSigningIn(null);
     }
-    reload();
-    reloadPending();
   };
-
-  /* No named role bundles: the server publishes and enforces a permission catalogue, so access is
-     granted by ticking those atoms per account. */
+  const closeInviteDialog = () => {
+    setInviteDialog(null);
+    setInviteCopied('');
+  };
+  const copyInvite = () => (navigator.clipboard?.writeText
+    ? navigator.clipboard.writeText(inviteDialog.url)
+      .then(() => setInviteCopied('Copied'), () => setInviteCopied('Copy failed — copy it manually'))
+    : setInviteCopied('Copy failed — copy it manually'));
+  const signInButtons = (m, cls) => (m.id === me?.id || m.status !== 'active' || !canManageMember(m) ? null : (
+    <>
+      <button onClick={() => signInAction(m, 'reset')} disabled={signingIn === m.id} title="Reset 2FA" aria-label={`Reset 2FA for ${m.name}`} className={cls + ' disabled:opacity-50'}><Smartphone className="h-4 w-4" /></button>
+      <button onClick={() => signInAction(m, 'invite')} disabled={signingIn === m.id} title="Reissue invite" aria-label={`Reissue invite for ${m.name}`} className={cls + ' disabled:opacity-50'}><KeyRound className="h-4 w-4" /></button>
+    </>
+  ));
 
   if (!members) return <Loading />;
 
@@ -286,16 +321,21 @@ export default function AdminTeam() {
     ) },
     { key: 'mobile', header: 'Mobile', render: (m) => <span className="text-gray-300">+91 {m.mobile}</span> },
     { key: 'role', header: 'Role', render: (m) => <RolePill role={m.role} /> },
-    { key: 'access', header: 'Access', render: (m) => <span className="text-gray-300">{accessSummary(m)}</span> },
+    { key: 'access', header: 'Functions', render: (m) => (m.role === 'staff'
+      ? <FunctionChips names={m.functions || []} labels={functionLabels} />
+      : <span className="text-gray-300">{accessSummary(m)}</span>) },
     { key: 'status', header: 'Status', render: (m) => <StatusPill status={m.status} /> },
     /* No Remove action. There is no `DELETE /users/{id}` in the contract — this platform is
        soft-delete only, so Suspend *is* the removal (it archives the account). */
     { key: 'actions', header: '', className: 'text-right', render: (m) => (
       <div className="flex items-center justify-end gap-1.5">
-        <button onClick={() => openEditMember(m)} title="Edit" className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition"><Pencil className="h-4 w-4" /></button>
-        <button onClick={() => toggleMemberStatus(m)} title={m.status === 'active' ? 'Suspend' : 'Reactivate'} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition">
-          {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-        </button>
+        {canManageMember(m) ? <button onClick={() => openEditMember(m)} title="Edit" className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition"><Pencil className="h-4 w-4" /></button> : null}
+        {signInButtons(m, 'rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition')}
+        {canManageMember(m) ? (
+          <button onClick={() => toggleMemberStatus(m)} title={m.status === 'active' ? 'Suspend' : 'Reactivate'} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition">
+            {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          </button>
+        ) : null}
       </div>
     ) },
   ];
@@ -313,61 +353,18 @@ export default function AdminTeam() {
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
         <RolePill role={m.role} />
-        <span>{accessSummary(m)}</span>
+        {m.role === 'staff'
+          ? <FunctionChips names={m.functions || []} labels={functionLabels} />
+          : <span>{accessSummary(m)}</span>}
       </div>
       <div className="mt-3 flex items-center gap-2 border-t border-white/5 pt-3">
-        <button onClick={() => openEditMember(m)} aria-label={`Edit ${m.name}`} className="tap-target rounded-lg text-gray-300"><Pencil className="h-4 w-4" /></button>
-        <button onClick={() => toggleMemberStatus(m)} aria-label={`${m.status === 'active' ? 'Suspend' : 'Reactivate'} ${m.name}`} className="tap-target rounded-lg text-gray-300">
-          {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-        </button>
-      </div>
-    </div>
-  );
-
-  const waitingSince = (m) => isoToDisplay(String(m.approval?.createdAt || m.createdAt || '').slice(0, 10)) || '—';
-
-  /* Pending approvals reuse the members table wholesale — same population of people in a different
-     state, and its own visual language would imply a different subject. Only the two columns an
-     operator triages on differ: who raised the account and how long it has waited. */
-  const approvalColumns = [
-    { key: 'name', header: t('team.approvals.columns.member'), render: (m) => (
-      <div>
-        <div className="font-semibold text-white">{m.name}</div>
-        {m.email ? <div className="text-xs text-gray-500">{m.email}</div> : null}
-      </div>
-    ) },
-    { key: 'mobile', header: t('team.approvals.columns.mobile'), render: (m) => <span className="text-gray-300">+91 {m.mobile}</span> },
-    { key: 'role', header: t('team.approvals.columns.role'), render: (m) => <RolePill role={m.role} /> },
-    { key: 'createdBy', header: t('team.approvals.columns.createdBy'), render: (m) => (
-      m.approval?.createdByName
-        ? <span className="text-gray-300">{m.approval.createdByName}</span>
-        : <span className="text-gray-500">{t('team.approvals.creatorUnknown')}</span>
-    ) },
-    { key: 'waiting', header: t('team.approvals.columns.waitingSince'), render: (m) => <span className="text-gray-300">{waitingSince(m)}</span> },
-    { key: 'actions', header: '', className: 'text-right', render: (m) => (
-      <button onClick={() => approveMember(m)} disabled={approving === m.id} className="dz-btn dz-btn-primary">
-        <Check className="h-4 w-4" /> {t('team.approvals.approve')}
-      </button>
-    ) },
-  ];
-
-  const approvalCard = (m) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-white">{m.name}</div>
-          <div className="mt-0.5 text-xs text-gray-400">+91 {m.mobile}{m.email ? ` · ${m.email}` : ''}</div>
-        </div>
-        <div className="shrink-0"><RolePill role={m.role} /></div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-        <Clock className="h-3.5 w-3.5" />
-        <span>{t('team.approvals.columns.waitingSince')}: {waitingSince(m)}</span>
-      </div>
-      <div className="mt-3 border-t border-white/5 pt-3">
-        <button onClick={() => approveMember(m)} disabled={approving === m.id} className="dz-btn dz-btn-primary w-full">
-          <Check className="h-4 w-4" /> {t('team.approvals.approve')}
-        </button>
+        {canManageMember(m) ? <button onClick={() => openEditMember(m)} aria-label={`Edit ${m.name}`} className="tap-target rounded-lg text-gray-300"><Pencil className="h-4 w-4" /></button> : null}
+        {signInButtons(m, 'tap-target rounded-lg text-gray-300')}
+        {canManageMember(m) ? (
+          <button onClick={() => toggleMemberStatus(m)} aria-label={`${m.status === 'active' ? 'Suspend' : 'Reactivate'} ${m.name}`} className="tap-target rounded-lg text-gray-300">
+            {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -377,56 +374,18 @@ export default function AdminTeam() {
       <PageHeader
         title="Team & Access"
         subtitle="Create internal accounts and control which admin modules each person can open"
-        actions={tab === 'approvals'
-          ? null
-          : <button onClick={openNewMember} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" /> Add member</button>}
+        actions={<button onClick={openNewMember} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" /> Add member</button>}
       />
 
-      <HScroll role="tablist" wrapClassName="mb-4" fadeColor="var(--brand-card, #1a1730)" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['members', 'Team members', UsersRound], ['approvals', t('team.tabs.approvals', { count: pending.length }), ShieldCheck]].map(([key, label, Icon]) => (
-          <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
-            className={classNames('flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === key ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            <Icon className="h-4 w-4" /> {label}
-          </button>
-        ))}
-      </HScroll>
+      <Table
+        columns={memberColumns}
+        rows={members}
+        empty="No team members yet — add your first internal account."
+        pageSize={12}
+        label="members"
+        mobileCard={memberCard}
+      />
 
-      {tab === 'members' ? (
-        <Table
-          columns={memberColumns}
-          rows={members}
-          empty="No team members yet — add your first internal account."
-          pageSize={12}
-          label="members"
-          mobileCard={memberCard}
-        />
-      ) : (
-        <>
-          {/* Maker-checker is a server rule, not a console one: a back-office account created by
-              one administrator does not exist until a *different* one approves it. This tab is the
-              only place that second signature can be given, which is the gap D205 closes. */}
-          <div className="dz-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-gray-400">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
-            <span>{t('team.approvals.explainer')}</span>
-          </div>
-          {pendingError ? (
-            <div className="dz-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-red-300">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{pendingError}</span>
-            </div>
-          ) : null}
-          <Table
-            columns={approvalColumns}
-            rows={pending}
-            empty={t('team.approvals.empty')}
-            pageSize={12}
-            label={t('team.approvals.label')}
-            mobileCard={approvalCard}
-          />
-        </>
-      )}
-
-      {/* Member modal */}
       <Modal
         open={!!memberModal}
         onClose={() => setMemberModal(null)}
@@ -435,7 +394,7 @@ export default function AdminTeam() {
         footer={memberModal ? (
           <>
             <button onClick={() => setMemberModal(null)} className="dz-btn dz-btn-ghost">Cancel</button>
-            <button onClick={saveMember} className="dz-btn dz-btn-primary"><Check className="h-4 w-4" /> {memberModal.id ? 'Save changes' : 'Create member'}</button>
+            <button onClick={saveMember} disabled={saving} className="dz-btn dz-btn-primary"><Check className="h-4 w-4" /> {memberModal.id ? 'Save changes' : 'Create member'}</button>
           </>
         ) : null}
       >
@@ -465,86 +424,69 @@ export default function AdminTeam() {
                 ) : null}
               </label>
               <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-xs font-semibold text-gray-300">Email (optional)</span>
+                <span className="mb-1.5 block text-xs font-semibold text-gray-300">Email <span className="text-rose-400">*</span></span>
                 <input value={memberModal.email} onChange={(e) => setMemberModal({ ...memberModal, email: e.target.value })} className="dz-input w-full" placeholder="name@draazy.com" />
               </label>
             </div>
 
             <div>
               <span className="mb-1.5 block text-xs font-semibold text-gray-300">Role</span>
-              <Select value={memberModal.role} onChange={(v) => setMemberModal({ ...memberModal, role: v })} options={ROLE_OPTS} />
+              <Select value={memberModal.role} onChange={(v) => setMemberModal({ ...memberModal, role: v })} options={roleOptions} ariaLabel="Role" disabled={!!memberModal.id} />
             </div>
 
-            {memberModal.role === 'admin' ? (
-              <p className="rounded-lg bg-indigo-500/10 px-3 py-2.5 text-sm text-indigo-200">Administrators have full access to every module, including Team &amp; Access and Settings.</p>
-            ) : null}
-
-            {memberModal.role === 'manager' && !memberModal.id ? (
-              /* Said before the save, not after it. `manager` is an admin-console permission label,
-                 not one of the contract's roles, so the server refuses this create. */
-              <p className="flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-amber-200">
-                <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{t('team.managerNotCreatable')}</span>
-              </p>
-            ) : null}
-
-            {memberModal.id ? (
-              <div>
-                <span className="mb-1.5 block text-xs font-semibold text-gray-300">Back-office permissions</span>
-                {memberModal.permissionsError ? (
-                  <p className="flex items-start gap-2.5 rounded-lg bg-red-500/10 px-3 py-2.5 text-sm leading-relaxed text-red-200">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{memberModal.permissionsError}</span>
-                  </p>
-                ) : memberModal.permissions === null ? (
-                  <p className="text-sm text-gray-500">Loading this member’s permissions…</p>
-                ) : (
-                  <>
-                    <CheckGrid
-                      items={grantable.map((p) => ({ key: p.name, label: permissionLabel(p) }))}
-                      isOn={(name) => memberModal.permissions.includes(name)}
-                      onToggle={(name) => setMemberModal({
-                        ...memberModal,
-                        permissions: memberModal.permissions.includes(name)
-                          ? memberModal.permissions.filter((x) => x !== name)
-                          : [...memberModal.permissions, name],
-                      })}
-                    />
-                    {/* Named, not counted. An operator who ticks an atom this account's role never
-                        had needs to see that it did not take effect, and "23 of 27" does not say
-                        which one. Empty here is the ordinary case: an unscoped account holds its
-                        role's whole baseline. */}
-                    {memberModal.permissions.filter((p) => !memberModal.effective.includes(p)).length ? (
-                      <p className="mt-2 flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
-                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>
-                          Ticked but not in effect:{' '}
-                          {memberModal.permissions.filter((p) => !memberModal.effective.includes(p)).join(', ')}.
-                          A permission document can only narrow what the role already allows, never widen it.
-                        </span>
-                      </p>
-                    ) : null}
-                    <p className="mt-2 text-xs text-gray-500">
-                      {memberModal.scoped
-                        ? 'This account is scoped: it holds exactly what is ticked here.'
-                        : 'This account is not scoped yet — it holds its role’s full baseline, shown ticked. Unticking anything and saving starts scoping it.'}
-                      {' '}Scoping cannot be undone from here; an account with nothing ticked holds nothing.
-                    </p>
-                  </>
-                )}
-              </div>
+            {memberModal.role === 'manager' ? (
+              <p className="rounded-lg bg-teal-500/10 px-3 py-2.5 text-sm text-teal-100">Managers receive all functions by default and can create staff accounts.</p>
             ) : null}
 
             {memberModal.role === 'staff' ? (
               <div>
-                <span className="mb-1.5 block text-xs font-semibold text-gray-300">Ops service teams</span>
-                <CheckGrid
-                  items={OPS_TEAMS}
-                  isOn={(t) => memberModal.teams.includes(t)}
-                  onToggle={(t) => setMemberModal({ ...memberModal, teams: memberModal.teams.includes(t) ? memberModal.teams.filter((x) => x !== t) : [...memberModal.teams, t] })}
-                />
+                <span className="mb-1.5 block text-xs font-semibold text-gray-300">Back-office functions</span>
+                {memberModal.functionsError ? (
+                  <p className="flex items-start gap-2.5 rounded-lg bg-red-500/10 px-3 py-2.5 text-sm leading-relaxed text-red-200">
+                   <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                   <span>{memberModal.functionsError}</span>
+                  </p>
+                ) : memberModal.functions === null ? (
+                  <p className="text-sm text-gray-500">Loading this member’s functions…</p>
+                ) : (
+                  <>
+                   <FunctionChecklist
+                     functions={grantable}
+                     selected={memberModal.functions || []}
+                     onToggle={(name) => setMemberModal({
+                       ...memberModal,
+                       functions: memberModal.functions.includes(name)
+                         ? memberModal.functions.filter((x) => x !== name)
+                         : [...memberModal.functions, name],
+                     })}
+                   />
+                   <p className="mt-2 text-xs text-gray-500">
+                     {memberModal.functions?.length
+                       ? 'The server derives route permissions and desk scope from these functions.'
+                       : 'No function selected leaves this staff account with dashboard access only.'}
+                   </p>
+                  </>
+                )}
               </div>
             ) : null}
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
+        open={!!inviteDialog}
+        onClose={closeInviteDialog}
+        title="Invite link"
+        footer={inviteDialog ? (
+          <>
+            <button onClick={copyInvite} className="dz-btn dz-btn-primary"><Copy className="h-4 w-4" /> <span aria-live="polite">{inviteCopied || 'Copy link'}</span></button>
+            <button onClick={closeInviteDialog} className="dz-btn dz-btn-ghost">Done</button>
+          </>
+        ) : null}
+      >
+        {inviteDialog ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-300">Share this privately with {inviteDialog.name}; it works once and expires in 7 days.</p>
+            <input readOnly value={inviteDialog.url} className="dz-input w-full font-mono text-xs" onFocus={(e) => e.target.select()} aria-label="Staff invite link" />
           </div>
         ) : null}
       </Modal>

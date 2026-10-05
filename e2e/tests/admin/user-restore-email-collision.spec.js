@@ -1,50 +1,41 @@
-/* Restoring an archived account onto an email a live account now holds must be REFUSED: two live
-   rows on one address make `findByEmailAndArchivedFalse` throw, 500-ing sign-in for both people. */
+// Restore must refuse email collisions or sign-in can 500 for both live users.
 import { test, expect } from '@playwright/test';
-import { E2E_OTP } from '../../helpers/liveAuth.js';
+import { apiLogin } from '../../helpers/liveAuth.js';
 
-/** A seeded admin — the same account `property-integration.spec.js` moderates with. */
+// A seeded admin — the same account `property-integration.spec.js` moderates with.
 const ADMIN_MOBILE = '9000000000';
 
-/* A unique address and mobile per run. This spec creates rows it cannot delete — archiving is the
-   strongest verb available — so a fixed literal would collide with its own previous run forever. */
+// Use unique emails because archived rows cannot be deleted between runs.
 const RUN = Date.now().toString().slice(-8);
 const ADDRESS = `restore.collision.${RUN}@draazy.test`;
 const mobile = (n) => `9${String(RUN).padStart(9, '0').slice(0, 8)}${n}`;
 
-/* An admin token through the real OTP path, not a staff-password login: the seed carries no
-   credentials at all, so there is no password to present. Shared once, for speed. */
 let adminToken;
 
-test.beforeAll(async ({ request }) => {
-  await request.post('/api/auth/login', { data: { mobile: ADMIN_MOBILE } });
-  const res = await request.post('/api/auth/login', { data: { mobile: ADMIN_MOBILE, otp: E2E_OTP } });
-  expect(res.status(), 'admin OTP login').toBe(200);
-  adminToken = (await res.json()).accessToken;
+test.beforeAll(async () => {
+  adminToken = (await apiLogin(ADMIN_MOBILE)).accessToken;
   expect(adminToken, 'admin access token').toBeTruthy();
 });
 
 const auth = () => ({ headers: { Authorization: `Bearer ${adminToken}` } });
 
-async function createStaff(request, { name, mobile: m, email, password }) {
+async function createStaff(request, { name, mobile: m, email }) {
   const res = await request.post('/api/users/staff', {
     ...auth(),
-    data: { name, mobile: m, email, role: 'staff', password },
+    data: { name, mobile: m, email, role: 'staff', functions: ['desk:rental'] },
   });
   expect(res.status(), `create ${email}`).toBe(201);
-  return (await res.json()).id;
+  return (await res.json()).user.id;
 }
 
 test.describe('restoring onto a taken email address', () => {
   test('is refused with a 409 that names the address, and leaves the account archived', async ({
     request,
   }) => {
-    // 1. A colleague, then their departure.
     const first = await createStaff(request, {
       name: 'Collision First',
       mobile: mobile('1'),
       email: ADDRESS,
-      password: 'Probe-pass-1!',
     });
     expect((await request.patch(`/api/users/${first}/archive`, {
       ...auth(),
@@ -57,11 +48,9 @@ test.describe('restoring onto a taken email address', () => {
       name: 'Collision Second',
       mobile: mobile('2'),
       email: ADDRESS,
-      password: 'Probe-pass-2!',
     });
     expect(second).not.toBe(first);
 
-    // 3. Somebody changes their mind. This is where it used to go wrong.
     const restore = await request.patch(`/api/users/${first}/restore`, auth());
     expect(restore.status(), 'restoring onto a live address must be refused').toBe(409);
 
@@ -82,8 +71,6 @@ test.describe('restoring onto a taken email address', () => {
   });
 
   test('leaves staff login for the contested address unambiguous', async ({ request }) => {
-    // Which failure comes back is the whole signal: 401 means the lookup resolved to one row,
-    // 500 means it matched two and the collision is back. No password here can ever succeed.
     const res = await request.post('/api/auth/staff-login', {
       data: { email: ADDRESS, password: 'Probe-pass-2!' },
     });
@@ -97,7 +84,6 @@ test.describe('restoring onto a taken email address', () => {
       name: 'Collision Lonely',
       mobile: mobile('3'),
       email: `restore.lonely.${RUN}@draazy.test`,
-      password: 'Probe-pass-3!',
     });
     expect((await request.patch(`/api/users/${lonely}/archive`, {
       ...auth(),

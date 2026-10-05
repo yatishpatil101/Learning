@@ -35,7 +35,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
     @PersistenceContext
     EntityManager em;
 
-    /** See {@code StaffAccountApprovalTest} for why raw-SQL assertions need this. */
+    /** The service and this test share one transaction, but raw SQL cannot see unflushed entities. */
     private void flushSoRawSqlCanSeeIt() {
         em.flush();
     }
@@ -58,11 +58,13 @@ class UserModerationEndpointTest extends AbstractApiTest {
         return person("9877000001", Roles.Wire.ADMIN);
     }
 
+    private User admin(String mobile) {
+        return person(mobile, Roles.Wire.ADMIN);
+    }
+
     private String path(String route, User target) {
         return route.replace("{id}", target.getId().toString());
     }
-
-    // ---------------------------------------------------------------- suspension
 
     @Test
     @DisplayName("suspend marks the account without removing it from the directory")
@@ -88,8 +90,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .isFalse();
     }
 
-    // Sign in successfully, get suspended, and find the same sign-in refused — the credential is
-    // unchanged so nothing but the suspension can explain it.
     @Test
     @DisplayName("a suspended account cannot sign in")
     void aSuspendedAccountCannotSignIn() throws Exception {
@@ -135,6 +135,28 @@ class UserModerationEndpointTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("manager suspension actions notify the administrator")
+    void managerSuspensionActionsNotifyAdministrator() throws Exception {
+        User owner = admin("9877000050");
+        User actor = person("9877000051", Roles.Wire.MANAGER);
+        User target = person("9877000052", Roles.Wire.STAFF);
+
+        mvc.perform(patch(path(Routes.Users.SUSPEND, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"manager check\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(patch(path(Routes.Users.REACTIVATE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM notifications
+                WHERE user_id = ?::uuid AND type = 'team.manager-action'
+                """, Integer.class, owner.getId())).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("you cannot suspend yourself")
     void selfSuspensionIsRefused() throws Exception {
         User actor = admin();
@@ -164,24 +186,234 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .value("This account is archived, not suspended. Restore it first."));
     }
 
-    // -------------------------------------------------------------------- badge
-
     @Test
-    @DisplayName("an administrator can vouch for someone the self-serve identity check cannot reach")
-    void badgeCanBeGrantedByHand() throws Exception {
-        User actor = admin();
+    @DisplayName("a badge grant creates a pending request, not a badge")
+    void badgeGrantCreatesPendingRequest() throws Exception {
+        User actor = admin("9877000001");
         User target = person("9877000006", Roles.Wire.OWNER);
 
         mvc.perform(patch(path(Routes.Users.BADGE, target))
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.userId").value(target.getId().toString()))
+                .andExpect(jsonPath("$.requestedBy").value(actor.getId().toString()))
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.userMobileMasked").value("98XXXXX006"));
+
+        flushSoRawSqlCanSeeIt();
+        em.clear();
+        assertThat(users.findById(target.getId()).orElseThrow().isVerified()).isFalse();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM badge_grant_requests
+                WHERE user_id = ? AND requested_by = ? AND status = 'pending'
+                """, Integer.class, target.getId(), actor.getId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a user cannot request their own manual badge")
+    void badgeGrantSelfRequestIsRefused() throws Exception {
+        User actor = admin("9877000024");
+
+        mvc.perform(patch(path(Routes.Users.BADGE, actor))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("a duplicate pending badge grant is refused")
+    void duplicateBadgeGrantIsRefused() throws Exception {
+        User actor = admin("9877000025");
+        User target = person("9877000026", Roles.Wire.OWNER);
+
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isAccepted());
+
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"fresh documents checked\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("a manual badge grant is refused when the user is already verified")
+    void badgeGrantAlreadyVerifiedIsRefused() throws Exception {
+        User actor = admin("9877000027");
+        User target = person("9877000028", Roles.Wire.OWNER);
+        target.setVerified(true);
+        users.saveAndFlush(target);
+
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("a padded badge grant reason is measured after trimming")
+    void badgeGrantReasonIsTrimValidated() throws Exception {
+        User actor = admin("9877000044");
+        User target = person("9877000045", Roles.Wire.OWNER);
+
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"          x          \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("reason must be 10 to 300 characters after trimming"));
+    }
+
+    @Test
+    @DisplayName("a second administrator can approve a badge request")
+    void badgeGrantApprovalGrantsBadgeAndAudits() throws Exception {
+        User maker = admin("9877000029");
+        User checker = admin("9877000030");
+        User target = person("9877000031", Roles.Wire.OWNER);
+
+        String created = mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(maker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        String requestId = jsonField(created, "id");
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_APPROVE.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"looks good\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified").value(true));
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.decidedBy").value(checker.getId().toString()))
+                .andExpect(jsonPath("$.decisionNote").value("looks good"));
 
         flushSoRawSqlCanSeeIt();
         em.clear();
         assertThat(users.findById(target.getId()).orElseThrow().isVerified()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT status FROM badge_grant_requests WHERE id = ?::uuid",
+                String.class, requestId)).isEqualTo("approved");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM audit_log
+                WHERE action = 'user.badge.grant_approved' AND entity_id = ?
+                """, Integer.class, requestId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the maker cannot approve their own badge request")
+    void badgeGrantMakerCannotApprove() throws Exception {
+        User maker = admin("9877000032");
+        User target = person("9877000033", Roles.Wire.OWNER);
+        String requestId = createBadgeGrant(maker, target);
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_APPROVE.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(maker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("the subject cannot approve their own badge request")
+    void badgeGrantSubjectCannotApprove() throws Exception {
+        User maker = admin("9877000034");
+        User target = admin("9877000035");
+        String requestId = createBadgeGrant(maker, target);
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_APPROVE.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(target))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("rejecting a badge request requires a reason and leaves the user unverified")
+    void badgeGrantRejectRequiresReason() throws Exception {
+        User maker = admin("9877000036");
+        User checker = admin("9877000037");
+        User target = person("9877000038", Roles.Wire.OWNER);
+        String requestId = createBadgeGrant(maker, target);
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_REJECT.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"\"}"))
+                .andExpect(status().isUnprocessableEntity());
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_REJECT.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"document mismatch\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("rejected"))
+                .andExpect(jsonPath("$.decisionNote").value("document mismatch"));
+
+        flushSoRawSqlCanSeeIt();
+        em.clear();
+        assertThat(users.findById(target.getId()).orElseThrow().isVerified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a padded badge grant rejection reason is measured after trimming")
+    void badgeGrantRejectReasonIsTrimValidated() throws Exception {
+        User maker = admin("9877000046");
+        User checker = admin("9877000047");
+        User target = person("9877000048", Roles.Wire.OWNER);
+        String requestId = createBadgeGrant(maker, target);
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_REJECT.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"          x          \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("reason must be 10 to 300 characters after trimming"));
+    }
+
+    @Test
+    @DisplayName("a decided badge request cannot be decided again")
+    void badgeGrantNonPendingIsAConflict() throws Exception {
+        User maker = admin("9877000039");
+        User checker = admin("9877000040");
+        User target = person("9877000041", Roles.Wire.OWNER);
+        String requestId = createBadgeGrant(maker, target);
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_REJECT.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"document mismatch\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(post(Routes.Admin.BADGE_GRANT_APPROVE.replace("{id}", requestId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(checker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("a pending badge grant must be rejected before withdrawal")
+    void badgeWithdrawalWithPendingRequestIsRefused() throws Exception {
+        User actor = admin("9877000042");
+        User target = person("9877000043", Roles.Wire.OWNER);
+        createBadgeGrant(actor, target);
+
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":false,\"reason\":\"documents stale now\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "This user has a pending badge grant request. Reject the pending request instead."));
     }
 
     @Test
@@ -200,8 +432,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.verified").value(false));
     }
 
-    // The verification handler returns early on an already-verified record, so a withdrawal would
-    // be unrecoverable — nothing would put the badge back.
     @Test
     @DisplayName("a badge earned through identity verification cannot be withdrawn here")
     void earnedBadgeIsNotWithdrawable() throws Exception {
@@ -241,8 +471,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .content("{\"reason\":\"nothing in particular\"}"))
                 .andExpect(status().isUnprocessableEntity());
     }
-
-    // --------------------------------------------------------------------- flag
 
     @Test
     @DisplayName("a flag carries what was noticed, and clearing it forgets")
@@ -305,8 +533,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.flagReason").doesNotExist());
     }
 
-    // ------------------------------------------------------------------ filters
-
     @Test
     @DisplayName("the directory can be filtered by status and by flag")
     void directoryFilters() throws Exception {
@@ -342,8 +568,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].id").value(flagged.getId().toString()));
     }
 
-    // An unknown status matches nothing — indistinguishable from a legitimately empty filter — so
-    // a typo would look like a working screen reporting an empty platform.
     @Test
     @DisplayName("an unknown status is refused rather than answered with an empty page")
     void unknownStatusIsRefused() throws Exception {
@@ -354,6 +578,47 @@ class UserModerationEndpointTest extends AbstractApiTest {
 
     // Without this filter the audit log is browsable only by time, useless for a case — and it is
     // what lets the badge and flag routes store no provenance of their own.
+    @Test
+    @DisplayName("admin edit cannot change a verified user's name")
+    void adminNameChangeIsLockedForVerifiedUsers() throws Exception {
+        User actor = admin("9877000049");
+        User target = person("9877000050", Roles.Wire.OWNER);
+        target.setVerified(true);
+        users.saveAndFlush(target);
+
+        mvc.perform(patch(path(Routes.Users.BY_ID, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Renamed Owner\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("NAME_LOCKED_WHILE_VERIFIED"));
+
+        em.clear();
+        assertThat(users.findById(target.getId()).orElseThrow().getName())
+                .isEqualTo("V77 probe 9877000050");
+    }
+
+    @Test
+    @DisplayName("admin name changes audit the previous value")
+    void adminNameChangeAuditsPreviousName() throws Exception {
+        User actor = admin("9877000051");
+        User target = person("9877000052", Roles.Wire.OWNER);
+
+        mvc.perform(patch(path(Routes.Users.BY_ID, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Renamed Owner\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Renamed Owner"));
+
+        String metadata = jdbc.queryForObject("""
+                SELECT metadata::text FROM audit_log
+                WHERE action = 'user.update' AND entity_id = ?
+                ORDER BY at DESC LIMIT 1
+                """, String.class, target.getId().toString());
+        assertThat(metadata).contains("\"previousName\": \"V77 probe 9877000052\"");
+    }
+
     @Test
     @DisplayName("the audit log can answer what has happened to one person")
     void auditLogFiltersByEntityId() throws Exception {
@@ -381,8 +646,6 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].action").value("user.flag"))
                 .andExpect(jsonPath("$.content[0].entityId").value(target.getId().toString()));
     }
-
-    // ----------------------------------------------------------------- timeline
 
     // The account line is the one entry every user has, so a brand-new account must still come
     // back with exactly one event rather than an empty list.
@@ -419,7 +682,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                // newest first, and the flag was raised after the account was made
+
                 .andExpect(jsonPath("$[0].kind").value("moderation"))
                 .andExpect(jsonPath("$[0].label").value("user.flag"))
                 .andExpect(jsonPath("$[1].kind").value("account"));
@@ -449,8 +712,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(status().isForbidden());
     }
 
-    // ------------------------------------------------------------------- guards
-
+    // guards
     @Test
     @DisplayName("staff cannot reach any of the four")
     void staffAreRefused() throws Exception {
@@ -462,18 +724,13 @@ class UserModerationEndpointTest extends AbstractApiTest {
             mvc.perform(patch(path(route, target))
                             .header(HttpHeaders.AUTHORIZATION, bearer(staff))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"reason\":\"x\",\"granted\":true,\"flagged\":true}"))
+                            .content("{\"reason\":\"staff must not act\",\"granted\":true,\"flagged\":true}"))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ------------------------------------------------------------------ helpers
-
-    // Drive a real OTP sign-in and return verify status; the dispatched code is only logged, so
-    // the stored hash is replaced with the hash of a code this test chooses.
     private int otpLogin(String mobile) throws Exception {
-        // Send cooldown keys on the newest otp_codes row, so signing the same person in twice would
-        // 429 the second send. Clearing resets the throttle and nothing else about the flow.
+
         flushSoRawSqlCanSeeIt();
         jdbc.update("DELETE FROM otp_codes WHERE mobile = ?", mobile);
         em.clear();
@@ -487,7 +744,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 WHERE id = (SELECT id FROM otp_codes WHERE mobile = ?
                             ORDER BY created_at DESC LIMIT 1)""",
                 sha256Hex("424242"), mobile);
-        // Detach so the rewrite above is visible to the code under test.
+
         em.clear();
         return mvc.perform(post(Routes.Auth.LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -503,5 +760,19 @@ class UserModerationEndpointTest extends AbstractApiTest {
             hex.append("%02x".formatted(b));
         }
         return hex.toString();
+    }
+
+    private String createBadgeGrant(User maker, User target) throws Exception {
+        String body = mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(maker))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        return jsonField(body, "id");
+    }
+
+    private static String jsonField(String json, String field) {
+        return json.replaceAll("(?s).*\"" + field + "\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }
 }

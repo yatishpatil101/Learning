@@ -25,10 +25,13 @@ public class PermissionMap {
 
     private final SettingRepository settings;
     private final ObjectMapper objectMapper;
+    private final AccountPermissions accountPermissions;
 
-    public PermissionMap(SettingRepository settings, ObjectMapper objectMapper) {
+    public PermissionMap(SettingRepository settings, ObjectMapper objectMapper,
+            AccountPermissions accountPermissions) {
         this.settings = settings;
         this.objectMapper = objectMapper;
+        this.accountPermissions = accountPermissions;
     }
 
     /**
@@ -50,15 +53,26 @@ public class PermissionMap {
         if (caller == null) {
             return false;
         }
+        if (Capabilities.VIEW_DASHBOARD.equals(capability) && Roles.isBackOffice(caller.role())) {
+            return true;
+        }
         JsonNode allowList = storedAllowList();
         if (allowList == null) {
             return true;
         }
-        String key = keyFor(caller);
-        if (key == null) {
+        if (Roles.Wire.STAFF.equals(caller.role())) {
+            for (String desk : accountPermissions.desksFor(caller)) {
+                if (grants(allowList.get(desk), capability)) {
+                    return true;
+                }
+            }
             return false;
         }
-        JsonNode bundle = allowList.get(key);
+        String key = keyFor(caller);
+        return key != null && grants(allowList.get(key), capability);
+    }
+
+    private boolean grants(JsonNode bundle, String capability) {
         if (bundle == null || !bundle.isArray()) {
             return false;
         }
@@ -79,11 +93,8 @@ public class PermissionMap {
      * to name them — a denial. Read off the signature-verified principal and nothing else.
      */
     private String keyFor(AuthPrincipal caller) {
-        if (Roles.Wire.ADMIN.equals(caller.role())) {
+        if (Roles.Wire.ADMIN.equals(caller.role()) || Roles.Wire.MANAGER.equals(caller.role())) {
             return Roles.Wire.ADMIN;
-        }
-        if (Roles.Wire.STAFF.equals(caller.role())) {
-            return caller.team();
         }
         return null;
     }

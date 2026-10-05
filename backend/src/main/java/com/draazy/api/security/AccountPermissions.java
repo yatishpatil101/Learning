@@ -127,26 +127,58 @@ public class AccountPermissions {
      */
     @Transactional(readOnly = true)
     public Set<String> effectiveFor(String wireRole, UUID userId) {
-        Set<String> baseline = BackOfficePermissions.baselineFor(wireRole);
-        if (baseline.isEmpty() || userId == null) {
-            return baseline;
-        }
-        Optional<BackOfficeGrant> stored = grants.findById(userId);
-        if (stored.isEmpty()) {
-            return baseline;
-        }
-        Set<String> document = parse(userId, stored.get().getPermissions());
-        if (document == null) {
+        if (!Roles.isBackOffice(wireRole)) {
             return Set.of();
         }
-        // The one operation this class performs on the baseline, and the reason a stored document
-        // cannot widen anything: an intersection has no member neither operand had. Iterating the
-        // baseline's order rather than the document's is deliberate — the resolved set is rendered
-        // to an administrator, and "the role's permissions, minus the ones taken away" reads as a
-        // subtraction, which is what it is. A document's own ordering is an input artefact.
-        Set<String> effective = new LinkedHashSet<>(baseline);
-        effective.retainAll(document);
+        Set<String> baseline = BackOfficePermissions.baselineFor(wireRole);
+        // The single administrator is never narrowed; any stored document is ignored.
+        if (Roles.Wire.ADMIN.equals(wireRole)) {
+            return baseline;
+        }
+        Optional<BackOfficeGrant> stored = userId == null ? Optional.empty() : grants.findById(userId);
+        Set<String> functions = stored
+                .map(grant -> parse(userId, grant.getPermissions()))
+                .orElseGet(() -> BackOfficeFunctions.defaultForRole(wireRole));
+        if (functions == null) {
+            return Set.of(BackOfficePermissions.DASHBOARD_READ);
+        }
+        Set<String> effective = BackOfficeFunctions.effectiveAtoms(wireRole, functions);
+        if (Roles.Wire.MANAGER.equals(wireRole)) {
+            effective = new LinkedHashSet<>(effective);
+            effective.add(BackOfficePermissions.USERS_READ);
+            effective.add(BackOfficePermissions.USERS_WRITE);
+            effective.add(BackOfficePermissions.AUDIT_READ);
+        }
         return effective;
+    }
+
+    @Transactional(readOnly = true)
+    public Set<String> functionsFor(String wireRole, UUID userId) {
+        if (!Roles.isBackOffice(wireRole)) {
+            return Set.of();
+        }
+        Optional<BackOfficeGrant> stored = userId == null ? Optional.empty() : grants.findById(userId);
+        if (stored.isEmpty()) {
+            return BackOfficeFunctions.defaultForRole(wireRole);
+        }
+        Set<String> functions = parse(userId, stored.get().getPermissions());
+        return functions == null ? Set.of() : functions;
+    }
+
+    @Transactional(readOnly = true)
+    public Set<String> desksFor(AuthPrincipal caller) {
+        if (caller == null || !Roles.Wire.STAFF.equals(caller.role())) {
+            return Set.of();
+        }
+        return desksFor(caller.role(), caller.userId());
+    }
+
+    @Transactional(readOnly = true)
+    public Set<String> desksFor(String wireRole, UUID userId) {
+        if (!Roles.Wire.STAFF.equals(wireRole)) {
+            return Set.of();
+        }
+        return BackOfficeFunctions.desksFor(functionsFor(wireRole, userId));
     }
 
     /**
@@ -170,7 +202,10 @@ public class AccountPermissions {
                             userId);
                     return null;
                 }
-                names.add(entry.stringValue());
+                String name = entry.stringValue();
+                if (BackOfficeFunctions.isKnown(name)) {
+                    names.add(name);
+                }
             }
             return names;
         } catch (RuntimeException malformed) {
