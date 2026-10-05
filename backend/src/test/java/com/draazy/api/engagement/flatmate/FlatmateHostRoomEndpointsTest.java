@@ -29,24 +29,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * A host's own rooms — {@code GET /me/flatmate-rooms} and {@code DELETE /flatmates/rooms/{id}}.
- *
- * <p>The room counterparts of {@code FlatmateApplicationEndpointsTest.MyGroups} and of the group
- * delete, and the assertions are chosen for the two things that could plausibly regress rather than
- * for the happy paths.
- *
- * <p>The first is {@link MyRooms#includesAPendingRoom()}. The public feed hard-floors on
- * {@code mod_status in ('live','approved')} (D210), and that predicate is one copy-paste away from
- * being inherited by any new room query — at which point this route would answer an empty list to a
- * host minutes after they posted, which reads as data loss and gets the room posted again.
- *
- * <p>The second is {@link Withdrawing#aSplitRoomCannotBeWithdrawnAlone()}. Withdrawing is the one
- * place where the room genuinely cannot follow the group, because a split room's siblings are the
- * parent listing's split and its {@code occupants} are the only record that people live there.
- * Without the refusal, an owner could walk around {@code DELETE /properties/&#123;id&#125;/split}'s
- * "someone has already moved in" check one room at a time.
- */
+// Room ownership tests focus on plausible regressions: host scoping and soft withdrawal.
+// The second is Withdrawing#aSplitRoomCannotBeWithdrawnAlone().
 @DisplayName("Flatmates — a host's own rooms")
 class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
 
@@ -86,11 +70,11 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
                  "furnishing":"semi","locality":"%s","society":"%s","rentShare":15000,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
                  "foodPref":"any","photos":["https://cdn.example/1.jpg"],
+                 "hostRole":"owner",
                  "note":"Sunny room, quiet building."}
                 """.formatted(locality, society);
     }
 
-    /** A standalone room, left in the D72 queue — {@code pending} is the shipped default. */
     private String createRoom(User host, String locality, String society) throws Exception {
         String json = mvc.perform(post(Routes.Flatmates.ROOMS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
@@ -101,23 +85,13 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
         return json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }
 
-    /** The same room, let out of the queue — needed whenever a test reads the public feed. */
     private String publishedRoom(User host, String locality, String society) throws Exception {
         String id = createRoom(host, locality, society);
         return moderateTo(id, "approved");
     }
 
-    /**
-     * Move a room's moderation state by raw SQL, then drop the persistence context.
-     *
-     * <p>The whole class runs in one transaction, so after the UPDATE Hibernate is still holding
-     * the entity it read a moment ago and would hand that stale copy back — the row would answer
-     * {@code pending} to a route that reads {@code modStatus} off the object rather than off a
-     * WHERE clause. {@code /me/flatmate-rooms} is exactly such a route, deliberately: it applies no
-     * moderation floor at all. Clearing forces the next read to come from the database, which is
-     * what the running application, with a fresh context per request, would always have done.
-     * {@code FlatmateApplicationEndpointsTest} solves the same problem the same way.
-     */
+    // The transaction still holds the stale entity after UPDATE;
+    // clear it so routes read the database value, as production would.
     private String moderateTo(String id, String modStatus) {
         jdbc.update("update flatmate_rooms set mod_status = ? where id = ?::uuid", modStatus, id);
         em.clear();
@@ -134,8 +108,6 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
             User host = user("9840000001", "Host One");
             createRoom(host, "Baner", "Sai Radha A");
 
-            // The public feed would return nothing for this room. That is correct for a stranger
-            // and wrong for its author, and the difference is the entire reason this route exists.
             mvc.perform(get(Routes.Flatmates.MY_ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
@@ -143,7 +115,7 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content[0].modStatus").value("pending"))
                     .andExpect(jsonPath("$.content[0].locality").value("Baner"));
 
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Baner"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Baner"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
         }
@@ -154,8 +126,6 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
             User host = user("9840000002", "Host Two");
             moderateTo(createRoom(host, "Aundh", "Palm Grove"), "removed");
 
-            // A host who cannot see the rejection never learns there was one, and simply posts the
-            // same room again — which the address guardrails then have to catch.
             mvc.perform(get(Routes.Flatmates.MY_ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
@@ -182,8 +152,6 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
             User host = user("9840000005", "Host Five");
             createRoom(host, "Wakad", "Sai Radha B");
 
-            // The full DTO rather than FlatmateRoomFeedDto: modStatus explains the queue, seats
-            // drive the edit controls, and the number is the host's own, on their own row.
             mvc.perform(get(Routes.Flatmates.MY_ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
@@ -230,7 +198,7 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
             User host = user("9840000010", "Host Ten");
             String id = publishedRoom(host, "Baner", "Sai Radha C");
 
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Baner"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Baner"))
                     .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
 
             mvc.perform(delete(Routes.Flatmates.ROOM_BY_ID, id)
@@ -240,7 +208,7 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
                             .as("204 carries no body")
                             .isEmpty());
 
-            mvc.perform(get(Routes.Flatmates.ROOMS).param("locality", "Baner"))
+            mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Baner"))
                     .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
         }
 
@@ -254,9 +222,8 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isNoContent());
 
-            // The fingerprint, the moderation queue entry and the audit trail all still point at
-            // this row, and mod_status is Ops's column — a host taking their own post down must
-            // never be recorded as Ops having removed it.
+            // Host withdrawal must not look like Ops removal; moderation state
+            // and audit trail still point at this row.
             assertThat(jdbc.queryForObject(
                     "select archived from flatmate_rooms where id = ?::uuid", Boolean.class, id))
                     .isTrue();
@@ -344,14 +311,8 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isUnauthorized());
         }
 
-        /**
-         * The one place the room deviates from the group.
-         *
-         * <p>A split room's {@code occupants} are the only record that people live in the flat, and
-         * {@code DELETE /properties/&#123;id&#125;/split} refuses once anyone has moved in.
-         * Withdrawing siblings one at a time would be a way around that check, so this route
-         * refuses a split room outright and names the other door.
-         */
+        // Split-room occupants are the only move-in record, so sibling withdrawal
+        // must not bypass the split delete guard.
         @Test
         @DisplayName("a split room cannot be withdrawn on its own")
         void aSplitRoomCannotBeWithdrawnAlone() throws Exception {

@@ -1,6 +1,7 @@
 package com.draazy.api.engagement.flatmate;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,6 +10,7 @@ import java.util.UUID;
 public record FlatmateRoomFeedDto(
         UUID id,
         String type,
+        String title,
         UUID propertyId,
         String roomKind,
         String roomType,
@@ -33,7 +35,6 @@ public record FlatmateRoomFeedDto(
         boolean verified,
         String reviewStatus,
         String society,
-        String flatNumber,
         String locality,
         List<String> localities,
         Double lat,
@@ -46,10 +47,12 @@ public record FlatmateRoomFeedDto(
         String facing,
         String overlooking,
         String moveIn,
+        LocalDate availableFrom,
         String gender,
         String food,
         List<String> tags,
         String note,
+        String cover,
         String owner,
         Instant createdAt) {
 }

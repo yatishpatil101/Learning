@@ -20,18 +20,19 @@ class FlatmateRoomShapeTest {
 
     // Public fields must serve a card, filter, map or flat ledger; host-only data stays below.
     private static final List<String> FEED_FIELDS = List.of(
-            "id", "type", "propertyId", "roomKind", "roomType", "attachedBath", "priceBasis",
+            "id", "type", "title", "propertyId", "roomKind", "roomType", "attachedBath", "priceBasis",
             "budget", "deposit", "noticePeriodDays", "lockInMonths", "maintenanceBilling",
             "electricityBilling", "occupancy", "occupants", "maxOccupants", "flatCommitted",
             "flatMax", "shareMax", "seatsTotal", "seatsOpen", "hostRole", "verificationTier",
-            "verified", "reviewStatus", "society", "flatNumber", "locality", "localities", "lat",
+            "verified", "reviewStatus", "society", "locality", "localities", "lat",
             "lng", "bhk", "flatType", "homeTypeLabel", "gatedCommunity", "furnishing", "moveIn",
-            "gender", "food", "tags", "note", "owner", "createdAt", "facing", "overlooking");
+            "availableFrom", "gender", "food", "tags", "note", "cover", "owner", "createdAt", "facing",
+            "overlooking");
 
     // Contact and moderation forensics have no place on the anonymous feed.
     private static final List<String> DETAIL_ONLY_FIELDS = List.of(
-            "agreementDeclared", "addressFingerprint", "flagForReview", "societyId",
-            "availableFrom", "photos", "ownerMobile", "status", "modStatus");
+            "agreementDeclared", "addressFingerprint", "flagForReview", "flatNumber", "societyId",
+            "photos", "ownerMobile", "status", "modStatus", "host");
 
     private static Map<String, Class<?>> componentsOf(Class<?> record) {
         return Arrays.stream(record.getRecordComponents())
@@ -69,6 +70,7 @@ class FlatmateRoomShapeTest {
         void sharedFieldsHaveTheSameType() {
             Map<String, Class<?>> feed = componentsOf(FlatmateRoomFeedDto.class);
             Map<String, Class<?>> detail = componentsOf(FlatmateRoomDto.class);
+
             // A projection that silently widens Long to String, or int to Integer, would change
             // the JSON a client already parses while still passing a name-only check.
             assertThat(feed).containsExactlyInAnyOrderEntriesOf(
@@ -85,6 +87,7 @@ class FlatmateRoomShapeTest {
         @Test
         @DisplayName("produce the same value for every shared field, from the same row")
         void agreeOnEverySharedField() throws Exception {
+
             // Each projection wires its own derivations; matching field names cannot prove parity.
             FlatmateRoom room = splitRoomInAPartlyOccupiedFlat();
             FlatmateMapper mapper = new FlatmateMapperImpl();
@@ -100,7 +103,19 @@ class FlatmateRoomShapeTest {
             }
         }
 
-        // No seats: exercise the flat-wide occupancy ledger rather than the standalone branch.
+        @Test
+        @DisplayName("give a card the first gallery photo as its cover, and null without one")
+        void coverIsTheFirstPhoto() {
+            FlatmateMapper mapper = new FlatmateMapperImpl();
+            FlatmateMapper.RoomView view = new FlatmateMapper.RoomView(0, "Asha", null, null);
+            FlatmateRoom room = splitRoomInAPartlyOccupiedFlat();
+            assertThat(mapper.toFeedDto(room, view).cover()).isNull();
+
+            room.setPhotos(List.of("https://cdn.test/a.jpg", "https://cdn.test/b.jpg"));
+            assertThat(mapper.toFeedDto(room, view).cover()).isEqualTo("https://cdn.test/a.jpg");
+            assertThat(mapper.toDto(room, view).cover()).isEqualTo("https://cdn.test/a.jpg");
+        }
+
         private FlatmateRoom splitRoomInAPartlyOccupiedFlat() {
             FlatmateRoom room = new FlatmateRoom();
             room.setPropertyId(UUID.randomUUID());
@@ -111,6 +126,8 @@ class FlatmateRoomShapeTest {
             room.setRoomType("Private room");
             room.setLocality("Baner");
             room.setSociety("Skyline Heights");
+            room.setTitle("Sunny room near Baner high street");
+            room.setAvailableFrom(java.time.LocalDate.of(2026, 10, 1));
             return room;
         }
     }

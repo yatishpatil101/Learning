@@ -1,6 +1,10 @@
 package com.draazy.api.engagement.flatmate;
 
+import static com.draazy.api.engagement.flatmate.FlatmateVocabulary.NO_CONTACT;
+
+import com.draazy.api.catalog.listing.NoContactDetails;
 import com.draazy.api.common.validation.IndianMobile;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -10,8 +14,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-/** Contract schema {@code FlatmateRoomCreate}. Trust signals stay server-side; see
- * docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc. */
 public record FlatmateRoomCreateRequest(
         String homeTypeLabel,
         String bhk,
@@ -40,12 +42,13 @@ public record FlatmateRoomCreateRequest(
         String propertyId,
         Boolean agreementDeclared,
         Map<String, Object> agreementDoc,
-        @Size(max = 60) String agreementRegNo,
-        LocalDate agreementRegisteredOn,
-        LocalDate agreementValidTill,
         @IndianMobile String ownerConsentMobile,
-        @Size(max = 12) List<@NotBlank @Size(max = 500) String> photos,
+        Boolean ownerConsent,
+        @Size(max = 20) List<@NotBlank @Size(max = 500) String> photos,
         @Size(max = 600) String note,
         Double lat,
-        Double lng) {
+        Double lng,
+        Boolean gatedCommunity,
+        @Valid FlatmateRoomDetails details,
+        @Size(max = 120) @NoContactDetails(message = NO_CONTACT) String title) {
 }

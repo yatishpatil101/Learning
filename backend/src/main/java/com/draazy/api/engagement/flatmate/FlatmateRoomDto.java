@@ -3,6 +3,7 @@ package com.draazy.api.engagement.flatmate;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Contract schema {@code FlatmateRoom}; {@code ownerMobile} is host-only. Rationale:
@@ -10,6 +11,7 @@ import java.util.UUID;
 public record FlatmateRoomDto(
         UUID id,
         String type,
+        String title,
         UUID propertyId,
         String roomKind,
         String roomType,
@@ -57,9 +59,20 @@ public record FlatmateRoomDto(
         String food,
         List<String> tags,
         String note,
+        String cover,
         List<String> photos,
         String owner,
         String ownerMobile,
         String status,
-        Instant createdAt) {
+        Instant createdAt,
+        Host host) {
+
+    public record Host(
+            FlatmateRoomDetails details,
+            Map<String, Object> agreementDoc,
+            String agreementRegNo,
+            LocalDate agreementRegisteredOn,
+            LocalDate agreementValidTill,
+            String ownerConsentMobile) {
+    }
 }

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
-
+import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 /* The fixture omits `propertyId` and declares no agreement, so the server derives the identity
    floor; owner tier is covered by `trust-badges.spec.js`. */
 
@@ -29,7 +29,7 @@ async function myRoom(token, roomId) {
   return room;
 }
 
-test('the host closes and reopens a real standalone room seat from its card', async ({ page }) => {
+test('the host closes and reopens a real standalone room seat from its detail page', async ({ page }) => {
   const mobile = await signedInAsNew(page);
   const { accessToken } = await apiLogin(mobile);
   const society = `Live room seats ${Date.now().toString(36)}`;
@@ -50,6 +50,7 @@ test('the host closes and reopens a real standalone room seat from its card', as
       foodPref: 'any',
       hostRole: 'tenant',
       photos: ['https://cdn.example/live-room-seat.jpg'],
+      ...(await tenantRoomAgreement(accessToken)),
     }),
   });
   const room = await created.json();
@@ -59,17 +60,17 @@ test('the host closes and reopens a real standalone room seat from its card', as
 
   await page.goto(`${BASE}/flatmates`);
   await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible({ timeout: 20_000 });
-  const card = page.locator(`[data-sf-id="r:${room.id}"]`);
-  await expect(card).toBeVisible({ timeout: 15_000 });
-  await expect(card.getByText(/1 seat open/i)).toBeVisible();
+  await page.getByTestId('my-posts-strip').locator(`a[href="/flatmates/room/${room.id}"]`).click({ timeout: 15_000 });
 
-  await expect(card.locator('.seat-close-btn')).toBeVisible();
-  await card.locator('.seat-close-btn').click();
-  await expect(card.getByText(/^Filled$/)).toBeVisible({ timeout: 10_000 });
+  const panel = page.getByTestId('flatmate-owner-panel');
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/1 seat open/i).first()).toBeVisible();
+  await panel.locator('.seat-close-btn').click();
+  await expect(page.getByText(/^Filled$/)).toBeVisible({ timeout: 10_000 });
   expect((await myRoom(accessToken, room.id)).seatsOpen).toBe(0);
 
-  await expect(card.locator('.seat-reopen-btn')).toBeEnabled();
-  await card.locator('.seat-reopen-btn').click();
-  await expect(card.getByText(/1 seat open/i)).toBeVisible({ timeout: 10_000 });
+  await expect(panel.locator('.seat-reopen-btn')).toBeEnabled();
+  await panel.locator('.seat-reopen-btn').click();
+  await expect(page.getByText(/1 seat open/i)).toBeVisible({ timeout: 10_000 });
   expect((await myRoom(accessToken, room.id)).seatsOpen).toBe(1);
 });

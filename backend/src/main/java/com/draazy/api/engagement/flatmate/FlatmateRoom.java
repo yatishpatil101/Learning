@@ -15,8 +15,6 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** A room inside a flat that actually exists (V13 {@code flatmate_rooms}); two ledgers on one
- * table. Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc. */
 @Entity
 @Table(name = "flatmate_rooms")
 @Getter
@@ -43,7 +41,6 @@ public class FlatmateRoom extends AuditedEntity implements FlatmateSupplyPost {
     @Setter
     private String attachedBath = "shared";
 
-    /** Whether {@link #budget} is per-person or whole-room; mixing them misprices shared beds. */
     @Column(name = "price_basis", nullable = false)
     @Setter
     private String priceBasis = "person";
@@ -127,9 +124,16 @@ public class FlatmateRoom extends AuditedEntity implements FlatmateSupplyPost {
     @Embedded
     private ModerationRecheck recheck = new ModerationRecheck();
 
+    @Embedded
+    private FlatmateExpiry expiry = new FlatmateExpiry();
+
     @Column(name = "society_id")
     @Setter
     private UUID societyId;
+
+    @Column(name = "title")
+    @Setter
+    private String title;
 
     @Column(name = "society")
     @Setter
@@ -156,7 +160,6 @@ public class FlatmateRoom extends AuditedEntity implements FlatmateSupplyPost {
     @Setter
     private Double lng;
 
-    /** {@code "4"} means 4+, matching the contract's enum. */
     @Column(name = "bhk")
     @Setter
     private String bhk;
@@ -214,6 +217,11 @@ public class FlatmateRoom extends AuditedEntity implements FlatmateSupplyPost {
     @Column(name = "photos", nullable = false)
     @Setter
     private List<String> photos = new ArrayList<>();
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "details")
+    @Setter
+    private FlatmateRoomDetails details;
 
     @Column(name = "status", nullable = false)
     @Setter

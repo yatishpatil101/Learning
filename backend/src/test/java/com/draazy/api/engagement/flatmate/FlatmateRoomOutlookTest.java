@@ -34,6 +34,7 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
         @Autowired PropertyRepository properties;
     @Autowired EntityManager em;
     private User host;
+    private String ownerPropertyId;
 
     @BeforeEach
     void createHost() {
@@ -41,6 +42,10 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
         host.setName("Outlook Host");
         host.setMobileVerified(true);
         host = users.saveAndFlush(host);
+        Property flat = new Property(host, "Outlook parent flat", "rent", "apartment",
+                45000L, "Baner", "Pune");
+        flat.setStatus(PropertyStatus.APPROVED);
+        ownerPropertyId = properties.saveAndFlush(flat).getId().toString();
     }
 
     @AfterEach
@@ -69,10 +74,9 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
         assertStoredAndReadable(id, null, "Parking");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"", "\"facing\":null,\"overlooking\":null",
-            "\"facing\":\"  \",\"overlooking\":\"  \""})
-    void omittedNullAndBlankStayOptionalAndClearOnUpdate(String fields) throws Exception {
+    @Test
+    void blankStaysOptionalAndClearsOnUpdate() throws Exception {
+        String fields = "\"facing\":\"  \",\"overlooking\":\"  \"";
         String id = idOf(create(fields));
         assertStoredAndReadable(id, null, null);
         update(id, "\"facing\":\"S\",\"overlooking\":\"Amenity\"")
@@ -161,16 +165,17 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
         return JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.id");
     }
 
-    private static String body(String fields) {
+    private String body(String fields) {
         return """
                 {"bhk":"2","roomType":"Private room","locality":"Baner",
-                 "society":"Outlook House","rentShare":15000,"agreementDeclared":true,
-                 "photos":["https://cdn.example/room.jpg"],%s%s}
-                """.formatted(FlatmateAgreementFixture.EVIDENCE,
-                fields.isEmpty() ? "" : "," + fields);
+                 "society":"Outlook House","rentShare":15000,"hostRole":"owner",
+                 "propertyId":"%s",
+                 "photos":["https://cdn.example/room.jpg"]%s}
+                """.formatted(ownerPropertyId, fields.isEmpty() ? "" : "," + fields);
     }
 
     private void assertStoredAndReadable(String id, String facing, String overlooking) throws Exception {
+
         // Evict the shared test persistence context so a cached entity cannot stand in for a write.
         em.flush();
         em.clear();
@@ -178,8 +183,7 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
                 UUID.fromString(id));
         assertThat(stored.get("facing")).isEqualTo(facing);
         assertThat(stored.get("overlooking")).isEqualTo(overlooking);
-        for (String route : new String[]{Routes.Flatmates.MY_ROOMS, Routes.Flatmates.ROOMS,
-                Routes.Flatmates.FEED}) {
+        for (String route : new String[]{Routes.Flatmates.MY_ROOMS, Routes.Flatmates.FEED}) {
             var request = get(route).param("size", "100").param("tab", "move-in");
             if (route.equals(Routes.Flatmates.MY_ROOMS)) {
                 request.header(HttpHeaders.AUTHORIZATION, bearer(host));

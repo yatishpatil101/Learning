@@ -1,52 +1,47 @@
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { avatarGrad, initials, genderLabel, inr, matchTier, moveInLabel } from './helpers.js';
-import { FLAT_PREF_LBL, ROOM_PREF_LBL } from './constants.js';
-import { Chip, SaveBtn, MatchPill, Fresh } from './atoms.jsx';
+import { avatarGrad, initials, genderLabel, seekerBudget, matchFor, moveInLabel, detailPath, seekerTitle } from './helpers.js';
+import { SaveBtn, TileChip, MatchPill, Fresh, CardLink } from './atoms.jsx';
 
-function SeekerCard({ r, i, saved, onSave, interested, onInterest, verifiedContactOnly, onReport, anchorId, myPost }) {
+export function SeekerAskButton({ r, owned, interested, onInterest }) {
   const { t: tr } = useTranslation();
-  const tier = matchTier(r, myPost);
+  const base = 'flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold ';
+  if (owned) return <span className={base + 'btn-ghost text-teal-300 cursor-default'}><Icon name="megaphone" className="w-4 h-4" /> {tr('flatmates.detailYourPost')}</span>;
+  if (interested) return <button className={base + 'btn-ghost text-emerald-300 cursor-default'} disabled><Icon name="check-check" className="w-4 h-4" /> {tr('flatmates.interested')}</button>;
+  return <button onClick={() => onInterest(r)} className={base + 'exp-btn btn-teal text-white'}><Icon name="hand-heart" className="w-4 h-4" /> {tr('flatmates.expressInterest')}</button>;
+}
+
+export const seekerSubtitle = (r) => [genderLabel(r.gender), r.age, r.occupation].filter(Boolean).join(' · ');
+
+function SeekerCard({ r, i, saved, onSave, anchorId, myPost }) {
+  const { t: tr } = useTranslation();
+  const match = matchFor(r, myPost);
+  const href = detailPath('post', r.id);
+  const localities = (r.localities || []).join(', ');
   return (
-    <div data-sf-id={anchorId} className="sf-card rounded-2xl p-5 reveal flex flex-col" style={{ animationDelay: i * 0.03 + 's' }}>
-      <div className="flex items-start gap-3 mb-3">
-        <div className={'w-12 h-12 rounded-full bg-gradient-to-br ' + avatarGrad(r.gender) + ' flex items-center justify-center text-white font-bold flex-shrink-0'}>{initials(r.name)}</div>
+    <div data-sf-id={anchorId} className="sf-card relative rounded-2xl p-4 reveal" style={{ animationDelay: i * 0.03 + 's' }}>
+      <div className="flex items-start gap-3">
+        <div className={'relative w-10 h-10 rounded-full bg-gradient-to-br ' + avatarGrad(r.gender) + ' flex items-center justify-center text-white text-sm font-bold shrink-0'}>
+          {initials(r.name)}
+          {r.verified && <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-teal-500 text-white inline-flex items-center justify-center" role="img" aria-label={tr('flatmates.verifiedSeeker')} title={tr('flatmates.verifiedSeeker')}><Icon name="shield-check" className="w-2.5 h-2.5" /></span>}
+        </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-white font-semibold truncate">{r.name}</h3>
-            {r.verified && <span className="badge-seeker inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"><Icon name="shield-check" className="w-2.5 h-2.5" /> {tr('flatmates.verifiedSeeker')}</span>}
-            <MatchPill tier={tier} />
-            <Fresh item={r} />
-          </div>
-          <p className="text-gray-400 text-xs mt-0.5 truncate">{genderLabel(r.gender)}{r.age ? ' · ' + r.age : ''}{r.occupation ? ' · ' + r.occupation : ''}</p>
+          <h3 className="text-[15px] font-bold text-white leading-snug line-clamp-2"><Link to={href} data-tap-exempt className="relative z-[1]">{seekerTitle(r)}</Link></h3>
+          <p className="text-xs text-gray-400 mt-1 truncate">{[r.title && r.name, seekerSubtitle(r)].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} />
-          <button className="report-btn seg p-2 rounded-lg text-gray-400" aria-label={tr('flatmates.ariaReportPost')} onClick={() => onReport && onReport({ id: r.id, title: 'Flatmate: ' + r.name, ownerName: r.name, ownerMobile: r.mobile, kind: 'share' })}><Icon name="flag" className="w-4 h-4" /></button>
-        </div>
+        <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} className="relative z-[1] shrink-0 -mt-1 -mr-1 bg-white/5 border border-white/10 text-gray-400" />
       </div>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div><p className="text-[10px] text-gray-500 uppercase tracking-wide">{tr('flatmates.budgetMonth')}</p><p className="text-lg font-bold gradient-text">{inr(r.budget)}</p></div>
-        <div className="text-right"><p className="text-[10px] text-gray-500 uppercase tracking-wide">{tr('flatmates.moveIn')}</p><p className="text-xs font-medium text-gray-200">{moveInLabel(r.moveIn)}</p></div>
+      <p className="sf-price mt-3 text-lg font-extrabold text-white leading-tight">
+        {seekerBudget(r)}<span className="text-sm font-normal text-gray-400">{tr('flatmates.perMonth')}</span>
+        <span className="text-[11px] font-normal text-gray-500 ml-1.5">{tr('flatmates.tagBudget')}</span>
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+        {localities && <TileChip icon="map-pin">{localities}</TileChip>}
+        {r.moveIn && <TileChip icon="calendar-check">{moveInLabel(r.moveIn)}</TileChip>}
+        {match ? <MatchPill match={match} /> : <Fresh item={r} />}
       </div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
-        {(r.localities || []).map((l, k) => <span key={l} className="inline-flex items-center gap-1 text-[11px] text-teal-300">{k > 0 && <span className="text-gray-600">·</span>}<Icon name="map-pin" className="w-3 h-3" />{l}</span>)}
-      </div>
-      {(r.roomPref && r.roomPref !== 'any') || (r.flatPref && r.flatPref !== 'any') ? (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {r.roomPref && r.roomPref !== 'any' && <span className="inline-flex items-center gap-1 text-[11px] text-gray-300"><Icon name="door-open" className="w-3 h-3 text-teal-300" />{ROOM_PREF_LBL[r.roomPref]}</span>}
-          {r.flatPref && r.flatPref !== 'any' && <span className="inline-flex items-center gap-1 text-[11px] text-gray-300"><Icon name="users-round" className="w-3 h-3 text-teal-300" />{FLAT_PREF_LBL[r.flatPref]}</span>}
-        </div>
-      ) : null}
-      {r.note && <p className="text-gray-400 text-xs leading-relaxed mb-3 line-clamp-3">"{r.note}"</p>}
-      <div className="flex flex-wrap gap-1.5 mb-4">{(r.tags || []).slice(0, 4).map((t) => <Chip key={t}>{t}</Chip>)}</div>
-      <div className="mt-auto flex items-center gap-2">
-        {interested
-          ? <button className="btn-ghost flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-emerald-300 text-sm font-semibold cursor-default" disabled><Icon name="check-check" className="w-4 h-4" /> {tr('flatmates.interested')}</button>
-          : <button onClick={() => onInterest(r)} className="exp-btn btn-teal flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold"><Icon name="hand-heart" className="w-4 h-4" /> {tr('flatmates.expressInterest')}</button>}
-        <span className="text-[11px] text-gray-500 flex-shrink-0 inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{r.time}</span>
-      </div>
-      {r.verifiedContactOnly && <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-amber-300" title={tr('flatmates.titleVerifiedOnly')}><Icon name="shield" className="w-2.5 h-2.5" /> {tr('flatmates.acceptsVerifiedOnly')}</div>}
+      <CardLink to={href} />
     </div>
   );
 }
