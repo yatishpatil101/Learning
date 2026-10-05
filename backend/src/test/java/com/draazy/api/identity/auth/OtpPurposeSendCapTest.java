@@ -12,21 +12,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
 // Owner consent names somebody else's number, so every per-recipient limit resets with each number
 // it names; only this share keeps the spam out of the pool login draws from.
-@SpringBootTest(properties = {
-    "draazy.otp.max-purpose-sends-per-window=2",
-    "draazy.otp.send-cooldown-seconds=0",
-})
+@OtpBudgetContext
 @DisplayName("OTP per-purpose send share")
 class OtpPurposeSendCapTest extends AbstractApiTest {
 
-    private static final int CAP = 2;
+    private static final int CAP = OtpBudgetContext.PURPOSE_CAP;
 
     @Autowired
     UserRepository users;

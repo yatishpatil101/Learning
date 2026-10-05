@@ -7,10 +7,7 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 
-/**
- * One chaser as it was composed and to whom — a ledger, not a queue. {@code sent} is a staff
- * attestation, not a provider ack. See docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
- */
+/** A ledger, not a queue: {@code sent} is a staff attestation, not a provider ack. */
 @Entity
 @Table(name = "outbound_message")
 @Getter
@@ -62,14 +59,6 @@ public class OutboundMessage {
     private String failureReason;
 
     protected OutboundMessage() {}
-
-    /** A staff attestation of sending, not a delivery acknowledgement from the recipient. */
-    public void recordSent() {
-        if (PREPARED.equals(status)) {
-            status = "sent";
-            sentAt = Instant.now();
-        }
-    }
 
     OutboundMessage(
             String channel,

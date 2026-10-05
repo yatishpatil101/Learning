@@ -42,7 +42,7 @@ export function resolveAuthIntent(params) {
  * The one place deciding whether a `?next=` is in this app and is worth landing on; `null` for
  * "not ours". The four rejections and why origin needs three: docs/flows/consumer/auth.md
  */
-const AUTH_SCREENS = ['/signin', '/signup', '/staff-login'];
+const AUTH_SCREENS = ['/signin', '/signup', '/staff-login', '/staff-invite'];
 // A host this app can never legitimately be served from, so any payload the URL parser resolves
 // away from it has named an origin of its own and is not ours.
 const SENTINEL_ORIGIN = 'https://draazy.invalid';

@@ -8,8 +8,6 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 
-/** Passwordless-login OTP (ADR-008), stored hashed; {@code attempts} + {@code expiresAt} throttle it.
- * No {@code @Setter}: a setter would let a caller decrement attempts or un-consume a code. */
 @Entity
 @Table(name = "otp_codes")
 @Getter
@@ -18,9 +16,9 @@ public class OtpCode extends BaseEntity {
     /** Sign-in. Lookups filter on purpose, so other flows share the table without colliding. */
     public static final String PURPOSE_LOGIN = "login";
 
-    /** A flat owner confirming a tenant's flatmate post (V29). Deliberately not
-     * {@link #PURPOSE_LOGIN}: sharing it would make consent a way to mint login codes. */
     public static final String PURPOSE_OWNER_CONSENT = "owner-consent";
+
+    public static final String PURPOSE_DRAFT_APPROVAL = "draft-approval";
 
     @Column(name = "mobile", nullable = false, updatable = false)
     private String mobile;
@@ -40,13 +38,13 @@ public class OtpCode extends BaseEntity {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
-    /** The account that asked (V33); null for login and signup. Read only by the per-caller send
+    /** The account that asked; null for login and signup. Read only by the per-caller send
      * budget — every other limit keys on the recipient, the wrong end of this flow. */
     @Column(name = "requested_by", updatable = false)
     private UUID requestedBy;
 
     protected OtpCode() {
-        // JPA
+
     }
 
     public OtpCode(String mobile, String codeHash, String purpose, Instant expiresAt,

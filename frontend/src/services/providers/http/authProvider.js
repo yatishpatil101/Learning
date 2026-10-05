@@ -38,19 +38,29 @@ export async function register({ name, email, mobile, otp, remember = true }) {
 }
 
 /**
- * Email + password sign-in for internal accounts. The `/staff-login` screen does not come here —
- * it uses mobile + OTP — so a credential-less caller gets a message rather than a bare 422.
+ * Back-office step one: email + password. Resolves `{ mfa: 'totp' | 'enrol', challenge }`, never a
+ * session — the second factor below opens that.
  */
-export async function staffLogin({ email, password, remember = true }) {
-  if (!email || !password) {
-    throw new Error(
-      'Staff login needs email + password. The /staff-login screen signs staff in with mobile + ' +
-        'OTP via /auth/login instead — call login() rather than staffLogin() from there.',
-    );
-  }
-  const data = await post('/auth/staff-login', { email, password, remember }, { auth: false });
+export const staffLogin = ({ email, password }) => post('/auth/staff-login', { email, password }, { auth: false });
+
+/** Authenticator or recovery code against the step-one challenge; opens the session. */
+export async function staffVerify({ challenge, code, remember = true }) {
+  const data = await post('/auth/staff-login/verify', { challenge, code, remember }, { auth: false });
   return openSession(data, remember);
 }
+
+/** First sign-in only: a new authenticator secret, `{ secret, otpauthUri }`. */
+export const staffEnrol = ({ challenge }) => post('/auth/staff-login/enrol', { challenge }, { auth: false });
+
+/** Confirms the new authenticator; resolves the user plus the one-time `recoveryCodes`. */
+export async function staffConfirm({ challenge, code, remember = true }) {
+  const data = await post('/auth/staff-login/enrol/confirm', { challenge, code, remember }, { auth: false });
+  return { user: openSession(data, remember), recoveryCodes: data.recoveryCodes || [] };
+}
+
+/** The colleague sets their own password from the invite token. Not a sign-in. */
+export const redeemStaffInvite = ({ token, password }) =>
+  post('/auth/staff-invite/redeem', { token, password }, { auth: false });
 
 /**
  * End the session locally whatever the server says — a user who clicks "sign out" must end up

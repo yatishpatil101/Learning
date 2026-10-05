@@ -3,7 +3,7 @@
    Neither is authoritative — the server resolves both — so nothing here is a security boundary;
    it exists so a reload repaints the correct UI before `/auth/me` has answered.
    The refresh token is deliberately absent: it is an HttpOnly cookie, unreadable from here.
-   Roles: buyer | owner | admin | staff(+team). Guards are enforced via React route
+   Roles: buyer | owner | admin | manager | staff. Guards are enforced via React route
    wrappers (ProtectedRoute / RoleRoute), not synchronous <head> scripts. */
 const KEY = 'draazyUser';
 

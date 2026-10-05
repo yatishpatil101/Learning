@@ -5,23 +5,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.draazy.api.common.error.RateLimitedException;
 import com.draazy.api.common.error.UnauthorizedException;
+import com.draazy.api.identity.auth.OtpCaptureConfig.CapturingOtpSender;
+import com.draazy.api.identity.auth.OtpCaptureConfig.OuterTransaction;
 import com.draazy.api.provider.OtpSender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Not {@code @Transactional} on purpose: a rolled-back harness masks the bug, since the attempt and
  * send rows must outlive a thrown 401 or delivery failure. It clears its own mobile to stay rerunnable.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
+@Import(OtpCaptureConfig.class)
 class OtpServiceDurabilityTest {
 
     private static final String MOBILE = "9876500911";
@@ -87,48 +89,5 @@ class OtpServiceDurabilityTest {
         // Once the cap is reached the code is burned and further tries are rate-limited (429).
         assertThatThrownBy(() -> otpService.verifyLoginCode(MOBILE, wrong))
                 .isInstanceOf(RateLimitedException.class);
-    }
-
-    static class CapturingOtpSender implements OtpSender {
-        volatile String lastCode;
-        /** Makes the next send fail the way a real provider does when the vendor call fails. */
-        volatile boolean failNext;
-
-        @Override
-        public void send(String mobile, String code) {
-            this.lastCode = code;
-            if (failNext) {
-                failNext = false;
-                throw new DeliveryFailedException("simulated provider failure", null);
-            }
-        }
-    }
-
-    @TestConfiguration
-    static class Config {
-        @Bean
-        @Primary
-        CapturingOtpSender capturingOtpSender() {
-            return new CapturingOtpSender();
-        }
-
-        @Bean
-        OuterTransaction outerTransaction(OtpService otpService) {
-            return new OuterTransaction(otpService);
-        }
-    }
-
-    /** Stands in for the real callers that own a transaction around the OTP seam. */
-    static class OuterTransaction {
-        private final OtpService otpService;
-
-        OuterTransaction(OtpService otpService) {
-            this.otpService = otpService;
-        }
-
-        @Transactional(noRollbackFor = OtpSender.DeliveryFailedException.class)
-        public void sendInsideItsOwnTransaction(String mobile) {
-            otpService.sendLoginCode(mobile);
-        }
     }
 }

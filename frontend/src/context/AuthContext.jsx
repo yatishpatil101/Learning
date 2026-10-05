@@ -1,14 +1,25 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { logoutUser, readAccessToken, readUser, sessionHinted } from '../lib/auth.js';
 import * as authService from '../services/authService.js';
+import { clearConversationDeviceState } from '../services/conversationService.js';
+import { unregisterPushSubscription } from '../services/notificationService.js';
 import { ApiError, NetworkError, restoreSession } from '../services/http.js';
 
 const AuthContext = createContext(null);
 
-/**
- * Session state for the whole app; all mutations go through `services/authService.js`.
- * What `loading` covers, and the ITP cold-boot case: docs/flows/consumer/auth.md
- */
+async function removePushSubscription() {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration('/sw.js');
+    const sub = await reg?.pushManager?.getSubscription();
+    if (!sub) return;
+    await unregisterPushSubscription(sub.endpoint).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** What `loading` covers, and the ITP cold-boot case: docs/flows/consumer/auth.md */
 export function AuthProvider({ children }) {
   // Lazy init: read storage once (rerender-lazy-state-init).
   const [user, setUser] = useState(() => readUser());
@@ -56,39 +67,49 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Sign in, resolving to the account the *server* returned: both callers act inside the handler,
-   * before the next render exists, so the return value is part of the contract.
-   */
+  /* Return the server-resolved account: callers act before React renders the new auth state. */
   const login = useCallback(async (data) => {
     sessionGen.current += 1;
     const who = await authService.login(data);
     setUser(who);
     return who;
   }, []);
-  /**
-   * Sign up, resolving to whether it actually signed anyone *up*: an established account passes
-   * straight through, and `wasNew` is the only way `/signup` can tell the two apart.
-   */
   const register = useCallback(async (data) => {
     sessionGen.current += 1;
     const { user: who, wasNew } = await authService.register(data);
     setUser(who);
     return wasNew;
   }, []);
-  /* Returns the account for the same reason `login` does: the server resolves the identity, so what
+  /* Return the account for the same reason `login` does: the server resolves the identity, so what
      the console asked for and what it got are not necessarily the same thing. */
-  const staffLogin = useCallback(async (data) => {
+  const staffVerify = useCallback(async (data) => {
     sessionGen.current += 1;
-    const who = await authService.staffLogin(data);
+    const who = await authService.staffVerify(data);
     setUser(who);
     return who;
+  }, []);
+  const staffConfirm = useCallback(async (data) => {
+    sessionGen.current += 1;
+    const result = await authService.staffConfirm(data);
+    setUser(result.user);
+    return result;
   }, []);
 
   const logout = useCallback(async () => {
     // Drop the user first so the UI reflects the intent immediately, even if the server call is slow.
     sessionGen.current += 1;
     setUser(null);
+    try {
+      await removePushSubscription();
+      await clearConversationDeviceState();
+      localStorage.removeItem('draazy.listings.lastSearch.v1');
+      localStorage.removeItem('draazy.flatmates.lastSearch.v1');
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith('dzDraft:') || key.startsWith('draazyOwnerKYC:'))
+        .forEach((key) => localStorage.removeItem(key));
+    } catch {
+      /* ignore */
+    }
     await authService.logout();
   }, []);
 
@@ -97,10 +118,7 @@ export function AuthProvider({ children }) {
     setUser(await authService.updateMe(patch));
   }, []);
 
-  /**
-   * Re-read the profile for the things the server changes without being asked (`listingsCount`).
-   * Swallows failures but warns, and discards its result if the session moved on meanwhile.
-   */
+  /* Re-read server-owned fields like `listingsCount`; ignore stale results after session changes. */
   const refreshUser = useCallback(async () => {
     const mine = sessionGen.current;
     try {
@@ -120,15 +138,15 @@ export function AuthProvider({ children }) {
       /* Has this account EVER posted a listing (the server's lifetime tally), for surfaces with no
          listing data of their own. Not `role`, and not Dashboard's live `isOwner` — see auth.md. */
       hasEverListed: (user?.listingsCount ?? 0) > 0,
-      team: user?.team ?? null,
       login,
       register,
-      staffLogin,
+      staffVerify,
+      staffConfirm,
       logout,
       update,
       refreshUser,
     }),
-    [user, loading, login, register, staffLogin, logout, update, refreshUser],
+    [user, loading, login, register, staffVerify, staffConfirm, logout, update, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

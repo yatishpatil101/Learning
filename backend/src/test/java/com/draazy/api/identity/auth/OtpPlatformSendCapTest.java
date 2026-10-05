@@ -10,8 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,16 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Every other OTP limit is keyed on the recipient, so a rotating number is never refused.
  * Reasoning: docs/flows/consumer/auth.md, "OTP budgets, attempt cap and boot guards".
  */
-@SpringBootTest(properties = {
-    "draazy.otp.max-platform-sends-per-window=2",
-    "draazy.otp.send-cooldown-seconds=0",
-})
-@AutoConfigureMockMvc
+@OtpBudgetContext
 @Transactional
 @DisplayName("OTP platform-wide send cap (M5)")
 class OtpPlatformSendCapTest {
 
-    private static final int CAP = 2;
+    private static final int CAP = OtpBudgetContext.PLATFORM_CAP;
 
     @Autowired
     MockMvc mvc;
@@ -49,10 +43,11 @@ class OtpPlatformSendCapTest {
     @Test
     void aRotatingRecipientIsStoppedEvenThoughNoNumberExceedsItsOwnBudget() throws Exception {
         // First send to an untouched number, so only the unkeyed budget can refuse it.
-        requestCode("9876512001").andExpect(status().isOk());
-        requestCode("9876512002").andExpect(status().isOk());
+        for (int i = 0; i < CAP; i++) {
+            requestCode("987651200" + i).andExpect(status().isOk());
+        }
 
-        requestCode("9876512003")
+        requestCode("9876512099")
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error").value("rate_limited"))
                 // Says nothing about the platform budget: a named ceiling is a progress report for

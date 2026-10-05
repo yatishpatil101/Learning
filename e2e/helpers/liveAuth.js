@@ -1,12 +1,19 @@
 import { expect } from '@playwright/test';
 
-/** Live authentication uses the fixed E2E OTP against the real backend. */
+// Live authentication uses the fixed E2E OTP against the real backend.
 export const E2E_OTP = process.env.E2E_OTP_CODE || '000000';
+const SEND_OTP_CTA = /send otp|continue|otp पाठवा|otp भेजें/i;
+const VERIFY_CTA = /verify|sign in|log in|continue|पडताळा|सत्यापित/i;
 
-/** The backend the live suite talks to. Matches `playwright.config.js`'s proxy target. */
+// The backend the live suite talks to.
 export const API = `http://localhost:${process.env.API_PORT || '8081'}/api`;
 
-/** A mobile no other run will use; the clamp keeps it increasing because `Date.now()` can repeat. */
+// Seeded by db/seed-staff/R__zz_DML_dev_staff_credentials.sql for every back-office account.
+export const STAFF_PASSWORD = 'Draazy-dev-pass1';
+export const E2E_STAFF_CODE = process.env.E2E_STAFF_TOTP_CODE || '000000';
+export const staffEmail = (mobile) => `${mobile}@staff.draazy.test`;
+
+// A mobile no other run will use; the clamp keeps it increasing because `Date.now()` can repeat.
 let lastIssued = 0;
 export function uniqueMobile() {
   const now = Date.now();
@@ -14,34 +21,58 @@ export function uniqueMobile() {
   return `97${String(lastIssued).slice(-8)}`;
 }
 
-/** Suppress the DPDPA consent bar, which intercepts clicks on the Verify button. */
+export const storedPhotoUrl = (hash = '', ownerId = crypto.randomUUID()) =>
+  `/api/dev/storage/public/photos/${ownerId}/${crypto.randomUUID()}${hash ? `-${hash}` : ''}`;
+
+export function ownerIdOf(auth) {
+  const raw = typeof auth === 'string' ? auth
+    : auth?.accessToken ?? auth?.authorization ?? auth?.Authorization ?? '';
+  const token = raw.replace(/^Bearer\s+/i, '');
+  return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).sub;
+}
+
+const LISTING_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4AWJiYGD4D8IgBpBmYAAAAAD//7vS9wEAAAAGSURBVAMAGDACA6ybwrYAAAAASUVORK5CYII=',
+  'base64',
+);
+
+export async function uploadedListingPhotos(auth, count = 1, { api = API } = {}) {
+  const raw = typeof auth === 'string' ? auth : auth?.accessToken ?? auth?.authorization ?? auth?.Authorization ?? '';
+  const authorization = /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw}`;
+  const urls = [];
+  for (let i = 0; i < count; i += 1) {
+    const form = new FormData();
+    form.set('file', new Blob([LISTING_PNG], { type: 'image/png' }), `listing-${i}.png`);
+    const res = await fetch(`${api}/me/photos`, { method: 'POST', headers: { authorization }, body: form });
+    if (res.status !== 201) throw new Error(`POST /me/photos failed: ${res.status} ${await res.text()}`);
+    urls.push((await res.json()).url);
+  }
+  return urls;
+}
+
 export const seedConsent = (page) => page.addInitScript(() => {
   localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
     necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
   }));
 });
 
-/** Drive the real two-step sign-in UI as `mobile`. */
-export async function signIn(page, mobile, { screen = 'consumer', role, next } = {}) {
+export async function signIn(page, mobile, { screen = 'consumer', next, search, settleAtHome = false } = {}) {
   const form = SCREENS[screen];
   if (!form) throw new Error(`unknown sign-in screen: ${screen}`);
 
   await seedConsent(page);
 
-  /* Passed through raw rather than encoded: the only caller testing `next` uses a hostile value,
-     and encoding here would be the helper repairing the input under test. */
-  await page.goto(next ? `${form.path}?next=${next}` : form.path);
+  const query = [next && `next=${next}`, search].filter(Boolean).join('&');
+  await page.goto(query ? `${form.path}?${query}` : form.path);
 
-  // The staff console defaults to Administrator, so an ops account must pick its role or the verify
-  // silently refuses. Against the live API the picker is absent, hence the count check.
-  const wanted = role ?? form.role;
-  if (wanted) {
-    const picker = page.getByRole('radio', { name: wanted });
-    if (await picker.count()) await picker.check();
+  if (screen === 'staff') {
+    await staffSignInUi(page, mobile);
+    await expect(page).not.toHaveURL(form.away, { timeout: 20000 });
+    return;
   }
 
   await page.locator(form.field).fill(mobile);
-  await page.getByRole('button', { name: /send otp|continue/i }).click();
+  await page.getByRole('button', { name: SEND_OTP_CTA }).click();
 
   // The OTP UI is six auto-advancing boxes, so type into the first and let focus move as a user
   // would; the single-input branch keeps this helper unpinned to the component's shape.
@@ -54,15 +85,29 @@ export async function signIn(page, mobile, { screen = 'consumer', role, next } =
     await boxes.first().fill(E2E_OTP);
   }
 
-  const verify = page.getByRole('button', { name: /verify|sign in|log in|continue/i });
+  const verify = page.getByRole('button', { name: VERIFY_CTA });
   if (await verify.count()) await verify.first().click();
 
   await completeProfileIfAsked(page, { away: form.away });
 
+  if (settleAtHome && form.away.test(page.url())) {
+    const signedIn = await page.evaluate(() => {
+      try {
+        return Boolean(JSON.parse(localStorage.getItem('draazyTokens') || '{}').accessToken);
+      } catch {
+        return false;
+      }
+    });
+    if (signedIn) {
+      await page.goto('/');
+      return;
+    }
+  }
+
   await expect(page).not.toHaveURL(form.away, { timeout: 20000 });
 }
 
-/** Complete the optional profile step without delaying existing named accounts. */
+// Complete the optional profile step without delaying existing named accounts.
 export async function completeProfileIfAsked(page, { away = /\/signin/, name = 'Test Member' } = {}) {
   const profileName = page.locator('#profile-name');
   const landed = await Promise.race([
@@ -75,16 +120,30 @@ export async function completeProfileIfAsked(page, { away = /\/signin/, name = '
   return true;
 }
 
+// Password, then the code; a first sign-in also confirms enrolment and dismisses the recovery codes.
+export async function staffSignInUi(page, mobile) {
+  await page.locator('#staff-email').fill(staffEmail(mobile));
+  await page.locator('#staff-password').fill(STAFF_PASSWORD);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.locator('#staff-code').fill(E2E_STAFF_CODE);
+  await page.getByRole('button', { name: /^(Sign in|Confirm & sign in)$/ }).click();
+  const codes = page.locator('#staff-recovery-codes');
+  const landed = await Promise.race([
+    codes.waitFor({ state: 'visible', timeout: 20000 }).then(() => 'codes', () => 'timeout'),
+    page.waitForURL((u) => !/\/staff-login/.test(u.toString()), { timeout: 20000 }).then(() => 'away', () => 'timeout'),
+  ]);
+  if (landed === 'codes') await page.getByRole('button', { name: /continue/i }).click();
+}
+
 const SCREENS = {
   consumer: { path: '/signin', field: '#signin-mobile', away: /signin/ },
-  // `role` is the default console for the screen; a spec wanting admin passes `role` explicitly.
-  staff: { path: '/staff-login', field: '#staff-mobile', away: /\/staff-login/, role: /Service team/ },
+  staff: { path: '/staff-login', away: /\/staff-login/ },
 };
 
-/** Keep cached sessions within the access-token TTL to avoid replaying rotated refresh tokens. */
+// Keep cached sessions within the access-token TTL to avoid replaying rotated refresh tokens.
 const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 
-/** Cache sessions per mobile to avoid redundant sign-ins within the safe replay window. */
+// Cache sessions per mobile to avoid redundant sign-ins within the safe replay window.
 const sessions = new Map();
 
 export async function signedInAs(page, mobile) {
@@ -100,7 +159,7 @@ export async function signedInAs(page, mobile) {
     return;
   }
 
-  await signIn(page, mobile);
+  await signIn(page, mobile, { settleAtHome: true });
   sessions.set(mobile, {
     at: Date.now(),
     cookies: await page.context().cookies(),
@@ -111,10 +170,11 @@ export async function signedInAs(page, mobile) {
   });
 }
 
-/** Two calls are the contract: the first issues the OTP, the second redeems it. */
+// Two calls are the contract: the first issues the OTP, the second redeems it. Back-office accounts
+// are refused there, so they take the password + authenticator route instead.
 export async function apiLogin(mobile, { api = API } = {}) {
-  const send = async (body) => {
-    const res = await fetch(`${api}/auth/login`, {
+  const send = async (path, body) => {
+    const res = await fetch(`${api}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -122,8 +182,11 @@ export async function apiLogin(mobile, { api = API } = {}) {
     return { status: res.status, body: await res.json().catch(() => ({})) };
   };
 
-  await send({ mobile });
-  const { status, body } = await send({ mobile, otp: E2E_OTP });
+  await send('/auth/login', { mobile });
+  let { status, body } = await send('/auth/login', { mobile, otp: E2E_OTP });
+  if (status === 403 && body.error === 'staff_sign_in_required') {
+    ({ status, body } = await apiStaffLogin(mobile, send));
+  }
   if (status !== 200) {
     // A 403 is the server refusing an account it read, the one failure the backend profile cannot
     // explain — guessing "wrong profile" there sends the reader to restart a healthy backend.
@@ -136,34 +199,65 @@ export async function apiLogin(mobile, { api = API } = {}) {
   return body;
 }
 
-/** Convenience for the common shape: the JSON headers a signed-in write needs. */
+async function apiStaffLogin(mobile, send) {
+  const step = await send('/auth/staff-login', { email: staffEmail(mobile), password: STAFF_PASSWORD });
+  if (step.status !== 200) return step;
+  const { mfa, challenge } = step.body;
+  if (mfa === 'enrol') {
+    const enrol = await send('/auth/staff-login/enrol', { challenge });
+    if (enrol.status !== 200) return enrol;
+    return send('/auth/staff-login/enrol/confirm', { challenge, code: E2E_STAFF_CODE });
+  }
+  return send('/auth/staff-login/verify', { challenge, code: E2E_STAFF_CODE });
+}
+
 export async function authHeaders(mobile, opts) {
   const { accessToken } = await apiLogin(mobile, opts);
   return { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` };
 }
 
-/** The new account's display name is always `Test Member`, so never assert on it. */
+export async function identityChallengeToken(authorization, { api = API } = {}) {
+  const res = await fetch(`${api}/me/verification/identity/challenge`, {
+    method: 'POST',
+    headers: { authorization },
+  });
+  if (!res.ok) throw new Error(`identity challenge failed: ${res.status} ${await res.text()}`);
+  return (await res.json()).token;
+}
+
+// The new account's display name is always `Test Member`, so never assert on it.
 export async function signedInAsNew(page, { api = API } = {}) {
   const mobile = uniqueMobile();
-  await apiLogin(mobile, { api });
-  await signedInAs(page, mobile);
+  const session = await apiLogin(mobile, { api });
+  const profile = await fetch(`${api}/auth/me`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${session.accessToken}` },
+    body: JSON.stringify({ name: 'Test Member' }),
+  });
+  if (!profile.ok) throw new Error(`naming ${mobile} failed (${profile.status}): ${await profile.text()}`);
+  const user = await profile.json();
+  await page.addInitScript(({ accessToken, user: signedInUser }) => {
+    localStorage.setItem('draazyTokens', JSON.stringify({ accessToken }));
+    localStorage.setItem('draazyUser', JSON.stringify(signedInUser));
+  }, { accessToken: session.accessToken, user });
+  await page.goto('/');
   return mobile;
 }
 
-/* A 1x1 PNG. The simulate endpoint decides a case that already exists, so a badge cannot be
-   granted without first putting one in the queue — and `submit` takes real multipart files. */
+// Simulation decides an existing case, so a badge first needs a real queued multipart claim.
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
   'base64',
 );
 
-/** Two calls: the simulate endpoint 404s on an account with no pending case, so file one first. */
+// Two calls: the simulate endpoint 404s on an account with no pending case, so file one first.
 export async function grantIdentityBadge(mobile, { api = API } = {}) {
   const { authorization } = await authHeaders(mobile, { api });
 
   const form = new FormData();
   form.set('docType', 'pan');
   form.set('consent', 'true');
+  form.set('challenge', await identityChallengeToken(authorization, { api }));
   form.set('front', new Blob([TINY_PNG], { type: 'image/png' }), 'front.png');
   form.set('selfie', new Blob([TINY_PNG], { type: 'image/png' }), 'selfie.png');
   const filed = await fetch(`${api}/me/verification/identity`, {
@@ -188,7 +282,7 @@ export async function grantIdentityBadge(mobile, { api = API } = {}) {
   return res.json();
 }
 
-/** Forget cached sessions, for a spec that must prove a *fresh* login works. */
+// Forget cached sessions, for a spec that must prove a *fresh* login works.
 export function forgetSessions() {
   sessions.clear();
 }

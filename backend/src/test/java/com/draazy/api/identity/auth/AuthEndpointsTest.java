@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.draazy.api.common.web.RequestCorrelation;
-import com.draazy.api.provider.OtpSender;
+import com.draazy.api.identity.auth.OtpCaptureConfig.CapturingOtpSender;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.JwtProperties;
@@ -22,10 +22,11 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,6 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * The four auth endpoints through the real filter chain, with a capturing {@link OtpSender} so the
  * send→verify round trip runs without an external dependency.
  */
+@Import(OtpCaptureConfig.class)
 class AuthEndpointsTest extends AbstractApiTest {
 
     // Boot 4 test contexts expose no ObjectMapper bean; a plain instance reads assertion JSON.
@@ -112,6 +114,9 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.expiresIn").value(900))
                 .andExpect(jsonPath("$.user.mobile").value(mobile))
                 .andExpect(jsonPath("$.user.role").value("buyer"))
+                .andExpect(jsonPath("$.user.id").exists())
+                // a freshly auto-provisioned buyer has no name yet, so NON_NULL omits it (UI treats absent as "unset").
+                .andExpect(jsonPath("$.user.name").doesNotExist())
                 .andExpect(jsonPath("$.user.mobileVerified").value(true))
                 .andReturn();
 
@@ -155,23 +160,6 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("unauthorized"));
     }
 
-    @Test
-    void loginVerifyOverAttemptCapReturns429() throws Exception {
-        String mobile = "9876500205";
-        sendOtp(mobile);
-        for (int i = 0; i < otpService.maxVerifyAttempts(); i++) {
-            mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
-                    .content(body(mobile, "111111"))).andExpect(status().isUnauthorized());
-        }
-        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(mobile, "111111")))
-                .andExpect(status().isTooManyRequests())
-                // Not the generic `rate_limited`: the per-IP write filter answers 429 with that
-                // code, and a client told to wait on a burnt code waits forever.
-                .andExpect(jsonPath("$.error").value("otp_attempts_exhausted"))
-                .andExpect(jsonPath("$.attemptsRemaining").doesNotExist());
-    }
-
     /**
      * The count is derived after the attempt is recorded, so the last wrong guess reports zero.
      * An off-by-one either promises a refused guess or burns a code while the screen says otherwise.
@@ -192,6 +180,9 @@ class AuthEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(body(mobile, "111111")))
                 .andExpect(status().isTooManyRequests())
+                // Not the generic `rate_limited`: the per-IP write filter answers 429 with that
+                // code, and a client told to wait on a burnt code waits forever.
+                .andExpect(jsonPath("$.error").value("otp_attempts_exhausted"))
                 .andExpect(jsonPath("$.attemptsRemaining").doesNotExist());
     }
 
@@ -307,29 +298,6 @@ class AuthEndpointsTest extends AbstractApiTest {
     // ---- login: send-rate limit (the contract's 429 on the send path) --------
 
     /**
-     * The harassment control: without it {@code POST /auth/login} is an unauthenticated endpoint
-     * that rings any phone the caller names, as often as they like.
-     */
-    @Test
-    void secondCodeInsideTheCooldownIs429WithRetryAfter() throws Exception {
-        String mobile = "9876500701";
-        sendOtp(mobile);
-
-        MvcResult res = mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mobile\":\"" + mobile + "\"}"))
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.error").value("rate_limited"))
-                .andExpect(jsonPath("$.status").value(429))
-                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
-                .andReturn();
-
-        int retryAfter = Integer.parseInt(res.getResponse().getHeader(HttpHeaders.RETRY_AFTER));
-        org.assertj.core.api.Assertions.assertThat(retryAfter)
-                .as("Retry-After must be a usable hint, never 0 or longer than the cooldown")
-                .isBetween(1, (int) OtpSendBudget.SEND_COOLDOWN.toSeconds());
-    }
-
-    /**
      * Rows are backdated past the cooldown between sends, or the cooldown rather than the window
      * would be what rejects sends 2..5 and this would prove nothing.
      */
@@ -349,16 +317,27 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Counting sends globally rather than per mobile passes the two tests above while turning the
-     * rate limiter into a denial-of-service tool aimed at the whole platform.
+     * Counting sends globally rather than per mobile would turn the rate limiter into a
+     * denial-of-service tool aimed at the whole platform. The first half is also the harassment
+     * control: without it {@code POST /auth/login} rings any phone the caller names, as often as
+     * they like.
      */
     @Test
     void exhaustingOneNumbersBudgetDoesNotBlockAnother() throws Exception {
         String victim = "9876500703";
         sendOtp(victim);
-        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+        MvcResult res = mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mobile\":\"" + victim + "\"}"))
-                .andExpect(status().isTooManyRequests());
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"))
+                .andExpect(jsonPath("$.status").value(429))
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
+                .andReturn();
+
+        int retryAfter = Integer.parseInt(res.getResponse().getHeader(HttpHeaders.RETRY_AFTER));
+        assertThat(retryAfter)
+                .as("Retry-After must be a usable hint, never 0 or longer than the cooldown")
+                .isBetween(1, (int) OtpSendBudget.SEND_COOLDOWN.toSeconds());
 
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mobile\":\"9876500704\"}"))
@@ -379,34 +358,28 @@ class AuthEndpointsTest extends AbstractApiTest {
 
     // ---- login: request validation (422) ------------------------------------
 
-    @Test
-    void loginMissingMobileReturns422WithFields() throws Exception {
-        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content("{}"))
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"{}", "{\"mobile\":\"123\"}"})
+    void loginMissingOrMalformedMobileReturns422WithFields(String requestBody) throws Exception {
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content(requestBody))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("validation_failed"))
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.fields[0].field").value("mobile"));
     }
 
-    @Test
-    void loginMalformedMobileReturns422() throws Exception {
-        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mobile\":\"123\"}"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.fields[0].field").value("mobile"));
-    }
-
     // ---- staff login --------------------------------------------------------
 
     @Test
-    void staffLoginWithGoodPasswordIssuesTokens() throws Exception {
+    void staffLoginWithGoodPasswordAsksForTheSecondFactorAndIssuesNoTokens() throws Exception {
         seedStaff("9876500301", "ops@draazy.in", "s3cret-pass", "rental");
         mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"ops@draazy.in\",\"password\":\"s3cret-pass\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.user.role").value("staff"))
-                .andExpect(jsonPath("$.user.team").value("rental"));
+                .andExpect(jsonPath("$.mfa").value("enrol"))
+                .andExpect(jsonPath("$.challenge").isNotEmpty())
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
     }
 
     @Test
@@ -443,7 +416,7 @@ class AuthEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"boss@draazy.in\",\"password\":\"s3cret-pass\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+                .andExpect(jsonPath("$.challenge").isNotEmpty());
     }
 
     /**
@@ -471,7 +444,7 @@ class AuthEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"a.sharma@draazy.in\",\"password\":\"s3cret-pass\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+                .andExpect(jsonPath("$.challenge").isNotEmpty());
     }
 
     // ---- refresh: rotation + reuse-detection --------------------------------
@@ -494,8 +467,9 @@ class AuthEndpointsTest extends AbstractApiTest {
         assertThat(refresh2).isNotNull();
         assertThat(refresh2.getValue()).isNotEqualTo(refresh1.getValue());
 
-        // Replay is theft ⇒ 401. The suite shuts the grace window (test application.properties) so
-        // this assertion is about reuse-detection and not about the clock.
+        // Replay is theft ⇒ 401, and the family burn also kills the freshly issued token. The suite
+        // shuts the grace window (test application.properties) so this is about reuse-detection and
+        // not about the clock.
         mvc.perform(post("/auth/refresh").cookie(refresh1))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("unauthorized"));
@@ -508,6 +482,10 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .as("reuse detection revoked the token family, and that write must survive the 401 "
                         + "it is thrown alongside — see tech-debt D207 and D90")
                 .isFalse();
+
+        mvc.perform(post("/auth/refresh").cookie(refresh2))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("unauthorized"));
     }
 
     // ---- logout -------------------------------------------------------------
@@ -631,14 +609,26 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * A 401 is the answer {@code services/http.js} acts on; a 422 would argue about a field the
-     * caller cannot set, since the browser owns the cookie jar, and the recovery path never runs.
+     * An expired refresh cookie is not in the jar at all, so clearing only on the reuse branch would
+     * strand exactly the users with no session left in the forever-401 loop. A 401 is the answer
+     * {@code services/http.js} acts on; a 422 would argue about a field the caller cannot set. Our
+     * own page, which says so via {@code Sec-Fetch-Site}, still gets the clear it needs to stop asking.
      */
-    @Test
-    void refreshWithoutTheCookieIsUnauthorizedNotUnprocessable() throws Exception {
-        mvc.perform(post("/auth/refresh"))
+    @ParameterizedTest(name = "Sec-Fetch-Site={0}")
+    @NullSource
+    @ValueSource(strings = "same-origin")
+    void refreshWithNoCookieAtAllAlsoClearsTheHint(String fetchSite) throws Exception {
+        var request = post("/auth/refresh");
+        if (fetchSite != null) {
+            request.header("Sec-Fetch-Site", fetchSite);
+        }
+        Cookie hint = mvc.perform(request)
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("unauthorized"));
+                .andExpect(jsonPath("$.error").value("unauthorized"))
+                .andReturn().getResponse().getCookie(cookies.hintName());
+
+        assertThat(hint).isNotNull();
+        assertThat(hint.getMaxAge()).isZero();
     }
 
     /**
@@ -666,20 +656,6 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .isNotNull();
         assertThat(hint.getMaxAge()).isZero();
         assertThat(hint.getPath()).isEqualTo("/");
-    }
-
-    /**
-     * An expired refresh cookie is not in the jar at all, so clearing only on the reuse branch would
-     * strand exactly the users with no session left in the forever-401 loop.
-     */
-    @Test
-    void refreshWithNoCookieAtAllAlsoClearsTheHint() throws Exception {
-        Cookie hint = mvc.perform(post("/auth/refresh"))
-                .andExpect(status().isUnauthorized())
-                .andReturn().getResponse().getCookie(cookies.hintName());
-
-        assertThat(hint).isNotNull();
-        assertThat(hint.getMaxAge()).isZero();
     }
 
     /**
@@ -717,35 +693,6 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /** ...while our own page, which says so, still gets the clear it needs to stop asking. */
-    @Test
-    void ourOwnPageStillGetsTheClear() throws Exception {
-        Cookie hint = mvc.perform(post("/auth/refresh").header("Sec-Fetch-Site", "same-origin"))
-                .andExpect(status().isUnauthorized())
-                .andReturn().getResponse().getCookie(cookies.hintName());
-
-        assertThat(hint).isNotNull();
-        assertThat(hint.getMaxAge()).isZero();
-    }
-
-    // ---- mock-provider parity ----------------------------------------------
-
-    @Test
-    void authResponseUserCarriesTheFieldsTheFrontendConsumes() throws Exception {
-        String mobile = "9876500601";
-        sendOtp(mobile);
-        JsonNode user = json.readTree(mvc.perform(post("/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON).content(body(mobile, otp.lastCode)))
-                .andReturn().getResponse().getContentAsString()).get("user");
-
-        // the mock UI (lib/auth.js) reads name/mobile/role; the http provider maps the rest.
-        org.assertj.core.api.Assertions.assertThat(user.has("id")).isTrue();
-        // a freshly auto-provisioned buyer has no name yet, so NON_NULL omits it (UI treats absent as "unset").
-        org.assertj.core.api.Assertions.assertThat(user.has("name")).isFalse();
-        org.assertj.core.api.Assertions.assertThat(user.get("mobile").asText()).isEqualTo(mobile);
-        org.assertj.core.api.Assertions.assertThat(user.get("role").asText()).isEqualTo("buyer");
-    }
-
     // ---- helpers ------------------------------------------------------------
 
     private void sendOtp(String mobile) throws Exception {
@@ -770,24 +717,5 @@ class AuthEndpointsTest extends AbstractApiTest {
         u.setEmail(email);
         u.setPasswordHash(passwordEncoder.encode(rawPassword));
         users.saveAndFlush(u);
-    }
-
-    /** Captures the last OTP so the send→verify round-trip is testable with zero external deps. */
-    static class CapturingOtpSender implements OtpSender {
-        volatile String lastCode;
-
-        @Override
-        public void send(String mobile, String code) {
-            this.lastCode = code;
-        }
-    }
-
-    @TestConfiguration
-    static class Config {
-        @Bean
-        @Primary
-        CapturingOtpSender capturingOtpSender() {
-            return new CapturingOtpSender();
-        }
     }
 }

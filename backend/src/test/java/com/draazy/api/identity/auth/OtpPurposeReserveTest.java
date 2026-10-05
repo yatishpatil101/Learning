@@ -11,23 +11,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
 // Past the flow's hourly share the flow narrows instead of closing. Both halves are asserted:
 // either alone passes trivially. See OtpSendBudget.MAX_PURPOSE_RESERVE_SENDS_PER_WINDOW.
-@SpringBootTest(properties = {
-    "draazy.otp.max-purpose-sends-per-window=" + OtpPurposeReserveTest.SHARE,
-    "draazy.otp.send-cooldown-seconds=0",
-})
+@OtpBudgetContext
 @DisplayName("OTP per-purpose reserve")
 class OtpPurposeReserveTest extends AbstractApiTest {
 
-    // Referenced by the annotation above so the two cannot drift. Four accounts fill it with one
-    // send each, well inside their own quota — so a refusal here can only be the share.
-    static final int SHARE = 4;
+    // Four accounts fill the share with one send each, well inside their own quota — so a refusal here can only be the share.
+    static final int SHARE = OtpBudgetContext.PURPOSE_CAP;
 
     @Autowired
     UserRepository users;

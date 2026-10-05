@@ -16,7 +16,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The mobile-OTP primitive behind passwordless login (ADR-008, L1): 6 digits, stored SHA-256 hashed,
+/** The mobile-OTP primitive behind passwordless login: 6 digits, stored SHA-256 hashed,
  * single-use, 5-minute TTL, delivered through the {@link OtpSender} seam. docs/flows/consumer/auth.md */
 @Service
 public class OtpService {
@@ -32,7 +32,7 @@ public class OtpService {
 
     private final OtpCodeRepository repository;
     private final OtpSender sender;
-    /** Whether another code may be sent at all — see {@link OtpSendBudget} for all three limits. */
+
     private final OtpSendBudget budget;
 
     /** When non-blank, the fixed code every {@link #sendCode} issues, so a browser suite can type it
@@ -68,7 +68,6 @@ public class OtpService {
         this.maxVerifyAttempts = maxVerifyAttempts;
     }
 
-    /** Package-private for the tests that loop to it; nothing in production reads it. */
     int maxVerifyAttempts() {
         return maxVerifyAttempts;
     }
@@ -151,7 +150,14 @@ public class OtpService {
     @Transactional(noRollbackFor = {RateLimitedException.class,
             OtpSender.DeliveryFailedException.class})
     public void sendCode(String mobile, String purpose, UUID requestedBy) {
+        sendCode(mobile, purpose, requestedBy, null);
+    }
+
+    @Transactional(noRollbackFor = {RateLimitedException.class,
+            OtpSender.DeliveryFailedException.class})
+    public void sendCode(String mobile, String purpose, UUID requestedBy, OtpSender.Context context) {
         budget.enforce(mobile, purpose, requestedBy);
+
         // Two keys, never both set. Everything after this line is identical either way, so a suite
         // exercises the real storage and consume path.
         String preset = fixedCode.isEmpty() ? sandboxCode : fixedCode;
@@ -160,9 +166,10 @@ public class OtpService {
                 : preset;
         repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
                 Instant.now().plus(TTL), requestedBy));
+
         // Nothing is caught here on purpose: a delivery failure arrives already named and spared
         // from rollback, so the row survives and the attempt spends its slot.
-        sender.send(mobile, code);
+        sender.send(mobile, code, context);
     }
 
     /** Validate {@code code} against the newest unconsumed login OTP and consume it on success. The
@@ -195,6 +202,7 @@ public class OtpService {
 
         if (!Tokens.hashesEqual(Tokens.sha256Hex(code), otp.getCodeHash())) {
             otp.recordAttempt();
+
             // Told to the caller so the screen can count down; it reveals nothing, since only the
             // holder of the delivered code reaches this branch. Derived after the increment.
             throw new OtpIncorrectException(maxVerifyAttempts - otp.getAttempts());

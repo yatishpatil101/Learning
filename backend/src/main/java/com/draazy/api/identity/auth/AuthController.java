@@ -31,13 +31,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final StaffSignInService staffSignIn;
     private final StaffInviteService staffInvites;
     private final RefreshCookie refreshCookie;
     private final RefreshOriginGate refreshOrigins;
 
-    public AuthController(AuthService authService, StaffInviteService staffInvites,
-            RefreshCookie refreshCookie, RefreshOriginGate refreshOrigins) {
+    public AuthController(AuthService authService, StaffSignInService staffSignIn,
+            StaffInviteService staffInvites, RefreshCookie refreshCookie,
+            RefreshOriginGate refreshOrigins) {
         this.authService = authService;
+        this.staffSignIn = staffSignIn;
         this.staffInvites = staffInvites;
         this.refreshCookie = refreshCookie;
         this.refreshOrigins = refreshOrigins;
@@ -49,10 +52,28 @@ public class AuthController {
         return withRefreshCookie(authService.login(request), request.rememberDevice());
     }
 
-    /** {@code POST /auth/staff-login} — internal email+password authentication. */
+    /** {@code POST /auth/staff-login} — step one: email + password earns a second-factor challenge. */
     @PostMapping(Routes.Auth.STAFF_LOGIN)
-    public ResponseEntity<AuthResponse> staffLogin(@Valid @RequestBody StaffLoginRequest request) {
-        return withRefreshCookie(authService.staffLogin(request), request.rememberDevice());
+    public AuthResponse staffLogin(@Valid @RequestBody StaffLoginRequest request) {
+        return staffSignIn.checkPassword(request);
+    }
+
+    /** {@code POST /auth/staff-login/verify} — authenticator or recovery code; issues tokens. */
+    @PostMapping(Routes.Auth.STAFF_LOGIN_VERIFY)
+    public ResponseEntity<AuthResponse> staffLoginVerify(@Valid @RequestBody StaffCodeRequest request) {
+        return withRefreshCookie(staffSignIn.verify(request), request.rememberDevice());
+    }
+
+    /** {@code POST /auth/staff-login/enrol} — a new authenticator secret for a first sign-in. */
+    @PostMapping(Routes.Auth.STAFF_LOGIN_ENROL)
+    public StaffTotpEnrolment staffLoginEnrol(@Valid @RequestBody StaffEnrolRequest request) {
+        return staffSignIn.startEnrolment(request);
+    }
+
+    /** {@code POST /auth/staff-login/enrol/confirm} — first code from the new app; issues tokens. */
+    @PostMapping(Routes.Auth.STAFF_LOGIN_ENROL_CONFIRM)
+    public ResponseEntity<AuthResponse> staffLoginConfirm(@Valid @RequestBody StaffCodeRequest request) {
+        return withRefreshCookie(staffSignIn.confirmEnrolment(request), request.rememberDevice());
     }
 
     /**
@@ -128,9 +149,8 @@ public class AuthController {
      *
      * <p>Public, and it has to be: the caller has no credential yet. It also returns <em>nothing</em>
      * — not the account, not a token. Answering with the user would tell whoever holds the token
-     * whose account it was, and answering with a session would let a colleague whose account is
-     * still awaiting a second administrator sign in around that gate. Redeeming sets a password; it
-     * is not a login.
+     * whose account it was, and answering with a session would bypass first-factor sign-in and TOTP
+     * enrolment. Redeeming sets a password; it is not a login.
      */
     @PostMapping(Routes.Auth.STAFF_INVITE_REDEEM)
     @ResponseStatus(HttpStatus.NO_CONTENT)

@@ -9,7 +9,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.draazy.api.common.access.StaffAccountApprovalRepository;
 import com.draazy.api.common.settings.PlatformSettings;
 import com.draazy.api.identity.user.SelfProfile;
 import com.draazy.api.identity.user.User;
@@ -39,7 +38,6 @@ class AuthServiceRaceTest {
         OtpService otpService = mock(OtpService.class);
         JwtService jwtService = mock(JwtService.class);
         RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
-        PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         // Real mapper and SelfProfile, not mocks: what decides whether a buyer session carries
         // back-office permission atoms is the thing under assertion below.
         SelfProfile selfProfile = new SelfProfile(new UserMapperImpl(), mock(AccountPermissions.class));
@@ -62,9 +60,8 @@ class AuthServiceRaceTest {
         PlatformSettings platformSettings = mock(PlatformSettings.class);
         when(platformSettings.signupsEnabled()).thenReturn(true);
         AuthService service = new AuthService(
-                users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
-                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class),
-                platformSettings);
+                users, userService, selfProfile, otpService, jwtService, refreshTokens,
+                mock(StaffInviteRepository.class), platformSettings);
 
         AuthResponse response = service.login(new LoginRequest(mobile, "123456", null, null));
 
@@ -78,28 +75,23 @@ class AuthServiceRaceTest {
     @Test
     void staffLoginUnknownEmailStillRunsPasswordMatchBefore401() {
         UserRepository users = mock(UserRepository.class);
-        UserService userService = mock(UserService.class);
-        OtpService otpService = mock(OtpService.class);
-        JwtService jwtService = mock(JwtService.class);
-        RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        SelfProfile selfProfile = new SelfProfile(new UserMapperImpl(), mock(AccountPermissions.class));
 
         when(users.findByEmailIgnoreCaseAndArchivedFalse("missing@draazy.in")).thenReturn(Optional.empty());
         String dummyHash = (String) ReflectionTestUtils
-                .getField(AuthService.class, "STAFF_LOGIN_DUMMY_BCRYPT");
+                .getField(StaffSignInService.class, "DUMMY_BCRYPT");
         when(passwordEncoder.matches("any-pass", dummyHash)).thenReturn(false);
 
         // These mocks stay unstubbed deliberately: stubbing one would hide a regression that moved a
         // gate ahead of the dummy-hash compare and reopened the enumeration timing leak.
-        AuthService service = new AuthService(
-                users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
-                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class),
-                mock(PlatformSettings.class));
+        StaffSignInService service = new StaffSignInService(users,
+                mock(StaffCredentialRepository.class), mock(StaffTotpCipher.class),
+                mock(StaffSignInChallenges.class), passwordEncoder, mock(PlatformSettings.class),
+                mock(AuthService.class), mock(org.springframework.core.env.Environment.class), "");
 
-        assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@draazy.in", "any-pass", null)))
+        assertThatThrownBy(() -> service.checkPassword(new StaffLoginRequest("missing@draazy.in", "any-pass")))
                 .isInstanceOf(com.draazy.api.common.error.UnauthorizedException.class);
 
-                verify(passwordEncoder, times(1)).matches("any-pass", dummyHash);
+        verify(passwordEncoder, times(1)).matches("any-pass", dummyHash);
     }
 }

@@ -11,24 +11,18 @@ async function fillOtp(page, code = E2E_OTP) {
   }
 }
 
-test.describe('Auth: SSO ("or continue with") removed', () => {
-  test('Sign In page shows no Google/Apple SSO', async ({ page }) => {
-    await page.goto('/signin');
-    await expect(page.getByText(/or continue with/i)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0);
-    // Core mobile+OTP entry is still present.
-    await expect(page.locator('#signin-mobile')).toBeVisible();
-  });
-
-  test('Sign Up page shows no Google/Apple SSO', async ({ page }) => {
-    await page.goto('/signup');
-    await expect(page.getByText(/or continue with/i)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0);
-  });
+test('Sign In and Sign Up show no Google/Apple SSO', async ({ page }) => {
+  for (const path of ['/signin', '/signup']) {
+    await test.step(path, async () => {
+      await page.goto(path);
+      await expect(page.getByText(/or continue with/i)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0);
+      // Core mobile+OTP entry is still present.
+      if (path === '/signin') await expect(page.locator('#signin-mobile')).toBeVisible();
+    });
+  }
 });
-
 test('Sign In does not disclose whether a number is registered', async ({ page }) => {
   /* Both halves in one test: "the unknown number went to OTP" is only evidence of non-disclosure if
      a known number does the same. See `docs/flows/consumer/auth.md`. */
@@ -92,8 +86,14 @@ test('a first-time account is asked for a name after the OTP, and only the first
   await page.waitForURL('**/dashboard', { timeout: 20_000 });
 });
 
-test('Sign Up enforces OTP, then lands on the listings and registers the account', async ({ page }) => {
+test('Sign Up enforces OTP, then lands on the listings at the top and registers the account', async ({ page }) => {
   const mobile = uniqueMobile();
+  // Seed cookie consent so the DPDPA banner doesn't intercept the bottom "Create Account" click.
+  await page.addInitScript(() => {
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+  });
+  // Small viewport so the tall auth form is scrollable.
+  await page.setViewportSize({ width: 480, height: 700 });
   await page.goto(`/signup?mobile=${mobile}&new=1`);
   await page.locator('input[placeholder="Enter your full name"]').fill('Test User');
   await page.locator('input[type="checkbox"]').check();
@@ -106,17 +106,20 @@ test('Sign Up enforces OTP, then lands on the listings and registers the account
 
   // Now complete OTP and create the account.
   await fillOtp(page);
+  // Scroll the auth page down before the redirect fires.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.getByRole('button', { name: /Create Account/i }).click();
 
   // Redirects to the listings after account creation (consistent with Sign In: a sign-up is by
   // definition a brand-new account, so it gets the same landing a first-time sign-in gets).
   await page.waitForURL('**/listings', { timeout: 20_000 });
+  // The redirect uses replace navigation — the page must still open at the top.
+  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 4000 }).toBeLessThan(5);
 
   // Verify server persistence to prevent a client-only success state.
   const { user } = await apiLogin(mobile);
   expect(user).toMatchObject({ mobile, name: 'Test User' });
 });
-
 test('Sign Up sends an established account to its dashboard unless a gated destination is explicit', async ({ page }) => {
   const mobile = uniqueMobile();
   const { accessToken } = await apiLogin(mobile);
@@ -143,27 +146,6 @@ test('Sign Up sends an established account to its dashboard unless a gated desti
   await fillOtp(page);
   await page.getByRole('button', { name: /Create Account/i }).click();
   await page.waitForURL('**/saved', { timeout: 20_000 });
-});
-
-test('After sign-up the destination opens scrolled to the very top', async ({ page }) => {
-  // Seed cookie consent so the DPDPA banner doesn't intercept the bottom "Create Account" click.
-  await page.addInitScript(() => {
-    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
-  });
-  // Small viewport so the tall auth form is scrollable.
-  await page.setViewportSize({ width: 480, height: 700 });
-  await page.goto(`/signup?mobile=${uniqueMobile()}&new=1`);
-  await page.locator('input[placeholder="Enter your full name"]').fill('Scroll User');
-  await page.locator('input[type="checkbox"]').check();
-  await page.getByRole('button', { name: /Send OTP/i }).click();
-  await expect(page.getByLabel('OTP digit 1')).toBeVisible();
-  await fillOtp(page);
-  // Scroll the auth page down before the redirect fires.
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.getByRole('button', { name: /Create Account/i }).click();
-  await page.waitForURL('**/listings', { timeout: 20_000 });
-  // The redirect uses replace navigation — the page must still open at the top.
-  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 4000 }).toBeLessThan(5);
 });
 
 /* Both halves in one test — hiding the token is trivial if you break renewal, and vice versa. Only
@@ -360,92 +342,75 @@ test('a sign-out the server never hears about still ends the session here', asyn
     'the failed sign-out left a session behind for the next person at this machine').toBeNull();
 });
 
-/* The count is the server's, not a local tally, and the wording is read as rendered because the
-   server's prose is English-only. See `docs/flows/consumer/auth.md`. */
-test('a wrong OTP counts the attempts down and then blocks the form', async ({ page }) => {
-  const mobile = uniqueMobile();
-  await page.goto('/signin');
-  await page.locator('#signin-mobile').fill(mobile);
-  await page.getByRole('button', { name: /Send OTP/i }).click();
-  await expect(page.getByLabel('OTP digit 1')).toBeVisible();
+test('a wrong OTP counts the attempts down and then blocks the form, on Sign In and Sign Up', async ({ page }) => {
+  test.slow();
+  /* The count is the server's, not a local tally, and the wording is read as rendered because the
+     server's prose is English-only. See `docs/flows/consumer/auth.md`. */
+  await test.step('Sign In', async () => {
+    const mobile = uniqueMobile();
+    await page.goto('/signin');
+    await page.locator('#signin-mobile').fill(mobile);
+    await page.getByRole('button', { name: /Send OTP/i }).click();
+    await expect(page.getByLabel('OTP digit 1')).toBeVisible();
 
-  const verify = page.getByRole('button', { name: /Verify & Sign In/i });
+    const verify = page.getByRole('button', { name: /Verify & Sign In/i });
 
-  // The cap is `draazy.otp.max-verify-attempts` (3). Spend all but the last guess and read the
-  // countdown back: 2 left, then 1.
-  for (const left of [2, 1]) {
+    // The cap is `draazy.otp.max-verify-attempts` (3). Spend all but the last guess and read the
+    // countdown back: 2 left, then 1.
+    for (const left of [2, 1]) {
+      await fillOtp(page, WRONG_OTP);
+      await verify.click();
+      await expect(page.locator('#signin-otp-status')).toHaveText(new RegExp(`${left} attempts? left`, 'i'));
+    }
+
+    // The third wrong guess burns the code outright, so the message becomes a dead end rather than
+    // another countdown.
     await fillOtp(page, WRONG_OTP);
     await verify.click();
-    await expect(page.locator('#signin-otp-status')).toHaveText(new RegExp(`${left} attempts? left`, 'i'));
-  }
+    await expect(page.locator('#signin-otp-status')).toHaveText(/too many incorrect attempts/i);
+    await expect(verify).toBeDisabled();
 
-  // The third wrong guess burns the code outright, so the message becomes a dead end rather than
-  // another countdown.
-  await fillOtp(page, WRONG_OTP);
-  await verify.click();
-  await expect(page.locator('#signin-otp-status')).toHaveText(/too many incorrect attempts/i);
-  await expect(verify).toBeDisabled();
+    // Typing must not dismiss that: only a fresh code can help, and hiding the blocker on the next
+    // keystroke would walk the user straight back into a refusal.
+    await page.getByLabel('OTP digit 1').fill('9');
+    await expect(page.locator('#signin-otp-status')).toHaveText(/too many incorrect attempts/i);
+    await expect(verify).toBeDisabled();
 
-  // Typing must not dismiss that: only a fresh code can help, and hiding the blocker on the next
-  // keystroke would walk the user straight back into a refusal.
-  await page.getByLabel('OTP digit 1').fill('9');
-  await expect(page.locator('#signin-otp-status')).toHaveText(/too many incorrect attempts/i);
-  await expect(verify).toBeDisabled();
+    // Changing identity is a new attempt, not a bypass: discard the spent code and make the person
+    // ask for one for the new mobile. Changing back still requires a successful new send.
+    await page.locator('#signin-mobile').fill(uniqueMobile());
+    await expect(page.getByRole('button', { name: /Send OTP/i })).toBeVisible();
+    await expect(verify).toHaveCount(0);
+  });
 
-  // Changing identity is a new attempt, not a bypass: discard the spent code and make the person
-  // ask for one for the new mobile. Changing back still requires a successful new send.
-  await page.locator('#signin-mobile').fill(uniqueMobile());
-  await expect(page.getByRole('button', { name: /Send OTP/i })).toBeVisible();
-  await expect(verify).toHaveCount(0);
-});
+  /* Sign Up posts to the same `/auth/login` but also raises refusals Sign In cannot, and its catch has
+     to tell the two apart — see `docs/flows/consumer/auth.md`. */
+  await test.step('Sign Up', async () => {
+    await page.goto(`/signup?mobile=${uniqueMobile()}&new=1`);
+    await page.locator('input[placeholder="Enter your full name"]').fill('Test User');
+    await page.locator('input[type="checkbox"]').check();
+    await page.getByRole('button', { name: /Send OTP/i }).click();
+    await expect(page.getByLabel('OTP digit 1')).toBeVisible();
 
-/* Sign Up posts to the same `/auth/login` but also raises refusals Sign In cannot, and its catch has
-   to tell the two apart — see `docs/flows/consumer/auth.md`. */
-test('Sign Up counts the same attempts down and then blocks its own form', async ({ page }) => {
-  await page.goto(`/signup?mobile=${uniqueMobile()}&new=1`);
-  await page.locator('input[placeholder="Enter your full name"]').fill('Test User');
-  await page.locator('input[type="checkbox"]').check();
-  await page.getByRole('button', { name: /Send OTP/i }).click();
-  await expect(page.getByLabel('OTP digit 1')).toBeVisible();
+    const create = page.getByRole('button', { name: /Create Account/i });
 
-  const create = page.getByRole('button', { name: /Create Account/i });
+    for (const left of [2, 1]) {
+      await fillOtp(page, WRONG_OTP);
+      await create.click();
+      await expect(page.locator('#signup-otp-status')).toHaveText(new RegExp(`${left} attempts? left`, 'i'));
+    }
 
-  for (const left of [2, 1]) {
     await fillOtp(page, WRONG_OTP);
     await create.click();
-    await expect(page.locator('#signup-otp-status')).toHaveText(new RegExp(`${left} attempts? left`, 'i'));
-  }
+    await expect(page.locator('#signup-otp-status')).toHaveText(/too many incorrect attempts/i);
+    await expect(create).toBeDisabled();
 
-  await fillOtp(page, WRONG_OTP);
-  await create.click();
-  await expect(page.locator('#signup-otp-status')).toHaveText(/too many incorrect attempts/i);
-  await expect(create).toBeDisabled();
-
-  // Same keystroke guard as Sign In: the message survives typing, because typing cannot help.
-  await page.getByLabel('OTP digit 1').fill('9');
-  await expect(page.locator('#signup-otp-status')).toHaveText(/too many incorrect attempts/i);
-  await expect(create).toBeDisabled();
+    // Same keystroke guard as Sign In: the message survives typing, because typing cannot help.
+    await page.getByLabel('OTP digit 1').fill('9');
+    await expect(page.locator('#signup-otp-status')).toHaveText(/too many incorrect attempts/i);
+    await expect(create).toBeDisabled();
+  });
 });
-
-test('Staff Login blocks a spent OTP and announces the count', async ({ page }) => {
-  await page.goto('/staff-login');
-  await page.locator('#staff-mobile').fill(uniqueMobile());
-  await page.getByRole('button', { name: /Send OTP/i }).click();
-  await expect(page.getByLabel('OTP digit 1')).toBeVisible();
-
-  const verify = page.getByRole('button', { name: /Verify & sign in/i });
-  for (const left of [2, 1]) {
-    await fillOtp(page, WRONG_OTP);
-    await verify.click();
-    await expect(page.locator('#staff-otp-status')).toHaveText(new RegExp(`${left} (?:try|tries) left`, 'i'));
-  }
-
-  await fillOtp(page, WRONG_OTP);
-  await verify.click();
-  await expect(page.locator('#staff-otp-status')).toHaveText(/last try.*request a new code/i);
-  await expect(verify).toBeDisabled();
-});
-
 test('the source mobile is locked while sending an OTP', async ({ page }) => {
   let releaseSend;
   const sendReleased = new Promise((resolve) => { releaseSend = resolve; });

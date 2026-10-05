@@ -5,23 +5,16 @@ import Icon from '../Icon.jsx';
 import OtpBoxes from './OtpBoxes.jsx';
 import { useOtpFlow } from './useOtpFlow.js';
 import { requestOwnerConsent } from '../../services/flatmateService.js';
-import { fmtPhone } from '../../lib/contact.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
+/* Owner-consent OTP ping. */
 
-/* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate cannot produce ownership
-   docs, so the flat's OWNER confirms by OTP instead. Both calls go through the seam, because
-   `ownerConsent` is not client-settable — a locally recorded consent is dropped at the door and the
-   server learns nothing. Keyed on (owner mobile, tenant, flat), so it can be taken before the group
-   exists but only vouches for the flat named here. */
 export default function OwnerConsentModal({ ownerMobile, title, locality, onClose, onVerified }) {
   /* The surrounding copy is English, but `otp.sendError` is an i18n key by contract. */
   const { t } = useTranslation();
   const owner = String(ownerMobile || '').replace(/\D/g, '').slice(0, 10);
   const [verifying, setVerifying] = useState(false);
+  /* The address rides on the SEND too, not just the record. */
   const [failed, setFailed] = useState(null);
-  /* The address rides on the SEND too, not just the record. The row is scoped to a flat, so an
-     address the server cannot fingerprint is refused either way — asking first is what stops the
-     owner being texted for a consent that was never going to be storable. */
   const otp = useOtpFlow((mobile) => requestOwnerConsent({ ownerMobile: mobile, title, locality }));
 
   useScrollLock();
@@ -69,14 +62,10 @@ export default function OwnerConsentModal({ ownerMobile, title, locality, onClos
             <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name="badge-check" className="w-5 h-5 text-teal-400" /></div>
             <div>
               <h3 className="text-lg font-bold text-white">Confirm the owner's consent</h3>
-              <p className="text-xs text-slate-400 mt-0.5">We'll text the flat owner a code to confirm they're aware you're seeking a replacement.</p>
+              <p className="text-xs text-slate-400 mt-0.5">We'll text the owner a code.</p>
             </div>
           </div>
           <button onClick={onClose} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
-        </div>
-
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[11px] text-slate-400 mb-4 flex items-start gap-2">
-          <Icon name="lock" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-teal-400" /> Consent keeps replacement listings honest — the owner is never charged and their number is never shown to seekers.
         </div>
 
         <form onSubmit={submit} className="space-y-4">
@@ -87,7 +76,6 @@ export default function OwnerConsentModal({ ownerMobile, title, locality, onClos
               <span className="text-sm text-white font-medium tracking-wide flex-1">{owner}</span>
               <span className="inline-flex items-center gap-1 text-[11px] text-teal-300"><Icon name="badge-check" className="w-3.5 h-3.5" /> Owner</span>
             </div>
-            <p className="text-slate-500 text-xs mt-2">The consent OTP is sent to the owner at {fmtPhone(owner)}.</p>
             {otp.sendError && (
               <p className="text-red-400 text-xs mt-2">{t(otp.sendError)}</p>
             )}
@@ -95,15 +83,14 @@ export default function OwnerConsentModal({ ownerMobile, title, locality, onClos
 
           {otp.otpSent && (
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 text-center">Enter the owner's OTP</label>
-              <p className="text-xs text-slate-500 mb-4 text-center">Ask the owner for the 6-digit code we sent to <span className="text-teal-400 font-medium">+91 {owner}</span></p>
+              <label className="block text-xs font-medium text-slate-400 mb-4 text-center">Enter the code the owner received</label>
               <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
               {otp.otpError && !failed && <p className="text-red-400 text-xs text-center mt-2">Please enter the complete 6-digit OTP</p>}
               {failed && <p className="text-red-400 text-xs text-center mt-2">{failed}</p>}
               <div className="flex items-center justify-center gap-2 text-sm mt-4">
+                {/* The number, explicitly: `resend` forwards its argument to the dispatch, so a bare handler
+                   reference would post React's click event as `ownerMobile`. */}
                 <span className="text-slate-500">Owner didn't get it?</span>
-                {/* The number, explicitly: `resend` forwards its argument to the dispatch, so a
-                    bare handler reference would post React's click event as `ownerMobile`. */}
                 <button type="button" onClick={() => otp.resend(owner)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                   {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
                 </button>

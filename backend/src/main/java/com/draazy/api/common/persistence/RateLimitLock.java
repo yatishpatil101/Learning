@@ -16,24 +16,20 @@ public class RateLimitLock {
      * can never collide however their keys hash. */
     public enum Limit {
 
-        /** {@code OtpSendBudget} — codes per (mobile, purpose family) per hour, plus the cooldown. */
         OTP_SEND(1),
 
-        /** {@code SocietyLeadService} — public lead submissions per mobile per hour. */
-        SOCIETY_LEAD_SUBMIT(2),
-
-        /** One value for two services: {@code FlatmateSeekerService.express} and
-         * {@code FlatmateSupplyService.record} count the same rows against the same ceiling. */
         FLATMATE_INTEREST(3),
 
-        /** Keyed on the mobile alone, not {@code (mobile, service)}: a per-service key would loosen
-         * the cap every time the catalogue gained a service. */
         SERVICE_WAITLIST(4),
+
+        OTP_SEND_CALLER(5),
+
+        LISTING_CREATE(6);
 
         /** Distinct from {@link #OTP_SEND}, which keys on the recipient a caller can rotate freely.
          * Both are taken on one send, always in namespace order, so the pair cannot deadlock. */
-        OTP_SEND_CALLER(5);
-
+        // Distinct from `#OTP_SEND`, which keys on the recipient a caller can rotate freely.
+        // Both are taken on one send, always in namespace order, so the pair cannot deadlock.
         private final int namespace;
 
         Limit(int namespace) {
@@ -50,8 +46,7 @@ public class RateLimitLock {
     /** Must be called <em>before</em> reading the count it guards, with the insert in the same
      * transaction; either half missing guards nothing. */
     public void holdUntilCommit(Limit limit, String key) {
-        // pg_advisory_xact_lock returns void, which no result-set mapping can name, so it is called
-        // in a subquery whose column is never selected.
+
         acquire(limit, key, "select 1 from (select pg_advisory_xact_lock(:lockId)) as acquired");
     }
 
@@ -65,6 +60,7 @@ public class RateLimitLock {
     private Object acquire(Limit limit, String key, String sql) {
         require(limit, key);
         Query query = em.createNativeQuery(sql);
+
         // Nothing this lock protects is pending in the persistence context, so the automatic
         // pre-native-query flush would only move somebody else's writes earlier than they asked.
         query.setFlushMode(FlushModeType.COMMIT);
@@ -76,8 +72,7 @@ public class RateLimitLock {
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(key, "key");
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
-            // A transaction-scoped lock taken outside a transaction is released the instant the
-            // statement returns, so the limit silently reverts to check-then-write: a fail-open.
+
             throw new IllegalStateException(
                     "RateLimitLock." + limit + " needs an active transaction — a transaction-scoped "
                             + "advisory lock taken outside one is released immediately and enforces "
@@ -90,4 +85,4 @@ public class RateLimitLock {
     static long lockId(Limit limit, String key) {
         return ((long) limit.namespace << 32) | (key.hashCode() & 0xFFFF_FFFFL);
     }
-}
+    }
