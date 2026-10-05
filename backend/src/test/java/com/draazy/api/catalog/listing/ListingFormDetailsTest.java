@@ -9,10 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * The only thing between the two wizards and the JSONB column, and its 422 names no field to the person filling the
- * form. The allowlist is mirrored in {@code frontend/src/lib/listingFormDetails.js}; drift there drops keys silently.
- */
+// This allowlist is the only guard before JSONB, and the 422 cannot name a bad field.
+// The allowlist is mirrored in `frontend/src/lib/listingFormDetails.js`; drift there drops keys silently.
 @DisplayName("Listing form details — the allowlist that decides what survives the wire")
 class ListingFormDetailsTest {
 
@@ -48,10 +46,43 @@ class ListingFormDetailsTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"yes", "no", ""})
+    @DisplayName("plot layout registration answers round-trip as the wizard's yes/no")
+    void plottedProjectAccepted(String value) {
+        assertThat(accepts(Map.of("plottedProject", value))).isTrue();
+    }
+
+    @Test
+    @DisplayName("plot layout registration refuses off-menu words")
+    void plottedProjectRejectsOffMenu() {
+        assertThat(accepts(Map.of("plottedProject", "maybe"))).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"owner", "family"})
+    @DisplayName("whole-place lister relation reaches the staff-visible form details")
+    void listerRelationAccepted(String value) {
+        assertThat(accepts(Map.of("listerRelation", value))).isTrue();
+    }
+
+    @Test
+    @DisplayName("lister relation refuses off-menu words")
+    void listerRelationRejectsOffMenu() {
+        assertThat(accepts(Map.of("listerRelation", "broker"))).isFalse();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"included", "extra", ""})
     @DisplayName("maintenance terms, without which the detail page falls back to \"Ask Owner\"")
     void rentMaintModeAccepted(String value) {
         assertThat(accepts(Map.of("rentMaintMode", value))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"any", "veg", "jain", ""})
+    @DisplayName("every food rule the rent wizard offers reaches the column the food filter reads")
+    void foodPrefAccepted(String value) {
+        assertThat(accepts(Map.of("foodPref", value))).isTrue();
     }
 
     @Test

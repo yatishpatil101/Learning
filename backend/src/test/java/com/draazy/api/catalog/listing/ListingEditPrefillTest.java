@@ -26,12 +26,13 @@ class ListingEditPrefillTest extends AbstractApiTest {
              "pincode":"411045","carpetArea":875.5,"builtUpArea":1000.25,
              "address":"C-901, North, Edit Homes, Baner Road",
              "electricityMeterNo":"00123456789","reraId":"P52100000001",
-             "formDetails":%s}
+             "formDetails":%s,%s}
             """;
     private static final String DETAILS = """
             {"flatNumber":"C-901","tower":"North","society":"Edit Homes",
              "street":"Baner Road","landmark":"Near library","ownership":"Freehold",
              "loanAvailable":false,"agreementDuration":"24","lockIn":"0","availableFrom":"2027-01-20",
+             "foodPref":"veg","bestTimeToCall":"evening","listerRelation":"family",
              "furniture":["Study Table"],"preferredTenants":["family","bachelors"],"fixtures":[]}
             """;
 
@@ -47,7 +48,7 @@ class ListingEditPrefillTest extends AbstractApiTest {
     }
 
     @Test
-        void savedAnswersSurviveFreshReadAndOnlySelectedAnswersArePublic() throws Exception {
+    void savedAnswersSurviveFreshReadAndOnlySelectedAnswersArePublic() throws Exception {
         UUID id = create();
         mvc.perform(patch("/me/listings/" + id).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"description\":\"Updated text\"}"))
@@ -64,6 +65,8 @@ class ListingEditPrefillTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.formDetails.flatNumber").value("C-901"))
                 .andExpect(jsonPath("$.formDetails.loanAvailable").value(false))
                 .andExpect(jsonPath("$.formDetails.lockIn").value("0"))
+                .andExpect(jsonPath("$.formDetails.foodPref").value("veg"))
+                .andExpect(jsonPath("$.formDetails.listerRelation").value("family"))
                 .andExpect(jsonPath("$.formDetails.fixtures").isEmpty())
                 .andExpect(jsonPath("$.electricityMeterNo").value("00123456789"));
         jdbc.update("update properties set status = 'approved' where id = ?", id);
@@ -72,6 +75,9 @@ class ListingEditPrefillTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.ownership").value("Freehold"))
                 .andExpect(jsonPath("$.loanAvailable").value(false))
                 .andExpect(jsonPath("$.agreementDuration").value("24"))
+                .andExpect(jsonPath("$.foodPref").value("veg"))
+                .andExpect(jsonPath("$.bestTimeToCall").value("evening"))
+                .andExpect(jsonPath("$.availableDate").value("2027-01-20"))
                 .andExpect(jsonPath("$.furniture[0]").value("Study Table"))
                 .andExpect(jsonPath("$.maintenance").value(2500))
                 .andExpect(jsonPath("$.negotiable").value(true))
@@ -97,6 +103,17 @@ class ListingEditPrefillTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.formDetails.preferredTenants").isEmpty())
                 .andExpect(jsonPath("$.pincode").value("411038"))
                 .andExpect(jsonPath("$.address").value("C-901, North, Edit Homes, Baner Road"));
+    }
+
+    @Test
+    void legacyFoodKeyIsPublicOnTheDetailResponse() throws Exception {
+        UUID id = create();
+        jdbc.update("update properties set status = 'approved', form_details = form_details || '{\"food\":\"nonveg\"}'::jsonb where id = ?",
+                id);
+        em.clear();
+        mvc.perform(get("/properties/" + id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.foodPref").value("nonveg"))
+                .andExpect(jsonPath("$.formDetails").doesNotExist());
     }
 
     @Test
@@ -126,10 +143,10 @@ class ListingEditPrefillTest extends AbstractApiTest {
     @ParameterizedTest
     @ValueSource(strings = {"{\"ownerVerified\":true}", "{\"loanAvailable\":\"false\"}",
             "{\"flatNumber\":123}", "{\"fixtures\":[{}]}", "{\"unknown\":\"x\"}",
-            "{\"street\":\"bad\\u0000\"}", "{\"fixtures\":[\"bad\\u0001\"]}"})
+            "{\"street\":\"bad\\u0000\"}", "{\"fixtures\":[\"bad\\u0001\"]}", "{\"bestTimeToCall\":\"midnight\"}"})
     void createAndPatchRejectUnsupportedKeysAndWrongTypes(String details) throws Exception {
         mvc.perform(post("/me/listings").header("Authorization", auth)
-                        .contentType(MediaType.APPLICATION_JSON).content(BODY.formatted(details)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body(details)))
                 .andExpect(status().isUnprocessableEntity());
         UUID id = create();
         mvc.perform(patch("/me/listings/" + id).header("Authorization", auth)
@@ -141,20 +158,24 @@ class ListingEditPrefillTest extends AbstractApiTest {
     void rejectsUnboundedTextAndInvalidPostcode() throws Exception {
         mvc.perform(post("/me/listings").header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(BODY.formatted("{\"flatNumber\":\"" + "a".repeat(21) + "\"}")))
+                        .content(body("{\"flatNumber\":\"" + "a".repeat(21) + "\"}")))
                 .andExpect(status().isUnprocessableEntity());
         mvc.perform(post("/me/listings").header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(BODY.formatted(DETAILS).replace("411045", "012345")))
+                        .content(body(DETAILS).replace("411045", "012345")))
                 .andExpect(status().isUnprocessableEntity());
     }
 
     private UUID create() throws Exception {
         mvc.perform(post("/me/listings").header("Authorization", auth)
-                        .contentType(MediaType.APPLICATION_JSON).content(BODY.formatted(DETAILS)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body(DETAILS)))
                 .andExpect(status().isCreated());
         em.flush();
         em.clear();
         return jdbc.queryForObject("select id from properties where owner_id = ?", UUID.class, owner.getId());
+    }
+
+    private String body(String details) {
+        return BODY.formatted(details, listingImages(owner));
     }
 }

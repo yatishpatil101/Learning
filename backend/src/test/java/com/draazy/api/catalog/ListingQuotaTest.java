@@ -19,32 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
-/**
- * The freemium listing ceiling, enforced where it can actually be enforced.
- *
- * <p><strong>What this replaced was not a weaker gate; it was no gate.</strong> The wizard compared
- * a count of the listings <em>that browser's</em> {@code localStorage} held against a ceiling the
- * same browser computed from a referral tally it had minted for itself. An owner who posted from a
- * laptop and then opened the wizard on a phone was measured as having posted nothing and waved
- * straight past their limit — so the free tier was, in practice, a paywall against clearing your
- * cookies. Both numbers now come from the server, but a number a client reads is a number a client
- * can skip, and {@code POST /me/listings} is reachable without the wizard at all.
- *
- * <p>The properties worth proving here are the edges, not the happy path:
- *
- * <ol>
- *   <li><strong>The ceiling binds across devices</strong>, because it is counted from the
- *       catalogue rather than from the caller.</li>
- *   <li><strong>Archiving frees the slot.</strong> The free tier is one listing at a time, not one
- *       listing ever — otherwise an owner who sells their flat can never list the next one, and the
- *       only remedy for a typo is to pay.</li>
- *   <li><strong>A rejection costs nothing.</strong> A listing moderation refused occupies nothing
- *       the owner can use; charging a slot for it would let a moderator permanently spend a
- *       free-tier owner's entire allowance.</li>
- *   <li><strong>A refused post writes nothing.</strong> The check runs before the row is built, so
- *       there is no half-created listing and no duplicate-probe entry left behind.</li>
- * </ol>
- */
+// The quota is enforced server-side because browser localStorage counted only
+// that device and `POST /me/listings` is reachable without the wizard.
 @DisplayName("Listing quota — the ceiling the browser used to keep")
 class ListingQuotaTest extends AbstractApiTest {
 
@@ -53,7 +29,7 @@ class ListingQuotaTest extends AbstractApiTest {
 
     private static final String BODY = """
             {"title":"%s","deal":"rent","propertyType":"apartment","price":25000,
-             "locality":"Kothrud","city":"Pune"}
+             "locality":"Kothrud","city":"Pune",%s}
             """;
 
     private User owner(String mobile) {
@@ -63,14 +39,8 @@ class ListingQuotaTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    /**
-     * A listing already in the catalogue, saved directly.
-     *
-     * <p>Deliberately not posted through the endpoint: the point of these tests is that the count
-     * comes from the catalogue and not from the caller's session, so the fixture has to arrive by a
-     * route the caller's browser was never part of. That is also what "posted from another device"
-     * means here.
-     */
+    // A listing already in the catalogue, saved directly.
+    // That is also what "posted from another device" means here.
     private Property existing(User owner, String title, String status) {
         Property p = new Property(owner, title, "rent", "apartment", 25000L, "Kothrud", "Pune");
         p.setBhk(new BigDecimal("2"));
@@ -83,7 +53,7 @@ class ListingQuotaTest extends AbstractApiTest {
     private int tryPost(User owner, String title) throws Exception {
         return mvc.perform(post("/me/listings").header("Authorization", bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(BODY.formatted(title)))
+                        .content(BODY.formatted(title, listingImages(owner))))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -95,11 +65,10 @@ class ListingQuotaTest extends AbstractApiTest {
 
         mvc.perform(post("/me/listings").header("Authorization", bearer(o))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(BODY.formatted("Posted from the phone")))
+                        .content(BODY.formatted("Posted from the phone", listingImages(o))))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("listing_quota_exhausted"))
-                // The message has to name both numbers. "You are over your limit" sends an owner
-                // to support; "1 of 1" sends them to the listing they forgot they had.
+
                 .andExpect(jsonPath("$.message").value(containsString("1 of 1")));
     }
 
@@ -108,6 +77,15 @@ class ListingQuotaTest extends AbstractApiTest {
     void pendingCountsTowardsTheCeiling() throws Exception {
         User o = owner("9861000002");
         existing(o, "Awaiting review", PropertyStatus.PENDING);
+
+        assertThat(tryPost(o, "And another")).isEqualTo(422);
+    }
+
+    @Test
+    @DisplayName("a paused listing still holds its slot")
+    void pausedCountsTowardsTheCeiling() throws Exception {
+        User o = owner("9861000009");
+        existing(o, "Paused flat", PropertyStatus.PAUSED);
 
         assertThat(tryPost(o, "And another")).isEqualTo(422);
     }
@@ -146,6 +124,35 @@ class ListingQuotaTest extends AbstractApiTest {
         assertThat(tryPost(o, "Never created")).isEqualTo(422);
         assertThat(properties.findAll().stream().map(Property::getTitle))
                 .doesNotContain("Never created");
+    }
+
+    @Test
+    @DisplayName("a fourth post inside a day is refused even though no slot is held")
+    void theDailyPaceBindsWhereTheCeilingCannot() throws Exception {
+        User o = owner("9861400001");
+        for (int i = 0; i < 3; i++) {
+            existing(o, "Turned down " + i, PropertyStatus.REJECTED);
+        }
+
+        mvc.perform(post("/me/listings").header("Authorization", bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY.formatted("Fourth today", listingImages(o))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"))
+                .andExpect(jsonPath("$.message").value(containsString("3 new listings a day")));
+    }
+
+    @Test
+    @DisplayName("deleting listings does not reset the daily pace")
+    void deletingDoesNotResetThePace() throws Exception {
+        User o = owner("9861400002");
+        for (int i = 0; i < 3; i++) {
+            mvc.perform(delete("/me/listings/" + existing(o, "Posted and pulled " + i, PropertyStatus.APPROVED).getId())
+                            .header("Authorization", bearer(o)))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(tryPost(o, "Fourth today")).isEqualTo(429);
     }
 
     @Test

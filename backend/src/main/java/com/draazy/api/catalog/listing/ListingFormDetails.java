@@ -32,8 +32,10 @@ public @interface ListingFormDetails {
                 "shellType", "camCharges", "plotLength", "plotWidth", "openSides", "roadWidth",
                 "plotZone", "waterSource", "naStatus", "otherRights", "buyerEligibility",
                 "gstOnRent", "fitOutMonths", "escalationPct", "tenancyStatus", "inPlaceRent", "leaseExpiry",
-                "seatCount", "frontage", "floorLoad", "clearHeight", "sanctionedPower", "dockCount");
-        /* `naSanctioned` and `satbara` are retired in favour of `naStatus` and `otherRights`; they
+                "seatCount", "frontage", "floorLoad", "clearHeight", "sanctionedPower", "dockCount",
+                "bestTimeToCall", "plottedProject", "listerRelation");
+
+        /** `naSanctioned` and `satbara` are retired in favour of `naStatus` and `otherRights`; they
          * stay legal because listings published under them are live and re-save theirs unchanged. */
         private static final Set<String> FLAGS = Set.of(
                 "loanAvailable", "powerBackup", "pantry", "cornerPlot", "boundaryWall",
@@ -43,7 +45,7 @@ public @interface ListingFormDetails {
                 "flatNumber", 20, "tower", 30, "society", 60, "street", 60, "landmark", 60,
                 "availableFrom", 10, "leaseExpiry", 10);
 
-        /* Picker answers, so a length check would accept what a picker can never produce — and these feed
+        /** Picker answers, so a length check would accept what a picker can never produce — and these feed
          * filters and contract terms. Empty stays legal: that is the owner declining to answer. */
         private static final Map<String, Set<String>> ENUMS = Map.ofEntries(
                 Map.entry("ownership", Set.of("", "Freehold", "Leasehold", "Co-operative Society",
@@ -51,12 +53,11 @@ public @interface ListingFormDetails {
                 Map.entry("agreementDuration", Set.of("", "6", "11", "12", "24", "36", "60", "108", "120", "long")),
                 Map.entry("lockIn", Set.of("", "0", "1", "2", "3", "6", "12", "24", "36", "60")),
                 Map.entry("noticePeriod", Set.of("", "1", "2", "3", "6")),
-                Map.entry("foodPref", Set.of("", "any", "veg")),
+                Map.entry("foodPref", Set.of("", "any", "veg", "jain")),
                 Map.entry("petsPolicy", Set.of("", "yes", "no")),
                 Map.entry("rentMaintMode", Set.of("", "included", "extra")),
                 Map.entry("transactionType", Set.of("", "new", "resale")),
-                /* `coworking` is retired from the wizard but stays legal: listings published under it
-                 * are still live, and a re-save that rejected it would force the owner to relabel. */
+
                 Map.entry("commercialType", Set.of("", "office", "shop", "retail", "warehouse",
                         "industrial", "coworking")),
                 Map.entry("shellType", Set.of("", "bareShell", "warmShell", "furnished")),
@@ -64,7 +65,11 @@ public @interface ListingFormDetails {
                 Map.entry("gstOnRent", Set.of("", "yes", "no")),
                 Map.entry("fitOutMonths", Set.of("", "0", "1", "2", "3", "6")),
                 Map.entry("tenancyStatus", Set.of("", "vacant", "leased")),
-                /* Translated into `land_use`, whose CHECK accepts five values — an unrecognised label does
+                Map.entry("bestTimeToCall", Set.of("", "anytime", "morning", "afternoon", "evening")),
+                Map.entry("plottedProject", Set.of("", "yes", "no")),
+                Map.entry("listerRelation", Set.of("owner", "family")),
+
+                /** Translated into `land_use`, whose CHECK accepts five values — an unrecognised label does
                  * not fail, it maps to nothing and the plot publishes missing from its only filter. */
                 Map.entry("plotZone", Set.of("", "Residential (R1)", "Residential (R2)",
                         "Commercial (C-1)", "Industrial (I-1)", "Public / Semi-public", "Mixed-Use",
@@ -76,7 +81,7 @@ public @interface ListingFormDetails {
                 Map.entry("buyerEligibility", Set.of("", "agriculturist", "permission", "converted",
                         "unknown")));
 
-        /* Multi-selects are pickers too. `furniture` and `preferredTenants` stay unbounded: both are
+        /** Multi-selects are pickers too. `furniture` and `preferredTenants` stay unbounded: both are
          * offered per property type from lists this file would have to duplicate four times over. */
         private static final Map<String, Set<String>> ARRAY_ENUMS = Map.of(
                 "suitableFor", Set.of("Office", "Retail", "Restaurant", "Clinic", "Showroom",
@@ -89,8 +94,6 @@ public @interface ListingFormDetails {
                         "Loading Bay / Dock", "High Ceiling", "3-Phase Power", "Wide Truck Access",
                         "Crane / Gantry Support", "Covered Yard"));
 
-        /* The numeric commercial specs: digits with at most one decimal point, and empty stays
-         * legal. A length check alone would accept "forty" as a seat count. */
         private static final Set<String> DECIMALS = Set.of(
                 "escalationPct", "inPlaceRent", "seatCount", "frontage", "floorLoad",
                 "clearHeight", "sanctionedPower", "dockCount", "camCharges");
@@ -127,8 +130,6 @@ public @interface ListingFormDetails {
             }
         }
 
-        // Single-line answers exclude controls and unpaired surrogates: JSONB rejects NUL, and
-        // escaped controls could exceed the storage cap despite the per-answer length limits.
         private static boolean validText(String text, int limit) {
             return text.length() <= limit && text.codePoints()
                     .noneMatch(c -> c < 32 || (c >= 0xD800 && c <= 0xDFFF));

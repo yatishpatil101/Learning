@@ -103,24 +103,18 @@ class ListingOverlookingTest extends AbstractApiTest {
         assertStored(id, "Garden", "West");
     }
 
-    @Test
-    void postRejectsOverlookingLongerThan32Characters() throws Exception {
-        mvc.perform(post("/me/listings").header("Authorization", authorization)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(CREATE_BODY.formatted(",\"overlooking\":\"" + "x".repeat(33) + "\"")))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error").value("validation_failed"))
-                .andExpect(jsonPath("$.fields.length()").value(1))
-                .andExpect(jsonPath("$.fields[0].field").value("overlooking"));
-    }
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"post", "patch"})
+    void writeRejectsOverlookingLongerThan32Characters(String verb) throws Exception {
+        boolean create = "post".equals(verb);
+        var request = create
+                ? post("/me/listings").content(
+                        CREATE_BODY.formatted(",\"overlooking\":\"" + "x".repeat(33) + "\""))
+                : patch("/me/listings/" + postListing(",\"overlooking\":\"Garden\""))
+                        .content("{\"overlooking\":\"" + "x".repeat(33) + "\"}");
 
-    @Test
-    void patchRejectsOverlookingLongerThan32Characters() throws Exception {
-        UUID id = postListing(",\"overlooking\":\"Garden\"");
-
-        mvc.perform(patch("/me/listings/" + id).header("Authorization", authorization)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"overlooking\":\"" + "x".repeat(33) + "\"}"))
+        mvc.perform(request.header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("validation_failed"))
                 .andExpect(jsonPath("$.fields.length()").value(1))
@@ -129,7 +123,8 @@ class ListingOverlookingTest extends AbstractApiTest {
 
     private UUID postListing(String extraFields) throws Exception {
         mvc.perform(post("/me/listings").header("Authorization", authorization)
-                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY.formatted(extraFields)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_BODY.formatted(extraFields + "," + listingImages(owner))))
                 .andExpect(status().isCreated());
         em.flush();
         em.clear();
@@ -137,7 +132,7 @@ class ListingOverlookingTest extends AbstractApiTest {
     }
 
     private void assertStored(UUID id, String overlooking, String facing) {
-        // MockMvc shares the test transaction; a managed entity would not prove a database write.
+
         em.flush();
         em.clear();
         assertThat(jdbc.queryForObject("select overlooking from properties where id = ?", String.class, id))

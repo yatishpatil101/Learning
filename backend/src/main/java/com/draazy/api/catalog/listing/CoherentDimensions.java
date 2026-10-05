@@ -8,12 +8,9 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.math.BigDecimal;
 
-/**
- * The arithmetic between fields that are each individually plausible: floor 9 of a 4-storey building is a
- * contradiction, not a typo. Only compares pairs the submission states — a missing count is silence.
- */
+/** The arithmetic between fields that are each individually plausible: floor 9 of a 4-storey building is a
+ * contradiction, not a typo. Only compares pairs the submission states — a missing count is silence. */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = CoherentDimensions.Validator.class)
@@ -31,11 +28,6 @@ public @interface CoherentDimensions {
 
         Integer totalFloors();
 
-        BigDecimal carpetArea();
-
-        BigDecimal builtUpArea();
-
-        BigDecimal superBuiltUpArea();
     }
 
     class Validator implements ConstraintValidator<CoherentDimensions, Dimensions> {
@@ -50,20 +42,7 @@ public @interface CoherentDimensions {
             if (in.floor() != null && in.totalFloors() != null && in.floor() > in.totalFloors()) {
                 valid = report(context, "floor", "cannot be above the building's top floor");
             }
-            if (exceeds(in.carpetArea(), in.builtUpArea())) {
-                valid = report(context, "carpetArea", "cannot exceed the built-up area");
-            }
-            if (exceeds(in.builtUpArea(), in.superBuiltUpArea())) {
-                valid = report(context, "builtUpArea", "cannot exceed the super built-up area");
-            }
-            if (exceeds(in.carpetArea(), in.superBuiltUpArea())) {
-                valid = report(context, "carpetArea", "cannot exceed the super built-up area");
-            }
             return valid;
-        }
-
-        private static boolean exceeds(BigDecimal smaller, BigDecimal larger) {
-            return smaller != null && larger != null && smaller.compareTo(larger) > 0;
         }
 
         private static boolean report(ConstraintValidatorContext context, String field, String message) {
