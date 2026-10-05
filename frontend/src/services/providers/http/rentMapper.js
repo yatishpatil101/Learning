@@ -1,28 +1,4 @@
-/**
- * Wire ↔ seam translation for the tenancy domain: tenancies, tenant profiles, rent agreements and
- * per-property finances.
- *
- * Fourteen endpoints over three controllers, held together by one object: the **tenancy**. A
- * tenancy is what a rent agreement papers, what a declaration claims, and what makes an owner's
- * finance ledger about a real let rather than a spreadsheet.
- *
- * ## 1. Nothing here moves rent
- *
- * There is no mapper for a rent payment, an auto-pay mandate or an owner payout account: that rail
- * is not in the contract, so translating a shape the server cannot send would be dead weight.
- * `/pay-rent` is a static coming-soon page.
- */
-
-/**
- * Wire `TenancyDto` → the seam's tenancy shape.
- *
- * ## 2. The same row is read from both ends
- *
- * `GET /me/tenancies` is the tenant's view and `GET /tenancies` is the owner's, over the same
- * table. So the view model carries **both** parties rather than a single "them", and the caller
- * decides which side they are on. Collapsing it to one counterparty here would mean two shapes for
- * one row, and a component that could not be reused across the two dashboards.
- */
+/* Rent maps real lets only; payment and payout rails are not modelled here. */
 export function toTenancyViewModel(row) {
   return {
     id: row?.id || '',
@@ -44,20 +20,7 @@ export function toTenancyViewModel(row) {
   };
 }
 
-/**
- * Wire `TenancyDeclaration` → the seam's shape.
- *
- * ## 3a. `propId` carries the identifier the page already holds
- *
- * Named `propId` and set from the wire's `propertyId` for the same reason `toTenancyViewModel`
- * carries both: the property page compares it against `p.uuid || p.id`, and the listing's UUID is
- * what this API speaks. Hold a slug on either side of that comparison and the tenancy half of
- * review eligibility silently matches nothing.
- *
- * `status` is the only field with authority here. `pending` is somebody's unopposed assertion,
- * `revoked` is one the owner took back, and only `confirmed` proves a stay — so callers must branch
- * on it rather than on the row's existence.
- */
+/** Status is authoritative; pending is only an unopposed tenancy assertion. */
 export function toTenancyDeclarationViewModel(row) {
   return {
     id: row?.id || '',
@@ -73,19 +36,7 @@ export function toTenancyDeclarationViewModel(row) {
   };
 }
 
-/**
- * Wire `TenantProfileDto` → the seam's shape.
- *
- * ## 3. The tenant score is the server's, and `verified` is not `idVerified`
- *
- * The score is the server's `score`, never re-derived in the browser from how many fields are
- * filled in — two different numbers for one profile is worse than one number somebody disagrees
- * with.
- *
- * `verified` is the server's verification state, not "this browser once ticked a box", so it is
- * deliberately not named `idVerified`: a call site reading `idVerified` gets `undefined` (falsy,
- * so it fails closed — but silently).
- */
+/** `verified` is the server's state, not `idVerified`, so a stale call site reads `undefined` and fails closed. */
 export function toTenantProfileViewModel(row) {
   if (!row || (!row.mobile && !row.name)) return null;
   return {
@@ -117,22 +68,12 @@ export function toTransactionViewModel(row) {
   };
 }
 
-/**
- * Wire `TenantRental` → the seam's shape: a home the tenant says they rent, off-platform.
- *
- * `monthsPaid`, `totalPaid` and `fyPaid` are copied straight through and never recomputed. They
- * are the server's arithmetic over the lease dates, and the April–March financial year has exactly
- * one definition — re-deriving it here is how the tile and the export would come to disagree by a
- * month, in a number a tenant repeats to their employer.
- *
- * Nothing produced here is evidence. `monthlyRent` is what the tenant typed, not what the platform
- * saw move, so this shape must never feed the Rent Passport — that document says "verified".
- */
+/** They are the server's arithmetic over the lease dates, and the April–March financial year has exactly one
+ * definition. */
 export function toRentalViewModel(row) {
   return {
     id: row?.id || '',
     address: row?.address || '',
-    landlordName: row?.landlordName || '',
     monthlyRent: Number(row?.monthlyRent) || 0,
     // Absent means "not recorded", which is not the same as a zero deposit.
     deposit: row?.deposit == null ? null : Number(row.deposit),
@@ -145,17 +86,6 @@ export function toRentalViewModel(row) {
   };
 }
 
-/**
- * ## 4. The summary, the cashflow and the dues are the server's arithmetic
- *
- * `financeSummary`, `cashflowByMonth` and `getDues` each have their own endpoint rather than being
- * reduced from the transaction list in the browser, which matters for a reason beyond tidiness: a
- * client-side reduction could only ever be right about transactions the client had downloaded, and
- * the ledger is paged.
- *
- * A reduction over page one of a paged list is not a summary — it is a summary of page one, quietly
- * mislabelled.
- */
 export const toSummaryViewModel = (row) => ({
   income: Number(row?.income) || 0,
   expense: Number(row?.expense) || 0,
@@ -199,22 +129,8 @@ export function toBasisViewModel(row) {
   };
 }
 
-/**
- * Wire `RentAgreement` → the seam's shape.
- *
- * `propId` mirrors the wire's `propertyId` for the reason `toTenancyViewModel` gives: the document
- * vault matches an agreement to the selected flat by comparing `propId`, and a rename here is what
- * keeps that comparison true against both providers.
- *
- * `endDate` is derived rather than carried, because the record stores a start plus a term in months
- * and an end date computed anywhere else would be a second, driftable copy of the same fact. The
- * arithmetic is deliberately on a UTC date so a lease that starts on the 1st does not display as
- * ending on the last day of the previous month for a reader east of Greenwich.
- *
- * The counterparties' *names* are not on the wire — the record identifies its tenant by mobile
- * only, since an owner may file it before that person has an account. Callers already fall back to
- * the tenancy's `ownerName` or a generic label, which is the honest answer rather than a guess.
- */
+/** `endDate` is derived rather than carried, because the record stores a start plus a term in months and an end date
+ * computed anywhere else would be a second, driftable copy of the same fact. */
 export function toRentAgreementViewModel(row) {
   const startDate = row?.startDate || null;
   const months = Number(row?.durationMonths) || 0;

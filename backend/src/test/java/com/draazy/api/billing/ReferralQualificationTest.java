@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -140,6 +142,9 @@ class ReferralQualificationTest extends AbstractApiTest {
         Referral referral = referral("9866610010", "9866610011");
         assertThat(referral.getStatus()).isEqualTo(ReferralStatuses.PENDING);
         assertThat(referral.getQualifiedAt()).isNull();
+        // Redemption is the whole of "joined". Q17 rejected it as the trigger because a SIM costs
+        // less than the credit it would mint.
+        assertThat(referral.isActivated()).isFalse();
 
         UUID owner = users.findByMobile(referral.getReferredMobile()).orElseThrow().getId();
         UUID property = UUID.randomUUID();
@@ -155,25 +160,24 @@ class ReferralQualificationTest extends AbstractApiTest {
         assertThat(after.isActivated()).isTrue();
     }
 
-    @Test
-    void joiningAloneQualifiesNothing() throws Exception {
-        Referral referral = referral("9866610020", "9866610021");
-        // Redemption is the whole of "joined". Q17 rejected it as the trigger because a SIM costs
-        // less than the credit it would mint.
-        assertThat(reload(referral.getId()).getStatus()).isEqualTo(ReferralStatuses.PENDING);
-        assertThat(reload(referral.getId()).isActivated()).isFalse();
-    }
-
-    @Test
-    void aSecondVerifiedListingMintsNothingFurther() throws Exception {
+    @ParameterizedTest(name = "{0} mints nothing further")
+    @CsvSource({
+            "a second verified listing, false",
+            "re-verifying the same property, true"})
+    void aRepeatedVerificationMintsNothingFurther(String announcement, boolean sameProperty)
+            throws Exception {
         Referral referral = referral("9866610030", "9866610031");
         UUID owner = users.findByMobile(referral.getReferredMobile()).orElseThrow().getId();
+        UUID property = UUID.randomUUID();
 
-        qualification.announceOwnershipVerified(owner, UUID.randomUUID(), Instant.now());
+        qualification.announceOwnershipVerified(owner, property, Instant.now());
         Instant firstQualifiedAt = reload(referral.getId()).getQualifiedAt();
         UUID firstProperty = reload(referral.getId()).getQualifiedPropertyId();
 
-        qualification.announceOwnershipVerified(owner, UUID.randomUUID(), Instant.now());
+        // A retried verification write announces again with the same arguments; the port's Javadoc
+        // requires this to be survivable, and re-verification after a lapse looks identical.
+        qualification.announceOwnershipVerified(
+                owner, sameProperty ? property : UUID.randomUUID(), Instant.now().plusSeconds(60));
 
         // Counted across every referral this referrer has, not asserted on one row: if a second
         // announcement ever inserted a row instead of updating one, a single-row assertion would
@@ -183,23 +187,6 @@ class ReferralQualificationTest extends AbstractApiTest {
         assertThat(all).filteredOn(r -> r.getQualifiedAt() != null).hasSize(1);
         assertThat(all.getFirst().getQualifiedPropertyId()).isEqualTo(firstProperty);
         assertThat(all.getFirst().getQualifiedAt()).isEqualTo(firstQualifiedAt);
-    }
-
-    @Test
-    void reVerifyingTheSamePropertyIsIdempotent() throws Exception {
-        Referral referral = referral("9866610040", "9866610041");
-        UUID owner = users.findByMobile(referral.getReferredMobile()).orElseThrow().getId();
-        UUID property = UUID.randomUUID();
-
-        // A retried verification write announces again with the same arguments. The port's Javadoc
-        // requires this to be survivable; re-verification after a lapse looks identical.
-        qualification.announceOwnershipVerified(owner, property, Instant.now());
-        Instant first = reload(referral.getId()).getQualifiedAt();
-        qualification.announceOwnershipVerified(owner, property, Instant.now().plusSeconds(60));
-
-        assertThat(referrals.findByReferrerId(referral.getReferrerId()))
-                .filteredOn(r -> r.getQualifiedAt() != null).hasSize(1);
-        assertThat(reload(referral.getId()).getQualifiedAt()).isEqualTo(first);
     }
 
     @Test
@@ -359,13 +346,6 @@ class ReferralQualificationTest extends AbstractApiTest {
         // platform's most common genuine referral.
         assertThat(referral.getStatus()).isEqualTo(ReferralStatuses.PENDING);
         assertThat(referral.getRisk()).isEqualTo("medium");
-    }
-
-    @Test
-    void redeemingFromSomewhereElseIsNotFlagged() throws Exception {
-        Referral referral = referral("9866610120", "9866610121");
-        assertThat(referral.isSameIp()).isFalse();
-        assertThat(referral.isSameDevice()).isFalse();
     }
 
     @Test

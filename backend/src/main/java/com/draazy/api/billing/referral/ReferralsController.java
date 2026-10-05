@@ -4,6 +4,7 @@ import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,7 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReferralsController {
 
     private static final String STAFF_OR_ADMIN =
-            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+                    + BackOfficePermissions.REQUIRE_REPORTS_WRITE;
 
     private final ReferralService service;
 

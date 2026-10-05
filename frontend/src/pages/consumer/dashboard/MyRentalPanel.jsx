@@ -151,7 +151,7 @@ export default function MyRentalPanel({ user }) {
       {/* Rented-home card */}
       <Card className="overflow-hidden">
         <div className="flex flex-col sm:flex-row">
-          <PropertyImage src={t.image} alt={t.title} className="w-full sm:w-52 h-40 sm:h-auto object-cover" />
+          <PropertyImage src={t.image} sizes="(max-width: 639px) 100vw, 208px" alt={t.title} className="w-full sm:w-52 h-40 sm:h-auto object-cover" />
           <div className="flex-1 p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">

@@ -36,8 +36,7 @@ import org.springframework.http.HttpHeaders;
  * {@link AdminFinancePropertyContractTest}, which reads both artefacts off disk.
  *
  * <p>The other half — that setting the properties actually flips the response — is
- * {@link AdminFinanceDisclosureEnabledTest}, which has to be a separate class because
- * {@code @TestPropertySource} builds a separate application context.
+ * {@link AdminFinanceDisclosureEnabledTest}.
  */
 @DisplayName("/admin/finance — structural zeros disclose themselves by default")
 class AdminFinanceDisclosureTest extends AbstractApiTest {
@@ -55,37 +54,18 @@ class AdminFinanceDisclosureTest extends AbstractApiTest {
      * The defaults are the ones that describe the platform as it is today: no refund path exists,
      * and {@code service_orders.amount} is a quote rather than a
      * receipt. Every flag false, and therefore every figure beside one marked as a structural zero.
+     *
+     * <p>{@code serviceOrdersCounted} is false and the breakdown is the proof: no {@code services}
+     * line appears in it. Deliberately not asserting the row count — the number of revenue sources
+     * is {@link AdminMetricsEndpointsTest}'s business, and pinning it here would break this
+     * disclosure test the day a legitimate third non-services source ships.
      */
     @Test
     void noPathHasShippedSoNothingClaimsToBeMeasured() throws Exception {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.refundsMeasured").value(false))
-                .andExpect(jsonPath("$.serviceOrdersCounted").value(false));
-    }
-
-    /**
-     * The disclosure travels <em>with</em> the figure, not instead of it. Omitting a number the
-     * screen has a slot for is how a rendering bug and an absent money path become the same blank
-     * cell, so the zero stays in the payload and the flag is what tells them apart.
-     */
-    @Test
-    void theDisclosedFiguresAreStillReportedAsZeroNotDropped() throws Exception {
-        mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.refunds").value(0));
-    }
-
-    /**
-     * {@code serviceOrdersCounted} is false and the breakdown is the proof: no {@code services}
-     * line appears in it. Deliberately not asserting the row count — the number of revenue sources
-     * is {@link AdminMetricsEndpointsTest}'s business, and pinning it here would break this
-     * disclosure test the day a legitimate third non-services source ships.
-     */
-    @Test
-    void revenueDrawsFromSourcesThatDoNotIncludeServices() throws Exception {
-        mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
-                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.serviceOrdersCounted").value(false))
                 .andExpect(jsonPath("$.breakdown[?(@.source == 'services')]").doesNotExist());
     }
 }

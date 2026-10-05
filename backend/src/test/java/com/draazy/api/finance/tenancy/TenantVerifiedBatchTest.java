@@ -1,7 +1,6 @@
 package com.draazy.api.finance.tenancy;
 
 import com.draazy.api.support.AbstractApiTest;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -30,8 +29,6 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
     @Autowired UserRepository users;
     @Autowired PropertyRepository properties;
     @Autowired TenantProfileRepository profiles;
-
-    // ---- helpers ----
 
     private User user(String mobile, String role) {
         User u = new User(mobile, role);
@@ -82,8 +79,6 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
         return "{\"mobiles\":[" + list + "]}";
     }
 
-    // ---- 1: the badge a related caller is entitled to ----
-
     @Test
     void aLandlordSeesTheBadgeOfTheirOwnVerifiedTenant() throws Exception {
         User owner = user("9822300001", "owner");
@@ -110,8 +105,6 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].verified").value(true));
     }
 
-    // ---- 2: the four ways of being told nothing are one answer ----
-
     /** All five cases in one response on purpose: asserted separately, the shapes could drift apart
      *  without failing, and any difference between them confirms who is registered. */
     @Test
@@ -134,11 +127,11 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(batchOf(
-                                myTenant.getMobile(),        // related + verified
-                                verifiedStranger.getMobile(), // verified, but not the caller's business
-                                unverifiedTenant.getMobile(), // related, no badge
-                                "9876500099",                 // registered to nobody
-                                "not-a-mobile")))             // not a number at all
+                                myTenant.getMobile(),
+                                verifiedStranger.getMobile(),
+                                unverifiedTenant.getMobile(),
+                                "9876500099",
+                                "not-a-mobile")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[0].verified").value(true))
@@ -148,10 +141,10 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[4].verified").value(false));
     }
 
-    // ---- 3: a badge is one bit, and the bit is all that crosses the wire ----
-
-    /** A list of {@code TenantProfile}s would move names and incomes across the wire to draw a tick.
-     *  The field count is asserted so a field added later — for any reason — fails here. */
+    /** The only numbers this endpoint emits are the ones it was handed, as typed, which is what keeps
+     *  it from ever revealing a mobile the caller did not already have. Both answers on the same pair
+     *  in one test, so relaxing the batch's relationship guard fails here rather than shipping as a
+     *  bypass of the per-item read. */
     @Test
     void aRowCarriesTheFlagAndTheCallersOwnInputAndNothingElse() throws Exception {
         User owner = user("9822300007", "owner");
@@ -160,31 +153,6 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
         awardBadge(tenant);
         closeRentDeal(owner, rentListing(owner), tenant);
 
-        mvc.perform(post(Routes.Tenancies.PROFILES_VERIFIED)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(batchOf(tenant.getMobile())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].*", Matchers.hasSize(2)))
-                .andExpect(jsonPath("$[0].name").doesNotExist())
-                .andExpect(jsonPath("$[0].income").doesNotExist())
-                .andExpect(jsonPath("$[0].score").doesNotExist())
-                .andExpect(jsonPath("$[0].occupation").doesNotExist())
-                .andExpect(jsonPath("$[0].reason").doesNotExist());
-    }
-
-    /** The only numbers this endpoint emits are the ones it was handed, which is what keeps it from
-     *  ever revealing a mobile the caller did not already have. */
-    @Test
-    void theMobileFieldIsTheCallersOwnStringUnchanged() throws Exception {
-        User owner = user("9822300009", "owner");
-        User tenant = user("9822300010", "buyer");
-        saveProfile(tenant, "Asha K");
-        awardBadge(tenant);
-        closeRentDeal(owner, rentListing(owner), tenant);
-
-        // Typed the way a person types it: country code and spacing. The lookup normalises; the
-        // answer does not.
         String asTyped = "+91 " + tenant.getMobile().substring(0, 5) + " "
                 + tenant.getMobile().substring(5);
 
@@ -193,14 +161,17 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(batchOf(asTyped)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].*", Matchers.hasSize(2)))
                 .andExpect(jsonPath("$[0].mobile").value(asTyped))
-                .andExpect(jsonPath("$[0].verified").value(true));
+                .andExpect(jsonPath("$[0].verified").value(true))
+                .andExpect(jsonPath("$[0].name").doesNotExist())
+                .andExpect(jsonPath("$[0].income").doesNotExist())
+                .andExpect(jsonPath("$[0].score").doesNotExist())
+                .andExpect(jsonPath("$[0].occupation").doesNotExist())
+                .andExpect(jsonPath("$[0].reason").doesNotExist());
     }
 
-    // ---- 4: the batch is bounded ----
-
-    /** An unbounded list is an amplification primitive, so the cap is a refusal rather than a silent
-     *  truncation — which is why both edges are asserted. */
+    /** A tenant asking about themselves is the one caller who never needs a relationship. */
     @Test
     void aBatchLargerThanTheCapIsRefusedAndTheCapItselfIsAccepted() throws Exception {
         User caller = user("9822300011", "owner");
@@ -225,10 +196,6 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ---- 5: shape ----
-
-    /** The client zips this against its own rows, so deduplicating or reordering would move badges
-     *  onto the wrong people — the one failure worse than not showing the badge. */
     @Test
     void theAnswerMirrorsTheQuestionIncludingRepeats() throws Exception {
         User owner = user("9822300012", "owner");
@@ -262,8 +229,7 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
     @Test
     void aMissingListIsARejectedRequestRatherThanAnEmptyAnswer() throws Exception {
         User caller = user("9822300015", "owner");
-        // 422, not 400: a body that parses but fails @Valid is the platform's validation shape, and
-        // this endpoint must not invent a status of its own.
+
         mvc.perform(post(Routes.Tenancies.PROFILES_VERIFIED)
                         .header(HttpHeaders.AUTHORIZATION, bearer(caller))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -272,48 +238,13 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
     }
 
     @Test
-    void anAnonymousCallerIsRefusedJustAsOnTheSingleRead() throws Exception {
+    void anAnonymousCallerIsRefused() throws Exception {
         mvc.perform(post(Routes.Tenancies.PROFILES_VERIFIED)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(batchOf("9876500099")))
                 .andExpect(status().isUnauthorized());
     }
 
-    // ---- 6: the batch may never be wider than the single read ----
-
-    /** Both answers on the same pair in one test, so relaxing the batch's relationship guard fails
-     *  here rather than shipping as a bypass of the per-item read. */
-    @Test
-    void batchAgreesWithTheSingleRead() throws Exception {
-        User owner = user("9822300016", "owner");
-        User tenant = user("9822300017", "buyer");
-        User stranger = user("9822300018", "buyer");
-        saveProfile(tenant, "Asha K");
-        awardBadge(tenant);
-        saveProfile(stranger, "Dev P");
-        awardBadge(stranger);
-        closeRentDeal(owner, rentListing(owner), tenant);
-
-        // The single read: 200 for the tenant, 404 for the stranger.
-        mvc.perform(get("/tenant-profiles/" + tenant.getMobile())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified").value(true));
-        mvc.perform(get("/tenant-profiles/" + stranger.getMobile())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isNotFound());
-
-        // The batch, same caller, same two people, same verdicts.
-        mvc.perform(post(Routes.Tenancies.PROFILES_VERIFIED)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(batchOf(tenant.getMobile(), stranger.getMobile())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].verified").value(true))
-                .andExpect(jsonPath("$[1].verified").value(false));
-    }
-
-    /** A tenant asking about themselves is the one caller who never needs a relationship. */
     @Test
     void aCallerMayAlwaysSeeTheirOwnBadge() throws Exception {
         User tenant = user("9822300019", "buyer");

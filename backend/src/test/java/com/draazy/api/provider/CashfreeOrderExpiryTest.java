@@ -24,14 +24,11 @@ class CashfreeOrderExpiryTest {
     /** Stated rather than read from the package-private {@code CheckoutTtl.DEFAULT_MINUTES}. */
     private static final CheckoutTtl TTL = new CheckoutTtl(45);
 
-    /** Before D169 the key was absent and Cashfree's account default — days — applied instead. */
-    @Test
-    @DisplayName("the body carries order_expiry_time")
-    void theOrderIsGivenAnExpiry() {
-        assertThat(body()).containsKey("order_expiry_time");
-    }
-
-    /** Compared against the TTL object's own answer, so a second hard-coded number fails here. */
+    /**
+     * Before D169 the key was absent and Cashfree's account default — days — applied instead; an
+     * absent key fails the cast here. Compared against the TTL object's own answer, so a second
+     * hard-coded number fails here too.
+     */
     @Test
     @DisplayName("the expiry is the shared TTL's look-forward, not a number of its own")
     void theExpiryComesFromTheSharedTtl() {

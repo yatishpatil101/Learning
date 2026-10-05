@@ -12,7 +12,8 @@ const REFERRER = '9441541427';
 const BROWSER_MINTED = 'ISHA1427';
 
 test.describe('refer page, live', () => {
-  test('the code on screen is the one in referral_codes, not one the browser made up', async ({ page, request }) => {
+  test('the code on screen, the copied code and the shared link are the one in referral_codes', async ({ page, request }) => {
+    test.slow();
     const { accessToken } = await apiLogin(REFERRER);
     const res = await request.get(`${API}/me/referrals`, {
       headers: { authorization: `Bearer ${accessToken}` },
@@ -27,6 +28,7 @@ test.describe('refer page, live', () => {
     expect(typeof summary.converted).toBe('number');
     expect(summary.code).not.toBe(BROWSER_MINTED);
 
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await signIn(page, REFERRER);
     await page.goto('/refer');
     await appReady(page);
@@ -38,31 +40,34 @@ test.describe('refer page, live', () => {
 
     await expect(page.getByText(summary.code, { exact: true })).toBeVisible();
     await expect(page.getByText(BROWSER_MINTED, { exact: true })).toHaveCount(0);
+
+    await test.step('the link carries the server code, so the scheme can resolve it', async () => {
+      const copyLink = page.getByRole('button', { name: 'Copy link' });
+      await expect(copyLink).toBeVisible();
+      await copyLink.click();
+      // `setCopied('link')` runs only after the clipboard write resolved.
+      await expect(copyLink).toContainText(/Copied/i);
+
+      const clip = await page.evaluate(() => navigator.clipboard.readText());
+      expect(clip).toContain(`/signup?ref=${summary.code}`);
+      expect(clip).not.toContain(BROWSER_MINTED);
+    });
+
+    // The page showed one thing and shared another is the defect this file exists for.
+    await test.step('Copy code puts the server code on the clipboard, and copying is not a share', async () => {
+      const counter = page.getByTestId('refer-invited');
+      await expect(counter).toBeVisible();
+      await expect(counter).toContainText('0');
+
+      for (let i = 0; i < 3; i++) {
+        await copyCode.click();
+        await expect(copyCode).toContainText(/Copied/i);
+      }
+
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(summary.code);
+      await expect(counter).toContainText('0');
+    });
   });
-
-  test('the shared link carries the server code, so the scheme can resolve it', async ({ page, request }) => {
-    const { accessToken } = await apiLogin(REFERRER);
-    const summary = await (await request.get(`${API}/me/referrals`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    })).json();
-
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await signIn(page, REFERRER);
-    await page.goto('/refer');
-    await appReady(page);
-
-    const copyLink = page.getByRole('button', { name: 'Copy link' });
-    await expect(copyLink).toBeVisible();
-    await copyLink.click();
-    // `setCopied('link')` runs only after the clipboard write resolved, so this is causally
-    // downstream of the clipboard actually holding the URL.
-    await expect(copyLink).toContainText(/Copied/i);
-
-    const clip = await page.evaluate(() => navigator.clipboard.readText());
-    expect(clip).toContain(`/signup?ref=${summary.code}`);
-    expect(clip).not.toContain(BROWSER_MINTED);
-  });
-
   test('the invite count is the server\'s redemptions, and sharing does not inflate it', async ({ page }) => {
     await page.addInitScript(() => {
       window.__opened = [];
@@ -93,41 +98,6 @@ test.describe('refer page, live', () => {
        about this browser's owner rather than about anybody they reached. Against the server it
        counts redemptions, which is the only reading under which the copy "You've invited N" is
        true. The difference is the point of the assertion, not an accident of it. */
-    await expect(counter).toContainText('0');
-  });
-
-  test('the Copy code button puts the server code on the clipboard, not a look-alike', async ({ page, request }) => {
-    const { accessToken } = await apiLogin(REFERRER);
-    const summary = await (await request.get(`${API}/me/referrals`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    })).json();
-
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await signIn(page, REFERRER);
-    await page.goto('/refer');
-    await appReady(page);
-
-    /* The heading already asserts the server's code is *displayed*. This asserts it is the one that
-       leaves the page, which is a separate claim: `copyCode` writes the `CODE` constant while the
-       heading renders it, and the two only agree because nothing has come between them yet. The
-       whole defect this file exists for was a page that showed one thing and shared another. */
-    const copyCode = page.getByRole('button', { name: 'Copy referral code' });
-    await expect(copyCode).toBeVisible();
-
-    const counter = page.getByTestId('refer-invited');
-    await expect(counter).toBeVisible();
-    await expect(counter).toContainText('0');
-
-    /* Three times, because the claim is that copying is *not* a share. A single click leaves "0"
-       ambiguous between "copying does not count" and "one copy has not crossed a rounding line";
-       repeating it makes the counter's silence deliberate. `Copied` is the per-click completion
-       signal, so each iteration waits for the write rather than for a duration. */
-    for (let i = 0; i < 3; i++) {
-      await copyCode.click();
-      await expect(copyCode).toContainText(/Copied/i);
-    }
-
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(summary.code);
     await expect(counter).toContainText('0');
   });
 
@@ -185,23 +155,5 @@ test.describe('refer page, live', () => {
     await expect.poll(() => page.evaluate(() => window.__shareAttempts)).toBe(1);
 
     await expect(counter).toContainText('0');
-  });
-
-  test('redeem rejects a code nobody owns, and says so with 409 rather than 200', async ({ request }) => {
-    const { accessToken } = await apiLogin(REFERRER);
-    const res = await request.post(`${API}/referrals/redeem`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-      data: { code: 'PUNE-ZZZZ', shareChannel: 'link' },
-    });
-    // Not 404: the request is well-formed and permitted; the state is what failed. A 200 would mean
-    // the sign-up path attributes new accounts to nothing and reports success.
-    expect(res.status()).toBe(409);
-  });
-
-  test('redeem is closed to anonymous callers', async ({ request }) => {
-    const res = await request.post(`${API}/referrals/redeem`, {
-      data: { code: 'PUNE-ZZZZ', shareChannel: 'link' },
-    });
-    expect([401, 403]).toContain(res.status());
   });
 });

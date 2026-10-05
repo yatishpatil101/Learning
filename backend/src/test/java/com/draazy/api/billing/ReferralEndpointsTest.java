@@ -13,8 +13,11 @@ import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.JwtService;
+import com.draazy.api.security.Roles;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -149,20 +152,23 @@ class ReferralEndpointsTest extends AbstractApiTest {
 
     // ---- 3: the fraud desk ----
 
-    @Test
-    void theQueueAndItsDecisionsAreStaffOnly() throws Exception {
+    @ParameterizedTest(name = "{0} is refused the queue and every decision")
+    @ValueSource(strings = {"a plain caller", "staff without reports.write"})
+    void theQueueAndItsDecisionsAreStaffOnly(String caller) throws Exception {
         User referrer = user("9866600030", "owner");
         User referred = user("9866600031", "buyer");
         String id = referralFrom(referrer, referred);
-        String plain = bearer(referred);
+        String refused = caller.equals("a plain caller")
+                ? bearer(referred)
+                : staffWithFunctions("9866600034", "[]");
 
-        mvc.perform(get(Routes.Referrals.BASE).header(HttpHeaders.AUTHORIZATION, plain))
+        mvc.perform(get(Routes.Referrals.BASE).header(HttpHeaders.AUTHORIZATION, refused))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, plain))
+        mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, refused))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/referrals/" + id + "/reject").header(HttpHeaders.AUTHORIZATION, plain))
+        mvc.perform(post("/referrals/" + id + "/reject").header(HttpHeaders.AUTHORIZATION, refused))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/referrals/" + id + "/clawback").header(HttpHeaders.AUTHORIZATION, plain))
+        mvc.perform(post("/referrals/" + id + "/clawback").header(HttpHeaders.AUTHORIZATION, refused))
                 .andExpect(status().isForbidden());
     }
 
@@ -303,5 +309,12 @@ class ReferralEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/referrals/not-a-uuid/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isNotFound());
+    }
+
+    private String staffWithFunctions(String mobile, String functionsJson) {
+        User staff = user(mobile, Roles.Wire.STAFF);
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
+                + "VALUES (?::uuid, ?::jsonb)", staff.getId().toString(), functionsJson);
+        return bearer(staff);
     }
 }

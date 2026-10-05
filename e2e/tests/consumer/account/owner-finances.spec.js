@@ -1,5 +1,6 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, uploadedListingPhotos, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
 
 const createdListingIds = new Set();
 let actorSequence = 0;
@@ -24,10 +25,11 @@ async function ownerWithListing() {
   const created = await api('POST', '/me/listings', headers, {
     title: `Zztest finance listing ${Date.now()}`,
     deal: 'rent', propertyType: 'Flat', price: 28000, city: 'Pune', locality: 'Baner', bhk: 2, area: 900,
+    images: await uploadedListingPhotos(headers),
   });
   expect(created.status, 'creating the finance listing').toBe(201);
   createdListingIds.add(created.body.id);
-  const approved = await api('PATCH', `/properties/${created.body.id}/status`, await authHeaders(ACTORS.admin), { status: 'approved' });
+  const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the finance listing').toBe(200);
   return { mobile, headers, listing: created.body };
 }
@@ -35,8 +37,8 @@ async function ownerWithListing() {
 test.afterEach(async () => {
   const adminHeaders = await authHeaders(ACTORS.admin);
   for (const id of createdListingIds) {
-    const rejected = await api('PATCH', `/properties/${id}/status`, adminHeaders, {
-      status: 'rejected', reason: 'Zztest cleanup - owner finance fixture',
+    const rejected = await rejectListingWithFetch(id, adminHeaders, {
+      reason: 'Zztest cleanup - owner finance fixture',
     });
     expect(rejected.status, `cleaning up finance listing ${id}`).toBe(200);
   }

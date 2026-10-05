@@ -1,33 +1,7 @@
-/**
- * Finance console.
- *
- * Every figure comes from `services/financeService.js`. Nothing on this page computes money except
- * two divisions that are presentation (ARPU and ARPPU). Where the server cannot source a figure,
- * the figure is **zero and disclosed** rather than modelled — the `NotMeasured` marker below is
- * the mechanism.
- *
- * 1. **Three bands.** The chart keeps a services band and renders a measured ₹0 under the
- *    "quoted, not received" marker rather than dropping it. The marketplace visibly takes
- *    bookings, so a chart with no services in it reads as a rendering fault instead of as a
- *    statement about the business.
- * 2. **Both denominators.** ARPU (everyone) and ARPPU (everyone who paid this month) are separate
- *    tiles, because one figure under an unqualified label invites the reader to assume it is the
- *    other.
- * 3. **The net-position panel does not model.** Payouts, GST held on rent and unsettled gateway
- *    fees were all facts about the tenant-to-owner rent rail; that rail does not exist, so those
- *    rows are absent rather than pinned at a zero an operator would read as a quiet month. What
- *    remains is revenue in, refunds out — and refunds keep the marker that says no refund path
- *    exists.
- * 4. **The subscription book is listed, not derived.** Plan rows come from the server's `plans`,
- *    which sums to `mrr` by construction. Offline there are no subscription records, so the panel
- *    renders its empty state rather than a modelled one.
- *
- * The disclosure flags travel in the finance payload, beside the figures they qualify.
- */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, UserCheck } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { getFinanceOverview, getFinanceSeries, listFinanceTransactions } from '../../services/financeService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -43,22 +17,24 @@ import { BarChart, LineChart, DoughnutChart, PALETTE } from '../../components/ch
 /** The widest window the console offers, and therefore what it fetches once and slices locally. */
 const MAX_MONTHS = 24;
 
-/**
- * How many ledger rows one request asks for. The table pages 15 at a time client-side.
- *
- * This is a ceiling, and everything below it is computed over the page rather than the ledger: the
- * search box, both dropdowns, the pager and the CSV export. Past the hundredth transaction they all
- * answer about a subset, so `financeProvider.warnIfTruncated` says so out loud. The endpoint accepts
- * `?kind=`, `?status=` and `?q=` and would answer completely; using them is the open row "Does the
- * finance ledger get server-side filters, or a pager?" in `tasks/DECISIONS-NEEDED.md`.
- */
+/** Search and dropdown filters are server-side; CSV export walks every page, not just the table window. */
 const LEDGER_PAGE_SIZE = 100;
 
-/** Wire `kind` to the words the console shows. The server sends the source, not a label. */
+/** Must match `AdminFinanceService.LEDGER_KINDS`: an unknown kind is a 400, not an empty page. */
 const KIND_LABELS = {
   subscription: 'Subscription',
-  featured: 'Featured listing',
 };
+
+const TX_TYPES = Object.keys(KIND_LABELS);
+
+async function fetchWholeLedger(filters) {
+  const rows = [];
+  for (let page = 0; ; page += 1) {
+    const res = await listFinanceTransactions({ ...filters, page, size: LEDGER_PAGE_SIZE });
+    rows.push(...res.items);
+    if (res.items.length < LEDGER_PAGE_SIZE || rows.length >= res.total) return rows;
+  }
+}
 
 function pct(cur, prev) {
   // `!prev` already covers 0 and null; the finite checks stop an absent field rendering "+NaN%".
@@ -75,25 +51,7 @@ function monthLabel(iso) {
     : d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 }
 
-/* Structural zeros disclose themselves.
- *
- * Two of the money lines on this screen describe paths the platform does not have: there is no
- * refund path at all, and revenue excludes the services marketplace because `service_orders.amount`
- * is a quote rather than a receipt. Rendered plainly they are indistinguishable from a quiet month,
- * and an operator reading "₹0 refunded" concludes something false about the business rather than
- * something true about the software.
- *
- * A disclosure only earns its place while the figure beside it could one day move; once a path is
- * withdrawn the sentence stops qualifying a number and starts implying a feature that is merely
- * idle, so the row goes rather than gaining a marker.
- *
- * The marker is attached to the figure, not printed instead of it: the row keeps its number and
- * gains a reason. Which markers show travels **with the finance payload** rather than in the
- * settings document — the server owns these flags (`draazy.finance.*`), and putting them beside
- * the figures they qualify means a figure and its disclosure cannot arrive from two different
- * reads and disagree. Absent means "not measured": the default has to be today's truth, because a
- * disclosure that defaults to "measured" is a lie told by a typo.
- */
+/** Structural zeroes need labels: refunds and service receipts are absent paths, not quiet months. */
 function NotMeasured({ children }) {
   return (
     <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-amber-300/90">
@@ -126,60 +84,55 @@ export default function AdminFinance() {
   const [ledger, setLedger] = useState(null);
   const [range, setRange] = useState(12);
   const [txQ, setTxQ] = useState('');
+  const [txTerm, setTxTerm] = useState('');
   const [txType, setTxType] = useState('');
   const [txStatus, setTxStatus] = useState('');
   const [detail, setDetail] = useState(null);
 
-  /* One effect, three reads, `alive` guarding every setter.
-     The reads are issued together rather than chained: they are independent GETs and serialising
-     them would put two round trips between the operator and the first number. */
   useEffect(() => {
     let alive = true;
-    Promise.allSettled([
-      getFinanceOverview(),
-      getFinanceSeries(MAX_MONTHS),
-      listFinanceTransactions({ size: LEDGER_PAGE_SIZE }),
-    ]).then(([f, sr, tx]) => {
+    /* `allSettled`, not `all`: the two reads feed independent panels, and one failing must not
+       blank the other. */
+    Promise.allSettled([getFinanceOverview(), getFinanceSeries(MAX_MONTHS)]).then(([f, sr]) => {
       if (!alive) return;
-      /* `allSettled`, not `all`: these three feed independent panels, and one failing read must
-         not blank the others. A rejected read leaves its panel on the empty state it already
-         has for "no rows", which is the honest rendering of "we could not tell you". */
       setFinance(f.status === 'fulfilled' ? f.value : null);
       setSeries(sr.status === 'fulfilled' ? sr.value : []);
-      setLedger(tx.status === 'fulfilled' ? tx.value.items : []);
     });
     return () => { alive = false; };
   }, []);
 
+  useEffect(() => {
+    const id = setTimeout(() => setTxTerm(txQ.trim()), 300);
+    return () => clearTimeout(id);
+  }, [txQ]);
+
+  const txFilters = useMemo(
+    () => ({ kind: txType, status: txStatus, q: txTerm }),
+    [txType, txStatus, txTerm],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    listFinanceTransactions({ ...txFilters, size: LEDGER_PAGE_SIZE })
+      .then((res) => { if (alive) setLedger({ items: res.items, total: res.total }); })
+      .catch(() => { if (alive) setLedger({ items: [], total: 0 }); });
+    return () => { alive = false; };
+  }, [txFilters]);
+
   const slicedSeries = useMemo(() => (series || []).slice(-range), [series, range]);
 
-  const transactions = useMemo(() => ledger || [], [ledger]);
-
-  const txRows = useMemo(() => {
-    let rows = transactions;
-    if (txType) rows = rows.filter((r) => r.kind === txType);
-    if (txStatus) rows = rows.filter((r) => r.status === txStatus);
-    if (txQ) {
-      const n = txQ.toLowerCase();
-      rows = rows.filter((r) => `${r.party} ${KIND_LABELS[r.kind] || r.kind}`.toLowerCase().includes(n));
-    }
-    return rows;
-  }, [transactions, txType, txStatus, txQ]);
-
-  const txTypes = useMemo(
-    () => [...new Set(transactions.map((tx) => tx.kind))].sort(),
-    [transactions],
-  );
+  const txRows = ledger?.items || [];
+  const txTotal = ledger?.total || 0;
 
   if (!finance) return <Loading />;
 
   const month = slicedSeries[slicedSeries.length - 1]
-    || { month: '', subscriptions: 0, featured: 0, services: 0 };
+    || { month: '', subscriptions: 0, services: 0 };
   const prev = slicedSeries[slicedSeries.length - 2] || month;
-  const monthTotal = month.subscriptions + month.featured + month.services;
-  const prevTotal = prev.subscriptions + prev.featured + prev.services;
+  const monthTotal = month.subscriptions + month.services;
+  const prevTotal = prev.subscriptions + prev.services;
   const ytd = (series || []).slice(-12)
-    .reduce((s, m) => s + m.subscriptions + m.featured + m.services, 0);
+    .reduce((s, m) => s + m.subscriptions + m.services, 0);
 
   const {
     refundsMeasured, serviceOrdersCounted,
@@ -198,14 +151,11 @@ export default function AdminFinance() {
 
   const KPIS = [
     { label: 'MRR (subscriptions)', value: fmtINR(mrr), delta: null, icon: RefreshCw },
-    /* Value and delta from the same source. Sourcing the value from the overview's `monthRevenue`
-       while the delta compares two series buckets lets a lag between the two reads caption a
-       healthy figure "−100% MoM". A delta must describe the number above it. */
+    /* Value and delta must share the same source, or a lag between reads captions this figure wrong. */
     { label: 'Revenue this month', value: fmtINR(monthTotal), delta: pct(monthTotal, prevTotal), icon: IndianRupee },
     /* Figure-local wording: the aggregate rows say revenue *excludes* services, which would read as
        a denial of the number printed directly above it on this card. */
     { label: 'Services revenue', value: fmtINR(month.services), delta: null, icon: Receipt, note: serviceOrdersCounted ? null : t('adminFinance.servicesQuoted') },
-    { label: 'Featured revenue', value: fmtINR(month.featured), delta: pct(month.featured, prev?.featured), icon: Sparkles },
     { label: 'Revenue (12 mo)', value: fmtINR(ytd), delta: null, icon: TrendingUp },
     { label: 'ARPU', value: fmtINR(arpu), delta: null, icon: Users, note: t('adminFinance.arpuBasis', { count: users }) },
     { label: 'ARPPU', value: fmtINR(arppu), delta: null, icon: UserCheck, note: t('adminFinance.arppuBasis', { count: payingUsers }) },
@@ -213,31 +163,26 @@ export default function AdminFinance() {
 
   const doRevenueExport = () => exportCsv(
     'draazy-revenue.csv',
-    ['Month', 'Subscriptions', 'Featured', 'Services', 'Total'],
-    (series || []).map((m) => [m.month, m.subscriptions, m.featured, m.services,
-      m.subscriptions + m.featured + m.services]),
+    ['Month', 'Subscriptions', 'Services', 'Total'],
+    (series || []).map((m) => [m.month, m.subscriptions, m.services, m.subscriptions + m.services]),
   );
 
-  /* Exports what is on screen, not what was fetched: `txRows` is post-filter, so an operator who
-     narrowed to one party gets that party's rows rather than a hundred unrelated ones. */
-  const doTxExport = () => exportCsv(
-    'draazy-transactions.csv',
-    ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'],
-    txRows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status]),
-  );
+  /* Every matching row, not the page on screen: past the hundredth transaction the table is a
+     window and the export is the ledger. */
+  const doTxExport = async () => {
+    const rows = await fetchWholeLedger(txFilters);
+    exportCsv(
+      'draazy-transactions.csv',
+      ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'],
+      rows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status]),
+    );
+  };
 
-  /* "Platform take", not "Amount". The figure is the platform's cut rather than the sum that
-     changed hands. Both sources — subscriptions and featured — happen to be bought from the
-     platform outright, so today the two readings coincide; the name stays true if a source that
-     carries a gross figure is ever added, and a column called Amount invites every reader to add
-     these up into a revenue number. */
+  /* "Platform take" names the platform's cut, not necessarily the gross amount that changed hands. */
   const txCols = [
     { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-gray-400">{r.id}</span> },
     { key: 'date', header: 'Date', render: (r) => <span className="text-xs text-gray-400">{r.date}</span> },
     { key: 'party', header: 'Party', render: (r) => <span>{r.party}</span> },
-    /* The wire sends `kind` — the revenue source — and the console shows a label. Falling back to
-       the raw kind means a source this build has not been taught about still renders, rather than
-       leaving a blank cell that looks like missing data. */
     { key: 'kind', header: 'Type', render: (r) => <span className="text-xs">{KIND_LABELS[r.kind] || r.kind}</span> },
     { key: 'amount', header: 'Platform take', className: 'font-semibold', render: (r) => <span className={r.amount < 0 ? 'text-red-400' : ''}>{fmtINR(r.amount)}</span> },
     { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
@@ -269,9 +214,6 @@ export default function AdminFinance() {
         <button onClick={doRevenueExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
       } />
 
-      {/* Deliberately not `dz-card`: that class sets the `background` and `border` shorthands and is
-          declared after `@tailwind utilities` at equal specificity, so it would silently overwrite
-          the amber and render this as an ordinary panel. Same recipe as the help-page callout. */}
       {disclosures.length > 0 && (
         <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-testid="finance-disclosures">
           {/* h3 to match the other panels on this page — the banner is their sibling, not their
@@ -306,7 +248,6 @@ export default function AdminFinance() {
         ))}
       </div>
 
-      {/* Deal Pipeline cross-reference */}
       <div className="mb-5">
         <div className="dz-card p-4 flex items-center justify-between max-w-sm">
           <div>
@@ -319,7 +260,6 @@ export default function AdminFinance() {
         </div>
       </div>
 
-      {/* Charts row */}
       {optionEnabled('finance.charts') && (
         <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr]">
           <div className="dz-card p-4">
@@ -342,7 +282,6 @@ export default function AdminFinance() {
               datasets={[
                 { label: 'Subscriptions', data: slicedSeries.map((m) => m.subscriptions), stack: 's', color: PALETTE[0] },
                 { label: 'Services', data: slicedSeries.map((m) => m.services), stack: 's', color: PALETTE[1] },
-                { label: 'Featured', data: slicedSeries.map((m) => m.featured), stack: 's', color: PALETTE[2] },
               ]}
               height={280}
               options={{ scales: { x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { stacked: true, ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
@@ -352,16 +291,15 @@ export default function AdminFinance() {
           <div className="dz-card p-4">
             <h3 className="mb-3 font-bold">Revenue mix (this month)</h3>
             <DoughnutChart
-              labels={['Subscriptions', 'Services', 'Featured']}
-              values={[month.subscriptions, month.services, month.featured]}
-              colors={[PALETTE[0], PALETTE[1], PALETTE[2]]}
+              labels={['Subscriptions', 'Services']}
+              values={[month.subscriptions, month.services]}
+              colors={[PALETTE[0], PALETTE[1]]}
               height={280}
             />
           </div>
         </div>
       )}
 
-      {/* MRR line + panels */}
       {optionEnabled('finance.models') && (
         <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
           <div className="dz-card p-4">
@@ -371,18 +309,12 @@ export default function AdminFinance() {
               datasets={[{ label: 'MRR', data: slicedSeries.map((m) => m.subscriptions), fill: true }]}
               options={{ scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
             />
-            {/* The chart plots subscription revenue *booked* per month; the tile plots the current
-                run rate. They are different questions and will legitimately differ, so the panel
-                says which one it is drawing rather than letting the reader assume. */}
             <p className="mt-2 text-xs text-gray-500">{t('adminFinance.mrrChartBasis')}</p>
           </div>
           <div className="dz-card p-4">
             <h3 className="mb-2 text-sm font-bold">Subscriptions</h3>
             <p className="mb-3 text-xs text-gray-500">Active paid plans</p>
             {(plans || []).length === 0 ? (
-              /* An empty book is a fact, not a failure — and printing it beats printing a modelled
-                 one. The old screen divided an invented MRR by a price to produce a subscriber
-                 count, which is how a console reports customers it does not have. */
               <p className="py-2 text-sm text-gray-500">{t('adminFinance.noActivePlans')}</p>
             ) : (plans || []).map((p) => (
               /* Keyed on the price too: a repriced plan legitimately returns one line per price
@@ -409,11 +341,7 @@ export default function AdminFinance() {
                 note={serviceOrdersCounted ? null : t('adminFinance.servicesNotCounted')}
                 noteLabel={t('adminFinance.notMeasured')}
               />
-              {/* Payouts, GST-on-rent and unsettled fees were all facts about the rent-payment
-                  rail: money the platform held on a landlord's behalf, the tax it collected on the
-                  convenience fee, and the fees a gateway had not yet remitted. That rail was
-                  withdrawn, so the rows are gone rather than pinned at a zero that would read as a
-                  quiet month. What is left is revenue in, refunds out. */}
+              {/* Rent-payment rail rows are absent rather than zeroed; zero would imply a quiet month. */}
               <FlowRow
                 label="Refunds"
                 amount={finance.refunds}
@@ -427,31 +355,22 @@ export default function AdminFinance() {
         </div>
       )}
 
-      {/* Transactions ledger */}
       {optionEnabled('finance.transactions') && (
         <div className="dz-card p-4">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h3 className="font-bold">Recent transactions</h3>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party or type…" className="dz-input py-1 text-xs sm:w-48" />
-              {/* Built from the rows in hand rather than a hardcoded list, so a revenue source the
-                  server starts sending is filterable the day it appears. */}
+              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party…" aria-label="Search party" className="dz-input py-1 text-xs sm:w-48" />
               <Select
                 size="sm"
                 value={txType}
                 onChange={setTxType}
                 ariaLabel="Filter by type"
                 className="[--dd-sm-w:200px]"
-                options={[{ value: '', label: 'All types' }, ...txTypes.map((k) => ({ value: k, label: KIND_LABELS[k] || k }))]}
+                options={[{ value: '', label: 'All types' }, ...TX_TYPES.map((k) => ({ value: k, label: KIND_LABELS[k] }))]}
               />
-              {/* Exactly the settlement vocabulary a row can hold. No `closed`, and no `refunded` —
-                  that names a state no row reaches while there is no refund path.
-
-                  `txStatus` is consumed by the `rows.filter` above and is never sent to anyone, so
-                  a bogus option would not fail: it would render a confidently empty ledger, which
-                  is the worse outcome. The three values are the only three a row holds. The
-                  endpoint's own vocabulary is a separate claim, pinned by
-                  `live-admin-finance.spec.js` (D251). */}
+              {/* Exactly `AdminFinanceService.LEDGER_STATUSES`. No `refunded`: there is no refund
+                  path, and the server answers 400 for it (D251). */}
               <Select
                 size="sm"
                 value={txStatus}
@@ -468,11 +387,15 @@ export default function AdminFinance() {
               <button onClick={doTxExport} className="dz-btn dz-btn-ghost py-1 text-xs"><Download className="h-3.5 w-3.5" />CSV</button>
             </div>
           </div>
+          {txTotal > txRows.length ? (
+            <p className="mb-2 text-xs text-gray-400" data-testid="ledger-window">
+              Showing the newest {fmtNum(txRows.length)} of {fmtNum(txTotal)} matching transactions. The CSV has all of them.
+            </p>
+          ) : null}
           <Table columns={txCols} rows={txRows} pageSize={15} label="transactions" empty="No transactions match." mobileCard={txCard} />
         </div>
       )}
 
-      {/* Transaction detail */}
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Transaction · ${detail.id}` : ''} size="md">
         {detail ? (
           <dl className="space-y-2 text-sm">
@@ -488,4 +411,3 @@ export default function AdminFinance() {
     </div>
   );
 }
-

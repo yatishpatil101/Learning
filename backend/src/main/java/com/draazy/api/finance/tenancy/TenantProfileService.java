@@ -17,21 +17,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Tenant screening profile — tenant's own read/write, guarded owner-side read, badge batch reads.
- * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
- */
 @Service
 public class TenantProfileService implements VerifiedTenantLookup {
 
-    /** Batch cap; an unbounded list is an amplification primitive. */
     public static final int MAX_VERIFIED_BATCH = 50;
 
     private final TenantProfileRepository profiles;
@@ -55,9 +49,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
         this.profileMapper = profileMapper;
     }
 
-    /**
-     * {@code getTenantProfile} — caller's own; empty profile rather than 404 when unsaved.
-     */
     @Transactional(readOnly = true)
     public TenantProfileDto getMine(UUID callerId) {
         User caller = requireUser(callerId);
@@ -66,11 +57,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
                 .orElseGet(() -> TenancyMapper.emptyProfile(caller.getMobile(), isVerified(callerId)));
     }
 
-    /**
-     * {@code updateTenantProfile} — replace and return with a freshly computed score.
-     *
-     * @throws BadRequestException when {@code occupants} is not a recognised value
-     */
     @Transactional
     public TenantProfileDto updateMine(UUID callerId, TenantProfileUpdateRequest body) {
         if (!OccupantTypes.isValid(body.occupants())) {
@@ -80,51 +66,14 @@ public class TenantProfileService implements VerifiedTenantLookup {
         User caller = requireUser(callerId);
         TenantProfile profile = profiles.findById(callerId).orElseGet(() -> new TenantProfile(callerId));
 
-        // PUT replaces: an absent field clears the stored value. See TenantProfileUpdateRequest.
-        // The mapper's allowlist decides which fields that covers.
         profileMapper.applyTo(body, profile);
 
-        // verified mirrors the identity badge and is never taken from the request; recomputed here so
-        // a tenant who verifies after saving sees the badge without having to save again.
         profile.setVerified(isVerified(callerId));
         profile.setScore(score(profile));
 
         return TenancyMapper.toDto(profiles.save(profile), caller.getMobile(), true);
     }
 
-    /**
-     * {@code getTenantProfileByMobile} — owner screening a tenant they deal with.
-     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
-     */
-    @Transactional(readOnly = true)
-    public TenantProfileDto getByMobile(UUID callerId, String rawMobile) {
-        String mobile = MobileMask.normalise(rawMobile);
-        if (mobile == null) {
-            throw NotFoundException.of("Tenant profile");
-        }
-        Optional<User> target = users.findByMobile(mobile);
-        if (target.isEmpty()) {
-            throw NotFoundException.of("Tenant profile");
-        }
-        UUID targetId = target.get().getId();
-        if (targetId.equals(callerId)) {
-            return getMine(callerId);
-        }
-        boolean related = tenancies.existsBetween(callerId, targetId)
-                || contactRequests.existsApprovedForOwner(
-                        targetId, callerId, ContactRequestStatuses.APPROVED);
-        if (!related) {
-            throw NotFoundException.of("Tenant profile");
-        }
-        return profiles.findById(targetId)
-                .map(profile -> TenancyMapper.toDto(profile, mobile, false))
-                .orElseThrow(() -> NotFoundException.of("Tenant profile"));
-    }
-
-    /**
-     * {@code tenantsVerified} — badge flag for a list, mobile-keyed; throws {@link BadRequestException}
-     * over {@link #MAX_VERIFIED_BATCH}. Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
-     */
     @Transactional(readOnly = true)
     public List<TenantVerifiedDto> verifiedByMobile(UUID callerId, List<String> mobiles) {
         List<String> asked = mobiles == null ? List.of() : mobiles;
@@ -133,7 +82,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
                     "mobiles must contain at most " + MAX_VERIFIED_BATCH + " entries per request");
         }
 
-        // Resolve each distinct number once; the cap bounds the list, this bounds the work.
         Map<String, UUID> resolved = new HashMap<>();
         Set<String> looked = new HashSet<>();
         for (String raw : asked) {
@@ -144,7 +92,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
             users.findByMobile(normalised).ifPresent(user -> resolved.put(normalised, user.getId()));
         }
 
-        // One query for every profile in the batch, rather than one per row.
         Set<UUID> verified = profiles.findAllById(resolved.values()).stream()
                 .filter(TenantProfile::isVerified)
                 .map(TenantProfile::getUserId)
@@ -159,10 +106,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
         return answer;
     }
 
-    /**
-     * Same question as {@link #verifiedByMobile} but user-id keyed; no relationship guard.
-     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
-     */
     @Override
     @Transactional(readOnly = true)
     public Set<UUID> verifiedAmong(Collection<UUID> userIds) {
@@ -173,18 +116,15 @@ public class TenantProfileService implements VerifiedTenantLookup {
         if (distinct.isEmpty()) {
             return Set.of();
         }
-        // One query for the whole page of parties. Callers are list projections, so a per-row
-        // lookup here would put an N+1 back on a render path the batch endpoint was built to remove.
+
         return profiles.findAllById(distinct).stream()
                 .filter(TenantProfile::isVerified)
                 .map(TenantProfile::getUserId)
                 .collect(Collectors.toSet());
     }
 
-    /**
-     * Badge visible only when it exists and the caller is entitled. Unverified short-circuits
-     * before the relationship queries; both branches produce indistinguishable {@code false}.
-     */
+    // Badge visible only when it exists and the caller is entitled.
+    // Unverified short-circuits before the relationship queries; both branches produce indistinguishable `false`.
     private boolean maySeeBadge(UUID callerId, UUID targetId, Set<UUID> verified,
                                 Map<UUID, Boolean> relationships) {
         if (targetId == null || !verified.contains(targetId)) {
@@ -199,10 +139,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
                                 id, callerId, ContactRequestStatuses.APPROVED));
     }
 
-    /**
-     * Trust score, 0–100 — mock formula (<code>lib/store/rent.js</code>) preserved exactly.
-     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
-     */
     static int score(TenantProfile profile) {
         int total = 0;
         if (profile.isVerified()) {
@@ -230,7 +166,6 @@ public class TenantProfileService implements VerifiedTenantLookup {
         return value != null && !value.isBlank();
     }
 
-    /** Whether the user holds a reviewer-approved identity badge. Absence never blocks anything (ADR-019). */
     private boolean isVerified(UUID userId) {
         return verifications.findByUserId(userId)
                 .map(verification -> VerificationStatuses.VERIFIED.equals(verification.getStatus()))

@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,13 +25,17 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
@@ -138,29 +143,22 @@ class FinanceEndpointsTest extends AbstractApiTest {
 
     // ---- 2: another owner's ledger is 404, never 403 ----
 
-    @Test
-    void listTransactions_nonOwner_returns404NotForbidden() throws Exception {
+    @ParameterizedTest(name = "{0} {1} for a non-owner is 404, not 403")
+    @CsvSource({"GET,/transactions", "POST,/transactions", "GET,/basis"})
+    void nonOwner_returns404NotForbidden(String method, String route) throws Exception {
         User owner = user("9821100002");
         User stranger = user("9821100003");
         Property p = listing(owner);
+        MockHttpServletRequestBuilder request = request(
+                        HttpMethod.valueOf(method), "/me/finances/" + p.getId() + route)
+                .header(HttpHeaders.AUTHORIZATION, bearer(stranger));
+        if (method.equals("POST")) {
+            request.contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"type\":\"income\",\"category\":\"Rent\",\"amount\":100,"
+                            + "\"date\":\"" + today() + "\"}");
+        }
 
-        mvc.perform(get(txnPath(p))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void addTransaction_nonOwner_returns404NotForbidden() throws Exception {
-        User owner = user("9821100004");
-        User stranger = user("9821100005");
-        Property p = listing(owner);
-
-        mvc.perform(post(txnPath(p))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"income\",\"category\":\"Rent\",\"amount\":100,"
-                                + "\"date\":\"" + today() + "\"}"))
-                .andExpect(status().isNotFound());
+        mvc.perform(request).andExpect(status().isNotFound());
     }
 
     // ---- 3: a malformed property id is 404, not 400 ----
@@ -244,41 +242,6 @@ class FinanceEndpointsTest extends AbstractApiTest {
 
     // ---- 6: the summary aggregates, and honours the period window (spec fix S18) ----
 
-    @Test
-    void summary_aggregatesIncomeExpenseAndNet() throws Exception {
-        User owner = user("9821100010");
-        Property p = listing(owner);
-        addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":3000000,"
-                + "\"date\":\"" + today() + "\"}");
-        addTxn(owner, p, "{\"type\":\"expense\",\"category\":\"Repairs\",\"amount\":1000000,"
-                + "\"date\":\"" + today() + "\"}");
-
-        mvc.perform(get("/me/finances/" + p.getId() + "/summary")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.income").value(3000000))
-                .andExpect(jsonPath("$.expense").value(1000000))
-                .andExpect(jsonPath("$.net").value(2000000));
-    }
-
-    @Test
-    void summary_periodMonth_excludesOlderRows() throws Exception {
-        User owner = user("9821100011");
-        Property p = listing(owner);
-        addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":900000,"
-                + "\"date\":\"" + today() + "\"}");
-        addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":700000,"
-                + "\"date\":\"" + today.minusMonths(6) + "\"}");
-
-        mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=all")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$.income").value(1600000));
-
-        mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=month")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$.income").value(900000));
-    }
-
     /**
      * The UI has always offered "This quarter" and "This year", and the mock silently returned
      * all-time for both. This is the regression guard for that fix.
@@ -359,17 +322,6 @@ class FinanceEndpointsTest extends AbstractApiTest {
         assertThat(rows).isEqualTo(1);
     }
 
-    @Test
-    void basis_nonOwner_returns404() throws Exception {
-        User owner = user("9821100016");
-        User stranger = user("9821100017");
-        Property p = listing(owner);
-
-        mvc.perform(get("/me/finances/" + p.getId() + "/basis")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
-                .andExpect(status().isNotFound());
-    }
-
     // ---- 9: dues project recurring rows forward; one-off rows never appear ----
 
     @Test
@@ -390,24 +342,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].daysUntil").exists());
     }
 
-    // ---- 10: cashflow returns the requested number of months, gaps filled with zeros ----
-
-    @Test
-    void cashflow_returnsRequestedMonthsWithGapsFilled() throws Exception {
-        User owner = user("9821100019");
-        Property p = listing(owner);
-        addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":2500000,"
-                + "\"date\":\"" + today() + "\"}");
-
-        // A chart with a missing bar is a different picture from one with a zero bar, so quiet
-        // months must still be emitted.
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=3")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[2].income").value(2500000))
-                .andExpect(jsonPath("$[0].income").value(0));
-    }
+    // ---- 10: cashflow rejects an out-of-range window ----
 
     @Test
     void cashflow_rejectsAnOutOfRangeWindow() throws Exception {

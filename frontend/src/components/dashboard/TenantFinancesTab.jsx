@@ -41,48 +41,24 @@ const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub, action }) =>
     {action}
   </div>
 );
+/* Persist the tenant's basic-salary input so the HRA saver stays populated across visits (a small stickiness touch;
+   no PII leaves the device). */
 
-/* Persist the tenant's basic-salary input so the HRA saver stays populated across
-   visits (a small stickiness touch; no PII leaves the device). */
 const basisSalaryKey = (mob) => 'dzHraBasic:' + (mob || 'anon');
+/* Rent Wallet — the tenant view of Finances. */
 
-/* Rent Wallet — the tenant view of Finances.
-
-   Everything on this screen is built from what the tenant *told us* they pay. No rent moves
-   through Draazy, so there is no payment history to read and nothing here is evidence. That is
-   not a limitation to work around — it is the whole point: a tenant who found their home through a
-   broker, a friend or a noticeboard still gets their yearly total and their HRA arithmetic, which
-   is the part that actually saves them money.
-
-   It is also why the Rent Passport is sealed below rather than scored from these figures. That
-   document is handed to a prospective landlord under the words "verified rent-payment record";
-   generating it from self-reported numbers would make it a forgery with our name on it. */
 export default function TenantFinancesTab({ user, toast }) {
   const { t, i18n } = useTranslation();
   const { flagEnabled } = useAppFlags();
   const mob = user?.mobile || '';
   const [idx, setIdx] = useState(0);
+  /* One caller-scoped read. */
 
-  /* One caller-scoped read. `monthsPaid`, `totalPaid` and `fyPaid` arrive computed — the
-     April–March financial year is defined on the server so this screen and any export cannot
-     drift apart by a month. */
   const [rentals, setRentals] = useState([]);
   const [status, setStatus] = useState('loading');
   const [editing, setEditing] = useState(null);
+  /* A read token, bumped on every request and on unmount. */
 
-  /* A read token, bumped on every request and on unmount.
-
-     Three things go wrong without it, and none of them announces itself. A save and its reload
-     overlap with a second save, and the responses land in whatever order the network chooses, so a
-     stale list overwrites a fresh one — the row you just added disappears, or the one you deleted
-     comes back. A reload that resolves after the tab has been switched away sets state on a
-     component nobody is looking at. And a reload that FAILS after a success toast would, if it
-     were allowed to write, empty the list and flip the screen to "add the home you rent" — telling
-     the tenant their save worked and then showing them that it did not.
-
-     So: last request wins, and a failure sets an error state rather than an empty one. The
-     distinction between "you have recorded nothing" and "we could not ask" is the whole point —
-     a tenant shown the first when the second is true will re-enter a rental they already have. */
   const gen = useRef(0);
   const reload = useCallback(async () => {
     const mine = ++gen.current;
@@ -102,10 +78,9 @@ export default function TenantFinancesTab({ user, toast }) {
   useEffect(() => {
     setStatus('loading');
     setIdx(0);
+    // Bumping the token on the way out cancels anything still in flight for the previous account. Aliased because the
+    // lint rule assumes a ref holds a DOM node whose identity goes stale; this one holds a counter.
     reload();
-    // Bumping the token on the way out cancels anything still in flight for the previous account.
-    // Aliased because the lint rule assumes a ref holds a DOM node whose identity goes stale; this
-    // one holds a counter, and bumping whatever it holds AT cleanup time is exactly the intent.
     const token = gen;
     return () => { token.current++; };
   }, [user?.mobile, reload]);
@@ -113,11 +88,11 @@ export default function TenantFinancesTab({ user, toast }) {
   const loaded = status !== 'loading';
   const rental = rentals[idx] || null;
   const deposit = useMemo(() => depositInfo(rental), [rental]);
-
   // HRA saver inputs (basic salary annual + tax slab). Pune is a non-metro (40%).
+
   const [basic, setBasic] = useState(() => { try { return localStorage.getItem(basisSalaryKey(mob)) || ''; } catch { return ''; } });
   const [slab, setSlab] = useState('0.2');
-  useEffect(() => { try { localStorage.setItem(basisSalaryKey(mob), basic || ''); } catch { /* quota */ } }, [basic, mob]);
+  useEffect(() => { try { localStorage.setItem(basisSalaryKey(mob), basic || ''); } catch {} }, [basic, mob]);
   const annualRent = (Number(rental?.monthlyRent) || 0) * 12;
   const hra = useMemo(
     () => hraExemption({ annualRent, annualBasic: Number(basic) || 0, metro: false, slabRate: Number(slab) }),
@@ -134,9 +109,6 @@ export default function TenantFinancesTab({ user, toast }) {
     } catch { toast?.(t('wallet.rentalFailed'), 'error'); }
   };
 
-  /* The read failed. Deliberately NOT the empty state below: "you have not recorded a rental" is a
-     claim about the tenant's account, and making it on the strength of a failed request invites
-     them to type in a rental they already have. */
   if (status === 'error' && !editing) {
     return (
       <div className="space-y-6">
@@ -160,8 +132,8 @@ export default function TenantFinancesTab({ user, toast }) {
       </div>
     );
   }
-
   /* Empty state — nothing recorded yet. */
+
   if (loaded && !rental && !editing) {
     return (
       <div className="space-y-6">
@@ -225,15 +197,14 @@ export default function TenantFinancesTab({ user, toast }) {
           <Icon name="plus" className="w-4 h-4" /> {t('wallet.addRental')}
         </button>
       </div>
-
       {/* The recorded rental itself — stated plainly as the tenant's own entry. */}
+
       <Card className="p-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex-1 min-w-0">
             <p className="text-white font-semibold text-sm truncate">{rental.address}</p>
             <p className="text-gray-500 text-xs mt-0.5">
               {fmtINR(monthlyRent)}/mo
-              {rental.landlordName ? ' · ' + rental.landlordName : ''}
               {rental.leaseStart ? ' · ' + t('wallet.since', { date: rental.leaseStart }) : ''}
             </p>
             <p className="text-[11px] text-gray-600 mt-1.5 flex items-center gap-1.5">
@@ -250,8 +221,8 @@ export default function TenantFinancesTab({ user, toast }) {
           </div>
         </div>
       </Card>
-
       {/* KPI stats */}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat icon="receipt-indian-rupee" bg="bg-teal-400/15" fg="text-teal-400" value={fmtINR(rental.fyPaid)} label={t('wallet.rentPaidFy', { fy: fyLabel() })} />
         <Stat icon="wallet" bg="bg-emerald-400/15" fg="text-emerald-400" value={fmtINR(rental.totalPaid)} label={t('wallet.lifetime')} hint={t('wallet.monthsPaid', { count: rental.monthsPaid })} />
@@ -259,11 +230,6 @@ export default function TenantFinancesTab({ user, toast }) {
         <Stat icon="piggy-bank" bg="bg-brand-teal/15" fg="text-brand-teal-3" value={hra.taxSaved ? fmtINR(hra.taxSaved) : '—'} label={t('wallet.hraSaved')} hint={hra.taxSaved ? t('wallet.thisYear') : t('wallet.addSalaryBelow')} />
       </div>
 
-      {/* Rent Passport — sealed until rent moves through the platform.
-
-          Deliberately not scored from the figures above. The PDF this button used to produce is
-          headed "Verified rent-payment record" and is handed to a prospective landlord; built from
-          numbers the tenant typed, it would be a document asserting something we cannot know. */}
       <Card className="p-6">
         <SectionHead
           icon="shield-check"
@@ -279,17 +245,16 @@ export default function TenantFinancesTab({ user, toast }) {
         <p className="text-gray-400 text-sm">{t('wallet.passportSoonBody')}</p>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* HRA Tax Saver */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6">
           <SectionHead icon="piggy-bank" iconCls="text-brand-teal-3" title={t('wallet.hraTitle')} sub={t('wallet.hraSub')} />
           <div className="grid grid-cols-2 gap-3 mb-4">
             <label className="text-sm"><span className="mb-1.5 block text-gray-400">{t('wallet.annualBasic')}</span>
               <input type="number" inputMode="numeric" value={basic} onChange={(e) => setBasic(e.target.value)} placeholder="₹" className="field w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm" />
+            {/* A div, not a label: Select renders a <button>, and a wrapping label does not give a button its
+               accessible name. */}
             </label>
-            {/* A div, not a label: Select renders a <button>, and a wrapping label does not give a
-                button its accessible name — name-from-content wins, so a screen reader would
-                announce the chosen value ("20%") with nothing to say what it is a slab of. */}
             <div className="text-sm"><span className="mb-1.5 block text-gray-400">{t('wallet.taxSlab')}</span>
               <Select ariaLabel={t('wallet.taxSlab')} value={slab} onChange={setSlab} options={[{ value: '0.05', label: '5%' }, { value: '0.1', label: '10%' }, { value: '0.2', label: '20%' }, { value: '0.3', label: '30%' }]} className="w-full" />
             </div>
@@ -306,8 +271,8 @@ export default function TenantFinancesTab({ user, toast }) {
             <p className="text-gray-500 text-sm">{t('wallet.addSalaryPrompt')}</p>
           )}
         </Card>
-
         {/* Deposit tracker */}
+
         <Card className="p-6">
           <SectionHead icon="landmark" iconCls="text-amber-400" title={t('wallet.depositTitle')} sub={t('wallet.depositSub')} />
           {deposit.deposit ? (
@@ -325,8 +290,8 @@ export default function TenantFinancesTab({ user, toast }) {
           )}
         </Card>
       </div>
-
       {/* Rent vs Buy nudge */}
+
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="w-11 h-11 rounded-xl bg-teal-400/15 flex items-center justify-center flex-shrink-0">
@@ -379,25 +344,13 @@ const Field = ({ label, hint, children }) => (
 );
 
 const input = 'field w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm';
+/* Record or edit a home the tenant already rents. */
 
-/**
- * Record or edit a home the tenant already rents.
- *
- * Only the address, the rent and the start date are required, because that trio is the whole of
- * what the totals and the HRA figure need. Asking for a deposit or an end date the tenant does not
- * have to hand would trade a real feature for a blank form.
- *
- * The patch sends the whole form, not a diff. That is safe only because every field is seeded from
- * `initial` above, so an untouched input round-trips its existing value — and it stops being safe
- * the moment a field is added that is not seeded that way, because a blank optional input is sent
- * as a real clear. Seed any new field here, or start diffing against `initial`.
- */
 function RentalForm({ initial, onCancel, onDone, onError }) {
   const { t } = useTranslation();
   const editingExisting = !!initial?.id;
   const [form, setForm] = useState({
     address: initial?.address || '',
-    landlordName: initial?.landlordName || '',
     monthlyRent: initial?.monthlyRent ? String(initial.monthlyRent) : '',
     deposit: initial?.deposit == null ? '' : String(initial.deposit),
     leaseStart: initial?.leaseStart || '',
@@ -456,9 +409,6 @@ function RentalForm({ initial, onCancel, onDone, onError }) {
             />
           </Field>
         </div>
-        <Field label={t('wallet.formLandlord')} hint={t('wallet.optional')}>
-          <input value={form.landlordName} onChange={set('landlordName')} maxLength={120} className={input} />
-        </Field>
         {!datesOrdered && (
           <p id="rental-dates-error" role="alert" className="flex items-center gap-1.5 text-rose-300 text-xs">
             <Icon name="alert-circle" className="w-3.5 h-3.5 shrink-0" />

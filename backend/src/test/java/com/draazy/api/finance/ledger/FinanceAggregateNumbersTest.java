@@ -18,6 +18,8 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -133,8 +135,10 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
 
     // ---- 1: /summary?period=all ----
 
-    @Test
-    void summary_allTime_countsEveryLiveRowIncludingFutureDatedOnes() throws Exception {
+    /** No {@code period} at all must be identical to {@code period=all} - the documented default. */
+    @ParameterizedTest(name = "summary{0} counts every live row including future-dated ones")
+    @ValueSource(strings = {"?period=all", ""})
+    void summary_allTime_countsEveryLiveRowIncludingFutureDatedOnes(String query) throws Exception {
         User owner = owner("9832100001");
         Property p = listing(owner);
         seed(owner, p);
@@ -142,28 +146,12 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
         long income = THIS_MONTH_INCOME + LAST_MONTH_INCOME + FUTURE_INCOME;
         long expense = THIS_MONTH_EXPENSE + TWO_MONTHS_AGO_EXPENSE;
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=all")
+        mvc.perform(get("/me/finances/" + p.getId() + "/summary" + query)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.income").value(income))
                 .andExpect(jsonPath("$.expense").value(expense))
                 .andExpect(jsonPath("$.net").value(income - expense));
-    }
-
-    /** No {@code period} at all must be identical to {@code period=all} — the documented default. */
-    @Test
-    void summary_absentPeriod_isAllTime() throws Exception {
-        User owner = owner("9832100002");
-        Property p = listing(owner);
-        seed(owner, p);
-
-        mvc.perform(get("/me/finances/" + p.getId() + "/summary")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.income")
-                        .value(THIS_MONTH_INCOME + LAST_MONTH_INCOME + FUTURE_INCOME))
-                .andExpect(jsonPath("$.expense")
-                        .value(THIS_MONTH_EXPENSE + TWO_MONTHS_AGO_EXPENSE));
     }
 
     // ---- 2: /summary?period=month — a lower bound only, so the future row still counts ----

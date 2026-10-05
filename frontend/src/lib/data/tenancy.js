@@ -1,39 +1,13 @@
-/* Tenant-side "My Rental" presentation helpers.
-
-   The tenancy itself now comes from the server (`rentService.myTenancies`), which answers with the
-   rows the tenant is named on. What is left here is the shaping the hub needs on top of that: the
-   card defaults a lean record does not carry, and the rent status derived from the tenant's own
-   payment history.
-
-   The demo seeder that used to live here is gone. It wrote a tenancy, a payout account, two
-   payments, an agreement and a tenant profile straight into localStorage — a fixture that the
-   server has no way to produce, and one that made the hub look populated while the account behind
-   it was empty. The seeded e2e tenant covers the same ground against real rows. */
 
 import { digits } from '../contact.js';
 import { getPropertiesByIds } from '../../services/propertyService.js';
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
-
-/* The current month as `YYYY-MM`. Inlined here from the prototype's rent-payment engine, which
-   was deleted with the rest of that rail; this was the one thing in it that was never about
-   money. */
 function thisMonth() {
   const d = new Date();
   return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
 }
 
-/**
- * The day of the month rent falls due.
- *
- * There is no `dueDay` on the wire and no column behind one: nothing in the product asks a tenant
- * or an owner what day they settled on. So it is derived from the day the lease started, which is
- * the convention a monthly tenancy actually follows — a lease beginning on the 3rd bills on the
- * 3rd. That is a fact the record carries, unlike the flat `5` this used to assume, which was wrong
- * for twenty-nine days out of thirty and drove the "next due" date the hub displays.
- *
- * Days past the 28th are clamped so a lease starting on the 31st does not silently skip February.
- */
+/** Days past the 28th are clamped so a lease starting on the 31st does not silently skip February. */
 function dueDayFromLease(startDate) {
   if (!startDate) return 1;
   const day = Number(String(startDate).slice(8, 10));
@@ -41,17 +15,7 @@ function dueDayFromLease(startDate) {
   return Math.min(day, 28);
 }
 
-/**
- * A server tenancy → the shape the My Rental card draws.
- *
- * The server owns the money, the dates and the parties; everything added here is presentation the
- * wire has no opinion about (a placeholder photo, a human label for a missing landlord name). The
- * property's own title and address are not on `TenancyDto`, so a caller that has the listing should
- * pass it in rather than have this invent one.
- *
- * @param {object} row a `rentService.myTenancies()` row
- * @param {object} [listing] the matching property, when the caller has already loaded it
- */
+/** Tenancy rows lack title/address, so callers with the listing pass it in. */
 export function toRentalCard(row, listing) {
   const startDate = row?.startDate || '';
   return {
@@ -61,7 +25,7 @@ export function toRentalCard(row, listing) {
     address: listing?.address || listing?.locality || 'Pune',
     locality: listing?.locality || '',
     bhk: listing?.bhk || '',
-    image: listing?.image || listing?.img || FALLBACK_IMAGE,
+    image: listing?.image || listing?.img || null,
     ownerName: row?.ownerName || 'Your landlord',
     ownerMobile: digits(row?.ownerMobile || ''),
     rent: Number(row?.rent) || 0,
@@ -73,32 +37,7 @@ export function toRentalCard(row, listing) {
   };
 }
 
-/**
- * Every tenancy a caller has just fetched, named after the flat it is for.
- *
- * `toRentalCard` takes the listing as an optional second argument and falls back to a generic
- * "Rented home" without one — and no caller was passing it, so a tenant's rental hub, wallet and
- * document vault all described their home as "Rented home". `TenancyDto` is right not to carry the
- * title (copying the listing's own words onto the lease lets a renamed property disagree with
- * itself), which means the properties have to be fetched, and a tenant does not own the flat so it
- * is never in their `listings`.
- *
- * One batched call for the whole set rather than one per row, and a failure is swallowed: the
- * fallback label is worse than the title, but far better than a hub that renders nothing because
- * the property lookup was unavailable.
- *
- * The rows come back keyed under **both** identifiers a property answers to, because against the
- * real API the one asked for is not the one returned. `TenancyDto.propertyId` is the UUID — a lease
- * points at the row, not at a URL — while the property mapper sets `id: slug || uuid` so the UI can
- * route to `/property/:id`, parking the UUID on `uuid`. Every curated listing has a slug, so a map
- * keyed on `id` alone misses on every single tenancy, and the whole product falls back to "Rented
- * home": the rental hub, the wallet, the document vault, the rent page and the flatmate prefill.
- * Both keys rather than translating one into the other, because callers legitimately hold either —
- * Saved and Compare store whatever `id` the card carried, which is the slug.
- *
- * @param {object[]} rows `rentService.myTenancies()` rows
- * @returns {Promise<object[]>} the same rows as rental cards
- */
+/** One batched call for the whole set rather than one per row, and a failure is swallowed. */
 export async function toRentalCards(rows) {
   const list = rows || [];
   const ids = [...new Set(list.map((r) => r?.propId || r?.propertyId).filter(Boolean))];
@@ -111,24 +50,12 @@ export async function toRentalCards(rows) {
   return list.map((row) => toRentalCard(row, byId.get(row?.propId || row?.propertyId)));
 }
 
-/**
- * The rent schedule for a tenancy: which month we are in and when the next instalment falls due.
- *
- * This used to answer "is this month already paid?" as well, matched against the tenant's payment
- * history. Rent no longer moves through the platform, so there is no history to match and no
- * honest way to answer that question — the platform simply does not know. Rather than derive a
- * permanently-false `paidThisMonth` and let a card render "rent is due" at a tenant who paid their
- * landlord a fortnight ago, the claim is gone and only the schedule remains.
- */
+/* Payment status can be unknown; do not derive a false "rent is due" from missing data. */
 export function tenancyStatus(t) {
   const month = thisMonth();
   const now = new Date();
   const dueDay = Number(t?.dueDay) || 1;
   const due = new Date(now.getFullYear(), now.getMonth(), dueDay);
-  /* "Next" has to mean next. Anchoring on the current month alone puts the date in the past for
-     every day after the due day — so a tenancy due on the 3rd renders "Due 3 Sep" all the way to
-     the 30th, under a heading that says the instalment is still coming. Comparing against the
-     start of today keeps the due day itself in the future, which is the one day it is still due. */
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (due < startOfToday) due.setMonth(due.getMonth() + 1);
   return {

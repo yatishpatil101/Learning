@@ -2,11 +2,8 @@
 /* LIVE: manual rent receipts — a server-side immutable snapshot with a durable id, proved at the
    endpoints. Managed-property receipts for rent collected off-platform; 422s in `ManagedRentReceiptTest`. */
 import { test, expect } from '@playwright/test';
-import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
+import { trackErrors } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
-
-/** See the long note in `property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
-const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 const RENT = 31500;
 const TENANT = 'Rohit More';
@@ -74,17 +71,15 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
   let apiFails;
 
   test.beforeEach(async ({ page }) => {
-    errors = [];
+    errors = trackErrors(page);
     apiFails = [];
     page.on('response', (r) => {
       if (r.url().includes('/api/') && r.status() >= 400) apiFails.push(`${r.status()} ${new URL(r.url()).pathname}`);
     });
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e)));
   });
 
   test.afterEach(() => {
-    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+    expect(errors, `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
   /* Deleting the parent through the API rather than the UI keeps the cleanup honest: it does not

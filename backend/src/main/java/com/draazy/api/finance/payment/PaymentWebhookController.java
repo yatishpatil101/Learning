@@ -3,6 +3,7 @@ package com.draazy.api.finance.payment;
 import com.draazy.api.billing.BillingPayments;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.provider.cashfree.WebhookSignature;
+import com.draazy.api.services.request.ServiceRequestAmendments;
 import com.draazy.api.services.request.ServiceRequestService;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -21,10 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Cashfree payment callback — source of truth for whether a purchase was paid.
- * Rationale: docs/flows/admin/finance.md#payment-webhook-signature-raw-body-idempotent-always-200
- */
+// Cashfree payment callback — source of truth for whether a purchase was paid.
+// Rationale: docs/flows/admin/finance.md#payment-webhook-signature-raw-body-idempotent-always-200
 @RestController
 public class PaymentWebhookController {
 
@@ -35,14 +34,16 @@ public class PaymentWebhookController {
 
     private final BillingPayments billingPayments;
     private final ServiceRequestService serviceRequests;
+    private final ServiceRequestAmendments amendments;
     private final WebhookSignature webhookSignature;
     private final ObjectMapper objectMapper;
 
     public PaymentWebhookController(BillingPayments billingPayments,
-            ServiceRequestService serviceRequests, WebhookSignature webhookSignature,
-            ObjectMapper objectMapper) {
+            ServiceRequestService serviceRequests, ServiceRequestAmendments amendments,
+            WebhookSignature webhookSignature, ObjectMapper objectMapper) {
         this.billingPayments = billingPayments;
         this.serviceRequests = serviceRequests;
+        this.amendments = amendments;
         this.webhookSignature = webhookSignature;
         this.objectMapper = objectMapper;
     }
@@ -78,31 +79,29 @@ public class PaymentWebhookController {
             // own try/catch so a failure in one cannot rob the others of the event.
             List<Settlement> outcomes = List.of(
                     settle("subscription", () -> billingPayments.settleSubscription(orderId, paid, settledAt)),
-                    settle("boost", () -> billingPayments.settleBoost(orderId, paid, settledAt)),
-                    settle("service-request", () -> serviceRequests.applyWebhookOutcome(orderId, paid, amount)));
+                    settle("service-request", () -> serviceRequests.applyWebhookOutcome(orderId, paid, amount)),
+                    settle("amendment", () -> amendments.applyWebhookOutcome(orderId, paid, amount)));
 
             if (paid && !outcomes.contains(Settlement.CLAIMED)) {
-                // Paid webhook unreconciled: log loudly and distinctly by cause so paging routes right.
+
                 if (outcomes.contains(Settlement.FAILED)) {
                     log.error("Paid webhook for order {} was not settled: a handler failed (see the "
                             + "error above). The payment is unreconciled and will not be retried", orderId);
                 } else {
-                    log.error("Paid webhook for order {} matched no subscription, boost or service "
-                            + "request; the payment is unreconciled", orderId);
+                    log.error("Paid webhook for order {} matched no subscription, service request "
+                            + "or amendment; the payment is unreconciled", orderId);
                 }
             }
 
         } catch (Exception unprocessable) {
+
             // why: a signed-but-unreadable payload is our bug or a provider change, not the
             // sender's problem. Retrying will not help, so we swallow it and keep the 200 contract.
             log.error("Signed payment webhook could not be processed", unprocessable);
         }
     }
 
-    /**
-     * Level by <em>who can cause it</em>: only {@code STALE} sits behind the HMAC and costs money,
-     * so only it is an error, and only it may log the timestamp it authenticated.
-     */
+    // Only HMAC-authenticated stale callbacks cost money, so only they log as errors.
     private void logRefusal(WebhookSignature.Verification verification, String timestamp) {
         switch (verification) {
             case STALE -> log.error("Rejected payment webhook: STALE (x-webhook-timestamp={}); this "
@@ -117,17 +116,15 @@ public class PaymentWebhookController {
         }
     }
 
-    /** What one settle handler did with the event. */
     private enum Settlement {
-        /** The handler owned the order and recorded the outcome. */
+
         CLAIMED,
-        /** The handler does not own this order id — the normal answer for two of the three. */
+
         NOT_MINE,
-        /** The handler threw. Distinct from {@link #NOT_MINE}: the order may well have been ours. */
+
         FAILED
     }
 
-    /** Run one handler in isolation; {@link Settlement#FAILED} on throw so failure ≠ disownment. */
     private Settlement settle(String handler, BooleanSupplier settlement) {
         try {
             return settlement.getAsBoolean() ? Settlement.CLAIMED : Settlement.NOT_MINE;
@@ -138,10 +135,7 @@ public class PaymentWebhookController {
         }
     }
 
-    /**
-     * Settlement instant from the provider's {@code payment_time}; falls back to now when absent
-     * or unparseable rather than failing the callback over a date format.
-     */
+    // Bad provider timestamps fall back to now rather than failing the callback.
     private static Instant settlementInstant(String paymentTime) {
         if (paymentTime == null || paymentTime.isBlank()) {
             return Instant.now();
@@ -154,10 +148,8 @@ public class PaymentWebhookController {
         }
     }
 
-    /**
-     * Decimal-rupee string → whole rupees; checks the provider, never overwrites the ledger.
-     * Rationale: docs/flows/admin/finance.md#payment-webhook-signature-raw-body-idempotent-always-200
-     */
+    // Decimal-rupee string → whole rupees; checks the provider, never overwrites the ledger.
+    // Rationale: docs/flows/admin/finance.md#payment-webhook-signature-raw-body-idempotent-always-200
     static long toWholeRupees(String decimalAmount) {
         if (decimalAmount == null || decimalAmount.isBlank()) {
             return 0L;

@@ -27,7 +27,6 @@ import org.springframework.http.HttpHeaders;
 @DisplayName("/admin/finance — the console's three reads")
 class AdminFinanceConsoleTest extends AbstractApiTest {
 
-    /** Owner Pro, ₹2,499 a year. {@code round(2499 / 12.0)} is 208; truncation gives the same. */
     private static final long OWNER_PRO_PRICE = 2499L;
 
     private static final long OWNER_PRO_MONTHLY = 208L;
@@ -57,14 +56,8 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
         return subscribeAt(mobile, displayName, planName, status, null);
     }
 
-    /**
-     * As {@link #subscribe}, at an explicit price.
-     *
-     * <p>A null {@code amount} copies the catalogue, standing in for a purchase made at today's
-     * price. Passing one that differs is how a test reaches the state a reprice produces — an
-     * existing subscription whose charge no longer matches what the plan costs a new buyer —
-     * without mutating a catalogue that every other test in this shared database also reads.
-     */
+    // Passing one that differs is how a test reaches the state a reprice produces — an existing subscription whose
+    // charge no longer matches what the plan costs a new buyer.
     private String subscribeAt(String mobile, String displayName, String planName, String status,
             Long amount) {
         User u = new User(mobile, Roles.Wire.BUYER);
@@ -92,6 +85,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
     @DisplayName("the overview's models")
     class Models {
 
+        /** A plan already billed monthly must pass through untouched rather than be divided again. */
         @Test
         void aYearlyPlanContributesATwelfthOfItsPriceToMrr() throws Exception {
             String token = admin();
@@ -106,7 +100,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .isEqualTo(OWNER_PRO_MONTHLY);
         }
 
-        /** A plan already billed monthly must pass through untouched rather than be divided again. */
+        // Money follows the subscription, not the catalogue row it points at.
         @Test
         void aMonthlyPlanContributesItsWholePrice() throws Exception {
             String token = admin();
@@ -118,20 +112,8 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .isEqualTo(SEEKER_PLUS_PRICE);
         }
 
-        /**
-         * Money follows the subscription, not the catalogue row it points at.
-         *
-         * <p>Until V37 there was no {@code subscriptions.amount} and every figure on this console
-         * joined {@code plans.price} — the price <em>today</em>. Since the catalogue is seeded by a
-         * repeatable migration whose upsert ends {@code price = EXCLUDED.price}, correcting a plan
-         * rewrote what every subscription ever sold at the old price reported having earned,
-         * including on the settlement ledger, where the figure has to equal what the gateway
-         * captured. Nothing failed; the numbers were just wrong.
-         *
-         * <p>Asserted with a subscription whose amount differs from its plan's, which is the state
-         * a reprice leaves behind — and reaching it this way rather than by editing the catalogue
-         * keeps the test from disturbing every other reader of this shared database.
-         */
+        /** The band must be present and zero, and the disclosure flag asserted beside it: a
+         *  structural zero with no flag is indistinguishable from a measured one. */
         @Test
         void aRepricedPlanDoesNotRestateWhatWasAlreadySold() throws Exception {
             String token = admin();
@@ -146,8 +128,8 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .isEqualTo(soldAt);
         }
 
-        /** MRR is {@code status = 'active'} while revenue is {@code status <> 'pending'}; the two
-         *  are easy to collapse into one query by accident. */
+        /** The pin promised in {@code REVENUE_SERIES_BY_SOURCE}'s Javadoc: two independently
+         *  written queries over the same sources must agree. */
         @Test
         void aCancelledSubscriptionLeavesMrrButStaysRevenue() throws Exception {
             String token = admin();
@@ -164,7 +146,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .isEqualTo(OWNER_PRO_PRICE);
         }
 
-        /** Excluded by price, not by name, so a future zero-rupee plan needs no list updating. */
+        /** Otherwise every Owner Free signup is a ₹0 row burying the ones that matter. */
         @Test
         void aFreePlanIsNotRevenue() throws Exception {
             String token = admin();
@@ -177,7 +159,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             assertThat(num(after, "$.revenue") - num(before, "$.revenue")).isZero();
         }
 
-        /** Asserted over whatever the book contains, not a fixed list, so adding a plan keeps it honest. */
+        /** The acceptance half of the rejection above — otherwise "refuses everything" would pass. */
         @Test
         void thePlanLinesSumToMrr() throws Exception {
             String token = admin();
@@ -203,6 +185,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     });
         }
 
+        /** The series and the ledger expose the same revenue mix, so all three need the admin guard. */
         @Test
         void theTwoDenominatorsAreReportedSeparatelyAndAreOrdered() throws Exception {
             String json = body(Routes.Admin.FINANCE, admin());
@@ -217,8 +200,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
     @DisplayName("the monthly series")
     class Series {
 
-        /** An omitted empty bucket is invisible in a stacked bar chart — the bars simply close up,
-         *  reading as an unbroken run of trading months that did not happen. */
+        /** The acceptance half: an administrator reaches all three, so the guard is not blanket. */
         @Test
         void everyMonthInTheWindowIsReturnedIncludingEmptyOnes() throws Exception {
             String json = body(Routes.Admin.FINANCE_SERIES + "?months=6", admin());
@@ -232,8 +214,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .last().isEqualTo(LocalDate.now(PlatformTime.IST).withDayOfMonth(1).toString());
         }
 
-        /** The band must be present and zero, and the disclosure flag asserted beside it: a
-         *  structural zero with no flag is indistinguishable from a measured one. */
         @Test
         void theServicesBandIsPresentAndStructurallyZero() throws Exception {
             String token = admin();
@@ -248,16 +228,13 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.serviceOrdersCounted").value(false));
         }
 
-        /** The pin promised in {@code REVENUE_SERIES_BY_SOURCE}'s Javadoc: two independently
-         *  written queries over the same sources must agree. */
         @Test
         void theCurrentMonthsBandsSumToTheOverviewsMonthRevenue() throws Exception {
             String token = admin();
             subscribe("9877730020", "Agreement Member", "Owner Pro", "active");
 
             String series = body(Routes.Admin.FINANCE_SERIES + "?months=1", token);
-            long banded = num(series, "$[0].subscriptions")
-                    + num(series, "$[0].featured") + num(series, "$[0].services");
+            long banded = num(series, "$[0].subscriptions") + num(series, "$[0].services");
 
             assertThat(banded)
                     .as("the chart and the headline tile describe the same month")
@@ -282,7 +259,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
     @DisplayName("the settlement ledger")
     class Ledger {
 
-        /** The ledger reconciles against a bank statement, which saw ₹2,499 leave an account once. */
         @Test
         void aSettledSubscriptionAppearsAtItsStickerPrice() throws Exception {
             String token = admin();
@@ -299,7 +275,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content[0].party").value(name));
         }
 
-        /** Otherwise every Owner Free signup is a ₹0 row burying the ones that matter. */
         @Test
         void aFreePlanIsNotALedgerRow() throws Exception {
             String token = admin();
@@ -312,8 +287,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.totalElements").value(0));
         }
 
-        /** An accepted-but-unmatchable filter returns an empty page, indistinguishable from a
-         *  quarter in which nothing sold. */
         @Test
         void aVocabularyTheLedgerCannotMatchIsRefusedRatherThanReturningNothing() throws Exception {
             String token = admin();
@@ -323,20 +296,19 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?status=refunded")
                             .header(HttpHeaders.AUTHORIZATION, token))
                     .andExpect(status().isBadRequest());
-            mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?kind=deal")
-                            .header(HttpHeaders.AUTHORIZATION, token))
-                    .andExpect(status().isBadRequest());
+            for (String kind : List.of("deal", "featured")) {
+                mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?kind=" + kind)
+                                .header(HttpHeaders.AUTHORIZATION, token))
+                        .andExpect(status().isBadRequest());
+            }
         }
 
-        /** The acceptance half of the rejection above — otherwise "refuses everything" would pass. */
         @Test
         void theVocabularyItDoesSpeakIsAccepted() throws Exception {
             String token = admin();
-            for (String kind : List.of("subscription", "featured")) {
-                mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?kind=" + kind)
-                                .header(HttpHeaders.AUTHORIZATION, token))
-                        .andExpect(status().isOk());
-            }
+            mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?kind=subscription")
+                            .header(HttpHeaders.AUTHORIZATION, token))
+                    .andExpect(status().isOk());
             for (String state : List.of("paid", "pending", "failed")) {
                 mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?status=" + state)
                                 .header(HttpHeaders.AUTHORIZATION, token))
@@ -344,7 +316,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             }
         }
 
-        /** Contact details have no place on a finance ledger; the party is a name. */
         @Test
         void noRowCarriesAMobileNumber() throws Exception {
             String token = admin();
@@ -362,7 +333,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
     @DisplayName("the guard")
     class Guard {
 
-        /** The series and the ledger expose the same revenue mix, so all three need the admin guard. */
         @Test
         void staffCannotReadAnyOfTheThree() throws Exception {
             String staff = bearerFor("9877730040", Roles.Wire.STAFF, "Ops staff");
@@ -373,7 +343,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             }
         }
 
-        /** The acceptance half: an administrator reaches all three, so the guard is not blanket. */
         @Test
         void anAdministratorReachesAllThree() throws Exception {
             String token = admin();

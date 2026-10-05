@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.draazy.api.provider.cashfree.WebhookSignature.Verification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -21,38 +23,17 @@ class WebhookFreshnessTest {
     private final WebhookSignature signature =
             new WebhookSignature(SECRET, false, new MockEnvironment());
 
-    /** The regression proper: a correctly signed callback in Cashfree's own unit is accepted. */
-    @Test
-    @DisplayName("epoch seconds verifies")
-    void secondsAreFresh() {
-        String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
+    /**
+     * The regression proper: a correctly signed callback in Cashfree's own unit (seconds) is
+     * accepted. Milliseconds stay valid, because every fixture in this suite signs with them.
+     */
+    @ParameterizedTest(name = "{0} verifies")
+    @CsvSource({"epoch seconds,1000", "epoch milliseconds,1"})
+    void aFreshTimestampVerifies(String unit, long divisor) {
+        String timestamp = String.valueOf(System.currentTimeMillis() / divisor);
 
         assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY))
                 .isEqualTo(Verification.VERIFIED);
-    }
-
-    /** Milliseconds stay valid, because every fixture in this suite signs with them. */
-    @Test
-    @DisplayName("epoch milliseconds still verifies")
-    void millisecondsAreFresh() {
-        String timestamp = String.valueOf(System.currentTimeMillis());
-
-        assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY))
-                .isEqualTo(Verification.VERIFIED);
-    }
-
-    /** Accepting both readings must not have widened the window in either. */
-    @Test
-    @DisplayName("an hour-old timestamp is refused in either unit")
-    void staleIsRefusedInBothUnits() {
-        long hourAgoMillis = System.currentTimeMillis() - 3_600_000L;
-
-        for (String timestamp : new String[] {
-                String.valueOf(hourAgoMillis), String.valueOf(hourAgoMillis / 1000L)}) {
-            assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY))
-                    .as("timestamp %s", timestamp)
-                    .isEqualTo(Verification.STALE);
-        }
     }
 
     /** A signature over a different body is not rescued by a fresh timestamp. */

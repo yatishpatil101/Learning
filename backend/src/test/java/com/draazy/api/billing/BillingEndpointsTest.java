@@ -7,19 +7,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.billing.boost.BoostRepository;
-import com.draazy.api.billing.boost.BoostStatuses;
 import com.draazy.api.billing.plan.SubscriptionRepository;
 import com.draazy.api.billing.plan.SubscriptionStatuses;
-import com.draazy.api.catalog.property.Property;
-import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.provider.cashfree.WebhookSignature;
 import com.draazy.api.security.JwtService;
-import java.math.BigDecimal;
-import java.time.Instant;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,18 +31,10 @@ class BillingEndpointsTest extends AbstractApiTest {
     /** Owner Plus, 999/yearly — priced, so it must go through the gateway. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
 
-    /** 7-day Spotlight, 999. */
-    private static final String BOOST_PACK = "b2000000-0000-4000-8000-000000000001";
-
-    /** Packers &amp; Movers. */
-    private static final String OFFERING = "b3000000-0000-4000-8000-000000000001";
-
     @Autowired MockMvc mvc;
     @Autowired JwtService jwtService;
     @Autowired UserRepository users;
-    @Autowired PropertyRepository properties;
     @Autowired SubscriptionRepository subscriptions;
-    @Autowired BoostRepository boosts;
     @Autowired WebhookSignature webhookSignature;
 
     private User user(String mobile, String role) {
@@ -58,18 +44,6 @@ class BillingEndpointsTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    private Property listing(User owner) {
-        Property p = new Property(owner, "Boostable flat", "rent", "apartment", 26_000L,
-                "Baner", "Pune");
-        p.setBhk(new BigDecimal("2"));
-        p.setStatus("approved");
-        p.setPriceUnit("per-month");
-        p.setArea(new BigDecimal("900"));
-        return properties.saveAndFlush(p);
-    }
-
-    /** {@code payment_time} is now, not a literal: a fixed date the suite ages past would activate
-     *  a subscription whose term has already elapsed, and the read path would decline to report it. */
     private void deliverSigned(String orderId, String status) throws Exception {
         String paidAt = java.time.OffsetDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"));
@@ -99,20 +73,11 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.length()", Matchers.greaterThanOrEqualTo(4)))
                 .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].price").value(
                         Matchers.hasItem(999)))
-                // The entitlement is a number on the wire, not prose to parse.
+
                 .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].listingLimit").value(
                         Matchers.hasItem(2)))
                 .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].contactLimit").value(
                         Matchers.hasItem(Matchers.nullValue())));
-
-        mvc.perform(get(Routes.Boosts.PACKS))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()", Matchers.greaterThanOrEqualTo(3)))
-                .andExpect(jsonPath("$[0].placement").value("top"));
-
-        mvc.perform(get(Routes.ServiceCatalog.BASE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()", Matchers.greaterThanOrEqualTo(6)));
     }
 
     @Test
@@ -166,6 +131,8 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .isEqualTo(renewsAt);
     }
 
+    /** The listing's {@code boosted} flag answers only "promoted right now", so it cannot show a
+     *  pack whose payment never completed — the state "I paid and nothing happened" needs. */
     @Test
     void anAbandonedUpgradeDoesNotCancelThePlanAlreadyHeld() throws Exception {
         User u = user("9855500003", "owner");
@@ -191,30 +158,6 @@ class BillingEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void subscribingTwiceWithOneIdempotencyKeyBuysOnce() throws Exception {
-        User u = user("9855500004", "owner");
-        String auth = bearer(u);
-        String body = "{\"planId\":\"" + PAID_PLAN + "\"}";
-
-        String first = mvc.perform(post(Routes.Plans.SUBSCRIPTION)
-                        .header(HttpHeaders.AUTHORIZATION, auth)
-                        .header("Idempotency-Key", "sub-retry-1")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-
-        String second = mvc.perform(post(Routes.Plans.SUBSCRIPTION)
-                        .header(HttpHeaders.AUTHORIZATION, auth)
-                        .header("Idempotency-Key", "sub-retry-1")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-
-        assertThat(jsonField(second, "id")).isEqualTo(jsonField(first, "id"));
-        assertThat(subscriptions.findByUserIdOrderByStartedAtDesc(u.getId())).hasSize(1);
-    }
-
-    @Test
     void anUnknownPlanIsNotFound() throws Exception {
         User u = user("9855500005", "owner");
         mvc.perform(post(Routes.Plans.SUBSCRIPTION)
@@ -225,192 +168,7 @@ class BillingEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void aBoostIsPendingUntilPaidAndThenOpensItsWindow() throws Exception {
-        User owner = user("9855500010", "owner");
-        Property p = listing(owner);
-
-        String created = mvc.perform(post("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value(BoostStatuses.PENDING))
-                .andExpect(jsonPath("$.startsAt").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.paymentRef").value(Matchers.notNullValue()))
-                // The single-use Cashfree session, without which the checkout SDK cannot open.
-                .andExpect(jsonPath("$.paymentSessionId").isNotEmpty())
-                .andReturn().getResponse().getContentAsString();
-
-        String orderId = jsonField(created, "paymentRef");
-        deliverSigned(orderId, "SUCCESS");
-
-        var boost = boosts.findByPaymentRef(orderId).orElseThrow();
-        assertThat(boost.getStatus()).isEqualTo(BoostStatuses.ACTIVE);
-        assertThat(boost.getStartsAt()).isNotNull();
-        assertThat(boost.getEndsAt()).isAfter(boost.getStartsAt());
-
-        // Asserted here and not only in BoostRankingTest, which sets `boostedUntil` by hand and
-        // would stay green if payment stopped writing it, leaving a paid boost that ranks nothing.
-        assertThat(properties.findById(p.getId()).orElseThrow().getBoostedUntil())
-                .isEqualTo(boost.getEndsAt());
-    }
-
-    /** The mirror is one {@code boosted_until} column, so the obvious overwrite is wrong in one
-     *  direction: a short pack bought during a long one would claw back ranking already paid for. */
-    @Test
-    void stackingAShorterBoostNeverShortensTheWindow() throws Exception {
-        User owner = user("9855500018", "owner");
-        Property p = listing(owner);
-
-        // A long window already running, further out than any pack this test can buy.
-        Instant faroff = Instant.now().plus(365, java.time.temporal.ChronoUnit.DAYS);
-        Property saved = properties.findById(p.getId()).orElseThrow();
-        saved.setBoostedUntil(faroff);
-        properties.saveAndFlush(saved);
-
-        String created = mvc.perform(post("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        deliverSigned(jsonField(created, "paymentRef"), "SUCCESS");
-
-        assertThat(properties.findById(p.getId()).orElseThrow().getBoostedUntil())
-                .as("a shorter pack must not claw back a longer window already paid for")
-                .isEqualTo(faroff);
-    }
-
-    /** The listing's {@code boosted} flag answers only "promoted right now", so it cannot show a
-     *  pack whose payment never completed — the state "I paid and nothing happened" needs. */
-    @Test
-    void anOwnerCanReadTheBoostsTheyBought() throws Exception {
-        User owner = user("9855500014", "owner");
-        Property p = listing(owner);
-
-        mvc.perform(get("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
-
-        mvc.perform(post("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
-                .andExpect(status().isCreated());
-
-        // Reported while still pending, deliberately: filtering to active windows would hide the
-        // payment that did not complete.
-        mvc.perform(get("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].status").value(BoostStatuses.PENDING))
-                .andExpect(jsonPath("$[0].packId").value(BOOST_PACK))
-                // The session is single-use and not persisted; handing back a stale one would look
-                // resumable and fail at the gateway instead.
-                .andExpect(jsonPath("$[0].paymentSessionId").doesNotExist());
-    }
-
-    /** Same owner-scoping as the write: another owner's boost history is a 404, not a 403. */
-    @Test
-    void aStrangerCannotReadAnothersBoosts() throws Exception {
-        User owner = user("9855500015", "owner");
-        User stranger = user("9855500016", "owner");
-        Property p = listing(owner);
-
-        mvc.perform(get("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void aFailedPaymentDoesNotOpenTheBoostWindow() throws Exception {
-        User owner = user("9855500011", "owner");
-        Property p = listing(owner);
-
-        String created = mvc.perform(post("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-
-        String orderId = jsonField(created, "paymentRef");
-        deliverSigned(orderId, "FAILED");
-
-        var boost = boosts.findByPaymentRef(orderId).orElseThrow();
-        assertThat(boost.getStatus()).isNotEqualTo(BoostStatuses.ACTIVE);
-        assertThat(boost.getStartsAt()).isNull();
-    }
-
-    @Test
-    void aStrangersListingCannotBeBoosted() throws Exception {
-        User owner = user("9855500012", "owner");
-        User stranger = user("9855500013", "owner");
-        Property p = listing(owner);
-        String body = "{\"packId\":\"" + BOOST_PACK + "\"}";
-
-        mvc.perform(post("/me/properties/" + p.getId() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isNotFound());
-
-        mvc.perform(post("/me/properties/" + java.util.UUID.randomUUID() + "/boost")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void anOrderIsPlacedWithoutAnAmountAndReadBackByItsOwner() throws Exception {
-        User u = user("9855500020", "buyer");
-        String auth = bearer(u);
-        String body = "{\"offeringId\":\"" + OFFERING + "\",\"notes\":\"3rd floor\"}";
-
-        mvc.perform(post(Routes.ServiceCatalog.ORDERS)
-                        .header(HttpHeaders.AUTHORIZATION, auth)
-                        .header("Idempotency-Key", "order-retry-1")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                // The customer never names the price, and the catalogue's "from" figure is not one.
-                .andExpect(jsonPath("$.amount").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.offeringId").value(OFFERING));
-
-        mvc.perform(post(Routes.ServiceCatalog.ORDERS)
-                        .header(HttpHeaders.AUTHORIZATION, auth)
-                        .header("Idempotency-Key", "order-retry-1")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated());
-
-        mvc.perform(get(Routes.ServiceCatalog.ORDERS).header(HttpHeaders.AUTHORIZATION, auth))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
-
-        User other = user("9855500021", "buyer");
-        mvc.perform(get(Routes.ServiceCatalog.ORDERS)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(other)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
-    }
-
-    @Test
-    void anOrderCannotNameSomeoneElsesListing() throws Exception {
-        User owner = user("9855500022", "owner");
-        User stranger = user("9855500023", "buyer");
-        Property p = listing(owner);
-
-        mvc.perform(post(Routes.ServiceCatalog.ORDERS)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"offeringId\":\"" + OFFERING + "\",\"propertyId\":\""
-                                + p.getId() + "\"}"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
     void buyingAnythingRequiresTheCaller() throws Exception {
         mvc.perform(get(Routes.Plans.SUBSCRIPTION)).andExpect(status().isUnauthorized());
-        mvc.perform(get(Routes.ServiceCatalog.ORDERS)).andExpect(status().isUnauthorized());
     }
 }

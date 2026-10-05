@@ -8,7 +8,7 @@ import Icon from '../../components/Icon.jsx';
 import LoadError from '../../components/LoadError.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { maskPhone } from '../../lib/contact.js';
+import { isoToDisplay } from '../../lib/format.js';
 
 import { myTenantProfile, saveTenantProfile } from '../../services/rentService.js';
 import { useVerification } from '../../context/VerificationContext.jsx';
@@ -20,10 +20,8 @@ export default function TenantProfile() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  /* Opens empty and is filled by the two effects below. */
   const { verified: badgeVerified, maskedDocument, verifiedAt, status: verificationStatus } = useVerification();
-  /* Opens empty and is filled by the two effects below. Not seeded from localStorage: the merge
-     prefers a truthy server value, so a field the server had *cleared* would keep showing this
-     browser's stale copy — including a client-computed `score` for a number the server owns. */
   const [form, setForm] = useState(
     { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null },
   );
@@ -43,11 +41,9 @@ export default function TenantProfile() {
   // number owners use to decide about them. Refreshed by every save.
   const [score, setScore] = useState(null);
   const nameRef = useRef(null);
+  /* `kyc` must survive the merge: the wire carries a server-owned `verified` flag but no record of what* was
+     verified, so the masked-number display is assembled from the badge instead. */
 
-  /* `kyc` must survive the merge: the wire carries a server-owned `verified` flag but no record of
-     *what* was verified, so the masked-number display is assembled from the badge instead. The wire
-     calls the job `occupation` and this form calls it `employment` — translated at the boundary
-     rather than renaming a field the whole page reads. */
   useEffect(() => {
     let alive = true;
     myTenantProfile()
@@ -69,18 +65,14 @@ export default function TenantProfile() {
           // Server verification counts too, but never *downgrades* a local one.
           idVerified: prev.idVerified || p.verified,
         }));
+      /* A read that failed and an empty profile look identical in this form, and `PUT` replaces the whole record — so
+         one save over unread data silently deletes fields the user never saw. */
       })
-      /* A read that failed and an empty profile look identical in this form, and `PUT` replaces the
-         whole record — so one save over unread data silently deletes fields the user never saw.
-         Of the two options that closes the hole, blocking the save is the safer: a banner alone
-         leaves the button armed, and the destructive click is the easy one to make. */
       .catch((err) => { if (alive) { setLoaded(true); setLoadError(err || new Error('tenant profile load failed')); } });
     return () => { alive = false; };
   }, [reloadNonce]);
+    /* Identity is one person-level badge, mirrored into the profile rather than asked for again. */
 
-    /* Identity is one person-level badge, mirrored into the profile rather than asked for again.
-       Guarded on `kyc`, not `idVerified`, because these two effects race and an `idVerified` guard
-       would leave `kyc` null forever, taking the stale-verification check below with it. */
   useEffect(() => {
     if (!badgeVerified) return;
     // Read outside the updater: StrictMode double-invokes it, and a clock inside would stamp the
@@ -122,12 +114,8 @@ export default function TenantProfile() {
   // tell a tenant with a complete profile that they scored nothing.
   const sLabel = s == null ? '—' : `${s}%`;
   const sWidth = `${s || 0}%`;
+  /* What is still missing, and what each item is worth. */
 
-  /* What is still missing, and what each item is worth.
-
-     These weights are the server's (`TenantProfileService.score`), restated here so the checklist
-     can say *why* the meter sits where it does. They are a fixed, published rubric rather than a
-     second implementation of the score: nothing here adds up to a number the page displays. */
   const factors = [
     { key: 'idVerified', label: t('misc.tpBoostId'), pts: 30, done: !!form.idVerified },
     { key: 'employment', label: t('misc.tpBoostOccupation'), pts: 20, done: !!form.employment },
@@ -174,7 +162,7 @@ export default function TenantProfile() {
   if (form.employment) meta.push(['briefcase', form.employment]);
   if (form.income && Number(form.income) > 0) meta.push(['wallet', '₹' + Number(form.income).toLocaleString('en-IN') + t('misc.tpMoIncomeSuffix')]);
   if (form.occupants) meta.push(['users', form.occupants]);
-  if (form.moveIn) meta.push(['calendar', t('misc.tpMoveInPrefix') + form.moveIn]);
+  if (form.moveIn) meta.push(['calendar', t('misc.tpMoveInPrefix') + (isoToDisplay(form.moveIn) || form.moveIn)]);
 
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -190,9 +178,9 @@ export default function TenantProfile() {
           </span>
         )}
       </div>
+      {/* Mobile-only progress header — puts the payoff and live feedback above the form so tenants see their score
+         climb as they fill each field. */}
 
-      {/* Mobile-only progress header — puts the payoff and live feedback above the form
-          so tenants see their score climb as they fill each field. Desktop shows this in the aside. */}
       <div className="glass rounded-2xl p-4 mt-4 lg:hidden">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold inline-flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4 text-emerald-400" /> {t('misc.tpTrustScore')}</span>
@@ -205,7 +193,6 @@ export default function TenantProfile() {
       {loadError && <LoadError message={t('common.somethingWentWrong')} error={loadError} onRetry={() => setReloadNonce((n) => n + 1)} className="glass rounded-2xl p-5 mt-4" />}
 
       <div className="grid lg:grid-cols-3 gap-6 mt-6">
-        {/* Form */}
         <form onSubmit={save} className="lg:col-span-2 glass rounded-2xl p-6 space-y-5">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -251,12 +238,9 @@ export default function TenantProfile() {
                 : <button type="button" onClick={() => setKycOpen(true)} disabled={saving || !loaded || !!loadError} className="px-4 py-2 rounded-lg text-sm font-semibold btn-teal flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed">{form.idVerified ? t('misc.tpReverify') : t('misc.tpVerifyNow')}</button>}
             </div>
           </div>
+          {/* Both writes are blocked while the profile is unread — failed *or* still in flight: each sends the whole
+             form, the form is empty until the read lands, and the PUT replaces the record. */}
 
-          {/* Both writes are blocked while the profile is unread — failed *or* still in flight: each
-              sends the whole form, the form is empty until the read lands, and the PUT replaces the
-              record. Saving over a pending read wipes the unseen fields, and the arriving `.then`
-              then repaints the old values over the cleared record, so the loss only surfaces on the
-              next reload. */}
           <button type="submit" disabled={saving || !loaded || !!loadError} className="btn-teal w-full py-3 rounded-xl font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"><Icon name="save" className="w-4 h-4" /> {t('misc.tpSaveProfile')}</button>
 
           {justSaved && (
@@ -270,8 +254,8 @@ export default function TenantProfile() {
             </div>
           )}
         </form>
-
         {/* Live preview + score booster */}
+
         <aside className="flex flex-col gap-4">
           <div className="glass rounded-2xl p-6 order-2 lg:order-1">
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wider">{t('misc.tpHowOwnersSee')}</p>
@@ -291,9 +275,8 @@ export default function TenantProfile() {
               {form.about && <p className="text-gray-400 text-xs italic border-l-2 border-white/10 pl-2 mt-2 line-clamp-3">{form.about}</p>}
             </div>
           </div>
+          {/* Booster checklist — the actionable core of the page. */}
 
-          {/* Booster checklist — the actionable core of the page. On mobile it sits directly
-              under the form (order-1); on desktop it keeps its place below the preview. */}
           <div className="glass rounded-2xl p-5 order-1 lg:order-2">
             <h3 className="font-bold text-sm mb-1 flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4 text-emerald-400" /> {t('misc.tpBoostTitle')}</h3>
             <p className="text-xs text-gray-500 mb-3">{boostSub}</p>

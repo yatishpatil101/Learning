@@ -4,18 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.billing.boost.BoostRepository;
-import com.draazy.api.billing.boost.BoostStatuses;
 import com.draazy.api.billing.plan.SubscriptionRepository;
 import com.draazy.api.billing.plan.SubscriptionStatuses;
-import com.draazy.api.catalog.property.Property;
-import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.provider.cashfree.WebhookSignature;
 import com.draazy.api.support.AbstractApiTest;
-import java.math.BigDecimal;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,22 +24,14 @@ import org.springframework.test.web.servlet.MockMvc;
 @DisplayName("D171 — a failed payment releases its idempotency key so the customer can retry")
 class FailedPaymentKeyReleaseTest extends AbstractApiTest {
 
-    /** Owner Plus, 999 — priced, so it commits {@code pending} and can be failed. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
-
-    /** 7-day Spotlight, 999. */
-    private static final String BOOST_PACK = "b2000000-0000-4000-8000-000000000001";
-
-    private static final long RENT = 28_000L;
 
     /** Not asserted anywhere — the decline branch settles on the order id alone, so it only parses. */
     private static final String WEBHOOK_AMOUNT = "999.00";
 
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
-    @Autowired PropertyRepository properties;
     @Autowired SubscriptionRepository subscriptions;
-    @Autowired BoostRepository boosts;
     @Autowired WebhookSignature webhookSignature;
 
     @Nested
@@ -52,9 +39,10 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
     class Subscriptions {
 
         /** Without the key release the second call replays the cancelled row: 201, same id, no new
-         *  order, and a card that worked on the second try is still not subscribed. */
+         *  order, and a card that worked on the second try is still not subscribed. Releasing the
+         *  key must free the customer, not rewrite the audit of what happened. */
         @Test
-        @DisplayName("after a declined payment the same key opens a fresh order")
+        @DisplayName("after a declined payment the same key opens a fresh order and the declined row stays cancelled")
         void aDeclinedSubscriptionCanBeRetriedWithTheSameKey() throws Exception {
             User u = user("9877700101", "owner");
             String key = "plan-owner-plus";
@@ -66,20 +54,6 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
 
             assertThat(field(second, "id")).isNotEqualTo(field(first, "id"));
             assertThat(field(second, "status")).isEqualTo(SubscriptionStatuses.PENDING);
-            assertThat(subscriptions.findByUserIdOrderByStartedAtDesc(u.getId())).hasSize(2);
-        }
-
-        /** Releasing the key must free the customer, not rewrite the audit of what happened. */
-        @Test
-        @DisplayName("the declined subscription stays cancelled")
-        void theDeclinedRowIsLeftAsHistory() throws Exception {
-            User u = user("9877700102", "owner");
-            String key = "plan-owner-plus";
-
-            String first = subscribe(u, key);
-            decline(field(first, "paymentRef"));
-            subscribe(u, key);
-
             assertThat(subscriptions.findByUserIdOrderByStartedAtDesc(u.getId()))
                     .extracting(s -> s.getStatus())
                     .containsExactlyInAnyOrder(
@@ -97,68 +71,11 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
         }
     }
 
-    @Nested
-    @DisplayName("boosts")
-    class Boosts {
-
-        @Test
-        @DisplayName("after a declined payment the same key opens a fresh order")
-        void aDeclinedBoostCanBeRetriedWithTheSameKey() throws Exception {
-            User u = user("9877700111", "owner");
-            Property p = listing(u);
-            String key = "boost-spotlight-7";
-
-            String first = boost(u, p, key);
-            decline(field(first, "paymentRef"));
-
-            String second = boost(u, p, key);
-
-            assertThat(field(second, "id")).isNotEqualTo(field(first, "id"));
-            assertThat(boosts.findByPropertyIdOrderByCreatedAtDesc(p.getId())).hasSize(2);
-        }
-
-        /** The retry must not inherit a ranking the owner has still not paid for. */
-        @Test
-        @DisplayName("neither the declined boost nor its retry promotes the listing")
-        void aDeclinedBoostNeverRanksTheListing() throws Exception {
-            User u = user("9877700112", "owner");
-            Property p = listing(u);
-            String key = "boost-spotlight-7";
-
-            decline(field(boost(u, p, key), "paymentRef"));
-            boost(u, p, key);
-
-            assertThat(properties.findById(p.getId()).orElseThrow().getBoostedUntil()).isNull();
-            assertThat(boosts.findByPropertyIdOrderByCreatedAtDesc(p.getId()).getFirst().getStatus())
-                    .isEqualTo(BoostStatuses.PENDING);
-        }
-
-        private String boost(User caller, Property listing, String key) throws Exception {
-            return mvc.perform(post(Routes.Boosts.LISTING, listing.getId())
-                            .header(HttpHeaders.AUTHORIZATION, bearer(caller))
-                            .header("Idempotency-Key", key)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
-                    .andExpect(status().isCreated())
-                    .andReturn().getResponse().getContentAsString();
-        }
-    }
-
     private User user(String mobile, String role) {
         User u = new User(mobile, role);
         u.setName("Retry User " + mobile.substring(6));
         u.setMobileVerified(true);
         return users.saveAndFlush(u);
-    }
-
-    private Property listing(User owner) {
-        Property p = new Property(owner, "Boostable flat", "rent", "apartment", RENT,
-                "Baner", "Pune");
-        p.setBhk(new BigDecimal("2"));
-        p.setStatus("approved");
-        p.setPriceUnit("per-month");
-        p.setArea(new BigDecimal("950"));
-        return properties.saveAndFlush(p);
     }
 
     /** Every family is offered the event; only the one owning the order acts on it. */
@@ -180,7 +97,6 @@ class FailedPaymentKeyReleaseTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /** Same flat read the sibling suites use; a JSON path library would be a dependency, not a win. */
     private static String field(String body, String name) {
         int i = body.indexOf("\"" + name + "\":\"") + name.length() + 4;
         return body.substring(i, body.indexOf('"', i));

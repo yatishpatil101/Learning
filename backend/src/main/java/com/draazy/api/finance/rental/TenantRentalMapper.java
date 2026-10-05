@@ -2,14 +2,6 @@ package com.draazy.api.finance.rental;
 
 import java.time.LocalDate;
 
-/**
- * {@link TenantRental} to {@link TenantRentalDto}.
- *
- * <p>The three totals are attached here rather than stored, and {@code asOf} is passed in rather
- * than read from the clock inside this class: every row in one response must be measured against
- * the same date, or a list read across midnight on 31 March would report two different financial
- * years within a single payload.
- */
 final class TenantRentalMapper {
 
     private TenantRentalMapper() {
@@ -22,7 +14,6 @@ final class TenantRentalMapper {
         return new TenantRentalDto(
                 row.getId(),
                 row.getAddress(),
-                row.getLandlordName(),
                 row.getMonthlyRent(),
                 row.getDeposit(),
                 row.getLeaseStart(),
@@ -32,4 +23,4 @@ final class TenantRentalMapper {
                 RentalTotals.total(months, row.getMonthlyRent()),
                 RentalTotals.total(fyMonths, row.getMonthlyRent()));
     }
-}
+    }

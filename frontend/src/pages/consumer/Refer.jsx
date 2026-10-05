@@ -7,11 +7,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { referralListingsTarget } from '../../lib/referralConfig.js';
 import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
-import { getDealFees } from '../../services/feesService.js';
 import { getMyReferralSummary, referralLink } from '../../services/referralService.js';
 import { usePricing } from '../../context/PricingContext.jsx';
-
-const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 export default function Refer() {
   const { t } = useTranslation();
@@ -114,32 +111,8 @@ export default function Refer() {
   }, [user]);
   const slotsLeft = quota?.allowance == null ? null : Math.max(0, quota.allowance - quota.used);
 
-  // The reward this page advertises is a free rent agreement, so the figure it quotes has to be the
-  // one the wizard will actually charge. Same `GET /fees` row the sidebar and the checkout read.
-  // A null `platformFee` means unpublished rather than free, so it is left on the fallback.
-  const [rentPlatformFee, setRentPlatformFee] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    getDealFees('rent')
-      .then((row) => { if (alive && row && row.platformFee != null) setRentPlatformFee(row.platformFee); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  /**
-   * The published fee for this deal, or the configured schedule's figure until it resolves.
-   *
-   * The fallback used to be a module-scope `fee('rentAgreementPlatform')` evaluated once at import,
-   * and two things were wrong with that. It read a back-office document no signed-out visitor has,
-   * so live it always returned the constant compiled into the bundle. And being module-scope it
-   * could not have been corrected by any later fetch even had one existed — the value was frozen
-   * the first time this file was imported, which is exactly how it came to promise a ₹500 saving
-   * against a ₹1,999 charge. Reading it through `usePricing()` fixes both: the number now comes
-   * from the server, and it re-renders when it arrives.
-   *
-   * It stays a fallback rather than becoming the answer for the reason `Plans.jsx` keeps one — a
-   * page whose whole job is persuasion has to render something.
-   */
-  const FEE_RENT_AGREEMENT = rentPlatformFee == null ? fee('rentAgreementPlatform') : rupees(rentPlatformFee);
+  // The admin fee schedule's figure — the same one the wizard charges for the agreement this rewards.
+  const FEE_RENT_AGREEMENT = fee('rentAgreementPlatform');
 
   const shareText = () => t('misc1.referShareMsg', { code: CODE, link: LINK });
 
