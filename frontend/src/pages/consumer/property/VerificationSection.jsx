@@ -43,14 +43,19 @@ export function VerificationSection({ p }) {
       noLabel: t('property.unconfirmed'),
     },
   ];
-  // RERA is only meaningful when the project is registered; show it as an extra
-  // positive check rather than penalising resale/plots that never needed it.
-  if (p.rera) {
+  if (p.reraId) {
     checks.push({
       passed: true,
       icon: 'badge-check',
       title: t('property.reraRegistered'),
-      yes: t('property.reraYes'),
+      yes: (
+        <>
+          {t('property.reraYes')}{' '}
+          <a href="https://maharera.maharashtra.gov.in/" target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline">
+            {t('property.mahaReraId', { id: p.reraId })}
+          </a>
+        </>
+      ),
       no: '',
       yesLabel: t('property.registered'),
       noLabel: '',
@@ -65,7 +70,6 @@ export function VerificationSection({ p }) {
     <section className="fade-in section-mb">
       <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="shield-check" className="w-5 h-5 text-brand-teal-2" /> {t('property.verificationHeading')}</h2>
       <div className="glass rounded-2xl p-6 sm:p-8">
-        {/* Trust score meter */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-semibold text-white flex items-center gap-2"><Icon name="shield-check" className="w-4 h-4 text-brand-teal-2" /> {t('property.trustScore')}</p>

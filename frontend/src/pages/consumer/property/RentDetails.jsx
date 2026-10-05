@@ -5,13 +5,8 @@ import Tip from '../../../components/ui/Tip.jsx';
 import { fmtNum } from '../../../lib/format.js';
 import { availableLabel, propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
-import { fixturesFor, commercialProfileFromType } from '../list-property/constants.js';
-import { isBrokered } from '../../../lib/contact.js';
+import { fixturesFor, commercialProfileFromType, withInFlatAsFurniture } from '../list-property/constants.js';
 
-/* The rent twin of PriceInsights, grouped by the three jobs a renter has: what it costs, what the terms
-   are, and whether it is a fit. */
-
-// Inventory tiers store i18n key-suffixes (translated at render via property.inventory.*).
 const RENT_INVENTORY = {
   furnished: ['wardrobes', 'beds', 'sofa', 'fridge', 'washingMachine', 'ac', 'modularKitchen', 'geyser'],
   semi: ['wardrobes', 'modularKitchen', 'geyser', 'fansLights'],
@@ -34,14 +29,10 @@ export function RentDetails({ p }) {
   };
 
   const rent = toNum(p.price);
-  // Deposit is a real field on posted rentals; legacy seed rows lack it, so fall back to
-  // the common ~2 months' rent (kept as a fallback, never overwriting authored data).
-  const deposit = toNum(p.deposit) || rent * 2;
-  /* Only charge extra when the owner said so. An unstated mode is not "included" either: that is a rupee
-     claim they did not make, and the renter who believes it finds out on the first bill. */
+  const hasDeposit = p.deposit != null && p.deposit !== '' && toNum(p.deposit) > 0;
+  const deposit = hasDeposit ? toNum(p.deposit) : null;
+  /* Only charge extra when the owner said so. */
   const maintExtra = p.rentMaintMode === 'extra' ? toNum(p.rentMaintenance) : 0;
-  /* Commercial states one recurring cost, per sq.ft.: CAM is how the market quotes it, and it is
-     the only maintenance the commercial wizard collects. */
   const camPerSqft = toNum(p.camCharges);
   const maintLabel = isCommercial
     ? (camPerSqft ? '₹' + fmtNum(camPerSqft) + '/sq.ft.' : tr('property.askOwner'))
@@ -49,19 +40,18 @@ export function RentDetails({ p }) {
       ? (maintExtra ? '₹' + fmtNum(maintExtra) : tr('property.maintExtra'))
       : p.rentMaintMode === 'included' ? tr('property.maintIncluded') : tr('property.askOwner');
   const allIn = rent + maintExtra;
-  const moveIn = rent + deposit;
-  const savings = rent; // ~1 month's rent is the brokerage a renter avoids here
-  /* Only Draazy's own nil fee survives when an agent or a developer posted this: the saving above
-     is a month's rent the agent may well still charge, so quoting it would be flatly wrong. */
-  const brokered = isBrokered(p);
+  const moveIn = deposit == null ? null : rent + deposit;
+  const savings = rent;
 
-  const available = availableLabel(tr, p.availableFrom);
+  const available = availableLabel(tr, p.availableFrom, p.availableDate);
   const furnishing = tr('property.rentFurnishing.' + (['furnished', 'semi', 'unfurnished'].includes(p.furnishing) ? p.furnishing : 'semi'));
-  /* Filtered to the profile's valid options so a stale cross-profile pick never shows. Nothing is
-     substituted when they said nothing: a fit-out list reads as the owner's own claim. */
+  /* Filtered to the profile's valid options so a stale cross-profile pick never shows. */
   const commercialFitOut = () => {
     const opts = fixturesFor(commercialProfileFromType(p.commercialType || p.type));
-    const declared = (Array.isArray(p.fixtures) ? p.fixtures : []).filter((f) => opts.includes(f));
+    const declared = [
+      ...(Array.isArray(p.fixtures) ? p.fixtures : []),
+      ...(Array.isArray(p.amenities) ? p.amenities : []),
+    ].filter((f) => opts.includes(f));
     const signals = [];
     if (['bareShell', 'warmShell', 'furnished'].includes(p.shellType)) signals.push(tr('property.shell.' + p.shellType));
     const wr = parseInt(p.washrooms, 10) || 0;
@@ -70,29 +60,29 @@ export function RentDetails({ p }) {
     if (p.pantry) signals.push(tr('property.pantry'));
     return [...new Set([...declared, ...signals])];
   };
+  const ownInventory = withInFlatAsFurniture({ amenities: p.amenities || [], furniture: p.furniture || [] }).furniture;
   const inventory = isCommercial
     ? commercialFitOut()
-    : Array.isArray(p.furniture)
-      ? p.furniture
+    : Array.isArray(p.furniture) || ownInventory.length
+      ? ownInventory
       : (RENT_INVENTORY[p.furnishing] || RENT_INVENTORY.semi).map((k) => tr('property.inventory.' + k));
 
   const tenantList = String(p.tenants || '')
     .split(',').map((s) => s.trim()).filter(Boolean)
     .map((t) => { const key = t === 'any' ? 'anyone' : t; return ['family', 'bachelors', 'bachelor-male', 'bachelor-female', 'company', 'anyone'].includes(key) ? tr('property.tenant.' + key) : t; });
-  // Who a commercial unit suits is its own answer, not the residential tenant preference.
   const businessList = Array.isArray(p.suitableFor) ? p.suitableFor : [];
   const gstLabel = p.gstOnRent === 'yes' ? tr('property.gstApplicable')
     : p.gstOnRent === 'no' ? tr('property.gstNotApplicable') : tr('property.askOwner');
   const petsLabel = p.pets === true ? tr('property.petsAllowed') : p.pets === false ? tr('property.petsNotAllowed') : tr('property.askOwner');
-  const foodLabel = p.food === 'veg' ? tr('property.foodVeg') : p.food === 'any' ? tr('property.foodBoth') : tr('property.askOwner');
+  const foodLabel = p.food === 'veg' ? tr('property.foodVeg') : p.food === 'jain' ? tr('property.foodJain') : p.food === 'any' ? tr('property.foodBoth') : tr('property.askOwner');
   const depMonths = rent ? Math.round(deposit / rent) : 0;
   const depMonthsLabel = depMonths ? tr('property.depMonths', { count: depMonths }) : '—';
   const agreementDuration = p.agreementDuration == null || p.agreementDuration === ''
     ? tr('property.notSpecified')
     : p.agreementDuration === 'long' ? tr('property.longTerm') : monthsLabel(p.agreementDuration);
 
-  // Residential listings in a known locality only: there is no curated average to compare a commercial
-  // unit or an unknown area against, and fabricating one would read as a surveyed figure.
+  // Residential listings in a known locality only: there is no curated average for a commercial unit or an
+  // unknown area, and fabricating one would read as a surveyed figure.
   const bench = valueBenchmark(p);
   const perSqft = bench.perSqft;
   const RENT_TONE = {
@@ -121,7 +111,7 @@ export function RentDetails({ p }) {
       <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="indian-rupee" className="w-5 h-5 text-brand-teal-2" /> {tr('property.rentDetailsHeading')}</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* What it costs + terms */}
+
         <div className="glass rounded-2xl p-6 lg:col-span-2">
           <div className="flex items-center gap-2 mb-1"><Icon name="wallet" className="w-4 h-4 text-brand-teal-2" /><h3 className="font-semibold text-white">{tr('property.whatYoullPay')}</h3></div>
           <p className="rd-sub">{tr('property.whatYoullPaySub')}</p>
@@ -129,24 +119,22 @@ export function RentDetails({ p }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {tile('indian-rupee', tr('property.monthlyRent'), '₹' + fmtNum(rent))}
             {tile('receipt-indian-rupee', tr('property.maintenance'), maintLabel, 'rent.maintenance')}
-            {tile('landmark', tr('property.deposit'), '₹' + fmtNum(deposit), 'rent.deposit')}
+            {tile('landmark', tr('property.deposit'), deposit == null ? tr('property.askOwner') : '₹' + fmtNum(deposit), 'rent.deposit')}
           </div>
 
-          {/* All-in highlight — mirrors the SALE "real cost" box. */}
           <div className="mt-3 rounded-xl border border-emerald-500/25 p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'rgba(16,185,129,.07)' }}>
             <div>
               <p className="text-xs text-slate-400">{tr('property.allInMonthly')}</p>
               <p className="text-2xl font-extrabold text-white leading-tight">₹{fmtNum(allIn)}</p>
-              <p className="text-[11px] text-emerald-300 flex items-center gap-1 mt-0.5"><Icon name="hand-coins" className="w-3 h-3" /> {maintExtra ? tr('property.inclMaintenance') : ''}{brokered ? tr('property.noBrokerageFee') : tr('property.brokerageSave', { amount: fmtNum(savings) })}</p>
+              <p className="text-[11px] text-emerald-300 flex items-center gap-1 mt-0.5"><Icon name="hand-coins" className="w-3 h-3" /> {maintExtra ? tr('property.inclMaintenance') : ''}{tr('property.brokerageSave', { amount: fmtNum(savings) })}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-400">{tr('property.oneTimeMoveIn')}</p>
-              <p className="text-xl font-extrabold text-brand-teal-3">₹{fmtNum(moveIn)}</p>
+              <p className="text-xl font-extrabold text-brand-teal-3">{moveIn == null ? tr('property.askOwner') : '₹' + fmtNum(moveIn)}</p>
               <p className="text-[11px] text-slate-500">{tr('property.firstMonthDeposit')}</p>
             </div>
           </div>
 
-          {/* Tenancy terms */}
           <div className="mt-6 pt-5 border-t border-white/5">
             <p className="text-xs text-slate-400 mb-2.5 flex items-center gap-1.5"><Icon name="file-signature" className="w-4 h-4 text-brand-teal-3" /> {tr('property.tenancyTerms')}</p>
             <div className={`grid grid-cols-2 ${isLand ? 'sm:grid-cols-3' : 'sm:grid-cols-5'} gap-2.5`}>
@@ -165,8 +153,6 @@ export function RentDetails({ p }) {
             ) : null}
           </div>
 
-          {/* What's included — furniture/appliances only make sense for built space, not bare land.
-              Commercial speaks in fit-out/shell terms, not household furniture. */}
           {!isLand && inventory.length ? (
           <div className="mt-5 pt-5 border-t border-white/5">
             <p className="text-xs text-slate-400 mb-2.5 flex items-center gap-1.5"><Icon name={isCommercial ? 'building-2' : 'sofa'} className="w-4 h-4 text-brand-teal-3" /> {isCommercial ? tr('property.fitOutFixtures') : tr('property.whatsIncluded')}</p>
@@ -208,7 +194,6 @@ export function RentDetails({ p }) {
           ) : null}
         </div>
 
-        {/* Who it's for */}
         <div className="glass-strong rounded-2xl p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-1"><Icon name="users" className="w-4 h-4 text-brand-teal-2" /><h3 className="font-semibold text-white">{tr('property.whoItsFor')}</h3></div>
           <p className="rd-sub">{tr('property.whoItsForSub')}</p>
@@ -232,17 +217,15 @@ export function RentDetails({ p }) {
 
           <div className="rounded-xl border border-emerald-500/20 px-3.5 py-3 mb-4 flex items-center gap-2" style={{ background: 'rgba(16,185,129,.06)' }}>
             <Icon name="hand-coins" className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <p className="text-xs text-slate-300">{tr(brokered ? 'property.noBrokerageFee' : 'property.zeroBrokerageOwner')}</p>
+            <p className="text-xs text-slate-300">{tr('property.zeroBrokerageOwner')}</p>
           </div>
 
-          {/* Move-in snapshot — the numbers a renter actually decides on, in one glance.
-              Also gives this column real substance for commercial/land (which have few tenant fields). */}
           <div className="rounded-xl border border-white/10 p-4 mb-4">
             <p className="rd-lbl mb-3 flex items-center gap-1.5"><Icon name="wallet" className="w-4 h-4 text-brand-teal-3" /> {tr('property.moveInSnapshot')}</p>
             <dl className="space-y-2.5 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-slate-400">{tr('property.oneTimeMoveIn')}</dt>
-                <dd className="font-semibold text-brand-teal-3">₹{fmtNum(moveIn)}</dd>
+                <dd className="font-semibold text-brand-teal-3">{moveIn == null ? tr('property.askOwner') : '₹' + fmtNum(moveIn)}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-slate-400">{tr('property.deposit')}</dt>

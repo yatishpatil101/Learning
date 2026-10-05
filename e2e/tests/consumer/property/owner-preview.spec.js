@@ -1,7 +1,8 @@
 // Isolated owners prevent shared account state from affecting visibility assertions.
 // Reject fixtures after each test so pending rows do not remain in the moderation queue.
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, uniqueMobile, signedInAs, storedPhotoUrl, ownerIdOf } from '../../../helpers/liveAuth.js';
+import { approveListing, rejectListing } from '../../../helpers/moderation.js';
 
 const created = new Set();
 
@@ -19,10 +20,10 @@ const BASE_LISTING = {
 };
 
 // Relative storage URLs match the local provider and satisfy the image CSP.
-const photos = (tag) => [
-  `/api/dev/storage/public/photos/${tag}/first`,
-  `/api/dev/storage/public/photos/${tag}/second`,
-];
+const photos = (headers) => {
+  const ownerId = ownerIdOf(headers);
+  return [storedPhotoUrl('', ownerId), storedPhotoUrl('', ownerId)];
+};
 
 async function api(method, path, headers, body) {
   const res = await fetch(`${API}${path}`, {
@@ -38,12 +39,12 @@ async function owner() {
   const mobile = uniqueMobile();
   return { mobile, headers: await authHeaders(mobile) };
 }
-
 // The owner route lets the server assign the initial moderation state.
 async function postListing(headers, fields) {
   const res = await api('POST', '/me/listings', headers, {
     title: `Zztest owner-preview ${Date.now().toString(36)}`,
     ...BASE_LISTING,
+    images: photos(headers),
     ...fields,
   });
   expect(res.status, 'POST /me/listings').toBe(201);
@@ -51,13 +52,11 @@ async function postListing(headers, fields) {
   return res.body;
 }
 
-test.afterEach(async () => {
+test.afterEach(async ({ request }) => {
   if (!created.size) return;
   const headers = await authHeaders(ACTORS.admin);
   for (const id of created) {
-    await api('PATCH', `/properties/${id}/status`, headers, {
-      status: 'rejected', reason: 'Zztest cleanup',
-    });
+    await rejectListing(request, id, headers, { reasonCode: 'other', reason: 'Zztest cleanup' });
   }
   created.clear();
 });
@@ -65,29 +64,31 @@ test.afterEach(async () => {
 test.describe('LIVE — an owner\'s listing before it is approved', () => {
   test('the cover is the first photo when no cover was ever chosen', async () => {
     const me = await owner();
-    const images = photos('cover');
+    const images = photos(me.headers);
     const posted = await postListing(me.headers, { images });
-
     // No cover field is posted: this must be derived, not echoed from the fixture.
     expect(posted.coverImage).toBe(images[0]);
 
     const detail = await api('GET', `/properties/${posted.id}`, me.headers);
     expect(detail.status).toBe(200);
     expect(detail.body.coverImage).toBe(images[0]);
-    // The gallery is untouched: the cover is the first frame *of* it, not a replacement for it.
     expect(detail.body.images).toEqual(images);
   });
 
-  test('a listing with no photos has no cover, rather than a broken one', async () => {
+  test('an owner cannot post a listing with no photos', async () => {
     const me = await owner();
-    const posted = await postListing(me.headers, {});
     // NON_NULL serialization omits the cover so the card can select its fallback image.
-    expect(posted.coverImage).toBeUndefined();
+    const noPhotos = { ...BASE_LISTING, title: `Zztest no-photo ${Date.now().toString(36)}` };
+    for (const body of [noPhotos, { ...noPhotos, images: [] }]) {
+      const res = await api('POST', '/me/listings', me.headers, body);
+      expect(res.status).toBe(422);
+      expect(res.body.fields).toContainEqual(expect.objectContaining({ field: 'images' }));
+    }
   });
 
   test('the dashboard card shows the photo the owner uploaded, not the placeholder', async ({ page }) => {
     const me = await owner();
-    const images = photos('card');
+    const images = photos(me.headers);
     const posted = await postListing(me.headers, { images, title: `Zztest card ${Date.now().toString(36)}` });
 
     await signedInAs(page, me.mobile);
@@ -97,46 +98,51 @@ test.describe('LIVE — an owner\'s listing before it is approved', () => {
       && res.status() === 200);
     await page.goto('/dashboard#listings');
     await listingsRead;
-
     // Located by its own title, because the board carries every listing this account owns and a
     // `.first()` would drift as the file grows.
     const card = page.getByRole('img', { name: posted.title });
     await expect(card).toHaveAttribute('src', images[0]);
   });
 
-  test('availability is shown only after the dashboard listing is approved', async ({ page }) => {
+  test('availability is shown only after the dashboard listing is approved', async ({ page, request }) => {
     const me = await owner();
     const posted = await postListing(me.headers, {});
     expect(posted.status).toBe('pending');
 
     await signedInAs(page, me.mobile);
     await page.goto('/dashboard#listings');
-    const card = page.getByRole('img', { name: posted.title, exact: true }).locator('../..');
-    await expect(card.getByText('Under review', { exact: true })).toBeVisible();
+    const cardForTitle = () => page.getByText(posted.title, { exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"rounded-xl") and contains(@class,"bg-white/")][1]');
+    const card = cardForTitle();
+    await expect(card.getByText('Under review', { exact: true }).first()).toBeVisible();
     await expect(card.getByText('Active', { exact: true })).toHaveCount(0);
     await expect(card.getByText('Availability', { exact: true })).toHaveCount(0);
     await expect(card.getByRole('button', { name: /^(Confirm available|Reactivate)$/ })).toHaveCount(0);
 
     const admin = await authHeaders(ACTORS.admin);
-    const approved = await api('PATCH', `/properties/${posted.id}/status`, admin, {
-      status: 'approved', reason: 'Zztest approval',
-    });
-    expect(approved.status).toBe(200);
+    const approved = await approveListing(request, posted.id, admin);
+    expect(approved.status(), await approved.text()).toBe(200);
+    const refreshed = page.waitForResponse((res) =>
+      new URL(res.url()).pathname === '/api/me/listings'
+      && res.request().method() === 'GET'
+      && res.status() === 200);
     await page.reload();
-    await expect(card.getByText('Live', { exact: true })).toBeVisible();
-    await expect(card.getByText('Active', { exact: true })).toBeVisible();
-    await expect(card.getByText('Availability', { exact: true })).toBeVisible();
+    await refreshed;
+    const approvedCard = cardForTitle();
+    await expect(approvedCard.getByText('Live', { exact: true })).toBeVisible();
+    await expect(approvedCard.getByText('Active', { exact: true })).toBeVisible();
+    await expect(approvedCard.getByText('Availability', { exact: true })).toBeVisible();
   });
 
   test('the owner can open their own pending listing, and is told only they can see it', async ({ page }) => {
     const me = await owner();
-    const posted = await postListing(me.headers, { images: photos('preview') });
+    const posted = await postListing(me.headers, { images: photos(me.headers) });
     expect(posted.status, 'a new listing starts in moderation').toBe('pending');
 
     await signedInAs(page, me.mobile);
+    // Strangers must not be able to distinguish an unapproved listing from a nonexistent one.
     await page.goto(`/property/${posted.id}`);
 
-    // The composed heading and detail section distinguish the full preview from an interstitial.
     await expect(page.getByText(/only you can see this page/i)).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: /2 BHK Flat for Rent in Baner/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /key details/i })).toBeVisible();
@@ -152,8 +158,6 @@ test.describe('LIVE — an owner\'s listing before it is approved', () => {
     const other = await owner();
     const stranger = await api('GET', `/properties/${posted.id}`, other.headers);
     expect(stranger.status, 'a different signed-in account').toBe(404);
-
-    // Strangers must not be able to distinguish an unapproved listing from a nonexistent one.
     await page.goto(`/property/${posted.id}`);
     await expect(page.getByText(/property not found/i)).toBeVisible();
   });
@@ -164,11 +168,9 @@ test.describe('LIVE — an owner\'s listing before it is approved', () => {
 
     const archived = await api('PATCH', `/properties/${posted.id}/archive`, me.headers, { reason: 'Zztest' });
     expect(archived.status).toBe(200);
-
     // Withdrawing must remove access even for the owner, not silently create a private listing.
     const mine = await api('GET', `/properties/${posted.id}`, me.headers);
     expect(mine.status).toBe(404);
-
     // Restore so `afterEach` can reject it — a rejection on an archived row leaves it on neither
     // queue, and the next reader of this database cannot tell which state it was meant to be in.
     await api('PATCH', `/properties/${posted.id}/restore`, me.headers);

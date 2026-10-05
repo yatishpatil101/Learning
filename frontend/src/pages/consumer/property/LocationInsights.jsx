@@ -9,14 +9,10 @@ import { propertyKind } from './derivations.js';
 import { LOC } from '../../../data/localityIntel.js';
 import { countProperties } from '../../../services/propertyService.js';
 
-// Rich Location-tab content: commute-to-work, nearby landmarks and livability.
-// Commute is served from the cache-at-write flow (traffic-aware "live" times when
-// available; a free-flow estimate otherwise). Nearby + livability stay curated.
-// Sections self-hide when the property's locality has no data, so there is never
-// an empty band.
+// Commute is served from the cache-at-write flow (traffic-aware "live" times when available; a free-flow estimate
+// otherwise).
 export default function LocationInsights({ p, lat, lng }) {
   const { t } = useTranslation();
-  // Relative "updated Xh ago" label for the live-commute freshness pill.
   const agoLabel = (ts) => {
     const h = Math.max(1, Math.round((Date.now() - ts) / 3600e3));
     return h < 24 ? t('property.agoHours', { count: h }) : t('property.agoDays', { count: Math.round(h / 24) });
@@ -36,15 +32,13 @@ export default function LocationInsights({ p, lat, lng }) {
     countProperties({ locality: slug }).then((n) => { if (alive) setHomes(n); });
     return () => { alive = false; };
   }, [slug]);
-  // A commercial unit IS the workplace, so "commute to work" is the wrong frame —
-  // the same drive-time-to-hubs data reads as business-hub connectivity instead.
   const isCommercial = propertyKind(p) === 'commercial';
 
   if (!commute.legs.length && !nearby.length && !liv) return null;
 
   return (
     <div className="mt-4 space-y-4">
-      {/* COMMUTE TO WORK (residential) / BUSINESS-HUB CONNECTIVITY (commercial) */}
+
       {commute.legs.length ? (
         <div>
           <div className="flex items-center justify-between mb-2.5">
@@ -73,12 +67,9 @@ export default function LocationInsights({ p, lat, lng }) {
         </div>
       ) : null}
 
-      {/* NEARBY LANDMARKS & CONNECTIVITY — collapsed on phones (see MobileCollapse):
-          the map above already owns 340px, so the landmark grid is one tap away
-          instead of pushing livability and the locality link off the screen. */}
       {nearby.length ? (
         <MobileCollapse
-          headerClassName="mb-2.5"
+
           label={t('property.whatsNearby')}
           header={(
             <Tip k="location.nearby">
@@ -105,11 +96,11 @@ export default function LocationInsights({ p, lat, lng }) {
         </MobileCollapse>
       ) : null}
 
-      {/* LIVABILITY — collapsed on phones; the score chip in the header is the
-          summary, so the six bars only render when the user asks for them. */}
+      {/* LIVABILITY — collapsed on phones; the score chip in the header is the summary, so the six bars only render
+         when the user asks for them. */}
       {liv ? (
         <MobileCollapse
-          headerClassName="mb-2.5"
+
           label={t('property.livability')}
           header={(
             <>
@@ -140,7 +131,6 @@ export default function LocationInsights({ p, lat, lng }) {
         </MobileCollapse>
       ) : null}
 
-      {/* Locality snapshot + deep-link to the full locality insights page */}
       {li || homes ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
           {li ? <span className="inline-flex items-center gap-1.5"><Icon name="ruler" className="w-3.5 h-3.5 text-brand-teal-3" /> Avg <span className="font-semibold text-white">₹{li.price.toLocaleString('en-IN')}</span>/sq.ft.</span> : null}

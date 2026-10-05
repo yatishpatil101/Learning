@@ -1,20 +1,54 @@
 export const AMEN_ICON = {
   gym: 'sparkles', pool: 'sparkles', lift: 'building', parking: 'car-front', security: 'shield-check',
   power: 'landmark', garden: 'trees', club: 'users', play: 'paw-print',
+  'Modular Kitchen': 'utensils', AC: 'air-vent', Wardrobe: 'shirt', 'Piped Gas': 'flame',
+  'Water Purifier': 'droplets', Geyser: 'shower-head', TV: 'tv', Refrigerator: 'refrigerator', Sofa: 'sofa',
+  Bed: 'bed-double', 'Kitchen Trolley': 'cooking-pot', 'Washing Machine': 'washing-machine', Microwave: 'microwave',
+  'Dining Table': 'utensils', Fans: 'fan', Curtains: 'blinds', 'Light Fittings': 'lamp', Chimney: 'flame',
 };
 export const AMEN_LABEL = {
   gym: 'Gymnasium', pool: 'Swimming Pool', lift: 'Lift', parking: 'Covered Parking', security: '24x7 Security',
   power: 'Power Backup', garden: 'Landscaped Garden', club: 'Clubhouse', play: "Kids' Play Area",
 };
 
-/* A bucket, not a date, because a date on a listing nobody edits is wrong within a fortnight. The wire
-   value is a token to translate; `null` is the API's "unstated" and stays unsaid. */
+/* A bucket, not a date, because a date on a listing nobody edits is wrong within a fortnight. */
 const AVAILABLE_FROM_KEY = { now: 'immediately', 15: 'within15Days', 30: 'within30Days' };
+const AVAILABLE_DATE = new Intl.DateTimeFormat('en-IN', { month: 'short', year: 'numeric' });
+
+function isoDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.getFullYear() === Number(match[1])
+    && date.getMonth() === Number(match[2]) - 1
+    && date.getDate() === Number(match[3])
+    ? date
+    : null;
+}
+
+function today() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function dateLabel(tr, value, readyKey) {
+  const date = isoDate(value);
+  if (!date) return '';
+  if (date <= today()) return tr('property.' + readyKey);
+  return tr('property.availableFromDate', { date: AVAILABLE_DATE.format(date) });
+}
+
+export function possessionDateLabel(tr, value) {
+  return dateLabel(tr, value, 'readyToMove');
+}
+
 // Bounded, because a flatmate `availableFrom` — a real LocalDate — would otherwise mint one
 // permanent entry per distinct date.
 const WARN_CAP = 20;
 const warnedBuckets = new Set();
-export function availableLabel(tr, value) {
+export function availableLabel(tr, value, date) {
+  const dated = dateLabel(tr, date, 'immediately');
+  if (dated) return dated;
   if (!value) return '\u2014';
   if (!Object.hasOwn(AVAILABLE_FROM_KEY, value)) {
     if (!warnedBuckets.has(value) && warnedBuckets.size < WARN_CAP) {
@@ -26,8 +60,6 @@ export function availableLabel(tr, value) {
   return tr('property.' + AVAILABLE_FROM_KEY[value]);
 }
 
-/* Classifies a listing so the detail page shows only the fields that make sense: land gets zone and title,
-   commercial gets no bedroom or bathroom rows. */
 const LAND_MATCHES = ['plot', 'land', 'farm'];
 const COMMERCIAL_MATCHES = ['office', 'shop', 'showroom', 'retail', 'mall', 'warehouse', 'godown', 'industrial', 'factory', 'co-working', 'coworking', 'commercial'];
 export function propertyKind(p) {
@@ -37,8 +69,7 @@ export function propertyKind(p) {
   return 'residential';
 }
 
-/* No id-derived fallback: it makes an unstated attribute indistinguishable from a stated one. Unstated
-   returns '' and the tile reads "Not specified". */
+/* No id-derived fallback: it makes an unstated attribute indistinguishable from a stated one. */
 import { ageOptions } from '../list-property/constants.js';
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'];
@@ -50,8 +81,6 @@ const SHORT_AGE = {
   '1-5': '1–5 yrs', '5-10': '5–10 yrs', '10-15': '10–15 yrs', '15+': '15+ yrs',
 };
 
-/* All three return '' when nothing was stated. Deriving a floor, facing or age from the listing id would
-   print a guess as surveyed fact, and facing is Vastu-weighted in this market, so it moves offers. */
 export function deriveFloor(p) {
   const raw = p.form?.floor || (p.floor ? String(p.floor) : '');
   if (!raw) return '';

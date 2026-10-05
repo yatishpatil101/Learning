@@ -13,20 +13,39 @@ import { VerificationSection } from './VerificationSection.jsx';
 import { DocumentsSection } from './DocumentsSection.jsx';
 import VerificationDisclaimer from '../../../components/property/VerificationDisclaimer.jsx';
 import { SimilarProperties } from './SimilarProperties.jsx';
+import { SOCIETY_AMENITY_LABELS, withInFlatAsFurniture } from '../list-property/constants.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
+
+const AmenityGrid = ({ title, items }) => items.length ? (
+  <div>
+    <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</h3>
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+      {items.map((a) => (
+        <div key={a} className="amenity-card">
+          <span className="w-8 h-8 rounded-lg bg-brand-teal/10 flex items-center justify-center flex-shrink-0">
+            <Icon name={AMEN_ICON[a] || 'sparkles'} className="w-4 h-4 text-brand-teal-3" />
+          </span>
+          <span className="text-sm font-medium text-white">{AMEN_LABEL[a] || a}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+) : null;
 
 export default function PropertyTabs({ ctx }) {
   const {
     current, tr, topHighlights, details, p, ovOpen, setOvOpen, overviewMore,
     isLand, kind, flagEnabled, isIn, setReportOpen, toast, isRent, user,
   } = ctx;
+  const home = withInFlatAsFurniture({ amenities: p.amenities || [], furniture: p.furniture || [] });
+  const inFlat = kind === 'residential' ? home.furniture : [];
   return (
     <>
-          {/* TAB: OVERVIEW — Key Details, description, floor plan */}
+
           {current === 'overview' ? (
             <>
-              {/* KEY DETAILS (with highlight pills merged in) */}
+
               <section className="fade-in section-mb">
                 <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="layout-grid" className="w-5 h-5 text-brand-teal-2" /> {tr('property.keyDetails')}</h2>
                 {topHighlights.length ? (
@@ -60,7 +79,6 @@ export default function PropertyTabs({ ctx }) {
                 </div>
               </section>
 
-              {/* OVERVIEW */}
               <section className="fade-in section-mb">
                 <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="file-text" className="w-5 h-5 text-brand-teal-2" /> {tr('property.overviewHeading')}</h2>
                 <div className="glass rounded-2xl p-6 sm:p-8 space-y-4 text-slate-300 leading-relaxed">
@@ -68,53 +86,41 @@ export default function PropertyTabs({ ctx }) {
                   {ovOpen ? (
                     <p>{overviewMore}</p>
                   ) : null}
-                  {/* tap-extend rather than min-h: this is the last child of a
-                      space-y-4 stack, so a taller box would open a visible gap
-                      between the description and the card's own p-6 floor. The
-                      transparent 44px region uses that padding instead — there is
-                      16px above and 24px below and nothing interactive in either. */}
+
                   <button type="button" onClick={() => setOvOpen((v) => !v)} className="tap-extend relative text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth inline-flex items-center gap-1">
                     {ovOpen ? tr('property.readLess') : tr('property.readMore')} <Icon name="chevron-down" className="w-4 h-4" style={{ transform: ovOpen ? 'rotate(180deg)' : '' }} />
                   </button>
                 </div>
               </section>
 
-              {/* FLOOR PLAN (built units only — a plot has no floor plan) */}
               {!isLand ? <FloorPlan p={p} /> : null}
             </>
           ) : null}
 
-          {/* TAB: AMENITIES & SOCIETY */}
           {current === 'amenities' ? (
             <>
-              {/* AMENITIES */}
-              {p.amenities && p.amenities.length ? (
+
+              {p.amenities?.length || inFlat.length ? (
                 <section className="fade-in section-mb">
                   <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="sparkles" className="w-5 h-5 text-brand-teal-2" /> {tr('property.amenitiesHeading')}</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                    {p.amenities.map((a) => (
-                      <div key={a} className="amenity-card">
-                        <span className="w-8 h-8 rounded-lg bg-brand-teal/10 flex items-center justify-center flex-shrink-0">
-                          <Icon name={AMEN_ICON[a] || 'sparkles'} className="w-4 h-4 text-brand-teal-3" />
-                        </span>
-                        <span className="text-sm font-medium text-white">{AMEN_LABEL[a] || a}</span>
-                      </div>
-                    ))}
+                  <div className="space-y-5">
+                    {kind === 'residential' ? (
+                      <>
+                        <AmenityGrid title={tr('property.societyAmenities', { defaultValue: 'Society amenities' })} items={home.amenities.filter((a) => SOCIETY_AMENITY_LABELS.includes(a))} />
+                        <AmenityGrid title={tr('property.inFlatFeatures', { defaultValue: 'In-flat features' })} items={inFlat} />
+                        <AmenityGrid title={tr('property.otherAmenities', { defaultValue: 'Other amenities' })} items={home.amenities.filter((a) => !SOCIETY_AMENITY_LABELS.includes(a))} />
+                      </>
+                    ) : <AmenityGrid title={tr('property.amenitiesHeading')} items={p.amenities} />}
                   </div>
                 </section>
               ) : null}
 
-              {/* SOCIETY INFORMATION — a registered co-op housing society (homes/towers/
-                  conveyance deed) is a residential concept; commercial units & plots
-                  aren't part of one, so it only shows for residential built property. */}
               {kind === 'residential' ? <SocietySection p={p} /> : null}
 
-              {/* RATINGS & REVIEWS */}
               {flagEnabled('reviewsEnabled') && <ReviewsSection p={p} isIn={isIn} onReport={() => setReportOpen(true)} toast={toast} />}
             </>
           ) : null}
 
-          {/* TAB: LOCATION */}
           {current === 'location' ? (
             <section className="fade-in section-mb">
               <div className="flex items-center justify-between gap-3 mb-3">
@@ -131,7 +137,6 @@ export default function PropertyTabs({ ctx }) {
             </section>
           ) : null}
 
-          {/* TAB: PRICING — buy shows insights, rent shows rent terms */}
           {current === 'pricing' ? (
             <>
               {isRent ? <RentDetails p={p} /> : null}
@@ -139,7 +144,6 @@ export default function PropertyTabs({ ctx }) {
             </>
           ) : null}
 
-          {/* TAB: VERIFICATION & DOCS */}
           {current === 'trust' ? (
             <>
               <VerificationSection p={p} />
@@ -148,7 +152,6 @@ export default function PropertyTabs({ ctx }) {
             </>
           ) : null}
 
-          {/* SIMILAR PROPERTIES */}
           <SimilarProperties p={p} />
 
     </>

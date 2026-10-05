@@ -79,108 +79,84 @@ test.describe('Mobile property contact', () => {
     }
   });
 
-  test('the enquiry overlay opens as a bottom sheet, not a centred dialog', async ({ page, login, flags }) => {
-    await withConsent(page);
-    await login.asBuyer();
-    await openContactSheet(page, flags);
-
-    const geom = await page.evaluate(() => {
-      const panel = document.querySelector('.dz-modal');
-      const back = document.querySelector('.dz-modal-backdrop');
-      const p = panel.getBoundingClientRect();
-      const b = back.getBoundingClientRect();
-      return {
-        panelBottom: p.bottom,
-        backBottom: b.bottom,
-        panelWidth: p.width,
-        backWidth: b.width,
-        align: getComputedStyle(back).alignItems,
-        radius: getComputedStyle(panel).borderBottomLeftRadius,
-        maxH: p.height,
-        viewportH: window.innerHeight,
-      };
-    });
-
-    expect(geom.align, 'backdrop docks its child to the bottom').toBe('flex-end');
-    expect(geom.radius, 'the edge meeting the screen is squared off').toBe('0px');
-    expect(Math.abs(geom.panelBottom - geom.backBottom), 'flush with the viewport bottom')
-      .toBeLessThanOrEqual(1);
-    expect(geom.panelWidth, 'full-bleed').toBeCloseTo(geom.backWidth, 0);
-    // 88dvh: the sheet must leave the page visible behind it, so it reads as a sheet
-    // over content rather than a takeover.
-    expect(geom.maxH, 'sheet is bounded, not full-screen').toBeLessThan(geom.viewportH);
-  });
-
-  test('the sheet scrolls internally instead of growing past the viewport', async ({ page, login, flags }) => {
-    // The failure this guards: an unbounded panel pushes its own submit off-screen,
-    // which is exactly what the centred dialog used to do.
-    await withConsent(page);
-    await login.asBuyer();
-    await openContactSheet(page, flags);
-
-    const r = await page.evaluate(() => {
-      const panel = document.querySelector('.dz-modal');
-      return {
-        overflowY: getComputedStyle(panel).overflowY,
-        scrollH: panel.scrollHeight,
-        clientH: panel.clientHeight,
-        bottom: panel.getBoundingClientRect().bottom,
-        viewportH: window.innerHeight,
-      };
-    });
-
-    expect(['auto', 'scroll'], 'the panel owns its own scroll').toContain(r.overflowY);
-    expect(r.bottom, 'the panel never extends past the viewport').toBeLessThanOrEqual(r.viewportH + 1);
-  });
-
-  test('the submit stays reachable once the message field has focus', async ({ page, login, flags }) => {
-    // Playwright cannot raise a real soft keyboard, so the proxy is: focus the
-    // textarea, then assert the send button is inside the panel's scrollport and
-    // can actually be scrolled to. A submit that is unreachable here is unreachable
-    // with 300px of usable height too.
-    await withConsent(page);
-    await login.asBuyer();
-    await openContactSheet(page, flags);
-
-    const textarea = page.locator('.dz-modal textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.click();
-    await textarea.fill('Is this still available for viewing this weekend?');
-
-    const send = page.locator('.dz-modal').getByRole('button', { name: /send enquiry/i });
-    await send.scrollIntoViewIfNeeded();
-    await expect(send).toBeInViewport();
-
-    const box = await send.boundingBox();
-    expect(box.height, 'the primary action clears the touch floor').toBeGreaterThanOrEqual(44);
-  });
-
-  test('the message field asks the keyboard for a send key', async ({ page, login, flags }) => {
-    // enterKeyHint is the difference between a generic "return" and a labelled
-    // action on the soft keyboard — free conversion on the step we care most about.
-    await withConsent(page);
-    await login.asBuyer();
-    await openContactSheet(page, flags);
-    await expect(page.locator('.dz-modal textarea')).toHaveAttribute('enterkeyhint', 'send');
-  });
-
-  test('the close control clears the touch minimum', async ({ page, login, flags }) => {
-    await withConsent(page);
-    await login.asBuyer();
-    await openContactSheet(page, flags);
-    const box = await page.locator('.dz-modal-x').first().boundingBox();
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
-  });
-
-  test('opening the sheet does not log console errors', async ({ page, login, flags }) => {
+  test('the enquiry overlay is a bounded bottom sheet that keeps its submit, keyboard hint and close control reachable', async ({ page, login, flags }) => {
     const errors = trackErrors(page);
     await withConsent(page);
     await login.asBuyer();
     await openContactSheet(page, flags);
-    expect(errors).toEqual([]);
-  });
 
+    await test.step('the enquiry overlay opens as a bottom sheet, not a centred dialog', async () => {
+      const geom = await page.evaluate(() => {
+        const panel = document.querySelector('.dz-modal');
+        const back = document.querySelector('.dz-modal-backdrop');
+        const p = panel.getBoundingClientRect();
+        const b = back.getBoundingClientRect();
+        return {
+          panelBottom: p.bottom,
+          backBottom: b.bottom,
+          panelWidth: p.width,
+          backWidth: b.width,
+          align: getComputedStyle(back).alignItems,
+          radius: getComputedStyle(panel).borderBottomLeftRadius,
+          maxH: p.height,
+          viewportH: window.innerHeight,
+        };
+      });
+
+      expect(geom.align, 'backdrop docks its child to the bottom').toBe('flex-end');
+      expect(geom.radius, 'the edge meeting the screen is squared off').toBe('0px');
+      expect(Math.abs(geom.panelBottom - geom.backBottom), 'flush with the viewport bottom')
+        .toBeLessThanOrEqual(1);
+      expect(geom.panelWidth, 'full-bleed').toBeCloseTo(geom.backWidth, 0);
+      // 88dvh: the sheet must leave the page visible behind it, so it reads as a sheet
+      // over content rather than a takeover.
+      expect(geom.maxH, 'sheet is bounded, not full-screen').toBeLessThan(geom.viewportH);
+    });
+
+    await test.step('the sheet scrolls internally instead of growing past the viewport', async () => {
+      // An unbounded panel pushes its own submit off-screen, which is what the centred dialog used to do.
+      const r = await page.evaluate(() => {
+        const panel = document.querySelector('.dz-modal');
+        return {
+          overflowY: getComputedStyle(panel).overflowY,
+          bottom: panel.getBoundingClientRect().bottom,
+          viewportH: window.innerHeight,
+        };
+      });
+
+      expect(['auto', 'scroll'], 'the panel owns its own scroll').toContain(r.overflowY);
+      expect(r.bottom, 'the panel never extends past the viewport').toBeLessThanOrEqual(r.viewportH + 1);
+    });
+
+    await test.step('the message field asks the keyboard for a send key', async () => {
+      // enterKeyHint is the difference between a generic "return" and a labelled action on the soft keyboard.
+      await expect(page.locator('.dz-modal textarea')).toHaveAttribute('enterkeyhint', 'send');
+    });
+
+    await test.step('the close control clears the touch minimum', async () => {
+      const box = await page.locator('.dz-modal-x').first().boundingBox();
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    });
+
+    await test.step('the submit stays reachable once the message field has focus', async () => {
+      // Playwright cannot raise a real soft keyboard, so the proxy is: focus the textarea, then assert
+      // the send button is inside the panel's scrollport. Unreachable here means unreachable with 300px usable.
+      const textarea = page.locator('.dz-modal textarea');
+      await expect(textarea).toBeVisible();
+      await textarea.click();
+      await textarea.fill('Is this still available for viewing this weekend?');
+
+      const send = page.locator('.dz-modal').getByRole('button', { name: /send enquiry/i });
+      await send.scrollIntoViewIfNeeded();
+      await expect(send).toBeInViewport();
+
+      const box = await send.boundingBox();
+      expect(box.height, 'the primary action clears the touch floor').toBeGreaterThanOrEqual(44);
+    });
+
+    expect(errors, 'opening the sheet does not log console errors').toEqual([]);
+  });
   /* The owner card is `lg:` only, so on a phone this sheet is the sole surface carrying the number
      reveal, the owner's profile and the tenant badge. The absence is asserted *after* the sheet has
      shown the button and been closed again: on the same page load the gate is provably resolved, so

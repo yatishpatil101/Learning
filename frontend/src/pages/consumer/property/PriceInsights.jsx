@@ -9,8 +9,8 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 
-/* Answers the two questions a serious buyer has on a sale: is this price fair (benchmark ₹/sq.ft plus trend),
-   and what will it actually cost (EMI plus the stamp duty, registration and GST buyers underestimate). */
+/* Answers the two questions a serious buyer has on a sale: is this price fair (benchmark
+ * ₹/sq.ft plus trend), and what will it actually cost (EMI plus the stamp duty. */
 export function PriceInsights({ p }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
@@ -37,29 +37,19 @@ export function PriceInsights({ p }) {
   const n = tenure * 12;
   const emi = Math.round((loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)) || 0;
 
-  // Indicative Pune (Maharashtra) rates: stamp duty ~6% incl. metro cess, registration 1% capped at ₹30,000,
-  // and GST only on genuinely under-construction built homes — ready-to-move homes and land are exempt.
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
   const stampDuty = Math.round(p.price * 0.06);
   const registration = Math.min(30000, Math.round(p.price * 0.01));
-  /* Stated in the view model's vocabulary: `propertyMapper` folds the wire's possession into `construction`,
-     so `possession`/`age` band strings are undefined here. GST runs to the completion certificate. */
   const underConstruction = !isLand && (p.construction === 'new' || p.construction === 'under');
-  /* Affordable housing is a two-armed test — ≤₹45L AND ≤90 sqm carpet (Pune uses the non-metro limit).
-     `carpetArea ?? area` because the wizard posts its carpet box as `area`; when both are unstated, 5%. */
-  const AFFORDABLE_CARPET_SQFT = 969; // 90 sqm
+  const AFFORDABLE_CARPET_SQFT = 969;
   const affordableArea = p.carpetArea ?? p.area;
   const isAffordable = p.price <= 4500000 && affordableArea != null && affordableArea <= AFFORDABLE_CARPET_SQFT;
   const gstRate = isCommercial ? 0.12 : (isAffordable ? 0.01 : 0.05);
   const gst = underConstruction ? Math.round(p.price * gstRate) : 0;
   const allIn = p.price + stampDuty + registration + gst;
-  /* s.194-IA excludes agricultural land by its own terms, so 1% TDS on a farm parcel is not owed. `landUse`
-     rather than property type: an agriculture-zone open plot is agricultural too, a converted farm is not. */
   const needsTds = p.price > 5000000 && p.landUse !== 'agricultural';
   const stated = (value) => value == null || value === '' ? t('property.notSpecified') : value;
-  /* Commercial states one recurring cost and the market quotes it per sq.ft. — CAM is the only
-     maintenance the commercial wizard collects, so `maintenance` is empty on those listings. */
   const monthlyMaintenance = isCommercial
     ? (p.camCharges ? '₹' + fmtNum(p.camCharges) + '/sq.ft.' : t('property.notSpecified'))
     : p.maintenance == null ? t('property.notSpecified') : fmtINR(p.maintenance);
@@ -92,7 +82,12 @@ export function PriceInsights({ p }) {
       <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="trending-up" className="w-5 h-5 text-brand-teal-2" /> {t('property.priceInsightsHeading')}</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Fair-price analysis */}
+        {isLand ? (
+          <div className="glass rounded-2xl p-6 lg:col-span-3">
+            <div className="flex items-center gap-2 mb-4"><Icon name="scale" className="w-4 h-4 text-brand-teal-2" /><h3 className="font-semibold text-white">{t('property.isPriceFair')}</h3></div>
+            <p className="text-sm text-slate-400 flex items-start gap-2"><Icon name="info" className="w-4 h-4 flex-shrink-0 mt-0.5 text-brand-teal-3" /> {t('property.noPriceBenchmark', { locality: p.locality })}</p>
+          </div>
+        ) : (
         <div className="glass rounded-2xl p-6 lg:col-span-2">
           <div className="flex items-center gap-2 mb-4"><Icon name="scale" className="w-4 h-4 text-brand-teal-2" /><h3 className="font-semibold text-white">{t('property.isPriceFair')}</h3></div>
           {bench.hasData ? (
@@ -137,12 +132,11 @@ export function PriceInsights({ p }) {
             </div>
           )}
         </div>
+        )}
 
-        {/* Affordability / EMI — collapsed on phones with the EMI itself as the
-            summary, so the answer is visible without ~400px of sliders. */}
-        <MobileCollapse
+        {!isLand ? <MobileCollapse
           className="glass-strong rounded-2xl p-6"
-          headerClassName="mb-1"
+
           summary={'₹' + fmtNum(emi)}
           header={<h3 className="font-semibold text-white flex items-center gap-2"><Icon name="calculator" className="w-4 h-4 text-brand-teal-2" /> {t('property.affordability')}</h3>}
         >
@@ -177,7 +171,7 @@ export function PriceInsights({ p }) {
             <p className="text-[11px] text-slate-500 pt-1">{t('property.emiIndicative')}</p>
           </div>
           {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>}
-        </MobileCollapse>
+        </MobileCollapse> : null}
       </div>
 
       <div className="glass rounded-2xl p-6 mt-6">
@@ -188,9 +182,8 @@ export function PriceInsights({ p }) {
           {costTile('landmark', t('property.homeLoan'), loanAvailable)}
           {costTile('tag', t('property.priceNegotiability'), negotiable)}
         </div>
-        {/* A leased commercial asset is bought for its yield and a vacant one for its use, so the
-            two are priced by different arithmetic. Without the rent in place and the date the
-            lease runs to, an investor can compute neither. */}
+
+        {/* Without the rent in place and the date the lease runs to, an investor can compute neither. */}
         {isCommercial ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2.5">
             {costTile('key-round', t('property.tenancyStatus'), tenancyLabel)}
@@ -200,12 +193,10 @@ export function PriceInsights({ p }) {
         ) : null}
       </div>
 
-      {/* The real cost to buy — acquisition costs buyers routinely miss. Collapsed
-          on phones: the all-in figure already sits in the header, so the four cost
-          tiles and the disclaimer stay one tap away instead of ~450px of scroll. */}
+      {/* Collapsed on phones: the all-in figure already sits in the header, so the cost tiles stay one tap away. */}
+      {/* Collapsed on phones with the EMI itself as the summary, so the answer is visible without the sliders. */}
       <MobileCollapse
         className="glass rounded-2xl p-6 sm:p-8 mt-6"
-        headerClassName="flex-wrap mb-5"
         header={(
           <>
             <div className="flex items-center gap-3">

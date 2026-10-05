@@ -4,6 +4,8 @@ import Icon from '../../../components/Icon.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
 import { useSaved } from '../../../context/SavedContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
+import { useAuth } from '../../../context/AuthContext.jsx';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { shareOrCopy } from '../../../lib/share.js';
 
 // The shortlist is one shared set, so threading `saved`/`setSaved` in from the property page would
@@ -12,10 +14,15 @@ export function CompareToggleBar({ p }) {
   const { t } = useTranslation();
   const { has, toggle, count } = useCompare();
   const savedList = useSaved();
+  const { isIn } = useAuth();
+  const sendToSignIn = useSignInGate();
   const saved = savedList.has(p.id);
   const { toast } = useToast();
   const inCompare = has(p.id);
-  const handleSave = () => savedList.toggle(p.id, p.uuid);
+  const handleSave = () => {
+    if (!isIn) { sendToSignIn('save'); return; }
+    savedList.toggle(p.id, p.uuid);
+  };
 
   // Cancelling the OS share sheet rejects with AbortError and must not raise "Couldn't copy link"
   // for something that worked as intended — that logic lives in lib/share.js for every surface.

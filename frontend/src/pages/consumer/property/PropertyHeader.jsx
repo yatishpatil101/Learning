@@ -14,21 +14,28 @@ import { CompareToggleBar } from './CompareToggleBar.jsx';
 export default function PropertyHeader({ ctx, priceOnHero = false }) {
   const {
     tags, priceStr, isRent, isLand, tr, title, p,
-    viewingNow, enquiriesThisWeek, visitsScheduled, perUnitVal, perUnitLabel, showPerUnit, kind,
-    setReportOpen, isIn, toast, contactApproved, ownerHidesNumber, ownerMob, handleContact, canChat,
-    flagEnabled, setVisitOpen,
+    perUnitVal, perUnitLabel, showPerUnit, kind,
+    setReportOpen, isIn, toast, contactApproved, ownerHidesNumber, ownerMob, handleContact, handleSchedule, canChat,
+    flagEnabled,
   } = ctx;
+  const deposit = Number(p.deposit) > 0 ? fmtINR(p.deposit) : '';
+  const dateKey = p.freshenedAt ? 'property.updatedAgo' : 'property.postedAgo';
+  const dateValue = timeAgo(p.freshenedAt || p.createdAt).toLowerCase();
+  const factStats = [
+    ...(showPerUnit ? [['ruler', perUnitLabel, perUnitVal]] : []),
+    ...(isRent && deposit ? [['landmark', tr('property.deposit'), deposit]] : []),
+  ];
+  const socialStats = [
+    ...(Number(p.views) > 0 ? [['eye', tr('property.totalViews'), fmtNum(p.views)]] : []),
+    ...(Number(p.enquiries) > 0 ? [['message-square-text', tr('property.enquiries'), fmtNum(p.enquiries)]] : []),
+  ];
   return (
           <section className="fade-in grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 section-mb">
-            {/* Left */}
-            <div className="dz-ph-main lg:col-span-2">
-              {/* The panel's surface, grid and icon colours live in `.tag-strip` in
-                  index.css, not in utilities here — the tile IS the design.
 
-                  No `weight` prop: `file-check` resolves to a Lucide fallback, which
-                  ignores it, so asking for `fill` produced two solid Phosphor glyphs
-                  beside one outline. Outline everywhere is the one weight both sets
-                  can actually honour. */}
+            <div className="dz-ph-main lg:col-span-2">
+
+              {/* No `weight` prop: `file-check` resolves to a Lucide fallback, which ignores it, so asking for `fill`
+                 produced two solid Phosphor glyphs beside one outline. */}
               <div className="tag-strip mb-4">
                 {tags.map(([label, cls, ic, tipKey]) => (
                   <Tip key={label} k={tipKey}>
@@ -36,10 +43,12 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                   </Tip>
                 ))}
               </div>
+              {p.reraId ? (
+                <a href="https://maharera.maharashtra.gov.in/" target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/15">
+                  <Icon name="badge-check" className="h-3.5 w-3.5" /> {tr('property.mahaReraId', { id: p.reraId })}
+                </a>
+              ) : null}
 
-              {/* On phones the price is laid over the hero photo instead (see Gallery),
-                  so it clears the fold. Skipped rather than hidden so only one price
-                  element exists at a time. */}
               {priceOnHero ? null : (
                 <div className="mb-1">
                   <span data-testid="property-price" className="text-3xl sm:text-4xl font-extrabold gradient-text">{priceStr}</span>
@@ -51,11 +60,11 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                 <span className="text-sm sm:text-base">{p.locality}, {cityLabelFor(p)}</span>
               </div>
               <div className="flex items-center gap-3 text-slate-500 text-sm">
-                <span className="flex items-center gap-1.5"><Icon name="clock" className="w-3.5 h-3.5" /> {tr('property.postedAgo', { time: timeAgo(p.createdAt).toLowerCase() })}</span>
+                <span className="flex items-center gap-1.5"><Icon name="clock" className="w-3.5 h-3.5" /> {tr(dateKey, { time: dateValue })}</span>
               </div>
 
-              {/* Owner-activity signal: tells the buyer whether the owner is actively
-                  keeping this listing up to date, so they don't chase a ghost listing. */}
+              {/* Owner-activity signal: tells the buyer whether the owner is actively keeping this listing up to
+                 date, so they don't chase a ghost listing. */}
               {(() => {
                 const fr = listingFreshness(p);
                 if (!fr.buyer.show) return null;
@@ -76,30 +85,19 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                 );
               })()}
 
-              {/* Four columns, not five: from 640px the two wrappers are `display: contents`, so the
-                  track count is the tile count -- three social tiles plus the single facts tile that
-                  a given deal type renders. Five left a permanently empty track. */}
               <div className="dz-stat-grid mt-4 sm:mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {factStats.length ? (
                 <div className="dz-stat-facts">
-                  {[
-                    // Dropped when the area is not in sq.ft: a plot priced by the acre divided by
-                    // its acreage is a per-acre figure, and this tile would caption it "per sq.ft."
-                    ...(showPerUnit ? [['ruler', perUnitLabel, perUnitVal]] : []),
-                    // No EMI counterpart on a sale: PriceInsights states it below with the down
-                    // payment and tenure that produced it, which is the figure worth reading.
-                    ...(isRent ? [['landmark', tr('property.deposit'), fmtINR(p.deposit || p.price * 2)]] : []),
-                  ].map(([ic, lbl, val]) => (
+                  {factStats.map(([ic, lbl, val]) => (
                     <div key={lbl} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                       <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1"><Icon name={ic} className="w-3.5 h-3.5 text-brand-teal-3" /> {lbl}</div>
                       <p className="text-white font-bold text-base">{val}</p>
                     </div>
                   ))}
                 </div>
+                ) : null}
                 <div className="dz-stat-social">
-                  {[
-                    ['eye', tr('property.totalViews'), fmtNum(p.views)],
-                    ['heart', tr('property.shortlisted'), fmtNum(p.enquiries)],
-                  ].map(([ic, lbl, val]) => (
+                  {socialStats.map(([ic, lbl, val]) => (
                     <div key={lbl} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                       <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1"><Icon name={ic} className="w-3.5 h-3.5 text-brand-teal-3" /> {lbl}</div>
                       <p className="text-white font-bold text-base">{val}</p>
@@ -109,21 +107,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                 </div>
               </div>
 
-              <div className="dz-ph-activity mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
-                <span className="flex items-center gap-1.5"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span> <b className="text-white font-semibold">{viewingNow}</b> {tr('property.viewingNow')}</span>
-                <span className="flex items-center gap-1.5"><Icon name="message-square-text" className="w-3.5 h-3.5" /> <b className="text-white font-semibold">{enquiriesThisWeek}</b> {tr('property.enquiriesThisWeek')}</span>
-                <span className="flex items-center gap-1.5"><Icon name="calendar-check" className="w-3.5 h-3.5" /> <b className="text-white font-semibold">{visitsScheduled}</b> {tr('property.visitsScheduled')}</span>
-              </div>
-
-              {/* Flatmate-split card — any multi-BHK residential rental is shareable
-                  (flats, apartments, row houses, penthouses, villas), not just a
-                  hardcoded few. A studio / 1-BHK isn't practical to split, so gate on 2+ BHK.
-
-                  Collapsed on phones (D141): this is a cross-sell into a *different*
-                  product — it answers "could I afford this with someone else", which is
-                  a question after the four this page exists to answer. The per-head rent
-                  is the summary, so the number that decides whether to open it is still
-                  on screen. Desktop is unaffected (MobileCollapse is lg:block). */}
+              {/* A studio / 1-BHK isn't practical to split, so gate on 2+ BHK. */}
               {isRent && kind === 'residential' && (p.bhkNum || 0) >= 2 && p.price > 0 ? (
                 <MobileCollapse
                   className="mt-5 glass-strong rounded-2xl px-3.5 py-[5px] lg:p-5"
@@ -154,15 +138,8 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                 </MobileCollapse>
               ) : null}
 
-              {/* Draazy Assured — collapsed on phones (D141).
-
-                  Every claim in here is a *platform* promise and is byte-for-byte
-                  identical on every listing, so it carries no information that helps a
-                  buyer choose between two homes. The per-listing trust signals it
-                  duplicates (verified owner / ownership / RERA) already sit in the tag
-                  strip at the very top, which is why this can be demoted without
-                  weakening the trust answer. The heading and the "Trusted listing"
-                  chip stay visible, so the control says what it opens. */}
+              {/* Every claim in here is a *platform* promise and is byte-for-byte identical on every listing, so it
+                 carries no information that helps a buyer choose between two homes. */}
               <div className="mt-5 rounded-2xl border border-emerald-500/20 px-3.5 py-[5px] lg:p-4" style={{ background: 'linear-gradient(135deg,rgba(16,185,129,.08),rgba(20,184,166,.06))' }}>
                 <MobileCollapse
                   label={tr('property.assuredTitle')}
@@ -174,55 +151,36 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                     </div>
                   )}
                 >
-                  {/* The tile's phone padding is 5px so the closed row is one line tall, which
-                      leaves the open panel almost touching the border — it pays its own instead.
-
-                      No zero-brokerage bullet: that claim now sits in the tag strip at the top,
-                      and this panel's whole justification is that it must not restate what the
-                      strip already says. */}
                   <div className="dz-assured-list mt-3 pb-3 lg:pb-0 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="user-check" className="w-4 h-4 text-emerald-400" /> {tr('property.assuredVerified')}</span>
                     <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="phone-off" className="w-4 h-4 text-gray-400" /> {tr('property.numberProtected')}</span>
-                    {/* Inside a collapsed panel, so the automated tap-target sweep never reaches
-                        it — the 44px minimum has to be asserted here by hand. */}
+
+                    {/* Inside a collapsed panel, so the automated tap-target sweep never reaches it — the 44px
+                       minimum has to be asserted here by hand. */}
                     <button type="button" onClick={() => setReportOpen(true)} className="inline-flex items-center gap-2 min-h-[44px] text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10 hover:border-amber-400/30 transition-smooth"><Icon name="flag" className="w-4 h-4 text-amber-400" /> {tr('property.reportReverify')}</button>
                   </div>
                 </MobileCollapse>
               </div>
             </div>
 
-            {/* Right */}
             <div className="space-y-4">
-              {/* Desktop only: on phones `.dz-sticky-cta` opens ContactOwnerModal, which carries
-                  this card's content — inline it would be a second number reveal on the same gate. */}
+
               <div className="dz-owner-rail hidden lg:block">
                 <OwnerCard p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} ownerHidesNumber={ownerHidesNumber} ownerMob={ownerMob} onContact={handleContact} canChat={canChat} />
               </div>
 
-              {/* Primary engagement — for a first-time buyer a site visit is the #1 next step,
-                  so it leads the sidebar. Offers / finalisation sit below. */}
-              {/* Hidden on mobile: the sticky bottom bar already exposes "Visit",
-                  so this standalone button would be a third copy of the same action.
-                  Hide via a wrapper <div> — `.btn-teal` sets its own `display`, which
-                  would override Tailwind's `hidden` if applied to the button directly. */}
+              {/* Hidden on mobile: the sticky bottom bar already exposes "Visit", so this standalone button would be
+                 a third copy of the same action. */}
               {flagEnabled('scheduleVisit') && (
                 <div className="hidden lg:block">
-                  <button onClick={() => setVisitOpen(true)} className="btn-teal w-full flex items-center justify-center gap-2 py-3 shadow-none"><Icon name="calendar" className="w-5 h-5" /> {tr('property.scheduleVisit')}</button>
+                  <button onClick={handleSchedule} className="btn-teal w-full flex items-center justify-center gap-2 py-3 shadow-none"><Icon name="calendar" className="w-5 h-5" /> {tr('property.scheduleVisit')}</button>
                 </div>
               )}
 
               <DealPanel p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} />
 
-              {/* Renders nothing unless the viewer hosts a group with seats left and this is
-                  someone else's rental — see the component for why it stays silent rather than
-                  showing a disabled control. */}
               <GroupApplyCard p={p} isIn={isIn} toast={toast} />
 
-              {/* min-h here, not tap-extend: this link is full-width in a stacked
-                  CTA column, so the 44px box lands on empty column space rather
-                  than overhanging a neighbour. Only reachable when the
-                  emiCalculator flag is on, which is why the sweep has not been
-                  catching it. */}
               {flagEnabled('emiCalculator') && !isLand && !isRent && <Link to="/emi-calculator" className="flex min-h-[44px] items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
               {flagEnabled('compareProperties') && <CompareToggleBar p={p} />}
             </div>

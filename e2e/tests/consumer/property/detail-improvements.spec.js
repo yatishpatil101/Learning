@@ -1,16 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
 
-/* Property-detail improvement regression — the five fixes shipped this pass:
-   #1 Honest locality value/rent benchmark (real ₹/sq.ft vs curated locality avg,
-      neutral "no verified benchmark" note when we don't have the data).
-   #2 Flatmate-split card on every multi-BHK residential rental (not a hardcoded few).
-   #3 Share button confirms with a toast.
-   #4 Home-loan framing hidden for land buys.
-   #5 "enquiries this week" is a weekly slice, not the lifetime total.
-   #6 Up-navigation is stated once per viewport: the breadcrumb from `sm` up, the navbar's
-      back tile below `lg`, and no in-page pill duplicating either. */
-
 /* Ids are the seeded slugs, and the locality of each is load-bearing rather than incidental.
    `frontend/src/data/localityIntel.js` benchmarks exactly ten localities, and the page prints a
    real comparison inside that set and a neutral note outside it - so both branches need a fixture
@@ -23,10 +13,7 @@ const RENT_NODATA_LOC = 'p5123';  // 3 BHK Flat, Balewadi - deliberately NOT in 
 const RENT_1BHK = 'p5122';        // 1 BHK Flat, Hinjawadi - too small to split
 const RENT_COMMERCIAL = 'p5110';  // Warehouse / Godown for rent - not residential
 
-async function collectErrors(page) {
-  const errors = trackErrors(page);
-  return errors;
-}
+const collectErrors = async (page) => trackErrors(page);
 function relevant(errors) {
   return errors.filter((e) => !/favicon|leaflet|tile|net::ERR|unsplash|maptiler|openstreetmap/i.test(e));
 }
@@ -36,9 +23,6 @@ async function gotoProp(page, id) {
   await page.getByRole('tab').first().waitFor({ state: 'visible', timeout: 15000 });
   const reveal = async () => {
     await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
-    /* The class is added synchronously by the `evaluate` above, and the reveal is an opacity
-       transition rather than a mount -- `innerText` already sees the text. The sleep that used to
-       sit here was waiting for an animation nothing reads. */
     return (await page.locator('body').innerText()).toLowerCase();
   };
   let combined = await reveal();
@@ -46,121 +30,100 @@ async function gotoProp(page, id) {
   const count = await tabs.count();
   for (let i = 0; i < count; i++) {
     await tabs.nth(i).click();
-    /* `reveal()` reads through `innerText()`, which does not retry, so this wait is load-bearing.
-       The tab reporting itself selected is the panel swap this was really waiting for. */
+    // `innerText()` does not retry, so wait for the panel swap before reading.
     await expect(tabs.nth(i)).toHaveAttribute('aria-selected', 'true');
     combined += '\n' + (await reveal());
   }
   return combined;
 }
 
-/* ---- Fix #1: honest locality benchmark ---- */
-
-test('SALE flat in a benchmarked locality shows an honest ₹/sq.ft comparison', async ({ page }) => {
+test('a benchmarked sale flat shows an honest comparison, shares with a toast, offers EMI, counts lifetime enquiries and is reached by one breadcrumb', async ({ page, context }) => {
+  test.slow();
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors = await collectErrors(page);
   const txt = await gotoProp(page, SALE_FLAT_KNOWN);
-  // Real locality average + a genuine value verdict (this listing is below Baner avg).
-  expect(txt).toContain('baner average');
-  expect(txt).toContain('good deal');
-  expect(txt).toContain('below locality average');
-  // Real appreciation figure from the curated locality (Baner yoy = 8.4%).
-  expect(txt).toContain('8.4% appreciation over the last 12 months');
-  expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
+
+  await test.step('SALE flat in a benchmarked locality shows an honest ₹/sq.ft comparison', async () => {
+    // Real locality average + a genuine value verdict (this listing is below Baner avg).
+    expect(txt).toContain('baner average');
+    expect(txt).toContain('good deal');
+    expect(txt).toContain('below locality average');
+    // Real appreciation figure from the curated locality (Baner yoy = 8.4%).
+    expect(txt).toContain('8.4% appreciation over the last 12 months');
+    expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
+  });
+
+  await test.step('home-loan framing is offered on a flat buy', async () => {
+    expect(txt).toContain('calculate emi');
+  });
+
+  await test.step('header shows only lifetime enquiries, not a weekly activity slice', async () => {
+    const enquiries = page.locator('.dz-stat-social > *', { hasText: 'Enquiries' }).first();
+    await expect(enquiries).toBeVisible();
+    expect(parseInt((await enquiries.innerText()).replace(/\D/g, ''), 10)).toBeGreaterThan(0);
+    await expect(page.getByText(/enquiries this week/i)).toHaveCount(0);
+    await expect(page.getByText('Shortlisted', { exact: true })).toHaveCount(0);
+  });
+
+  await test.step('up-navigation is the breadcrumb, and nothing repeats it', async () => {
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(crumbs.getByRole('link', { name: 'Buy' })).toHaveAttribute('href', /deal=buy|\/listings/);
+    await expect(page.getByRole('button', { name: /back to (results|map)/i })).toHaveCount(0);
+  });
+
+  await test.step('Share button confirms with a toast', async () => {
+    await page.getByRole('button', { name: 'Share' }).first().click();
+    await expect(page.getByRole('alert').filter({ hasText: /link copied/i })).toBeVisible({ timeout: 5000 });
+  });
 });
 
-test('SALE land shows a neutral note, never a fabricated residential benchmark', async ({ page }) => {
+test('a sale plot shows a neutral note, never a fabricated residential benchmark, and no home-loan framing', async ({ page }) => {
   const txt = await gotoProp(page, SALE_LAND);
   expect(txt).toContain('publish a verified');
   expect(txt).toContain('rather than a guessed one');
   // No made-up "locality average / value rating" comparison for a plot.
   expect(txt).not.toContain('wagholi average');
   expect(txt).not.toContain('value rating');
+  expect(txt).not.toContain('calculate emi');
 });
 
-test('SALE commercial shows a neutral note, not a residential ₹/sq.ft verdict', async ({ page }) => {
-  const txt = await gotoProp(page, SALE_COMMERCIAL);
-  expect(txt).toContain('publish a verified');
-  expect(txt).not.toContain('baner average');
-  expect(txt).not.toContain('good deal');
-});
-
-test('RENT flat in a benchmarked locality shows an honest rent rating', async ({ page }) => {
+test('a benchmarked rent flat shows an honest rent rating and the flatmate-split card', async ({ page }) => {
   const errors = await collectErrors(page);
   const txt = await gotoProp(page, RENT_2BHK_KNOWN);
-  expect(txt).toContain('wakad average');
-  expect(txt).toContain('rent rating');
-  expect(txt).toMatch(/below market rent|above market rent|fair rent/);
-  expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
+
+  await test.step('RENT flat in a benchmarked locality shows an honest rent rating', async () => {
+    expect(txt).toContain('wakad average');
+    expect(txt).toContain('rent rating');
+    expect(txt).toMatch(/below market rent|above market rent|fair rent/);
+    expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
+  });
+
+  await test.step('Flatmate-split card appears on a multi-BHK residential rental', async () => {
+    expect(txt).toContain('sharing this flat');
+  });
 });
 
-test('RENT in a non-benchmarked locality shows a neutral note, not a guessed rent', async ({ page }) => {
-  const txt = await gotoProp(page, RENT_NODATA_LOC);
-  expect(txt).toContain('no verified balewadi rent benchmark');
-  expect(txt).not.toContain('rent rating');
-});
+test('where there is no benchmark the page says so, and where a rental is not splittable it offers no flatmate split', async ({ page }) => {
+  test.slow();
 
-/* ---- Fix #2: flatmate-split card ---- */
+  await test.step('SALE commercial shows a neutral note, not a residential ₹/sq.ft verdict', async () => {
+    const txt = await gotoProp(page, SALE_COMMERCIAL);
+    expect(txt).toContain('publish a verified');
+    expect(txt).not.toContain('baner average');
+    expect(txt).not.toContain('good deal');
+  });
 
-test('Flatmate-split card appears on a multi-BHK residential rental', async ({ page }) => {
-  const txt = await gotoProp(page, RENT_2BHK_KNOWN);
-  expect(txt).toContain('sharing this flat');
-});
+  await test.step('RENT in a non-benchmarked locality shows a neutral note, not a guessed rent', async () => {
+    const txt = await gotoProp(page, RENT_NODATA_LOC);
+    expect(txt).toContain('no verified balewadi rent benchmark');
+    expect(txt).not.toContain('rent rating');
+  });
 
-test('Flatmate-split card is absent on a 1-BHK rental (not practical to split)', async ({ page }) => {
-  const txt = await gotoProp(page, RENT_1BHK);
-  expect(txt).not.toContain('sharing this flat');
-});
+  await test.step('Flatmate-split card is absent on a 1-BHK rental (not practical to split)', async () => {
+    expect(await gotoProp(page, RENT_1BHK)).not.toContain('sharing this flat');
+  });
 
-test('Flatmate-split card is absent on a commercial rental', async ({ page }) => {
-  const txt = await gotoProp(page, RENT_COMMERCIAL);
-  expect(txt).not.toContain('sharing this flat');
-});
-
-/* ---- Fix #3: share toast ---- */
-
-test('Share button confirms with a toast', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await gotoProp(page, SALE_FLAT_KNOWN);
-  await page.getByRole('button', { name: 'Share' }).first().click();
-  await expect(page.getByRole('alert').filter({ hasText: /link copied/i })).toBeVisible({ timeout: 5000 });
-});
-
-/* ---- Fix #4: home-loan framing hidden for land ---- */
-
-/* The header's quoted "EMI starts at" line this test was written against is gone -- it named a
-   monthly figure from an assumed down payment and tenure the reader never saw. The rule it
-   protected is not gone, so the assertion follows it to the calculator link, which is now the
-   only home-loan surface the header offers and carries the same !isLand guard. */
-test('home-loan framing is hidden on a land buy but offered on a flat buy', async ({ page }) => {
-  const land = await gotoProp(page, SALE_LAND);
-  expect(land).not.toContain('calculate emi');
-  const flat = await gotoProp(page, SALE_FLAT_KNOWN);
-  expect(flat).toContain('calculate emi');
-});
-
-/* ---- Fix #5: weekly enquiries slice ---- */
-
-test('Live-activity shows a weekly enquiries slice below the lifetime total', async ({ page }) => {
-  await gotoProp(page, SALE_FLAT_KNOWN);
-  const weekLine = page.locator('span', { hasText: /enquiries this week/i }).first();
-  await expect(weekLine).toBeVisible();
-  const week = parseInt((await weekLine.innerText()).replace(/\D/g, ''), 10);
-  // Shortlisted (lifetime enquiries) tile in the stat grid.
-  const total = parseInt((await page.locator('text=Shortlisted').first().locator('..').innerText()).replace(/\D/g, ''), 10);
-  expect(week).toBeGreaterThanOrEqual(1);
-  expect(week).toBeLessThan(total);
-});
-
-/* ---- Fix #6: one way back, not two ---- */
-
-/* A teal "Back to results" pill sat above the breadcrumb and did the same job it does, on a page
-   that below `lg` is also under a navbar back tile. The breadcrumb is asserted to still reach the
-   results the visitor filtered before the pill's absence is counted: on a page that never rendered,
-   the absence is satisfied by itself. The navbar tile is `lg:hidden`, so at desktop width the
-   breadcrumb is the only affordance left and has to carry the whole claim. */
-test('up-navigation is the breadcrumb, and nothing repeats it', async ({ page }) => {
-  await page.goto(`/property/${SALE_FLAT_KNOWN}`, { waitUntil: 'domcontentloaded' });
-  const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
-  await expect(crumbs.getByRole('link', { name: 'Buy' })).toHaveAttribute('href', /deal=buy|\/listings/);
-  await expect(page.getByRole('button', { name: /back to (results|map)/i })).toHaveCount(0);
+  await test.step('Flatmate-split card is absent on a commercial rental', async () => {
+    expect(await gotoProp(page, RENT_COMMERCIAL)).not.toContain('sharing this flat');
+  });
 });

@@ -4,15 +4,14 @@ import { digits } from '../../../lib/contact.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { applyGroupToListing, myFlatmateGroups } from '../../../services/flatmateService.js';
 
-/* Renders nothing far more often than it renders something: only a signed-in host of a group with
-   seats left, on someone else's rental. A failed load renders nothing rather than an error strip. */
+/* A failed load renders nothing rather than an error strip. */
 export function GroupApplyCard({ p, isIn, toast }) {
   const isRent = p?.deal === 'rent';
   /* `p.id` is the slug (`p5015`) because the property routes accept slug-or-id; `p.uuid` is the
-     same row's real key, and the fallback covers rows with no separate one. */
+   * same row's real key, and the fallback covers rows with no separate one. */
   const listingId = String(p?.uuid || p?.id || '');
-  /* `!!mine` is what keeps a signed-out visitor from reading as the owner: without it an empty
-     mobile equals an empty `ownerMobile` and every listing stating no owner looks like theirs. */
+  /* `!!mine` is what keeps a signed-out visitor from reading as the owner: without it an empty mobile equals an empty
+     `ownerMobile` and every listing stating no owner looks like theirs. */
   const { user } = useAuth();
   const mine = digits(user?.mobile).slice(-10);
   const isOwnListing = !!mine && mine === digits(p?.ownerMobile || '').slice(-10);
@@ -33,17 +32,14 @@ export function GroupApplyCard({ p, isIn, toast }) {
   }, [eligible, listingId]);
 
   const apply = useCallback(async (groupId) => {
-    /* Guarded twice on purpose: the flag is what stops a second click before React re-renders with
-       the disabled button, and the button is what stops the first one being inviting. */
     if (busy) return;
     setBusy(true);
     try {
       await applyGroupToListing(groupId, listingId);
       setDone(true);
-      toast('Your group has applied. The owner will see it in their dashboard.', 'success');
+      toast('Your group has applied.', 'success');
     } catch (e) {
-      /* The server's sentence verbatim. It says "the owner has it" on a duplicate, which answers
-         the question the host actually has — did it land? — where "already applied" would not. */
+      /* The server's sentence verbatim. */
       toast(e?.message || 'That did not go through. Please try again.', 'error');
     } finally {
       setBusy(false);
@@ -57,7 +53,7 @@ export function GroupApplyCard({ p, isIn, toast }) {
       <div className="glass-card p-4 rounded-2xl">
         <p className="flex items-center gap-2 text-sm text-emerald-300">
           <Icon name="check-circle" className="w-4 h-4 flex-shrink-0" />
-          Applied. The owner decides from their dashboard — you will be notified either way.
+          Applied. You'll be notified of the owner's decision.
         </p>
       </div>
     );
@@ -68,10 +64,7 @@ export function GroupApplyCard({ p, isIn, toast }) {
       <h3 className="flex items-center gap-2 text-sm font-semibold text-white mb-1">
         <Icon name="users" className="w-4 h-4 text-brand-teal-2" /> Rent this as a group
       </h3>
-      <p className="text-xs text-gray-400 mb-3">
-        Put your group forward for the whole flat and split the rent. The owner answers from their
-        dashboard.
-      </p>
+      <p className="text-xs text-gray-400 mb-3">Apply for the whole flat and split the rent.</p>
       <div className="space-y-2">
         {groups.map((g) => (
           <button

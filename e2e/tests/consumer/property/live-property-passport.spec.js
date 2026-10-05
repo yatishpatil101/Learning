@@ -98,7 +98,7 @@ test.describe('Property passport — /owner-hub/property/:id', () => {
     await expect(page.getByText('Passport completeness')).toHaveCount(0);
   });
 
-  test('renders the passport for the owning user, translated from the wire vocabulary', async ({ page, login }) => {
+  test('renders the passport for the owning user, translated from the wire vocabulary, with no console errors', async ({ page, login, consoleErrors }) => {
     const { id } = await ownerWithPassport(page, login);
     await page.goto(`/owner-hub/property/${id}`);
 
@@ -121,6 +121,7 @@ test.describe('Property passport — /owner-hub/property/:id', () => {
     await expect(page.getByRole('heading', { name: 'Valuation' })).toBeVisible();
 
     await expect(page.getByRole('link', { name: /My properties/i }).first()).toBeVisible();
+    expect(consoleErrors).toEqual([]);
   });
 
   test('a managed property belonging to somebody else is not found', async ({ page, login }) => {
@@ -152,12 +153,5 @@ test.describe('Property passport — /owner-hub/property/:id', () => {
     await expect(page.getByRole('link', { name: /Back to My properties/i })).toBeVisible();
     // The record's own title must not leak through the not-found state.
     await expect(page.getByText('2 BHK Flat in Baner')).toHaveCount(0);
-  });
-
-  test('the passport loads with no real console errors', async ({ page, login, consoleErrors }) => {
-    const { id } = await ownerWithPassport(page, login);
-    await page.goto(`/owner-hub/property/${id}`);
-    await expect(page.getByRole('heading', { name: '2 BHK Flat in Baner' })).toBeVisible();
-    expect(consoleErrors).toEqual([]);
   });
 });

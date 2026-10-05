@@ -3,15 +3,17 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityBySlug } from '../../../data/localities.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
+import { CARD_SIZES } from '../../../lib/imgSrcSet.js';
 
 const LIMIT = 3;
-const RADIUS_KM = 6;      // "nearby" = same + adjacent Pune localities
-const BHK_TOL = 1;        // similar configuration
-const PRICE_LOW = 0.6;    // similar budget band
+const RADIUS_KM = 6;
+const BHK_TOL = 1;
+const PRICE_LOW = 0.6;
 const PRICE_HIGH = 1.6;
 
 // Resolve a listing's coordinates: its own pin first, else the centre of its
@@ -40,11 +42,6 @@ export function SimilarProperties({ p }) {
   useEffect(() => {
     let alive = true;
     // Same deal only (never mix buy with rent) — buyers/renters want like-for-like.
-    //
-    // Ask for the listing's own locality first: that is where almost every genuinely "similar
-    // nearby" home is, and it keeps the request proportional to one area rather than the whole
-    // market. The tiers below deliberately fall back to *nearest overall* when an area is thin, so
-    // the second, unscoped fetch runs only when the locality alone cannot fill the strip.
     const candidates = async () => {
       if (!p.localitySlug) return listProperties({ deal: p.deal });
       const local = await listProperties({ deal: p.deal, locality: p.localitySlug });
@@ -64,7 +61,6 @@ export function SimilarProperties({ p }) {
         return x.price >= p.price * PRICE_LOW && x.price <= p.price * PRICE_HIGH;
       };
 
-      // Tier 1: genuinely nearby AND similar (config + budget). This is the ideal set.
       const ideal = cands
         .filter((c) => c.km <= RADIUS_KM && bhkOk(c.x) && priceOk(c.x))
         .sort((a, b) => a.km - b.km || Math.abs((a.x.price || 0) - (p.price || 0)) - Math.abs((b.x.price || 0) - (p.price || 0)));
@@ -72,15 +68,14 @@ export function SimilarProperties({ p }) {
       const picked = [...ideal];
       const has = (id) => picked.some((c) => c.x.id === id);
 
-      // Tier 2 (top-up): still nearby, relax config/budget — keeps the "nearby" promise.
+      // Tier 3 (last resort): nearest listings by distance so we never show random,
+      // far, or wildly-priced properties like before — closest available wins.
       if (picked.length < LIMIT) {
         cands
           .filter((c) => c.km <= RADIUS_KM && !has(c.x.id))
           .sort((a, b) => a.km - b.km)
           .forEach((c) => { if (picked.length < LIMIT) picked.push(c); });
       }
-      // Tier 3 (last resort): nearest listings by distance so we never show random,
-      // far, or wildly-priced properties like before — closest available wins.
       if (picked.length < LIMIT) {
         cands
           .filter((c) => !has(c.x.id))
@@ -102,14 +97,10 @@ export function SimilarProperties({ p }) {
   if (!items.length) return null;
   return (
     <section ref={secRef} className="fade-in">
-      {/* Collapsed on phones (D141), and deliberately the *first* block chosen for it:
-         at ~380px per stacked card this is the single tallest thing on the page, it
-         renders under every tab, and its whole purpose is to take the visitor away
-         from the listing they asked for. Nothing on it can be part of "is this the
-         right place". The match count is the summary so the strip still advertises
-         itself. Desktop keeps the three-up row exactly as before. */}
+
+      {/* itself. */}
       <MobileCollapse
-        headerClassName="mb-6"
+
         label={t('property.similarProperties')}
         summary={String(items.length)}
         header={<h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2"><Icon name="layout-grid" className="w-5 h-5 text-brand-teal-2" /> {t('property.similarProperties')}</h2>}
@@ -121,7 +112,7 @@ export function SimilarProperties({ p }) {
             return (
               <Link key={x.id} to={`/property/${x.id}`} className="property-card group rounded-2xl overflow-hidden block">
                 <div className="card-img relative h-48">
-                  <img src={x.image} alt={x.title} loading="lazy" className="w-full h-full object-cover" />
+                  <PropertyImage src={x.image} sizes={CARD_SIZES} alt={x.title} loading="lazy" className="w-full h-full object-cover" />
                   <div className="absolute top-3 left-3">{x.ownerVerified ? <span className="tag tag-teal text-xs">{t('property.similarVerified')}</span> : x.rera ? <span className="tag tag-coral text-xs">RERA</span> : <span className="tag tag-indigo text-xs">{t('property.similarPremium')}</span>}</div>
                   <div className="absolute top-3 right-3"><span className="tag text-xs flex items-center gap-1"><Icon name="camera" className="w-3 h-3" /> {(x.gallery || []).length || 1}</span></div>
                 </div>
@@ -134,8 +125,9 @@ export function SimilarProperties({ p }) {
                   </div>
                   <div className="flex items-center gap-4 text-xs text-slate-400 border-t border-white/5 pt-3">
                     <span className="flex items-center gap-1"><Icon name="bed-double" className="w-3.5 h-3.5" /> {x.bhk}</span>
-                    {/* Dropped rather than dashed when unstated: this is a three-item summary strip,
-                        not a spec table, so a bare bath icon next to an em dash reads as a fault. */}
+
+                    {/* Dropped rather than dashed when unstated: this is a three-item summary strip, not a spec
+                       table, so a bare bath icon next to an em dash reads as a fault. */}
                     {baths != null && (
                       <span className="flex items-center gap-1"><Icon name="bath" className="w-3.5 h-3.5" /> {baths}</span>
                     )}
