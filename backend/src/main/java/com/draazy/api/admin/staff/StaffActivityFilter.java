@@ -17,6 +17,7 @@ import java.util.Locale;
  * @param from   inclusive lower bound, or {@code null}
  * @param to     exclusive upper bound, or {@code null}
  * @param q      free text matched against actor name, action, entity and entity id
+ * @param actorRole staff-only when a manager reads this view, otherwise {@code null}
  */
 record StaffActivityFilter(
         String actor,
@@ -24,13 +25,15 @@ record StaffActivityFilter(
         String action,
         Instant from,
         Instant to,
-        String q) {
+        String q,
+        String actorRole) {
 
     StaffActivityFilter {
         actor = blankToNull(actor);
         entity = blankToNull(entity);
         action = blankToNull(action);
         q = blankToNull(q);
+        actorRole = blankToNull(actorRole);
     }
 
     /**

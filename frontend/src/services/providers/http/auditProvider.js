@@ -1,5 +1,3 @@
-// `action` is a dotted event name from a fixed vocabulary (`property.status`, `city.update`), not a
-// UI label; `actor` is a UUID, not a display name — names are `/admin/staff-activity`.
 
 // There is no prose `detail` and one is not synthesised here. `metadata` arrives already parsed and
 // is normalised to `{}` so callers can enumerate its keys without guarding.
@@ -23,6 +21,7 @@ const query = ({ actor, entity, entityId, from, to } = {}) => {
 const toEntry = (r) => ({
   id: r?.id ?? '',
   actor: r?.actor ?? '',
+  actorName: r?.actorName || r?.actor || '',
   actorRole: r?.actorRole ?? '',
   action: r?.action ?? '',
   entity: r?.entity ?? '',

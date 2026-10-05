@@ -42,33 +42,8 @@ export function Card({ title, desc, action, children, height = 240 }) {
   );
 }
 
-/*
- * `chip` and `SampleTabNotice` used to live here: a per-card "Sample" pill and a whole-tab
- * "Illustrative data." banner, both labelling figures a seeded generator had produced.
- *
- * They are gone because there is nothing left to label. Traffic and Anonymous surfers became
- * measured; the six-month price trend, the per-listing price table, the weekly SLA compliance line
- * and the whole Seasonal tab were deleted rather than rebuilt, because each needed a history
- * nothing on this platform writes and a chart that cannot be sourced does not become sourceable by
- * being labelled (D252). Ticket pickup, service delivery and the concierge pipeline became real,
- * from `audit_log`.
- *
- * Deleted rather than kept for the next generated card, deliberately. Their availability is what
- * made adding one feel legitimate — the label made it look like a disclosed approximation rather
- * than a number nobody measured sitting in the same grid, in the same typeface, beside numbers
- * somebody did. `live-analytics-page.spec.js` asserts no analytics tab renders either string.
- */
-
-/**
- * Banner for a tab whose server read failed.
- *
- * The two tabs that read the API must be able to say "we could not measure this", because the
- * alternative is worse than an error: an empty report renders a full KPI strip reading zero
- * overpriced areas and zero listings awaiting review, which is an all-clear assembled out of a 500.
- * An operator acting on that would conclude there was nothing to do.
- *
- * `role="alert"` because this appears after a load rather than with the page, so it needs announcing.
- */
+/* API-backed tabs must not turn a 500 into zeroed KPIs that read as an all-clear.
+   `role="alert"` announces this late-mounted failure state. */
 export function LoadFailedNotice({ children }) {
   return (
     <div

@@ -1,0 +1,42 @@
+package com.draazy.api.admin.staff;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.draazy.api.security.BackOfficeFunctions;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+@DisplayName("Team performance audit action mapping")
+class TeamPerformanceAuditFunctionsTest {
+
+    @Test
+    void mapsKnownActionsToFunctions() {
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "identity.verification.approved", "identity_verification", null))
+                .isEqualTo(BackOfficeFunctions.KYC);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "property.verification.decision", "property", null))
+                .isEqualTo(BackOfficeFunctions.PROPERTY_VERIFICATION);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "property.status", "property", null))
+                .isEqualTo(BackOfficeFunctions.LISTING_MODERATION);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "property.create_on_behalf", "property", null))
+                .isEqualTo(BackOfficeFunctions.POST_ON_BEHALF);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "ticket.update", "ticket", null))
+                .isEqualTo(BackOfficeFunctions.SUPPORT);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "content.update", "faq", null))
+                .isEqualTo(BackOfficeFunctions.CONTENT);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "report.triage", "report", null))
+                .isEqualTo(BackOfficeFunctions.REPORTS);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "service-request.status", "service_request", "rental"))
+                .isEqualTo(BackOfficeFunctions.desk("rental"));
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "user.archive", "user", null))
+                .isNull();
+    }
+}

@@ -1,29 +1,8 @@
-/**
- * HTTP analytics provider.
- *
- * `GET /admin/analytics/pricing`, `GET /admin/analytics/sla` and `GET /admin/dashboard`, all
- * staff/admin.
- *
- * Verified against `admin/PricingInsightRow.java`, `admin/SlaSummary.java` and `admin/AdminKpis.java`.
- *
- * ## Why almost nothing here coerces
- *
- * The sibling demand provider runs every field through `Number(v) || 0`, and it is right to: every
- * figure on a supply-gap row is a `count(*)`, so zero is a measurement and a missing key is a bug
- * worth flattening. Here the opposite holds. Most of these fields are averages over a set that can
- * legitimately be empty, and the server sends an explicit `null` to say so — `|| 0` would convert
- * "we could not measure this" into "we measured this and it was nothing".
- *
- * So `num` preserves null and only the genuine counts are coerced. The distinction is the contract.
- */
+/* Analytics distinguishes "not measurable" from zero; averages/rates preserve null while genuine
+   counts coerce to 0. */
 import { get } from '../../http.js';
 
-/**
- * A nullable server number, kept nullable.
- *
- * `null` and `undefined` both become `null`; anything unparseable becomes `null` too, because a
- * `NaN` reaching a chart renders as a gap that looks identical to a deliberate one and is not.
- */
+/* Unparseable values become null so charts show a deliberate gap instead of a misleading NaN gap. */
 const num = (v) => {
   if (v == null) return null;
   const n = Number(v);
@@ -36,12 +15,9 @@ const count = (v) => Number(v) || 0;
 const toPricingRow = (row) => ({
   slug: String(row?.slug || ''),
   name: String(row?.name || ''),
-  // Curated reference data, not inferred from listings. Null for a locality nobody has priced yet,
-  // which is a gap in curation and worth rendering as one.
+  // Null for unpriced localities so curation gaps render as gaps, not zeroes.
   marketRatePerSqft: num(row?.marketRatePerSqft),
-  // Null when the locality has no approved buy listings with a usable area. Never fall back to
-  // marketRatePerSqft: that is the bug this endpoint exists to remove, and doing it here would put
-  // it back one layer further from where anyone would look for it.
+  // Do not fall back to marketRatePerSqft; this endpoint exists to expose that gap.
   avgActualRatePerSqft: num(row?.avgActualRatePerSqft),
   avgRent: num(row?.avgRent),
   rentalYieldPct: num(row?.rentalYieldPct),
@@ -57,18 +33,8 @@ export async function localityPricing() {
   return (Array.isArray(rows) ? rows : []).map(toPricingRow);
 }
 
-/**
- * One turnaround track — ticket pickup, service delivery or the concierge pipeline.
- *
- * Returns null when the key is absent rather than an object of nulls, so a server that predates the
- * field renders no panel at all instead of a panel of dashes claiming to have measured nothing. The
- * tab keys on exactly that: `<Track track={null}>` renders nothing.
- *
- * Inside a track the same split as the review fields above applies. `targetHours` is policy and the
- * two counts are counts, but every figure derived from elapsed time — the averages, the breach
- * count, the rate — stays nullable, because a track with nothing completed has no average and no
- * compliance rate, and `|| 0` would render that as instantaneous service at 0%.
- */
+/* Missing tracks render no panel; elapsed-time figures stay nullable because an empty track has no
+   average or compliance rate. */
 const toTrack = (t) => (t == null ? null : {
   targetHours: num(t.targetHours),
   completedCount: count(t.completedCount),
@@ -77,28 +43,20 @@ const toTrack = (t) => (t == null ? null : {
   breachedCount: num(t.breachedCount),
   slaRatePct: num(t.slaRatePct),
   outstandingCount: count(t.outstandingCount),
-  // Nullable, unlike the count beside it: a backlog item's age is normally known, but a provider
-  // that cannot date its work must be able to say "how many are late is unknowable" rather than
-  // answer 0, which is the most flattering figure available.
+  // Nullable because an undated backlog cannot honestly answer how many items are late.
   outstandingBreachingCount: num(t.outstandingBreachingCount),
 });
 
 export async function reviewSla(opts = {}) {
   const s = await get('/admin/analytics/sla', opts?.days ? { days: opts.days } : undefined);
   return {
-    // Served rather than hardcoded so "breached" means the same thing on the server that computed
-    // it and on the screen that colours it red. Not coerced with `|| 0`: `get` answers null for a
-    // 204 and for a malformed payload, and a targetHours of 0 is not a policy anyone could set — it
-    // would render "Within 0h target" and stamp every pending listing overdue. Null is the honest
-    // reading and the tab suppresses the comparison rather than losing one.
+    // Server-owned policy; null suppresses the comparison instead of inventing a 0h SLA.
     targetHours: num(s?.targetHours),
     reviewedCount: count(s?.reviewedCount),
     // Null on an empty queue, and it stays null. See the module docblock.
     avgHoursToReview: num(s?.avgHoursToReview),
     medianHoursToReview: num(s?.medianHoursToReview),
-    // A breach is itself derived from elapsed time. Where no turnaround was recorded the number
-    // that exceeded the target is unknowable, not zero, so this coerces like the averages beside it
-    // rather than like the counts below it.
+    // Breaches depend on elapsed time, so missing turnaround data is unknowable rather than zero.
     breachedCount: num(s?.breachedCount),
     slaRatePct: num(s?.slaRatePct),
     // Present tense and deliberately unwindowed, so these are counts and coerce like counts.
@@ -120,37 +78,8 @@ export async function reviewSla(opts = {}) {
   };
 }
 
-/**
- * The ops scorecard — `GET /admin/dashboard`, contract schema `AdminKpis`.
- *
- * It lives in the analytics domain rather than one of its own because it is the third read on
- * `AdminMetricsController`, beside the two above; a domain per route would split one controller
- * across two seams and buy nothing.
- *
- * ## Why this exists at all, when the dashboard already fetches collections
- *
- * Every field here is a `count(*)` over the whole catalogue. Deriving the screen's tiles
- * in the browser from lists it fetched for other reasons does not work, because those lists are
- * **paged** — the enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. So
- * "Total Users" would count a page while reading as a fact about the platform. The listings console
- * avoids the same defect by having the server send `total` alongside `items`.
- *
- * ## The one field that is not a count
- *
- * **`revenue30d` must stay nullable.** The server withholds revenue from a `staff` caller by sending
- * `null` (`AdminKpis` javadoc). Running it through `count` would render "₹0" to that
- * caller — not a redaction but a false figure, and one the finance console would contradict the
- * moment an admin opened it. Null is the caller's signal to omit the tile, which is what it does.
- *
- * That javadoc explains the nullability by saying "the dashboard is staff-visible but
- * `/admin/finance` is admin-only". The first half is **not true of the console today**: the admin
- * shell refuses `staff` accounts outright (`e2e/tests/admin/live-rbac.spec.js` — "an operations
- * account cannot open the admin console at all"), so no staffer can reach the screen that calls
- * this. The route genuinely does answer a staff token — `@PreAuthorize` is `STAFF_OR_ADMIN` — so
- * the nullability is real and worth honouring; it is simply defence in depth rather than a case a
- * user can currently reach. Keep it: the day a read-only ops console exists, the tile must already
- * be absent rather than reading zero.
- */
+/* Dashboard totals come from unpaged server counts; browser lists are capped and would undercount.
+   `revenue30d` stays nullable so redacted revenue is omitted, not rendered as ₹0. */
 export async function dashboardKpis() {
   const k = await get('/admin/dashboard');
   return {
@@ -165,20 +94,15 @@ export async function dashboardKpis() {
   };
 }
 
-// Page-view reports. Verified against `admin/AdminAnalyticsTraffic.java`,
-// `AdminAnalyticsEngagement.java` and `AdminAnalyticsSurfers.java`. The same split applies as above
-// and matters more here, because these three reports are almost entirely rates: every `*Pct`, every
-// average and every share is null on an empty window, and every session, view, signup and exit is a
-// count.
+// Traffic reports are mostly rates, so empty-window percentages/averages stay null while sessions,
+// views, signups and exits are counts.
 
 /** Only send `days` when the caller asked for one; the server owns the default. */
 const window_ = (opts) => (opts?.days ? { days: opts.days } : undefined);
 
 const toDay = (d) => ({
   date: String(d?.date || ''),
-  // Zero-filled server-side, so these are always present and always counts. A day with no traffic
-  // is a measurement of nothing, not an absence of measurement — the distinction the nullable
-  // fields elsewhere in this file exist to preserve, landing on the other side of the line.
+  // Zero-filled server-side: no traffic on a day is a measured zero, not missing data.
   sessions: count(d?.sessions),
   pageviews: count(d?.pageviews),
   signups: count(d?.signups),
@@ -226,9 +150,8 @@ export async function engagement(opts = {}) {
     weeks: (Array.isArray(e?.weeks) ? e.weeks : []).map((w) => ({
       week: String(w?.week || ''),
       sessions: count(w?.sessions),
-      // A week nobody visited has no session length and no bounce rate. `|| 0` would draw both
-      // lines down to the axis, which reads as "sessions got shorter and everybody stayed" — two
-      // improvements invented out of an empty week. Chart.js renders null as a gap, correctly.
+      // An empty week has no session length or bounce rate; null leaves a chart gap instead of
+      // inventing two improvements.
       avgSessionMinutes: num(w?.avgSessionMinutes),
       bounceRatePct: num(w?.bounceRatePct),
     })),

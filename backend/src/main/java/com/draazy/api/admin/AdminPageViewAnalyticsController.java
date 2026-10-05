@@ -13,17 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The three page-view reports: {@code /admin/analytics/traffic}, {@code …/engagement} and
  * {@code …/surfers}.
  *
- * <p><strong>Guarded exactly like the dashboard.</strong> Ops needs all three — knowing which pages
- * the signed-out majority reach is what a conversion conversation starts from — so they are
- * staff-visible rather than admin-only. They are emphatically not public: a page-by-page breakdown
- * of where visitors go and where they give up is a map of the platform's own weak points, and it is
- * the kind of report that looks harmless enough to leak because it names no one.
- *
- * <p><strong>There is deliberately no {@code analytics:read} atom.</strong> {@code /admin/analytics}
- * is gated on {@code dashboard:read}, and inventing a second permission for siblings of it would
- * mean two names for one decision — the failure mode being a grant that opens one analytics tab and
- * silently not the next, which reads to an operator as a broken page rather than as a missing
- * permission. Same reasoning as {@code AdminPricingController}, which records it first.
+ * <p>Ops needs all three, but only after receiving the {@code analytics:read} function grant.
  *
  * <p>One controller for three endpoints because they are one screen and one service; the siblings
  * stand alone because each has its own. Splitting these into three would be three files whose
@@ -35,7 +25,7 @@ public class AdminPageViewAnalyticsController {
     private static final String ANALYTICS_READ =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')"
                     + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD
-                    + " and " + BackOfficePermissions.REQUIRE_DASHBOARD_READ;
+                    + " and " + BackOfficePermissions.REQUIRE_ANALYTICS_READ;
 
     private final AdminPageViewAnalyticsService service;
 

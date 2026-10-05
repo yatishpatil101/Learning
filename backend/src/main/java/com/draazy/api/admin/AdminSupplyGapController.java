@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * {@code GET /admin/supply-gap} — the only read of the anonymous demand table.
  *
- * <p><strong>Guarded exactly like the dashboard, and not one rung looser.</strong> Ops needs this to
+ * <p><strong>Guarded as analytics, and not one rung looser.</strong> Ops needs this to
  * do its job — knowing which localities are under-supplied is what listing acquisition is aimed at —
  * so it is staff-visible rather than admin-only. It is not public, and the reason is worth stating:
  * this is a locality-by-locality map of where Draazy has demand it cannot serve, which is the most
@@ -29,7 +29,7 @@ public class AdminSupplyGapController {
     private static final String SUPPLY_GAP_READ =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')"
                     + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD
-                    + " and " + BackOfficePermissions.REQUIRE_DASHBOARD_READ;
+                    + " and " + BackOfficePermissions.REQUIRE_ANALYTICS_READ;
 
     private final AdminSupplyGapService service;
 

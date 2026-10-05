@@ -10,12 +10,16 @@ import { listEnquiries, listVisits, listDeals } from '../../services/enquiryBoar
 import { listTicketQueue } from '../../services/ticketService.js';
 import { listUsers } from '../../services/usersService.js';
 import { getSettings } from '../../services/settingsService.js';
-import { dashboardKpis, traffic as fetchTraffic } from '../../services/analyticsService.js';
+import { dashboardKpis, reviewSla, traffic as fetchTraffic } from '../../services/analyticsService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { canOpenPath, hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
+import SlaHealthPanel from './dashboard/SlaHealthPanel.jsx';
+import StaffWorkDashboard from './dashboard/StaffWorkDashboard.jsx';
 
 const TINT = {
   amber: 'bg-amber-500/15 text-amber-300',
@@ -62,11 +66,33 @@ function StatTile({ tile }) {
 }
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
+  return user?.role === 'staff' ? <StaffWorkDashboard /> : <PlatformDashboard user={user} />;
+}
+
+function PlatformDashboard({ user }) {
   const [data, setData] = useState(null);
   const { optionEnabled } = useAdminFlags();
+  const canOpen = (href) => canOpenPath(user, href);
+  const canReadSettings = hasPermission(user, 'settings:read');
+  const canReadAnalytics = hasPermission(user, 'analytics:read');
 
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
   const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
+  const showSla = optionEnabled('dash.sla') && canReadAnalytics;
+  const [sla, setSla] = useState(null);
+
+  useEffect(() => {
+    if (!showSla) { setSla(null); return undefined; }
+    let alive = true;
+    reviewSla()
+      .then((s) => { if (alive) setSla(s); })
+      .catch((err) => {
+        console.warn('[AdminDashboard] the SLA summary could not be read; the panel is hidden.', err);
+        if (alive) setSla(null);
+      });
+    return () => { alive = false; };
+  }, [showSla]);
 
   /* Queue depths come from the paged collections their tiles link through to, so a tile always
      agrees with the list it opens. A non-essential read hides its tile rather than zeroing it. */
@@ -83,26 +109,26 @@ export default function AdminDashboard() {
     Promise.all([
       /* Pending-only and `oldest`-first: every use below wants the listings waiting longest, and a
          newest-first page cap drops precisely those. */
-      listForModeration({ status: 'pending', archived: false }, 'oldest'),
+      soft('the property queue', listForModeration({ status: 'pending', archived: false }, 'oldest')),
       soft('the catalogue counters', moderationSummary()),
-      listEnquiries(),
-      listVisits(),
-      listDeals(),
+      soft('enquiries', listEnquiries()),
+      soft('visits', listVisits()),
+      soft('deals', listDeals()),
       /* Two reads: the card wants the newest tickets whatever their state, the tile wants an exact
          count of one state — counting the first five would report "3 open" on a desk with ninety. */
       soft('the service desk', listTicketQueue({ size: 5 })),
       soft('the service desk', listTicketQueue({ status: 'open', size: 1 })),
       // Same trick for the owner sub-label: one row fetched, only `total` used.
       soft('the owner count', listUsers({ role: 'owner', size: 1 })),
-      soft('the scorecard', dashboardKpis()),
-      soft('traffic', fetchTraffic({ days: 30 })),
-      getSettings(),
+      soft('the scorecard', canReadAnalytics ? dashboardKpis() : Promise.resolve(null)),
+      soft('traffic', canReadAnalytics ? fetchTraffic({ days: 30 }) : Promise.resolve(null)),
+      soft('settings', canReadSettings ? getSettings() : Promise.resolve(null)),
     ]).then(([listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings]) => {
       if (!alive) return;
       setData({ listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings });
     });
     return () => { alive = false; };
-  }, []);
+  }, [canReadSettings, canReadAnalytics]);
 
   if (!data) return <Loading />;
 
@@ -112,9 +138,9 @@ export default function AdminDashboard() {
 
   // Queue depths — over the window each collection returns, which is the same window the tile links
   // through to. `unwrapFullPage` warns in the console on the day one of these overflows.
-  const newEnq = enquiries.filter((x) => x.status === 'new').length;
-  const schedVisits = visits.filter((x) => x.status === 'scheduled').length;
-  const dealsProg = deals.filter((x) => x.status === 'in_progress').length;
+  const newEnq = (enquiries || []).filter((x) => x.status === 'new').length;
+  const schedVisits = (visits || []).filter((x) => x.status === 'scheduled').length;
+  const dealsProg = (deals || []).filter((x) => x.status === 'in_progress').length;
 
   /* Counted by the server over the whole catalogue: a browser-side filter over a paged window
      reports a queue as shorter than it is. Null on a failed read, which hides the tile. */
@@ -137,18 +163,15 @@ export default function AdminDashboard() {
   /* `listings` arrives pending-only and oldest-first, so these five are the oldest in the catalogue
      rather than in a page. Widen the query if this card ever wants a second status, not the filter. */
   const now = Date.now();
-  const staleListings = listings
-    .filter((l) => {
-      if (l.status !== 'pending') return false;
-      const created = new Date(l.createdAt).getTime();
-      return (now - created) > 48 * 60 * 60 * 1000;
-    })
+  const pending = (listings || []).filter((l) => l.status === 'pending');
+  const staleListings = pending
+    .filter((l) => (now - new Date(l.createdAt).getTime()) > 48 * 60 * 60 * 1000)
     .slice(0, 5);
 
-  /* No server-side filter exists for "claimed but finished neither photos nor Aadhaar", so it stays
-     a client filter — but over the oldest pending listings, which surfaces the ones stuck longest. */
-  const awaitingOwner = listings
-    .filter((l) => l.postedByAdmin && l.status === 'pending' && (!l.photosUploaded || !l.identityVerified))
+  /* No server-side filter exists for "staff-posted, owner not yet confirmed", so it stays a client
+     filter — but over the oldest pending listings, which surfaces the ones stuck longest. */
+  const awaitingOwner = pending
+    .filter((l) => l.progress?.track === 'staff' && ['created', 'link_sent'].includes(l.progress.step))
     .slice(0, 5);
 
   const followUpItems = [...staleListings, ...awaitingOwner]
@@ -159,25 +182,25 @@ export default function AdminDashboard() {
   const actionTiles = [
     { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: pendingVerif != null },
     { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
-    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties', cta: 'Investigate', show: flagged != null },
+    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties?tab=flagged', cta: 'Investigate', show: flagged != null },
     { lbl: 'Open Reports', val: kpis?.openReports, icon: MessageSquareWarning, tint: 'rose', href: '/admin/properties?tab=reports', cta: 'Review reports', show: Boolean(kpis) },
     { lbl: 'New Enquiries', val: newEnq, icon: Mail, tint: 'indigo', href: '/admin/enquiries', cta: 'Respond now', show: true },
     { lbl: 'Scheduled Visits', val: schedVisits, icon: CalendarCheck, tint: 'teal', href: '/admin/enquiries', cta: 'Coordinate', show: true },
     { lbl: 'Open Service Requests', val: openTickets, icon: ConciergeBell, tint: 'coral', href: '/admin/services', cta: 'Assign & start', show: openTickets != null },
     { lbl: 'Deals in Progress', val: dealsProg, icon: Handshake, tint: 'emerald', href: '/admin/enquiries', cta: 'Close deals', show: true },
-  ].filter((t) => t.show).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
+  ].filter((t) => t.show && canOpen(t.href)).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
 
   /* `revenue30d` is null for a `staff` caller by design — the server redacts that one figure rather
      than refusing the read. `fmtINR(null)` would print ₹0, so null hides the tile instead. */
   const glanceTilesAll = [
     { lbl: 'Total Users', val: kpis?.totalUsers, display: fmtNum(kpis?.totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: owners == null ? 'buyers & owners' : `${fmtNum(owners)} owners`, show: Boolean(kpis) },
-    { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },
+    { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties?tab=all', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },
     { lbl: 'Revenue (last 30 days)', val: kpis?.revenue30d, display: fmtINR(kpis?.revenue30d), icon: IndianRupee, tint: 'emerald', href: '/admin/finance', sub: 'rolling window', show: showGlanceRevenue && kpis?.revenue30d != null },
     { lbl: 'Deals closed (30d)', val: kpis?.dealsClosed30d, display: fmtNum(kpis?.dealsClosed30d), icon: Trophy, tint: 'coral', href: '/admin/enquiries', sub: 'last 30 days', show: Boolean(kpis) },
     { lbl: 'Signups today', val: lastDay?.signups, display: fmtNum(lastDay?.signups), icon: UserPlus, tint: 'rose', href: '/admin/users', sub: 'new registrations', show: Boolean(lastDay) },
     { lbl: 'Visits today', val: lastDay?.sessions, display: fmtNum(lastDay?.sessions), icon: MousePointerClick, tint: 'indigo', href: '/admin/analytics', sub: `${fmtNum(sessions30)} in 30d`, show: showGlanceTraffic && Boolean(lastDay) },
   ];
-  const glanceTiles = glanceTilesAll.filter((t) => t.show).map((t) => ({ ...t, attention: false }));
+  const glanceTiles = glanceTilesAll.filter((t) => t.show && canOpen(t.href)).map((t) => ({ ...t, attention: false }));
 
   const f = (settings && settings.flags) || {};
   const svcKeys = ['svcRentAgreement', 'svcLegal', 'svcValuation', 'svcInterior', 'svcPackers', 'svcHomeLoans', 'societySaaS'];
@@ -198,19 +221,18 @@ export default function AdminDashboard() {
     { lbl: 'Manage services', icon: ConciergeBell, href: '/admin/services' },
     { lbl: 'Feature flags', icon: ToggleRight, href: '/admin/settings' },
     { lbl: 'View live site', icon: ExternalLink, href: '/' },
-  ];
+  ].filter((q) => canOpen(q.href));
 
   /* Oldest first, because this card is a queue and not a feed: the listing that has waited longest
      is the one a moderator should open next. */
-  const pend = listings.filter((l) => l.status === 'pending').slice(0, 5);
+  const pend = pending.slice(0, 5);
   const latestTickets = tickets.slice(0, 5);
 
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across Draazy" />
 
-      {/* Smart Alerts, SLA Health and the Daily Ops Scorecard are absent because no route produces
-          their data; each is a row in tasks/DECISIONS-NEEDED.md and the components stay on disk. */}
+      {showSla ? <SlaHealthPanel sla={sla} /> : null}
 
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className={SECTIONS}>Needs attention</h2>
@@ -236,6 +258,7 @@ export default function AdminDashboard() {
         <span className="text-sm text-gray-500">System status pulled live from your settings</span>
       </div>
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        {settings ? (
         <div className="dz-card p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -258,6 +281,7 @@ export default function AdminDashboard() {
             ))}
           </div>
         </div>
+        ) : null}
 
         <div className="dz-card p-5">
           <div className="mb-3">
@@ -288,6 +312,7 @@ export default function AdminDashboard() {
       {/* min-w-0 on both cards: a grid item defaults to `min-width: auto`, so the track refuses to
           shrink and the rows' existing truncation never gets a chance to run. */}
       <div className="grid gap-4 lg:grid-cols-2">
+        {canOpen('/admin/properties') ? (
         <div className="dz-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -324,7 +349,9 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        ) : null}
 
+        {canOpen('/admin/services') ? (
         <div className="dz-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -356,6 +383,7 @@ export default function AdminDashboard() {
             ))}
           </div>
         </div>
+        ) : null}
       </div>
     </div>
   );

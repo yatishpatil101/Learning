@@ -29,3 +29,18 @@ export async function getStaffActivitySummary(filter = {}) {
     leaderboard: Array.isArray(res?.leaderboard) ? res.leaderboard : [],
   };
 }
+
+const performancePage = (res, days) => ({
+  windowDays: res?.windowDays ?? days,
+  staff: Array.isArray(res?.staff) ? res.staff : [],
+  queues: Array.isArray(res?.queues) ? res.queues : [],
+});
+
+export async function getTeamPerformance(days = 7) {
+  return performancePage(await get('/admin/team-performance', { days }), days);
+}
+
+// Same shape as team performance, narrowed server-side to the caller and their functions' queues.
+export async function getMyWork(days = 7) {
+  return performancePage(await get('/admin/my-work', { days }), days);
+}

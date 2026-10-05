@@ -31,12 +31,13 @@ class StaffActivityRepository {
      * asked. This is a staff review, so the feed is scoped to back-office roles at the SQL level
      * rather than in a filter the caller could omit.
      */
-    private static final String BACK_OFFICE = "a.actor_role in ('staff', 'admin')";
+    private static final String BACK_OFFICE = "a.actor_role in ('staff', 'manager', 'admin')";
 
     private static final String FILTERS = """
               and (cast(:actor  as text) is null or a.actor  = cast(:actor  as text))
               and (cast(:entity as text) is null or a.entity = cast(:entity as text))
               and (cast(:action as text) is null or a.action = cast(:action as text))
+              and (cast(:actorRole as text) is null or a.actor_role = cast(:actorRole as text))
               and (cast(:from as timestamptz) is null or a.at >= cast(:from as timestamptz))
               and (cast(:to   as timestamptz) is null or a.at <  cast(:to   as timestamptz))
               and (cast(:q as text) is null
@@ -154,6 +155,7 @@ class StaffActivityRepository {
         query.setParameter("actor", filter.actor());
         query.setParameter("entity", filter.entity());
         query.setParameter("action", filter.action());
+        query.setParameter("actorRole", filter.actorRole());
         query.setParameter("from", filter.from() == null ? null : filter.from().toString());
         query.setParameter("to", filter.to() == null ? null : filter.to().toString());
         query.setParameter("q", filter.like());

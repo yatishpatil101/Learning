@@ -3,7 +3,9 @@ package com.draazy.api.admin.staff;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
+import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import java.time.Instant;
 import org.springframework.data.domain.Pageable;
@@ -17,12 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The Staff Activity console: who in the back office did what, and how much of it.
  *
- * <p>Both routes are administrator-only under {@code audit:read}, the same guard as the audit log
- * itself. They read the same table, and a capability that reads another module's rows cannot be more
- * public than the module that owns them — otherwise the permission that keeps staff out of
- * {@code GET /admin/audit-log} is a lock on one of two doors. The atom is {@code audit:read} rather
- * than a new {@code staff:read} for exactly that reason: a second name for the same access is a
- * second thing to remember to revoke.
+ * <p>Administrators see the full back-office feed; managers with {@code audit:read} see staff rows
+ * only. The atom stays {@code audit:read} because this route is an audit-log projection, not a
+ * separate source of truth.
  *
  * <p>Read-only by construction. Nothing here can write an audit row, which matters more than usual:
  * a review surface that could edit the record it reviews is not a review surface.
@@ -30,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class StaffActivityController {
 
-    private static final String GUARD = "hasRole('" + Roles.ADMIN + "') and "
+    private static final String GUARD = "hasAnyRole('" + Roles.MANAGER + "', '" + Roles.ADMIN + "') and "
             + BackOfficePermissions.REQUIRE_AUDIT_READ;
 
     private final StaffActivityService activity;
@@ -48,9 +47,11 @@ public class StaffActivityController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(required = false) String q,
+            @CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                activity.feed(new StaffActivityFilter(actor, entity, action, from, to, q),
+                activity.feed(new StaffActivityFilter(actor, entity, action, from, to, q,
+                                actorRoleFilter(principal)),
                         Pageables.unsorted(pageable)),
                 row -> row);
     }
@@ -68,7 +69,13 @@ public class StaffActivityController {
             @RequestParam(required = false) String action,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            @RequestParam(required = false) String q) {
-        return activity.summary(new StaffActivityFilter(actor, entity, action, from, to, q));
+            @RequestParam(required = false) String q,
+            @CurrentUser AuthPrincipal principal) {
+        return activity.summary(new StaffActivityFilter(actor, entity, action, from, to, q,
+                actorRoleFilter(principal)));
+    }
+
+    private static String actorRoleFilter(AuthPrincipal principal) {
+        return Roles.Wire.MANAGER.equals(principal.role()) ? Roles.Wire.STAFF : null;
     }
 }

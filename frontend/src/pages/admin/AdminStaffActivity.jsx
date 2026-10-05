@@ -15,7 +15,7 @@ import DateRangePills from '../../components/ui/DateRangePills.jsx';
  *
  * Every figure on this page is counted by the server. Folding KPI tiles and a leaderboard out of
  * the rows the browser happens to hold makes "total activities" mean "rows in this tab" and ranks
- * the current page rather than the team — wrong numbers, printed confidently, on the page used to
+ * the current page rather than the staff — wrong numbers, printed confidently, on the page used to
  * judge colleagues.
  *
  * Two reads, both administrator-only under `audit:read`:
@@ -137,7 +137,7 @@ export default function AdminStaffActivity() {
           <div>
             <div className="text-sm font-medium text-white">{a.actorName}</div>
             <div className="text-[11px] text-gray-500 capitalize">
-              {a.actorTeam ? `${a.actorTeam} team` : a.actorRole}
+              {a.actorRole || 'staff'}
             </div>
           </div>
         </div>
@@ -190,7 +190,7 @@ export default function AdminStaffActivity() {
           <div className="min-w-0">
             <div className="truncate text-sm font-medium text-white">{a.actorName}</div>
             <div className="text-[11px] text-gray-500 capitalize">
-              {a.actorTeam ? `${a.actorTeam} team` : a.actorRole}
+              {a.actorRole || 'staff'}
             </div>
           </div>
         </div>
@@ -303,7 +303,7 @@ export default function AdminStaffActivity() {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white truncate">{s.name}</div>
                     <div className="text-[11px] text-gray-500 capitalize">
-                      {s.team ? `${s.team} team` : s.role}
+                      {s.role || 'staff'}
                     </div>
                   </div>
                 </div>

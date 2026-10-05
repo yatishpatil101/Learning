@@ -192,6 +192,24 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.leaderboard[0].name").value(other.getName()));
     }
 
+    @Test
+    @DisplayName("managers read staff activity but not manager or admin rows")
+    void managersSeeStaffActivityOnly() throws Exception {
+        User manager = person("9878000011", Roles.Wire.MANAGER);
+        User admin = person("9878000012", Roles.Wire.ADMIN);
+        User staff = person("9878000013", Roles.Wire.STAFF);
+        auditRow(manager, Roles.Wire.MANAGER, "d213.manager.action", "user");
+        auditRow(admin, Roles.Wire.ADMIN, "d213.admin.action", "user");
+        auditRow(staff, Roles.Wire.STAFF, "d213.staff.action", "user");
+
+        mvc.perform(get(Routes.Admin.STAFF_ACTIVITY)
+                        .param("q", "d213.")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(manager)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].actorRole").value(Roles.Wire.STAFF));
+    }
+
     // ---------------------------------------------------------------- the guard
 
     @Test
