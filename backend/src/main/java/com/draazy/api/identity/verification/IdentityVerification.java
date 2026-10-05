@@ -10,10 +10,7 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * One user's identity case (one row per account) — maps {@code identity_verifications} (V23). The
- * doc number never lands; UNIQUE {@code identityHash} is written from the reviewer's read at approval.
- */
+// The document number never lands; UNIQUE identityHash is written only at approval.
 @Entity
 @Table(name = "identity_verifications")
 @Getter
@@ -68,6 +65,18 @@ public class IdentityVerification extends AuditedEntity {
     @Setter
     private LocalDate holderDob;
 
+    @Column(name = "holder_dob_year_only", nullable = false)
+    @Setter
+    private boolean holderDobYearOnly = false;
+
+    @Column(name = "liveness")
+    @Setter
+    private String liveness;
+
+    @Column(name = "consent_notice_version")
+    @Setter
+    private String consentNoticeVersion;
+
     @Column(name = "consent_at", nullable = false)
     @Setter
     private Instant consentAt;
@@ -100,12 +109,60 @@ public class IdentityVerification extends AuditedEntity {
     @Setter
     private String rejectionNote;
 
+    @Column(name = "revoked_at")
+    @Setter
+    private Instant revokedAt;
+
+    @Column(name = "revoked_by")
+    @Setter
+    private UUID revokedBy;
+
+    @Column(name = "revocation_reason")
+    @Setter
+    private String revocationReason;
+
     @Column(name = "files_purged_at")
     @Setter
     private Instant filesPurgedAt;
 
+    @Column(name = "consent_language")
+    @Setter
+    private String consentLanguage;
+
+    @Column(name = "claimed_by")
+    @Setter
+    private UUID claimedBy;
+
+    @Column(name = "claimed_at")
+    @Setter
+    private Instant claimedAt;
+
+    @Column(name = "qa_sampled_at")
+    @Setter
+    private Instant qaSampledAt;
+
+    @Column(name = "qa_reviewed_by")
+    @Setter
+    private UUID qaReviewedBy;
+
+    @Column(name = "qa_reviewed_at")
+    @Setter
+    private Instant qaReviewedAt;
+
+    @Column(name = "qa_outcome")
+    @Setter
+    private String qaOutcome;
+
+    @Column(name = "liveness_challenge")
+    @Setter
+    private String livenessChallenge;
+
+    @Column(name = "number_overridden", nullable = false)
+    @Setter
+    private boolean numberOverridden = false;
+
     protected IdentityVerification() {
-        // JPA
+
     }
 
     public IdentityVerification(UUID userId, String docType, Instant now) {
@@ -133,6 +190,22 @@ public class IdentityVerification extends AuditedEntity {
         this.decidedAt = null;
         this.rejectionReason = null;
         this.rejectionNote = null;
+        this.docLast4 = null;
+        this.holderName = null;
+        this.holderDob = null;
+        this.holderDobYearOnly = false;
+        this.revokedAt = null;
+        this.revokedBy = null;
+        this.revocationReason = null;
         this.filesPurgedAt = null;
+        this.consentLanguage = null;
+        this.claimedBy = null;
+        this.claimedAt = null;
+        this.qaSampledAt = null;
+        this.qaReviewedBy = null;
+        this.qaReviewedAt = null;
+        this.qaOutcome = null;
+        this.livenessChallenge = null;
+        this.numberOverridden = false;
     }
 }

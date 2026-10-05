@@ -1,17 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getAadhaarStatus, submitIdentityVerification } from '../services/verificationService.js';
+import { getAadhaarStatus, submitIdentityVerification, withdrawIdentityVerification } from '../services/verificationService.js';
 import { NONE_VERIFICATION } from '../services/providers/http/verificationMapper.js';
 import { useAuth } from './AuthContext.jsx';
 
-/**
- * The caller's opt-in identity-verification state, fetched once for the whole app because seven
- * render paths ask for it. Badge, never a wall (ADR-019): an unreachable badge reads as `none`.
- */
+/* App-wide verification is a badge, never a wall; unreachable state reads as `none`. */
 const VerificationContext = createContext(null);
 
-/** What every consumer sees before the first load settles, and whenever there is no session. Both
-    the render floor (NONE) and the outside-provider fallback (EMPTY) derive from the mapper's single
-    frozen floor shape, so the badge fields cannot drift between the three places that restate them. */
+/* Render floor and outside-provider fallback both derive from the mapper's empty state. */
 const NONE = { ...NONE_VERIFICATION };
 
 const EMPTY = {
@@ -19,6 +14,7 @@ const EMPTY = {
   loading: false,
   refresh: async () => NONE,
   submitVerification: async () => NONE,
+  withdrawVerification: async () => NONE,
 };
 
 export function VerificationProvider({ children }) {
@@ -54,6 +50,12 @@ export function VerificationProvider({ children }) {
     return next;
   }, []);
 
+  const withdrawVerification = useCallback(async () => {
+    const next = await withdrawIdentityVerification();
+    setBadge(next);
+    return next;
+  }, []);
+
   const value = useMemo(() => ({
     verified: badge.verified,
     status: badge.status,
@@ -64,6 +66,8 @@ export function VerificationProvider({ children }) {
     decidedAt: badge.decidedAt,
     rejectionReason: badge.rejectionReason,
     rejectionNote: badge.rejectionNote,
+    revokedAt: badge.revokedAt,
+    revocationReason: badge.revocationReason,
     attemptsRemaining: badge.attemptsRemaining,
     retryAfter: badge.retryAfter,
     canRetry: badge.canRetry,
@@ -75,7 +79,8 @@ export function VerificationProvider({ children }) {
     loading,
     refresh,
     submitVerification,
-  }), [badge, loading, refresh, submitVerification]);
+    withdrawVerification,
+  }), [badge, loading, refresh, submitVerification, withdrawVerification]);
 
   return <VerificationContext.Provider value={value}>{children}</VerificationContext.Provider>;
 }

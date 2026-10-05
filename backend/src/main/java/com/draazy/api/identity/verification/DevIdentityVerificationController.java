@@ -11,10 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Local-only shortcut: self-approves the caller's pending case so the consumer flow can run without
- * a staff session. {@code local} profile only, absent from the contract (see {@code SpecCoverageTest}).
- */
+// Local-only shortcut so the consumer flow can run without a staff session.
 @RestController
 @LocalOnly
 public class DevIdentityVerificationController {
@@ -30,32 +27,30 @@ public class DevIdentityVerificationController {
         this.verifications = verifications;
     }
 
-    /**
-     * {@code POST /me/verification/identity/simulate?outcome=approve|reject} — decide the caller's
-     * pending case. The synthetic number is derived from the user id so two dev users never collide.
-     */
+    // POST /me/verification/identity/simulate?outcome=approve|reject — decide the caller's pending
+    // case. The synthetic number is derived from the user id so two dev users never collide.
     @PostMapping(Routes.Verification.IDENTITY_SIMULATE)
     public IdentityVerificationResponse simulate(@CurrentUser AuthPrincipal principal,
             @RequestParam(defaultValue = "approve") String outcome) {
         IdentityVerification v = verifications.findByUserId(principal.userId())
                 .orElseThrow(() -> new NotFoundException("No pending case to decide"));
-        UUID reviewer = principal.userId();
         if ("reject".equals(outcome)) {
-            reviews.reject(reviewer, v.getId(), new IdentityRejectRequest("blurry", "Simulated rejection"));
+            reviews.rejectSystem(v.getId(), new IdentityRejectRequest("blurry", "Simulated rejection"));
         } else {
-            reviews.approve(reviewer, v.getId(),
+            reviews.approveSystem(v.getId(),
                     new IdentityApproveRequest(syntheticNumber(v.getDocType(), principal.userId()),
-                            "Dev User", LocalDate.of(1990, 1, 1)));
+                            "Dev User", LocalDate.of(1990, 1, 1), null));
         }
         return service.status(principal.userId());
     }
 
-    /** A well-formed number per type, seeded from the user id; Aadhaar gets a valid Verhoeff digit. */
     static String syntheticNumber(String docType, UUID userId) {
         long seed = Math.abs(userId.getMostSignificantBits());
         return switch (docType) {
             case IdentityDocTypes.PAN -> "ABCDE" + String.format("%04d", seed % 10_000) + "Z";
             case IdentityDocTypes.DRIVING_LICENCE -> "MH" + String.format("%013d", seed % 10_000_000_000_000L);
+            case IdentityDocTypes.PASSPORT -> "A" + String.format("%07d", seed % 10_000_000);
+            case IdentityDocTypes.VOTER_ID -> "ABC" + String.format("%07d", seed % 10_000_000);
             default -> {
                 String body = "9" + String.format("%010d", seed % 10_000_000_000L);
                 for (char d = '0'; d <= '9'; d++) {

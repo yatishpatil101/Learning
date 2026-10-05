@@ -48,12 +48,11 @@ test('submission payload is multipart-safe and excludes absent parts', () => {
   const form = toSubmissionPayload({
     docType: 'pan',
     consent: true,
-    claims: { number: 'ABCDE1234F', name: 'Asha Patil', dob: '1991-04-12' },
     captures: { front, selfie },
   });
   assert.equal(form.get('docType'), 'pan');
   assert.equal(form.get('consent'), 'true');
-  assert.equal(form.get('claims'), '{"number":"ABCDE1234F","name":"Asha Patil","dob":"1991-04-12"}');
+  assert.equal(form.get('claims'), null);
   assert.equal(form.get('front').name, 'front.jpg');
   assert.equal(form.get('selfie').name, 'selfie.jpg');
   assert.equal(form.get('back'), null);

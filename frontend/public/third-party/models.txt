@@ -1,35 +1,18 @@
-Machine-learning models redistributed with this application
+Machine-learning model redistributed with this application
 
-Both files below run entirely in the visitor's browser during identity
-verification. Neither the document photo, the selfie, nor the extracted text
-is sent to the model's original host — the files are served from this origin
-precisely so that no third party learns who started a verification, and so the
-Content-Security-Policy does not have to name an outside connect-src host.
-See frontend/src/lib/identity-verification/ocr.js and face.js.
+The file below runs entirely in the visitor's browser during identity
+verification. The selfie is never sent to the model's original host — the file
+is served from this origin precisely so that no third party learns who started
+a verification, and so the Content-Security-Policy does not have to name an
+outside connect-src host. See frontend/src/lib/identity-verification/face.js.
 
-Neither file is committed: 6.4 MB of unreviewable binary in every clone, for
-bytes that never change. `frontend/scripts/fetch-models.mjs` downloads them
-from the URLs below, checks each against the sha256 recorded here, and only
-then writes it. `prebuild` and `predev` run it, so `npm run build` and
-`npm run dev` — and therefore CI, the deploy job and Playwright — provision
-them with no manual step. A verified copy is cached in node_modules/.cache/
-models, so a repeat build is a hash check rather than a download.
-
-------------------------------------------------------------------------------
-/tessdata/eng.traineddata.gz
-
-  Tesseract OCR English language data ("tessdata_best", 4.0.0 int).
-  Copyright Google Inc. and the Tesseract contributors.
-  Licensed under the Apache License, Version 2.0 — see Apache-2.0.txt.
-
-  Obtained from:
-    https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz
-  Upstream project:
-    https://github.com/tesseract-ocr/tessdata_best
-  sha256: 45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91
-
-  Unmodified. Read by tesseract.js via its langPath option and cached by the
-  worker in IndexedDB after the first load.
+It is not committed: unreviewable binary in every clone, for bytes that never
+change. `frontend/scripts/fetch-models.mjs` downloads it from the URL below,
+checks it against the sha256 recorded here, and only then writes it.
+`prebuild` and `predev` run it, so `npm run build` and `npm run dev` — and
+therefore CI, the deploy job and Playwright — provision it with no manual step.
+A verified copy is cached in node_modules/.cache/models, so a repeat build is a
+hash check rather than a download.
 
 ------------------------------------------------------------------------------
 /models/face_landmarker.task
@@ -49,6 +32,6 @@ models, so a repeat build is a hash check rather than a download.
 
 ------------------------------------------------------------------------------
 
-To replace either model, drop a compatible file at the same path and rebuild;
+To replace the model, drop a compatible file at the same path and rebuild;
 nothing in the application verifies their contents. Re-run the checksums above
 after any deliberate update so a silent swap remains detectable.

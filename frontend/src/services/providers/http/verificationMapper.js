@@ -11,10 +11,13 @@ export const NONE_VERIFICATION = Object.freeze({
   decidedAt: null,
   rejectionReason: null,
   rejectionNote: null,
+  revokedAt: null,
+  revocationReason: null,
   attemptsRemaining: 3,
   retryAfter: null,
   canRetry: false,
   verifiedAt: null,
+  verifiedName: null,
   source: null,
   maskedAadhaar: null,
   mobileMatch: null,
@@ -28,7 +31,10 @@ export function toVerificationViewModel(res) {
   if (!res || typeof res !== 'object') return { ...NONE_VERIFICATION };
   const status = res.status || 'none';
   const decidedAt = parseTime(res.decidedAt);
-  const attemptsRemaining = Number.isFinite(res.attemptsRemaining) ? res.attemptsRemaining : 0;
+  const attemptsRemaining = Number.isFinite(res.attemptsRemaining) ? res.attemptsRemaining : null;
+  const canRetry = typeof res.canRetry === 'boolean'
+    ? res.canRetry
+    : status === 'rejected' && (attemptsRemaining == null || attemptsRemaining > 0);
   return {
     verified: status === 'verified',
     status,
@@ -39,10 +45,13 @@ export function toVerificationViewModel(res) {
     decidedAt,
     rejectionReason: res.rejectionReason ?? null,
     rejectionNote: res.rejectionNote ?? null,
+    revokedAt: parseTime(res.revokedAt),
+    revocationReason: res.revocationReason ?? null,
     attemptsRemaining,
     retryAfter: parseTime(res.retryAfter),
-    canRetry: status === 'rejected' && attemptsRemaining > 0,
+    canRetry,
     verifiedAt: decidedAt,
+    verifiedName: res.verifiedName ?? res.name ?? null,
     source: res.source ?? null,
     maskedAadhaar: res.maskedAadhaar ?? null,
     mobileMatch: res.mobileMatch ?? null,
@@ -50,11 +59,13 @@ export function toVerificationViewModel(res) {
   };
 }
 
-export function toSubmissionPayload({ docType, consent, claims, captures }) {
+export function toSubmissionPayload({ docType, consent, captures, liveness, challenge }) {
   const form = new FormData();
   form.set('docType', docType);
   form.set('consent', String(Boolean(consent)));
-  if (claims && Object.values(claims).some(Boolean)) form.set('claims', JSON.stringify(claims));
+  form.set('consentLanguage', 'en');
+  if (['passed', 'bypassed', 'unavailable'].includes(liveness)) form.set('liveness', liveness);
+  if (challenge) form.set('challenge', challenge);
   if (captures?.front) form.set('front', captures.front);
   if (captures?.back) form.set('back', captures.back);
   if (captures?.selfie) form.set('selfie', captures.selfie);

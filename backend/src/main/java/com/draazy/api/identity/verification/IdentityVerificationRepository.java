@@ -5,28 +5,23 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
-public interface IdentityVerificationRepository extends JpaRepository<IdentityVerification, UUID> {
+public interface IdentityVerificationRepository extends JpaRepository<IdentityVerification, UUID>,
+        JpaSpecificationExecutor<IdentityVerification> {
 
     Optional<IdentityVerification> findByUserId(UUID userId);
 
-    /**
-     * Submit path: the row is the attempt counter, so two concurrent submits from one device must
-     * serialise on it or the 3-per-day cap becomes 6.
-     */
+    // The row is the attempt counter; concurrent submits must serialise on it.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from IdentityVerification v where v.userId = :userId")
     Optional<IdentityVerification> findByUserIdForUpdate(UUID userId);
 
-    /**
-     * Decision path: two reviewers opening the same case must serialise, or both pass the pending
-     * check and the applicant is notified twice with only the later reviewer recorded.
-     */
+    // Serialises two reviewers so only one pending decision can pass.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from IdentityVerification v where v.id = :id")
     Optional<IdentityVerification> findByIdForUpdate(UUID id);
@@ -38,10 +33,17 @@ public interface IdentityVerificationRepository extends JpaRepository<IdentityVe
 
     List<IdentityVerification> findByPersonKey(String personKey);
 
-    Page<IdentityVerification> findByStatusOrderBySubmittedAtAsc(String status, Pageable pageable);
-
-    Page<IdentityVerification> findAllByOrderBySubmittedAtDesc(Pageable pageable);
+    long countByClaimedByAndStatusAndClaimedAtAfter(UUID claimedBy, String status, Instant cutoff);
 
     @Query("select v from IdentityVerification v where v.decidedAt < :cutoff and v.filesPurgedAt is null")
     List<IdentityVerification> findPurgeCandidates(Instant cutoff, Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select v from IdentityVerification v
+             where v.status = 'pending'
+               and v.submittedAt < :cutoff
+               and (v.claimedBy is null or v.claimedAt <= :claimCutoff)
+            """)
+    List<IdentityVerification> findStalePendingForUpdate(Instant cutoff, Instant claimCutoff, Pageable pageable);
 }

@@ -3,10 +3,7 @@ package com.draazy.api.identity.verification;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/**
- * Wire shape of {@code GET /me/verification/identity} (contract {@code IdentityVerification}).
- * Deliberately thin — the user sees status only, never the OCR claim (that is for reviewers).
- */
+// Deliberately thin: the user sees status only, never the reviewer OCR claim.
 public record IdentityVerificationResponse(
         String status,
         String docType,
@@ -15,10 +12,11 @@ public record IdentityVerificationResponse(
         Instant decidedAt,
         String rejectionReason,
         String rejectionNote,
+        Instant revokedAt,
+        String revocationReason,
         int attemptsRemaining,
         Instant retryAfter) {
 
-    /** The parsed {@code claims} form field — what the on-device OCR read off the card. */
     public record Claims(String number, String name, LocalDate dob) {
     }
 }

@@ -1,27 +1,5 @@
-/* Downloads the two machine-learning models identity verification runs in the browser, and
- * verifies them against pinned SHA-256 digests.
- *
- * Why a script instead of committing them: together they are 6.5 MB of binary that every clone
- * and every `git fetch` would carry forever, for files no build step reads and no diff can ever
- * show meaningfully. They are frozen upstream artefacts, so fetching them is reproducible in a
- * way that vendoring is not cheaper than.
- *
- * Why self-hosted rather than a CDN <script>/fetch at runtime: a CDN copy would tell a third
- * party the moment someone begins an identity check, and serving them from our own origin is what
- * lets the Content-Security-Policy keep `connect-src 'self'` with no outside host named. See
- * public/_headers, and src/lib/identity-verification/{ocr,face}.js.
- *
- * Why the digests are not optional: a truncated download, a captive-portal login page or an S3
- * error document all produce a file that exists, builds green and deploys green. The failure then
- * surfaces only in a user's browser, where a bad language model leaves emscripten's abort()
- * unable to settle the recognize promise and verification hangs until the 45s deadline. The hash
- * is the only check that runs before that becomes someone else's problem.
- *
- * Runs automatically from `prebuild` and `predev`. Safe and near-instant to re-run: a file whose
- * digest already matches is left alone and never re-fetched.
- *
- * Usage:  node scripts/fetch-models.mjs
- */
+/** Why a script instead of committing them: together they are 6.5 MB of binary that every clone and every `git fetch`
+ * would carry forever, for files no build step reads and no diff can ever show meaningfully. */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -29,15 +7,9 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-/* Provenance, licence and upstream project for both files are recorded in
- * public/third-party/models.txt, which ships to users. Keep the two in step. */
+/* Provenance, licence and upstream project are recorded in public/third-party/models.txt, which
+ * ships to users. Keep the two in step. */
 const MODELS = [
-  {
-    target: 'public/tessdata/eng.traineddata.gz',
-    // Pinned to a tessdata_best 4.0.0 build. tesseract.js reads it via its langPath option.
-    url: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',
-    sha256: '45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91',
-  },
   {
     target: 'public/models/face_landmarker.task',
     // Pinned to float16 revision 1, never '/latest/': the model deciding whether a selfie shows a

@@ -10,10 +10,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Keyed hashes enforcing "one document = one account" without storing the document. HMAC (not
- * plain SHA-256) because the 10^11 Aadhaar space is brute-forceable from a leaked dump.
- */
+// HMAC, not plain SHA-256: the Aadhaar space is brute-forceable from a leaked dump.
 @Component
 public class IdentityHasher {
 
@@ -37,7 +34,11 @@ public class IdentityHasher {
             return null;
         }
         String n = name.trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
-        return hmac("person:" + n + "|" + dob);
+        return hmac("person:" + n + "|" + dob.getYear());
+    }
+
+    public String challengeMac(String payload) {
+        return hmac("challenge:" + payload);
     }
 
     private String hmac(String input) {

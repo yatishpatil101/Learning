@@ -24,10 +24,6 @@ export function stopCameraStream(stream) {
   stream?.getTracks?.().forEach((track) => track.stop());
 }
 
-/**
- * The part of the camera frame the guide overlay covers. The preview paints with `object-cover`, so
- * mapping the guide back through that transform keeps the stored file readable enough for OCR.
- */
 function guidedRegion(video, guide) {
   const frameWidth = video.videoWidth;
   const frameHeight = video.videoHeight;

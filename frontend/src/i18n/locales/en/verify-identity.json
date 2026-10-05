@@ -1,0 +1,173 @@
+{
+  "verifyIdentity": {
+    "steps": {
+      "start": "Start",
+      "capture": "Capture",
+      "review": "Review",
+      "status": "Status"
+    },
+    "shell": {
+      "verifyTitle": "Verify identity",
+      "statusTitle": "Identity status",
+      "reviewTitle": "Review",
+      "backLabel": "Go back",
+      "closeLabel": "Close verification",
+      "stepsLabel": "Verification steps"
+    },
+    "documents": {
+      "aadhaar": { "label": "Aadhaar", "hint": "Front + back", "tag": "Fastest" },
+      "pan": { "label": "PAN", "hint": "Front only" },
+      "driving_licence": { "label": "Driving licence", "hint": "Front + back" },
+      "passport": { "label": "Passport", "hint": "Front only" }
+    },
+    "phone": {
+      "title": "Use your phone",
+      "body": "Photos work best on the camera you hold.",
+      "qrAlt": "QR code to open verification on your phone",
+      "hint": "On a phone already? Allow camera access and reopen this page."
+    },
+    "start": {
+      "title": "Get Verified",
+      "body": "Verified owners get more replies.",
+      "docsLabel": "Choose identity document",
+      "consentTitle": "Consent",
+      "consent": {
+        "line1": "We collect ID photo + selfie.",
+        "line2": "Verified badge only; staff review.",
+        "line3": "Images delete 7 days after decision. Withdraw here anytime."
+      },
+      "agree": "I agree to identity review for the Verified badge.",
+      "cta": "Start capture"
+    },
+    "capture": {
+      "selfieTitle": "Selfie",
+      "frames": { "front": "front", "back": "back", "selfie": "selfie" },
+      "progressLabel": "Capture progress",
+      "frontSide": "Front side up",
+      "backSide": "Back side up",
+      "noCamera": "No camera yet",
+      "cameraDenied": "The camera is blocked for this site. Allow it in your browser settings, then try again.",
+      "cameraFailed": "The camera would not start.",
+      "takeFrame": "Take {{frame}}",
+      "takeSelfie": "Take selfie",
+      "retakeFrame": "Retake {{frame}}",
+      "finishChecks": "Hold the pose to unlock.",
+      "checksBypassed": "We could not read the checks. A reviewer decides.",
+      "checksPassed": "Checks passed",
+      "quality": {
+        "line": "Line the card up inside the frame.",
+        "tooDark": "Too dark. Find brighter light.",
+        "blurry": "Hold still. Text must be sharp.",
+        "back": "Turn the card over.",
+        "front": "Lay the ID flat."
+      },
+      "selfieStages": {
+        "smile": "Smile",
+        "left": "Turn left",
+        "right": "Turn right"
+      },
+      "selfie": {
+        "initial": "Bring your face into the oval.",
+        "unavailable": "Face guidance is off. Keep your face centred and well lit.",
+        "noFace": "No face yet. Bring it into the oval.",
+        "closer": "A bit closer — fill more of the oval.",
+        "backOff": "Back off slightly.",
+        "center": "Centre up — chin inside the oval.",
+        "smileOk": "Got the smile.",
+        "smilePrompt": "Give us a smile.",
+        "gotIt": "Got it.",
+        "turnLeft": "Turn your head left.",
+        "turnRight": "Now turn your head right.",
+        "hold": "Hold it there.",
+        "allPassed": "All checks passed. Capture your selfie.",
+        "challengeExpired": "The selfie check expired. Please retake your selfie."
+      }
+    },
+    "review": {
+      "title": "Check photos",
+      "body": "Retake anything unclear.",
+      "noBack": "No back needed",
+      "nameHint": "Your profile name will match your ID.",
+      "submit": "Submit",
+      "sending": "Sending…",
+      "notTaken": "Not taken",
+      "retake": "Retake",
+      "previewAlt": "{{label}} preview"
+    },
+    "dispute": {
+      "duplicate": "This ID is already verified on another Draazy account.",
+      "reportCta": "Report misuse",
+      "sheetTitle": "Report misuse",
+      "sheetBody": "Tell us if this ID is yours.",
+      "noteLabel": "Note (optional)",
+      "notePlaceholder": "Add anything useful",
+      "send": "Send report",
+      "sending": "Sending…",
+      "sent": "Report sent. Our team will reply within 2 working days.",
+      "open": "You already have an open report.",
+      "supportLink": "View support tickets"
+    },
+    "status": {
+      "pendingTitle": "In review",
+      "pendingBody": "We will update the badge after review.",
+      "verifiedTitle": "Verified",
+      "verifiedBody": "Your badge is live.",
+      "verifiedAs": "Verified as {{name}}",
+      "rejectedTitle": "Needs attention",
+      "rejectedBody": "Retake only if needed.",
+      "revokedTitle": "Badge removed",
+      "revokedBody": "Your Verified badge is no longer active.",
+      "noneTitle": "Get Verified",
+      "noneBody": "Verified owners get more replies.",
+      "removedLabel": "Badge removed",
+      "removedBody": "Your badge was removed.",
+      "needsAttention": "Needs attention",
+      "attemptsLeft": "Attempts left: {{count}}",
+      "document": "Document",
+      "revoked": "Revoked",
+      "retryAfter": "Retry after",
+      "timeline": {
+        "submitted": "Submitted",
+        "review": "In review",
+        "verified": "Verified",
+        "removed": "Removed",
+        "attention": "Needs attention"
+      }
+    },
+    "withdraw": {
+      "link": "Remove my ID data",
+      "title": "Remove ID data?",
+      "body": "This deletes your documents, selfie and badge.",
+      "remove": "Remove",
+      "removing": "Removing…"
+    },
+    "rejection": {
+      "blurry": "Photo was blurry. Retake in brighter light.",
+      "cropped": "Corners were cut off. Keep the full ID inside the frame.",
+      "mismatch": "Details did not match. Use your own ID.",
+      "expired": "Document is expired. Try a valid one.",
+      "not_holder": "Selfie did not match the ID holder.",
+      "unsupported": "This document was not supported.",
+      "other": "Review could not approve this. Try again.",
+      "not_reviewed": "Review timed out. This does not use an attempt."
+    },
+    "actions": {
+      "tryAgain": "Try again",
+      "done": "Done",
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "unreachable": "That did not send. Check your connection and try again.",
+      "updated": "Draazy was updated while this page was open. Reload and start again.",
+      "server": "Verification is unavailable right now — this is on our side, not your photos. Please try again later{{reference}}.",
+      "reference": " (reference {{traceId}})",
+      "rateLimited": "Too many attempts. Try again later.",
+      "rateLimitedWithRetry": "Too many attempts. Try again in {{seconds}}s.",
+      "alreadyRegistered": "This ID is already verified on another Draazy account.",
+      "disputeOpen": "You already have an open report.",
+      "disputeConflict": "Please try submitting your document again first.",
+      "invalidNumber": "Check the ID number and try again.",
+      "genericClient": "That did not work. Check the details and try again."
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package com.draazy.api.identity.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,21 +15,23 @@ import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.Roles;
 import com.draazy.api.support.AbstractApiTest;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 
-/**
- * Contract + behaviour for the document-and-selfie badge: multipart submission, 3-per-24h attempt
- * budget, reviewer queue, and one-document-one-account keyed on the reviewer's confirmed number.
- */
+@TestPropertySource(properties = "draazy.identity.qa-sample-rate=0.0")
 class VerificationEndpointsTest extends AbstractApiTest {
 
     private static final String PAN = "ABCDE1234F";
@@ -41,7 +44,14 @@ class VerificationEndpointsTest extends AbstractApiTest {
     @Autowired
     IdentityVerificationFileRepository files;
     @Autowired
+    LivenessCheck livenessCheck;
+    @Autowired
     IdentityVerificationService service;
+
+    @AfterEach
+    void cleanAuditRows() {
+        jdbc.update("delete from audit_log where action like 'identity.verification.%'");
+    }
 
     private User user(String mobile) {
         return person(mobile, Roles.Wire.BUYER, "Asha Patil");
@@ -88,7 +98,10 @@ class VerificationEndpointsTest extends AbstractApiTest {
     }
 
     private ResultActions submitPan(User u, String number) throws Exception {
-        return mvc.perform(submission(u, IdentityDocTypes.PAN, false).param("claims", claims(number)));
+        return mvc.perform(submission(u, IdentityDocTypes.PAN, false)
+                .param("claims", claims(number))
+                .param("liveness", "passed")
+                .param("challenge", livenessCheck.issue(u.getId()).token()));
     }
 
     private UUID caseOf(User u) {
@@ -100,10 +113,15 @@ class VerificationEndpointsTest extends AbstractApiTest {
     }
 
     private ResultActions approve(User reviewer, UUID id, String number) throws Exception {
+        return approveBody(reviewer, id, "{\"number\":\"" + number
+                + "\",\"name\":\"Asha Patil\",\"dob\":\"1991-04-12\",\"poseConfirmed\":true}");
+    }
+
+    private ResultActions approveBody(User reviewer, UUID id, String body) throws Exception {
         return mvc.perform(post(reviewPath(Routes.Moderation.IDENTITY_REVIEW_APPROVE, id))
                 .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"number\":\"" + number + "\",\"name\":\"Asha Patil\",\"dob\":\"1991-04-12\"}"));
+                .content(body));
     }
 
     private ResultActions reject(User reviewer, UUID id) throws Exception {
@@ -113,7 +131,18 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .content("{\"reason\":\"blurry\",\"note\":\"Retake in better light\"}"));
     }
 
-    // ---------------- GET / POST /me/verification/identity ----------------
+    private ResultActions revoke(User reviewer, UUID id, String reason) throws Exception {
+        return mvc.perform(post(reviewPath(Routes.Moderation.IDENTITY_REVIEW_REVOKE, id))
+                .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"" + reason + "\"}"));
+    }
+
+    private int auditCount(String action, UUID id) {
+        return jdbc.queryForObject(
+                "select count(*) from audit_log where action = ? and entity_id = ?",
+                Integer.class, action, id.toString());
+    }
 
     @Test
     void getStatus_returnsTheNoCaseStateRatherThan404() throws Exception {
@@ -130,7 +159,9 @@ class VerificationEndpointsTest extends AbstractApiTest {
         User u = user("9830000002");
         String aadhaar = validAadhaar("98300000021");
 
-        mvc.perform(submission(u, IdentityDocTypes.AADHAAR, true).param("claims", claims(aadhaar)))
+        mvc.perform(submission(u, IdentityDocTypes.AADHAAR, true)
+                        .param("claims", claims(aadhaar))
+                        .param("liveness", "passed"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value(VerificationStatuses.PENDING))
                 .andExpect(jsonPath("$.docType").value(IdentityDocTypes.AADHAAR))
@@ -142,6 +173,8 @@ class VerificationEndpointsTest extends AbstractApiTest {
         assertThat(row.getClaimedNumberLast4()).isEqualTo(aadhaar.substring(8));
         assertThat(row.getClaimedHash()).isNotBlank();
         assertThat(row.getIdentityHash()).as("the dedup key is set at approval, never from OCR").isNull();
+        assertThat(row.getLiveness()).isEqualTo("passed");
+        assertThat(row.getConsentNoticeVersion()).isEqualTo(IdentityVerificationService.CONSENT_NOTICE_VERSION);
         assertThat(files.findByVerificationId(row.getId()))
                 .extracting(IdentityVerificationFile::getKind)
                 .containsExactlyInAnyOrder(IdentityVerificationFile.FRONT,
@@ -156,10 +189,26 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
         mvc.perform(submission(u, IdentityDocTypes.AADHAAR, false))
                 .andExpect(status().isUnprocessableEntity());
-        // A licence is read from the front, so a back is refused the same way a PAN's is.
+
         mvc.perform(submission(u, IdentityDocTypes.DRIVING_LICENCE, true))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(verifications.findByUserId(u.getId())).isEmpty();
+    }
+
+    @Test
+    void submit_acceptsPassportFrontOnly_andRequiresVoterIdBack() throws Exception {
+        User passportHolder = user("9830000037");
+        User voter = user("9830000038");
+
+        mvc.perform(submission(passportHolder, IdentityDocTypes.PASSPORT, false)
+                        .param("claims", claims("A1234567")))
+                .andExpect(status().isAccepted());
+        mvc.perform(submission(voter, IdentityDocTypes.VOTER_ID, false)
+                        .param("claims", claims("ABC1234567")))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(submission(voter, IdentityDocTypes.VOTER_ID, true)
+                        .param("claims", claims("ABC1234567")))
+                .andExpect(status().isAccepted());
     }
 
     @Test
@@ -174,7 +223,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
                         .param("docType", IdentityDocTypes.PAN).param("consent", "true")
                         .header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isUnprocessableEntity());
-        mvc.perform(submission(u, "passport", false))
+        mvc.perform(submission(u, "ration_card", false))
                 .andExpect(status().isUnprocessableEntity());
     }
 
@@ -206,8 +255,6 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    // ---------------- the reviewer ----------------
-
     @Test
     void approve_grantsTheBadge_storesOnlyLast4_andHashesTheReviewersNumber() throws Exception {
         User u = user("9830000010");
@@ -218,13 +265,16 @@ class VerificationEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Moderation.IDENTITY_REVIEWS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
                 .andExpect(status().isOk())
-            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].claims.number").value(PAN.substring(6)));
+            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].claims.number").value(PAN.substring(6)))
+            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].userMobile").value("98XXXXX010"));
 
         mvc.perform(get(reviewPath(Routes.Moderation.IDENTITY_REVIEW_BY_ID, id))
                 .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.userMobile").value("9830000010"))
             .andExpect(jsonPath("$.images.front").exists())
             .andExpect(jsonPath("$.images.selfie").exists());
+        assertThat(auditCount("identity.verification.viewed", id)).isEqualTo(1);
 
         approve(reviewer, id, PAN)
                 .andExpect(status().isOk())
@@ -236,6 +286,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
         assertThat(row.getIdentityHash()).isNotBlank().doesNotContain(PAN);
         assertThat(row.getReviewerId()).isEqualTo(reviewer.getId());
         assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isTrue();
+        assertThat(auditCount("identity.verification.approved", id)).isEqualTo(1);
 
         mvc.perform(get(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(jsonPath("$.status").value(VerificationStatuses.VERIFIED))
@@ -259,6 +310,48 @@ class VerificationEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    void approve_requiresExactlyOneAdultDobOrBirthYear() throws Exception {
+        User u = user("9830000043");
+        User reviewer = admin("9830000044");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+
+        approveBody(reviewer, id, "{\"number\":\"" + PAN + "\",\"name\":\"Asha Patil\"}")
+                .andExpect(status().isBadRequest());
+        approveBody(reviewer, id, "{\"number\":\"" + PAN
+                + "\",\"name\":\"Asha Patil\",\"dob\":\"1991-04-12\",\"birthYear\":1991}")
+                .andExpect(status().isBadRequest());
+        approveBody(reviewer, id, "{\"number\":\"" + PAN + "\",\"name\":\"Asha Patil\",\"dob\":\""
+                + LocalDate.now().plusDays(1) + "\"}")
+                .andExpect(status().isBadRequest());
+        approveBody(reviewer, id, "{\"number\":\"" + PAN + "\",\"name\":\"Asha Patil\",\"dob\":\"2010-01-01\"}")
+                .andExpect(status().isBadRequest());
+        approveBody(reviewer, id, "{\"number\":\"" + PAN + "\",\"name\":\"Asha Patil\",\"birthYear\":"
+                + (LocalDate.now().getYear() - 18) + "}")
+                .andExpect(status().isBadRequest());
+        approveBody(reviewer, id, "{\"number\":\"" + PAN + "\",\"name\":\"Asha Patil\",\"birthYear\":1991,\"poseConfirmed\":true}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.holderDob").value("1991-01-01"))
+                .andExpect(jsonPath("$.holderDobYearOnly").value(true));
+    }
+
+    @Test
+    void approve_enforcesPassportAndVoterIdNumberRules() throws Exception {
+        User passportHolder = user("9830000040");
+        User voter = user("9830000041");
+        User reviewer = admin("9830000042");
+        mvc.perform(submission(passportHolder, IdentityDocTypes.PASSPORT, false))
+                .andExpect(status().isAccepted());
+        mvc.perform(submission(voter, IdentityDocTypes.VOTER_ID, true))
+                .andExpect(status().isAccepted());
+
+        approve(reviewer, caseOf(passportHolder), "AA123456").andExpect(status().isUnprocessableEntity());
+        approve(reviewer, caseOf(passportHolder), "A1234567").andExpect(status().isOk());
+        approve(reviewer, caseOf(voter), "AB12345678").andExpect(status().isUnprocessableEntity());
+        approve(reviewer, caseOf(voter), "ABC1234567").andExpect(status().isOk());
+    }
+
+    @Test
     void reject_opensARetry_withTheReasonAndRemainingAttemptsVisibleToTheUser() throws Exception {
         User u = user("9830000014");
         User reviewer = admin("9830000015");
@@ -268,18 +361,71 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(VerificationStatuses.REJECTED))
                 .andExpect(jsonPath("$.rejectionReason").value("blurry"));
+        assertThat(auditCount("identity.verification.rejected", caseOf(u))).isEqualTo(1);
 
         mvc.perform(get(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(jsonPath("$.status").value(VerificationStatuses.REJECTED))
                 .andExpect(jsonPath("$.rejectionNote").value("Retake in better light"))
                 .andExpect(jsonPath("$.attemptsRemaining").value(2));
 
-        // The retake replaces the rejected case in place: one row per account, old photos gone.
         UUID before = caseOf(u);
         submitPan(u, PAN).andExpect(status().isAccepted());
         assertThat(caseOf(u)).isEqualTo(before);
         assertThat(verifications.findById(before).orElseThrow().getAttemptCount()).isEqualTo(2);
         assertThat(files.findByVerificationId(before)).hasSize(2);
+    }
+
+    @Test
+    void reject_requiresNotesForSensitiveReasons_andRejectsNotReviewedFromStaff() throws Exception {
+        User u = user("9830000045");
+        User reviewer = admin("9830000046");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+
+        mvc.perform(post(reviewPath(Routes.Moderation.IDENTITY_REVIEW_REJECT, id))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"mismatch\",\"note\":\"short\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(reviewPath(Routes.Moderation.IDENTITY_REVIEW_REJECT, id))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"not_reviewed\",\"note\":\"system only\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(reviewPath(Routes.Moderation.IDENTITY_REVIEW_REJECT, id))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"not_holder\",\"note\":\"Face and card clearly differ\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void revoke_clearsTheBadgeAndRequiresAVerifiedCase() throws Exception {
+        User u = user("9830000047");
+        User reviewer = admin("9830000048");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+
+        revoke(reviewer, id, "The approved document was disputed")
+                .andExpect(status().isConflict());
+        approve(reviewer, id, PAN).andExpect(status().isOk());
+        assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isTrue();
+
+        revoke(reviewer, id, " too short ")
+                .andExpect(status().isBadRequest());
+        revoke(reviewer, id, "The approved document was disputed")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(VerificationStatuses.REVOKED))
+                .andExpect(jsonPath("$.revocationReason").value("The approved document was disputed"))
+                .andExpect(jsonPath("$.revokedAt").exists())
+                .andExpect(jsonPath("$.revokedByName").value("Ops Admin"));
+        assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isFalse();
+        assertThat(auditCount("identity.verification.revoked", id)).isEqualTo(1);
+
+        mvc.perform(get(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(jsonPath("$.status").value(VerificationStatuses.REVOKED))
+                .andExpect(jsonPath("$.revocationReason").value("The approved document was disputed"))
+                .andExpect(jsonPath("$.revokedAt").exists());
     }
 
     @Test
@@ -313,7 +459,18 @@ class VerificationEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Moderation.IDENTITY_REVIEWS)).andExpect(status().isUnauthorized());
     }
 
-    // ---------------- one document = one account ----------------
+    @Test
+    void reviewersCannotDecideTheirOwnIdentityCase() throws Exception {
+        User self = admin("9830000049");
+        User reviewer = admin("9830000050");
+        submitPan(self, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(self);
+
+        approve(self, id, PAN).andExpect(status().isForbidden());
+        reject(self, id).andExpect(status().isForbidden());
+        approve(reviewer, id, PAN).andExpect(status().isOk());
+        revoke(self, id, "Self revocation must be blocked").andExpect(status().isForbidden());
+    }
 
     @Test
     void aSecondAccountCannotBeApprovedOnTheSameCard_andIsWarnedAtSubmitToo() throws Exception {
@@ -329,8 +486,6 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value(ErrorCodes.IDENTITY_ALREADY_REGISTERED));
 
-        // OCR misread (or was tampered with), so the claim slipped through — the reviewer's number
-        // is what the guarantee actually hangs on.
         submitPan(third, OTHER_PAN).andExpect(status().isAccepted());
         approve(reviewer, caseOf(third), PAN)
                 .andExpect(status().isConflict())
@@ -340,6 +495,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .isEqualTo(VerificationStatuses.PENDING);
     }
 
+    // ---------------- local-only "simulate a reviewer decision" ----------------
     @Test
     void theQueueFlagsASharedClaimOrPersonToTheReviewer() throws Exception {
         User first = user("9830000023");
@@ -354,8 +510,6 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.warnings[*].userId").value(org.hamcrest.Matchers.hasItem(first.getId().toString())));
     }
 
-    // ---------------- local-only "simulate a reviewer decision" ----------------
-
     @Test
     void simulate_decidesTheCallersOwnPendingCaseInDev() throws Exception {
         User u = user("9830000030");
@@ -368,7 +522,6 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.decidedAt").exists());
         assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isTrue();
 
-        // Nothing left to decide: a replay is a 409, not a second grant.
         mvc.perform(post(Routes.Verification.IDENTITY_SIMULATE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isConflict());
@@ -407,6 +560,59 @@ class VerificationEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    void stalePendingSweepRejectsPurgesAndDoesNotConsumeAnAttempt() throws Exception {
+        User u = user("9830000051");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+        IdentityVerification row = verifications.findById(id).orElseThrow();
+        row.setSubmittedAt(Instant.now().minus(15, ChronoUnit.DAYS));
+        verifications.saveAndFlush(row);
+
+        assertThat(service.expireStalePending(Duration.ofDays(14))).isEqualTo(1);
+        IdentityVerification expired = verifications.findById(id).orElseThrow();
+        assertThat(expired.getStatus()).isEqualTo(VerificationStatuses.REJECTED);
+        assertThat(expired.getRejectionReason()).isEqualTo(IdentityRejectRequest.NOT_REVIEWED);
+        assertThat(expired.getAttemptCount()).isZero();
+        assertThat(files.findByVerificationId(id)).isEmpty();
+
+        mvc.perform(get(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(jsonPath("$.rejectionReason").value(IdentityRejectRequest.NOT_REVIEWED))
+                .andExpect(jsonPath("$.attemptsRemaining").value(3));
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        assertThat(verifications.findById(id).orElseThrow().getAttemptCount()).isEqualTo(1);
+        assertThat(auditCount("identity.verification.expired", id)).isEqualTo(1);
+    }
+
+    @Test
+    void stalePendingSweepSkipsFreshClaimsAndExpiresStaleClaims() throws Exception {
+        User fresh = user("9830000052");
+        User stale = user("9830000053");
+        User reviewer = admin("9830000054");
+        submitPan(fresh, PAN).andExpect(status().isAccepted());
+        submitPan(stale, OTHER_PAN).andExpect(status().isAccepted());
+        UUID freshId = caseOf(fresh);
+        UUID staleId = caseOf(stale);
+        Instant now = Instant.now();
+        IdentityVerification freshClaim = verifications.findById(freshId).orElseThrow();
+        freshClaim.setSubmittedAt(now.minus(15, ChronoUnit.DAYS));
+        freshClaim.setClaimedBy(reviewer.getId());
+        freshClaim.setClaimedAt(now.minus(29, ChronoUnit.MINUTES));
+        IdentityVerification staleClaim = verifications.findById(staleId).orElseThrow();
+        staleClaim.setSubmittedAt(now.minus(15, ChronoUnit.DAYS));
+        staleClaim.setClaimedBy(reviewer.getId());
+        staleClaim.setClaimedAt(now.minus(31, ChronoUnit.MINUTES));
+        verifications.saveAndFlush(freshClaim);
+        verifications.saveAndFlush(staleClaim);
+
+        assertThat(service.expireStalePending(Duration.ofDays(14))).isEqualTo(1);
+
+        assertThat(verifications.findById(freshId).orElseThrow().getStatus())
+                .isEqualTo(VerificationStatuses.PENDING);
+        assertThat(verifications.findById(staleId).orElseThrow().getStatus())
+                .isEqualTo(VerificationStatuses.REJECTED);
+    }
+
+    @Test
     void erasureRemovesTheVerificationRowAndItsFiles() throws Exception {
         User u = user("9830000034");
         submitPan(u, PAN).andExpect(status().isAccepted());
@@ -417,5 +623,94 @@ class VerificationEndpointsTest extends AbstractApiTest {
         assertThat(verifications.findByUserId(u.getId())).isEmpty();
         assertThat(files.findByVerificationId(id)).isEmpty();
         assertThat(service.erase(u.getId())).isZero();
+    }
+
+    @Test
+    void submit_rejectsUnknownLiveness() throws Exception {
+        User u = user("9830000036");
+
+        mvc.perform(submission(u, IdentityDocTypes.PAN, false).param("liveness", "maybe"))
+                .andExpect(status().isBadRequest());
+        assertThat(verifications.findByUserId(u.getId())).isEmpty();
+    }
+
+    @Test
+    void withdrawPurgesFilesClearsBadgeAndReadsAsNone() throws Exception {
+        User u = user("9830000052");
+        User reviewer = admin("9830000053");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+        approve(reviewer, id, PAN).andExpect(status().isOk());
+        assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isTrue();
+
+        mvc.perform(delete(Routes.Verification.IDENTITY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+        verifications.flush();
+        assertThat(users.findById(u.getId()).orElseThrow().isVerified()).isFalse();
+        Map<String, Object> withdrawn = jdbc.queryForMap("""
+                select status, attempt_count, identity_hash, claimed_name, files_purged_at
+                from identity_verifications where id = ?
+                """, id);
+        assertThat(withdrawn.get("status")).isEqualTo(VerificationStatuses.WITHDRAWN);
+        assertThat(withdrawn.get("attempt_count")).isEqualTo(1);
+        assertThat(withdrawn.get("identity_hash")).isNull();
+        assertThat(withdrawn.get("claimed_name")).isNull();
+        assertThat(withdrawn.get("files_purged_at")).isNotNull();
+        assertThat(files.findByVerificationId(id)).isEmpty();
+        mvc.perform(get(Routes.Verification.IDENTITY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(VerificationStatuses.NONE));
+
+        mvc.perform(delete(Routes.Verification.IDENTITY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+        Integer audits = jdbc.queryForObject(
+                "select count(*) from audit_log where action = 'identity.verification.withdrawn' and actor = ?",
+                Integer.class, u.getId().toString());
+        assertThat(audits).isEqualTo(2);
+    }
+
+    @Test
+    void withdrawalKeepsAttemptWindow() throws Exception {
+        User u = user("9830000054");
+
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        mvc.perform(delete(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        mvc.perform(delete(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        mvc.perform(delete(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+
+        submitPan(u, PAN)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+    }
+
+    @Test
+    void withdrawingARevokedCaseKeepsTheFraudHash() throws Exception {
+        User first = user("9830000055");
+        User second = user("9830000056");
+        User reviewer = admin("9830000057");
+        submitPan(first, PAN).andExpect(status().isAccepted());
+        UUID firstId = caseOf(first);
+        approve(reviewer, firstId, PAN).andExpect(status().isOk());
+        revoke(reviewer, firstId, "The approved document was disputed").andExpect(status().isOk());
+
+        mvc.perform(delete(Routes.Verification.IDENTITY).header(HttpHeaders.AUTHORIZATION, bearer(first)))
+                .andExpect(status().isNoContent());
+        verifications.flush();
+        assertThat(jdbc.queryForObject(
+                "select identity_hash from identity_verifications where user_id = ?",
+                String.class, first.getId())).isNotBlank();
+
+        submitPan(second, OTHER_PAN).andExpect(status().isAccepted());
+        approve(reviewer, caseOf(second), PAN)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(ErrorCodes.IDENTITY_ALREADY_REGISTERED));
     }
 }

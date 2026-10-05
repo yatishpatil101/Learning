@@ -66,23 +66,23 @@ function faceBox(landmarks) {
 
 export function readSelfieGuidance(result, stage) {
   const landmarks = result?.faceLandmarks?.[0];
-  if (!landmarks?.length) return { ok: false, message: 'No face yet. Bring it into the oval.' };
+  if (!landmarks?.length) return { ok: false, messageKey: 'noFace' };
   const box = faceBox(landmarks);
-  // 0.18, not 0.22: a laptop webcam sits an arm's length away, and 0.22 forced an uncomfortable
-  // lean-in for a face that was perfectly readable. The stages still have to pass on top of this.
-  if (box.width < 0.18 || box.height < 0.18) return { ok: false, message: 'A bit closer — fill more of the oval.' };
-  if (box.width > 0.62 || box.height > 0.72) return { ok: false, message: 'Back off slightly.' };
+  // Laptop webcams sit an arm's length away; a stricter threshold rejects readable faces.
+  // The staged checks still run after this size gate.
+  if (box.width < 0.18 || box.height < 0.18) return { ok: false, messageKey: 'closer' };
+  if (box.width > 0.62 || box.height > 0.72) return { ok: false, messageKey: 'backOff' };
   if (Math.abs(box.centerX - 0.5) > 0.12 || Math.abs(box.centerY - 0.58) > 0.16) {
-    return { ok: false, message: 'Centre up — chin inside the oval.' };
+    return { ok: false, messageKey: 'center' };
   }
 
   if (stage === 'smile') {
     const smile = Math.max(blendScore(result, 'mouthSmileLeft'), blendScore(result, 'mouthSmileRight'));
-    return smile > 0.25 ? { ok: true, message: 'Got the smile.' } : { ok: false, message: 'Give us a smile.' };
+    return smile > 0.25 ? { ok: true, messageKey: 'smileOk' } : { ok: false, messageKey: 'smilePrompt' };
   }
 
   const turn = headTurn(result);
-  if (stage === 'left') return turn > 0.08 ? { ok: true, message: 'Got it.' } : { ok: false, message: 'Turn your head left.' };
-  if (stage === 'right') return turn < -0.08 ? { ok: true, message: 'Got it.' } : { ok: false, message: 'Now turn your head right.' };
-  return { ok: true, message: 'Hold it there.' };
+  if (stage === 'left') return turn > 0.08 ? { ok: true, messageKey: 'gotIt' } : { ok: false, messageKey: 'turnLeft' };
+  if (stage === 'right') return turn < -0.08 ? { ok: true, messageKey: 'gotIt' } : { ok: false, messageKey: 'turnRight' };
+  return { ok: true, messageKey: 'hold' };
 }
