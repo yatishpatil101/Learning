@@ -4,160 +4,96 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.Roles;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The deliberate hand-off of PAN and Aadhaar from the customer who typed them to the one operator
- * drafting from them (D151).
- *
- * <p><strong>What this replaces.</strong> The rent-agreement wizard used to post the owner's and
- * every tenant's identity numbers inside {@code service_requests.details}, which is plaintext
- * {@code jsonb} echoed verbatim by {@link ServiceRequestMapper} on every staff read — so the first
- * page of the ops queue was a bulk identity dump. The paid-L&amp;L security pass closed that in both
- * directions: the wizard redacts the numbers client-side and
- * {@code ServiceRequestService.rejectIdentityNumbers} refuses them if any future call site sends
- * them anyway. Both of those stay exactly as they are. This class is the channel that was missing —
- * the numbers still have to reach the desk, and until now nothing carried them.
- *
- * <p><strong>Why not the document vault, which is where the register pointed.</strong> The vault's
- * read model is {@code FileStorage.signedDownloadUrl(key)}: a URL that carries its own authority,
- * that nobody can be excluded from, and whose use never reaches our server. "Only the assigned
- * operator" and "every access is recorded" are the two requirements here and neither is expressible
- * against a bearer URL — {@code FileStorage} has no authenticated read at all, only a signer. Two
- * further facts settled it. {@code DocumentUploads.validate} accepts PDF, JPEG, PNG, HEIC and WebP
- * proved by magic bytes, so a set of numbers is not something the vault can hold without weakening
- * the allowlist that keeps non-documents out of it. And {@code DocumentService.delete} deliberately
- * leaves the stored object behind — a defensible trade for a sale deed, an indefensible one for an
- * Aadhaar number, which Aadhaar Act s.29 wants held deliberately, minimally and reversibly. The
- * vault would have made this a permanent, un-revocable, un-auditable copy of the most sensitive
- * field the platform touches. This table can be authorised, logged and blanked; that is the whole
- * argument, and it is a stronger outcome than the one the register sketched rather than a cheaper
- * one.
- *
- * <p><strong>Three guards, and they are the class.</strong>
- * <ol>
- *   <li><em>Only the requester writes.</em> These are their numbers and their counterparties'; a
- *       staff member who could write them could also invent them, and the agreement would then name
- *       somebody the customer never identified.</li>
- *   <li><em>Only the assignee reads.</em> Not "staff", not "admin" — the specific person the request
- *       is assigned to. An admin who needs them takes the request first, which is a timeline entry
- *       and an audit row, so the access has a name against it either way.</li>
- *   <li><em>Every read is recorded</em>, including every refused one. A refusal is the more
- *       interesting of the two: it is somebody reaching for a matter that is not theirs.</li>
- * </ol>
- *
- * <p><strong>And a fourth thing that is not a guard: the numbers stop existing.</strong>
- * {@link #purgeFor} runs on every terminal transition, so the retention window is exactly "while
- * somebody is drafting". Nothing else on the platform holds a raw Aadhaar — {@code identity.kyc}
- * stores masks by design — and this makes the exception time-boxed as well as narrow.
- */
 @Service
 public class ServiceRequestIdentityService {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceRequestIdentityService.class);
 
+    private static final Set<String> ALL_ROLES = Set.of("owner", "tenant", "witness");
+
+    static final String PURGED = "identities.purged";
+    static final String RERECORDED = "identities.recorded";
+    private static final Set<String> IDENTITY_EVENTS = Set.of(PURGED, RERECORDED);
+
     private final ServiceRequestIdentityRepository identities;
     private final ServiceRequestRepository requests;
+    private final ServiceRequestPartyRepository parties;
+    private final ServiceRequestEventRepository events;
     private final AuditService audit;
+    private final AccountPermissions accountPermissions;
 
     public ServiceRequestIdentityService(ServiceRequestIdentityRepository identities,
-            ServiceRequestRepository requests, AuditService audit) {
+            ServiceRequestRepository requests, ServiceRequestPartyRepository parties,
+            ServiceRequestEventRepository events, AuditService audit,
+            AccountPermissions accountPermissions) {
         this.identities = identities;
         this.requests = requests;
+        this.parties = parties;
+        this.events = events;
         this.audit = audit;
+        this.accountPermissions = accountPermissions;
     }
 
-    /**
-     * Contract {@code putServiceRequestIdentities} — <strong>the requester, and nobody else</strong>.
-     * 204.
-     *
-     * <p><strong>204 rather than the recorded set.</strong> Echoing what was just written would
-     * re-transmit the numbers on a response nobody needs them on, and would hand a future client the
-     * idea that this endpoint is a read. The customer already has these values; they typed them.
-     *
-     * <p><strong>Replace, not append.</strong> The wizard resubmits every party when the customer
-     * corrects a typo, so the previous set is deleted first — otherwise a corrected tenant's old
-     * number survives under a shifted index and the desk has two candidates for one person. The
-     * delete and the insert are one transaction: a half-replaced set is worse than either end of it.
-     *
-     * <p><strong>Refused once the matter is closed.</strong> A completed or cancelled request has had
-     * its numbers purged; accepting a write would re-create the retention this class exists to bound,
-     * against a matter nobody is drafting.
-     *
-     * @throws NotFoundException  if the request is unknown, or is somebody else's (a stranger's
-     *                            request is invisible, never forbidden — see
-     *                            {@code ServiceRequestService.visible})
-     * @throws ForbiddenException if a staff or admin caller tries to write the customer's identities
-     * @throws ConflictException  if the request has reached a terminal status
-     */
+    // Replace rows first so corrected parties do not leave old numbers behind.
     @Transactional
     public void replace(AuthPrincipal caller, String id, ServiceRequestIdentitiesRequest body) {
-        ServiceRequest request = visible(caller, id);
-        if (!caller.userId().equals(request.getRequesterId())) {
-            throw new ForbiddenException(
-                    "Only the person who raised this request can record the parties' identity "
-                            + "numbers.");
-        }
+        ServiceRequest request = Ids.parseUuid(id).flatMap(requests::findByIdForUpdate).orElseThrow(() -> NotFoundException.of("Service request"));
         if (request.getStatus().isTerminal()) {
             throw new ConflictException("This request is " + request.getStatus()
                     + " — identity numbers cannot be recorded against it.");
         }
+        boolean afterPurge = latestIdentityEventIsPurge(request.getId());
+        Set<Slot> replaceSlots = slotsToReplace(caller, request, body.parties());
+        validateDistinctNumbers(body.parties());
 
-        // Flush the delete before the inserts: both hit uq_service_request_identity_party, and
-        // Hibernate is free to order a delete after an insert within one flush, which would make a
-        // resubmission of the same party collide with the row it is replacing.
-        identities.deleteByServiceRequestId(request.getId());
+        deleteSlots(request.getId(), replaceSlots);
         identities.flush();
-        identities.saveAll(body.parties().stream()
-                .map(party -> new ServiceRequestIdentity(request.getId(), party.partyRole(),
+        identities.saveAll(body.parties().stream().map(party -> new ServiceRequestIdentity(request.getId(), party.partyRole(),
                         party.partyIndex(), party.normalisedName(), party.normalisedPan(),
-                        party.normalisedAadhaar()))
-                .toList());
+                        party.normalisedAadhaar())).toList());
+        identities.flush();
+        validateDistinctNumbers(identities.findByServiceRequestIdOrderByPartyRoleAscPartyIndexAsc(
+                request.getId()));
 
-        // Counts and roles only. The subject is identified by the request id, which is enough to
-        // investigate an incident; putting the numbers themselves in audit_log would make the one
-        // table that must be trusted the second place they are held.
+        if (afterPurge && caller.userId().equals(request.getRequesterId())) {
+            events.save(new ServiceRequestEvent(request.getId(), RERECORDED, null));
+        }
+        // Audit counts only; storing numbers in audit_log would create a second secret store.
         audit.record(caller, "service-request.identities-recorded", "service_request",
                 request.getId().toString(), "parties", body.parties().size());
     }
 
-    /**
-     * Contract {@code getServiceRequestIdentities} — <strong>the assigned operator, and nobody
-     * else</strong>.
-     *
-     * <p>The controller's {@code @PreAuthorize} keeps customers out; this method keeps out every
-     * staff member except the one working the matter, <em>including an admin</em>. That is not an
-     * oversight and it is not absolute: an admin who needs the numbers assigns the request to
-     * themselves first, which writes a timeline entry the customer can read and an audit row naming
-     * them. Taking one somebody else already holds costs two visible moves rather than one, because
-     * the transition table has no {@code assigned → assigned} edge — the request goes back to
-     * {@code in-progress} on the way. The control is accountability, not prohibition; it just has to
-     * be crossed on purpose rather than by holding a role.
-     *
-     * <p>An unassigned request refuses everyone, for the same reason: "whoever asked first" is not a
-     * name.
-     *
-     * @throws NotFoundException  if there is no such request
-     * @throws ForbiddenException if the caller is not the assignee — recorded either way
-     */
+    private boolean latestIdentityEventIsPurge(UUID requestId) {
+        return events.findFirstByRequestIdAndEventInOrderByAtDesc(requestId, IDENTITY_EVENTS).map(e -> PURGED.equals(e.getEvent())).orElse(false);
+    }
+
+    // Only the assigned worker may read numbers; admins must assign themselves first.
     @Transactional(readOnly = true)
     public List<ServiceRequestIdentityDto> forAssignee(AuthPrincipal caller, String id) {
-        ServiceRequest request = Ids.parseUuid(id)
-                .flatMap(requests::findById)
-                .orElseThrow(() -> NotFoundException.of("Service request"));
+        ServiceRequest request = ServiceDeskAuthority.onCallersDesk(caller,
+                Ids.parseUuid(id).flatMap(requests::findById)
+                        .orElseThrow(() -> NotFoundException.of("Service request")),
+                accountPermissions.desksFor(caller));
         UUID assignee = request.getAssigneeId();
         if (assignee == null || !assignee.equals(caller.userId())) {
-            // Recorded before the refusal, not after: an attempted read of somebody else's matter is
-            // the entry worth having, and AuditService writes in REQUIRES_NEW so it survives this
-            // method throwing.
+
+            // Audit before refusal; REQUIRES_NEW preserves the attempted cross-matter read.
             audit.record(caller, "service-request.identities-refused", "service_request",
                     request.getId().toString(),
                     "assignee", assignee == null ? null : assignee.toString());
@@ -177,21 +113,7 @@ public class ServiceRequestIdentityService {
         return rows.stream().map(ServiceRequestIdentityDto::of).toList();
     }
 
-    /**
-     * Blank the numbers held against a request that has finished, and say so on the timeline.
-     *
-     * <p>Called from {@code ServiceRequestService.transition} on every move into a terminal status,
-     * so there is one site rather than one per ending. Both endings are real: {@code completed}
-     * because the registered document now carries the numbers and we no longer need our own copy,
-     * and {@code cancelled} because nothing will be drafted from them at all.
-     *
-     * <p>The rows survive with their names. "Recorded, and since discarded" and "never recorded" are
-     * different facts about a matter, and a desk reopening a closed request should be able to see
-     * that it once had what it needs rather than conclude the customer never supplied it.
-     *
-     * @return how many rows this call actually blanked — zero for a request that carried none, or
-     *         one already purged
-     */
+    // Blank the numbers held against a request that has finished, and say so on the timeline.
     @Transactional
     public int purgeFor(UUID serviceRequestId) {
         List<ServiceRequestIdentity> rows =
@@ -209,22 +131,143 @@ public class ServiceRequestIdentityService {
         return purged;
     }
 
-    /**
-     * The requester's own request, or any request for ops — a stranger's is a 404, not a 403.
-     *
-     * <p>Deliberately the same two lines as {@code ServiceRequestService.visible} rather than a call
-     * into it. Reaching across for a private helper would make this class's authorisation depend on a
-     * method written for a different set of callers, and the one thing this class must not inherit is
-     * somebody else's idea of who may see what.
-     */
-    private ServiceRequest visible(AuthPrincipal caller, String id) {
-        ServiceRequest request = Ids.parseUuid(id)
-                .flatMap(requests::findById)
-                .orElseThrow(() -> NotFoundException.of("Service request"));
-        boolean ops = Roles.Wire.STAFF.equals(caller.role()) || Roles.Wire.ADMIN.equals(caller.role());
-        if (!ops && !caller.userId().equals(request.getRequesterId())) {
-            throw NotFoundException.of("Service request");
+    // Requesters write all roles; accepted co-fill parties write only their side.
+    // Staff cannot invent identity numbers; strangers get 404.
+    private Set<String> writableRoles(AuthPrincipal caller, ServiceRequest request) {
+        if (caller.userId().equals(request.getRequesterId())) {
+            return ALL_ROLES;
         }
-        return request;
+        Set<String> own = acceptedRoles(request.getId(), caller.userId());
+        if (!own.isEmpty()) {
+            if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT
+                    || request.getPaymentRef() != null) {
+                throw new ConflictException("Checkout is already open for this request. Ask the"
+                        + " requester to correct your identity numbers if they are wrong.");
+            }
+            return own;
+        }
+        if (Roles.isBackOffice(caller.role())) {
+            throw new ForbiddenException(
+                    "Only the parties to this agreement can record their identity numbers.");
+        }
+        throw NotFoundException.of("Service request");
+    }
+
+    Set<String> acceptedRoles(UUID requestId, UUID userId) {
+        return parties.findByRequestId(requestId).stream().filter(p -> userId.equals(p.getUserId()) && CoFillParties.ACCEPTED.equals(p.getStatus())).map(ServiceRequestParty::getRole).collect(Collectors.toSet());
+    }
+
+    private Set<String> rolesToReplace(AuthPrincipal caller, ServiceRequest request, Set<String> bodyRoles) {
+        if (!caller.userId().equals(request.getRequesterId())) {
+            return bodyRoles;
+        }
+        Set<String> coFillRoles = acceptedCoFillRoles(request.getId());
+        if (bodyRoles.stream().anyMatch(coFillRoles::contains)) {
+            throw new ConflictException("the invited party records their own identity numbers");
+        }
+        return ALL_ROLES.stream().filter(role -> !coFillRoles.contains(role)).collect(Collectors.toSet());
+    }
+
+    Set<String> acceptedCoFillRoles(UUID requestId) {
+        return parties.findByRequestId(requestId).stream().filter(p -> CoFillParties.ACCEPTED.equals(p.getStatus())).map(ServiceRequestParty::getRole).collect(Collectors.toSet());
+    }
+
+    private Set<Slot> acceptedSlots(UUID requestId, UUID userId) {
+        return parties.findByRequestId(requestId).stream().filter(p -> userId.equals(p.getUserId()) && CoFillParties.ACCEPTED.equals(p.getStatus())).map(p -> new Slot(p.getRole(), p.getPartyIndex())).collect(Collectors.toSet());
+    }
+
+    private Set<Slot> acceptedCoFillSlots(UUID requestId) {
+        return parties.findByRequestId(requestId).stream().filter(p -> CoFillParties.ACCEPTED.equals(p.getStatus())).map(p -> new Slot(p.getRole(), p.getPartyIndex())).collect(Collectors.toSet());
+    }
+
+    Set<String> liveCoFillRoles(UUID requestId) {
+        return parties.findByRequestId(requestId).stream().filter(p -> !CoFillParties.DECLINED.equals(p.getStatus())).map(ServiceRequestParty::getRole).collect(Collectors.toSet());
+    }
+
+    boolean hasAcceptedSlot(UUID requestId, UUID userId, String role, int index) {
+        return parties.findByRequestId(requestId).stream().anyMatch(p -> userId.equals(p.getUserId())
+                        && CoFillParties.ACCEPTED.equals(p.getStatus())
+                        && role.equals(p.getRole())
+                        && index == p.getPartyIndex());
+    }
+
+    boolean hasLiveCoFillSlot(UUID requestId, String role, int index) {
+        return parties.findByRequestId(requestId).stream().anyMatch(p -> !CoFillParties.DECLINED.equals(p.getStatus())
+                        && role.equals(p.getRole())
+                        && index == p.getPartyIndex());
+    }
+
+    private Set<Slot> slotsToReplace(AuthPrincipal caller, ServiceRequest request,
+            List<ServiceRequestIdentitiesRequest.Party> body) {
+        Set<Slot> bodySlots = slots(body);
+        if (!caller.userId().equals(request.getRequesterId())) {
+            Set<Slot> own = acceptedSlots(request.getId(), caller.userId());
+            if (own.isEmpty()) {
+                if (Roles.isBackOffice(caller.role())) {
+                    throw new ForbiddenException(
+                            "Only the parties to this agreement can record their identity numbers.");
+                }
+                throw NotFoundException.of("Service request");
+            }
+            if (!own.containsAll(bodySlots)) {
+                throw new ForbiddenException(
+                        "You can record identity numbers only for your own side of this agreement.");
+            }
+            if ((request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT || request.getPaymentRef() != null)
+                    && !purgedSlots(request.getId()).containsAll(bodySlots)) {
+                throw new ConflictException("Checkout is already open for this request. Ask the"
+                        + " requester to correct your identity numbers if they are wrong.");
+            }
+            return bodySlots;
+        }
+        Set<Slot> coFillSlots = acceptedCoFillSlots(request.getId());
+        if (bodySlots.stream().anyMatch(coFillSlots::contains)) {
+            throw new ConflictException("the invited party records their own identity numbers");
+        }
+        return identities.findByServiceRequestIdOrderByPartyRoleAscPartyIndexAsc(request.getId()).stream().map(row -> new Slot(row.getPartyRole(), row.getPartyIndex())).filter(slot -> !coFillSlots.contains(slot)).collect(Collectors.toSet());
+    }
+
+    private Set<Slot> purgedSlots(UUID requestId) {
+        return identities.findByServiceRequestIdOrderByPartyRoleAscPartyIndexAsc(requestId).stream().filter(row -> row.getPurgedAt() != null).map(row -> new Slot(row.getPartyRole(), row.getPartyIndex())).collect(Collectors.toSet());
+    }
+
+    private void deleteSlots(UUID requestId, Set<Slot> slots) {
+        slots.stream().collect(Collectors.groupingBy(Slot::role,
+                        Collectors.mapping(Slot::index, Collectors.toSet()))).forEach((role, indexes) ->
+                        identities.deleteByServiceRequestIdAndPartyRoleAndPartyIndexIn(
+                                requestId, role, indexes));
+    }
+
+    private static Set<Slot> slots(List<ServiceRequestIdentitiesRequest.Party> parties) {
+        return parties.stream().map(p -> new Slot(p.partyRole(), p.partyIndex())).collect(Collectors.toSet());
+    }
+
+    private record Slot(String role, int index) {
+    }
+
+    private static void validateDistinctNumbers(Collection<?> rows) {
+        Set<String> aadhaars = new HashSet<>();
+        Set<String> pans = new HashSet<>();
+        for (Object row : rows) {
+            String aadhaar = null;
+            String pan = null;
+            if (row instanceof ServiceRequestIdentitiesRequest.Party party) {
+                aadhaar = party.normalisedAadhaar();
+                pan = party.normalisedPan();
+            } else if (row instanceof ServiceRequestIdentity identity) {
+                aadhaar = blankToNull(identity.getAadhaar());
+                pan = blankToNull(identity.getPan());
+            }
+            if (aadhaar != null && !aadhaars.add(aadhaar)) {
+                throw new ValidationException("the same Aadhaar number is recorded for two parties");
+            }
+            if (pan != null && !pans.add(pan.toUpperCase(java.util.Locale.ROOT))) {
+                throw new ValidationException("the same PAN is recorded for two parties");
+            }
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
