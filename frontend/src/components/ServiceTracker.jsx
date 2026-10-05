@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Icon from './Icon.jsx';
 import HScroll from './ui/HScroll.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceRequestStatus.js';
 import {
-  listServiceRequests, decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
+  listServiceRequests, decideServiceRequestDraft, approveServiceRequestDraftParty, addServiceRequestMessage, markServiceRequestRead, markServiceRequestDraftOpened,
 } from '../services/serviceRequestService.js';
 import { openDocUrl } from '../lib/openDoc.js';
 import useScrollLock from '../hooks/useScrollLock.js';
+import RejectedPapers from './RejectedPapers.jsx';
+import RevisedTerms from './RevisedTerms.jsx';
+import IdentityRefill, { needsIdentityRefill } from './IdentityRefill.jsx';
+
+const REUPLOADABLE = new Set(['docs_review', 'draft_shared', 'changes_requested', 'approved']);
+const hasForeignTenant = (request) => {
+  const tenants = request.details?._state?.tenants;
+  return Array.isArray(tenants) && tenants.some((tenant) => tenant?.residency === 'foreign');
+};
 
 function ProgressBar({ status }) {
   const pct = progressPct(status);
@@ -49,18 +59,61 @@ function Stepper({ status }) {
   );
 }
 
+function PoliceIntimationStep({ request, t }) {
+  if (request.type !== 'rental' || request.status !== 'completed') return null;
+  const done = !!request.policeIntimation?.confirmed;
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${done ? 'border-emerald-500/25 bg-emerald-500/8' : 'border-amber-500/25 bg-amber-500/8'}`}>
+      <p className="text-sm font-semibold text-white flex items-center gap-2">
+        <Icon name={done ? 'check-circle-2' : 'shield-alert'} className={`w-4 h-4 ${done ? 'text-emerald-300' : 'text-amber-300'}`} />
+        {t('services.ra.police.title')}
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-gray-300">
+        {done ? t('services.ra.police.done') : t('services.ra.police.pending')}
+      </p>
+      {!done ? (
+        <>
+          <p className="mt-2 text-xs leading-relaxed text-gray-400">{t('services.ra.police.copyNote')}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a href="https://punepolice.gov.in" target="_blank" rel="noopener noreferrer" className="btn-outline px-3 py-2 rounded-lg text-xs text-gray-200 inline-flex items-center gap-1.5">
+              {t('services.ra.police.pune')} <Icon name="external-link" className="w-3 h-3" />
+            </a>
+            <a href="https://pcpc.gov.in" target="_blank" rel="noopener noreferrer" className="btn-outline px-3 py-2 rounded-lg text-xs text-gray-200 inline-flex items-center gap-1.5">
+              {t('services.ra.police.pcmc')} <Icon name="external-link" className="w-3 h-3" />
+            </a>
+          </div>
+        </>
+      ) : request.policeIntimation?.reference ? (
+        <p className="mt-2 text-xs text-gray-400">{t('services.ra.police.reference', { ref: request.policeIntimation.reference })}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function FormCStep({ request, t }) {
+  if (request.type !== 'rental' || request.status !== 'completed' || !hasForeignTenant(request)) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
+      <p className="text-sm font-semibold text-white flex items-center gap-2"><Icon name="shield-alert" className="w-4 h-4 text-amber-300" /> {t('services.ra.formC.title')}</p>
+      <p className="mt-1 text-xs leading-relaxed text-gray-300">{t('services.ra.formC.tracker')}</p>
+    </div>
+  );
+}
+
 export default function ServiceTracker({ typeFilter, title = 'Your requests' }) {
+  const { t } = useTranslation();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
   const mobile = user?.mobile || '';
   const [tick, setTick] = useState(0);
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState('');
-  const [changeReq, setChangeReq] = useState(null); // request awaiting a "request changes" note
+  const [changeReq, setChangeReq] = useState(null);
   const [changeNote, setChangeNote] = useState('');
+  const [otpDraft, setOtpDraft] = useState({});
   const refresh = () => setTick((t) => t + 1);
-
   // Lock scroll + close on Escape while the "Request changes" modal is open.
+
   useScrollLock(Boolean(changeReq));
   useEffect(() => {
     if (!changeReq) return undefined;
@@ -68,8 +121,8 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [changeReq]);
-
   // `tick` re-runs the API read after a mutation.
+
   const [requests, setRequests] = useState([]);
   useEffect(() => {
     if (!isIn || !mobile) { setRequests([]); return undefined; }
@@ -83,10 +136,17 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
       }
     })();
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshes are driven by the explicit tick
   }, [mobile, isIn, typeFilter, tick]);
 
-  const openDraft = (r) => openDocUrl(r.draft?.dataUrl);
+  const openDraft = async (r) => {
+    openDocUrl(r.draft?.dataUrl);
+    if (r.draft?.opened) return;
+    try {
+      await markServiceRequestDraftOpened(r.id);
+      refresh();
+    } catch (e) { console.warn('[service-tracker] draft-opened failed', e); }
+  };
   const openFinal = (r) => openDocUrl(r.finalDoc?.dataUrl);
   const approve = async (r) => {
     try {
@@ -94,6 +154,23 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
       refresh();
       toast('Draft approved — we\'ll proceed with registration.', 'success');
     } catch (e) { console.warn('[service-tracker] approve failed', e); toast('Could not approve the draft. Please try again.', 'error'); }
+  };
+  const sendPartyOtp = async (r, party) => {
+    try {
+      await approveServiceRequestDraftParty(r.id, party.key);
+      toast(`Code sent to ${party.mobile || party.label}.`, 'success');
+    } catch (e) { console.warn('[service-tracker] draft party otp send failed', e); toast('Could not send the code. Please try again.', 'error'); }
+  };
+  const verifyPartyOtp = async (r, party) => {
+    const key = `${r.id}:${party.key}`;
+    const otp = (otpDraft[key] || '').trim();
+    if (otp.length !== 6) return;
+    try {
+      await approveServiceRequestDraftParty(r.id, party.key, otp);
+      setOtpDraft((prev) => ({ ...prev, [key]: '' }));
+      refresh();
+      toast(`${party.label} approved this draft.`, 'success');
+    } catch (e) { console.warn('[service-tracker] draft party otp verify failed', e); toast('The code was not accepted. Please try again.', 'error'); }
   };
   const requestChanges = (r) => { setChangeNote(''); setChangeReq(r); };
   const submitChanges = async () => {
@@ -155,20 +232,50 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
                     <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg font-semibold" style={{ background: m.bg, color: m.color }}><Icon name={m.icon} className="w-3 h-3" /> {m.label}</span>
                   </div>
 
+                  {r.type === 'rental' && REUPLOADABLE.has(r.status) ? <RejectedPapers requestId={r.id} onUploaded={refresh} /> : null}
+                  {r.type === 'rental' && r.amendment ? <RevisedTerms request={r} onChanged={refresh} /> : null}
+                  {r.type === 'rental' && isActive(r.status) && needsIdentityRefill(r) ? <IdentityRefill request={r} viewerMobile={mobile} onSaved={refresh} /> : null}
                   <ProgressBar status={r.status} />
                   <Stepper status={r.status} />
+                  {r.status === 'draft_shared' && r.draftApproval ? (
+                    <div className="mb-3 rounded-xl border border-white/8 bg-white/[0.03] p-3">
+                      <p className="text-xs font-semibold text-gray-200">
+                        Waiting for {Math.max(0, r.draftApproval.total - r.draftApproval.approved)} of {r.draftApproval.total} parties
+                      </p>
+                      <ul className="mt-2 space-y-2">
+                        {r.draftApproval.parties.map((party) => {
+                          const key = `${r.id}:${party.key}`;
+                          return (
+                            <li key={party.key} className="flex flex-col gap-2 rounded-lg border border-white/5 p-2 text-xs text-gray-300 sm:flex-row sm:items-center sm:justify-between">
+                              <span>{party.label}{party.mobile ? ` · ${party.mobile}` : ''} — {party.approved ? 'approved' : party.opened ? 'opened' : 'pending'}</span>
+                              {!party.approved && party.method === 'otp' ? (
+                                <span className="flex gap-2">
+                                  <button type="button" onClick={() => sendPartyOtp(r, party)} className="btn-outline px-2 py-1 text-[11px]">Send code</button>
+                                  <input value={otpDraft[key] || ''} onChange={(e) => setOtpDraft((prev) => ({ ...prev, [key]: e.target.value.replace(/\D/g, '').slice(0, 6) }))} inputMode="numeric" maxLength={6} aria-label={`OTP for ${party.label}`} className="w-20 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white" placeholder="OTP" />
+                                  <button type="button" onClick={() => verifyPartyOtp(r, party)} disabled={(otpDraft[key] || '').length !== 6} className="btn-teal px-2 py-1 text-[11px] disabled:opacity-50">Verify</button>
+                                </span>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <PoliceIntimationStep request={r} t={t} />
+                  <FormCStep request={r} t={t} />
 
+                  {/* Mobile lays the actions out as an even 2-col grid so long labels don't wrap into a ragged
+                     staircase; a solo Messages button spans the full width. */}
                   {(() => {
-                  // Mobile lays the actions out as an even 2-col grid so long labels don't wrap
-                  // into a ragged staircase; a solo Messages button spans the full width.
                   const soloMsg = r.status !== 'draft_shared' && !(r.status === 'completed' && r.finalDoc);
                   return (
                   <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                     {r.status === 'draft_shared' ? (
                       <>
                         <button onClick={() => openDraft(r)} className="btn-outline w-full sm:w-auto justify-center px-3 py-2 rounded-lg text-gray-200 text-xs font-semibold inline-flex items-center gap-1.5"><Icon name="file-text" className="w-3.5 h-3.5" /> View draft{r.draft?.version ? ' v' + r.draft.version : ''}</button>
-                        <button onClick={() => approve(r)} className="btn-teal w-full sm:w-auto justify-center px-3 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"><Icon name="check" className="w-3.5 h-3.5" /> Approve</button>
+                        <button onClick={() => approve(r)} disabled={!r.draft?.opened} title={r.draft?.opened ? undefined : 'Open the draft first'} className="btn-teal w-full sm:w-auto justify-center px-3 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"><Icon name="check" className="w-3.5 h-3.5" /> Approve</button>
                         <button onClick={() => requestChanges(r)} className="btn-outline w-full sm:w-auto justify-center px-3 py-2 rounded-lg text-gray-200 text-xs font-semibold inline-flex items-center gap-1.5"><Icon name="rotate-ccw" className="w-3.5 h-3.5" /> Request changes</button>
+                        {!r.draft?.opened ? <p className="col-span-2 sm:basis-full text-[11px] text-gray-500">Open the draft to approve it.</p> : null}
                       </>
                     ) : null}
                     {r.status === 'completed' && r.finalDoc ? (

@@ -9,23 +9,22 @@ import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useSignInGate } from '../lib/useSignInGate.js';
 import { useAuth } from '../context/AuthContext.jsx';
+/* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request the customer then tracks. */
 import { useToast } from '../context/ToastContext.jsx';
-/* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request
-   the customer then tracks. */
 import { createTicket } from '../services/ticketService.js';
 import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
 import { useFormDraft, useFieldErrors } from '../lib/hooks.js';
 import { srcSetFor } from '../lib/imgSrcSet.js';
+/* Full-bleed hero needs a wider ladder than imgSrcSet's 960w card default, so a phone fetches ~640w rather than the
+   full 1.26 MB asset while desktop keeps the 1600w source. */
 
-/* Full-bleed hero needs a wider ladder than imgSrcSet's 960w card default, so a phone
-   fetches ~640w rather than the full 1.26 MB asset while desktop keeps the 1600w source. */
 const HERO_WIDTHS = [640, 960, 1280, 1600];
-
 /* Shared shell for every service landing page (packers, legal, home-loans, interior, valuation). */
+
 export default function ServiceLanding({
-  team, heroGradient = 'linear-gradient(140deg,#0a1120 0%,#0c2321 52%,#0e332f 100%)',
+  desk, heroGradient = 'linear-gradient(140deg,#0a1120 0%,#0c2321 52%,#0e332f 100%)',
   heroImage, heroOverlay = 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(12,35,33,.87) 52%,rgba(14,51,47,.9) 100%)',
   badge, badgeIcon = 'badge-check', titleTop, titleAccent, subtitle,
   features = [], quote, stats = [], services = [], trust = [], steps = [], faqs = [],
@@ -36,11 +35,12 @@ export default function ServiceLanding({
   const { toast } = useToast();
   const sendToSignIn = useSignInGate();
   const formRef = useRef(null);
+  const leadRef = useRef(undefined);
 
   const initial = { name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '' };
   (quote?.fields || []).forEach((f) => { initial[f.name] = f.value || ''; });
   const [form, setForm] = useState(initial);
-  const [done, setDone] = useState(false);
+  const [status, setStatus] = useState('idle');
   const [trackerRefresh, setTrackerRefresh] = useState(0);
   const [openFaq, setOpenFaq] = useState(-1);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -50,9 +50,9 @@ export default function ServiceLanding({
   const err = useFieldErrors(formRef);
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
-
   // Apply field default/prefill values (e.g. from ?type=/?scope=/?service= query params that
   // resolve after mount) without clobbering anything the user has already entered.
+
   const fieldDefaults = (quote?.fields || []).map((f) => f.value || '').join('|');
   useEffect(() => {
     const flds = quote?.fields || [];
@@ -62,11 +62,12 @@ export default function ServiceLanding({
       flds.forEach((f) => { if (f.value && !p[f.name]) { next[f.name] = f.value; changed = true; } });
       return changed ? next : p;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaults should not overwrite typed form values
   }, [fieldDefaults]);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    if (status === 'sending') return;
     // Public page, so gate on use rather than on arrival; the draft carries input across the hop.
     if (!isIn) { sendToSignIn('services'); return; }
     const reqd = (quote?.fields || []).find((f) => f.required && !form[f.name]);
@@ -79,28 +80,34 @@ export default function ServiceLanding({
     const detail = (quote?.fields || []).filter((f) => form[f.name]).map((f) => `${f.label}: ${form[f.name]}`).join(' · ');
     const service = form[quote?.serviceField] || quote?.title || 'Service request';
     const details = (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {});
+    /* One submit, two records that must name each other: `POST /tickets` returns the server id carried onto the
+       request as `ticketId`. */
 
-    /* One submit, two records that must name each other: `POST /tickets` returns the server id
-       carried onto the request as `ticketId`. Seam rules: docs/flows/consumer/services-calculators.md */
     const raiseLead = async () => {
       // Contact details are not sent: the page is sign-in gated above and the server copies the
       // name and number off the session, so a form-supplied pair would be a second, unverified one.
-      const ticket = await createTicket({ team, subject: service, body: detail });
+      const ticket = await createTicket({ desk, subject: service, body: detail });
       return ticket?.id || null;
     };
 
-    /* Chained, not gated: a rejected ticket yields a null ref and the flow request is still
-       created, unlinked — a failed lead must not also cost the customer their request. */
-    raiseLead()
-      .catch(() => null)
-      .then((ref) => {
-        if (!flowType) return null;
-        return createFlowRequest({ type: flowType, service, customer: { name: form.name }, ticketRef: ref, details });
-      })
-      .catch(() => {})
-      .finally(() => { if (flowType) setTrackerRefresh((value) => value + 1); });
+    /* Chained, not gated: a rejected ticket yields a null ref and the flow request is still created, unlinked — a
+       failed lead must not also cost the customer their request. */
+    setStatus('sending');
+    if (leadRef.current === undefined) leadRef.current = await raiseLead().catch(() => null);
+    const ref = leadRef.current;
+    let filed = true;
+    if (flowType) {
+      try {
+        await createFlowRequest({ type: flowType, service, customer: { name: form.name }, ticketRef: ref, details });
+      } catch {
+        filed = false;
+      }
+      setTrackerRefresh((value) => value + 1);
+    }
+    if (!filed) { setStatus('failed'); return; }
+    leadRef.current = undefined;
     draft.clear();
-    setDone(true);
+    setStatus('done');
   };
 
   const scrollToForm = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -108,9 +115,8 @@ export default function ServiceLanding({
   return (
     <div ref={rootRef}>
       <div>
+          {/* A real <img>, not a CSS background — a srcset has no effect on one. */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
-          {/* A real <img>, not a CSS background — a srcset has no effect on one. Decorative;
-              the headline below carries the meaning. */}
           {heroImage && (
             <img
               src={heroImage} srcSet={srcSetFor(heroImage, HERO_WIDTHS)} sizes="100vw"
@@ -133,7 +139,7 @@ export default function ServiceLanding({
             </div>
 
             <div ref={formRef} id="quote" className="glass-card svc-quote rounded-2xl p-6 sm:p-7 reveal">
-              {!done ? (
+              {status !== 'done' ? (
                 <>
                   <div className="flex items-center gap-2 mb-1"><Icon name={quote?.icon || 'send'} className="w-5 h-5 text-teal-400" /><h2 className="text-lg font-bold text-white">{quote?.title || 'Get a Free Quote'}</h2></div>
                   <p className="text-gray-400 text-xs mb-5">{quote?.subtitle || "Fill in a few details — we'll call you back within 24 hours."}</p>
@@ -141,13 +147,13 @@ export default function ServiceLanding({
                   <form onSubmit={submit} className="space-y-4" noValidate>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-medium text-gray-300 mb-1.5">Full Name <span className="text-rose-400">*</span></label>
-                        <input value={form.name} onChange={(e) => { set('name', e.target.value); err.clear('name'); }} placeholder="Your name" className={'field w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500' + err.cx('name')} data-err="name" />
+                        <label htmlFor="service-landing-name" className="block text-xs font-medium text-gray-300 mb-1.5">Full Name <span className="text-rose-400">*</span></label>
+                        <input id="service-landing-name" value={form.name} onChange={(e) => { set('name', e.target.value); err.clear('name'); }} placeholder="Your name" className={'field w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500' + err.cx('name')} data-err="name" />
                         <FieldError show={err.has('name')}>{err.msg('name')}</FieldError>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-300 mb-1.5">Mobile Number <span className="text-rose-400">*</span></label>
-                        <div data-err="mobile"><MobileField value={form.mobile} onChange={(v) => { set('mobile', v); err.clear('mobile'); }} error={err.has('mobile')} /></div>
+                        <label htmlFor="service-landing-mobile" className="block text-xs font-medium text-gray-300 mb-1.5">Mobile Number <span className="text-rose-400">*</span></label>
+                        <div data-err="mobile"><MobileField id="service-landing-mobile" value={form.mobile} onChange={(v) => { set('mobile', v); err.clear('mobile'); }} error={err.has('mobile')} /></div>
                         <FieldError show={err.has('mobile')}>{err.msg('mobile')}</FieldError>
                       </div>
                     </div>
@@ -173,7 +179,12 @@ export default function ServiceLanding({
                         </div>
                       ))}
                     </div>
-                    <button type="submit" className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"><Icon name="send" className="w-4 h-4" /> {quote?.submitLabel || 'Request Free Quote'}</button>
+                    {status === 'failed' ? (
+                      <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                        We couldn't file this — retry or call us on <a href="tel:+919876543210" className="font-semibold underline">+91 98765 43210</a>.
+                      </div>
+                    ) : null}
+                    <button type="submit" disabled={status === 'sending'} aria-busy={status === 'sending'} className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><Icon name="send" className="w-4 h-4" /> {status === 'failed' ? 'Retry' : quote?.submitLabel || 'Request Free Quote'}</button>
                     <p className="text-center text-[11px] text-gray-500">By submitting, you agree to be contacted by Draazy &amp; its verified partners.</p>
                   </form>
                 </>
@@ -182,7 +193,7 @@ export default function ServiceLanding({
                   <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-4"><Icon name="check" className="w-7 h-7 text-emerald-400" /></div>
                   <h3 className="text-white font-bold text-lg">Request received!</h3>
                   <p className="text-gray-400 text-sm mt-2 max-w-xs mx-auto">{quote?.successMessage || <>Our team will call you back within <span className="text-teal-400 font-semibold">24 hours</span>. Your request is queued with our verified partners.</>}</p>
-                  <button onClick={() => { setDone(false); setForm(initial); }} className="mt-5 text-teal-400 text-sm font-medium hover:underline">Submit another request</button>
+                  <button onClick={() => { setStatus('idle'); setForm(initial); }} className="mt-5 text-teal-400 text-sm font-medium hover:underline">Submit another request</button>
                 </div>
               )}
             </div>

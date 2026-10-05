@@ -21,7 +21,7 @@ export default function PackersMovers() {
 
   return (
     <ServiceLanding
-      team="packers"
+      desk="packers"
       flowType="packers"
       draftKey="dzDraft:packers-movers"
       trackerTitle={t('services.packers.trackerTitle')}

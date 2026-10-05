@@ -45,7 +45,7 @@ export default function PropertyLegal() {
 
   return (
     <ServiceLanding
-      team="legal"
+      desk="legal"
       flowType="legal"
       draftKey="dzDraft:property-legal"
       trackerTitle={t('services.legal.trackerTitle')}

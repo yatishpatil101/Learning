@@ -1,72 +1,43 @@
 // @ts-check
 import { test, expect } from '../../../fixtures/live.js';
 
-/*
- * /services — the hub itself, against the real API.
- *
- * ## Scope: the Move-in Pack is deliberately NOT here
- *
- * The mock twin's last two tests drove the Move-in Pack by writing `settings.movePack` straight
- * into `draazyDB_v5`. That is not portable and does not need to be: the pack is already covered
- * live and more thoroughly than it ever was in the mock —
- * `live-move-in-pack.spec.js` (5 tests: the booking reaches the ops board with the price the
- * customer accepted, the desk sees what was ordered, the booking leaves the browser, the
- * signed-out guard, and that the customer cannot read the board back) and
- * `live-move-in-pack-waitlist.spec.js` (4 tests, including the malformed-mobile refusal the mock
- * asserted). The mock's own comment records that its "You're on the waitlist!" assertion was a
- * *bug* — it congratulated the customer for a lead that only reached localStorage.
- *
- * What had no live coverage at all is the hub's actual job: routing people to the nine services.
- * A broken category filter or a card pointing at a dead route surfaces only as "nobody reaches the
- * paid services", which no other spec would notice. That is what this file covers.
- *
- * ## Why running it live is not the same test
- *
- * Two of these assertions can only fail against a real backend:
- *
- *   1. `every service card points at a route that renders` walks all nine destinations. Six of them
- *      are data-backed pages (`/listings?deal=buy`, `/locality/baner`, the four service landings).
- *      In a mock build every one of them renders from a seeded localStorage blob that cannot 404,
- *      cannot 500 and cannot be empty. Live, a route whose provider is unregistered in
- *      `VITE_API_DOMAINS`, or whose data the seed does not carry, renders an error surface — and
- *      the mock suite is structurally blind to that entire class.
- *   2. `consoleErrors` is asserted empty on the hub, which on this page means the `GET /settings`
- *      read behind the Move-in Pack resolved. The mock has no such request to fail.
- */
+/* /services — the hub itself, against the real API. The Move-in Pack is covered by
+   `live-move-in-pack.spec.js`; this file covers the hub's actual job, routing people to the nine
+   services. A broken category filter or a card pointing at a dead route surfaces only as "nobody
+   reaches the paid services", which no other spec would notice. */
 
 const cards = (page) => page.locator('a.svc-card');
 
-test.describe('LIVE: the services hub routes people to the nine services', () => {
-  test('renders the hero, the Rent Agreement spotlight and the full service grid', async ({ page, consoleErrors }) => {
-    await page.goto('/services');
+/* One data-bearing element per destination, so a route that mounts but renders an empty shell fails.
+   Six of the nine are data-backed pages; the rest fall back to a non-empty h1. */
+const PROOF = {
+  '/listings?deal=buy': (page) => page.locator('a[href^="/property/"]').first(),
+  '/listings?deal=rent': (page) => page.locator('a[href^="/property/"]').first(),
+  '/locality/baner': (page) => page.locator('h1', { hasText: 'Locality insights' }),
+  '/home-loans': (page) => page.locator('h1', { hasText: 'Home loans made' }),
+  '/services/packers-movers': (page) => page.locator('h1', { hasText: 'Stress-free home shifting' }),
+  '/services/interior-renovation': (page) => page.locator('h1', { hasText: 'Interiors that' }),
+  '/services/property-valuation': (page) => page.locator('h1', { hasText: 'Know what your' }),
+};
 
+test.describe('LIVE: the services hub routes people to the nine services', () => {
+  test('the Rent Agreement spotlight leads, and category tabs genuinely filter the grid', async ({ page, consoleErrors }) => {
+    await page.goto('/services');
+    await expect(cards(page)).toHaveCount(9);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('One platform.');
 
-    // The spotlight is the first paid-service surface and links to the wizard. Rent Agreement is
-    // the platform's primary paid service (`Services.jsx:30`), so losing this slot is a revenue
-    // regression that looks like a layout tweak.
+    // Rent Agreement is the platform's primary paid service (`Services.jsx:30`): losing this slot is a
+    // revenue regression that looks like a layout tweak.
     const spotlight = page.locator('a.ra-spot');
     await expect(spotlight).toBeVisible();
     await expect(spotlight).toHaveAttribute('href', '/services/rent-agreement');
     await expect(spotlight.getByText('Rent Agreement, done online')).toBeVisible();
 
-    await expect(cards(page)).toHaveCount(9);
-
-    // On this page an empty console also means the `GET /settings` read behind the Move-in Pack
-    // resolved — there is no client-side fallback for the pack's prices any more (`Services.jsx:63`).
-    expect(consoleErrors).toEqual([]);
-  });
-
-  test('category tabs genuinely filter the grid rather than restyling the chip', async ({ page }) => {
-    await page.goto('/services');
-    await expect(cards(page)).toHaveCount(9);
-
     await page.locator('button.cat-tab', { hasText: 'Finance & Legal' }).click();
     // Rent Agreement + Home Loans + Property & Legal.
     await expect(cards(page)).toHaveCount(3);
     await expect(page.locator('a.svc-card[href="/home-loans"]')).toBeVisible();
-    // The negative is what makes this a filter test and not a count test: a chip that only
-    // restyled itself would leave the movers card on screen.
+    // The negative is what makes this a filter test and not a count test.
     await expect(page.locator('a.svc-card[href="/services/packers-movers"]')).toHaveCount(0);
 
     await page.locator('button.cat-tab', { hasText: 'Move & Setup' }).click();
@@ -76,9 +47,12 @@ test.describe('LIVE: the services hub routes people to the nine services', () =>
 
     await page.locator('button.cat-tab', { hasText: 'All Services' }).click();
     await expect(cards(page)).toHaveCount(9);
+
+    // An empty console also means the `GET /settings` read behind the Move-in Pack resolved.
+    expect(consoleErrors).toEqual([]);
   });
 
-  test('every service card points at a route that renders against the API', async ({ page }) => {
+  test('every service card points at a route that renders its content against the API', async ({ page }) => {
     // Nine full route loads against a real backend — comfortably over the default budget.
     test.slow();
     await page.goto('/services');
@@ -88,14 +62,11 @@ test.describe('LIVE: the services hub routes people to the nine services', () =>
 
     for (const href of hrefs) {
       await page.goto(href);
-      // The catch-all stub is the thing we must never land on.
       await expect(page.getByText('404', { exact: true }), `${href} fell through to the 404 stub`).toHaveCount(0);
-      await expect(page.locator('h1, h2').first(), `${href} rendered no heading`).toBeVisible({ timeout: 20_000 });
-      /* And it must not have rendered the error surface either. This is the half the mock could not
-         check: six of these nine routes are data-backed, and against a real API "the page mounted"
-         and "the page has anything on it" are different claims. A provider missing from
-         `VITE_API_DOMAINS`, or a seed that does not carry the locality, produces a heading and an
-         apology — which the 404 check above would happily pass. */
+      const proof = PROOF[href] ? PROOF[href](page) : page.locator('h1').first();
+      await expect(proof, `${href} rendered no content`).toBeVisible({ timeout: 20_000 });
+      await expect(proof, `${href} content is empty`).toHaveText(/\S/);
+      // A provider missing from `VITE_API_DOMAINS` produces a heading and an apology, which the checks above would pass.
       await expect(
         page.getByText(/something went wrong|couldn't load|failed to load/i),
         `${href} rendered an error surface`,
@@ -103,24 +74,21 @@ test.describe('LIVE: the services hub routes people to the nine services', () =>
     }
   });
 
-  test('a finalized rental shows the congratulations banner and focuses the rent-agreement card', async ({ page }) => {
-    await page.goto('/services?finalize=rent');
-    await expect(page.getByText(/Rental finalized/i)).toBeVisible({ timeout: 20000 });
+  test('a finalized rental focuses the rent-agreement card, and a finalized sale focuses the legal card instead', async ({ page }) => {
+    await test.step('rent', async () => {
+      await page.goto('/services?finalize=rent');
+      await expect(page.getByText(/Rental finalized/i)).toBeVisible({ timeout: 20000 });
 
-    /* The deep link highlights the Rent Agreement card rather than dumping someone who just closed
-       a deal at the top of a nine-card grid. `svc-focus` is applied on a 350ms timer and removed
-       after 4s (`Services.jsx:188-195`), so this is a genuinely transient class — assert it inside
-       that window rather than polling for it. */
-    await expect(page.locator('a.svc-card[href="/services/rent-agreement"].svc-focus')).toBeVisible({ timeout: 10_000 });
-  });
+      // `svc-focus` is applied on a 350ms timer and removed after 4s (`Services.jsx:188-195`), so
+      // assert it inside that window rather than polling for it.
+      await expect(page.locator('a.svc-card[href="/services/rent-agreement"].svc-focus')).toBeVisible({ timeout: 10_000 });
+    });
 
-  test('a finalized sale focuses the legal card instead — the two outcomes are not the same page', async ({ page }) => {
-    /* The mock only ever asserted the `rent` branch, so the `else` in `Services.jsx:174` and the
-       sale fallback in the focus map (`Services.jsx:186`) were unexercised. Somebody who just
-       completed a *purchase* needs registration help, not a rent agreement; pointing them at the
-       rental wizard is the kind of wrong that still looks like it worked. */
-    await page.goto('/services?finalize=sale');
-    await expect(page.getByText(/Rental finalized/i)).toHaveCount(0);
-    await expect(page.locator('a.svc-card[href="/services/property-legal"].svc-focus')).toBeVisible({ timeout: 10_000 });
+    await test.step('sale', async () => {
+      // Someone who just completed a purchase needs registration help, not a rent agreement.
+      await page.goto('/services?finalize=sale');
+      await expect(page.getByText(/Rental finalized/i)).toHaveCount(0);
+      await expect(page.locator('a.svc-card[href="/services/property-legal"].svc-focus')).toBeVisible({ timeout: 10_000 });
+    });
   });
 });

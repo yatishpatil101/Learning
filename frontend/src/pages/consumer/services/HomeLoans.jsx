@@ -46,7 +46,7 @@ export default function HomeLoans() {
 
   return (
     <ServiceLanding
-      team="loans"
+      desk="loans"
       heroGradient="linear-gradient(140deg,#0a1120 0%,#0c2321 48%,#0e3a2c 100%)"
       heroImage="https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=1600&q=80"
 

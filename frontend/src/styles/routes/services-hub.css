@@ -1,6 +1,3 @@
-/* services-hub — split out of index.css so it ships with the /services route chunk. */
-
-/* ===== Services hub ===== */
 .svc-card {
   transition: transform .35s cubic-bezier(.4, 0, .2, 1), box-shadow .35s, border-color .35s;
 }
@@ -19,10 +16,8 @@
   gap: 4px;
 }
 
-/* One block for all three, which is why they sit apart from the bases they animate: gating each
-   beside its own base would have meant three identical media queries. On touch the card a finger
-   left behind keeps the lift, the zoomed photo and the opened arrow, reading as the chosen service. */
 @media (hover: hover) {
+  /* One gated hover block keeps touch from leaving cards lifted after a tap. */
   .svc-card:hover {
     transform: translateY(-8px);
     border-color: rgba(20, 184, 166, .35);
@@ -84,8 +79,10 @@
   box-shadow: 0 8px 24px rgba(20, 184, 166, .25);
 }
 
-.step:hover .step-ic {
-  transform: translateY(-4px) scale(1.05);
+@media (hover: hover) {
+  .step:hover .step-ic {
+    transform: translateY(-4px) scale(1.05);
+  }
 }
 
 .step-ic {
@@ -104,10 +101,14 @@
   transition: transform .3s ease, box-shadow .3s ease, border-color .3s ease;
 }
 
-.ra-spot:hover {
-  transform: translateY(-3px);
-  border-color: rgba(20, 184, 166, .55) !important;
-  box-shadow: 0 24px 56px rgba(13, 148, 136, .28);
+/* Ungated, a tap leaves the tile lifted and brighter than every other card on the page —
+   reading as selected on the app's most prominent conversion target. */
+@media (hover: hover) {
+  .ra-spot:hover {
+    transform: translateY(-3px);
+    border-color: rgba(20, 184, 166, .55) !important;
+    box-shadow: 0 24px 56px rgba(13, 148, 136, .28);
+  }
 }
 
 /* Desktop: icon column beside the copy. `display` lives here because the mobile block below

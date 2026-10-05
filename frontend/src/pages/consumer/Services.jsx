@@ -215,7 +215,7 @@ export default function Services() {
     try {
       await createTicket({
         subject: 'Move-in Pack booking',
-        team: 'packers',
+        desk: 'packers',
         body: names.join(', '),
         quotedValue: accepted,
       });
@@ -313,14 +313,14 @@ export default function Services() {
             <p className="text-gray-400 text-sm mt-2 max-w-2xl mx-auto">{tr('services.hub.ourServicesSub')}</p>
           </div>
           <HScroll wrapClassName="mb-8 sm:mb-10 -mx-4 sm:mx-0 reveal" className="flex sm:flex-wrap justify-start sm:justify-center items-center gap-2 px-4 sm:px-0 sm:overflow-visible" fadeWidth="2rem">
-            {CATS.map(([key, label, icon]) => (
+            {CATS.map(([key, _label, icon]) => (
               <button key={key} onClick={() => setCat(key)} className={'cat-tab shrink-0 px-4 py-2 min-h-[44px] rounded-full text-sm font-semibold inline-flex items-center gap-2 whitespace-nowrap ' + (cat === key ? 'on' : 'text-gray-300 bg-white/5 hover:bg-white/10')}>
                 <Icon name={icon} className="w-4 h-4" /> {tr('services.hub.cat.' + key)}
               </button>
             ))}
           </HScroll>
           <div ref={svcGridRef} className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5">
-            {list.map(([t, ic, c, img, d, href, slug], i) => {
+            {list.map(([t, ic, c, img, _d, href, slug], i) => {
               const cardName = tr('services.hub.card.' + slug + '.name');
               const featured = slug === FEATURED_SLUG;
               const Inner = (
@@ -355,7 +355,7 @@ export default function Services() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="text-center mb-12 reveal"><h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.howItWorksTitle')}</h2><p className="text-gray-400 text-sm mt-2">{tr('services.hub.howItWorksSub')}</p></div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
-            {STEPS.map(([t, ic, d, slug], idx) => (
+            {STEPS.map(([t, ic, _d, slug], idx) => (
               <div key={t} className="step glass-card rounded-2xl p-4 sm:p-6 text-center reveal">
                 <div className="step-ic relative w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4">
                   <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-teal-400/20 to-teal-600/20 border border-teal-400/20 flex items-center justify-center"><Icon name={ic} className="w-6 h-6 sm:w-7 sm:h-7 text-teal-400" /></div>
@@ -378,7 +378,7 @@ export default function Services() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.testimonialsTitle')}</h2></div>
           <HScroll wrapClassName="-mx-4 sm:mx-0 reveal" className="testi-rail flex md:grid md:grid-cols-3 gap-4 sm:gap-5 px-4 sm:px-0 md:overflow-visible" fadeWidth="1.5rem">
-            {TESTI.map(([n, r, av, q, col], i) => (
+            {TESTI.map(([n, _r, av, _q, col], i) => (
               <div key={n} className="glass-card rounded-2xl p-5 sm:p-6 shrink-0 w-[82%] sm:w-auto md:w-full">
                 <div className="flex gap-0.5 mb-3">{Array.from({ length: 5 }).map((_, si) => <Icon key={si} name="star" className="w-4 h-4" style={{ color: '#fbbf24', fill: '#fbbf24' }} />)}</div>
                 <p className="text-gray-300 text-sm leading-relaxed">&ldquo;{tr('services.hub.testi.' + i + '.quote')}&rdquo;</p>

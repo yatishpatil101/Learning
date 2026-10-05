@@ -1,7 +1,7 @@
 /* The screen half only — quota arithmetic is `consumer/live-entitlements`, the /refer code and share
  * link are `live-refer`. Withdrawal of already-earned bonuses is filed in `tasks/DECISIONS-NEEDED.md`. */
 import { expect, test, ACTORS } from '../../../fixtures/live.js';
-import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, apiLogin, signedInAs, signIn, uniqueMobile } from '../../../helpers/liveAuth.js';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
@@ -49,7 +49,7 @@ async function openListing(page, ref, flags) {
   /* With `inAppMessaging` on, that CTA queues a chat and navigates to /messages instead of opening
      the sheet. Written before the page loads — live, the flag is a row, not a localStorage key. */
   if (phone) await flags.disable('inAppMessaging');
-  await page.goto(`/property/${ref}`, { waitUntil: 'networkidle' });
+  await page.goto(`/property/${ref}`);
   await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
   if (phone) {
     await page.locator('.dz-sticky-cta').getByRole('button', { name: /contact owner/i }).click({ timeout: 20000 });
@@ -69,7 +69,7 @@ async function pressAndCatch(page) {
 }
 
 test.describe('the free-contact wall, on screen', () => {
-  test('an exhausted press is refused by the server, and it is the refusal that opens the upsell', async ({ page, flags }) => {
+  test('an exhausted press is refused by the server and opens the upsell with the free route beside the paid one, which the flag can drop', async ({ page, viewport, flags }) => {
     const { untouched } = await exhaustedBuyer(page);
     await openListing(page, untouched.ref, flags);
 
@@ -80,37 +80,33 @@ test.describe('the free-contact wall, on screen', () => {
     expect((await refused.json()).error).toBe('contact_quota_exhausted');
 
     await expect(exhaustedModal(page)).toBeVisible();
-  });
-
-  test('the upsell offers the free route beside the paid one, and points at /refer', async ({ page, flags }) => {
-    const { untouched } = await exhaustedBuyer(page);
-    await openListing(page, untouched.ref, flags);
-    await pressAndCatch(page);
-
-    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toBeVisible();
     await expect(exhaustedModal(page).getByTestId('contacts-exhausted-plan')).toBeVisible();
     await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveAttribute('href', '/refer');
-  });
 
-  test('dismissing the upsell returns to the contact form rather than closing both', async ({ page, viewport, flags }) => {
     /* The two sheets only stack below `lg`. On desktop the press comes from the sidebar card, which
        is not a dialog, so there is no pair for one keypress to collapse. */
-    test.skip((viewport?.width ?? 1024) >= 1024, 'the contact form is a dialog only below lg');
-    const contactForm = page.getByRole('dialog', { name: /contact the owner/i });
-    const { untouched } = await exhaustedBuyer(page);
+    if ((viewport?.width ?? 1024) < 1024) {
+      const contactForm = page.getByRole('dialog', { name: /contact the owner/i });
+      /* The upsell mounts *inside* the contact form and both register a document-level Escape handler,
+         so without the top-most-dialog guard one keypress runs both and loses the typed message. */
+      await page.keyboard.press('Escape');
+      await expect(exhaustedModal(page)).toHaveCount(0);
+      await expect(contactForm).toBeVisible();
+
+      // The second press still works, which a guard that never released would break.
+      await page.keyboard.press('Escape');
+      await expect(contactForm).toHaveCount(0);
+    }
+
+    await flags.disable('referralRewards');
     await openListing(page, untouched.ref, flags);
     await pressAndCatch(page);
+
     await expect(exhaustedModal(page)).toBeVisible();
-
-    /* The upsell mounts *inside* the contact form and both register a document-level Escape handler,
-       so without the top-most-dialog guard one keypress runs both and loses the typed message. */
-    await page.keyboard.press('Escape');
-    await expect(exhaustedModal(page)).toHaveCount(0);
-    await expect(contactForm).toBeVisible();
-
-    // The second press still works, which a guard that never released would break.
-    await page.keyboard.press('Escape');
-    await expect(contactForm).toHaveCount(0);
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveCount(0);
+    /* The paid route surviving is half the claim. A flag that took the whole modal away would also
+       satisfy the line above, and would be a different — much worse — behaviour. */
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-plan')).toBeVisible();
   });
 
   test('the countdown on the page is the number the server is holding', async ({ page, flags }) => {
@@ -136,33 +132,7 @@ test.describe('the free-contact wall, on screen', () => {
 });
 
 test.describe('referralRewards is a server document', () => {
-  test('with it off, the upsell drops the free route and keeps the paid one', async ({ page, flags }) => {
-    const { untouched } = await exhaustedBuyer(page);
-    await flags.disable('referralRewards');
-    await openListing(page, untouched.ref, flags);
-    await pressAndCatch(page);
-
-    await expect(exhaustedModal(page)).toBeVisible();
-    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveCount(0);
-    /* The paid route surviving is half the claim. A flag that took the whole modal away would also
-       satisfy the line above, and would be a different — much worse — behaviour. */
-    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-plan')).toBeVisible();
-  });
-
-  test('with it off, /refer hides the quota tracks and keeps the base programme', async ({ page, flags }) => {
-    await signedInAs(page, ACTORS.buyer);
-    await flags.disable('referralRewards');
-    await page.goto('/refer', { waitUntil: 'networkidle' });
-
-    /* Asserted **first**: `toHaveCount(0)` is satisfied the instant it is asked on a page that has
-       not finished rendering, so the two negatives below need something real to wait behind. */
-    await expect(page.getByText(/free rent agreement/i).first()).toBeVisible();
-
-    await expect(page.getByTestId('refer-balance')).toHaveCount(0);
-    await expect(page.getByTestId('refer-seeker-track')).toHaveCount(0);
-  });
-
-  test('with it on, the /refer balance is the server’s arithmetic', async ({ page, flags }) => {
+  test('/refer shows the server\'s balance with the flag on, and hides the quota tracks but keeps the base programme with it off', async ({ page, flags }) => {
     const mobile = uniqueMobile();
     const { accessToken } = await apiLogin(mobile);
     const [only] = await someListings(1);
@@ -178,11 +148,21 @@ test.describe('referralRewards is a server document', () => {
     /* Allowance minus spent, taken from the same read the page makes, so the assertion moves with the
        seed instead of pinning 15/30 into a second place they would have to be kept in step. */
     await expect(page.getByTestId('refer-balance-contacts')).toHaveText(String(contacts.remaining));
+
+    await flags.disable('referralRewards');
+    await page.reload({ waitUntil: 'networkidle' });
+
+    /* Asserted **first**: `toHaveCount(0)` is satisfied the instant it is asked on a page that has
+       not finished rendering, so the two negatives below need something real to wait behind. */
+    await expect(page.getByText(/free rent agreement/i).first()).toBeVisible();
+
+    await expect(page.getByTestId('refer-balance')).toHaveCount(0);
+    await expect(page.getByTestId('refer-seeker-track')).toHaveCount(0);
   });
 
   test('Ops switching it off is a confirmed write that lands on the server', async ({ page, flags }) => {
     await flags.enable('referralRewards');
-    await signedInAs(page, ACTORS.admin);
+    await signIn(page, ACTORS.admin, { screen: 'staff' });
     await page.goto('/admin/settings?tab=flags', { waitUntil: 'networkidle' });
 
     await page.getByRole('button', { name: /Monetization & Payments/i }).click();
