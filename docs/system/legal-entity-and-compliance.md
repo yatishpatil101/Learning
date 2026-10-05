@@ -14,8 +14,8 @@
 ## 1. Executive Summary
 
 **Draazy** is a technology **marketplace / broking-services platform** (not a land-dealing
-"real-estate business"), earning from **subscriptions, listing boosts / featured placement, and a
-platform fee on rent** — explicitly **fee-only, not holding customer funds** (a deliberate choice
+"real-estate business"), earning from **subscriptions and paid services** - explicitly
+**fee-only, not holding customer funds** (a deliberate choice
 that keeps you out of RBI Payment-Aggregator licensing). You handle **PII + identity-document
 data** and integrate regulated seams (Razorpay, KYC aggregator, DLT SMS, WhatsApp), and are
 architected to **scale to millions with a clear future-funding path**.
@@ -134,7 +134,7 @@ on MoA/AoA and authorized capital; keep authorized capital modest, e.g., ₹1–
 ### Tax
 - **Corporate tax options:** **25%** (turnover <= ₹400 Cr) under normal regime **with** exemptions, **or 22% (Sec 115BAA)** without exemptions (also removes MAT). **Strategy:** if DPIIT-recognised, stay in normal regime to use the **80-IAC 100% profit deduction for 3 of first 10 years**, then evaluate 115BAA.
 - **Angel tax:** **Abolished for all investors from FY 2024-25** (Finance Act 2024 scrapped Sec 56(2)(viib)) — major de-risking for future raises. DPIIT recognition still valuable for the tax holiday.
-- **GST:** Output **18%** on subscriptions, listing/boost/featured fees, platform/brokerage fees; **claim input credit** on Razorpay fees, cloud (GCP/Cloudflare — note reverse-charge on some foreign SaaS), SMS/WhatsApp vendors. Watch **TDS you must deduct:** **194-H** (commission), **194-I/194-IB** (rent), **194-J** (professional fees).
+- **GST:** Output **18%** on subscriptions, service fees and platform/brokerage fees; **claim input credit** on Razorpay fees, cloud (GCP/Cloudflare - note reverse-charge on some foreign SaaS), SMS/WhatsApp vendors. Watch **TDS you must deduct:** **194-H** (commission), **194-I/194-IB** (rent), **194-J** (professional fees).
 - **Entity comparison:** Pvt Ltd's **22–25%** (with holiday -> effectively lower early) beats Partnership/LLP's flat **30% + surcharge/cess**; Sole Prop taxed at individual slabs (up to 30%) with unlimited liability. **Pvt Ltd wins on rate and reliefs.**
 
 ### Funding readiness
@@ -296,8 +296,8 @@ derivation is deliberately **conservative — it must over-match, never under-ma
 (`cities.name`, `platform_fees.gst`, `plans.contact_limit`) costs one line in the test's `RETAINED`
 map saying why it is not personal, written once, by someone who had to look. A false negative costs a
 column of live personal data that erasure silently misses and no test ever mentions again. So the
-vocabulary is matched as a bare substring — `name` matches `tenant_name`, `society_name` and
-`boost_packs.name` alike — and every match must be classified whether or not it turns out to be
+vocabulary is matched as a bare substring: `name` matches `tenant_name`, `society_name` and
+`plans.name` alike, and every match must be classified whether or not it turns out to be
 personal. The only concession is a short list of tokens (`pan`, `gst`, `ip`, `age`, `lat`, `lng`,
 `dob`) matched on underscore boundaries instead, because `contains("ip")` matches `description`,
 `recipient` and `script` and would turn the classification maps into a transcription of the whole
@@ -325,21 +325,16 @@ as completely.
 ### Decisions worth reading twice
 
 - **`tenant_rentals` goes whole.** `address` is NOT NULL so nulling is unavailable, but the real
-  reason is that the rest of the row — landlord's name, rent, lease window — describes one tenancy
-  closely enough to identify it, so half-erasing would leave the more revealing half behind.
-  `landlord_name` there is a *third party's* data, held on the subject's say-so and never confirmed.
-  It goes with the row because whatever basis we had ended with the subject's account — but read that
-  narrowly: it is erased when the erasure subject is the tenant who typed it. It does **not** mean the
-  named landlord can have it erased. The column is free text with no foreign key, so a landlord who
-  is themselves a Draazy user and asks to be forgotten cannot be found in that table at all. That is
-  a gap in a different person's rights, and not one a classification map can close; see
-  `tasks/DECISIONS-NEEDED.md`, which asks whether the column should exist given nothing reads it.
+  reason is that the rest of the row — rent, lease window — describes one tenancy closely enough to
+  identify it, so half-erasing would leave the more revealing half behind. The table used to hold a
+  free-text `landlord_name` as well: a third party's data with no foreign key, so the named landlord
+  could never be found to erase it. V57 dropped the column rather than leave that gap (ledger 285).
 - **`managed_property_rent_receipts` runs the same asymmetry from the other side.** The party erasing
   is normally the landlord, and the claim destroyed would be the tenant's. The three retained columns
   are not incidental to the document, they *are* the document: a receipt that does not say who paid
   whom for which address proves nothing. `tenant_name` and `landlord_name` are again free text with
-  no foreign key — unlike `tenant_rentals.landlord_name` this one is kept deliberately, so the
-  limitation is disclosed rather than silent.
+  no foreign key, and are kept deliberately because the receipt needs them, so the limitation is
+  disclosed rather than silent.
 - **`outbound_message` goes whole** because the column that matched the vocabulary is not the hard
   one: `body` holds the rendered message, and a row with a nulled mobile and an intact "Hi Ramesh,
   about your flat in Kothrud" is not erased in any sense a subject would accept.

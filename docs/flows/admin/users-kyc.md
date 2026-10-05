@@ -61,16 +61,49 @@
 - **Badge grant is staff-decided, not self-service.** The user (maker) opts in and submits a
   government document plus a live selfie through the consumer badge flow; a reviewer works the ops
   identity queue (`/ops/kyc-review`, and `/admin/kyc-review` for the same screen behind the module
-  guard), or an admin confirms offline docs here and flips
-  `verified`. There is no second-approver step today - a single reviewer both reviews and grants.
+  guard), or an admin confirms offline docs here and **requests** the badge, which a second admin
+  must approve (§6). A reviewer can never decide their own case (403).
+- **Review claims are soft assignment.** A reviewer may claim a pending case for 30 minutes; a fresh
+  claim blocks another reviewer from claiming or deciding, but stale claims are takeable and
+  unclaimed cases can still be decided directly.
 - **Badge-not-gate (ADR-019):** this `verified` flag is an **opt-in trust/ranking badge**. Owners do
   **not** need to clear any identity gate to post — posting and contact stay at L1 mobile. Uniqueness
   is enforced as **one document → one badge** via the UNIQUE `identity_hash` (ADR-009b), set at
   approval, inside the opt-in badge flow only.
-- **This screen's toggle and the review queue write the same single `verified` boolean.** The row
-  carries no record of *which* path granted it, so an admin removing a badge a reviewer issued looks
-  identical to removing one an admin issued. If that distinction ever needs to hold, it needs a
-  column first (see `tasks/todo.md`).
+- **Both paths write the same `verified` boolean; the origin is derived.** Earned = an
+  `identity_verifications` row in `verified`; hand-granted = an approved `badge_grant_requests` row.
+  An earned badge is withdrawn only by **revoking** the identity case (reason required, audited);
+  a hand-granted one by the immediate withdraw on this screen. The back-office user payload carries
+  the derived `badgeSource` (`identity`/`manual`) so the console disables withdraw on an earned one.
+- **Name is locked while verified** - `PATCH /me` with a changed name answers 409
+  `NAME_LOCKED_WHILE_VERIFIED`; the badge vouches for that name. The identity approval itself
+  intentionally overwrites `users.name` with the reviewer-confirmed holder name and audits the
+  before/after change.
+- **Review SLA.** The age column turns amber at 24h and red ("overdue") at 48h pending, and the
+  Overdue filter asks the server for the same 48h cut; a case unreviewed for 14 days
+  (`draazy.identity.pending-ttl`) is auto-rejected as `not_reviewed`, images purged and the attempt
+  window reset so the user can resubmit at once.
+- **The KYC desk.** Three tabs, 10 cases a page, every filter a server query
+  (`GET /moderation/identity-reviews?status=&q=&docType=&claim=&overdue=&outcome=&sort=`, counts
+  from `/moderation/identity-reviews/summary`):
+  - *Needs review* (`pending`, oldest first) — the work. Claim chips All / Unclaimed / Mine n/3 /
+    Others replace a separate "my cases" tab, since a reviewer holds at most three.
+  - *QA sample* (`qa`) — sampled approvals awaiting a second reviewer; the approver's own are hidden.
+  - *Decided* (`verified`/`rejected`/`revoked`, newest first, Outcome chips) — revoke a badge or
+    read a case's history.
+
+  A row opens one case in a dialog: document images beside the applicant's entries and a per-document
+  checklist (Approve stays disabled until every line is ticked — the server cannot judge a photo),
+  the selfie and pose in their own group, history collapsed, and every action in one rail. Opening a
+  pending case claims it; closing it or moving to Next case releases the claim. A case someone else
+  holds is not claimed on open — the reviewer sees "Being reviewed by X" and no decide forms.
+- **Document already on another account** (409 `identity_already_registered`): the user can report
+  misuse from their recent submit conflict (`POST /me/verification/identity/dispute`), which opens
+  an `identity_dispute` support ticket; the staff-only link to the holder's case is in the `identity.dispute.opened` audit entry.
+  If upheld, staff revoke the holder's case and the reporter resubmits.
+- **Consent** is shown in English only (the app is English-only); the client always sends
+  `consent_language = en`, stored next to `consent_notice_version`. The column still accepts
+  `hi`/`mr` for rows recorded before the switch.
 
 ### 5.3 Moderation actions (single)
 `confirmAction` in `AdminUsers.jsx` switches on the action type, writes an audit entry, and patches
@@ -114,7 +147,7 @@ their own panel above the feed instead (5.6).
 
 ### 5.6 Staff notes on the account
 The same `note` domain the property console uses, with `entityType: 'user'`:
-`GET|POST /admin/notes/user/{id}`, `PATCH /admin/notes/{id}`. Mutable, author resolved server-side
+`GET|POST /admin/notes/user/{id}`. Append-only, author resolved server-side
 from the token, no per-team walls — any staffer or administrator reads any note, deliberately.
 Rendered as `data-testid="user-notes"` inside the Activity modal, with an explicit empty state
 rather than an absent panel, so "nobody has written one" is distinguishable from "the read failed".
@@ -130,16 +163,42 @@ rather than an absent panel, so "nobody has written one" is distinguishable from
 - The timeline join (server-side aggregation with proper access control over PII).
 
 ## 6. Maker-checker / approval
-- **Applicable: yes, in the single-approver form.** Maker = the user presenting identity/KYC;
-  checker = the admin who flips `verified`. On approval the account gains the trust badge and an audit
-  row is written. There is no distinct pending "verification request" record for accounts today (unlike
-  property verification, which has an explicit `property_reviews` record) - the admin acts directly on
-  the `users` row. See [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2; a
-  future backend should add a pending KYC-request record so verify/suspend can require a second approver.
+| Path | Maker | Checker | Enforced by |
+|---|---|---|---|
+| Earned badge (document + selfie) | the user (submits case) | identity reviewer (`identity:write`) | service 403 when reviewer = subject |
+| QA sample of an earned badge | identity reviewer who approved | second identity reviewer | service 403 + V62 CHECKs: checker ≠ approver, checker ≠ subject |
+| Hand-granted badge | admin A (`PATCH /users/{id}/badge` → 202 pending) | admin B (`/admin/badge-grants/{id}/approve`) | service 403 + V60 CHECKs: maker ≠ subject, checker ≠ maker, checker ≠ subject; one pending per user |
+| Revoke earned badge | - | single admin, reason 10..300 | protective direction; audited |
+| Withdraw hand-granted badge | - | single admin, reason | protective direction; audited |
+
+Every decision and every staff detail view of a case (it mints signed image URLs) writes an audit
+row. See [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2.
+Approvals always enter `status=qa` when client liveness is not `passed`, the selfie carried no
+server-signed pose challenge, the reviewer overrode a number mismatch, or the case is a resubmission.
+A 25% random sample (`draazy.identity.qa-sample-rate`) covers the rest. Approvers do not see or
+work their own QA rows, and cannot revoke them while QA is open.
+
+**Approval checks (in order):** the number the reviewer types is the source of truth for the
+dedup hash. A hash already verified on another account is a hard stop (409
+`identity_already_registered`). When the case carries a pose challenge (`left` / `right` /
+`smile`, issued by `POST /me/verification/identity/challenge`, HMAC-signed to the user, 15 min), the
+reviewer must tick "selfie shows the pose" (400 `identity_pose_unconfirmed`). A typed number that
+differs from the applicant's entry is a soft stop (409 `identity_number_mismatch`); a
+`numberOverride` is stored (`number_overridden`), audited and always QA-sampled. The dev
+`simulate` system actor skips both human checks.
 
 ## 7. State machine
 - **`status`:** `active <-> suspended`; `active|suspended --(archive)--> archived --(restore)--> active`.
 - **`verified`:** `false <-> true` (independent boolean; not a lifecycle stage).
+- **Identity case:** `none → pending → verified | rejected`; `verified → revoked`; `rejected|revoked
+  → pending` (resubmit, 3 per 24h); `pending → rejected(not_reviewed)` after 14 days unreviewed
+  (images purged, attempt not consumed); any state → withdrawn on user withdrawal (DPDP: images
+  and claims erased, badge removed; the row keeps the attempt window, and a revoked or not_holder
+  case keeps its document hash so withdrawal cannot launder a fraud block). Reads as `none` to the
+  user.
+- **Identity QA:** `verified + qa_sampled_at → confirmed | revoked`; `confirmed` closes the sample,
+  `revoked` runs the earned-badge revoke path with the QA reviewer as revoker.
+- **Badge grant request:** `pending → approved | rejected` (terminal).
 - **`flagged`:** `false <-> true` (advisory marker; does not change access).
 - **Terminal-ish:** `archived` (re-openable by restore, which forces `status='active'`).
 
@@ -200,14 +259,14 @@ Rationale relocated from `UserModerationService` Javadoc.
   directory that claims to be fine.
 - **The manual badge exists because the document-and-selfie flow cannot reach everybody** - a
   company account, or a person an administrator has met and whose documents they have seen. Without
-  it those people are permanently unverifiable and the judgement moves off-platform.
-- **A hand-granted badge is distinguishable without a new column.** An earned badge always has an
-  approved `identity_verifications` row behind it; this route never writes one, so `verified`
-  with no such row *is* "an administrator vouched for this person". Withdrawing an earned badge is
-  refused - the case is already decided and nothing would restore what the toggle removed; doubt
-  about the verification is an action against the verification record.
-- **Badge changes propagate to the person's listings in both directions**, because the badge is sold
-  on being the same claim on the profile and on every listing.
+  it those people are permanently unverifiable and the judgement moves off-platform. Because it
+  skips the `identity_hash` dedup, one administrator's word is not enough: the grant is a request a
+  second administrator approves.
+- **Withdrawing an earned badge is refused here** - doubt about the verification is an action
+  against the verification record (revoke), which keeps the evidence and the reason together.
+- **Badge changes propagate in both directions** to the person's listings, flatmate seeker posts and
+  group seats (and so the "verified only" filter), because the badge is sold on being the same claim
+  everywhere it shows.
 - **The flag has no self-check and no last-administrator guard.** It takes nothing away, so there is
   nothing to lock yourself out of. A reason is required and validated in the service so the operator
   gets a sentence rather than a constraint violation.

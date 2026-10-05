@@ -24,7 +24,7 @@
   - Locality page "get alerted" (`Locality.jsx`).
   - The Saved page's per-card "bell-plus" button (`Saved.createAlert`) - turns a saved home into an
     alert for similar homes.
-- **Routes:** `/saved` (`ProtectedRoute`, and feature-flag gated via `AppFlagsContext`),
+- **Routes:** `/saved` (not protected; guests see a sign-in prompt),
   `/listings`, `/flatmates`, `/notifications`, and the Dashboard "Saved & Activity" tab
   (`#activity`, sub `saved` / `alerts`).
 - **Source components:** `src/pages/consumer/Saved.jsx`,
@@ -63,14 +63,18 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `savedPropsKey() = 'dzSavedProps:' + (myMobile() || 'anon')`.
 - `getSavedProps()` -> array of ids; `isSavedProp(id)` -> membership; `toggleSavedProp(id)` pushes or
   splices and **returns `true` if now saved**. Idempotent per id (no duplicates).
-- The Saved page resolves ids against the live catalog (`listProperties`) and classifies each into
-  `buy` vs `rent` by `p.deal === 'rent'`; flatmate saves come from `draazyFlatmateSaved` and are
-  category `flatmates` ("Flatmates & Rooms"). Counts per category drive the tab badges; sort options:
-  `newest` (by `createdAt`), `price-desc`, `price-asc` (by `priceNum`).
+- The Saved page reads `/me/saved`, which omits archived, paused, pending, rejected and flagged
+  listings while keeping sold/rented rows so the UI can badge them unavailable. The saved row stays
+  in the database, so a re-approved listing reappears.
+- The Saved page uses one segmented row: All / Buy / Rent / Rooms. Its header count is split into
+  homes and rooms, and the Alerts row below the tabs links to `/dashboard#alerts` with active/new
+  counts. Guests see it only if alerts exist.
+- Guest copy is honest: "Sign in to keep your shortlist on every device." It does not promise local
+  saved hearts or price-drop watchers.
 - **Swipe to remove (mobile only):** a saved card can be swiped left to remove (`useSwipeDismiss`,
   `axis: 'x'`, never armed above 640px; `touchAction: 'pan-y'` keeps vertical scrolling with the
   browser). A swipe is easy to fire by accident on a hand-curated list, so the removal is staged: the
-  card renders as an undo row for `UNDO_WINDOW_MS = 5000` before it commits.
+  card renders as an undo row for `UNDO_WINDOW_MS = 8000` before it commits.
 
 ### Saving a search / alert (was `store/search.js`, deleted)
 - `addSavedSearch(o)` creates `{ id: 'ss'+Date.now(), alerts: true, channel: 'whatsapp', at:
@@ -182,8 +186,8 @@ Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet ho
   they sign in with that number.
 - **Empty states:** Saved page has a full empty state and per-category empty states; SavedPanel and
   AlertsPanel each render a distinct "nothing yet" card with a CTA (never blank).
-- **Removed listing:** saved ids that no longer resolve against the catalog are simply filtered out
-  (`.filter(Boolean)`), so a stale id shows nothing rather than erroring.
+- **Hidden listing:** archived, paused, pending, rejected and flagged listings drop out of `/me/saved`
+  and its totals without deleting the saved row.
 - **"Any" ranges:** default-max budget/rent produce no price chip (noise suppression).
 - **Duplicate saves:** heart toggle is idempotent per id; a saved search is not deduped by criteria
   (two identical saves create two records).

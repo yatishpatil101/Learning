@@ -1,7 +1,7 @@
 # Flow: Admin Finance
 
-> The platform-economics console: revenue by month, subscription MRR, services and
-> featured income, a transaction ledger, GST accounting and the plan book.
+> The platform-economics console: revenue by month, subscription MRR, services,
+> a transaction ledger, GST accounting and the plan book.
 > **Status:** documented from React source - **Primary role(s):** admin (with the Finance module)
 
 ---
@@ -9,22 +9,22 @@
 ## 1. Purpose & user problem
 - **Persona:** a finance / growth lead who owns the platform P&L.
 - **Job-to-be-done:** "Show me what Draazy earned this month, where it came from
-  (subscriptions vs services vs featured), what GST we collected,
+  (subscriptions vs services), what GST we collected,
   and let me drill into individual transactions."
 - **Why it matters:** this is the money view of the marketplace. It rolls up the
-  monetisation from every other flow (owner/seeker plans, service tickets, featured
-  boosts) into revenue, MRR and net-retained figures. It sits at
+  monetisation from every other flow (owner/seeker plans and service tickets) into
+  revenue, MRR and net-retained figures. It sits at
   the bottom of the funnel that [`enquiries-funnel.md`](./enquiries-funnel.md) tracks.
 
 ## 2. Entry points
 - **Routes:** `/admin/finance` (single page, no tabs). The Dashboard "Revenue (this month)"
   glance tile links to `/admin/settings`, but Finance itself is opened from the sidebar
   and cross-linked from the "Deal Pipeline" card to `/admin/enquiries`.
-- **Tiles / triggers:** 6 KPI tiles, a Revenue-by-month bar chart with a 6/12/24-month
+- **Tiles / triggers:** 5 KPI tiles, a Revenue-by-month bar chart with a 6/12/24-month
   window selector, a revenue-mix doughnut, an MRR line, Subscriptions and Net-position
   panels, and a filterable transactions table with a per-row detail modal. The console's
-  composition today is: subscriptions, featured listings, services, refunds, MRR,
-  ARPU/ARPPU and the plan book - no rent band, no rent-pay fee tile, no payouts.
+  composition today is: subscriptions, services, refunds, MRR, ARPU/ARPPU and
+  the plan book - no paid-placement band or tile, no rent band, no rent-pay fee tile, no payouts.
 - **Source components:**
   - `src/pages/admin/AdminFinance.jsx` - KPIs, charts, panels, transaction table + modal, CSV export.
   - `src/lib/data/finance-admin.js` - `buildTransactions()`, `buildRevenueSeries()`.
@@ -41,35 +41,30 @@
 
 ## 4. Entities touched
 - [`settings.fees`](../../system/data-model.md) - **read** (fee schedule + `gstPercent`).
-- [`analytics.revenue`](../../system/data-model.md) - **read** (per-month subscriptions/services/featured series).
-- [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md) (status `done`),
-  [`listings`](../../system/data-model.md) (`featured`), `users` - **read** to synthesise the transaction ledger and ARPU.
+- [`analytics.revenue`](../../system/data-model.md) - **read** (per-month subscriptions/services series; services is zero until measured).
+- `users` - **read** for ARPU/ARPPU; paying users are active subscribers only.
 - Nothing is written here - Finance is entirely read/aggregate today (no audit rows, no mutations).
 
 ## 5. Business rules & logic  *(the meat)*
 
 ### 5.1 Source series
-- `series = buildRevenueSeries(24)` returns 24 monthly rows `{ month, subscriptions, services, featured }`.
-  - If `db.analytics.revenue` has at least `months` rows it uses the **seed** series (`analytics.json`), taking the last `months`.
-  - Otherwise it generates a **deterministic** series keyed on `seed = year*100 + month`:
-    - `subscriptions = 120000 + ((seed * 7919) % 80000)`
-    - `services      = 40000  + ((seed * 5381) % 60000)`
-    - `featured      = 15000  + ((seed * 3137) % 25000)`
+- `series = buildRevenueSeries(24)` returns 24 monthly rows `{ month, subscriptions, services }`.
+  - `subscriptions` is the only measured revenue source today.
+  - `services` is carried as an always-zero band until service-order revenue is measured.
   - `month` label = `toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })`.
 - `month = series[last]`, `prev = series[last-1] || month`.
 - `slicedSeries = series.slice(-range)` where `range` in {6, 12, 24} drives the bar chart / MRR line.
 
 ### 5.2 Headline aggregates
-- `monthTotal = month.subscriptions + month.services + month.featured`.
-- `prevTotal  = prev.subscriptions + prev.services + prev.featured`.
-- `ytd = sum over the last 12 rows of (subscriptions + services + featured)` (the "Revenue (12 mo)" KPI).
+- `monthTotal = month.subscriptions + month.services`.
+- `prevTotal  = prev.subscriptions + prev.services`.
+- `ytd = sum over the last 12 rows of (subscriptions + services)` (the "Revenue (12 mo)" KPI).
 - `pct(cur, prev)` MoM delta = `round((cur - prev) / prev * 1000) / 10`, rendered as `+/-N%`;
   returns `null` (no delta shown) when `prev` is falsy.
 
 ### 5.3 Fee schedule inputs (`settings.fees`)
 Seed values (`src/data/settings.json`): `ownerPlanYearly: 999`, `ownerProYearly: 2499`,
-`rentAgreementPlatform: 500`, `seekerPlusTopup: 199`, `featuredListing: 999`,
-`gstPercent: 18`.
+`rentAgreementPlatform: 500`, `seekerPlusTopup: 199`, `gstPercent: 18`.
 - `gstRate = (fees.gstPercent || 18) / 100`.
 - `ownerPlan = fees.ownerPlanMonthly || round(fees.ownerPlanYearly / 12 || 500)`
   (with the seed, `ownerPlanMonthly` is absent so `ownerPlan = round(999/12) = 83`).
@@ -96,32 +91,23 @@ The subscription line is split into owner vs seeker by a **fixed 55/45 heuristic
 
 ### 5.6 ARPU and ARPPU
 - `users = db.users.length`; `arpu = round(monthTotal / max(1, users))` (the ARPU KPI).
-- `arppu = round(monthTotal / max(1, payingUsers))` (the ARPPU KPI). The two are separate tiles
+- `arppu = round(monthTotal / max(1, payingUsers))` (the ARPPU KPI), with `payingUsers` counted from active subscribers only. The two are separate tiles
   because one figure under an unqualified label invites the reader to assume it is the other.
 
-### 5.7 KPI tiles (6)
+### 5.7 KPI tiles (5)
 | KPI | Value | MoM delta |
 |-----|-------|-----------|
 | MRR (subscriptions) | `month.subscriptions` | `pct(subs, prev.subs)` |
 | Revenue this month | `monthTotal` | `pct(monthTotal, prevTotal)` |
 | Services revenue | `month.services` | `pct(services, prev.services)` |
-| Featured revenue | `month.featured` | `pct(featured, prev.featured)` |
 | Revenue (12 mo) | `ytd` | none |
 | ARPU / ARPPU | `arpu`, `arppu` | none |
 
 ### 5.8 Transaction ledger (`buildTransactions`)
-A synthetic ledger built from existing collections, newest-first (sorted by `date` desc):
-- **Deals** (first 8): `party = listing || customer`, `type = 'Rent agreement'` when
-  `deal === 'rent'` else `'Sale facilitation'`; `amount = fees.rentAgreementPlatform || 999`
-  for rent, else `round(deal.value * 0.005)` (0.5% sale-facilitation fee). IDs `TX4000+`.
-- **Tickets** with `status === 'done'` (first 8): `type = ticket.service`, `amount = ticket.value || 0`. IDs `TX5000+`.
-- **Featured listings** (first 6): `type = 'Featured listing'`, `amount = fees.featuredListing || 5000`
-  (seed makes this `999`). IDs `TX6000+`.
-- **Status decoration** (deals/tickets/featured): cycled from
-  `STAT = [closed, closed, closed, pending, closed, refunded, closed, closed, failed, closed]`
-  by index. When status is
-  `refunded` the amount is flipped negative (`-abs(amount)`). There is no `method` column: it was
-  invented here and never sourced, and the rent rail it decorated is gone.
+A server ledger built from subscription payments, newest-first (sorted by `date` desc):
+- `kind` is `subscription`; the old paid-placement kind is gone.
+- `services` remains an always-zero series band, not ledger stock.
+- There is no `method` column: it was invented here and never sourced, and the rent rail it decorated is gone.
 - **Derived outstanding/refunds:** iterate the ledger - `refunds += abs(amount)` for `refunded`,
   `pending += abs(amount)` for `pending`.
 
@@ -135,9 +121,8 @@ A synthetic ledger built from existing collections, newest-first (sorted by `dat
 - The 55/45 owner/seeker subscription split, the 65/35 partner/commission split, the 0.5%
   sale-facilitation rate and the deterministic revenue fallback are **client-side heuristics**
   that must be replaced by real ledger/subscription accounting on the server.
-- The transaction ledger is **fabricated** from unrelated collections (deals/tickets/featured)
-  with cycled status - it is not a real payments table. A backend must own an
-  immutable transactions table with real gateway status, GST and refund records.
+- The transaction ledger must stay backed by real subscription payment rows with gateway status,
+  GST and refund records, not by unrelated product collections.
 - GST and net-retained are computed in the browser from `monthTotal` and must be
   authoritative server figures.
 
@@ -150,7 +135,7 @@ identical to an operator:
 | Figure | Reality today | Evidence |
 | --- | --- | --- |
 | `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | A literal `0L` in `AdminFinanceService.finance()`. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
-| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V11__DDL_engagement_billing.sql`, folded from the old `V8`, with the status vocabulary widened by the old `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions subscriptions + boosts only. |
+| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V11__DDL_engagement_billing.sql`, folded from the old `V8`, with the status vocabulary widened by the old `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` counts subscriptions only. |
 
 There used to be a third: `payoutsCompleted` / **Partner payouts**. Both the figure and its
 disclosure are gone. `payout_accounts` stored *where* a remittance to an owner would go and nothing
@@ -258,16 +243,16 @@ specific hole.
 The payload is nested (`data.order`, `data.payment`); the contract used to document a flat
 body Cashfree has never sent, so a faithful implementation would have silently never fired.
 
-Lives in `finance` because three unrelated families settle here — subscriptions, boosts and
-paid service requests. Each side ignores an order id it does not own, so all three are always
+Lives in `finance` because three unrelated families settle here: subscriptions, paid
+service requests and amendments. Each side ignores an order id it does not own, so all three are always
 offered the event rather than guessing from the payload which it was. Each gets its own
 try/catch: a shared one meant a failure in the first path returned 200 without the others being
 asked, and Cashfree does not retry a 200. A paid webhook that matches nothing (or has a handler
 throw) is logged loudly and unreconciled — the two causes are distinct log lines because they
 route paging to different places.
 
-`payment_time` seeds the settlement instant (subscription terms and boost windows run from
-when the money moved). Falls back to now when absent or unparseable rather than failing the
+`payment_time` seeds the settlement instant for every family that settles from the
+callback. Falls back to now when absent or unparseable rather than failing the
 callback: the fact of the payment matters more than the exact stamp. `payment_amount` is
 parsed to whole rupees for a reconciliation check against our own ledger, never to overwrite
 it — reading the amount back off the callback would let the provider's rounding become our

@@ -31,7 +31,7 @@
 - **Operator = admin** with the `analytics` module (atom `dashboard:read`, `flagKey: 'analytics'`). Each tab is gated by an
   `analytics.<key>` admin option flag (`analytics.traffic|engagement|anonymous|geography|supplyGap|pricing|sla|seasonal`,
   all seed `true`); a disabled tab is removed and its data generator is skipped.
-- Dashboard panels are gated by `dash.smartAlerts|sla|scorecard|glanceRevenue|glanceTraffic`.
+- Dashboard panels are gated by `dash.sla|glanceRevenue|glanceTraffic`.
 - Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
@@ -178,11 +178,7 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
 - **At-a-glance:** Total Users (buyer+owner), Active Listings (`approved`) / total, Revenue this month
   (`subscriptions+services+featured` of last `analytics.revenue` row, MoM via `pct`), Total Deals, Signups today
   (last traffic row), Visits today + `visits30` (sum).
-- **Smart Alerts** (`computeSmartAlerts()`): severity-ranked rules - stale listings (>48h: warning, >=3 critical),
-  unassigned tickets (>24h critical), stalled concierge owners (>72h), supply-demand hotspots (`demand>=85 && supply<=1`),
-  KYC backlog (>=10 warning / >=5 info), long-running high-priority tickets (>5d), flagged listings. Dismissals persist in localStorage.
-- **Ops Scorecard** (`dailyOpsScorecard()`, seed 202607): today-vs-yesterday simulated ops metrics with targets
-  (listingsApproved 5, ticketsCompleted 4, enquiriesResponded 8, remindersSent 3, totalActions 25) and a top-5 staff breakdown.
+- **SLA health** (`dashboard/SlaHealthPanel.jsx`, D291): the four compliance rates `GET /admin/analytics/sla` answers (listing approval, ticket pickup, service delivery, concierge to live) with each track's late-now count; a null rate renders "Not recorded". Smart Alerts and the Daily Ops Scorecard were deleted: no route sources them.
 - **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, whatsappEnabled).
 
 ### 5.10 Time ranges & filters
@@ -208,7 +204,6 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
   seasonal recommendation `opportunity|caution|strategy`. These are derived each render, not transitions.
 
 ## 8. Edge cases, validation & error states
-- **Loading:** `<Loading />` until `getAnalytics()` resolves (only `sources` is actually consumed from it).
 - **Flag gating:** disabled tabs are filtered out (`.filter(Boolean)`); their generators are skipped via memo guards.
 - **Divide-by-zero guards:** SLA rates default to 100 when no items; pricing skips null `marketPrice`; `maxDemand/maxSupply`
   use `Math.max(..., 1)`; anonymous rates guard on `totalVisits`.

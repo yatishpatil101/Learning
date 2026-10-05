@@ -50,9 +50,9 @@
 Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Tenant rental (the tenant's own record)** - `tenant_rentals` (V128), read and written through
   `GET|POST /me/rentals` and `PATCH|DELETE /me/rentals/{rentalId}` (soft delete). Columns: `address`,
-  `landlord_name`, `monthly_rent`, `deposit`, `lease_start`, `lease_end`, `status`
+  `monthly_rent`, `deposit`, `lease_start`, `lease_end`, `status`
   (`active`/`ended`), plus soft-delete and audit. **No `property_id`, deliberately** — the home a
-  tenant rents is usually not a Draazy listing. `address` and `landlord_name` are personal data,
+  tenant rents is usually not a Draazy listing. `address` is personal data,
   so the table is wired into DSAR export (`DataExportScope`) and account erasure (`ErasureService`).
 - **Tenancy** - `tenancies`, written cross-actor when a rent deal is finalized on this platform.
   A relationship, not a schedule: it carries no instalments.

@@ -1,59 +1,84 @@
 # Flow: Property Verification Queue (Maker-Checker)
 
-> The canonical maker-checker flow: an owner submits a listing, an admin/manager reviews the
-> documents and either approves (listing goes live) or rejects (owner fixes and resubmits).
-> This is **listing moderation** (verifying the listing's ownership documents to publish it), and it
-> also drives listing trust/ranking — it is **not** an identity gate on the owner. Under
+> The canonical maker-checker flow: an owner submits a listing, a staff checker ticks three facts
+> (real photos, not a duplicate, details right) and approves, asks for info, or
+> rejects (final). Ownership documents are **optional** — they earn the *Verified owner* badge and
+> never gate publishing. It is **not** an identity gate on the owner either. Under
 > **badge-not-gate (ADR-019)** the owner posts at L1 with no identity check; the opt-in Verified badge is a
 > separate trust signal (see [`../../system/platform-architecture.md`](../../system/platform-architecture.md) §6.4 / ADR-019).
-> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** admin / manager (checker), owner (maker)
+> **Status:** re-synced to the verification MVP (2026-09-29) - **Primary role(s):** admin / scoped verify staff (checker), owner (maker)
 
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** a back-office reviewer (admin or manager, or a scoped "Properties - Verify" staff role)
+- **Persona:** a back-office reviewer (admin, or a scoped "Properties - Verify" staff role)
   who protects buyers from fake, duplicate, or misrepresented listings; the owner is the counterparty
   who wants their property live.
-- **Job-to-be-done:** "Check every new listing against its ownership documents and only publish the
-  genuine ones." For the owner: "Get my property verified and live."
+- **Job-to-be-done:** "Only publish listings that are real, owner-posted and not duplicates." For
+  the owner: "Get my property live — and, optionally, the Verified owner badge."
 - **Why it matters:** listing verification is Draazy's core **supply-quality** gate. A listing is
   invisible to buyers until a checker approves it, so this queue is the single choke point that
-  decides platform supply quality. Note this gates the **listing** (its documents), not the owner's
-  identity — posting itself is L1-only (ADR-019); the owner's opt-in Verified badge is a separate
+  decides platform supply quality. It gates the **listing**, not the owner's identity or documents —
+  posting itself is L1-only (ADR-019); the Verified owner badge is a separate
   ranking/trust signal. It is the reference implementation of the shared maker-checker pattern
   (see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2).
 
 ## 2. Entry points
-- **Routes:** `/admin/properties` (tab `verify` = "Verification Queue"). Deep links:
-  `?tab=verify`, `?review=<listingId>` (opens the review modal directly).
-- **Tiles / triggers:** the "Pending" KPI card on `/admin/properties` jumps to the verify tab; the
-  admin dashboard "pending listings" tile; each queue row's "Review" action opens `PropertyReviewModal`.
+- **Routes:** `/admin/properties`, one tab per queue — `verify` (To verify, the default), `recheck`,
+  `badge` (Badge requests), `followup`, `flagged`, `duplicates`, `all`. Deep links: `?tab=<key>`,
+  `?page=<n>`, `?review=<listingId>` (opens the review modal directly).
+- **Tiles / triggers:** the admin dashboard "Pending Verification" / "Flagged" tiles and the command
+  palette; each queue row's "Review" action opens `PropertyReviewModal`.
+- **Desk layout:** each tab fetches only its own server page of 10 (`PAGE_LIMIT`); the tab pill counts
+  come from `GET /admin/properties/summary`. One filter row per tab (search, deal chips, plus Progress
+  chips on To verify and Status / Source / Featured on All listings) with the page range and
+  prev/next on the same row. Rows carry a per-queue waiting clock (To verify 24h/48h from submission,
+  Re-checks and Badge requests 24h/72h from the request) marked "due soon" / "overdue" in text, not
+  colour alone. Each row is a card (the shared `.list-card .lr` layout): photo with Rent/Sale ribbon
+  on the left; the middle is three groups split by rules (title, status, hard signals, locality and
+  id; a labelled Property / Owner / Activity grid with fixed columns, dash when missing; chips and
+  the progress tracker); a fixed-width right column holds Review at the top, then price, then icon
+  buttons (Remind, View, Edit, Flag, Archive) at the bottom, so every tile lines up. No row selection and no bulk actions: every decision goes
+  through the review modal. Follow-up sorts by last confirmation, a never-confirmed listing first.
+- **What a tab holds:** every queue tab lists open items only, and its note says when an item leaves
+  (To verify: approved or rejected; Re-checks: passed or taken down; Badge requests: granted or
+  declined; Follow-up: owner confirms; Flagged: flag cleared or archived). Closed items are found in
+  All listings by status.
+- **Review modal:** two panes on desktop. Left: summary (title, status, price, locality, owner and
+  mobile) over section tabs Overview (photos, description), Details (facts; location as separate
+  Address / Society / Flat / Locality / City / PIN entries, "Not given" when missing, and a Google Maps
+  link for the pin), Changes (only for an owner edit; opens first), Verified badge (opens first for a
+  badge-only request: verdict strip, then flat sections for the facts to compare, owner's documents,
+  recorded checks, record a check, badge decision) and Messages (thread with its composer in one box,
+  then WhatsApp chasers and comms log). Right rail: checklist, decision, second approval, internal
+  note. One column on a phone.
 - **Source components:**
-  - `src/pages/admin/AdminProperties.jsx` - queue, filters, KPIs, bulk approve/reject.
+  - `src/pages/admin/AdminProperties.jsx` - tabs, paging, CSV export.
+  - `src/pages/admin/properties/QueueTable.jsx` / `QueueFilterBar.jsx` - queue rows and filter row.
   - `src/pages/admin/properties/PropertyReviewModal.jsx` - per-listing review (docs, thread, decision).
   - `src/pages/admin/properties/review-modal/*` - `DocPill`, `DocViewerModal`, `WhatsappTemplates`,
     `CommunicationLog`.
-  - `src/pages/admin/properties/PropertyModals.jsx` - flag / archive / edit / bulk-reject modals.
-  - `src/components/admin/AdminPropertyCard.jsx` - queue row.
+  - `src/pages/admin/properties/PropertyModals.jsx` - flag / archive / edit / re-check reject modals.
 
 ## 3. Actors & roles
 - **Maker = owner** (or a concierge "post on behalf" staffer). Submits the listing; cannot approve it.
-- **Checker = admin.** `/admin` is administrator-only; an ops account's `properties:*` atoms widen
-  what the API grants it, not which console it may open.
+- **Checker = any back-office account with the function.** `/admin` is shared by staff, managers
+  and the admin; the page requires `properties:read`. Verification checks and ownership need
+  `properties:verify` (`propertyVerification`); approve/reject/flag need `properties:moderate`
+  (`listingModeration`).
 - **Route guards:**
-  - The admin shell is `RoleRoute roles={['admin']}` (`src/App.jsx`). `manager` was retired with the
-    custom roles that labelled it (D209).
+  - The admin shell is `RoleRoute roles={['staff', 'manager', 'admin']}` (`src/App.jsx`).
   - The page is wrapped in `ModuleRoute moduleKey="properties"`, which tests `properties:read`
     against the caller's own resolved atoms from `GET /me`.
   - `verifyOnly` is now `!canWriteModule(user, 'properties')` - i.e. read without write. The old
     `properties:verify` sub-scope is gone: it was a console invention with no route behind it, and
-    `live-rbac.spec.js` asserts it does not reappear in the server's catalogue.
+    `rbac.spec.js` asserts it does not reappear in the server's catalogue.
 - The guards shape the UI; the control is `@PreAuthorize` on each moderation route, over the same
   atoms.
 
 ## 4. Entities touched
 - [`properties` / listings](../../system/data-model.md) - **read** (queue), **updated** (`status`,
-  `pipelineStage`, `flagReason`, `featured`, edited fields), **soft-deleted** (`archived`).
+  the progress facts in §7, `flagReason`, `featured`, edited fields), **soft-deleted** (`archived`).
 - [`property_reviews` + `review_messages`](../../system/data-model.md) - **created** on demand
   (`ensureReview`), **updated** (doc checklist, thread, decision). Stored in
   `db.propertyReviews[listingId]`.
@@ -71,47 +96,60 @@
 - A listing lands in `pending` in three ways:
   1. **Owner posts** via the list-property wizard (see
      [`../consumer/list-property-wizard.md`](../consumer/list-property-wizard.md)). Creating a listing
-     stamps `status: 'pending'`, `real: true`, and
-     `pipelineStage: postedByAdmin ? 'listed' : 'info_collected'`.
-  2. **Concierge / post-on-behalf** (`postedByAdmin`) - same `pending`, plus completion trackers
-     (`claimLinkSent`, `photosUploaded: false`, `identityVerified: false`). The `identityVerified`
-     tracker reflects the owner's **optional** Verified badge, not a posting prerequisite.
+     stamps `status: 'pending'`; its progress reads **Submitted**.
+  2. **Concierge / post-on-behalf** (`postedByAdmin`) - same `pending`, progress **Created**. It
+     cannot be published until the owner confirms it (§7). The owner's optional Verified badge is
+     not a step.
   3. **Re-verification** - an approved listing whose owner edits a **foundation field** reverts to
      `pending` (see 5.5); a restored archived listing also returns to `pending`.
 
 ### 5.2 The review record (per-listing checklist + thread)
-`ensureReview(listing)` (`src/lib/data/properties-admin.js`) creates, once, a review keyed by the
-listing id:
-```
-{ propId, title, locality, price, deal,
-  status: 'in_review',
-  docs: [ { id, name, status: 'pending', note: '' }, ... ],
-  messages: [], decision: null, createdAt, updatedAt }
-```
-- **Document checklist depends on the deal** (`defaultDocs`):
-  - `rent`: Index II, Electricity bill, Aadhaar card.
-  - `buy`: Ownership proof (Sale deed / Index II), Property tax receipt, Owner government ID
-    (Aadhaar / PAN), Society NOC / Maintenance receipt, Encumbrance certificate, Listing photos
-    match the property.
-- **Per-document verification:** `setDocStatus(id, docId, status, note)` marks a doc
-  `verified` / `rejected` / `pending` and can attach a note. The first doc action flips the review
-  from `pending` to `in_review`. `setDocVerified` is the boolean wrapper.
-- **Verified count** is shown as `X / N verified`; approving with unverified docs prompts a confirm
-  ("Approve and publish anyway?") but is not blocked (`reviewApprove` in `PropertyReviewModal.jsx`).
+One `property_reviews` row per listing (UNIQUE `property_id`), with a thread and a checklist.
+- **The checklist is three facts, the same for rent and sale** (`VerificationCases`):
+  1. Photos are real and match the listing
+  2. Not a duplicate of another listing
+  3. Details and location look right
+
+  Case files opened before this set keep their stored document-name items (items are addressed by
+  text and `item` is `updatable = false`).
+- **Ownership documents are not on the checklist.** They feed only the optional *Verified owner*
+  badge (ADR-019, badge-not-gate; see "Ownership gate" below). A listing goes live with no document.
+- **Approve is blocked** until every line is ticked (`ApprovalGate`, 409 `checklist_incomplete`),
+  on every approve route — single decision, `PATCH /status`, and relisting a sold/rented row.
+- **Re-entering pending unticks the checklist.** `PropertyLifecycle.reenterPending` is the one door
+  back into review (off-search edit, stays-live re-check on a pending row, relist, restore,
+  clear-flag, needs-info resubmit), so a checker re-checks rather than inheriting old ticks.
+- **Signals** (staff-only, `moderation/signal`) sit beside the facts they inform: photo match and
+  duplicate conflict beside facts 1–2, the rule-based broker signals beside fact 3. Hard:
+  `photo_match_other_account`, `brokerage_reports` (≥ 2). Soft: `many_societies` (> 2 active),
+  `broker_wording`, `copied_description`, `many_localities_30d` (≥ 3). `possibleBroker` = any hard or
+  ≥ 2 soft. A hard signal needs a second approver (§6).
 
 ### 5.3 Reviewer actions and their side-effects
-| Action | Handler | State written | Side-effects |
-|--------|---------|---------------|--------------|
-| Approve & publish | `reviewApprove` | review `decision.type='approved'`, listing `status='approved'`, `pipelineStage='live'` | clears `flagReason`, appends owner "approved" message, files the optional internal note as action "Approved", `logAudit`, listing becomes buyer-visible |
-| Reject | `reviewReject` (two-step: arm, then confirm with reason) | review `decision.type='rejected'`, listing `status='rejected'` | reason appended to owner thread, internal note "Rejected", `logAudit`; owner may resubmit |
-| Message owner | `reviewSend` -> `addReviewMessage(id,'admin',text)` | review `status='clarification'` (unless already decided) | two-way thread; owner sees it in their listing |
-| Mark doc verified/rejected | `reviewSetDoc` -> `setDocStatus` | doc `status`, review `in_review` | updates verified count |
-| Approve owner edits (P0) | `approveEdits` | listing `reReview=null`, `materialEditFlag=false` | clears re-review flag on a still-live listing, thread note, `logAudit` |
-| Flag | `submitFlag` -> `flagListing` | listing `status='flagged'`, `flagReason` | removes from live; internal note "Flagged", `logAudit` |
-| Clear flag | `doClearFlag` -> `clearFlag` + `setPipelineStage('live')` | listing `status='approved'`, `flagReason=''` | republishes; `logAudit` |
-| Archive | `submitArchive` -> `archiveListing` | listing `archived=true`, `archivedAt`, `archiveReason` | soft-delete; internal note "Archived", `logAudit` |
-| Restore | `doRestore` -> `restoreListing` | listing `archived=false`, `status='pending'` | re-enters the queue; `logAudit` |
-| Toggle featured | `doFeature` -> `toggleFeatured` | listing `featured` | curation only; `logAudit` |
+All decisions go through `POST /properties/{id}/verification/decision`
+`{ decision, reasonCode?, note?, expectedStatus? }` or `PATCH /properties/{id}/status`
+`{ status, reason?, reasonCode?, expectedStatus? }`; both share one gate. `expectedStatus` that no
+longer matches answers 409 `stale_decision`, so a second reviewer cannot silently overwrite a first.
+
+| Action | Rule | Effect |
+|--------|------|--------|
+| **Approve** | All 3 checks ticked (409 `checklist_incomplete`); no hard signal unless co-approved (409 `second_approver_required`); a staff-posted listing needs its owner's confirmation (409 `owner_not_confirmed`) | listing `approved` + published, re-check cleared, owner told, audited with a checklist snapshot |
+| **Needs info** | `reasonCode` required (`other` also needs a note) | listing stays `pending`; review `needs_info`, `properties.info_requested_at` stamped; owner gets the reason sentence. Owner reply **or** edit resubmits through `reenterPending`. The SLA clock pauses |
+| **Reject (final)** | `reasonCode` required | listing `rejected`. An owner message **no longer** resubmits; reversal needs the two-staff override |
+| Tick a check | `PATCH /verification/checklist`, `properties:verify`, never the owner | one line per call |
+| Flag | reason required; refuses the owner and the staffer who posted on their behalf | off search |
+| Clear flag | `clearFlag` → `reenterPending` (back to review, **not** straight to approved) | checklist unticked |
+
+Staff thread messages with `clarificationRequested:true` are treated as **Needs info** with
+`reasonCode:"other"` and the message body as `reasonNote`.
+| Archive / Restore | soft-delete; restore → `reenterPending` | audited |
+
+Reason codes: `photos_not_real, duplicate, broker, wrong_details, locality_unclear,
+document_unreadable, name_mismatch, other` (CHECK in V67). Each has an owner outreach template
+`reason_<code>`.
+
+Needs-info housekeeping (`NeedsInfoSweep`, hourly): reminders on day 3 and day 7 after
+`info_requested_at`, auto-archive (`needs_info_timeout`, soft) on day 14 with no reply or edit (V69, V81).
 
 The four internal notes above go through `saveNoteIfAny` (`components/ui/InternalNote.jsx`), which
 posts to `POST /admin/notes/property/{id}` **after** the decision has landed and reports failure
@@ -123,10 +161,8 @@ the review modal's **Communication log**, interleaved with the outreach ledger, 
 already been done about this listing" is one question and reading it in two panels made the
 operator merge them by eye.
 
-**The decision itself carries no side-effect.** `decideReview(id, type, reason)` only writes the
-review `status`, `decision = { type, reason, at }`, and a system message. The listing `status` is
-flipped separately by the handler (`setListingStatus`) so the two writes are paired in the UI - the
-exact spot a server transaction must own atomically.
+**The decision is one server transaction.** `decide` writes the case file, `properties.status` and
+the owner-facing sentence together under a `PESSIMISTIC_WRITE` lock on the listing.
 
 ### 5.4 Visibility (the trust boundary)
 - Only `status === 'approved'` listings are returned to buyers. `GET /properties` is hard-floored to
@@ -134,7 +170,6 @@ exact spot a server transaction must own atomically.
   privileged one, and locality reads filter the same way.
 - `pending`, `rejected`, `flagged`, and `archived` listings are never shown to buyers. Approval is
   literally what makes a listing exist for the public.
-- `setPipelineStage(id,'live')` also self-heals the status to `approved` if it drifted.
 
 ### 5.5 Anti bait-and-switch (owner edits after approval)
 - **Foundation fields** are the searchable facets a buyer can filter on, which is the shape a
@@ -164,22 +199,20 @@ exact spot a server transaction must own atomically.
   `PropertyResponse` carries `recheckPending` / `recheckReason` / `recheckRequestedAt`. Clearing it is
   `PATCH /properties/{id}/status` with `approved` on an already-approved listing — "checked it, all
   fine" — which is why there is no separate endpoint.
-- **The Re-check Queue tab** (`/admin/properties?tab=recheck`) is where it gets drained, the third
-  queue alongside Verification and Flagged. It fetches `?recheck=true` on its own rather than
-  narrowing the page's shared listing fetch: the endpoint pages at 20 and a queued re-check is by
-  definition an *approved, un-archived* listing, so a client-side narrowing would show only the
-  re-checks that happened to fall in the newest 20 and present the rest as drained — for a queue,
-  worse than showing nothing. Rows carry the changed fields and the waiting time, escalate
-  sky→amber→rose at 24h/72h, and are ordered oldest-first with no re-sort offered, because letting a
-  moderator re-order the queue is letting them work the easy end. The waiting age is also why the
-  count rides in the tab label and a KPI card — a queue nobody is *told about* is a queue nobody
-  drains. Sorting server-side is not available: `sort` is clamped to the catalogue's shared
-  whitelist, and widening it for `recheckRequestedAt` would expose the column to the public search.
+- **The Re-checks tab** (`/admin/properties?tab=recheck`) is where it gets drained. It fetches
+  `?recheck=true` sorted by `recheckRequestedAt`, a sort only the moderation queue accepts
+  (`PropertySort.sanitizeModeration`; the public search keeps the shared whitelist). A badge-only
+  entry (reason `Ownership documents`) is excluded from `recheck=true` and from the summary's
+  `recheck` count: it lives on the **Badge requests** tab (`?badge=true`, sorted by
+  `ownershipRequestedAt`, counted as `badgeRequests`). Rows carry the changed fields and the waiting
+  time, and the count rides in the tab pill — a queue nobody is *told about* is a queue nobody drains.
   Two moderator outcomes, both existing transitions: **Looks fine** (`approved`, listing stays live,
   re-check cleared) and **Reject** (`rejected` with a mandatory reason — a takedown with no recorded
-  cause is unappealable). The same strip renders on every other tab too, because on `All Listings`
+  cause is unappealable). A stays-live re-check keeps the case's checklist ticks, and **Looks fine**
+  skips the hard-signal co-approval (the listing is already live) but still requires the checklist,
+  a checker who is not the owner, and an audit row. The same strip renders on every other tab too, because on `All Listings`
   an un-reviewed price change is otherwise indistinguishable from a verified one.
-  Covered by `e2e/tests/admin/live-property-recheck-queue.spec.js`, which seeds through the product
+  Covered by `e2e/tests/admin/property-recheck-queue.spec.js`, which seeds through the product
   (post → approve → edit the price) rather than writing the flag, so it also pins the rule that
   raises the row. Both moderator outcomes route through the same clear: **Looks fine** is
   `PATCH /properties/{id}/status`, **Reject** is `POST /properties/{id}/verification/decision`, and
@@ -195,40 +228,33 @@ exact spot a server transaction must own atomically.
   `src/pages/consumer/list-property/editPolicy.js` (wizard vocabulary), which is what the
   owner-facing edit banner reads. The gate asserts the two server sets are disjoint and compares each
   half separately, because a field moving *between* them is the drift that costs something.
-- Non-foundation edits keep the listing live but set `reReview` / `materialEditFlag`, surfacing a
-  diff in the review modal that the reviewer clears with `approveEdits` (no takedown).
-
-### 5.6 Bulk operations
-- `bulkApprove`: for each selected id -> `ensureReview` + `decideReview('approved')` +
-  `setListingStatus('approved')` + `updateListingFields({ flagReason: '' })`, then one `logAudit`.
-- `submitBulkReject`: requires a shared reason; for each -> `ensureReview` +
-  `decideReview('rejected', reason)` + `setListingStatus('rejected')`, then `logAudit`.
-- `PAGE_LIMIT` caps rendered rows; a hint tells the reviewer to filter to narrow down.
-
-### 5.7 Client-side computations that MUST move server-side
-- The approve/reject decision + listing status flip (currently two client writes).
-- Buyer-visibility filtering on `status === 'approved'`.
-- Foundation-change detection and auto-revert to `pending`.
-- Duplicate clustering (`findDuplicateClusters` - union-find over identity keys and perceptual photo
-  hashes) and quality/freshness scoring.
+- Non-foundation edits that still change *which property this is* are stays-live re-checks too:
+  `societyId`, `electricityMeterNo`, a `carpetArea` change of ≥ 20 %, and a pin moved > 500 m
+  (reason `location`). `floor` and `pincode` apply without a re-check.
+- **The Verified owner badge is revoked** when `address`, `societyId` or `electricityMeterNo`
+  changes (as well as on a deal flip): the evidence proved a different address or meter.
 
 ## 6. Maker-checker / approval
 - **Applicable: yes. This is the canonical example.** See
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2.
 - **Maker (proposes):** owner submits a listing -> `status: 'pending'` (no buyer visibility yet).
-- **Checker (approves/rejects):** admin/manager reviews docs and decides.
-- **On approve:** review `decision='approved'`, listing `status='approved'` + `pipelineStage='live'`,
-  `flagReason` cleared, owner notified, audit written -> listing goes live.
-- **On reject:** review `decision='rejected'` with a reason, listing `status='rejected'`, owner
-  notified. The owner addresses the reason and resubmits, returning the record toward `pending` /
-  `in_review` (reject-then-resubmit loop).
-- **Intermediate states** `in_review` and `clarification` are refinements of "pending", not new
-  top-level stages.
+- **Checker (approves/rejects):** staff with `properties:read` + `properties:moderate` or `properties:verify` who is neither
+  the owner nor the staffer who posted the listing on the owner's behalf (`requireChecker`).
+- **On approve:** every check ticked, listing `approved` and published, owner notified, audit row
+  with the checklist snapshot.
+- **On needs info:** listing stays `pending`, owner told the reason; their reply or edit resubmits.
+- **On reject:** final, with a reason code. No owner resubmission.
+- **Two-staff override** (V68 `property_verification_override_requests`, modelled on V60
+  `badge_grant_requests`): approving over a hard signal, or reopening a final reject, needs a maker
+  (`POST /verification/override-requests {reason}`) and a *different* checker
+  (`POST /verification/override-requests/{rid}/approve`). The maker, the owner and `postedByStaff`
+  are refused; the checklist is still required; both steps are audited. The staff case file shows
+  `overrideRequest` so the desk can see "Awaiting second approver".
 - **A staffer cannot decide their own listing.** `PropertyVerificationService.decide` compares the
   caller against `property.owner` and answers 403 *before* `requireCase`, because this is the one
   case where every other guard passes: a staffer listing their own flat is a participant in the
-  thread *and* holds `properties:write`, so the listing would publish with nobody having read it.
-  Pinned live in `e2e/tests/ops/live-verification-access.spec.js`, which also decides the same case
+  thread *and* holds the review atom, so the listing would publish with nobody having read it.
+  Pinned live in `e2e/tests/ops/verification-access.spec.js`, which also decides the same case
   as a second staffer — without that half, a route broken for everyone would satisfy the refusal.
 
 ### Who may read the case file, and what a refusal says
@@ -297,7 +323,7 @@ them a file has been opened on them (D218).
   list and `item` is `updatable = false`, so the text is as stable as a surrogate key and survives a
   client that cached the case file. `PATCH` one line per call rather than a whole-list `PUT`: the
   console ticks as the reviewer works down the list, and a whole-list write would make every tick a
-  last-write-wins race against a second reviewer on the same case. It carries `properties:write`, not
+  last-write-wins race against a second reviewer on the same case. It carries `properties:verify`, not
   the read atom, because a tick is a step towards publishing — and it refuses the listing's own owner
   for a sharper reason than `decide` does: the ticks are what the colleague who *can* approve reads
   before deciding, so letting an owner-reviewer mark their own documents inspected launders self-
@@ -331,63 +357,73 @@ them a file has been opened on them (D218).
 
 **Listing `status`:**
 ```
-                 (owner edits foundation field / restore)
-                 +---------------------------------------+
-                 v                                       |
-submitted --> pending --> approved(live) ----------------+
-                 |            |
-                 |            +--> flagged --(clearFlag)--> approved
-                 +--> rejected --(owner resubmits)--> pending
+                   reenterPending (off-search edit, relist, restore, clear-flag,
+                   needs-info reply/edit) — unticks the checklist
+                 +--------------------------------------------------+
+                 v                                                  |
+submitted --> pending --(4 checks [+ 2nd approver if hard signal])--> approved(live)
+                 |   \--(needs_info)--> pending[needs_info] --(14 d silent)--> archived
+                 |                                                  |
+                 +--(reject, final)--> rejected --(two-staff override)--> pending
+approved --(flag)--> flagged --(clearFlag)--> pending
 approved|pending|flagged --(archive)--> archived --(restore)--> pending
 ```
-- **Terminal-ish:** `rejected` (re-openable by owner resubmission), `archived` (re-openable by
-  restore -> pending).
+- **Terminal-ish:** `rejected` (reopened only by the two-staff override), `archived` (restore ->
+  pending).
 - **Live** requires `status='approved'`; only this state is buyer-visible.
 
-**Review `status`:** `in_review -> clarification -> approved | rejected` (decision is terminal;
-owner replies after a rejection re-open the thread).
+**Review `status`:** `in_review -> needs_info -> in_review ... -> approved | rejected`.
 
-**Pipeline (D27) — two axes, not one.** The board and the server used to disagree about what a
-"stage" was. They now hold two separate facts:
+**Listing progress - one derived value, at most five steps.** `progress` (`ListingProgress`) is
+computed on every owner and staff read from timestamped facts on `properties`; nothing stores a
+stage, so no two writers can disagree (V81 dropped `lifecycle_*`, `pipeline_stage`,
+`handback_milestone` and `property_reviews.needs_info_at`).
 
-- **`pipelineStage`** — the acquisition funnel, "how far did we get towards having a listing":
-  `contacted -> info_collected -> listed -> docs_submitted`.
-- **`handbackMilestone`** — the hand-back, "how far did we get towards giving it to its owner":
-  `photos_uploaded -> identity_verified -> claim_sent -> claimed`. Null until the paperwork is in;
-  the database refuses a milestone on a row that has not reached `listed`.
+| Track | Steps | Moves on |
+|---|---|---|
+| Owner-posted | Submitted -> In review -> Live | checker opens the review (`review_started_at`); approve |
+| Staff-posted | Created -> Link sent -> Owner confirmed -> In review -> Live | claim link marked sent (`claim_link_sent_at`); owner taps "Yes, this is my property" (`POST /me/listings/{id}/confirm`, `owner_confirmed_at`); review opened; approve |
 
-A listing is at a point on both at once, which is why one column could not hold them: documents in
-*and* photographs up is two facts, and whichever was written last erased the other.
-
-`POST /properties/{id}/pipeline` accepts a point on either axis in its single `stage` field — the
-vocabularies are disjoint, so the value says which column is meant. Moving onto a milestone pins
-`pipelineStage` at `docs_submitted`; moving back onto the acquisition funnel clears the milestone.
-Both directions are allowed, because evidence gets withdrawn.
-
-**Where `under_review` and `live` went.** They were console-only stages and they are `status` under
-different names, so they are stored nowhere. The board still shows six columns: the first four read
-`pipelineStage`, and the last two are derived from `status` (`pending` -> Under Review,
-`approved` -> Live). That is why approving a listing moves it to the Live column without anything
-writing a stage.
+- **Detours are flags, not steps:** `needs_info` (`info_requested_at`), `rejected`, `flagged`,
+  `no_photos`, `opened` (claim link opened, not yet confirmed), `recheck`. The owner sees only
+  `needs_info` and `rejected`; a flagged listing reads as In review to them.
+- **`needs_info` pauses the current step** instead of adding one, because it is a loop a listing may
+  repeat, not a stage every listing passes through. The tracker marks that step amber with "Waiting on
+  owner" (staff) or "Waiting on you" (owner). The owner's reply or edit clears it, and the step resumes.
+- **Publishing a staff-posted listing needs the owner's confirmation** (409 `owner_not_confirmed`).
+  Staff-posted listings already published before V81 were grandfathered as confirmed.
+- **Re-entry** (`reenterPending`) clears `review_started_at` and `info_requested_at`; the owner's
+  confirmation is kept.
+- Paused, sold, rented and archived listings have no progress; their status chip says it all.
+- There is no manual stage control (`POST /properties/{id}/pipeline` and `PATCH /properties/{id}/lifecycle`
+  are gone); each row shows its step as a chevron tracker.
+- **Filtering:** `GET /admin/properties?progress=` takes `awaiting_confirmation`, `ready`,
+  `in_review` or `needs_info`. The four buckets split the pending queue the same way the tracker does.
+  All listings' status picker offers them beside Live, Paused, Sold, Rented, Not approved, Flagged
+  and Archived, and To verify has Progress chips with the four.
 
 ## 8. Edge cases, validation & error states
-- **Empty queue:** "No listings match your filters" card.
-- **Approve with unverified docs:** confirm dialog ("N document(s) are not marked verified yet.
-  Approve and publish anyway?"); reviewer can override.
-- **Reject without a reason:** blocked - "Add a clear reason before rejecting" (single) /
-  "Add a reason before rejecting" (bulk). The reason is sent to the owner.
+- **Empty queue:** "All caught up — nothing waiting here.", or "No listings match these filters." when
+  a filter is set (with Clear in the filter row).
+- **Approve with unticked checks:** 409 `checklist_incomplete`; the button stays disabled until all
+  three are ticked.
+- **Needs info / reject without a reason code:** 400 `reason_code_required`; `other` also needs a note.
 - **Flag without a reason:** blocked - "Add a reason before flagging".
 - **Edit validation** (`submitEdit`): title required, price a positive number, area non-negative,
   locality required.
-- **Stale / awaiting follow-up:** listings pending > 48h are "stale"; concierge listings missing
-  photos or the Verified badge are "awaiting owner" (Needs Follow-up tab). Reminder / WhatsApp
-  templates nudge the owner without deciding.
-- **Duplicates:** clusters of >= 2 listings that share identity keys or matching photo hashes surface
-  in the Duplicates tab; `resolveDuplicate(keepId, dropId)` archives the drop, `dismissDuplicate`
-  clears a false positive.
-- **Concurrency / stale data:** all reads are in-memory over one localStorage store; there is no
-  optimistic locking. Two reviewers can decide the same listing; last write wins. The server must
-  guard against double-decision.
+- **SLA:** one 24 h target — amber at 12 h, red at 20 h, overdue at 24 h (`lib/moderationSla.js`),
+  paused while `needs_info`. Staff-posted listings whose owner has not yet confirmed (step `created`
+  or `link_sent`) are "awaiting owner" (Needs Follow-up tab).
+- **Duplicates:** same owner is a hard block at create. Cross-owner clusters (meter, address key,
+  perceptual photo hash) surface in the Duplicates tab with a Conflict chip; `resolveDuplicate`
+  archives the loser, `dismissDuplicate` clears a false positive. A staff-only
+  `same_society_bhk_area` hint (same society, BHK, carpet ±10 %) appears in the cluster view only —
+  never in the create-time probe, where `society_id` is client-asserted.
+- **Concurrency:** decisions lock the listing (`PESSIMISTIC_WRITE`) and carry `expectedStatus`; a
+  decision made against a stale view answers 409 `stale_decision`.
+- **Staff document access (DPDP):** staff may open an owner's vault document only while the case is
+  open or within 30 days of the decision (403 `document_access_expired`). The owner's file is never
+  deleted — the vault also serves buyer document requests.
 
 ## Moderation controller
 
@@ -444,8 +480,9 @@ Rationale relocated from `OwnershipVerificationService` Javadoc.
 - **Reads answer 404, not 403**, matching `PropertyVerificationService`: a 403 would confirm to a
   stranger that a listing with that id exists.
 - **The vault read is the most sensitive in the feature.** It is reviewer-only (re-derived from the
-  principal as well as declared on the route) and audited, because it mints signed URLs to Aadhaar
-  and PAN scans. A signed URL outlives the request and is fetched straight from the object store, so
+  principal as well as declared on the route) and audited, because it mints signed URLs to title and
+  address documents. Staff may make it only while the case is open or within 30 days of the decision
+  (`OwnershipDocumentAccess`, 403 `document_access_expired`). A signed URL outlives the request and is fetched straight from the object store, so
   the audit row is the only thing that can attribute the disclosure to the reviewer who asked.
 - **`issuedOn` is supplied by the caller**, as a date rather than an instant: only the caller can
   read it off the document, deriving it from the clock would let a decade-old receipt mint a fresh
@@ -458,6 +495,20 @@ Rationale relocated from `OwnershipVerificationService` Javadoc.
 - **Recording evidence never grants the badge.** The gate is a judgement about a set of documents
   taken together; a system where uploading the third file silently promotes a listing is one where
   nobody decided anything.
+- **A badge request is explicit, and rides the stays-live re-check, not a new queue.** Filing a paper
+  in the vault asks for nothing. The owner presses **Request Verified badge** in the Dashboard
+  Document Vault (`POST /properties/{id}/verification/ownership/request`, owner-only; 409
+  `already_verified`, `listing_not_open`, `documents_missing`; idempotent). That stamps
+  `ownershipRequestedAt`, clears any earlier decline and calls `Property.requestOwnershipReview`.
+  On an approved (or paused) listing this queues the re-check item `Ownership documents` (§5.5).
+  The listing stays live, lands in the Re-check Queue, and `resubmittedAt` is stamped. A pending
+  listing is already in front of a reviewer, so only the request stamp is set. Granting the badge
+  closes the request and drops only that item. Staff answer "no" with **Decline badge request**
+  (`POST .../ownership/decline`, `{reason}`, required, max 300; 409 `no_open_request`). Decline
+  leaves the listing status untouched; re-approving a paused listing would publish it. The owner
+  gets a `listing.badge_declined` notification carrying the reason and linking back to the vault.
+  The quick "Looks fine"/takedown buttons are hidden for a badge-only item: neither is a badge
+  decision. The list-property wizard (posting and editing) carries no document upload at all.
 - **Grant is idempotent-ish.** The announcement fires only on a transition *into* the verified
   state; a renewal extends the expiry but keeps the original `ownershipVerifiedAt`, because
   billing holds that instant against a referral credit and moving it would leave the two sides
@@ -471,8 +522,8 @@ Rationale relocated from `OwnershipVerificationService` Javadoc.
   a different listing would otherwise be accepted, letting one flat's evidence cite another flat's
   title deed. The service-request filter matches the reviewer's own document list, so anything
   citable but absent from it could only have been guessed.
-- **Reviewer capability is read per account.** `properties:write` is a `BackOfficePermissions`
-  atom held per account; `PermissionMap` is keyed by desk and speaks the `Capabilities`
+- **Reviewer capability is read per account.** `properties:verify` / `properties:moderate` are `BackOfficePermissions`
+  atoms held per account; `PermissionMap` is keyed by desk and speaks the `Capabilities`
   vocabulary. Asking the map for this name can never be true, so the desk filter silently excluded
   every properly configured colleague. Every other reader of these atoms injects
   `AccountPermissions`.
@@ -487,19 +538,33 @@ Rationale relocated from `OwnershipEvidenceTypes` Javadoc.
 
 - **Kinds, not one list.** Documents are grouped by the fact they establish and the gate asks for
   facts, not files, so ops sees which fact is missing rather than how many uploads exist. A rental
-  needs only a current utility or tax record in the lister's name (`ADDRESS_PROOF`) - the
-  tenant-turned-sublandlord is the fraud that matters; a sale additionally needs the registry's own
-  extract (`TITLE_PROOF`), because the buyer is paying for the title. Identity, site photographs
-  and the deed remain recordable as supporting evidence but do not gate the badge.
+  needs **any one** current document in the lister's name — an address proof (MSEDCL light bill, tax
+  receipt) or a title proof — reported as missing `address_or_title_proof`. The light bill is the
+  lead document: owners share it freely and its consumer number is also the strongest duplicate key.
+  A sale needs **one** title document (`title_proof`: Index II, share certificate, 7/12, 8A,
+  property card), because the buyer is paying for the title. Site photographs and the deed remain
+  recordable as supporting evidence but do not gate the badge.
+- **No new Aadhaar/PAN evidence rows** (422, "Identity comes from the account's identity
+  verification"). Identity is reused from the account's KYC outcome — DPDP data minimisation.
+  Legacy rows stay readable.
 - **A sale deed does not establish title here.** It is the stronger document in law and the weaker
   one to a reviewer: a deed is a PDF whose contents cannot be checked against anything, whereas
   Index II is the IGR's own extract and can be read back from the registry by the document number
   printed on it. The gate states what the platform can *verify*, not what conveys ownership, so the
   deed is filed as `TITLE_SUPPORT`.
+- **Maharashtra land records are title proof for plots and land.** A recent 7/12 extract, 8A extract
+  or Property Card can satisfy `TITLE_PROOF`; all three expire after 90 days because mutation
+  entries can change who currently holds the record.
+- **Power of Attorney is authority proof, not title proof.** File it as supporting evidence, name the
+  principal/owner in `subjectName`, and do not count it toward either the rent or sale gate.
+- **A sale POA must be registered in Maharashtra.** For immovable-property sale authority,
+  Registration Act s.17 as amended for Maharashtra requires registration; reviewers check the
+  registration number and stamp before relying on it.
 - **Why some documents expire.** A registration record or a government identity document records a
   fact that does not change. A tax receipt or electricity bill proves only that the person was
   paying at the time it was issued - which is why they are useful as recurring proof and why they go
-  stale. Site photographs sit between. Every window is measured from the document's own issue date,
+  stale. A property-tax receipt is annual, so it holds until 31 March (IST) of the financial year it
+  was issued in. Site photographs sit between. Every window is measured from the document's own issue date,
   never from the review, so reviewing an old receipt today cannot mint a badge good for years.
 - **Unrecognised deal intent falls to the sale gate.** Defaulting the other way would make an
   unknown intent grantable on one electricity bill, which is the failure mode the gate exists to
@@ -509,10 +574,11 @@ Rationale relocated from `OwnershipEvidenceTypes` Javadoc.
   must show up as a data mismatch rather than compile cleanly.
 - **The owner's own vault label is a second opinion.** A file the owner filed as an Electricity Bill
   must not close `title_proof` on a sale badge. It is treated as a contradiction, not an absence -
-  most vault labels (society NOC, share certificate) name no evidence type, so an unrecognised one
+  most vault labels (society NOC) name no evidence type, so an unrecognised one
   leaves the judgement with the reviewer who has opened the file.
-- **`subjectName` is required for identity documents**, derived from the kind rather than listed
-  again so a fourth identity document inherits the rule, and mirrored by the CHECK in V66.
+- **`subjectName` is required for identity and authority documents**, derived from the kind rather
+  than listed again so a fourth identity document inherits the rule. The identity-subject CHECK is
+  in V08, and the POA principal CHECK is in V63.
 
 ## Owner outreach templates
 
@@ -530,9 +596,8 @@ Rationale relocated from `OwnerOutreachService` Javadoc.
   listing is recorded, audited, and never counted. Any surface showing "chased N times" has to read
   the ledger rather than the count, and the live outreach spec asserts exactly that so the
   disagreement cannot drift further.
-- **`market_rate` resolves from `localities.rate_per_sqft`** - the same figure
-  `GET /localities/{slug}` publishes to buyers, so the owner is quoted neither an invented nor a
-  secret number. Most seeded localities carry no rate; those resolve to nothing and the key survives
+- **`market_rate` resolves from `localities.rate_per_sqft`**, so the owner is quoted neither an
+  invented nor a secret number. Most seeded localities carry no rate; those resolve to nothing and the key survives
   into the preview, which is the correct outcome - the staff member decides, having been shown there
   is no number. It is keyed on the FK-constrained `locality_slug` and on `active`, because a
   retired locality's rate is one the platform has stopped standing behind. `avg_buy_psf` /

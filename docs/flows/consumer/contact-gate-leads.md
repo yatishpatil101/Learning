@@ -17,7 +17,7 @@
   every incoming request in one inbox."
 - **Why it matters:** this is the conversion event of the whole product - the zero-brokerage promise
   is "connect directly with owners." The gate that protects owner privacy and lead quality is the
-  **request → owner-approval + masked-number** model — **not** an identity wall; the
+  **request → owner-approval + conditional reveal** model — **not** an identity wall; the
   lead inbox is the owner's CRM.
 
 ## 2. Entry points
@@ -59,7 +59,7 @@
 ### The contact gate (from `src/lib/contact.js`)
 Under **ADR-019 (badge-not-gate)** contact is **L1-only**: the sole floor is being signed in
 (mobile-OTP). There is **no identity gate** on contacting an owner. The real "gate" is the
-**request → owner-approval + masked-number** model, plus one narrow opt-in exception.
+**request → owner-approval + conditional reveal** model, plus one narrow opt-in exception.
 
 **Floor - signed in (L1).**
 `requestContact(ownerMobile, propId)`:
@@ -122,16 +122,26 @@ unlimited (`plans.unlimited_contacts`, V91), and a qualified referral adds 15 mo
 - `none` - no request yet.
 
 ### Reveal rule (`ContactBox` / `ContactOwnerModal`)
-`revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber(ownerMobile))`.
-- **Owner privacy override:** `ownerHidesNumber` (from `dzOwnerPrefs.hideNumber`) keeps the number
-  masked even after approval; the buyer is routed to in-app chat/callback ("approved - prefers
-  chat"). This sits on top of the always-on request gate, it does not replace it.
+Old claim: "the server never sends the owner's number to a buyer, approved or not." User decision
+2026-10-03 reversed that. The rule is:
+`revealed = status === 'owner' || (status === 'approved' && ownerHidesNumber === false)`.
+- **Owner's number:** an approved requester sees the owner's real mobile unless the owner has
+  `users.hide_number = true`. Pending, declined, none and anonymous stay masked.
+- **Requester's number:** the owner sees the approved requester's real mobile in the lead inbox and
+  in the listing chat. The masked `requester.mobile` stays as the list-safe display string.
+
+Approved listing chats now have a real-time layer: `/messages/stream` sends id-only `message`,
+`read`, `typing` and `presence` invalidations, and clients refetch the thread. Read receipts and
+online/last-seen are reciprocal privacy features (`shareReadReceipts`, `shareActivityStatus`); if
+either participant turns one off, that surface is hidden while delivery still records normally.
 
 ### Owner decision (`setContactStatus`)
 - `setContactStatus(ownerMobile, reqId, 'approved'|'declined')` flips the stored request's `status`.
-- On the dashboard, `decideContact(reqId, decision)` (in `useDashboardData.js`) calls
-  `setContactStatus`, re-reads `getContactReqs`, and toasts ("Your number is now shared..." /
-  "Request declined - your number stays private.").
+- On the dashboard, `decideContact(reqId, decision)` (in `useDashboardData.js`) sends the decision,
+  toasts only once the write succeeded ("Accepted — you can chat now and see their number." /
+  "Request declined."), then re-reads the inbox. Double taps are ignored while the write is in flight.
+  The server audits the decision; a repeat of the same decision is a no-op 200, a different one 409,
+  and a request left pending for 30 days reads as `expired` and can no longer be answered.
 - `pendingContactCount(ownerMobile)` powers the owner's "waiting on you" badge.
 
 ### The enquiry variant (`ContactOwnerModal.sendEnquiry`)
@@ -143,8 +153,8 @@ unlimited (`plans.unlimited_contacts`, V91), and a qualified referral adds 15 mo
 ### Owner lead inbox (`EnquiriesPanel.jsx`)
 - Aggregates several request types into one normalized **lead descriptor** and a priority queue
   (attention-first, then longest-waiting):
-  - **Number requests** (`contact_requests`) - approve = "Share", decline; approved reveals the
-    buyer's mobile for Call/WhatsApp.
+  - **Contact requests** (`contact_requests`) - "wants to contact you", Accept / Decline; accepting
+    reveals the buyer's mobile to the owner for Call/WhatsApp.
   - **Photo requests**, **Document requests** (grouped per buyer+property; grant/decline all),
     **Flatmate requests** (accept/decline), and **Enquiries** (seed).
 - **Triage math:** `waitingOnYou` = pending contacts + pending flatmates + photo reqs + pending doc
@@ -161,8 +171,8 @@ The buyer's mobile is only surfaced to the owner for Call/WhatsApp **after** app
 
 ## 6. Maker-checker / approval
 - **Yes - this is a canonical maker-checker.** Maker = buyer (creates a `pending` request), Checker =
-  owner (approves/declines). On approval the side-effect is the number unmasking for that buyer
-  (subject to `hideNumber`); on decline it stays masked. Reject is not resubmit-locked - a buyer's
+  owner (approves/declines). On approval chat unlocks, the buyer's number is shown to the owner,
+  and the owner number is visible to the buyer unless hidden. On decline nothing unlocks. Reject is not resubmit-locked - a buyer's
   existing record simply returns its status. Defined once in
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 2, and the contact row in
   the table in 2.4; the gate itself in section 3).
@@ -170,9 +180,10 @@ The buyer's mobile is only surfaced to the owner for Call/WhatsApp **after** app
 ## 7. State machine
 ```
 Contact request (per buyer+property):
-  none --requestContact--> pending --owner approve--> approved --> number unmasks*
-                              |                                   (*unless owner hideNumber -> chat)
-                              +--owner decline--> declined (masked, terminal)
+  none --requestContact--> pending --owner approve--> approved --> chat unlocks
+                              |
+                              +--owner decline--> declined (terminal)
+                              +--30 days, no decision--> expired (derived; not counted, not answerable)
   owner viewer -> always 'owner' (full number)
 
   Floor: sign in (L1). If the owner accepts verified contacts only AND the requester
@@ -191,6 +202,9 @@ Contact request (per buyer+property):
 - **Duplicate request:** idempotent - returns the existing status instead of creating a second row.
 - **Owner viewing own listing:** always sees the full number; requests are moot.
 - **Approved but owner hides number:** number stays masked; buyer routed to chat/callback.
+- **Chat photos:** once a thread exists, `POST /messages/{id}/photos` lets either participant send one
+  JPEG/PNG (8 MB max) with an optional caption; the server strips EXIF/GPS and applies the same
+  phone/email masking to captions that text messages use.
 - **Enquiries tab is seed-only:** `useDashboardData` loads `listEnquiries().slice(0, 8)` from
   `src/data/enquiries.json`; those rows are **not** owner-scoped and are **not** produced by the live
   buyer contact/enquiry flow. Real buyer intent today materialises as **contact_requests** (and chat
@@ -199,6 +213,23 @@ Contact request (per buyer+property):
   prototype, so requests must stay compatible.
 - **`pn:store` event:** owner-pref changes dispatch a `pn:store` CustomEvent so open tabs re-render
   without reload (a lightweight in-app pub/sub the backend would replace with push).
+
+## 9. Identity verification hardware checklist
+
+PENDING VERIFICATION for `/verify-identity`. Run on real hardware; emulators and mocked cameras do
+not prove camera permission, liveness, or iOS playback behaviour.
+
+| Check | Expected result |
+|---|---|
+| Physical laptop webcam, real face | Front/back document capture succeeds; selfie liveness completes; submission reaches the review queue |
+| Android Chrome, real face | Camera permission prompt appears; rear camera is preferred for documents; selfie capture works without page zoom or stuck hover/tap state |
+| iPhone Safari, real face | Start button user gesture opens inline preview; no fullscreen video takeover; selfie capture and submit complete |
+| Camera permission denied | User sees the camera-denied copy and can retry after granting permission; no blank capture is submitted |
+| App backgrounded mid-capture | Camera stream stops or recovers on return; user can retake without stale preview files |
+| Face model fails to load / offline | Selfie guidance falls back to unavailable; submission still records `liveness=unavailable` for reviewer judgement |
+| Server-chosen selfie pose | Challenge picks one pose (`left`, `right`, `smile`); selfie visibly shows that pose; reviewer must confirm it before approval |
+| Review approval path | Queue images load from signed URLs; approved user gets the verified badge; owner listing badge updates |
+| Rejection / revoked path | Applicant sees the in-app decision; WhatsApp decision line arrives when the identity template is configured |
 
 ## Service
 
@@ -278,7 +309,9 @@ buyer has already seen. Approval notifies the buyer inside the same transaction;
 silent on purpose.
 
 ### Reveal policy
-An owner's raw number is never revealed to another viewer, whatever their own hide-number preference
-- approval unlocks the in-app conversation, not the digits. The signal is constant-true for every
-non-owner viewer, routing the client to the message affordance rather than a tel:/wa.me link.
-`verificationRequired` is false for the owner of the listing, whatever their own preference says.
+Old D5 claim: "An owner's raw number is never revealed to another viewer." User decision
+2026-10-03 reversed it. A non-owner viewer sees the owner's raw mobile only when all three are true:
+the viewer has an `approved` contact request on that listing, the listing owner is the counterparty,
+and `users.hide_number` is false. Everyone else receives the masked form; owners always see their
+own number. `verificationRequired` is false for the owner of the listing, whatever their own
+preference says.

@@ -120,15 +120,6 @@ Axes, and the column each resolves to:
    would answer such a request with every sale listing, all of them unstated).
 10. **Near-a-place:** `nearLat`/`nearLng`/`nearRadiusKm`; radius is `nearRadius` km, or
     `nearRadius * 0.4` km when `nearMode === 'min'` (minutes-to-km heuristic).
-11. **Posted by:** `postedByOwner=true` - the "no brokerage" search, on both deals. Matched by
-    **equality** on `posted_by_type`, so a listing that never recorded who posted it is excluded
-    rather than assumed to be an owner; `false` is never sent, and is a no-op the server cannot
-    distinguish from an absent parameter, because narrowing *to* a broker's stock is not a search
-    anyone comes here to run. The self-serve wizard hard-codes `owner`, so a
-    listing is a broker's or a builder's exactly when a concierge operator said so on the call.
-    The same fact gates the *copy*: the "deal direct with the owner" half of the zero-brokerage
-    claim is withdrawn on an agent's or a builder's listing, via `isBrokered` in `lib/contact.js`.
-    Draazy's own nil fee is a platform claim and stays unconditional everywhere.
 - **Relevance-gated filters:** each optional filter is wrapped in `rel(section)`
   (`sectionVisible`), so a filter hidden as irrelevant for the current property types never narrows
   results.
@@ -156,8 +147,8 @@ implementation details:
 
 ### Sorting
 - `relevance` (default), `price-low`, `price-high`, `newest`. Only the two price orders travel as a
-  `sort` param; `relevance` and `newest` are **rankings**, and an explicit sort disables ranking
-  server-side (`PropertySort.hasExplicitSort`).
+  `sort` param; `relevance` is a ranking, while `newest` is plain `created_at desc, id desc`.
+  An explicit sort disables relevance ranking server-side (`PropertySort.hasExplicitSort`).
 - **Relevance score** = featured (+1000) + ownerVerified (+250) + ownershipVerified (+200) +
   RERA (+80) + freshness weight (`active` 200 / `aging` 120 / `stale` 40 / `dormant` 0) +
   `computeQualityScore(p)` (photos/description/amenities completeness). Ties break on newest.
@@ -165,8 +156,6 @@ implementation details:
   The +200 is earned by **live** ownership verification, the same reading the facet, the
   `verifiedElements` count and the badge on the card use - a lapsed verification stops promoting a
   listing at the moment it stops showing the badge.
-- **Paid placement applies to the two rankings only, never to an explicit price sort.** Ranking a
-  promoted listing above one the buyer asked to see first is deception rather than advertising.
 
 ### Empty-state recovery (near vs locality contradiction)
 - If `near` + `localities` are both set and the primary result is empty, the page issues a **second
@@ -199,7 +188,7 @@ implementation details:
   criteria agree.
 - **Smart search (`parseSmartQuery`):** parses a free-text box into a filter set + deal, applies it,
   and toasts what it understood. Reads BHK, 1 RK / studio, property type, locality (incl. `near X`),
-  furnishing, amenities, pets, ready / under-construction, owner-only, and money in every phrasing
+  furnishing, amenities, pets, ready / under-construction, and money in every phrasing
   the box gets — `under 80 lakh`, `50-80 lakh`, `above 1 cr`, and a bare `25k`.
 - **It merges, it does not reset.** The parse clones the filters already on screen and adds to them,
   so a typed phrase refines the search the user has been building. Only a change of deal resets,
@@ -208,7 +197,7 @@ implementation details:
   slider's ceiling is a sale price and switches to Buy; anything at or below it is a rent. Clamping
   instead would land on the slider default and filter nothing at all. A figure trailed by a land
   unit (`1000 sqft`, `2 acre`) is a size and is never read as money.
-- **Unparsed words become `?q=`.** A society, a builder or a landmark is exactly what a shopper
+- **Unparsed words become `?q=`.** A society, project or landmark is exactly what a shopper
   types and none is a facet, so the remainder is forwarded to the free-text match (§ 9.2) rather
   than dropped. It renders as the first active chip, which is the only control that removes it. A
   facet the other journey's panel does not offer goes back to the remainder for the same reason.
@@ -312,16 +301,12 @@ goes around it because Postgres renders a uuid as lowercase hex already. The pat
 explicit join: `owner_id` is `NOT NULL`, so the implicit inner join cannot drop a row from either
 the page or its count, and the two `get`s share one join.
 
-### 9.3 Ranking: `boostedFirst`, `relevanceFirst`, and the tie-break
+### 9.3 Ranking: `relevanceFirst`, `newestOnly`, and the tie-break
 
-Both ranking specifications **filter nothing** - they return a `null` predicate and contribute only
-an `ORDER BY`, so a boost or a good score buys position, never visibility. Both are applied only
-when the caller expressed no order: a buyer who sorts by price low-to-high gets price low-to-high,
-because silently pinning paid listings above a sort the buyer chose is a lie about what the control
-does.
-
-Promotion is computed as `boosted_until > now` rather than read as a flag, so an elapsed window
-stops promoting the moment it elapses and correctness never depends on a sweeper having run.
+Ranking specifications **filter nothing** - they return a `null` predicate and contribute only
+an `ORDER BY`, so a good score buys position, never visibility. Relevance applies only
+when the caller expressed no order: a buyer who sorts by price low-to-high gets price low-to-high.
+`newestOnly` is deliberately plain `created_at desc, id desc`.
 
 `relevanceFirst`'s score, term for term:
 
@@ -482,17 +467,14 @@ meaning in an aggregate.
 
 `PropertyService.searchWithTotals` hands the ranked branch an **unsorted** pageable on purpose,
 because a `Pageable` sort overrides a specification's `ORDER BY` and the default `createdAt DESC`
-would silently discard the ranking; `boostedFirst`/`relevanceFirst` carry that tiebreaker
-themselves. The `PageImpl` is built with that same executed pageable, not the sanitised one, or a
+would silently discard the ranking; `relevanceFirst` carries that tiebreaker itself. The `PageImpl` is built with that same executed pageable, not the sanitised one, or a
 client reading `sort` off the response would be told about an order that was overridden.
 
-`rank` is deliberately not part of Spring's `sort`: `relevance` and `newest` are not column orders,
-they are rankings, and `PropertySort` exists to refuse anything that is not a whitelisted column.
-Passing them through `sort` would either widen that whitelist or be silently dropped. `newestOnly`
-means promoted-first then most recent with no merit ranking, because "newest" and "best match" are
-the two orders that both carry paid placement and only one may be reordered by a quality score - a
-buyer who asked for the newest listings and got the best-scoring ones has been shown something other
-than what the control says.
+`rank` is deliberately not part of Spring's `sort`: `relevance` is not a column order, and
+`PropertySort` exists to refuse anything that is not a whitelisted column. Passing it through `sort`
+would either widen that whitelist or be silently dropped. `newestOnly` means most recent with no
+merit ranking, because a buyer who asked for the newest listings and got the best-scoring ones has
+been shown something other than what the control says.
 
 The listings-page facets bind as a `ListingFacets` object rather than twenty-seven more
 `@RequestParam` declarations: a method with forty parameters is one where a mistyped name binds
@@ -705,11 +687,8 @@ restore the status the listing held before, so a `pending` listing that is flagg
 reaches `approved` without ever passing the verification queue. That is the server's documented
 behaviour, passed through rather than simulated.
 
-`setPipelineStage` drops the listing the route answers with, for the reason above. The server sorts
-the value onto the right column: a hand-back milestone lands in `handback_milestone` and pins
-`pipeline_stage` at `docs_submitted`; an acquisition stage lands in `pipeline_stage` and clears the
-milestone. Anything outside the eight is a 400, which includes `under_review` and `live` — those are
-`status`, not stages.
+The Pipeline board has no write: its columns are the server-derived `progress.step`
+(`docs/flows/admin/property-verification.md` §7).
 
 The featured strip is server-curated and its endpoint takes no limit, so the cap is applied
 client-side purely to keep the seam signature meaningful.

@@ -7,12 +7,12 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an owner who needs more listing slots / featuring / a free rent agreement; a seeker who
+- **Persona:** an owner who needs more listing slots / a free rent agreement; a seeker who
   wants more owner contacts; any user who wants to earn rewards by inviting friends.
 - **Job-to-be-done:** "Understand what I get on each plan, upgrade if it's worth it, see my billing,
   and get rewarded for bringing friends who list or search."
 - **Why it matters:** this is how zero-brokerage is funded (platform fees, plans, service orders) and
-  how the marketplace grows virally. Entitlements (listing limits, featuring, contact unlocks) are the
+  how the marketplace grows virally. Entitlements (listing limits and contact unlocks) are the
   levers that turn free users into paying ones.
 
 ## 2. Entry points
@@ -26,7 +26,7 @@
 - **Source components:** `src/pages/consumer/Plans.jsx`, `src/pages/consumer/Checkout.jsx`,
   `src/pages/consumer/Refer.jsx`, `src/pages/consumer/dashboard/BillingPanel.jsx`,
   `src/lib/store/billing.js`, `src/lib/store/referrals.js`.
-- **Data/seed:** `src/data/plans.json`, `src/data/referrals.json`,
+- **Data/seed:** `src/data/plans.json`, referral admin rows from `GET /referrals`,
   `src/pages/consumer/dashboard/constants.js` (`BILLING_HISTORY`).
 
 ## 3. Actors & roles
@@ -44,8 +44,7 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
   by Checkout (`setPlan`).
 - Platform fees / `settings.fees` (admin DB, read via `getFees`) - read.
 - `service_orders` (runtime `dzServiceOrders:<mobile>`) - created by Checkout (`addServiceOrder`).
-- Owner boosts (runtime `dzBoosts:<mobile>`) - entitlement gate for featuring.
-- `referrals` (seed `referrals.json`, `RF3###`; runtime stats `dzReferralStats:<mobile>`) - read +
+- `referrals` (`GET /referrals`, `RF3###`; runtime stats `dzReferralStats:<mobile>`) - read +
   incremented; plus `dzReferralCode:<mobile>` and `dzReferredBy:<mobile>` capture.
 - `BILLING_HISTORY` (static seed constant) - read for the payment-history table.
 
@@ -58,8 +57,8 @@ resolved, which is why the two tables must agree and are pinned together by
 - **Seeker:** `seeker-free` (Rs 0) and `seeker-plus` (Rs 199/mo; "Unlock 15 owner contacts",
   priority visits, no-spam).
 - **Owner:** `owner-free` (Rs 0, 1 listing), `owner2` (Rs 999/yr, 5
-  listings + 7-day featuring + unlimited contacts), `owner5` (Rs 2499/yr,
-  unlimited listings + always featured + dedicated manager + free rent agreement).
+  listings + unlimited contacts), `owner5` (Rs 2499/yr,
+  unlimited listings + dedicated manager + free rent agreement).
 - The active plan (`getPlan().id`) is marked "Current plan"; a **paid** current plan locks its CTA
   against re-purchase; a free current plan keeps the CTA actionable (default id is `free` for all).
 - `plans.json` (`PL1 Owner Basic`, `PL2 Owner Plus`, `PL3 Owner Pro`, `PL4 Seeker Plus`) is a
@@ -69,7 +68,7 @@ resolved, which is why the two tables must agree and are pinned together by
 ### Platform fees (`store/billing.js`)
 - Single source of truth = admin DB `settings.fees` (read via `rawDb()`), with a legacy
   `draazyAdminDB_v7` fallback, over `FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499,
-  rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18 }`.
+  rentAgreementPlatform: 500, seekerPlusTopup: 199, gstPercent: 18 }`.
   `fee(key)` formats as `Rs N` (`en-IN`).
 - (Note: `data-model.md` shows a different sample `ownerPlanYearly` value; the
   authoritative default in code is 999, overridable by admin settings.)
@@ -104,10 +103,6 @@ resolved, which is why the two tables must agree and are pinned together by
   `ListingUpdate` deliberately omits `status` so a `PATCH` cannot self-escalate, so before D234 an
   owner had no way back under the ceiling at all, and the new limit would have meant one listing
   *ever*. There is no button for it yet; the endpoint is ahead of the UI.
-- **Featuring/boost:** `PAID_OWNER_PLANS = ['owner2', 'owner5']`; `isPaidOwnerPlan()` gates self-serve
-  promotion. Free plans (`free`/`owner-free`) must upgrade first (MyListingsPanel "Feature" action).
-  `boostListing(id, days=7)` writes an expiry to `dzBoosts:<mobile>`; `isBoosted(id)` = expiry >
-  `Date.now()`.
 - **Owner-contact quota (server-side since D31b).** The free tier is 15 owner contacts
   (`settings.fees.freeContactLimit`), a "contact" is the right to open one `contact_requests` row,
   and the three priced plans carry `plans.unlimited_contacts = true` (V91). The numbers are read
@@ -183,7 +178,7 @@ and reading that file; the constructor check is what states the rule.
 ### Billing view (`BillingPanel.jsx`)
 - Current plan from `getPlan()` (single source of truth, not inferred from inventory). Sub-line
   depends on `isPaidOwnerPlan()` / `isOwner`. Payment history is the static `BILLING_HISTORY` seed
-  (`INV-2041` owner yearly Rs 999, `INV-1980` featured Rs 999, `INV-1899` rent agreement Rs 500, all
+  (`INV-2041` owner yearly Rs 999, `INV-1899` rent agreement Rs 500, all
   "Paid"). "Change plan ->" links to `/plans`.
 
 ### Referral program (`Refer.jsx` + `store/referrals.js`)
@@ -270,7 +265,6 @@ here is a **reward-payout uniqueness** guard (`identity_hash`), part of the opt-
 User plan:      free/owner-free  --Checkout pay (owner2/owner5)-->  paid (persists via dzPlan)
                 seeker-plus: one-time top-up, no lasting plan state (re-purchasable)
 Checkout:       select plan -> (guard: alreadyOnThisPlan?) -> paying -> paid (order ref)
-Boost:          none --boostListing(days)--> boosted until expiry --(time)--> expired
 Referral:       (per RF row) pending -> qualified -> rewarded
                             \-> flagged -> rejected   (fraud signals)
 ```

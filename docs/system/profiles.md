@@ -117,7 +117,10 @@ copy. Set it once per machine; nothing in the repository sets it for you. See
 [docs/LOCAL_DEV.md](../LOCAL_DEV.md).
 
 `spring.flyway.locations` adds `classpath:db/seed`, so the demo data is built by Flyway on boot and
-the database is reproducible: drop it, start the app, get the same 38 listings back.
+the database is reproducible: drop it, start the app, get the same 38 listings back. `local` and
+`e2e` also add `classpath:db/seed-staff`, which gives every back-office account the email
+`<mobile>@staff.draazy.test`, password `Draazy-dev-pass1` and an enrolled authenticator. Sandbox
+must never list it: those credentials are in the repository.
 
 ### The dev object store
 
@@ -152,12 +155,12 @@ no-store` on the private half, because the URL is a credential and a shared cach
 response is a copy of the document nobody authorised. The public half is cacheable, as a CDN object
 is.
 
-**The public URL is relative, while the signed one is absolute.** The public URL is loaded as an
-`<img>`, and two gates apply. The page CSP is `img-src 'self' data: blob: https:`, which refuses a
-plain-http `localhost:8081` absolute URL outright; and the create-listing wizard hashes each photo by
+**Both URLs are relative.** Each is loaded as an `<img>` (a listing photo, a KYC document), and two
+gates apply. The page CSP is `img-src 'self' data: blob: https:`, which refuses a plain-http
+`localhost:8081` absolute URL outright; and the create-listing wizard hashes each photo by
 drawing it to a canvas, which taints on a cross-origin image without `Access-Control-Allow-Origin`. A
-relative URL goes through the Vite proxy and is same-origin, so both gates fall away. It is also
-permanent, because a listing photo URL is persisted on the listing row and has to work next month.
+relative URL goes through the Vite proxy and is same-origin, so both gates fall away. The public URL is
+also permanent, because a listing photo URL is persisted on the listing row and has to work next month.
 The cost, stated plainly: production's public URL is R2's own and cross-origin, so that bucket *does*
 need to send `Access-Control-Allow-Origin` — deployment configuration this repository cannot assert,
 recorded on `FileStorage.storePublic`.
@@ -223,6 +226,10 @@ The seed is a *repeatable* Flyway migration (`R__zz_DML_dev_demo_data.sql`), whi
 whenever its checksum changes. **A database that has been seeded can never be promoted to
 production.** Sandbox and production are separate Supabase projects for that reason, and nothing
 copies one to the other.
+
+Back-office access starts through the single-admin bootstrap variables in `DEPLOY.md`
+(`BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_MOBILE`, optional name, optional recovery nonce), not by
+manually writing a password hash into the database.
 
 Deploy contract, variables and secrets: [docs/DEPLOY.md](../DEPLOY.md).
 

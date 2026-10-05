@@ -32,10 +32,10 @@ The session user carries a `role`. The **canonical auth roles are defined by the
 - `buyer` - property seekers (the default; also covers tenants — "Buyer / Tenant").
 - `owner` - property owners / landlords.
 - `admin` - platform super-admin; bypasses team scoping and module scoping.
+- `manager` - back-office lead below the single admin; bypasses team scoping, opens only modules allowed
+  by its permission atoms, and can create/manage staff accounts only.
 - `staff` - internal ops team member, scoped to one or more `teams` (`rental`, `legal`, `interior`,
   `packers`, `valuation` — the `Team` schema in the spec).
-- `manager` / `member` are **admin-RBAC permission labels, not auth roles** (see `roleLabel` in
-  `src/lib/auth.js`); they never appear in the JWT `role` claim.
 
 `isInternal(user)` (in `src/lib/auth.js`) treats `admin`, `manager`, and `staff` as back-office.
 
@@ -125,7 +125,7 @@ There are two separate login doors, wired into the route guards:
 
 - **Consumer `/signin`** - buyers and owners. Unauthenticated access to a protected consumer
   route redirects here with a `?next=` return path.
-- **Back-office `/staff-login`** - admin/staff. Role and team guards redirect here.
+- **Back-office `/staff-login`** - admin, manager and staff. Role and team guards redirect here.
 
 ### Route guards
 
@@ -141,15 +141,15 @@ permission atom, so a hand-edited client reaches a 403 rather than data.
 | `FlagRoute flag="x"` | admin tab feature flag enabled | `/admin` |
 | `AppFlagRoute flag="x"` | consumer feature flag enabled | `/` |
 
-Examples in `src/App.jsx`: the admin console is `RoleRoute roles={['admin']}`; consumer-only
+Examples in `src/App.jsx`: the admin console is `RoleRoute roles={['manager', 'admin']}`; consumer-only
 pages (`/saved`, `/schedule-visit`, `/pay-rent`, ...) are `ProtectedRoute`, some nested inside
 `AppFlagRoute`.
 
-**`manager` is gone (D209).** It was never one of the contract's roles (`buyer|owner|staff|admin`) -
-only a console label on a custom-role bundle whose storage V61 deleted, so it granted nothing. The
-admin console is administrator-only; an ops account's atoms widen what the API does for it inside
-`/ops`, not which shell it may load. `ModuleRoute` no longer resolves anything itself: the server
-returns the caller's own atoms and the console tests membership.
+**`manager` is real again after D209.** D209 removed a dead console label that granted nothing; Phase 2
+adds a schema role with hierarchy `admin > manager > staff`. Managers can load the admin shell and
+open modules only when the server returns the needed atom. Admin-only routes still use
+`hasRole('ADMIN')`; staff/admin guards admit managers through the Spring role hierarchy. When managers
+create or change staff accounts, the existing in-app `Notifier` writes a notification to the admin.
 
 **`TeamRoute` is gone.** It gated the five per-team ops desks (`/ops/rent-agreement`, `/ops/legal`,
 `/ops/interior`, `/ops/packers`, `/ops/valuation`) on `x ∈ teams[]` and redirected to
@@ -164,27 +164,15 @@ staffer their own desk and nothing else — an empty queue and a forbidden queue
 > authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)) and authorize every
 > request by role and team server-side. The client role/team is a hint, never a grant.
 
-### Where a permission atom is deliberately *not* the guard
+### Where a permission atom shares a guard
 
-`PATCH /societies/{slug}/residents/{id}` guards on `isStaff` rather than on the `societies:write`
-atom, and this is an accepted exception rather than an oversight.
+`PATCH /societies/{slug}/residents/{id}` admits staff only with `societies:write`; the committee
+member path remains a separate society-ownership guard because residents hold no back-office atoms.
 
 The reason is that the endpoint has two legitimate callers with nothing in common. One is an ops
 account working the residency queue, which is what the atom describes. The other is a **committee
 member of that society** approving a neighbour's residency claim — a resident, holding no
-back-office permissions at all, who would fail any atom check by construction. Gating on
-`societies:write` would lock out the caller the feature exists for.
-
-The cost is real and worth stating plainly: an ops account granted `societies:read` and *not*
-`societies:write` can still approve and reject residents, because `isStaff` does not distinguish
-them. A read-only ops account therefore keeps one write it was never granted.
-
-That is accepted for now because the alternative — an `isStaff OR isCommitteeMemberOf(slug)`
-disjunction — needs a committee-membership relation that does not exist yet, and the same missing
-relation is what blocks several other society guards (see `ListingEditRules.requireSociety` on why
-an owner can still name a society they have nothing to do with). When that relation lands, this
-guard becomes the disjunction and the atom starts meaning what it says. Until then the exception is
-documented here rather than left to be rediscovered from the code.
+back-office permissions at all, who would fail any atom check by construction.
 
 ---
 
@@ -225,39 +213,35 @@ top-level stages.
 
 ### 2.3 Canonical example in real code: property verification
 
-Grounded in `src/lib/data/properties-admin.js` and `src/pages/admin/AdminProperties.jsx`.
+Grounded in `moderation.verification.PropertyVerificationService` / `ApprovalGate` and
+`src/pages/admin/AdminProperties.jsx`. Full contract:
+[`../flows/admin/property-verification.md`](../flows/admin/property-verification.md) §5–§7.
 
-- **Maker = owner.** Creating a listing stamps
-  `status: 'pending'`. The listing is not live.
-- **Checker = admin / manager.** The admin Properties queue
-  (`src/pages/admin/AdminProperties.jsx`, guarded by `RoleRoute roles={['admin','manager']}`)
-  reviews each listing.
-- **Review record.** `ensureReview(listing)` creates a `propertyReviews[id]` record with
-  `status: 'in_review'`, a per-document checklist (`docs`, each `status: 'pending'`), a `messages`
-  thread, `decision: null`, and `createdAt`/`updatedAt`.
-- **Per-document verification.** `setDocStatus` / `setDocVerified` mark each required document
-  `verified`. `addReviewMessage` supports owner<->admin clarification; an admin message flips the
-  review to `clarification` unless already decided.
-- **Decision.** `decideReview(id, 'approved'|'rejected', reason)` sets the review `status`, writes
-  `decision = { type, reason, at }`, and appends a system message to the owner.
-- **Side-effects on approval.** The admin handler pairs the decision with the listing status:
-  `decideReview(id, 'approved')` + `setListingStatus(id, 'approved')` (listing goes live) and
-  clears any `flagReason`. Rejection pairs `decideReview(id, 'rejected', reason)` with
-  `setListingStatus(id, 'rejected')`. See `bulkApprove` / `submitBulkReject` in
-  `AdminProperties.jsx`.
-- **Audit.** Each action calls `logAudit('Listing'|'Listings', '...')` (section 4).
+- **Maker = owner.** Creating a listing stamps `status: 'pending'`. The listing is not live.
+- **Checker = staff or admin**, never the listing's owner (`ApprovalGate`, every approve path,
+  bulk included).
+- **Checklist.** Three facts — photos real, not a duplicate, details and location right — each
+  ticked by the checker; approve refuses `409 checklist_incomplete` until all three are ticked. An
+  edit that sends the listing back to `pending` unticks them.
+- **Decision.** `approve | needs_info | reject`, one server transaction with the listing status,
+  guarded by `expectedStatus` (`409 stale_decision`). `needs_info` and `reject` need a reason code;
+  reject is final. A duplicate or hard broker signal needs a second staff member through the
+  override request (`second_approver_required`).
+- **Audit.** Every decision, checklist tick and override writes an `audit_log` row (section 4).
 
 ### 2.4 The same pattern in other contexts
 
 | Context | Maker (proposes) | Checker (approves/rejects) | Approval side-effect | Code |
 |---------|------------------|----------------------------|----------------------|------|
-| Listing verification | owner submits listing | admin/manager | listing `status -> approved`, goes live | `propertyProvider.js` moderation writes |
+| Listing verification | owner submits listing | staff/admin, never the owner; a second staff member for a flagged override | listing `status -> approved`, goes live | `moderation.verification.PropertyVerificationService` |
 | Deal finalization | buyer requests finalize | owner accepts/declines | accept closes the deal (`closeDeal`) and auto-declines the other pending requests for that property | `src/lib/store/deals.js` `requestFinalize` / `acceptFinalize` / `declineFinalize` |
 | Contact reveal | buyer requests contact | owner approves/declines | owner phone unmasks for that buyer (subject to owner privacy prefs) | `src/lib/contact.js` `requestContact` / `setContactStatus` |
 | Document access | buyer requests a doc category | owner grants/declines | on grant, matching uploaded docs are shared (`sharedDocIds`) | `src/lib/data/documents.js` `addDocRequest` / `respondDocRequest` |
 | Visit request | buyer requests a visit slot | owner confirms/cancels | slot confirmed | see `visitProvider` / `PATCH /visit-requests/:id/status` |
 | Offer / negotiation | buyer submits an offer | owner responds (accept/counter/decline) | accepted offer feeds finalization | `src/lib/store/deals.js` `addOffer` / `respondOffer` |
 | Society claim | resident claims a society role | admin moderates | claim approved | `src/pages/admin/societies/ClaimsTab.jsx` |
+| Identity badge (earned) | user submits document + selfie | identity reviewer (`identity:write`), never the subject | `users.verified = true`, listings back-filled; revocable with reason | `identity.verification.IdentityReviewService` |
+| Identity badge (hand-granted) | admin A requests (`badge_grant_requests`) | a different admin B, never the subject | `users.verified = true` | `moderation.user` badge-grant service; V60 CHECKs back the service 403s |
 
 In every row the record starts `pending`, is decided by the checker, and only then does the
 side-effect fire. Reject-then-resubmit returns the record to `pending`.
@@ -312,7 +296,7 @@ either is a two-file change.
 
 ## 3. Contact gate
 
-Lead contact information (owner phone numbers) is never exposed by default. It is gated behind two
+Lead contact information (owner phone numbers) is masked by default. It is gated behind two
 layers, implemented in `src/lib/contact.js` and consumed by
 `src/pages/consumer/property/ContactBox.jsx` / `ContactOwnerModal.jsx`.
 
@@ -332,7 +316,7 @@ consulted here** — contact is L1 mobile, per ADR-019 ("badge, not gate"). Retu
 ### Layer 2 - Owner approval (maker-checker, section 2)
 
 Once a request exists, it is created with `status: 'pending'` and the owner's
-number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`). Status progression via
+number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`) until approval. Status progression via
 `contactStatus`:
 
 - `'owner'` - the viewer is the owner themselves (`isOwnerViewer`); always sees the full number.
@@ -350,10 +334,8 @@ number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`). Status pr
 - **Storage keys are shared with the HTML prototype** (`draazyContactReq:<ownerDigits>`), so the
   two prototypes stay compatible.
 
-> **MUST be server-enforced later.** The mask and the approval check both run client-side today.
-> The backend must return the number **only** after it confirms an approved request (see
-> `POST /contacts/request` in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)), and never
-> ship the raw number to an unapproved client.
+> **Server-enforced.** The backend returns the raw owner number only after it confirms an approved
+> request and `hideNumber=false`; it never ships the raw number to an unapproved client.
 
 ---
 
@@ -368,7 +350,7 @@ is being withheld.
   tower, which nobody can act on. That makes it useful to the duplicate probe and dangerous to
   publish: the contact gate exists so a stranger cannot reach an owner uninvited, and a stranger
   holding "A-902, Rohan Nilay" does not need a phone number, they can knock. The exposure is worst
-  for PG and shared accommodation, where the occupant is often a single woman living alone in that
+  for shared accommodation (flatmates), where the occupant is often a single woman living alone in that
   unit. Nothing renders it — the public detail page is built from `society`, `locality` and
   `pincode` — so it is emitted only to round-trip the owner's edit form and to let the desk
   adjudicate a duplicate.
@@ -420,14 +402,15 @@ An audit entry is `{ id, at (ISO-8601), who, action, detail }`, `who` resolved f
 staff user.
 
 - Internal notes are a table of their own (`internal_notes`) behind
-  `GET|POST /admin/notes/{entityType}/{entityId}` and
-  `PATCH /admin/notes/{id}`, gated on `notes:read` / `notes:write`. They are **mutable on purpose**
-  — a note is retained customer information that goes stale, not a signature — and an edit records
-  the previous wording on the audit row while leaving the original author on the note. There is no
-  delete route, deliberately. See `docs/system/frontend-data-seam.md` for the domain registry.
+  `GET|POST /admin/notes/{entityType}/{entityId}`, gated on `notes:read` / `notes:write`. They are
+  append-only: a correction is a newer note. See `docs/system/frontend-data-seam.md` for the domain registry.
 
 Admin handlers fire `logAudit(...)` after every mutation (feature toggle, flag, archive, restore,
-edit, bulk approve/reject, pipeline move) - see `src/pages/admin/AdminProperties.jsx`.
+edit, approve/reject) - see `src/pages/admin/AdminProperties.jsx`.
+
+Owner-side decisions from the dashboard (contact accept/decline, document grant/decline including
+grant all, photo resolve/decline, visit status changes, flatmate accept/decline) write their
+`audit_log` row server-side, attributed to the session user; a repeated identical decision writes none.
 
 > **MUST be server-enforced later.** Audit and soft-delete are the record of who did what. The
 > backend must write audit rows server-side (client-supplied `who` is not trustworthy), enforce
@@ -500,20 +483,12 @@ Because every call is a Promise, each data-driven view handles three states:
 
 ## 7. Notifications
 
-In-app notifications are read from the server through `src/services/notificationService.js`.
-
-> **Historical.** The bullets below describe `src/lib/store/notifications.js`, a per-user seed-once
-> `localStorage` list that **no longer exists**. They are
-> kept because the *shape* they describe (stable `id`, `read` flag, `at` timestamp, one list feeding
-> both the page and the bell badge) is still the shape the server returns, and because the seed-once
-> rule explains why a revisit never duplicated entries.
-
-- Stored under `dzNotifications:<mobile>` (falls back to `anon`).
-- `getNotifications()` returns the list; `seedNotifsIfEmpty(defaults)` stamps a stable `id`, an
-  unread flag (`read: false`), and an `at` timestamp exactly once, so a revisit never duplicates
-  seed entries.
-- Each entry drives both the `/notifications` page and the header bell unread badge (one source of
-  truth).
+In-app notifications are read from the server through `src/services/notificationService.js`; the
+frontend no longer derives inbox rows or stores notification state in `localStorage`.
+`GET /notifications/unread-count` returns `{ "count": n }`, using the same unread + deliverable
+filter as the list. Each row carries a stable `id`, `read` flag, timestamp and link; those server
+rows drive both `/notifications` and the header bell. Read rows leave the list after 30 days; all
+notification rows are purged after 90 days by `NotificationRetentionSweep`.
 
 Notifications are the natural delivery channel for maker-checker outcomes (contact approved, deal
 finalized, listing verified/rejected). The review thread in property verification
@@ -524,8 +499,8 @@ Related store events: `src/lib/contact.js` dispatches a `pn:store` `CustomEvent`
 changes so open tabs can react without a reload - a lightweight in-app pub/sub the real backend
 would replace with push/websockets.
 
-> **MUST be server-enforced later.** Notification generation belongs on the server as a side-effect
-> of approvals and state changes, not something the client seeds for itself.
+Notification generation belongs on the server as a side-effect of approvals and state changes, not
+something the client seeds for itself.
 
 ---
 
@@ -542,6 +517,8 @@ One stateless resource-server chain. No sessions, no CSRF token, default posture
 
 Three filters are added and **the order is load-bearing**:
 
+0. `OriginGateFilter`, only when `draazy.security.origin-secret` is set, runs ahead of all of them.
+   See §8.8.
 1. `JwtAuthFilter` — resolves the bearer token.
 2. `WriteRateLimitFilter` — counts the request against whoever that turned out to be. The reverse
    order would leave every authenticated caller sharing an address-keyed bucket.
@@ -623,9 +600,9 @@ Why each public family is public:
 | Family | Why anonymous |
 |---|---|
 | `/auth/login`, `/auth/staff-login`, `/auth/refresh`, `/auth/staff-invite/redeem` | The caller holds no session; for the invite redeem, the single-use token **is** the credential, verified in `StaffInviteService`. |
-| Catalogue reads (properties, cities, localities, societies, reels, fees) | The pages a visitor sees before deciding whether to sign up at all. |
-| `/flags`, `/pricing`, `/plans`, `/boosts/packs`, `/services`, `/move-pack`, `/geo` | These toggles and prices decide what a logged-out visitor sees, so an admin-only reader cannot be the client's source for them. Each is scoped to one block of the settings document, so the rest of `/admin/settings` (fees, permissions, `adminFlags`, the referral auto-qualify threshold, blacklist reasons) stays admin-only. `/move-pack` is separate from `/flags` because the latter's contract is map-of-boolean and would have to drop the prices; the switch travels with the prices it gates so configuration that must be consistent cannot arrive half-applied. |
-| `POST /cities/waitlist`, `POST /society-leads`, `POST /service-waitlist` | The people these exist for are not users and may never become any — a 400-flat society's secretary should not have to create an account to say hello. POST-only; reading the leads back is staff/admin, because each row is a name and a mobile number. Each is additionally rate-limited per mobile in its service, and the waitlist is challenged in `BotDefenceFilter`. |
+| Catalogue reads (properties, cities, localities, societies, fees) | The pages a visitor sees before deciding whether to sign up at all. |
+| `/flags`, `/pricing`, `/plans`, `/move-pack`, `/geo` | These toggles and prices decide what a logged-out visitor sees, so an admin-only reader cannot be the client's source for them. Each is scoped to one block of the settings document, so the rest of `/admin/settings` (fees, permissions, `adminFlags`, the referral auto-qualify threshold, blacklist reasons) stays admin-only. `/move-pack` is separate from `/flags` because the latter's contract is map-of-boolean and would have to drop the prices; the switch travels with the prices it gates so configuration that must be consistent cannot arrive half-applied. |
+| `POST /cities/waitlist`, `POST /service-waitlist` | The people these exist for are not users and may never become any. POST-only; reading the leads back is staff/admin, because each row is a name and a mobile number. Each is additionally rate-limited per mobile in its service, and the waitlist is challenged in `BotDefenceFilter`. |
 | `POST /demand-signals`, `POST /page-views` | The two high-volume kinds fire on public surfaces, and the demand most worth measuring belongs to the visitor who left without signing up. Write-only by design: the aggregate is on `/admin/supply-gap`, because a public read would hand a competitor a locality-by-locality map of what Draazy is short of. |
 | `GET /documents/shared` | The link is forwarded to a lawyer or banker with no Draazy account; the unguessable, expiring share token **is** the credential, checked in `DocumentRequestService.shared`. |
 | Cashfree payment webhooks | Server-to-server, no user session; authenticity is an HMAC over the raw body, verified in the handler. |
@@ -776,6 +753,34 @@ The seam is shared kernel and cannot see the vault's own `DocumentUploads` allow
 that first and passes in the type it *proved* from the bytes, so a scanner is told the answer rather
 than re-deriving it. OCR-based validation ("does this scan of an Index II read like one") is intended
 to arrive as another implementation on this seam, not as a branch inside an existing one.
+
+### 8.8 Origin gate
+
+On a deploy the API is reached through the Cloudflare Pages Function, but Cloud Run's `*.run.app` URL
+is public too (`ingress: all`, `allUsers` invoker), because a Worker calls it from the public
+internet. A proxy in front protects nothing while the origin behind it answers anyone, so
+`OriginGateFilter` refuses any request whose `X-Proxy-Auth` header does not equal
+`draazy.security.origin-secret`. The Function sets that header and overwrites any value the client
+sent.
+
+- **Why a shared secret.** Restricted ingress needs a paid Google load balancer. Cloudflare's
+  Authenticated Origin Pulls need an origin that verifies client certificates, and Cloud Run does not.
+  A secret costs nothing and also makes a leaked Cloud Run URL harmless.
+- **Why first in the chain.** A request that skipped the proxy has no trustworthy address to
+  rate-limit on, and it is owed no token parse. It still sits behind Spring Security's firewall,
+  which rejects `..` and encoded separators before the probe exemption is matched.
+- **The probe exemption** is `GET`/`HEAD` on three exact paths (`/actuator/health`, `/liveness`,
+  `/readiness`), because Cloud Run's probes and CI's smoke test reach the container directly. Health
+  is already public, so the exemption exposes nothing new. It is method-bound because the write rate
+  limiter runs after the gate: an ungated `POST` there would be charged to a forged
+  `X-Forwarded-For` address once `INTERNAL_PROXIES` is widened.
+- **Fail-closed configuration.** A blank value fails the boot, and so does a value under 32
+  characters. `none` turns the gate off, and it is the base-file value because nothing proxies a
+  developer machine. The deploy profiles read `${ORIGIN_SHARED_SECRET}` with no default, and
+  `ProdProfileContractTest` pins that.
+- **What it unlocks.** With the gate on, only the Function can write the left-most `X-Forwarded-For`
+  entry, so `INTERNAL_PROXIES` can be widened safely. Without the gate the same value is spoofable.
+  See `docs/DEPLOY.md` §4.
 
 ## 9. Client-side seams: caching, commit-on-release, and shared overlays
 
@@ -954,6 +959,62 @@ and zero bytes, because every accessor calls `ensureSocietyCatalogue()` anyway. 
 `false` and does not rethrow: `ensureSocietyCatalogue` has dropped its cached promise so the next
 read retries, and resolving `true` would tell a surface its partial 28-row view is complete.
 
+### Public reference reads — memory, browser and edge (`PublicReadCacheFilter`)
+
+Every page render reads the same dozen answers that do not vary by caller: `/flags`, `/geo`,
+`/pricing`, `/listing-policy`, `/move-pack`, `/plans`, `/fees`, `/cities`, `/localities`,
+`/properties/featured`, `/properties/trust-stats` and `/properties/counts`. Answering each from
+Postgres every time spends the 20-connection budget (4 instances × pool 5) on a constant. Three free
+layers absorb them instead, without Redis:
+
+1. **Backend memory.** `PublicReadCacheFilter` keeps the 200 body per URL and query for
+   `draazy.cache.public-reads.ttl` (`PUBLIC_READ_CACHE_TTL`, default 30s). It holds at most 256
+   entries, evicting least-recently-used first. It runs after Spring Security, so a hit still passes
+   the origin gate, CORS and the security headers. Non-200 answers are never stored.
+2. **Browser.** It answers `Cache-Control: max-age=<seconds left>, public` with an `ETag`, and answers
+   `304` to a matching `If-None-Match`. Because max-age counts down to the entry's expiry, memory and
+   browser together never exceed one TTL.
+3. **Edge.** The Pages proxy (`functions/api/[[path]].js`) stores an anonymous GET in the Cloudflare
+   Cache API only when the backend marked the 200 `public` with a positive max-age and set no cookie.
+   The edge's copy can then live one more TTL in a browser, so **an anonymous visitor sees an edit at
+   most 2 × TTL (60s) late**.
+
+**Signed-in users and the editing admin see changes instantly.** `http.js` sends every read as
+`cache: 'no-cache'` while an access token exists, which makes the browser add
+`Cache-Control: max-age=0`. The edge and the filter both treat that as a bypass. The filter also
+recomputes and refreshes its entry, so the next anonymous read on that instance is fresh too. A
+`Cache-Control` the browser adds does not trigger a CORS preflight.
+
+There is no write-path invalidation. Property writers are too many, and bulk or native queries skip
+entity listeners, so the TTL is the contract. Add a path to `PATHS` only if its answer is identical
+for every caller: anything personalised would leak between users. `PermissionMap` stays uncached on
+purpose.
+
+These reads carry no `X-Draazy-Build`. A replayed stamp from before a deploy would raise a false
+"new version" banner, and every other response still carries the stamp.
+
+Tests and the e2e profile set the TTL to `0s`, which makes the filter inert. Specs reset the database
+under live JVMs and expect an anonymous page to see an admin edit immediately.
+`PublicReadCacheFilterTest` proves the cache's behaviour instead.
+
+### Listing photos — card copies and an immutable CDN
+
+Photos never pass through Spring on the way to a browser: the JSON carries URLs and the browser
+fetches them from R2. So the saving is in what is fetched, not in a server cache.
+
+- **Card copies.** `PhotoService.upload` stores `{key}.w960.jpg` and `{key}.w480.jpg`
+  (`PhotoVariants`, JPEG q0.8, never upscaled) *before* the original, so a returned URL always has
+  them. `PropertyImage` uses them by default via `cardSrcSet` (`lib/imgSrcSet.js`), with
+  `sizes="240px"` unless the caller passes a wider one; so cards, thumbnails, map popups and admin
+  queues all get them. Only the property gallery and lightbox load the original. An undecodable
+  image is stored without copies rather than refused.
+- **Immutable.** Keys are never reused, so `R2FileStorage.storePublic` sets
+  `Cache-Control: public, max-age=31536000, immutable`.
+- **Service worker.** `dz-images` caches only the copies. Originals are also fetched with CORS for
+  the wizard's canvas hash, and a cached opaque response would break that read.
+- **Older uploads have no copies.** `PropertyImage` drops the srcset on the first error and shows the
+  original, at the cost of one 404 per render.
+
 ## JWT auth filter
 
 Rationale relocated from `JwtAuthFilter` Javadoc.
@@ -1064,19 +1125,17 @@ grant.
 
 Rationale relocated from `BackOfficePermissions` Javadoc.
 
-### What an atom is, and why this shape
+### Functions are stored; atoms are enforced
 
-Every name is `<module>:<action>` with `action` one of `read` or `write`: `tickets:read`,
-`users:write`. The split follows the product decision "the admin creates an ops user and picks that
-user's permissions directly", and read/write is the coarsest split that expresses the request an ops
-lead actually makes - "let them see the queue without letting them act on it". A finer per-route
-vocabulary was rejected: it would have to be re-derived every time a route is added, and a permission
-an administrator cannot name in a sentence is one they will grant by accident.
+Operators grant function names such as `kyc`, `listingModeration` and `desk:rental`. The server
+derives permission atoms such as `identity:write`, `properties:moderate` and `services:read` from
+that function catalogue, then intersects the atom set with the account role ceiling. Any
+back-office account also keeps `dashboard:read`.
 
 ### Every name here guards a real route
 
 **The catalogue contains exactly what is enforced, and nothing else.** That is the lesson of `V61`:
-`settings.customRoles` held a vocabulary (`enquiries`, `properties:verify`) that no server code
+`settings.customRoles` held a vocabulary (`enquiries`, stale module keys) that no server code
 mapped onto anything, so an administrator populated an access-control document that granted nothing,
 and the day somebody wired it, it would have started granting whatever had accumulated. A name is
 added in the same change that annotates the route it guards, never before - and
@@ -1085,7 +1144,7 @@ module keys reappearing in the database under a different roof. `Capabilities` k
 name (`export_csv`) only because it is *stored data* predating the guard that cannot be renamed
 without a migration; this vocabulary ships with its guards, so it holds the stricter rule.
 
-### The role ceiling
+### The role ceiling and defaults
 
 Each atom records which roles may *ever* hold it, taken from the `@PreAuthorize` role guard already
 on the route. `baselineFor` turns that into the set an unscoped account of that role holds, and
@@ -1096,6 +1155,16 @@ would have refused it anyway. Two independent fences, deliberately - if the ceil
 mis-declared too generously, the role guard on the route is still there. Roles outside the back
 office (`buyer`, `owner`) get an empty baseline, an unreachable but fail-closed answer.
 
+The administrator always holds the full technical baseline: any stored document is ignored and
+`PUT /users/{id}/permissions` refuses an admin target (422), so the single admin can never be
+narrowed. With no stored document, a manager gets every function plus `users:write` and
+`audit:read`, and staff gets only `dashboard:read` (fail-closed). Staff desk scope comes from
+`desk:*` functions, not from the legacy `users.team` column.
+
+Managers watch staff through `/admin/staff-activity` (feed + leaderboard) and
+`/admin/team-performance` (per-staff counts by function, open items, oldest waiting and median
+time-to-decision per queue); both are `audit:read` and scoped to staff rows.
+
 The SpEL fragments are spelled out as concatenations of constants because an annotation argument must
 be a compile-time constant expression, and they are always `and`-ed onto the role guard already on
 the route, never used alone. That is the mechanism, not a convention: this document may narrow what a
@@ -1103,16 +1172,6 @@ role can do and may never be the thing that decides whether the caller is ops.
 
 ### Individual atom decisions
 
-- **`conversations:read`** (`GET /admin/conversations/{id}`) is admin only and separate from
-  `reports:read`. Separate, because reading the abuse queue and reading the correspondence it
-  refers to are different amounts of access to the same incident: a triage desk can route and close
-  most reports on the report text alone, and folding this in would hand every one of them the whole
-  conversation as a side effect. Admin only, because the guard it exempts admits *nobody* but the two
-  participants today, and widening a surface from "two people" to "the whole ops floor" in one step
-  is not a narrowing anyone can undo - the model subtracts from a role baseline and can never grant
-  above it. If the moderation desk needs it routinely, the change is one word and reviewable as such.
-  There is no `conversations:write`: a moderator may read a reported thread and may not post into
-  it.
 - **`identity_reviews:read`** is split out of `users:read`, which also opens the whole account
   directory. Reviewing captured ID photos is a desk job with its own shift, and a queue that can only
   be granted together with the directory is one an ops lead grants the directory for.
@@ -1123,11 +1182,8 @@ role can do and may never be the thing that decides whether the caller is ops.
   browse listings could also read every staff observation about every person, because the notes are
   one table and the read is one route. `notes:write` is separate again, because more people should
   read a case file than add to it.
-- **`properties:write`** replaces the console-only `properties:verify` that `V61` deleted. That
-  name tried to express "may verify but may not feature", a sub-scope of one module this vocabulary
-  has no way to say. Rather than add a third action for one module's benefit, the sub-scope is
-  dropped: a verifier holds `properties:write`, which is also the ability to feature - an accepted
-  narrowing, recorded rather than silent.
+- **`properties:verify` / `properties:moderate`** split property trust decisions from listing
+  moderation actions such as approve, reject, feature, flag, review and locality filing.
 - **`enquiries`** has no `write`, and that is a product decision. Every row the demand board shows
   belongs to two other people - a contact request is the owner's to approve, a visit the
   participants' to confirm or move, a deal the owner's to close. Ops watching demand health is a
@@ -1240,3 +1296,7 @@ handoff link. A count of rows means "chasers written", not "chasers delivered"; 
 that renders one is obliged to say so. The renderer resolves `{placeholder}` keys from
 `variables`; an unknown key is left standing as literal text rather than blanked, so a typo
 surfaces in the preview a staff member reads instead of silently deleting a sentence.
+
+Browser push uses a separate `PushSender` seam. The dev implementation only logs the conversation
+id, and `message.received` push payloads are fixed to `Draazy`, `You have a new message`, and
+`/messages?c=<id>`: no name, mobile, listing title, or message text leaves the server.

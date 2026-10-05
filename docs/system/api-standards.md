@@ -160,6 +160,7 @@ code actually work here?**
 | `precondition_failed` | 412 | Not `conflict`: the caller asked to be stopped if the resource had moved, so the recovery is re-read and re-apply rather than reconsider the request. |
 | `already_reviewed` | 409 | One voice, one review — a rating average one account can move fifty times is not an average of anything. Paired with a UNIQUE index, not only a service check, so the answer holds under concurrent submits. |
 | `identity_already_registered` | 409 | One document, one badge (ADR-009b), enforced by the UNIQUE `identity_hash` at approval. Fires only inside the opt-in badge flow; it never blocks posting or contact. |
+| `owner_consent_self` | 400 | The owner-consent OTP asked for at the caller's own number. The client shows a specific message instead of quoting server text; retrying with the same number cannot work. |
 
 Two codes are raised from more than one place and **must stay identical across both**, or a client
 learns two names for one refusal: `payload_too_large` (our own check *and* the servlet container's
@@ -272,8 +273,8 @@ a bypass. A non-boolean is treated as undecided rather than coerced, because it 
 **`GET /flags` is public and deliberately one block wide.** It serves `settings.flags` and nothing
 else — not `adminFlags`, not `fees`, not `permissions` — because those toggles gate what an anonymous
 visitor sees while the same document holds the fee table and the permission map. Publishing a flag
-there is **not** enforcing it: `kycBadgeEnabled` and `boostEnabled` are render-only and the actions
-behind them have their own guards. Non-boolean values are dropped rather than forwarded, since the
+there is **not** enforcing it: `kycBadgeEnabled` is render-only and the actions behind it have their
+own guards. Non-boolean values are dropped rather than forwarded, since the
 contract types the map as booleans and a `"false"` string would read as *enabled* either way. A
 missing or unparseable row answers `{}` rather than failing, because every consumer is a page render
 and the alternative is a blank site because somebody mistyped a config value.
@@ -374,7 +375,7 @@ of the wire.
   principal id, so a caller can only touch their own rows.
 - Trust ladder (ADR-019): **mobile-OTP L1 is the floor** to participate; the reviewed Verified badge (L2)
   is a **signal, never a hard gate**. Don't `403` on missing L2.
-- Passwordless consumers (OTP); staff/admin use BCrypt email+password. Refresh tokens rotate with
+- Passwordless consumers (OTP); back-office users use BCrypt email+password. Refresh tokens rotate with
   reuse-detection; logout revokes the refresh family (stateless access tokens expire naturally).
 - The refresh token travels **only** as an `HttpOnly; Secure; SameSite=Lax; Path=/` cookie
   (`__Host-draazy_rt`; the bare name over plain-HTTP dev, where a browser rejects the prefix) — it

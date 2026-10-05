@@ -20,8 +20,8 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 |---|---|
 | users | `User`, `UserUpdate`, `Party`, `Role` |
 | properties / listings | `Property`, `PropertySummary`, `ListingCreate`, `ListingUpdate`, `PropertyStatus` |
-| localities | `Locality`, `LocalityDetail` |
-| societies | `Society`, `SocietyDetail`, `SocietyLead` |
+| localities | `Locality` |
+| societies | `Society`, `SocietyDetail` |
 | visits | `Visit`, `VisitCreate` |
 | offers | `Offer`, `OfferCreate`, `OfferResponse` |
 | deals (owner state + analytics) | `DealIntent` (buy/rent), `Deal` (aggregate: status active/reserved/closed), `DealCloseRequest` |
@@ -35,25 +35,24 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 | rent (agreement / tenancy) | `RentAgreement`, `Tenancy` |
 | tenant_rentals (the tenant's own record) | `TenantRental`, `TenantRentalCreate`, `TenantRentalUpdate` |
 | tenant_profile | `TenantProfile` |
-| identity_verification | `IdentityVerification`, `IdentityVerificationFile`, `OwnerKyc` |
+| identity_verification | `IdentityVerification`, `IdentityVerificationFile` |
 | saved_searches | `SavedSearch`, `SavedSearchCreate` |
 | referrals | `Referral`, `ReferralSummary` |
-| service_requests / orders | `ServiceRequest`, `ServiceRequestCreate`, `ServiceOrder`, `ServiceOrderCreate`, `ServiceOffering`, `CmsService` |
+| service_requests / orders | `ServiceRequest`, `ServiceRequestCreate` |
 | tickets / support | `Ticket`, `TicketCreate`, `TicketUpdate`, `SupportTicket`, `SupportTicketCreate` |
 | reports | `Report`, `ReportCreate` |
-| reels | `Reel` |
 | flatmate_seeker_posts | `FlatmateSeekerPost`, `FlatmateSeekerPostCreate` |
 | flatmate_rooms (spare room + owner flat-split) | `FlatmateRoom`, `FlatmateRoomCreate`, `FlatSplitRequest`, `FlatSplitResult` |
 | flatmate_groups / flatmate_group_members | `FlatmateGroup`, `FlatmateGroupCreate`, `GroupApplication` |
 | flatmate_requests (host inbox) / flatmate_reviews | `FlatmateRequest`, `FlatmateReview`, `AgreementDoc`, `HostEligibility` |
-| messages / conversations | `Conversation`, `ConversationCreate`, `Message`, `MessageCreate` |
-| plans / subscriptions / boosts | `Plan`, `Subscription`, `Boost`, `BoostPack`, `Fees` |
+| messages / conversations / conversation_user_state / hidden_conversation_messages / user_blocks | `Conversation`, `ConversationCreate`, `Message`, `MessageCreate` |
+| plans / subscriptions | `Plan`, `Subscription`, `Fees` |
 | settings | `AdminSettings` |
 | team / staff | `Team`, `StaffCreate` |
 | audit_log | `AuditEntry` |
-| banners / faqs / announcements | `Banner`, `Faq`, `Announcement` |
-| analytics / admin KPIs | `AnalyticsPoint`, `AdminKpis`, `AdminFinance` |
-| notifications | `Notification` |
+| faqs | `Faq` |
+| admin KPIs | `AdminKpis`, `AdminFinance` |
+| notifications / notification_preferences / push_subscriptions | `Notification`, `NotificationPreferences`, `PushSubscriptionCreate` |
 
 ## Status vocabulary — canonical tokens & UI↔wire mapping
 
@@ -127,16 +126,15 @@ users 1--* support_tickets 1--* ticket_messages
 one place — when a **rent deal closes on this platform** and the tenant already holds an account —
 so the Rent Wallet had no data at all for anyone who found their flat the way most Indian renters
 do: through a broker, a noticeboard, or a relative. `tenant_rentals` is that tenant's own record:
-`id`, `tenant_id` (FK `users`), `address`, `landlord_name`, `monthly_rent`, `deposit`, `lease_start`,
+`id`, `tenant_id` (FK `users`), `address`, `monthly_rent`, `deposit`, `lease_start`,
 `lease_end`, `status` (`active` / `ended`), plus the standard soft-delete (`archived`, `archived_at`,
 `archive_reason`) and audit (`created_at`, `updated_at`) columns. The home being described is
 usually **not** a Draazy listing, so a nullable foreign key would be populated only in the
 minority case while every reader had to handle its absence — the address already identifies the home
 to the only person who reads it. It is written **once**: months paid, lifetime total and the
 financial-year total are derived server-side from instalments elapsed since `lease_start`, so there
-is no month-by-month data entry and no payment rows. `address` and `landlord_name` are personal data
-(the second belongs to a third party who did not consent to being named), so the table is wired into
-both DSAR export (`DataExportScope`) and account erasure (`ErasureService`). Nothing here is
+is no month-by-month data entry and no payment rows. `address` is personal data, so the table is
+wired into both DSAR export (`DataExportScope`) and account erasure (`ErasureService`). Nothing here is
 evidence — every value is typed in by the person it flatters — which is why the Rent Passport does
 not read it.
 
@@ -256,6 +254,18 @@ A null `ownership_verified_until` means "does not lapse", not "lapsed". Today's 
 cannot produce one — site presence rests on photographs and those always expire — so in practice it
 marks an older row, which is how demo data keeps its badge. It is honoured rather than treated as
 invalid because which documents expire is a product decision that will change.
+
+### Property review state (`property_reviews`, V67–V69)
+
+`status` is `pending | needs_info | approved | rejected | flagged | archived` (wire: `in_review`
+for pending). `reason_code` is required for `needs_info` and `rejected` (values in
+`ReviewReasonCodes`, CHECK-backed); `properties.info_requested_at` (V81) starts the 3/7/14-day
+reminder-and-archive clock (`NeedsInfoSweep`). Listing progress is derived from timestamp facts on
+`properties` (`claim_link_sent_at`, `claim_link_opened_at`, `owner_confirmed_at`,
+`review_started_at`, `info_requested_at`) — see `docs/flows/admin/property-verification.md` §7. A duplicate or hard broker signal is approved only through
+`property_override_requests` (V68): a requester and a different approver, both staff, neither the
+owner. Ownership evidence types add `share_certificate` (V66); a rent badge needs any one document,
+a sale badge one title document. Aadhaar and PAN are no longer accepted as evidence.
 
 ## Catalogue query notes (`PropertyRepository`)
 
@@ -530,6 +540,13 @@ reader is either a `> 0` predicate or one cosmetic admin column, and `@Version` 
 optimistic locking on every profile edit, verification webhook and `lastActive` stamp on the platform.
 Revisit only if the number becomes an exact input to billing or quota.
 
+### Message privacy toggles live on `users`
+
+`share_activity_status` and `share_read_receipts` default true and are caller-controlled profile
+preferences. Activity is shown only when both participants share it; read receipts are likewise
+reciprocal. `messages.delivered_at` records pair-thread delivery independently, so delivery can stay
+visible even when read receipts are hidden.
+
 ### `flagged` is a note between colleagues, not a status
 
 Flagging changes nothing the platform does: the person still signs in, their listings still show, their
@@ -567,6 +584,14 @@ row moves between tabs as its search progresses, and a parent listing is the onl
 expresses an address (naming a society it has no listing for is a claim, and claims do not move a
 post into the "real places" tab). Two tables would have meant deleting a group and recreating it the
 day it signed a lease, losing its members and its history at exactly the moment they became real.
+
+`hunting` (V74) marks a group that has not found its flat and so states preferences: `localities`
+(a shortlist of up to three), `pref_bhk`, `rent_min`..`rent`, `deposit_min`..`deposit_max`,
+`furnishing`, `move_in_by`, `gated_only`, `bachelors`. `rent` stays NOT NULL and holds the budget
+*ceiling* so `per_head` keeps one meaning for the budget filter; `locality` is `localities[0]` for
+the single-locality readers. `localities` is filled for every group — a housed one lists its one
+locality — because search reads it for both kinds; `ck_flatmate_groups_hunting_unhoused` forbids
+`hunting` alongside a `property_id`.
 
 `seatsOpen` is stored rather than derived as `seatsTotal - members.size()`: a sitting tenant
 backfilling one seat of a full four-person flat has one seat open and four members, so deriving it
@@ -610,4 +635,3 @@ Two choices in that class are load-bearing:
 `VERIFICATION_TIER` is never accepted from a client — `FlatmateGuardrails` derives it from the host's
 role and the proof they actually supplied, because a client that could name its own tier could award
 itself the badge the entire trust model rests on.
-

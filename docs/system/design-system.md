@@ -419,30 +419,12 @@ information: the bottom-nav indicator keeps its opacity fade but loses its trave
 keeps its shadow drop but loses the press scale; sheets keep a short opacity transition instead of the
 slide. When cutting motion, ask which half of the effect reports state.
 
-### Devanagari / i18n typography
-`--font-sans` lists `'Noto Sans Devanagari'` **after** `Outfit`, not instead of it: the browser falls
-through per character, so Latin still renders in Outfit and only Devanagari codepoints reach Noto.
-Putting Noto first would restyle the entire English site. Devanagari runs 15-30% longer than the same
-English sentence and its taller line box changes how clamped text counts lines — budget for both when
-sizing a button or a truncated row.
-
-Three Latin habits actively damage Devanagari, so `index.css` overrides them under `:lang(hi)` /
-`:lang(mr)`. That scoping only matches because `i18n/index.js` keeps `<html lang>` in step with the
-active language; if that ever regresses the whole block silently stops applying.
-
-1. **Line height.** Devanagari stacks matras above the shirorekha and below the baseline, so its ink
-   box is materially taller than Latin's. Tailwind's `leading-none` (1) and `leading-tight` (1.25)
-   clip those marks outright — the vowel sign is cut off, which changes the word. ~70 uses of those
-   two utilities exist in the app, so the floor is raised once here and English is untouched.
-2. **Letter spacing.** `tracking-widest` on small-caps section labels breaks the continuous
-   shirorekha and splits conjuncts into pieces that read as separate letters. Latin loses nothing by
-   having it; Devanagari loses legibility.
-3. **Uppercase.** Devanagari has no case, so `text-transform: uppercase` is a no-op on the glyphs —
-   left alone rather than reset, because the same elements often carry Latin brand names (Draazy,
-   SLA, OTP) that should still uppercase.
-
-Numeric runs stay on Outfit's tabular figures under `:lang(hi)`: digits are rendered as Latin numerals
-throughout the app (₹32,000, 2 BHK), so inheriting Noto's proportional ones jitters aligned columns.
+### Devanagari typography
+The interface is English-only, but user-written text (listing descriptions, society names, a Marathi
+rent-agreement deed) can still be Devanagari. `--font-sans` lists `'Noto Sans Devanagari'` **after**
+`Outfit`, not instead of it: the browser falls through per character, so Latin still renders in Outfit
+and only Devanagari codepoints reach Noto, whose subsets are behind `unicode-range` so an English
+visitor never downloads them. Putting Noto first would restyle the entire site.
 
 ### Route-scoped stylesheets
 Large per-route CSS is split out of `index.css` and ships with its route chunk instead of blocking

@@ -58,7 +58,7 @@
 All read-heavy; mutations happen inside the sub-flows this hub links to. Links go to
 [`../../system/data-model.md`](../../system/data-model.md).
 - `properties` / listings - read (owner listings via `loadMyListings`, catalog via `listProperties`).
-- `enquiries` - read (seed, `listEnquiries().slice(0,8)`; see contact-gate doc for the seed-only gap).
+- `enquiries` - no longer read by the hub (the 8-item seed slice and its "Enquiries" tile are gone).
 - `visits` - read + updated (`listVisits`, `updateVisit` via `mutateVisit`).
 - `contact_requests` - read + updated (owner approve/decline via `decideContact`).
 - `document_requests` - read + updated (grouped, granted/declined via `decideDocReqs`).
@@ -73,61 +73,63 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 
 ## 5. Business rules & logic  *(the meat)*
 
-### Tab registry (`constants.js` `TABS`)
-9 visible sections (consolidated from a historical 13): `overview`, `properties` (My Properties =
-Property Tools/Owner Hub + My Listings), `rental` (My Rental, tenant), `activity` (Saved & Activity =
-Saved + Recently Viewed + Alerts + followed societies), `leads` (Requests, owner), `finances`,
-`documents`, `visits`, `messages` (link-out, flag), `billing` (Plan & Billing, universal),
-`profile`. `TAB_ALIAS` maps legacy ids to `{ tab, sub }` for deep-link back-compat (render-only; the
-URL is left untouched).
+### Tab registry (`constants.js` `TABS`) and the 5 groups
+The 11 section ids are unchanged (so every `#hash`, `?tab=` and `TAB_ALIAS` target still resolves):
+`overview`, `properties`, `rental`, `activity`, `leads`, `finances`, `documents`, `visits`,
+`messages` (link-out, flag), `billing`, `profile`. `TAB_ALIAS` maps legacy ids to `{ tab, sub }`.
+
+Navigation shows at most **5 groups** (`buildDashboardGroups`) as a top strip, with a sub-strip of
+the group's sections when it holds more than one. Every section is at most 2 taps away on mobile.
+- **Owner:** Home (`overview`) · Requests (`leads`, `visits`) · My Properties (`properties`,
+  `documents`, `finances`) · Rental (only when the owner also rents) · Account (`profile`,
+  `billing`, `activity`, `messages`).
+- **Seeker:** Home · Saved (`activity`) · Visits · Rental (tenants) · Account (`profile`,
+  `billing`, `documents`, `finances`, `properties`, `messages`).
+Group badges sum the attention counts of their sections. A user tap pushes a history entry (Back
+returns to the previous section); a deep-link resolution replaces it.
+
+While the core reads are still loading and nothing is known yet (`personaPending`), Overview renders
+a neutral skeleton rather than the seeker hub, so a returning owner never flashes the seeker view.
 
 ### Owner Overview stat tiles (`buildOwnerStats`)
-Exactly four cards, all real:
-1. **Active Listings** = `listings.length` (owner listings + flatmate/room posts).
-2. **Total Views** = `listings.reduce((s, l) => s + (Number(l.views) || 0), 0)` - summed client-side
-   from each listing's `views`. Rendered `toLocaleString('en-IN')`. **MUST move server-side.**
-3. **Enquiries** = `enquiries.length` (from the 8-item seed slice; trend "up" if any).
-4. **Number Requests** = `pendingContacts` = `contactReqs.filter(r => r.status === 'pending').length`;
-   trend text "N pending" / "All handled".
+Four tiles in a 2×2 grid, each equal to the list it opens:
+1. **Waiting on you** = lead rows in the Action Center (`attentionFromItems(items).leads`) -> Requests.
+2. **Visits to confirm** = visit rows in the Action Center -> Visits.
+3. **Live** = listings that are approved and not paused/archived/sold, excluding seeker posts -> My Properties.
+4. **Views** = views summed across **live** listings only (still summed client-side; a server
+   aggregate is a later step) -> My Properties.
 
 ### Seeker Overview stat tiles (`buildSeekerStats`)
-1. **Saved Properties** = `getSavedProps().length`.
-2. **Recently Viewed** = `recent.length` (real per-user MRU resolved against approved catalog, cap 6).
-3. **Saved Searches** = `getSavedSearches().length`.
-4. **Followed Societies** = `useFollows().count` (`context/FollowContext.jsx`). Was a render-body
-   `getFollowedSocieties().length` until **D227** - a different reader from the followed-societies
-   panel's, which is how the tile and the list it links to could disagree, and a browser-local one,
-   which is how it disagreed with the same account on another device. Both now read one context over
-   `GET /me/societies/following`.
-Each tile's `onClick` deep-links via `go()` to the relevant tab.
+1. **Saved** = saved-properties count -> Saved.
+2. **Saved searches** = saved searches with alerts -> Saved › Alerts.
+3. **Upcoming visits** = visits the caller booked as a visitor, scheduled/confirmed, today or later -> Visits.
+4. **Following** = `useFollows().count` (one context over `GET /me/societies/following`, D227) -> Saved › Alerts.
 
 ### Action Center (`buildActionItems`) - "what's waiting on ME"
-A single triage list pinned to the top of Overview. Rows are only added when they are a real task:
-- **Owner rows:** each pending contact request ("wants your phone number", Share/Decline); each
-  pending group application (Accept/Decline, shows `members/seatsTotal`); each photo request ("asked
-  for more photos", Add photos); each pending document group ("wants N documents", Grant all/Decline);
-  each listing whose review `status === 'clarification'` ("Action needed ... verification needs more
-  info", Respond).
-- **Shared row (owner + seeker):** each `scheduledVisits` item still awaiting confirmation
-  ("Visit to confirm", Review).
-- **Seeker/tenant row:** rent due on a tracked rental. The only action is "Coming soon" (to
-  `/pay-rent`): rent does not move through Draazy, so any button promising to pay it would be a
-  promise the platform cannot keep.
-- **Sort:** stale-first. `STALE_MS = 2 * 86400000` (2 days); items older than that lead, then by
-  oldest `at` ascending.
+A single triage list pinned to the top of Overview (first 3 rows, then "See all"). A row exists only
+when the caller must decide something; every row carries a `kind`:
+- **Owner rows:** pending contact request ("wants to contact you", Accept/Decline); pending
+  flatmate request (Accept/Decline); pending group application (Accept/Decline, `members/seatsTotal`);
+  photo request (Add photos/Decline); pending document group ("wants N documents", Grant all/Decline);
+  listing with an unread verification clarification ("Needs info", Respond).
+- **Visit row:** a `scheduled` visit **the caller hosts** (`isVisitHost`: rows from
+  `myVisitRequests()` are tagged `hostedByMe`). A visitor's own booking is never "waiting on me".
+- **Never a row:** already-contactable enquiries, decided requests, expired contact requests, rent
+  due (rent does not move through Draazy).
+- **Sort:** stale-first. `STALE_MS = 2 days`; items older than that lead, then oldest first.
+- Buttons on a row are disabled while its decision is in flight (`isBusy`), so a double tap on a
+  slow network sends one request.
 
-### Attention badges (`attentionCounts`)
-Shown on the sidebar/mobile-nav from every tab, not just Overview:
-- `leads` = `pendingContacts + photoReqs.length + pendingFlatmateReqs + pendingDocGroups.length`
-  (only items genuinely waiting on the owner; already-contactable enquiries are NOT counted).
-- `visits` = `scheduledVisits.length`.
-- `messages` = `chatUnread`.
+### Attention badges (`attentionFromItems`)
+Derived from the Action Center items themselves, so a badge always equals the rows behind it:
+`leads` = contact + flatmate + app + photo + doc rows; `visits` = visit rows; `properties` =
+clarify rows; `messages` = `chatUnread`. Group badges on the nav sum their sections.
 
 ### Document-request grouping (`buildDocGroups`)
-Buyer doc requests are stored one row per document; grouped per `buyerMobile|propId` (one
-due-diligence request = one lead). Each group tracks `docTypes[]`, `pendingIds[]`, and the earliest
-`requestedAt`. `pendingDocGroups` = groups with `pendingIds.length > 0`. Grant/Decline resolves all
-pending ids together, then re-reads shared state.
+Buyer doc requests are stored one row per document; grouped per `requesterId|propId` (falling back to
+`request:<id>` when the requester id is missing). Each group tracks `docTypes[]` (types only, never
+document numbers), `pendingIds[]`, and the earliest `requestedAt`. Grant all / Decline resolves all
+pending ids together through the same per-id endpoint as a single decision, then re-reads the inbox.
 
 ### Retention loop (`retention.js` + Overview)
 - **Alert matches:** for each active saved search (`s.alerts !== false`), `countMatches(s, approved)`
@@ -142,17 +144,14 @@ pending ids together, then re-reads shared state.
   Verified badge (badge-not-gate, ADR-019) — verified owners rank higher and get faster responses; it
   is never required to post or contact. Mirrored by `myListings/VerifyListingsBanner.jsx`.
 - **Owner contact preferences (`components/dashboard/ProfileTab.jsx`, owner only):** "**Accept
-  verified contacts only**" (`verifiedContactOnly`, **off by default**) — only then is an unverified
-  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`).
-  Both are saved on the account rather than the device: the gate that enforces them runs on the
-  server, where no browser is present, and `owner` is derived from `user` so a rejected write leaves
-  no local copy to survive it. `hideNumber` is recorded but **not yet enforced** — nothing on the
-  server reads it, so its copy must not promise masking. A privacy control that quietly does nothing
-  is worse than one honestly labelled as not yet in force.
+  verified contacts only**" (`verifiedContactOnly`, **off by default**, saved on the account and
+  enforced by the server gate) — only then is an unverified buyer prompted to earn the badge before
+  contacting. `hideNumber` is the owner's post-approval privacy switch: approved buyers see the real
+  number only when it is false.
 
 ### Rental nudge
 `rental = managedProps.find(p => p.rented && p.monthlyRent) || null` - a real rented managed
-property only. Drives the seeker "Rent due soon" action row and Overview rental card.
+property only. Drives the Overview rental card; it is not an Action Center row.
 
 ### Recent vs recommended feed
 `feed = recent.length ? recent : recommended`; title "Continue Exploring" (real MRU) vs "Recommended
@@ -198,17 +197,33 @@ chips).
   row is the approve/decline side of a maker-checker defined elsewhere: contact reveal, document
   access, flatmates requests, group applications, and listing-verification clarification. See the
   shared pattern in [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 and the
-  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decideFlatmateReq`,
-  `setStatus`, `mutateVisit`) apply the decision optimistically and toast the outcome.
+  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decidePhotoReq`,
+  `decideFlatmateReq`, `decideApp`, `mutateVisit`) guard against double-submit per request id,
+  toast only after the write succeeds, and re-read (or roll back) on failure.
+- **Server side:** only the owning user (listing owner / flatmate host / visit host) may decide.
+  Every decision writes an `audit_log` row. Repeating the same decision is an idempotent 200 with no
+  second audit row; a different decision on an already-decided request is `409` (photo requests keep
+  first-decision-wins 200). Grant all uses the same per-request rule as a single grant.
+
+### Per-request state machine
+```
+pending --owner accepts--> approved/granted/accepted/resolved   (audited, terminal)
+pending --owner declines-> declined                             (audited, terminal)
+pending --30 days, no decision--> expired (contact requests; derived, not counted, respond = 409)
+terminal --same decision again--> no-op 200
+terminal --different decision--> 409
+```
 
 ## 7. State machine
 The hub has no lifecycle of its own; it renders one active tab. Tab state:
 ```
-initial: resolveTarget(hash || ?tab=) -> { tab, sub }; fall back to 'overview' if not a visible tab
-navigation: go(next) -> resolveTarget -> if link-out (messages) navigate to page,
-            else setTab/setSub + push '#next' + scroll top (View Transition cross-fade if supported)
-sync: on location.hash/search/isOwner/showRental/flag change, re-resolve; unknown -> 'overview'
+derived: every render resolveTarget(hash || ?tab=) -> { tab, sub }; not a visible tab -> 'overview'
+navigation: go(next) only pushes '#next' (+ scroll top); the tab follows the URL.
+            A link-out target (messages) redirects to its page.
 ```
+The tab is never copied into component state: React Router commits location inside a transition,
+so a mirrored copy desynced when Android Back landed before the pending commit
+(`mobile/dashboard-nav`).
 Panels are rendered with stable component identity so a state change in the container (e.g. a
 contact decision) does not remount and wipe the active panel; React remounts only when `tab` changes.
 
@@ -221,8 +236,10 @@ contact decision) does not remount and wipe the active panel; React remounts onl
   "Create one", "All handled") rather than a fabricated number or a blank card.
 - **Retention cards suppressed** when there is nothing honest to show (`alertMatches` empty and
   profile 100%).
-- **Optimistic updates:** visit mutations update shared `visits` state immediately, then persist, so
-  the calendar, leads badge and Action Center move together.
+- **Visit mutations:** update shared `visits` state immediately, then persist; on failure the row
+  rolls back and no success toast is shown.
+- **Failed inbox reads:** group applications that fail to load show an error with Retry in Requests
+  rather than an empty "no requests" state.
 - **Load race:** the load effect uses an `alive` flag to avoid setting state after unmount.
 - **`hasListings`/inventory read from localStorage stores** - see the mobile-keying note in the
   domain model; these become proper FKs server-side.

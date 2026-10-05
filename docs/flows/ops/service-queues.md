@@ -186,33 +186,77 @@ The live replacement for the five per-team desks. It reads the server directly. 
 empty table when it simply cannot see the real queue is worse than one that fails the request
 visibly (D184).
 
-- **Data scope:** `listServiceRequestQueue({type, status, page, size})` →
+- **Data scope:** `listServiceRequestQueue({type, status, unassigned, q, page, size})` →
   `GET /service-requests`. The scope is the **server's**: `ServiceDeskAuthority.deskFilterFor`
   derives it from the principal's role and ignores a `team` a staff caller does not own (D44).
   There is no `?requesterId=` for the same reason.
+- **Triage:** *Unassigned only* sends `unassigned=true` (a boolean, never an assignee id). The search
+  box sends `q` after a 300 ms debounce: an anchored prefix of the requester's name or mobile, or a
+  whole request id. `%` and `_` are escaped server-side so a caller cannot unanchor the scan.
+- **Ageing (`AgeTone`):** the *Opened* cell is amber at 24 h and rose at 72 h, like the property
+  re-check queue; closed matters are muted. An approved rental instead shows *Register by <date>*:
+  four months from draft approval (Registration Act s.23), amber in the last 30 days.
 - **Desk picker:** a staffer is offered their own desk and nothing else; an admin gets all of them.
   `?type=` in the URL, so a desk is linkable and the retired routes can redirect into it.
 - **Counts / paging:** server-paged, `PAGE_SIZE = 20`, `{content, page, size, totalElements}`.
   A failed read is `status: 'error'`, never an empty list - "an unread queue that renders as an
   empty one is how a desk goes home early".
 - **Take:** `takeServiceRequest(id)` → `PATCH /{id}/status` → `assigned`. Self-take only; there is
-  no assign-to-someone-else. A 409 is the transition table talking and its sentence is shown.
-- **Documents (read-only):** `readServiceRequestChecklist(id)` → `GET /{id}/checklist` renders
+  no assign-to-someone-else. Taking a matter a **colleague holds is a 409 naming the holder**
+  (`ServiceRequestStaffTransitions.refuseSeizure`); an admin is exempt, because there is no release
+  verb and a leaver's matters must stay drainable. The previous holder is kept in the audit row.
+- **Documents:** `readServiceRequestChecklist(id)` → `GET /{id}/checklist` renders
   "*n* of *m* received" and **every** item, present or missing - the missing ones are the point.
   There is nothing to tick: the fold is derived on read, so the only thing that moves an item is
-  an upload. A failed read says so rather than rendering as "nothing filed".
-  No viewer and no download: `Item.documentId` is an id, not a URL, so the endpoint never mints a
-  download credential - the bytes stay behind `GET /service-requests/{id}`, and signed vault URLs
-  do not resolve in dev anyway. Document *viewing* is a deliberate open gap.
+  an upload. A failed read says so rather than rendering as "nothing filed". Below it,
+  *Files on this request* lists every `documents[]` row (customer uploads, each draft version, the
+  registered copy) and opens it through `lib/openDoc.js`; a dev vault URL is refused with a toast
+  rather than a blank tab.
+- **Drafting workflow (`StaffWorkflowActions`):** *Share draft* (`POST /{id}/draft`, multipart, an
+  optional customer note) while the matter is assigned / in progress / changes requested - each
+  share is a new version; *Upload registered copy* (`POST /{id}/final-doc`) once the customer has
+  approved, which completes the request. Only the **holder** (or an admin) may share a draft or
+  upload the registered copy - an unassigned or colleague-held matter is a 409 naming who holds
+  it. Moving an unheld matter to `in-progress` takes it, and a colleague-held one is refused like
+  a seizure, so an approved matter always has someone to complete it.
+- **Registration check (`RegistrationCheck`, completed rentals):** the registered copy prepares one
+  `rent_agreements` row per tenant, status `draft`, linked to the request and the uploaded document
+  (V39). Tenant mobiles are **derived, never typed** by the desk: the wizard's `_state.tenants[]`
+  (ignored in invite mode, and only valid Indian mobiles) plus accepted co-fill tenants. A request
+  the listing's owner took no part in (neither requester nor accepted owner party) prepares nothing.
+  A **second** operator opens that exact copy (*Open the registered copy*) and marks each row
+  *Confirm registered* or *Not on the copy* (`PATCH /admin/rent-agreements/{id}`, body `{status}`
+  only, row-locked); the uploader is refused (four eyes). The checker needs its own grant,
+  `registrations:write` (staff baseline; `services:write` alone is 403, and the desk shows a note
+  in place of the buttons), so an admin can scope makers who cannot check. Only a tenant who **proved the number by
+  OTP** — the requester when not the listing's owner, or an accepted co-fill invitee — can be
+  confirmed; a form-typed mobile shows a note, offers only *Not on the copy*, and is a 422 at the
+  API. Only a `registered` row feeds the
+  flatmate trust badge (`FlatmateTrustReconciler`), and only then does the tenant see the row and
+  its copy under `/me/rent-agreements` (an unlinked legacy row likewise, minus its owner-typed URL).
+  Mobiles are masked here (`GET /{id}/rent-agreements`).
+- **Desk files are the desk's:** `POST /{id}/docs` refuses the `draft` and `final-document`
+  categories (422) and any upload once the matter is closed (409), so a customer cannot plant a
+  "Registered copy" for the checker.
+- **Self-dealing:** a staffer or admin who is the requester, a party, anyone typed on the form (a
+  tenant, the licensor, a co-owner or a witness - matched on the normalised mobile),
+  or the listing's owner / posting staffer cannot take, share, cancel, upload or check that matter
+  (403, `ServiceRequestSelfDealing`) - no admin exemption, as with property verification. They
+  still read and decide the draft **as the customer**.
+- **Thread (`MessageThread`):** the customer's message thread with a reply box
+  (`POST /{id}/messages`). Everything here is customer-visible.
+- **Internal notes:** `InternalNote` with history on `entity_type = service_request` (V38) - the
+  operator's private reasoning, never shown to the customer. A note typed before an action is
+  filed beside it (*Draft shared*, *Registered copy uploaded*, *Cancelled*).
+- **Cancel (`CancelDialog`):** a two-step action with a **required reason** (the `StatusRequest`
+  `@AssertTrue` answers 422 without one). The reason is posted to the customer's thread and raises a
+  `service.cancelled` notification in the same transaction, so the customer who paid is told why.
 - **Details:** an **allow-list** of named scalar `details` keys (`DETAIL_FIELDS`), never a dump of
   the raw `jsonb` - it is whatever a form put there.
 - **Identity reveal:** section 5.1a / D151 / D173.
 - **Not here, and not coming back:** per-doc verify/reject and *Mark all verified* (the checklist is
   derived - D120), and *Submit registration* (`registration` is a status the contract refuses by
-  name). Share-draft and upload-final have endpoints but no surface: they were multipart writes
-  into a vault whose signed URLs do not resolve in dev, so there was no working path to port.
-  Messaging, cancel and the WhatsApp deep link exist on the seam
-  (`addServiceRequestMessage`, cancel via `PATCH /{id}/status`) but have no desk UI yet.
+  name). The WhatsApp deep link has no desk UI.
 
 ### 5.3 Flatmate verification queue (`OpsFlatmateReview`, `/ops/flatmate-review`)
 A sitting tenant's "I have a registered rent agreement" is self-declared, so tenant-tier flatmate
@@ -231,6 +275,8 @@ through the listing's own docs and never appear.
 - **Decisions:** approve -> `decideFlatmateReview(id, 'approved')` and the host shows **Ops-verified**.
   Reject **requires a non-empty reason** (`decideFlatmateReview(id, 'rejected', reason)`), and the
   host is told why.
+- **Deleted posts drop out:** a review whose room or group the host deleted (archived) is not
+  returned by `GET /admin/flatmate-reviews`.
 - **Documents** open through the shared `lib/openDoc.js` scheme allowlist, the same rule every other
   document surface uses.
 - **Store:** `GET|PATCH /admin/flatmate-reviews` and `/admin/flatmates/{id}/moderation` since wave
@@ -290,18 +336,27 @@ Still outstanding:
 Applicable to the **draft approval step**. See the shared pattern in
 [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2.
 
-> **Currently unreachable from ops.** The maker half lived on the retired per-team desks. The
-> endpoints exist (`POST /{id}/draft`, `POST /{id}/final`, `POST /{id}/draft-decision`) but the
-> drafting desk has no surface for them yet, and the multipart writes land in a vault whose signed
-> URLs do not resolve in dev. Described here as the intended shape, not as something that works.
+> **Reachable from the drafting desk** (section 5.2): *Share draft* is `POST /{id}/draft`, the
+> customer decides through `POST /{id}/draft/decision`, and *Upload registered copy* is
+> `POST /{id}/final-doc`. In dev the vault's signed URLs still do not resolve, so opening a file
+> there is refused with a toast rather than faked.
 
 - **Inverted maker/checker.** The **staff member is the maker** and the **customer is the
   checker** - the opposite of listing verification (where the customer proposes and staff approve).
   - **Maker = ops staff:** shares the deliverable and sets `draft-shared`.
   - **Checker = customer:** approves (`-> approved`) or requests changes
     (`-> changes-requested`, maker uploads a revised version and the cycle repeats).
+  - **Approval needs the current version opened.** *View draft* posts `POST /{id}/draft/opened`,
+    which records a `draft.opened` timeline entry for the requester only, once per shared version;
+    approving without one is a 409 and the tracker keeps *Approve* disabled until then. A re-shared
+    draft must be opened again. The click is the receipt, since the signed URL is fetched from
+    storage, not the API.
   - **Approval side effects:** status advance, customer message, dashboard notification, and
     eventually the final document upload that completes the request.
+- **Registration is a second, staff-side maker-checker** (rent agreements only): the operator who
+  uploads the registered copy is the maker of the tenancy evidence; a different operator is the
+  checker who moves each prepared row to `registered` (section 5.2). `registered` / `active` need a
+  linked request and final document (422 otherwise), and an unlinked legacy row is admin-only.
 - The **ticket queue** has no formal maker-checker; it is a plain work queue (claim -> resolve).
 
 ## 7. State machine

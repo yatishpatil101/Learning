@@ -70,63 +70,11 @@ half above, which needs an identity signal the platform does not collect.
 
 ---
 
-### Q20 — Should the administrator who creates a back-office account be allowed to set its credentials? *(blocks D206)*
+### Q20 — Should the administrator who creates a back-office account be allowed to set its credentials? *(closed)*
 
-Raised 2026-08-11 by the D200 security review. D200 stopped one administrator minting a colleague
-alone: an account created through `POST /users/staff` cannot obtain a token until a *second*
-administrator approves it. The review confirmed the rule holds — there is no way to get a usable
-administrator without a second human. The question is what that second human is actually signing.
-
-Today the maker supplies the new account's **mobile and password**, and the checker sees
-`masked(user)` — a name, an email, a role, and a mobile with most of its digits removed — with **no
-`createdBy` field on the response at all**. So a narrowed admin holding `users:write` can mint an
-admin account on a handset they control, ask any unrelated colleague to clear the queue, and sign
-in as an account with no grant row and therefore the full role baseline. That is D200's original
-attack, executed with a second signature attached, and the audit log reads as ordinary onboarding —
-because that is what it is, apart from who holds the phone. **The second key currently attests
-"this record may have access", not "this person may have access".**
-
-Three answers, and they are not exclusive:
-
-1. **Show the checker who is asking.** Add `createdBy` to the pending-approval response, and show
-   the mobile unmasked. Small, and it is the difference between a checker who *could* notice the
-   number belongs to the maker and one who structurally cannot. **The cost is real**:
-   `pendingApprovals` masks on purpose, and its own note explains why — a queue screen listing one
-   unmasked number per waiting colleague is "a small bulk-export surface wearing the clothes of a
-   to-do list". A middle option is to show `createdBy` (cheap, no new exposure) and reveal the
-   mobile only on the deliberate, individually-audited single-account view that already exists.
-2. **Take credentials away from the maker.** Create the account passwordless, and require the new
-   colleague to establish their own credentials from their own device at first sign-in. This is the
-   answer that makes the approval mean something about a *person*, and it closes the attack rather
-   than making it noticeable. It is also a product change — it needs an invite flow, an expiry on
-   the invite, and a story for what the queue shows before the invite is accepted.
-3. **Accept it and rely on detection.** `created_by` is recorded, immutable, and every approval is
-   audited, so this is discoverable after the fact. Defensible at founding-team scale, where every
-   administrator is known personally; it stops being defensible at exactly the point D200's row
-   said back-office administration would be handed to someone outside that team.
-
-**Timing is the reason this is a question now rather than later.** There is no approval screen yet
-(see D205 — the Team & Access console still writes to `localStorage`), so whichever way this goes,
-it can be built in rather than retrofitted. Deciding after the console exists means changing a
-screen people have started trusting.
-
-Carried in `tech-debt.md` as **D206**.
-
-**Decided 2026-08-23 — see decision 42 in `tasks/DECISIONS-NEEDED.md`, which is the record of why.**
-The ruling was options 1 + 2, not 3: add `createdBy` to the pending-approval response and show it in
-the queue, keep the mobile masked *there*, and unmask only on the deliberate single-account view
-that is already audited per look. Option 3 (accept and detect) was rejected as defensible only while
-every administrator is known personally — the assumption D200's row said would stop holding.
-
-**Half of it has shipped, and it is the half this question did not name.** Credentials are already
-out of the maker's hands: `UserAdminService.addStaff` mints the account passwordless and issues a
-staff invite the maker never sees the token for, redeemed through `POST /auth/staff-invite/redeem`.
-**The other half is not built:** `pendingApprovals()` still maps `this::masked` and returns a
-`UserResponse` carrying no `createdBy`, so the checker still cannot tell a colleague's onboarding
-from a maker minting an account on a handset they control. D206 is correctly still in the register.
-
-**Owner:** founder / product, then backend. **Status:** DECIDED (2026-08-23), NOT BUILT — the
-`createdBy` field on the pending-approval response is the outstanding work. Carried on D206.
+Closed by the single-admin bootstrap decision. `POST /users/staff` no longer creates administrators,
+staff accounts are invite-redeemed, and the staff-account pending-approval queue no longer exists.
+D206 is closed for this flow; unrelated badge/listing/service maker-checker questions remain separate.
 
 ---
 
@@ -267,8 +215,8 @@ This is a real decision, not a deferral, and it has three immediate consequences
 2. **Rent agreement is the surface that must not break.** It is the only one taking real money today,
    which promotes its failure modes from "bug" to "revenue incident". Its fee maths is already gated
    by `check:finance` (26 checks); that gate is load-bearing and should stay strict.
-3. **Contact reveals, subscriptions and boosted placement stay built but stay quiet.** They are not
-   removed — they are the mix we return to once liquidity exists (see Q16a below).
+3. **Contact reveals and subscriptions stay built but stay quiet.** They are the mix we return to
+   once liquidity exists (see Q16a below).
 
 **Follow-on (Q16a) — the *threshold* is deferred, the *mechanism* is not.** What liquidity level flips
 monetisation on is a founder call that wants evidence we do not have yet, so pinning a number today
@@ -406,7 +354,7 @@ stored `Formats.MOBILE` shape (`^[6-9][0-9]{9}$`). That second gate matters: `no
 closed on length only, so without it a ten-digit number with a leading 1-5 would pass the edge and
 then be rejected by a column CHECK as a 500. Because a `ConstraintValidator` cannot mutate, each
 consuming service normalises at the persist/lookup edge — `AuthService.login`,
-`ConversationOpeningService.start`, `DealService.addParty`, `SocietyLeadService`, `CityService`,
+`ConversationOpeningService.start`, `CityService`,
 `RentAgreementService`, `FlatmateSupplyService.ownerConsent`, `UserAdminService.addStaff`, plus the
 finalization/close paths that already did. The OpenAPI `Mobile` schema keeps its strict pattern as
 the stored/returned shape and now carries a description noting the input tolerance. The frontend was
@@ -428,16 +376,12 @@ For: some owners want in-app chat only, which is a coherent (and different) prod
 Note this overlaps Q5 — if the answer to Q5 is chat-first, this preference may be the wrong shape
 for the requirement entirely.
 
-**Answer: the preference exists, and was then overtaken by a stronger rule.** `users.hide_number`
-shipped in V31, rides `PATCH /auth/me`, and reaches the client as `ownerHidesNumber` on
-`ContactStatus`. It sits on `users` rather than on `properties` because the number is the person's,
-not the listing's. The worry above — that the preference makes the approve button mean two things —
-was answered by removing the ambiguity rather than the preference: `ContactGateService` now carries
-a **global policy** that the raw owner mobile is revealed only to the owner, so *no* gate status
-ever hands a buyer digits. Approval unlocks the conversation, not the number. `hide_number` is
-therefore retained as a **no-op preference**, and `ownerHidesNumber` is explanatory copy — it tells
-an approved buyer *why* the number is masked instead of leaving what reads as a bug. That also
-settles the Q5 overlap: the product went chat-first, exactly as this entry predicted it might.
+**Answer, revised 2026-10-03 by user decision:** `users.hide_number` shipped in V31, rides
+`PATCH /auth/me`, and reaches the client as `ownerHidesNumber` on `ContactStatus`. It sits on
+`users` rather than on `properties` because the number is the person's, not the listing's. The old
+D5 global policy said no gate status ever handed a buyer digits; that is superseded. Approval now
+reveals the owner's number to that requester unless `hide_number` is true, and the owner sees the
+approved requester's number.
 
 **Owner:** product. **Status:** CLOSED. D5 is closed and no longer in the register.
 
@@ -490,8 +434,8 @@ atom as minting a colleague, since editing who may do what is the same privilege
 self-edit. `AdminTeam.jsx` now reads and writes the server's set instead of browser storage, and
 the `V61` refusal of `settings.customRoles` stands.
 
-**Follow-on, and it is the live one:** making narrowing real is what gave "a narrowed admin can
-widen itself back" teeth, which produced D200 (maker-checker) and then **D206** — see Q20.
+**Follow-on:** narrowing produced the old D200/D206 administrator-minting concern; Q20 is closed by
+single-admin bootstrap and staff-only account creation.
 
 **Owner:** product, then backend. **Status:** CLOSED. D13 is closed and no longer in the register.
 

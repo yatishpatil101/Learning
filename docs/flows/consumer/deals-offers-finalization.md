@@ -168,7 +168,7 @@ Rationale relocated from `DealService` Javadoc.
 404, never 403 - do not confirm existence.
 
 **Lazy create.** No stored row means active. Rows are created on the first write (`reserve` /
-`close` / `addParty`). The unique index `uq_deals_property` guarantees concurrent lazy creates
+`close`). The unique index `uq_deals_property` guarantees concurrent lazy creates
 cannot fork a listing into two deals; `DataIntegrityViolationException` is caught and the winner
 re-read, the same way duplicate offers are handled.
 
