@@ -2,12 +2,10 @@ package com.draazy.api.catalog.locality;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.draazy.api.support.AbstractApiTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Behaviour proof for the resolution ladder. Runs against the real Flyway'd Postgres because the
@@ -18,14 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code R__DML_seed_reference_data.sql}, so the assertions state their own fixtures and can't drift when
  * the seed changes.
  */
-@SpringBootTest
-@Transactional
-class LocalityResolverTest {
+class LocalityResolverTest extends AbstractApiTest {
 
     @Autowired
     LocalityResolver resolver;
-    @Autowired
-    JdbcTemplate jdbc;
 
     @BeforeEach
     void seedLocalities() {
