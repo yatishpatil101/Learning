@@ -52,6 +52,7 @@ target/
 # VS Code Java language server, which owns target/.
 target-cli/
 test-results/
+test-results-*/
 playwright-report/
 playwright/.cache/
 
@@ -68,6 +69,7 @@ backend/bin/
 e2e/after-fails.xml
 e2e/baseline.json
 e2e/*-results.xml
+e2e/.shards/
 
 # Editor / scratch artifacts (never commit temp duplicates)
 *.jsx.new

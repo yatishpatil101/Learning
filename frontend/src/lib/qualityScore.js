@@ -1,7 +1,3 @@
-/**
- * Global Listing Quality Score — visible to owners, buyers, and admin.
- * Scores 0–100, weighted separately for rent and buy flows; see the per-section constants below.
- */
 
 export function computeQualityScore(l) {
   const isRent = l.deal === 'rent';
@@ -24,7 +20,6 @@ export function computeQualityScore(l) {
   // Verification / Documents (20 pts)
   if (isRent) {
     if (l.ownerVerified) score += 10;
-    if (l.identityVerified) score += 10;
   } else {
     if (l.ownershipVerified) score += 10;
     if (l.docsCount >= 3) score += 10;
@@ -76,9 +71,6 @@ export function qualityColor(score) {
   return { ring: 'text-rose-400', bg: 'bg-rose-500/15', text: 'text-rose-300', label: 'Needs work', labelKey: 'ui.qualityNeedsWork' };
 }
 
-/**
- * Returns a breakdown of what's missing for the owner to improve their score.
- */
 export function qualityTips(l) {
   const tips = [];
   const photoCount = (l.gallery && l.gallery.length) || (l.image ? 1 : 0);

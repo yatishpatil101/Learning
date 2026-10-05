@@ -6,8 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.draazy.api.common.error.ForbiddenException;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
@@ -40,66 +44,50 @@ class RefreshOriginGateTest {
         return request;
     }
 
-    @Test
-    @DisplayName("allows a request from our own origin (the same-origin deployment)")
-    void allowsSameOrigin() {
-        // Every same-origin topology lands here: the Vite dev proxy, and any production layout that
-        // serves the API under the frontend's own domain. Note the Origin is one the allow-list does
-        // *not* contain -- in dev the proxy rewrites it to the proxy target -- which is the point:
-        // the fetch metadata alone has to be enough, or dev and e2e break on every refresh.
-        assertThatCode(() -> gate.check(request("same-origin", "http://localhost:8081")))
-                .doesNotThrowAnyException();
+    /**
+     * Same-origin alone must be enough — in dev the proxy rewrites Origin to a value the allow-list
+     * does not contain, or dev and e2e break on every refresh. No fetch metadata at all (curl,
+     * contract tests, a future mobile client) fails open: the attack needs a browser to supply the
+     * victim's cookie, so refusing a caller with no ambient cookie jar breaks a great deal and closes
+     * nothing. A same-site sibling is allowed only when it is the configured frontend; if that row
+     * fails, production stops refreshing entirely.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("allowed")
+    void allows(String label, String fetchSite, String origin) {
+        assertThatCode(() -> gate.check(request(fetchSite, origin))).doesNotThrowAnyException();
     }
 
-    @Test
-    @DisplayName("allows a caller that sends no fetch metadata at all")
-    void allowsNonBrowserCaller() {
-        // curl, contract tests, a future mobile client. Deliberately fails open: the attack needs a
-        // browser to supply the victim's cookie, so a caller with no ambient cookie jar closes
-        // nothing when refused and breaks a great deal.
-        assertThatCode(() -> gate.check(request(null, null))).doesNotThrowAnyException();
+    static Stream<Arguments> allowed() {
+        return Stream.of(
+                Arguments.of("our own origin (the same-origin deployment)", "same-origin",
+                        "http://localhost:8081"),
+                Arguments.of("a caller that sends no fetch metadata at all", null, null),
+                Arguments.of("a user-initiated navigation", "none", null),
+                Arguments.of("the configured frontend when it is a same-site sibling", "same-site",
+                        OURS));
     }
 
-    @Test
-    @DisplayName("allows a user-initiated navigation")
-    void allowsUserInitiated() {
-        assertThatCode(() -> gate.check(request("none", null))).doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("allows the configured frontend when it is a same-site sibling")
-    void allowsConfiguredSameSiteOrigin() {
-        // The sibling-subdomain topology: www -> api is genuinely same-site, so the *only* thing
-        // separating our frontend from the attacker's page is which origin it is. If this test ever
-        // fails, production stops refreshing entirely.
-        assertThatCode(() -> gate.check(request("same-site", OURS))).doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("refuses an unlisted sibling subdomain — the forced sign-out")
-    void refusesUnlistedSibling() {
-        assertThatThrownBy(() -> gate.check(request("same-site", SIBLING)))
+    /**
+     * A same-site request with no Origin is a shape a browser never sends on a POST, so failing
+     * closed costs nothing and stops a header-stripping proxy becoming a bypass. A cross-site origin
+     * would be a 401 anyway (Lax withholds the cookie), but refusing first means the request never
+     * reaches {@code AuthController.clearHint}, which would let a third-party page expire the
+     * victim's session hint.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refused")
+    void refuses(String label, String fetchSite, String origin) {
+        assertThatThrownBy(() -> gate.check(request(fetchSite, origin)))
                 .isInstanceOf(ForbiddenException.class);
     }
 
-    @Test
-    @DisplayName("refuses a same-site request that carries no Origin")
-    void refusesSameSiteWithoutOrigin() {
-        // A browser that says "same-site" on a POST always sends Origin, so this shape is not one we
-        // serve; failing closed costs nothing and avoids a header-stripping proxy becoming a bypass.
-        assertThatThrownBy(() -> gate.check(request("same-site", null)))
-                .isInstanceOf(ForbiddenException.class);
-    }
-
-    @Test
-    @DisplayName("refuses an unlisted cross-site origin")
-    void refusesCrossSite() {
-        // Lax already withholds the cookie here, so the outcome would be a 401 either way. The value
-        // of refusing first is that the request gets no side effect at all -- in particular it does
-        // not reach AuthController.clearHint, which would otherwise let a third-party page expire the
-        // victim's session hint from their own jar.
-        assertThatThrownBy(() -> gate.check(request("cross-site", "https://evil.example")))
-                .isInstanceOf(ForbiddenException.class);
+    static Stream<Arguments> refused() {
+        return Stream.of(
+                Arguments.of("an unlisted sibling subdomain — the forced sign-out", "same-site",
+                        SIBLING),
+                Arguments.of("a same-site request that carries no Origin", "same-site", null),
+                Arguments.of("an unlisted cross-site origin", "cross-site", "https://evil.example"));
     }
 
     @Test

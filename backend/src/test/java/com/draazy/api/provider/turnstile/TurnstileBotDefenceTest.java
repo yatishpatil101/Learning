@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Cloudflare Turnstile verification (tech-debt D130), against a real HTTP server on loopback.
@@ -59,51 +61,27 @@ class TurnstileBotDefenceTest {
     }
 
     @Test
-    @DisplayName("accepts a token Cloudflare confirms")
-    void acceptsSuccess() throws Exception {
+    @DisplayName("accepts a token Cloudflare confirms, sending the secret, token and caller address")
+    void acceptsSuccessAndSendsTheExpectedForm() throws Exception {
         TurnstileBotDefence defence = defence(startServer("{\"success\":true}"));
 
         assertThat(defence.verify("a-token", "203.0.113.9")).isTrue();
-    }
-
-    @Test
-    @DisplayName("sends the secret, the token and the caller address")
-    void sendsTheExpectedForm() throws Exception {
-        TurnstileBotDefence defence = defence(startServer("{\"success\":true}"));
-
-        defence.verify("a-token", "203.0.113.9");
-
+        assertThat(defence.enforced()).isTrue();
         assertThat(lastRequestBody.toString())
                 .contains("secret=test-secret")
                 .contains("response=a-token")
                 .contains("remoteip=203.0.113.9");
     }
 
-    @Test
-    @DisplayName("refuses a token Cloudflare rejects")
-    void refusesFailure() throws Exception {
-        TurnstileBotDefence defence = defence(
-                startServer("{\"success\":false,\"error-codes\":[\"invalid-input-response\"]}"));
-
-        assertThat(defence.verify("a-token", null)).isFalse();
-    }
-
-    @Test
-    @DisplayName("refuses a body that does not say success at all")
-    void refusesUnexpectedBody() throws Exception {
-        TurnstileBotDefence defence = defence(startServer("{\"unexpected\":\"shape\"}"));
-
-        assertThat(defence.verify("a-token", null))
-                .as("an absent verdict is not a positive one")
-                .isFalse();
-    }
-
-    @Test
-    @DisplayName("refuses when success is a string rather than a boolean")
-    void refusesWrongTypedSuccess() throws Exception {
-        // A proxy, a WAF error page or a future API change can all produce this. It must be a
-        // refusal, not a ClassCastException surfacing as a 500 from a public endpoint.
-        TurnstileBotDefence defence = defence(startServer("{\"success\":\"true\"}"));
+    // A proxy, a WAF error page or a future API change can produce a wrong-typed body. It must be
+    // a refusal, not a ClassCastException surfacing as a 500 from a public endpoint.
+    @ParameterizedTest(name = "refuses {0}")
+    @ValueSource(strings = {
+            "{\"success\":false,\"error-codes\":[\"invalid-input-response\"]}",
+            "{\"unexpected\":\"shape\"}",
+            "{\"success\":\"true\"}"})
+    void refusesAnythingButABooleanSuccess(String body) throws Exception {
+        TurnstileBotDefence defence = defence(startServer(body));
 
         assertThat(defence.verify("a-token", null)).isFalse();
     }
@@ -136,12 +114,6 @@ class TurnstileBotDefenceTest {
                 defence("http://127.0.0.1:" + server.getAddress().getPort() + "/siteverify");
 
         assertThat(defence.verify("a-token", null)).isFalse();
-    }
-
-    @Test
-    @DisplayName("reports itself as enforcing, since it only exists when switched on")
-    void isEnforcing() throws Exception {
-        assertThat(defence(startServer("{\"success\":true}")).enforced()).isTrue();
     }
 
     @Test

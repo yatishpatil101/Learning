@@ -2,66 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real values on
-         notched / gesture-bar devices. Without it every safe-area rule in the app is a no-op
-         and fixed bottom bars sit under the home indicator. Desktop is unaffected (insets are 0). -->
-    <!-- interactive-widget=resizes-content makes Android Chrome's software keyboard shrink the
-         layout viewport, the way iOS already does. Without it a fixed bottom action bar — the
-         filter drawer's "Show N results" — stays behind the keyboard and cannot be reached. -->
+    <!-- layout viewport, the way iOS already does. Without it a fixed bottom action bar — the -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-    <!-- The app has no light theme. Declaring it keeps UA chrome — scrollbars, <select> popups,
-         date pickers, autofill dropdowns — from rendering light on a #0f0d1a page. Paired with
-         `color-scheme: dark` on html so it applies before the stylesheet lands. -->
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0f0d1a" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- Content-Security-Policy: restricts scripts to self + the Google Maps SDK so an
-         injected <script src="evil"> can't run. 'unsafe-inline' is kept for the Maps loader
-         and GA; ws:/wss: cover the dev HMR socket.
-         Keep this in step with public/_headers — deliberately, and not just for tidiness: the
-         header is the only policy that applies in a deploy, so anything this meta tag allows
-         but the header does not is a violation no local run can reproduce. That is how the
-         service-worker bug below got to production. images.unsplash.com must be listed in
-         connect-src (not only img-src) because the service worker fetch()es listing photos,
-         and a worker fetch is governed by connect-src.
-         connect-src names places.googleapis.com rather than a `*.googleapis.com` wildcard,
-         which also matched storage.googleapis.com — a CSP-approved exfiltration target for
-         anyone with a GCS bucket. storage.googleapis.com and cdn.jsdelivr.net are now absent
-         entirely: they carried only the MediaPipe face model and the Tesseract language model,
-         both of which are served from public/models and public/tessdata. -->
-    <!-- style-src/font-src still allow fonts.googleapis.com / fonts.gstatic.com even though
-         OUR web fonts are self-hosted: the Maps SDK injects its own <link> for Google Sans
-         and Material Symbols at runtime, and blocking them strips the icons off the map's
-         zoom / fullscreen controls. Removing the two origins looked like dead-allowance
-         cleanup and silently broke the map chrome — `consumer/property/infotips.spec.js`
-         catches it by failing on any CSP console error. -->
-    <!-- script-src carries 'wasm-unsafe-eval' because identity verification compiles two WASM
-         modules in the browser: the Tesseract core that reads the document and the MediaPipe
-         face landmarker behind the selfie liveness check. Without it `WebAssembly.instantiate`
-         throws a CompileError, and Tesseract's emscripten abort never settles the promise, so the
-         review screen spins on "Reading document…" forever. 'wasm-unsafe-eval' allows only WASM
-         compilation — it does NOT restore eval() for JavaScript, which is what 'unsafe-eval'
-         would have done. -->
     <!-- Cashfree hosted checkout: the SDK is a loader, and the modal POSTs a form from THIS
          document into an iframe on the checkout host. Keep in step with public/_headers. -->
-     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' data: blob: https://sandbox.cashfree.com https://api.cashfree.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
+     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: https://i.ytimg.com; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' data: blob: https://sandbox.cashfree.com https://api.cashfree.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
     <title>Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage</title>
     <meta name="description" content="Draazy is Pune's broker-free real-estate marketplace. Buy, rent or list flats, villas, plots, commercial spaces and PGs — deal directly with verified owners, zero brokerage." />
 
-    <!-- Favicon — the Draazy "D" mark, inline so it costs no request and can never
-         404 behind a stale cache. Same geometry as src/components/brand/LogoMark.jsx,
-         e2e/scripts/gen-app-icons.mjs and frontend/scripts/logo-preview.html; if you
-         change one, change all four.
-
-         The counter is knocked out with fill-rule=evenodd, so the ink tile shows
-         through it rather than being painted — which is why this needs no <mask> and
-         no per-instance id. translate/scale centres the art box (12..56, 8..56) on
-         the tile and leaves optical padding at 16px. -->
+    <!-- 404 behind a stale cache. Same geometry as src/components/brand/LogoMark.jsx, e2e/scripts/gen-app-icons.mjs and
+         frontend/scripts/logo-preview.html; if you -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230f0d1a'/><g transform='translate(-0.64 1.28) scale(0.96)'><path fill='%2314b8a6' fill-rule='evenodd' d='M17 8 H32 A24 24 0 0 1 32 56 H17 A5 5 0 0 1 12 51 V13 A5 5 0 0 1 17 8 Z M17.5 12.5 H32 A19.5 19.5 0 0 1 32 51.5 H17.5 A1 1 0 0 1 16.5 50.5 V13.5 A1 1 0 0 1 17.5 12.5 Z'/><path fill='%2314b8a6' stroke='%2314b8a6' stroke-width='4' stroke-linejoin='round' d='M23.2 19.45 L30.7 23.17 V40.83 L23.2 44.55 Z'/></g></svg>" />
     <!-- Apple has never supported SVG touch icons; it falls back to the PNG. -->
     <link rel="apple-touch-icon" href="/icon-192.png" />
 
-    <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Draazy" />
     <meta property="og:title" content="Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage" />
@@ -69,7 +26,6 @@
     <meta property="og:url" content="https://draazy.com" />
     <meta property="og:image" content="https://draazy.com/og-image.jpg" />
 
-    <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@draazy" />
     <meta name="twitter:title" content="Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage" />
@@ -78,36 +34,11 @@
 
     <link rel="preconnect" href="https://images.unsplash.com" />
     <link rel="dns-prefetch" href="https://images.unsplash.com" />
-    <!-- Fonts are self-hosted (public/fonts, generated by scripts/fetch-fonts.mjs
-         into src/styles/fonts.css). The old <link> to fonts.googleapis.com sat on
-         the critical path and cost a full third-party round trip — DNS + TLS + the
-         CSS — before the browser even learned which font file to ask for.
-         `preconnect` warms the socket but cannot remove the hop, and on a 4G phone
-         (~80% of this audience) that was the largest render-blocking item here.
-
-         Outfit ships 400/500/600/700/800 — the five weights the app actually uses.
-         300 and 900 were requested for a long time and used nowhere: zero
-         `font-light`/`font-black` utilities, zero `font-weight: 300|900`, zero
-         inline `fontWeight`. Verified by grep, not assumed — 500 (16 uses) and 700
-         (39 uses) look droppable at a glance and are not. If you add `font-light`
-         or `font-black`, add the weight to the script or the browser will
-         synthesise it and the type will look subtly wrong.
-
-         Noto Sans Devanagari is still split behind its own unicode-range, so an
-         English visitor never downloads it — Outfit carries no Devanagari glyphs,
-         and without it Hindi/Marathi fell back to whatever the OS supplied
-         (Nirmala UI / Noto / Devanagari Sangam MN), giving three different
-         typographic voices for the same page.
-
-         Only 600 is preloaded: it is the most-used weight (40 declarations) and
-         appears in the first paint. Preloading all five would put ~157 KB on the
-         critical path to save a font that may never render. -->
+    <!-- `preconnect` warms the socket but cannot remove the hop, and on a 4G phone Outfit ships 400/500/600/700/800 — the five weights the app actually uses. -->
     <link rel="preload" href="/fonts/outfit-600-2.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
-    <!-- Netlify Forms: hidden static declaration so the deploy bot registers the
-         "pmf-lead" form at build time (the React SPA posts to it via fetch). This
-         is inert markup — harmless when not deployed on Netlify. -->
+    <!-- Netlify Forms: hidden static declaration so the deploy bot registers the "pmf-lead" form at build time (the React SPA posts to it via fetch). This -->
     <form name="pmf-lead" data-netlify="true" netlify-honeypot="bot-field" hidden>
       <input type="text" name="context" />
       <input type="email" name="email" />

@@ -3,10 +3,6 @@
 /** Parse a price/amount string ("₹25,000/mo") into an integer. */
 export const parseAmount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
 
-/**
- * Format an ISO date (yyyy-mm-dd) as DD/MM/YYYY, guaranteeing Indian order regardless of browser locale.
- * Returns '' for empty/invalid input so callers can show a placeholder.
- */
 export function isoToDisplay(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '').trim());
   return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
@@ -29,7 +25,7 @@ const AREA_UNIT_LABEL = {
   // No prototype: `areaUnit` arrives off the wire, and a plain literal answers `'constructor'`
   // with a function, which `??` would then accept as a label.
   __proto__: null,
-  sqft: 'sq.ft.', sqyd: 'sq.yd.', guntha: 'Guntha', acre: 'Acre', hectare: 'Hectare',
+  sqft: 'sq.ft.', sqyd: 'sq.yd.', sqm: 'sq.m.', guntha: 'Guntha', acre: 'Acre', hectare: 'Hectare',
 };
 
 export function fmtArea(area, unit) {
@@ -51,7 +47,7 @@ export function priceLabel(p) {
 export function timeAgo(iso) {
   const d = new Date(iso);
   const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
-  // Unparseable input passes through verbatim (callers seed literals like "Just now") but ALWAYS as a
+  // Unparseable input passes through verbatim (callers seed display literals) but ALWAYS as a
   // string, so a null createdAt cannot blow up a caller doing .toLowerCase() on it.
   if (Number.isNaN(diff)) return String(iso ?? '');
   if (diff <= 0) return 'Today';
@@ -60,10 +56,6 @@ export function timeAgo(iso) {
   return d.toLocaleDateString('en-IN');
 }
 
-/**
- * Coarse "how long ago" at the granularity ops triage on: minutes, then hours, then days. Distinct from
- * {@link timeAgo}, whose "Today" hides the 20-minutes-vs-20-hours difference a moderation queue runs on.
- */
 export function fmtAgo(ts) {
   const t = typeof ts === 'string' ? new Date(ts).getTime() : ts;
   if (!t || Number.isNaN(t)) return '';

@@ -1,7 +1,6 @@
 name: Deploy (sandbox)
 
 # One pipeline for both halves, off one commit, backend first — docs/DEPLOY.md §5.1 and §6.
-# MANUAL ONLY: nothing fires on a push, and the chosen ref's CI is never consulted, so read it first.
 on:
   workflow_dispatch:
     inputs:
@@ -19,13 +18,11 @@ on:
           - backend
           - frontend
 
-# The floor every job inherits, so `id-token: write` is deliberately absent: any job holding it can
-# mint deploy credentials, and only the backend job has business touching GCP.
+# `id-token: write` is absent here because any holder can mint deploy credentials.
 permissions:
   contents: read
 
 # One group for all four jobs, so a second dispatch's frontend cannot overtake the first's backend.
-# Never `cancel-in-progress`: a half-applied deploy 403s every request or splits the halves.
 concurrency:
   group: deploy-sandbox
   cancel-in-progress: false
@@ -33,25 +30,20 @@ concurrency:
 env:
   REGION: asia-south1
   SERVICE: draazy-api-sandbox
-  # Co-located with the service: a cross-region pull adds latency to the slowest request there is.
   AR_REPOSITORY: draazy
 
-  # Always the Pages PRODUCTION branch, whatever git branch was built: any other value publishes a
-  # PREVIEW, which succeeds, prints a URL, and leaves sandbox.draazy.com on the previous build.
   CF_PAGES_PROJECT: draazy
   CF_PRODUCTION_BRANCH: main
 
-  # The custom domain, not *.pages.dev: only there do the SPA and /api share a registrable domain,
-  # which is what the `__Host-` refresh cookie needs. See docs/DEPLOY.md §1.
+  # Only the custom domain shares a registrable domain between SPA and /api.
+  # The `__Host-` refresh cookie depends on that.
   SITE_URL: https://sandbox.draazy.com
 
-  # Resolved once and pinned onto the image tag, the Pages deployment and every checkout, so all
-  # four jobs name one commit even if someone pushes to that branch mid-run.
+  # Pin one SHA across images, Pages and checkouts even if the branch moves mid-run.
   DEPLOY_SHA: ${{ github.sha }}
 
 jobs:
-  # One decision point for both halves, so a mistyped confirmation stops the whole run rather than
-  # half of it. Holds no credential and reads nothing but the dispatch form.
+  # One decision point for both halves, so a mistyped confirmation stops the whole run rather than half of it.
   gate:
     name: Decide what deploys
     runs-on: ubuntu-latest
@@ -62,8 +54,7 @@ jobs:
       backend: ${{ steps.decide.outputs.backend }}
       frontend: ${{ steps.decide.outputs.frontend }}
     steps:
-      # The only thing between a stray click and a live `gcloud run services replace`. A typed string
-      # rather than a checkbox so it cannot be satisfied by muscle memory; the value never reaches a shell.
+      # The only thing between a stray click and a live `gcloud run services replace`.
       - name: Confirm target
         if: inputs.confirm != 'sandbox'
         run: |
@@ -74,7 +65,6 @@ jobs:
         name: Decide which halves deploy
         env:
           # A `choice` input, so GitHub rejects anything not on the list before the job starts.
-          # Passed as an environment variable regardless, so the value never becomes shell source.
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
@@ -85,8 +75,7 @@ jobs:
             echo "::notice::This run deploys — backend=$1 frontend=$2"
           }
 
-          # The form is the whole answer: there is no CI run to interrogate and no "previous" commit
-          # to diff against, because the chosen ref need not be main.
+          # The chosen ref need not be main, so there is no reliable previous commit to diff.
           case "$TARGET" in
             both)     emit true  true  ;;
             backend)  emit true  false ;;
@@ -103,25 +92,22 @@ jobs:
     timeout-minutes: 30
     needs: gate
     if: needs.gate.outputs.backend == 'true'
-    # A GitHub Environment, not bare repository secrets: its NAME is part of the GCP trust
-    # condition, case included — docs/DEPLOY.md §5.1.
+    # The environment name is part of the GCP trust condition, case included.
     environment: sandbox
-    # The only job that needs to mint GCP credentials. Without `id-token: write` the WIF exchange
-    # fails inside google-github-actions/auth, and the error reads like a GCP misconfiguration.
+    # The only job that needs to mint GCP credentials.
     permissions:
       contents: read
       id-token: write
 
     steps:
-      # Explicit ref rather than the default, so all three checkouts pin to the one SHA resolved in
-      # DEPLOY_SHA even if someone pushes to the chosen branch while this run is in flight.
+      # Explicit ref keeps all checkouts pinned to DEPLOY_SHA if the branch moves.
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.DEPLOY_SHA }}
+          # checkout leaves GITHUB_TOKEN in .git/config as an http extraheader.
           persist-credentials: false
 
-      # Workload Identity Federation: this workflow stores no GCP credential, and its whole security
-      # rests on the provider's attribute condition, which lives in GCP — docs/DEPLOY.md §5.1.
+      # WIF stores no GCP credential; the provider's GCP-side attribute condition is the guard.
       - id: auth
         name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -137,8 +123,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # Tagged with the commit SHA and never `latest`, so the console answers "what is deployed" and
-      # rollback is redeploying a known tag. The cache spares a full dependency re-download per run.
+      # Commit SHA tags make rollback a known redeploy, never a mutable `latest`.
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -149,8 +134,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Explicit variable list: the file references Spring placeholders an unrestricted envsubst
-      # would mangle.
       - name: Render service definition
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -158,12 +141,17 @@ jobs:
           DB_URL: ${{ secrets.SANDBOX_DB_URL }}
           FLYWAY_DB_URL: ${{ secrets.SANDBOX_FLYWAY_DB_URL }}
           DB_USER: ${{ secrets.SANDBOX_DB_USER }}
-          # Must be on the envsubst list below: an unsubstituted "${R2_ENDPOINT}" is non-blank, so
-          # R2FileStorage's boot check passes and the refusal it exists to make never happens.
+          # Must be in envsubst: literal "${R2_ENDPOINT}" is non-blank and bypasses
+          # R2FileStorage's boot refusal.
           R2_ENDPOINT: ${{ vars.SANDBOX_R2_ENDPOINT }}
           R2_BUCKET_PRIVATE: ${{ vars.SANDBOX_R2_BUCKET_PRIVATE }}
           R2_BUCKET_PUBLIC: ${{ vars.SANDBOX_R2_BUCKET_PUBLIC }}
           R2_PUBLIC_BASE_URL: ${{ vars.SANDBOX_R2_PUBLIC_BASE_URL }}
+          # Optional: blank leaves the admin bootstrap off — docs/DEPLOY.md §3. Secrets, not vars,
+          # because run logs on a public repo print vars in clear.
+          BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.SANDBOX_BOOTSTRAP_ADMIN_EMAIL }}
+          BOOTSTRAP_ADMIN_MOBILE: ${{ secrets.SANDBOX_BOOTSTRAP_ADMIN_MOBILE }}
+          BOOTSTRAP_ADMIN_RECOVER: ${{ vars.SANDBOX_BOOTSTRAP_ADMIN_RECOVER }}
         run: |
           set -euo pipefail
           for required in GCP_PROJECT_ID DB_URL FLYWAY_DB_URL DB_USER \
@@ -173,16 +161,14 @@ jobs:
               exit 1
             fi
           done
-          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER} ${R2_ENDPOINT} ${R2_BUCKET_PRIVATE} ${R2_BUCKET_PUBLIC} ${R2_PUBLIC_BASE_URL}' \
+          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER} ${R2_ENDPOINT} ${R2_BUCKET_PRIVATE} ${R2_BUCKET_PUBLIC} ${R2_PUBLIC_BASE_URL} ${BOOTSTRAP_ADMIN_EMAIL} ${BOOTSTRAP_ADMIN_MOBILE} ${BOOTSTRAP_ADMIN_RECOVER}' \
             < backend/deploy/cloudrun-sandbox.yaml > "${RUNNER_TEMP}/service.yaml"
 
-      # `replace`, not `deploy`: the rendered file is the ENTIRE definition, so a setting removed
-      # from the repo cannot linger on the service. The file is never printed — it carries DB URLs.
+      # `replace`, not `deploy`: removed repo settings must not linger on the service.
       - name: Deploy to Cloud Run
         run: gcloud run services replace "${RUNNER_TEMP}/service.yaml" --region "$REGION" --quiet
 
-      # `services replace` does not touch the IAM policy, and a new service requires an authenticated
-      # invoker — Cloudflare's proxy would 403. Public is correct here; see docs/DEPLOY.md §5.
+      # `services replace` leaves IAM untouched; a new service would make Cloudflare 403.
       - name: Allow public invocation
         run: |
           gcloud run services add-iam-policy-binding "$SERVICE" \
@@ -191,8 +177,7 @@ jobs:
             --role roles/run.invoker \
             --quiet
 
-      # Asks what the startup probe cannot — reachable from outside, through the IAM binding — and
-      # gates the frontend job. The URL is not printed: run logs on a public repo are public.
+      # Asks what the startup probe cannot — reachable from outside, through the IAM binding — and gates the frontend job.
       - name: Smoke test
         run: |
           set -euo pipefail
@@ -200,29 +185,25 @@ jobs:
           curl -fsS --max-time 60 "$url/api/actuator/health"
           echo
 
-      # The rendered file carries the connection strings. Redundant on GitHub-hosted runners, which
-      # destroy the VM — not on a self-hosted one, where RUNNER_TEMP outlives the job.
+      # Self-hosted runners can keep RUNNER_TEMP after the job.
       - name: Remove rendered service definition
         if: always()
         run: rm -f "${RUNNER_TEMP}/service.yaml"
 
-  # Split from the publish job so the job running repository code never holds the deploy token: its
-  # dependency scripts can write to a workspace a later `npx` would resolve wrangler from.
+  # Keep the deploy token away from repository code; dependency scripts can alter
+  # the workspace that a later `npx` resolves from.
   frontend-build:
     name: Build the frontend bundle
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [gate, backend]
-    # `!cancelled()` rather than `always()`: an override is needed because a skipped dependency skips
-    # its dependents, but `always()` is also true on cancel, which would make cancel useless.
+    # `always()` also runs on cancel, so `!cancelled()` preserves cancellation.
     if: >-
       !cancelled() &&
       needs.gate.result == 'success' &&
       needs.gate.outputs.frontend == 'true' &&
       needs.backend.result != 'failure' &&
       needs.backend.result != 'cancelled'
-    # No environment and no deploy credential: this job runs code fetched from a registry, so it
-    # gets build inputs and nothing else. Every `VITE_*` value is served to every visitor anyway.
     permissions:
       contents: read
 
@@ -230,26 +211,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.DEPLOY_SHA }}
-          # checkout leaves GITHUB_TOKEN in .git/config as an http extraheader. Nothing here fetches
-          # privately, so the only code that would read it back is the dependency code above.
           persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
-          # Pinned to the same major CI builds with. A different major here would mean the artifact
-          # that ships was produced by a toolchain nothing tested.
+          # A different major here would mean the artifact that ships was produced by a toolchain nothing tested.
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # `npm ci` rather than `npm install`: it fails when package.json and the lockfile disagree,
-      # so the deployed bundle is built from the exact dependency tree CI resolved.
+      # `npm ci` fails on lock drift, so the bundle uses the dependency tree CI resolved.
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
 
-      # EVERY `VITE_*` VALUE IS INLINED INTO THE BUNDLE AT BUILD TIME, so this block is the complete
-      # set of build inputs and an omission ships a quietly broken feature — docs/DEPLOY.md §6.
+      # Vite inlines every `VITE_*`; this block is the complete build-time config.
       - name: Build
         working-directory: frontend
         env:
@@ -261,8 +237,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Only the Maps key is required: a missing map id and a missing analytics id degrade, but
-          # a missing key renders every map as a watermarked grey box.
+          # Missing map or analytics ids degrade; a missing Maps key breaks every map.
           if [ -z "${VITE_GOOGLE_MAPS_API_KEY}" ]; then
             echo "::error::VITE_GOOGLE_MAPS_API_KEY is empty. The build would succeed and every map would render as a watermarked grey box. Set it as a repository secret." >&2
             exit 1
@@ -270,22 +245,20 @@ jobs:
 
           npm run build
 
-      # Nothing in the build reads the proxy or the two ML models, so losing any of them is a green
-      # build, a green deploy, and a browser that hangs. `_headers` from dist/, not source.
+      # The build cannot catch missing proxy/model values; the browser hangs instead.
       - name: Verify build output
         working-directory: frontend
         run: |
           set -euo pipefail
           for required in dist/index.html dist/_headers functions/api/'[[path]]'.js \
-                          dist/tessdata/eng.traineddata.gz dist/models/face_landmarker.task; do
+                          dist/models/face_landmarker.task; do
             if [ ! -f "$required" ]; then
               echo "::error::Expected ${required} to exist before deploying. Refusing to publish an incomplete site." >&2
               exit 1
             fi
           done
 
-      # Both directories are needed: dist/ is the site, functions/ is the /api proxy, and wrangler
-      # will not find the second unless it sits beside the first.
+      # Wrangler needs dist/ and functions/ side by side to publish the site and /api proxy.
       - name: Upload the built site
         uses: actions/upload-artifact@v4
         with:
@@ -300,26 +273,22 @@ jobs:
     name: Publish to Cloudflare Pages
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # No `if:` and no `always()`. A plain `needs:` already means "only if that succeeded", which is
-    # exactly the condition wanted here — the skipped-dependency problem was solved one job earlier.
+    # Plain `needs:` already means "only if that succeeded"; the skip is handled earlier.
     needs: frontend-build
-    # A SEPARATE ENVIRONMENT FROM THE BACKEND, AND THE SEPARATION IS THE CONTROL: GCP's trust
-    # condition names `:environment:sandbox`, so this job cannot mint Cloud Run credentials.
+    # Backend and frontend environments stay separate because GCP trusts only `sandbox`.
     environment: sandbox-web
     permissions:
       contents: read
 
     steps:
-      # NO CHECKOUT, which is the entire point of this job: nothing from the repository is on disk,
-      # so `npx` resolves wrangler from the public registry and no dependency can redirect it.
+      # No checkout: repository dependencies cannot redirect the `npx wrangler` resolution.
       - name: Download the built site
         uses: actions/download-artifact@v4
         with:
           name: site-${{ env.DEPLOY_SHA }}
           path: ${{ runner.temp }}/site
 
-      # Direct upload, which requires the Pages git integration to be DISCONNECTED, and a `--branch`
-      # equal to the production branch or this publishes a preview. See docs/DEPLOY.md §6.
+      # See docs/DEPLOY.md §6.
       - name: Publish to Cloudflare Pages
         working-directory: ${{ runner.temp }}/site
         env:
@@ -339,8 +308,7 @@ jobs:
             --commit-hash "$DEPLOY_SHA" \
             --commit-message "Deploy ${DEPLOY_SHA} from ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}"
 
-      # THE ONLY CHECK THAT CAN TELL A WORKING DEPLOY FROM A BROKEN ONE: both interesting failures
-      # return 200, so this asserts the media type, and against SITE_URL — docs/DEPLOY.md §6.
+      # Both failure modes return 200, so the smoke test must assert the media type.
       - name: Smoke test through the proxy
         run: |
           set -euo pipefail
@@ -388,8 +356,7 @@ jobs:
             sleep 10
           done
 
-      # Harmless today — a public endpoint — but the response file stops being harmless the day
-      # someone points the smoke test at an authenticated route.
+      # The response file becomes sensitive if this ever targets an authenticated route.
       - name: Remove smoke test output
         if: always()
         run: rm -f "${RUNNER_TEMP}/health.json"

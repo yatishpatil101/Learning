@@ -124,10 +124,38 @@ a committed JWT secret, `trusted-proxies=none`). That is the design, not an inco
 | `JWT_SECRET` | HS256, ≥ 32 bytes, generated per environment |
 | `REFERRAL_SIGNAL_SALT` | any long random string; **never** shared with dev. Rotating it is safe — stored digests simply stop matching, and they are discarded after 90 days anyway |
 | `IDENTITY_HASH_SECRET` | any long random string; **never** shared with dev. Keys the one-way digest of verified ID-document numbers used for "one document = one badge". Rotating it makes every existing badge's digest stop matching new submissions, so rotate only with a re-verification plan |
+| `IDENTITY_ENCRYPTION_KEY` / `IDENTITY_ENCRYPTION_KEY_ID` | base64 of 32 random bytes (`openssl rand -base64 32`) and a short id (`[a-z0-9-]`, e.g. `2026a`); **never** shared with dev. AES-256-GCM for PAN/Aadhaar in `service_request_identities` (D283). To rotate, issue a new key and id, and set `IDENTITY_RETIRED_KEYS=oldId:oldKey` so existing rows still decrypt. Losing a key makes its rows unreadable |
+| `STAFF_TOTP_KEY` | base64 of 32 random bytes (`openssl rand -base64 32`); **never** shared with dev. AES-256-GCM for staff and admin authenticator (TOTP) secrets in `staff_credentials`. There is no retired-key list: rotating it makes every enrolled authenticator unreadable, so each account must be reset (admin **Reset 2FA**) and re-enrol |
 | `CASHFREE_WEBHOOK_SECRET` | Cashfree signs callbacks with `x-client-secret` and issues no separate webhook secret, so this **is** `CASHFREE_SECRET_KEY`. `cloudrun-sandbox.yaml` therefore points both at one Secret Manager entry: two entries holding one credential drift the moment either is rotated alone, and a drifted-but-non-blank value passes every startup check and rejects every callback. A blank value makes every forged signature valid |
 | `WEB_ORIGINS` | see §1 |
 | `API_PUBLIC_ORIGIN` | see §1 |
 | `INTERNAL_PROXIES` | see §4 |
+| `ORIGIN_SHARED_SECRET` | see §4; ≥ 32 characters, and the **same** value as the Pages secret of that name. `none` turns the gate off, which is right only for an instance nothing proxies |
+
+Optional first-admin bootstrap variables:
+
+| Variable | Notes |
+|---|---|
+| `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_MOBILE` | When no live admin exists, startup creates that admin and logs a one-hour `/staff-invite#...` link |
+| `BOOTSTRAP_ADMIN_NAME` | Defaults to `Administrator` |
+| `BOOTSTRAP_ADMIN_RECOVER` | Break-glass nonce. Set a fresh random value and redeploy to reset the configured admin's 2FA, revoke sessions and log a fresh one-hour invite. If no admin holds the email, it adopts the live admin with the configured mobile and **no** email — how the seeded sandbox admin (`9000000000`) gets one |
+
+The sandbox deploy reads them from the `sandbox` GitHub environment: **secrets**
+`SANDBOX_BOOTSTRAP_ADMIN_EMAIL` and `SANDBOX_BOOTSTRAP_ADMIN_MOBILE` (vars would print in the public
+run log), and **variable** `SANDBOX_BOOTSTRAP_ADMIN_RECOVER`; blank = off. Set them there, not with
+`gcloud run services update` — `services replace` wipes it.
+`APP_BASE_URL` must be the SPA origin, or the logged link points at `draazy.com`.
+
+First deploy:
+1. Set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_MOBILE` and optionally `BOOTSTRAP_ADMIN_NAME`.
+2. Deploy, then open the `[ADMIN BOOTSTRAP]` link from the API logs within 1 hour and set the password.
+3. Sign in at `/staff-login`, scan the QR code and save the recovery codes.
+
+Break glass: set `BOOTSTRAP_ADMIN_RECOVER` to a new random value and redeploy; open the new logged
+link within 1 hour, then sign in and re-enrol the authenticator.
+
+Staff/manager invites need no SMS or email sender. The Team screen returns the one-time link to the
+creator, who shares it privately; manager-created staff invites also notify the administrator in-app.
 
 `SPRING_PROFILES_ACTIVE=prod` is baked into the image (`backend/Dockerfile`) rather than left to the
 deploy, because Spring does not complain about an absent profile — a deploy that forgot it would
@@ -141,15 +169,13 @@ could not be signed into at all. `draazy.otp.sandbox-code` pins every code to on
 typed into the six-box OTP field like any other. It is **`000000`, hardcoded** in
 `application-sandbox.properties` — the same code the e2e profile uses. Nothing to provision.
 
-**Understand what this opens before you put anything real in that environment.** The demo seed
-creates one `admin` and fifteen `staff` accounts, their mobiles are committed in
-`R__zz_DML_dev_demo_data.sql`, and mobile-OTP login resolves a user by mobile without ever consulting
-`password_hash`. There is also no network control in front of it: `cloudrun-sandbox.yaml` sets
-`ingress: all` because Cloudflare Pages Functions reach the service from the public internet, so it
-cannot be narrowed to IAM or internal-only without breaking the site.
+**Understand what this opens before you put anything real in that environment.** Any consumer
+account in the sandbox can be signed into by anyone who knows its mobile. The back office is not
+covered by it: staff and admin accounts sign in only with email, password and an authenticator code
+(`POST /auth/staff-login`), and `/auth/login` refuses them even after a correct code. Use the
+single-admin bootstrap below for the first back-office login.
 
-So the sandbox back office is open to anyone who finds the URL and types the obvious code. That is an
-acceptable trade for disposable demo inventory and a deliberate one — it is not a gap to be reported.
+That trade is acceptable for disposable demo inventory and is deliberate, not a gap to be reported.
 It stops being acceptable the moment the sandbox database holds anything you would not publish; at
 that point make the code a generated per-deploy secret in Secret Manager.
 
@@ -187,7 +213,100 @@ the repository can assert it — the URL is R2's, the header is bucket configura
 stand-in is same-origin (`DevObjectStore.publicUrl`), so no test will ever go red if the rule is
 missing. It is written down because that is the only control available.
 
-## 4. `INTERNAL_PROXIES` — the value that has no safe guess
+The same bucket should sit behind a **proxied custom domain**, not `r2.dev`, which Cloudflare does
+not cache. On that domain the `.w480.jpg`/`.w960.jpg` card copies are edge-cached by default, but
+originals have no file extension, so add one free Cache Rule (Caching → Cache Rules): hostname equals
+the photo domain and URI path starts with `/photos/` → *Eligible for cache*, edge TTL *Use cache-control
+header*. Every object already carries `Cache-Control: public, max-age=31536000, immutable`.
+
+### 3.3 Identity verification
+
+Identity verification is a reviewed trust badge, not a synchronous unlock. Applicant endpoints live in
+`backend/src/main/java/com/draazy/api/identity/verification/IdentityVerificationController.java`;
+the browser flow is `frontend/src/pages/consumer/VerifyIdentity.jsx`.
+
+| Area | Deployment requirement | Missing / wrong symptom |
+|---|---|---|
+| Camera | HTTPS origin; `Permissions-Policy: camera=(self)` in `frontend/public/_headers` | `getUserMedia` is absent or throws `NotAllowedError` / `SecurityError`; the screen shows the camera failure copy |
+| iOS camera | `playsInline` on the `<video>` and camera start behind the user pressing the start button (`VerifyIdentityScreens.jsx`, `VerifyIdentity.jsx`) | Safari opens native fullscreen video or refuses playback/capture until another gesture |
+| Face WASM | CSP `script-src 'wasm-unsafe-eval'` in both `frontend/public/_headers` and `frontend/index.html` | MediaPipe WASM compile fails; the selfie step loses its liveness guidance |
+| Self-hosted assets | `/models/*` immutable cache rule in `_headers` | First visit is slower; repeat visits may re-fetch the model instead of using the pinned copy |
+
+**Face model supply chain.**
+
+| Asset | Source in repo | Package / license |
+|---|---|---|
+| MediaPipe Face Landmarker | `frontend/src/lib/identity-verification/face.js` loads `/models/face_landmarker.task`; file at `frontend/public/models/face_landmarker.task` | `@mediapipe/tasks-vision` `1.0.1`, Apache-2.0 in `frontend/node_modules/@mediapipe/tasks-vision/package.json`; model card publishes Apache-2.0, verify against the model card at release |
+
+Face checks run in the browser. Only the captured front/back/selfie images are uploaded,
+to the private R2 bucket (`SANDBOX_R2_BUCKET_PRIVATE`, §5). The identity badge stores document
+number HMACs and last-4 values only (`IdentityHasher.java`, `IdentityVerificationService.java`);
+the raw document number is not stored by this badge flow.
+
+Consent is stored with a notice version (`IdentityVerificationService.CONSENT_NOTICE_VERSION`,
+currently `2026-09`) and the notice language (`en`, `hi`, `mr`). Treat this as DPDP Act 2023
+notice/consent evidence, not a legal-compliance claim.
+
+**Image retention and purge.**
+
+| Case | Rule |
+|---|---|
+| Approved / rejected / revoked | Images purge after `draazy.identity.image-retention-days` from `decidedAt`; default `7` days |
+| Pending too long | `IdentityPendingExpirySweep` rejects pending cases older than `draazy.identity.pending-ttl`; default `P14D`; it purges images immediately and sends the ordinary rejected decision |
+| Resubmission / withdrawal / erasure | Existing identity files are queued and purged immediately in the transaction path |
+| Storage delete failure | `identity_storage_deletes` keeps the key; `IdentitySecurityFollowupSweep` retries due deletes in batches of 200 |
+
+The sweeps are `@Scheduled` and inherit the Cloud Run CPU-throttling caveat in §7. Sandbox accepts
+that risk; production needs the ADR-011 job runner or always-on CPU before the retention promise is
+operationally reliable.
+
+**WhatsApp identity decision template.**
+
+The template sender is
+`backend/src/main/java/com/draazy/api/provider/whatsapp/WhatsAppDecisionMessenger.java`; the property
+binding is `WhatsAppProperties.java` and `application.properties` lines 111-124.
+
+| Setting | Value |
+|---|---|
+| Meta category | `UTILITY` |
+| Template body | One body component parameter: `{{1}}` text, carrying the full decision line |
+| Suggested body text | `{{1}}` |
+| Language | `WHATSAPP_IDENTITY_TEMPLATE_LANG`, default `en_US` |
+| Template name | `WHATSAPP_IDENTITY_TEMPLATE_NAME`; blank means in-app only |
+| Shared WhatsApp credentials | `WHATSAPP_ENABLED`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_BASE_URL`, `WHATSAPP_API_VERSION` |
+
+Lines the backend sends:
+
+| Decision | `{{1}}` value |
+|---|---|
+| Approved | `Your Draazy identity verification is approved. Your profile now shows the verified badge.` |
+| Rejected / stale pending | `Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos.` |
+| Revoked | `Your Draazy verified badge was withdrawn. Open the app to see the reason and submit again.` |
+
+If `WHATSAPP_ENABLED=false`, `LoggingDecisionMessenger` logs a mock send. If WhatsApp is enabled but
+the identity template name or language is blank, `WhatsAppDecisionMessenger` logs and skips only the
+WhatsApp leg. Vendor failures are logged and swallowed; the decision is already committed and visible
+in-app. Meta business verification and approved templates remain the gate before useful WhatsApp
+delivery; see ADR-020 notes in §7.
+
+**Server-chosen selfie pose.** `POST /me/verification/identity/challenge` issues a signed 15-minute
+challenge with pose `left`, `right` or `smile` (`LivenessCheck.java`). If a challenge token is
+submitted, the review queue exposes `livenessChallenge`, and `IdentityReviewService` refuses approval
+until staff confirms the selfie shows that pose. The browser's local face verdict remains advisory.
+
+Hardware checks live in
+[`flows/consumer/contact-gate-leads.md`](./flows/consumer/contact-gate-leads.md#9-identity-verification-hardware-checklist).
+
+**Post-deploy checks.**
+
+| Check | Expected result |
+|---|---|
+| Submit one real identity verification using the R2 private bucket | `POST /me/verification/identity` returns `202`; review queue loads front/back/selfie images via signed URLs |
+| Approve the case | User gains the verified badge; owner listings receive the verified owner stamp |
+| Purge path | Files disappear under the retention rules above; failed deletes remain in `identity_storage_deletes` until retried |
+| WhatsApp configured | The decision message arrives with the exact line in the table above |
+
+## 4. `INTERNAL_PROXIES` and the origin gate
 
 `WriteRateLimitFilter` keys anonymous callers on the client address, and `POST /page-views` is
 `permitAll` and fires on ordinary browsing — so the 120-writes-per-60s budget is consumed by
@@ -219,22 +338,63 @@ Cloudflare out instead collapses all anonymous traffic into the single Cloudflar
 Neither option is safe on its own.
 
 The exit is to make the origin able to tell *this* proxy apart from any other Cloudflare tenant.
-Three ways, in ascending order of work:
+Three ways were weighed:
 
-1. **Shared secret.** The Function sends `X-Proxy-Auth: ${ORIGIN_SHARED_SECRET}`; a filter ordered
-   ahead of `WriteRateLimitFilter` rejects anything without it, constant-time compared. Roughly
-   forty lines plus one more entry in the deploy contract. Also makes the Cloud Run URL leaking
-   stop mattering.
-2. **Restricted ingress**, so the service is unreachable except through the proxy — which is the
-   assumption every trusted-proxy scheme silently makes.
-3. **Cloudflare Authenticated Origin Pulls** (mTLS), verified at the origin. Strongest, no secret to
-   rotate, most setup, and awkward to exercise locally.
+1. **Shared secret** — chosen (2026-09-27). Free, and it also makes a leaked Cloud Run URL stop
+   mattering.
+2. **Restricted ingress** — needs a Google external HTTPS load balancer in front of Cloud Run,
+   roughly $18/month before Cloud Armor. Not free, so not for the sandbox.
+3. **Cloudflare Authenticated Origin Pulls** (mTLS) — Cloud Run cannot verify a client certificate,
+   so there is nothing at the origin to check it with.
 
-**Decision deferred** (2026-09-02). Until one is in place, treat the anonymous rate limiter as
-advisory rather than enforcing, and do not open the sandbox to untrusted traffic.
+### How the gate works
 
-Whatever the choice, set `INTERNAL_PROXIES` **last**, against the `X-Forwarded-For` a real deployed
-request actually produces rather than a published range taken on faith.
+The Function sends `X-Proxy-Auth: <ORIGIN_SHARED_SECRET>`, overwriting anything the client sent.
+`OriginGateFilter` runs ahead of the JWT filter, the rate limiter and bot defence, and answers
+**403** to any request whose header does not match (constant-time compare). The only exemptions are
+`GET`/`HEAD` on the three health paths, `/api/actuator/health`, `/health/liveness` and
+`/health/readiness`, because Cloud Run's probes and the backend job's smoke test reach the container
+directly. Writes to those paths are gated too: they would otherwise reach the write rate limiter
+without the secret, charged to whatever address the caller put in `X-Forwarded-For`.
+
+Both halves must hold the same value:
+
+| Where | How |
+|---|---|
+| Backend | Secret Manager entry `draazy-sandbox-origin-shared-secret`, mounted by `cloudrun-sandbox.yaml` |
+| Pages Function | `npx wrangler pages secret put ORIGIN_SHARED_SECRET --project-name=<project>` |
+
+Generate it once, e.g. `openssl rand -base64 48`. The backend refuses to boot on a blank value or on
+one shorter than 32 characters; the Function answers 502 `api_proxy_misconfigured` when its copy is
+unset. A **mismatch** fails differently: every `/api` call 403s while `/api/actuator/health` stays
+green, so the frontend job's smoke test passes. Check a real route after changing either side.
+
+**Rotation** has a short outage window: add the new Secret Manager version and Pages secret, then run
+the deploy with `target: both`. Calls 403 between the backend going live and the Pages publish.
+
+### `INTERNAL_PROXIES`, now that the gate is on
+
+`none` is still the committed value, so all anonymous traffic still shares one bucket. With the gate
+on, the chain Tomcat sees is `<client>, <Cloudflare egress>` from a Google front-end peer, and only
+the Function can have written the left-most entry of any request that reaches an address-sensitive
+filter (the ungated health reads are never counted). So a pattern matching every hop — `.*` —
+resolves the real client and cannot be forged. **Never set it while `ORIGIN_SHARED_SECRET` is `none`**: without
+the gate that same value lets any caller choose their own address.
+
+Set it **last**, after confirming the gate is live (a direct `curl` of the `*.run.app` URL for any
+non-health route must answer 403) and checking the `X-Forwarded-For` a real proxied request produces.
+
+### Free Cloudflare edge controls
+
+These only protect traffic that goes through Cloudflare, which is why the gate had to come first. On
+the `draazy.com` zone, free plan:
+
+- **Managed WAF ruleset** (free tier) — on.
+- **One rate-limiting rule** — e.g. `/api/auth/*` POST, per IP, to back up the OTP counters.
+- **Custom WAF rules** (5 on the free plan) — e.g. block `/api/docs*` and `/api/swagger-ui*` on sandbox.
+- **Turnstile** is already wired (`TurnstileBotDefence`).
+- **Bot Fight Mode: leave off.** On the free plan it cannot be skipped per path, so it can challenge
+  the Cashfree webhook at `/api/webhooks/cashfree/payment` and payments stop confirming without an error.
 
 ---
 
@@ -299,10 +459,10 @@ RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
 
 # Every secret `cloudrun-sandbox.yaml` names with a secretKeyRef. Miss one and `services replace`
 # is a hard boot error, so create them all even where the feature behind them is off — an unused
-# placeholder version costs nothing. Eight is past Secret Manager's free six; the overage is cents.
-for s in db-password jwt-secret referral-signal-salt identity-hash-secret \
+# placeholder version costs nothing. Ten is past Secret Manager's free six; the overage is cents.
+for s in db-password jwt-secret referral-signal-salt identity-hash-secret staff-totp-key \
          cashfree-app-id cashfree-secret-key \
-         r2-access-key-id r2-secret-access-key; do
+         r2-access-key-id r2-secret-access-key origin-shared-secret; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -512,7 +672,8 @@ free tier entirely.
 
    `API_ORIGIN` stays configured **on the project**, not in the workflow. Direct uploads do not
    touch project environment variables, so it survives every deploy — and it names the Cloud Run
-   service, which is infrastructure rather than build input.
+   service, which is infrastructure rather than build input. `ORIGIN_SHARED_SECRET` (§4) lives
+   there too, as a secret.
 3. **R2 keys**, then one photo upload end-to-end. R2 is cross-origin from the SPA and must supply
    `Access-Control-Allow-Origin` itself, or browser-side perceptual hashing fails on the canvas read.
 4. **Deploy pipeline.** `.github/workflows/deploy.yml` — **manual only.** Actions → Deploy (sandbox)

@@ -81,6 +81,11 @@ conversations, visits and contact requests that make the local app look like a p
 header before changing it; it records three traps that cost real time (seed ordering, `ON CONFLICT`
 scope, and one row that violated a constraint added after the data was created).
 
+`db/seed-local/R__zz_DML_dev_kyc_desk.sql` fills the KYC desk (`/ops/kyc-review`) with 21 cases, one per
+review state (overdue, claimed by others, QA sample, your own approval, rejected, revoked). Only
+`application-local.properties` lists `db/seed-local`; the e2e profile replaces the list, so the lanes
+never see it. `DevKycSeedImages` draws the placeholder document images on boot.
+
 It is wired in `application-local.properties` as `spring.flyway.locations=classpath:db/migration,classpath:db/seed`,
 so **naming the `local` profile is what asks for it**. It used to sit in the base file and be excluded
 in two places; that made it a denylist, and any deploy not called `prod` — `staging`, `preview`, or
@@ -227,7 +232,8 @@ falling back to a well-known local value. It adds one more, `INTERNAL_PROXIES`, 
 regex matching the load balancer's addresses — the write rate limiter keys anonymous callers on the
 client address, so a deploy that leaves this unanswered would put the whole internet in one bucket.
 Locally the base file answers `none`, which is correct for a directly exposed app; the boot refuses
-to start rather than guess.
+to start rather than guess. `ORIGIN_SHARED_SECRET` works the same way: locally the base file answers
+`none` (no proxy, no gate), and a deploy must supply the secret its edge proxy sends.
 
 Confirm Flyway actually ran — a healthy boot logs:
 

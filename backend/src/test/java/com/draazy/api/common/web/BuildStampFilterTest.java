@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.FilterChain;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
@@ -58,17 +59,34 @@ class BuildStampFilterTest {
         assertThat(stampOf(filterFor(null))).isNull();
     }
 
+    @Test
+    void omitsTheHeaderOnAReadTheEdgeOrBrowserMayReplay() throws Exception {
+        var filter = filterFor(buildAt("2026-09-19T12:00:00Z"), Duration.ofSeconds(30));
+
+        assertThat(stampOf(filter, new MockHttpServletRequest("GET", "/flags"))).isNull();
+        assertThat(stampOf(filter, new MockHttpServletRequest("GET", "/me"))).isNotNull();
+    }
+
     private static String stampOf(BuildStampFilter filter) throws Exception {
+        return stampOf(filter, new MockHttpServletRequest("GET", "/flags"));
+    }
+
+    private static String stampOf(BuildStampFilter filter, MockHttpServletRequest request)
+            throws Exception {
         var response = new MockHttpServletResponse();
-        filter.doFilter(new MockHttpServletRequest(), response, PASS_THROUGH);
+        filter.doFilter(request, response, PASS_THROUGH);
         return response.getHeader(BuildStampFilter.BUILD_HEADER);
     }
 
-    @SuppressWarnings("unchecked")
     private static BuildStampFilter filterFor(BuildProperties build) {
+        return filterFor(build, Duration.ZERO);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static BuildStampFilter filterFor(BuildProperties build, Duration publicReadTtl) {
         ObjectProvider<BuildProperties> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(build);
-        return new BuildStampFilter(provider);
+        return new BuildStampFilter(provider, new PublicReadCacheFilter(publicReadTtl));
     }
 
     private static BuildProperties buildAt(String instant) {

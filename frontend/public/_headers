@@ -45,23 +45,21 @@
   # geocoding and vector tiles go to maps.googleapis.com, already listed. storage.googleapis.com is
   # now absent outright: it was listed for the MediaPipe face model alone, and that model is served
   # from public/models, so the channel the paragraph above describes is closed rather than narrowed.
-  # cdn.jsdelivr.net left with it when the OCR language model moved to public/tessdata. Adding
-  # either back means some asset has drifted off our origin — self-host it instead.
+  # Adding it back means some asset has drifted off our origin — self-host it instead.
   #
   # fonts.googleapis.com / fonts.gstatic.com stay in style-src / font-src even though our web fonts
   # are self-hosted in public/fonts. They are NOT dead allowances: the Maps SDK pulls Google Sans +
   # Material Symbols itself, and without them the map controls lose their icons. Keep this in step
   # with the meta CSP in index.html.
   #
-  # 'wasm-unsafe-eval' is required by identity verification, which compiles the Tesseract OCR core
-  # and the MediaPipe face landmarker in the browser so no document image leaves the device. It
-  # grants WASM compilation only and does not restore eval() for JavaScript. Removing it does not
-  # fail loudly: WebAssembly.instantiate throws, Tesseract's emscripten abort never settles its
-  # promise, and the review screen spins on "Reading document…" with no error.
+  # 'wasm-unsafe-eval' is required by the selfie liveness check, which compiles the MediaPipe face
+  # landmarker in the browser so no image leaves the device. It grants WASM compilation only and
+  # does not restore eval() for JavaScript. Removing it does not fail loudly: the landmarker cannot
+  # load and the selfie step silently loses its liveness guidance.
   #
   # Hosted checkout POSTs a form from THIS document into an iframe on the checkout host, so the
   # rails need frame-src and form-action too. Both pairs listed: one artefact serves both envs.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' blob: https://sandbox.cashfree.com https://api.cashfree.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: https://i.ytimg.com; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' blob: https://sandbox.cashfree.com https://api.cashfree.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'
 
 # Vite's build output, content-addressed: the hash in the filename IS the bytes, so a URL can never
 # point at different content and a revalidation can only ever answer 304. `immutable` is what tells
@@ -83,13 +81,7 @@
 /fonts/*
   Cache-Control: public, max-age=31536000, immutable
 
-# The OCR language model, self-hosted so identity verification depends on no third party. It is a
-# frozen Tesseract 4 artefact, not something a build regenerates, so the same immutable year
-# applies. The worker also caches it in IndexedDB, making this the cost of one first visit.
-/tessdata/*
-  Cache-Control: public, max-age=31536000, immutable
-
-# The MediaPipe face landmarker, self-hosted for the same two reasons: it keeps
+# The MediaPipe face landmarker, self-hosted so identity verification depends on no third party: it keeps
 # storage.googleapis.com out of connect-src, and a pinned file cannot be swapped remotely.
 /models/*
   Cache-Control: public, max-age=31536000, immutable

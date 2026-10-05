@@ -196,13 +196,16 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" \
 # ---------------------------------------------------------------------------------------------
 say "Secret Manager"
 # ---------------------------------------------------------------------------------------------
-# All eight must exist before the first `services replace`, and `printf '%s'` — a trailing newline
+# All eleven must exist before the first `services replace`, and `printf '%s'` — a trailing newline
 # joins the value and reads later as a bad password.
 SECRETS=(
   "draazy-sandbox-db-password:Supabase database password"
   "draazy-sandbox-jwt-secret:JWT signing key (openssl rand -base64 48)"
   "draazy-sandbox-referral-signal-salt:Referral signal salt (openssl rand -base64 32)"
   "draazy-sandbox-identity-hash-secret:KYC identity_hash HMAC key (openssl rand -base64 32) — set once, rotating orphans every stored hash"
+  "draazy-sandbox-origin-shared-secret:Pages-to-Cloud-Run proxy secret (openssl rand -base64 48) — also set as Pages secret ORIGIN_SHARED_SECRET, byte for byte"
+  "draazy-sandbox-staff-totp-key:Staff authenticator key (openssl rand -base64 32) — set once, rotating forces every staff 2FA re-enrolment"
+  "draazy-sandbox-identity-encryption-key:PAN/Aadhaar encryption key (openssl rand -base64 32) — set once, losing it makes stored numbers unreadable"
   "draazy-sandbox-cashfree-app-id:Cashfree sandbox App ID (TEST…) — no placeholder, sandbox deploys with payments on"
   "draazy-sandbox-cashfree-secret-key:Cashfree sandbox Secret Key (cfsk_…) — also the webhook signing key, so a placeholder 401s every order and breaks the HMAC"
   "draazy-sandbox-r2-access-key-id:R2 access key id, from a token scoped to the two sandbox buckets"
@@ -262,5 +265,11 @@ cat <<EOF
   After the first deploy, repoint Cloudflare Pages at the new service or the site 502s:
     gcloud run services describe ${SERVICE} --region ${REGION} --format='value(status.url)'
   Pages > draazy > Settings > Environment variables > API_ORIGIN
+  and give Pages the same proxy secret, or every /api call 502s (unset) or 403s (different):
+    gcloud secrets versions access latest --secret=draazy-sandbox-origin-shared-secret | npx wrangler pages secret put ORIGIN_SHARED_SECRET --project-name=draazy
+
+  Optional, for the first back-office login (docs/DEPLOY.md §3):
+    secrets  SANDBOX_BOOTSTRAP_ADMIN_EMAIL, SANDBOX_BOOTSTRAP_ADMIN_MOBILE
+    variable SANDBOX_BOOTSTRAP_ADMIN_RECOVER
 
 EOF

@@ -32,9 +32,12 @@ public class BuildStampFilter extends OncePerRequestFilter {
     /** Null when the Maven lifecycle that writes build-info.properties did not run. */
     private final String buildId;
 
-    BuildStampFilter(ObjectProvider<BuildProperties> build) {
+    private final PublicReadCacheFilter publicReads;
+
+    BuildStampFilter(ObjectProvider<BuildProperties> build, PublicReadCacheFilter publicReads) {
         BuildProperties props = build.getIfAvailable();
         this.buildId = props == null ? null : digest(props);
+        this.publicReads = publicReads;
     }
 
     @Override
@@ -42,7 +45,8 @@ public class BuildStampFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         // Absent rather than a sentinel: the client reads "no header" as "this server does not
         // report builds", where a fixed value would read as a real id that never changes.
-        if (buildId != null) {
+        // Also absent on cacheable reads: a copy replayed after a deploy would raise a false banner.
+        if (buildId != null && !publicReads.caches(request)) {
             response.setHeader(BUILD_HEADER, buildId);
         }
         chain.doFilter(request, response);

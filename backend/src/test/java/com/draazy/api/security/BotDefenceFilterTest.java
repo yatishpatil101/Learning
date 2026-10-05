@@ -12,15 +12,8 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-/**
- * The bot-defence filter (tech-debt D130).
- *
- * <p>Driven directly rather than through MockMvc, because the two things worth proving are which
- * requests reach the chain and what the refusal looks like — both visible here without a context,
- * and both obscured by a controller that would return its own status. The fake defences below make
- * the enabled/disabled asymmetry explicit: the same request is a pass with one and a 403 with the
- * other, which is the only property of this filter that matters.
- */
+// Driven directly rather than through MockMvc, because the two things worth proving are which requests reach the
+// chain and what the refusal looks like.
 @DisplayName("Bot defence filter (D130)")
 class BotDefenceFilterTest {
 
@@ -54,6 +47,7 @@ class BotDefenceFilterTest {
 
             @Override
             public boolean verify(String token, String remoteIp) {
+
                 // What TurnstileBotDefence returns when the HTTP call throws: a refusal, never an
                 // exception. See TurnstileBotDefenceTest for the real thing doing this.
                 return false;
@@ -85,7 +79,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("passes a challenged write straight through, with no token at all")
         void passesThrough() throws Exception {
-            run(new NoopBotDefence(), post(Routes.SocietyLeads.BASE));
+            run(new NoopBotDefence(), post(Routes.ServiceWaitlist.BASE));
 
             assertThat(reachedApplication())
                     .as("the unconfigured default must never block a request")
@@ -101,7 +95,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("accepts a write carrying a token the provider confirms")
         void acceptsValidToken() throws Exception {
-            MockHttpServletRequest request = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest request = post(Routes.ServiceWaitlist.BASE);
             request.addHeader(BotDefenceFilter.TOKEN_HEADER, GOOD);
 
             run(enforcing(), request);
@@ -112,7 +106,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("refuses a write carrying a token the provider rejects")
         void refusesInvalidToken() throws Exception {
-            MockHttpServletRequest request = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest request = post(Routes.ServiceWaitlist.BASE);
             request.addHeader(BotDefenceFilter.TOKEN_HEADER, "forged");
 
             run(enforcing(), request);
@@ -125,7 +119,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("refuses a write with no token, rather than treating absence as consent")
         void refusesMissingToken() throws Exception {
-            run(enforcing(), post(Routes.SocietyLeads.BASE));
+            run(enforcing(), post(Routes.ServiceWaitlist.BASE));
 
             assertThat(reachedApplication())
                     .as("omitting the header must not be an exemption; that is every script")
@@ -136,7 +130,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("refuses an absurdly long token instead of forwarding it to the provider")
         void refusesOversizedToken() throws Exception {
-            MockHttpServletRequest request = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest request = post(Routes.ServiceWaitlist.BASE);
             request.addHeader(BotDefenceFilter.TOKEN_HEADER, "x".repeat(5000));
 
             run(enforcing(), request);
@@ -148,7 +142,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("refuses when the provider cannot be reached — fail closed, not open")
         void refusesWhenProviderUnreachable() throws Exception {
-            MockHttpServletRequest request = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest request = post(Routes.ServiceWaitlist.BASE);
             request.addHeader(BotDefenceFilter.TOKEN_HEADER, GOOD);
 
             run(unreachable(), request);
@@ -162,13 +156,13 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("gives an unreachable provider the same answer as a forged token")
         void doesNotLeakWhichFailureOccurred() throws Exception {
-            MockHttpServletRequest forged = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest forged = post(Routes.ServiceWaitlist.BASE);
             forged.addHeader(BotDefenceFilter.TOKEN_HEADER, "forged");
             MockHttpServletResponse forgedResponse = new MockHttpServletResponse();
             new BotDefenceFilter(enforcing())
                     .doFilter(forged, forgedResponse, new MockFilterChain());
 
-            MockHttpServletRequest outage = post(Routes.SocietyLeads.BASE);
+            MockHttpServletRequest outage = post(Routes.ServiceWaitlist.BASE);
             outage.addHeader(BotDefenceFilter.TOKEN_HEADER, GOOD);
             MockHttpServletResponse outageResponse = new MockHttpServletResponse();
             new BotDefenceFilter(unreachable())
@@ -181,7 +175,7 @@ class BotDefenceFilterTest {
         }
 
         @Test
-        @DisplayName("challenges the login door and the waitlist, not only the lead form")
+        @DisplayName("challenges the login door and the city waitlist, not only the service waitlist")
         void challengesEveryPublicWrite() throws Exception {
             for (String path : new String[] {Routes.Auth.LOGIN, Routes.Cities.WAITLIST}) {
                 MockHttpServletResponse each = new MockHttpServletResponse();
@@ -196,10 +190,9 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("still challenges a percent-encoded spelling of a protected path")
         void normalisesBeforeMatching() throws Exception {
-            // /society-lead%73 decodes to /society-leads, which the dispatcher routes to the
-            // protected handler. A raw string comparison would see an unknown path and wave it past.
-            MockHttpServletRequest request = post("/society-leads");
-            request.setRequestURI("/society-lead%73");
+
+            MockHttpServletRequest request = post("/service-waitlist");
+            request.setRequestURI("/service-waitlis%74");
 
             run(enforcing(), request);
 

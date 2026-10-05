@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
-import org.junit.jupiter.api.DisplayName;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Three durations that decide whether a session exists, read from a file an operator edits by hand.
@@ -38,53 +41,38 @@ class JwtPropertiesTest {
                 .doesNotThrowAnyException();
     }
 
-    @Test
-    @DisplayName("a grace window measured in days turns reuse-detection off without appearing to")
-    void anOverlyLongGraceWindowIsRejected() {
-        // The one that actually costs security. Every replay inside the window is forgiven, and
-        // MAX_CONSECUTIVE_GRACES does not save it: a thief is served from the live head and rotates
-        // cleanly from then on, so a second consecutive grace never accumulates.
-        assertThatThrownBy(() -> new JwtProperties(
-                SECRET, Duration.ofMinutes(15), Duration.ofDays(30), Duration.ofDays(30)))
+    /**
+     * Each row is a misconfiguration that is silent if let through: a grace window of days forgives
+     * every replay (and {@code MAX_CONSECUTIVE_GRACES} does not save it, as a thief is served from
+     * the live head); a negative one puts the freshness floor in the future so the tripwire fires on
+     * honest races; non-positive lifetimes mint credentials already expired; and an access token
+     * that outlives its refresh token is a credential nothing can withdraw, as revocation is only
+     * checked at rotation.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rejectedConfigs")
+    void aMisconfiguredLifetimeIsRejected(String label, Duration access, Duration refresh,
+            Duration grace, String[] messageParts) {
+        assertThatThrownBy(() -> new JwtProperties(SECRET, access, refresh, grace))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("refresh-grace")
-                .hasMessageContaining("forgives every replay");
+                .hasMessageContainingAll(messageParts);
     }
 
-    @Test
-    void aNegativeGraceWindowIsRejected() {
-        // Puts the freshness floor in the future, so no heir is ever new enough and the tripwire
-        // fires on exactly the honest races it was written to forgive — a sign-out storm that looks
-        // like a token bug.
-        assertThatThrownBy(() -> new JwtProperties(
-                SECRET, Duration.ofMinutes(15), Duration.ofDays(30), Duration.ofSeconds(-1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("must not be negative");
-    }
-
-    @Test
-    void nonPositiveLifetimesAreRejected() {
-        // Mints credentials that are already expired, which presents as a login that appears to
-        // succeed and then does nothing.
-        assertThatThrownBy(() -> new JwtProperties(
-                SECRET, Duration.ZERO, Duration.ofDays(30), Duration.ofSeconds(15)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("access-ttl must be positive");
-
-        assertThatThrownBy(() -> new JwtProperties(
-                SECRET, Duration.ofMinutes(15), Duration.ofMinutes(-1), Duration.ofSeconds(15)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("refresh-ttl must be positive");
-    }
-
-    @Test
-    void anAccessTokenMayNotOutliveItsRefreshToken() {
-        // Short access plus long refresh is the trade the whole scheme is built on — revocation is
-        // only ever checked at rotation, so an access token that outlives the thing that renews it
-        // is a credential nothing can withdraw.
-        assertThatThrownBy(() -> new JwtProperties(
-                SECRET, Duration.ofDays(2), Duration.ofDays(1), Duration.ofSeconds(15)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("leaves nothing to rotate");
+    static Stream<Arguments> rejectedConfigs() {
+        Duration access = Duration.ofMinutes(15);
+        Duration refresh = Duration.ofDays(30);
+        Duration grace = Duration.ofSeconds(15);
+        return Stream.of(
+                Arguments.of("a grace window measured in days turns reuse-detection off without "
+                        + "appearing to", access, refresh, Duration.ofDays(30),
+                        new String[] {"refresh-grace", "forgives every replay"}),
+                Arguments.of("a negative grace window", access, refresh, Duration.ofSeconds(-1),
+                        new String[] {"must not be negative"}),
+                Arguments.of("a zero access-ttl", Duration.ZERO, refresh, grace,
+                        new String[] {"access-ttl must be positive"}),
+                Arguments.of("a negative refresh-ttl", access, Duration.ofMinutes(-1), grace,
+                        new String[] {"refresh-ttl must be positive"}),
+                Arguments.of("an access token may not outlive its refresh token", Duration.ofDays(2),
+                        Duration.ofDays(1), grace, new String[] {"leaves nothing to rotate"}));
     }
 }

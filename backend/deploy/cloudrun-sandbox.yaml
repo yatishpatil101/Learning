@@ -9,7 +9,7 @@ metadata:
     cloud.googleapis.com/location: asia-south1
   annotations:
     # Cloudflare Pages Functions reach this from the public internet, so internal-only would 403.
-    # It is also why the rate limiter is only advisory — docs/DEPLOY.md §4.
+    # OriginGateFilter is what closes the door instead: only the Function knows ORIGIN_SHARED_SECRET.
     run.googleapis.com/ingress: all
 
 spec:
@@ -73,11 +73,29 @@ spec:
               value: https://sandbox.draazy.com
             - name: API_PUBLIC_ORIGIN
               value: https://sandbox.draazy.com
+            # Base of links read off-site (staff invites, outreach); defaults to draazy.com.
+            - name: APP_BASE_URL
+              value: https://sandbox.draazy.com
 
-            # `none` collapses every anonymous caller into one rate-limit bucket, which is still
-            # safer than trusting Cloudflare's shared egress IPs — docs/DEPLOY.md §4.
+            # Blank = off. A new RECOVER nonce resets the configured admin — docs/DEPLOY.md §3.
+            - name: BOOTSTRAP_ADMIN_EMAIL
+              value: "${BOOTSTRAP_ADMIN_EMAIL}"
+            - name: BOOTSTRAP_ADMIN_MOBILE
+              value: "${BOOTSTRAP_ADMIN_MOBILE}"
+            - name: BOOTSTRAP_ADMIN_RECOVER
+              value: "${BOOTSTRAP_ADMIN_RECOVER}"
+
+            # `none` collapses every anonymous caller into one rate-limit bucket.
+            # Safe only because the origin gate already checked the real request chain.
             - name: INTERNAL_PROXIES
               value: none
+
+            # Must equal the Pages secret of the same name, or every proxied call 403s here.
+            - name: ORIGIN_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-origin-shared-secret
+                  key: latest
 
             # Identifiers, not passwords, but readable by any project viewer once set as plain env.
             # DB_URL is the transaction pooler; FLYWAY_DB_URL must be the session one — docs/DEPLOY.md §2.
@@ -112,6 +130,22 @@ spec:
                 secretKeyRef:
                   name: draazy-sandbox-identity-hash-secret
                   key: latest
+            # AES-256 for staff authenticator secrets. Set-once: rotating it forces every staff
+            # account to re-enrol (admin "Reset 2FA").
+            - name: STAFF_TOTP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-staff-totp-key
+                  key: latest
+            # AES-256 for PAN/Aadhaar at rest; each value stores the key id.
+            # A new key needs a new id and the old pair in IDENTITY_RETIRED_KEYS.
+            - name: IDENTITY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-identity-encryption-key
+                  key: latest
+            - name: IDENTITY_ENCRYPTION_KEY_ID
+              value: "s1"
             # Cashfree signs with x-client-secret, so this reads the SAME entry as CASHFREE_SECRET_KEY
             # below: two entries holding one credential drift invisibly the moment either is rotated.
             - name: CASHFREE_WEBHOOK_SECRET

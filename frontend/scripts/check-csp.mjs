@@ -1,7 +1,5 @@
-/**
- * The CSP is written twice — a <meta> in index.html and a header in public/_headers — and only the
- * dev-server copy is exercised locally, so this compares them directive by directive.
- */
+/** The CSP is written twice — a <meta> in index.html and a header in public/_headers — and only the dev-server copy
+ * is exercised locally, so this compares them directive by directive. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -51,9 +49,8 @@ const problems = [];
 for (const [label, directives] of [['index.html', meta], ['public/_headers', header]]) {
   if (!(directives.get('script-src') || []).includes("'wasm-unsafe-eval'")) {
     problems.push(
-      `${label}: script-src is missing 'wasm-unsafe-eval'. Identity verification compiles the\n` +
-      '    Tesseract OCR core and the MediaPipe face landmarker in the browser; without it the\n' +
-      '    worker aborts without rejecting and the review screen spins forever.',
+      `${label}: script-src is missing 'wasm-unsafe-eval'. The selfie liveness check compiles\n` +
+      '    the MediaPipe face landmarker in the browser; without it the check silently turns off.',
     );
   }
 }

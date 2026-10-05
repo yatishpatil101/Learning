@@ -99,6 +99,19 @@ export const del = (path, opts) => request(path, { ...opts, method: 'DELETE' });
 // than a branch: docs/system/frontend-data-seam.md
 export const postMultipart = (path, form, opts) => request(path, { ...opts, method: 'POST', body: form });
 
+export async function openEventStream(path, { onEvent, onOpen, signal } = {}) {
+  let res = await stream(path, readAccessToken(), signal);
+  if (res.status === 401 && readAccessToken()) {
+    const token = await refreshAccessToken();
+    if (token) res = await stream(path, token, signal);
+    else logoutUser();
+  }
+  if (!res.ok) return toResult(res);
+  onOpen?.();
+  await readEventStream(res.body, onEvent);
+  return null;
+}
+
 // Read a `PageEnvelope` into the shape the seam uses — one place to be wrong. Field precedence
 // (never fall back to the requested page): docs/system/frontend-data-seam.md
 export function unwrapPage(res, requested = {}) {
@@ -155,6 +168,9 @@ async function send(path, { method = 'GET', body, query, headers: extra, signal 
       // The refresh token rides an HttpOnly cookie. Same-origin this is a no-op; it earns its place
       // only in the cross-origin `VITE_API_BASE` deployment — docs/system/frontend-data-seam.md.
       credentials: 'include',
+      // Any read by a signed-in user revalidates (public `auth: false` ones too), so an editor never
+      // sees the anonymous-visitor cache: PublicReadCacheFilter.java, docs/system/cross-cutting.md §9.
+      cache: readAccessToken() ? 'no-cache' : 'default',
       body: body === undefined ? undefined : isFormData(body) ? body : JSON.stringify(body),
       signal,
     });
@@ -173,6 +189,71 @@ async function send(path, { method = 'GET', body, query, headers: extra, signal 
     reachabilityObserver?.(err);
     throw err;
   }
+}
+
+async function stream(path, token, signal) {
+    const headers = { Accept: 'text/event-stream' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      const res = await fetch(API_BASE + path, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+        signal,
+      });
+      reachabilityObserver?.(null);
+      buildStampObserver?.(res.headers.get(BUILD_HEADER));
+      return res;
+    } catch (cause) {
+      if (isAbort(cause)) throw cause;
+      const err = new NetworkError(cause);
+      reachabilityObserver?.(err);
+      throw err;
+    }
+}
+
+async function readEventStream(body, onEvent) {
+    if (!body?.getReader) return;
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let event = 'message';
+    let data = [];
+    const dispatch = () => {
+      if (data.length) {
+        const text = data.join('\n');
+        let payload = text;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = text;
+        }
+        onEvent?.({ type: event, data: payload });
+      }
+      event = 'message';
+      data = [];
+    };
+    const line = (raw) => {
+      const next = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+      if (!next) { dispatch(); return; }
+      if (next.startsWith(':')) return;
+      const split = next.indexOf(':');
+      const field = split === -1 ? next : next.slice(0, split);
+      const value = split === -1 ? '' : next.slice(split + 1).replace(/^ /, '');
+      if (field === 'event') event = value || 'message';
+      else if (field === 'data') data.push(value);
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      lines.forEach(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) line(buffer);
+    dispatch();
 }
 
 function buildQuery(query) {

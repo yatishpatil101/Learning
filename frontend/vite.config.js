@@ -5,10 +5,8 @@ import helpContentPlugin from './scripts/vite-plugin-help-content.mjs';
 
 const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
 
-/* Scope is deliberately narrow: cache the *shell and static assets*, never listing or account data
-   — a cached listing that still says "available" after it is rented is a product failure. So
-   `/api/*` is NetworkOnly, asserted by a test. `manifest: false` because public/manifest.webmanifest
-   already exists and index.html already links it. */
+/* Cache shell/static assets only; listing/account data must stay NetworkOnly so stale availability
+   or private state never ships from a service worker. */
 function pwaPlugin() {
   return VitePWA({
     // The shell must never be a version behind the deployed API contract, and a page reload has no
@@ -19,17 +17,17 @@ function pwaPlugin() {
     // A service worker on the dev server would make Playwright and local edits nondeterministic.
     devOptions: { enabled: false },
     workbox: {
-      // Precache only the initial load graph: dist is ~7 MB. The home-* chunks are here so an
-      // installed app launched offline does not 404 on the lazy landing chunk and go blank.
+      // Precache only the initial load graph: dist is ~7 MB. Home is bundled into index-*, so an
+      // installed app launched offline still has its landing page.
       globPatterns: [
         // NOT woff2: self-hosting put 22 subset files (~857 KB) in dist, including Devanagari
         // subsets an English visitor never renders. The runtime rule below caches them on use.
         '**/*.{css,html}',
         'assets/index-*.js',
         'assets/vendor-react-*.js',
-        'assets/home-*.js',
       ],
       globIgnores: ['**/floorplans/**'],
+      importScripts: ['push-sw.js'],
       // SPA deep links resolve to the shell. The denylist is the important half: without it, a
       // navigation request to /api/* would be answered with index.html.
       navigateFallback: 'index.html',
@@ -67,8 +65,11 @@ function pwaPlugin() {
         },
         {
           // Listing photography: immutable per URL and the heaviest thing on a card. Capped so a
-          // long browsing session cannot fill the device's storage quota.
-          urlPattern: ({ url }) => url.origin === 'https://images.unsplash.com',
+          // long browsing session cannot fill the device's storage quota. Only the card copies of an
+          // upload (PhotoVariants.java): the originals are also fetched with CORS for the wizard's
+          // canvas hash, which a cached opaque response would break.
+          urlPattern: ({ url }) => url.origin === 'https://images.unsplash.com'
+            || /\/photos\/[0-9a-f-]{36}\/[0-9a-f-]{36}(?:-[0-9a-f]{16})?\.w\d+\.jpg$/.test(url.pathname),
           handler: 'CacheFirst',
           options: {
             cacheName: 'dz-images',
