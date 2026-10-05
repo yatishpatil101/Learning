@@ -1,6 +1,5 @@
 import { parseAmount } from '../../../lib/format';
 
-/* ---------- money / number formatting helpers ---------- */
 export const formatIndian = (v) => {
   const s = String(v ?? '').replace(/\D/g, '');
   if (!s) return '';
@@ -18,11 +17,11 @@ export const moneyWords = (v) => {
   return `≈ ₹ ${num}`;
 };
 
-// Derived price transparency — buyers compare on ₹/sq.ft, so surface it from the
-// price and area they've already entered. Returns '' until both are present.
-export const perSqft = (amount, area) => {
+export const perUnit = (amount, area, unitLabel = 'sq.ft') => {
   const price = parseAmount(amount);
-  const sqft = parseAmount(area);
-  if (!price || !sqft) return '';
-  return `≈ ₹ ${formatIndian(Math.round(price / sqft))} / sq.ft`;
+  const unitArea = parseAmount(area);
+  if (!price || !unitArea) return '';
+  return `≈ ₹ ${formatIndian(Math.round(price / unitArea))} / ${unitLabel}`;
 };
+
+export const perSqft = (amount, area) => perUnit(amount, area, 'sq.ft');

@@ -26,8 +26,6 @@ test.afterEach(async () => {
   owners.clear();
 });
 
-// `Select.jsx` portals its menu and flips `portalOpen` a frame late; until `.is-portal-open` lands
-// the menu is `pointer-events: none`.
 const menuOpen = (page) => expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 
 async function pickOption(page, dataErr, label) {
@@ -38,13 +36,19 @@ async function pickOption(page, dataErr, label) {
 }
 
 const multiSelect = (page) => page.getByRole('button', { name: 'Fixtures and fittings', exact: true }).locator('..');
-
 // The multi-select keeps its menu open, so the caller closes it once it is done picking.
 async function openMulti(page) {
   const field = multiSelect(page);
   await field.locator('.dz-dropdown__trigger').click();
   await menuOpen(page);
   return field;
+}
+
+async function closeMulti(page, field) {
+  const trigger = field.locator('.dz-dropdown__trigger');
+  await trigger.focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toHaveCount(0);
 }
 
 async function gotoCommercialRent(page) {
@@ -55,7 +59,6 @@ async function gotoCommercialRent(page) {
   await pickOption(page, 'propertyType', 'Commercial');
   return mobile;
 }
-
 // Fit-out is the one commercial answer step 1 refuses to advance without. Pills, not a dropdown.
 const pickFitOut = (page) => page.locator('[data-err="shellType"]').getByText('Warm Shell', { exact: true }).click();
 
@@ -74,7 +77,7 @@ async function fillLocationAndPricing(page) {
   await page.locator('input[data-err="deposit"]').fill('540000');
   await pickDate(page, '[data-err="availableFrom"]', inDays(60));
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Photos & documents/i', { timeout: 15000 });
+  await page.waitForSelector('text=/Photos & description/i', { timeout: 15000 });
 }
 
 test('switching the commercial sub-type drops the previous profile’s fixtures and amenities', async ({ page }) => {
@@ -83,28 +86,25 @@ test('switching the commercial sub-type drops the previous profile’s fixtures 
   await pickFitOut(page);
   await page.locator('input[data-err="carpetArea"]').fill('2400');
 
-  // An office fit-out and an amenity, one on step 1 and one on the last step.
   const fixtures = await openMulti(page);
   await page.locator('.dz-dropdown__option', { hasText: 'Server / UPS Room' }).first().click();
-  await page.keyboard.press('Escape');
+  await closeMulti(page, fixtures);
   await expect(fixtures.locator('.dz-dropdown__trigger')).toContainText('Server / UPS Room');
 
   await fillLocationAndPricing(page);
   await page.locator('.furn-tile', { hasText: 'Power Backup' }).click();
   await expect(page.locator('.furn-tile.checked', { hasText: 'Power Backup' })).toHaveCount(1);
 
-  // Back to the sub-type and relabel the property as a warehouse.
   for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.locator('[data-err="commercialType"]')).toBeVisible();
   await pickOption(page, 'commercialType', 'Warehouse / Godown');
-
   // The office answer is gone, and the industrial list cannot even offer it back.
   const warehouseFixtures = await openMulti(page);
   await expect(page.locator('.dz-dropdown__option', { hasText: 'Server / UPS Room' })).toHaveCount(0);
   await expect(page.locator('.dz-dropdown__option', { hasText: 'Loading Bay / Dock' })).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(warehouseFixtures.locator('.dz-dropdown__trigger')).toContainText('Select fixtures & fittings');
-
+  await pickFitOut(page);
   // Power Backup exists in both profiles, so an uncleared amenity would survive this walk unnoticed.
   await fillLocationAndPricing(page);
   await expect(page.locator('.furn-tile', { hasText: 'Power Backup' })).toHaveCount(1);
@@ -120,9 +120,9 @@ test('leaving Commercial posts no commercial fixtures', async ({ page }) => {
   await page.locator('.dz-dropdown__option', { hasText: 'Server / UPS Room' }).first().click();
   await page.keyboard.press('Escape');
 
-  // Same wizard, now describing a home: none of the above is a fact about a flat.
   await pickOption(page, 'propertyType', 'Flat / Apartment');
   await expect(multiSelect(page)).toHaveCount(0);
+  await page.locator('[data-err="bhk"]').getByRole('button', { name: '2', exact: true }).click();
   await page.locator('input[data-err="carpetArea"]').fill('1150');
   const floor = page.locator('div').filter({ has: page.locator('label:text-is("Floor No. *")') }).last();
   await floor.locator('.dz-dropdown__trigger').click();

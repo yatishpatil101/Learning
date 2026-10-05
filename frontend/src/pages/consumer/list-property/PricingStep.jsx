@@ -3,36 +3,39 @@ import { ArrowLeft, ArrowRight, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select';
 import DateField from '../../../components/ui/DateField';
-import { Pill, Toggle, ToggleRow, FieldError } from './controls.jsx';
+import { Pill, Toggle, FieldError } from './controls.jsx';
 import StepHeader from './StepHeader.jsx';
 import { fld, lbl, lbl3 } from './styles.js';
-import { moneyWords, perSqft } from './format.js';
-import { toDecimal, toDigits } from './sanitize.js';
+import { moneyWords, perUnit } from './format.js';
+import { toDecimal } from './sanitize.js';
 import { todayIso } from '../../../lib/visitWhen.js';
-import { isSqftUnit } from '../../../lib/format.js';
 import { ownershipOptions, commercialOwnershipOptions, agreementOptions, lockinOptions, noticeOptions,
   commercialAgreementOptions, commercialLockinOptions, commercialNoticeOptions,
   landAgreementOptions, landLockinOptions, landNoticeOptions,
   leaseKindOf, fitOutOptions, tenancyStatusOptions, DEPOSIT_MONTHS } from './constants.js';
+import { isPlotSale, reraRequired as needsReraId } from './validation.js';
 
-/* Held here beside the collapsed summary that states these values verbatim, rather than read from
-   initialForm: a changed default would leave the sentence describing terms the listing does not have. */
 const STANDARD_TERMS = { agreementDuration: '11', lockIn: '0', noticePeriod: '1' };
+const fallbackUnitLabel = (unit) => ({
+  sqft: 'sq.ft', sqm: 'sq.m', sqyd: 'sq.yd', guntha: 'guntha', acre: 'acre', hectare: 'hectare',
+}[unit] || 'sq.ft');
+const toTwoDecimal = (value) => {
+  const [whole, fraction] = toDecimal(value).split('.');
+  return fraction == null ? whole.slice(0, 9) : `${whole.slice(0, 9)}.${fraction.slice(0, 2)}`;
+};
 
-/* Three lease vocabularies, because the three are let on different cycles: a flat on the 11-month
-   tenancy, a shop or shed on year-scale terms, a plot or farm by the year or the crop. */
+/* Three lease vocabularies, because the three are let on different cycles: a flat on the 11-month tenancy, a shop or
+   shed on year-scale terms, a plot or farm by the year or the crop. */
 const LEASE_TERMS = {
   residential: [agreementOptions, lockinOptions, noticeOptions],
   commercial: [commercialAgreementOptions, commercialLockinOptions, commercialNoticeOptions],
   land: [landAgreementOptions, landLockinOptions, landNoticeOptions],
 };
 
-/* CAM is what a commercial listing answers instead of monthly maintenance, and it is asked in both
-   the sale and the rent branch — one component so the two cannot drift apart. */
 const CamCharges = ({ t, form, set }) => (
   <div>
     <label className={lbl3}>{t('listProperty.fields.maintenanceCam')}</label>
-    <input inputMode="numeric" maxLength={5} value={form.camCharges} onChange={(e) => set('camCharges', toDigits(e.target.value))}
+    <input inputMode="decimal" maxLength={12} value={form.camCharges} onChange={(e) => set('camCharges', toTwoDecimal(e.target.value))}
       placeholder={t('listProperty.ph.eg12')} className={fld} />
     <p className="text-gray-500 text-xs mt-1.5">{t('listProperty.help.camPerSqft')}</p>
   </div>
@@ -46,22 +49,22 @@ const PricingStep = ({
   const [termsOpen, setTermsOpen] = useState(false);
   const land = isLand();
   const commercial = isCommercial();
-  // Residential-only pricing (preferred tenants, pets, food, home loan) doesn't
-  // apply to land or commercial listings.
+  const plotSale = isPlotSale(form);
   const residentialPricing = !land && !commercial;
-  /* Land is excluded to match the validator: a plot keeps whatever `construction` a flat left behind, and
-     without the guard the RERA field would claim a requirement the step never enforces. */
+  /* Land is excluded to match the validator: a plot keeps whatever `construction` a flat left behind, and without the
+     guard the RERA field would claim a requirement the step never enforces. */
   const preCompletion = !land && (form.construction === 'new' || form.construction === 'under');
   const leaseKind = leaseKindOf(form.propertyType);
   const [agreementOpts, lockinOpts, noticeOpts] = LEASE_TERMS[leaseKind];
-  /* Only residential collapses: the other two lease vocabularies do not contain these values at all, so
-     there is no standard shape to hide the three controls behind. */
   const standardTerms = leaseKind === 'residential'
     && Object.entries(STANDARD_TERMS).every(([field, value]) => form[field] === value);
   const showTerms = termsOpen || !standardTerms;
-  // ₹/sq.ft only reads true when the area is in sq.ft, and land can be priced by the acre or guntha.
-  const showPerSqft = form.deal === 'buy' && (!land || isSqftUnit(form.areaUnit));
-  const perSqftCaption = showPerSqft ? perSqft(form.price, form.carpetArea) : '';
+  const saleUnitLabel = land ? t(`listProperty.unit.${form.areaUnit}`, { defaultValue: fallbackUnitLabel(form.areaUnit) }) : 'sq.ft';
+  const saleUnitCaption = form.deal === 'buy' ? perUnit(form.price, form.carpetArea, saleUnitLabel) : '';
+  const commercialRentCaption = form.deal === 'rent' && commercial
+    ? perUnit(form.monthlyRent, form.carpetArea, `sq.ft ${t('listProperty.unit.perMonthSpaced')}`)
+    : '';
+  const reraRequired = needsReraId(form);
   const priceWords = moneyWords(form.price);
   const rentWords = moneyWords(form.monthlyRent);
 
@@ -69,10 +72,9 @@ const PricingStep = ({
     <div className="lp-step">
       <StepHeader title={t('listProperty.steps.pricingTitle')} subtitle={t('listProperty.steps.pricingSubtitle')} onReset={onReset} />
 
-      {/* SALE pricing */}
       {form.deal === 'buy' && (
         <>
-           {/* Give the price more room than its negotiable switch on narrow screens. */}
+
           <div className="mb-4 grid grid-cols-[7fr_3fr] gap-3 items-start">
             <div className="min-w-0">
               <label className={lbl3}>{t('listProperty.fields.expectedPrice')}</label>
@@ -80,13 +82,12 @@ const PricingStep = ({
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
                 <input inputMode="numeric" maxLength={12} {...money('price')} data-err="price" placeholder={t('listProperty.ph.egPrice')} className={`${fld} pl-10 pr-4 ${errors.price ? 'dz-invalid' : ''}`} />
               </div>
-              <FieldError show={!!errors.price}>{t('listProperty.err.price')}</FieldError>
-              {/* Both readings of the same number, so they share a line; wrapping is
-                 the fallback for the widest amounts rather than the normal case. */}
-              {(priceWords || perSqftCaption) && (
+              <FieldError show={!!errors.price}>{errors.price === 'min' ? t('listProperty.err.priceMin') : t('listProperty.err.price')}</FieldError>
+
+              {(priceWords || saleUnitCaption) && (
                 <p className="mt-1.5 ml-1 flex flex-wrap items-baseline gap-x-2 text-xs">
                   {priceWords && <span className="text-gray-600">{priceWords}</span>}
-                  {perSqftCaption && <span className="text-teal-300/80">{perSqftCaption}</span>}
+                  {saleUnitCaption && <span className="text-teal-300/80">{saleUnitCaption}</span>}
                 </p>
               )}
             </div>
@@ -98,9 +99,8 @@ const PricingStep = ({
             </div>
           </div>
 
-          {/* Monthly Maintenance stays with the price cluster; Ownership beside it.
-             A commercial unit states the same recurring cost as CAM, per sq.ft., so the two share
-             one slot — either box alone, never both, or they'd be two answers to one question. */}
+          {/* A commercial unit states the same recurring cost as CAM, per sq.ft., so the two share one slot — either
+             box alone, never both, or they'd be two answers to one question. */}
           <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {!land && !commercial && (
               <div>
@@ -148,7 +148,6 @@ const PricingStep = ({
             </div>
           )}
 
-          {/* Possession describes a built property, not raw land. */}
           {!land && (
             <div className="mb-6 p-4 sm:p-5 rounded-xl bg-white/[0.03] border border-white/5">
               <label className={lbl}>{t('listProperty.fields.possessionStatus')}</label>
@@ -170,39 +169,61 @@ const PricingStep = ({
             </div>
           )}
 
-          {/* MahaRERA sits with the answer that decides whether it is owed, not at the
-              bottom of the document step: advertising an unfinished Maharashtra sale
-              without the number is unlawful, and a field nobody scrolls to is a field
-              nobody fills. Plots have no possession block above but still register. */}
+          {plotSale && (
+            <div className="mb-6 p-4 sm:p-5 rounded-xl bg-white/[0.03] border border-white/5">
+              <label className={lbl}>{t('listProperty.reraPlots.question')}</label>
+              <p className="text-gray-500 text-xs mb-3">{t('listProperty.reraPlots.help')}</p>
+              <div className="flex flex-wrap gap-2.5" data-err="plottedProject">
+                {['yes', 'no'].map((v) => (
+                  <Pill key={v} selected={form.plottedProject === v} onClick={() => set('plottedProject', v)} className="px-5 py-2.5">
+                    {t(`listProperty.opt.${v}`)}
+                  </Pill>
+                ))}
+              </div>
+              <FieldError show={!!errors.plottedProject}>{t('listProperty.reraPlots.err')}</FieldError>
+            </div>
+          )}
+
+          {/* MahaRERA sits with the answer that decides whether it is owed, not at the bottom of the document step. */}
           {form.propertyType !== 'farmland' && (
             <div className="mb-6">
               <label htmlFor="lp-rera" className={lbl3}>
                 {t('listProperty.fields.reraNo')}
-                {!preCompletion && <span className="text-gray-500 font-normal"> {t('listProperty.optional')}</span>}
+                {!reraRequired && <span className="text-gray-500 font-normal"> {t('listProperty.optional')}</span>}
               </label>
               <input
                 id="lp-rera"
                 value={form.reraId}
                 maxLength={30}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
                 onChange={(e) => set('reraId', e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
                 data-err="reraId"
                 placeholder={t('listProperty.ph.reraExample')}
                 className={`${fld} sm:max-w-sm ${errors.reraId ? 'dz-invalid' : ''}`}
               />
-              <FieldError show={!!errors.reraId}>{t('listProperty.err.reraRequired')}</FieldError>
-              <p className="text-gray-500 text-xs mt-1.5">{preCompletion ? t('listProperty.help.reraRequired') : t('listProperty.help.reraHelp')}</p>
+              <FieldError show={!!errors.reraId}>
+                {errors.reraId === 'format' ? t('listProperty.err.reraFormat') : t('listProperty.err.reraRequired')}
+              </FieldError>
+              <p className="text-gray-500 text-xs mt-1.5">{reraRequired ? t('listProperty.help.reraRequired') : t('listProperty.help.reraHelp')}</p>
             </div>
           )}
 
           {residentialPricing && (
           <div className="mb-8">
-            <ToggleRow title={t('listProperty.toggle.homeLoan')} subtitle={t('listProperty.toggle.homeLoanSub')} on={form.loanAvailable} onClick={() => set('loanAvailable', !form.loanAvailable)} />
+            <label className={lbl3}>{t('listProperty.toggle.homeLoan')}</label>
+            <p className="text-gray-500 text-xs mb-3">{t('listProperty.toggle.homeLoanSub')}</p>
+            <div className="flex flex-wrap gap-2.5" data-err="loanAvailable">
+              {[[true, t('listProperty.opt.yes')], [false, t('listProperty.opt.no')]].map(([v, l]) => (
+                <Pill key={String(v)} selected={form.loanAvailable === v} onClick={() => set('loanAvailable', form.loanAvailable === v ? '' : v)} className="px-5 py-2.5">{l}</Pill>
+              ))}
+            </div>
           </div>
           )}
         </>
       )}
 
-      {/* RENT pricing */}
       {form.deal === 'rent' && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
@@ -213,8 +234,13 @@ const PricingStep = ({
                 <input inputMode="numeric" maxLength={9} {...money('monthlyRent')} data-err="monthlyRent" placeholder={t('listProperty.ph.egRent32')} className={`${fld} pl-8 sm:pl-10 pr-14 sm:pr-16 ${errors.monthlyRent ? 'dz-invalid' : ''}`} />
                 <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">{t('listProperty.unit.perMonth')}</div>
               </div>
-              <FieldError show={!!errors.monthlyRent}>{t('listProperty.err.monthlyRent')}</FieldError>
-              {rentWords && <p className="text-gray-600 text-[15.6px] mt-1.5 ml-1">{rentWords}</p>}
+              <FieldError show={!!errors.monthlyRent}>{errors.monthlyRent === 'min' ? t('listProperty.err.monthlyRentMin') : t('listProperty.err.monthlyRent')}</FieldError>
+              {(rentWords || commercialRentCaption) && (
+                <p className="mt-1.5 ml-1 flex flex-wrap items-baseline gap-x-2 text-xs">
+                  {rentWords && <span className="text-gray-600 text-[15.6px]">{rentWords}</span>}
+                  {commercialRentCaption && <span className="text-teal-300/80">{commercialRentCaption}</span>}
+                </p>
+              )}
             </div>
             <div>
               <label className={lbl3}>{t('listProperty.fields.securityDepositReq')}</label>
@@ -222,19 +248,17 @@ const PricingStep = ({
                 <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
                 <input inputMode="numeric" maxLength={9} {...money('deposit')} data-err="deposit" placeholder={t('listProperty.ph.egDeposit1L')} className={`${fld} pl-8 sm:pl-10 pr-3 sm:pr-4 ${errors.deposit ? 'dz-invalid' : ''}`} />
               </div>
-              <FieldError show={!!errors.deposit}>{t('listProperty.err.deposit')}</FieldError>
+              <FieldError show={!!errors.deposit}>{errors.deposit === 'max' ? t('listProperty.err.depositMax') : t('listProperty.err.deposit')}</FieldError>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {DEPOSIT_MONTHS[leaseKind].map((m) => (
-                  /* Drawn smaller than a standard chip to fit the half-row: `.tap-extend` carries the 44px
-                     target the paint does not cover, and chip centres stay >44px apart so they cannot overlap. */
-                  <button key={m} type="button" onClick={() => setDepositMonths(m)} className="tap-extend relative inline-flex items-center justify-center min-h-[31px] sm:min-h-0 text-[10px] px-2 sm:px-1.5 py-0.5 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
+                  <button key={m} type="button" onClick={() => setDepositMonths(m)} className="relative inline-flex items-center justify-center min-h-[44px] text-xs px-2 sm:px-2.5 py-1 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
                 ))}
               </div>
             </div>
           </div>
 
           <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {/* Commercial states the same recurring cost once, as CAM per sq.ft. */}
+
             {commercial && <CamCharges t={t} form={form} set={set} />}
             {!land && !commercial && (
             <div>
@@ -279,19 +303,17 @@ const PricingStep = ({
                 <p className={lbl}>{t('listProperty.fields.rentalTerms')}</p>
                 {!showTerms && <p className="text-sm text-gray-300 mt-1">{t('listProperty.terms.standard')}</p>}
               </div>
-              {/* Only offered while the terms are still standard, because that is the only state
-                  with a summary to return to. It stays mounted across the toggle so the keyboard
-                  does not lose its place, and so `aria-controls` resolves to a real element. */}
+
+              {/* Only offered while the terms are still standard, because that is the only state with a summary to
+                 return to. */}
               {standardTerms && (
                 <button type="button" onClick={() => setTermsOpen(!termsOpen)} aria-expanded={termsOpen} aria-controls="lp-rental-terms-fields" aria-label={t('listProperty.terms.changeAria')} className="shrink-0 min-h-[44px] px-3 text-sm font-semibold text-teal-300 hover:text-teal-200 transition-colors">
                   {t('listProperty.terms.change')}
                 </button>
               )}
             </div>
-            {/* Two columns on a phone, not one: lock-in and notice are read against each other (a
-                6-month lock-in with a 1-month notice is a different deal from the reverse), and
-                stacked they sit a scroll apart. Agreement duration spans both because it is the
-                term the other two qualify. */}
+
+            {/* Two columns on a phone: lock-in and notice are read against each other, so stacking them hides the deal. */}
             <div id="lp-rental-terms-fields" className={`mt-3 grid-cols-2 sm:grid-cols-3 gap-4 ${showTerms ? 'grid' : 'hidden'}`}>
               <div className="col-span-2 sm:col-span-1">
                 <label className={lbl}>{t('listProperty.fields.agreementDuration')}</label>
@@ -306,9 +328,9 @@ const PricingStep = ({
                 <Select value={form.noticePeriod} onChange={(v) => set('noticePeriod', v)} options={noticeOpts} />
               </div>
             </div>
-            {/* Rent alone does not describe a commercial tenancy: GST is 18% on top of it, the
-               fit-out months are rent the tenant never pays, and the escalation is what they will
-               pay in year four. A tenant compares all four or compares nothing. */}
+
+            {/* Rent alone does not describe a commercial tenancy: GST is 18% on top of it, the fit-out months are
+               rent the tenant never pays, and the escalation is what they will pay in year four. */}
             {commercial && (
               <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
@@ -350,7 +372,7 @@ const PricingStep = ({
             <div>
               <label className={lbl3}>{t('listProperty.fields.foodPreference')}</label>
               <div className="flex flex-wrap gap-3">
-                {[['any', t('listProperty.opt.vegAndNonveg')], ['veg', t('listProperty.opt.vegOnlyCap')]].map(([v, l]) => (
+                {[['any', t('listProperty.opt.vegAndNonveg')], ['veg', t('listProperty.opt.vegOnlyCap')], ['jain', t('listProperty.opt.jainOnlyCap')]].map(([v, l]) => (
                   <Pill key={v} selected={form.foodPref === v} onClick={() => set('foodPref', v)} className="px-5 py-2.5">{l}</Pill>
                 ))}
               </div>

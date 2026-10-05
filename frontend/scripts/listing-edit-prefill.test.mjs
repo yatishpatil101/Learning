@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { toEditForm, toListingCreate, toViewModel, yearsToAgeBand } from '../src/services/providers/http/propertyMapper.js';
 import { editPayload } from '../src/pages/consumer/list-property/editPayload.js';
+import { withInFlatAsFurniture } from '../src/pages/consumer/list-property/constants.js';
 
 test('a carpet edit updates an originally mirrored headline', () => {
   const form = { carpetArea: '875.5' };
@@ -22,9 +23,23 @@ test('an address correction keeps the composed line and private components toget
   });
 });
 
+test('in-flat features saved as amenities move into furniture once, without duplicates', () => {
+  const legacy = { amenities: ['Gym', 'Geyser', 'Wardrobes'], furniture: ['Wardrobe'] };
+  assert.deepEqual(withInFlatAsFurniture(legacy), { amenities: ['Gym'], furniture: ['Wardrobe', 'Geyser'] });
+  const current = { amenities: ['Gym'], furniture: null };
+  assert.equal(withInFlatAsFurniture(current), current);
+});
+
+test('an amenities edit carries furniture so migrated in-flat items are not lost', () => {
+  const before = withInFlatAsFurniture({ amenities: ['Gym', 'Geyser'], furniture: [] });
+  const form = { ...before, amenities: ['Gym', 'Lift'] };
+  const patch = editPayload({ amenities: form.amenities, gallery: [] }, form, { form: before, formDetails: {}, gallery: [] });
+  assert.deepEqual(patch.amenities, ['Gym', 'Lift']);
+  assert.deepEqual(patch.formDetails.furniture, ['Geyser']);
+});
 test('intentional gallery changes still cross the sparse edit seam', () => {
-  assert.deepEqual(editPayload({ gallery: ['new'], photoHashes: ['hash'] }, {}, { form: {}, gallery: ['old'] }), {
-    gallery: ['new'], photoHashes: ['hash'],
+  assert.deepEqual(editPayload({ gallery: ['new'] }, {}, { form: {}, gallery: ['old'] }), {
+    gallery: ['new'],
   });
 });
 
@@ -166,18 +181,18 @@ test('rewriting a recovered address stores every part, not just the box that cha
   });
 });
 
-test('land is asked for a project name only when its saved line could not be decomposed', async () => {
+test('land is not asked for a project name when correcting its saved address', async () => {
   const { validateLocationStep } = await import('../src/pages/consumer/list-property/validation.js');
   const land = { propertyType: 'openplot', deal: 'buy', commercialType: '', locality: 'Baner',
     pincode: '', price: '5000000', possession: 'available', availableFrom: '2027-01-20',
     ownership: 'freehold', flatNumber: '', tower: '', society: '', street: '', societyId: '' };
 
   const undecomposed = { ...land, existingAddress: 'Plot 4, East Block,\nSurvey 42/7' };
-  assert.equal(validateLocationStep({ ...undecomposed, street: 'New Road' }, undecomposed).society, true);
-  // Boxes that already decompose the line are the owner's own answers; a blank one was never asked for.
+  assert.equal(validateLocationStep({ ...undecomposed, street: 'New Road' }, undecomposed).society, undefined);
+  // Owner-filled address boxes prove the project-name prompt is not applicable.
   const decomposed = { ...land, existingAddress: 'Survey Road', street: 'Survey Road' };
   assert.equal(validateLocationStep({ ...decomposed, street: 'New Road' }, decomposed).society, undefined);
-  // An untouched address is never re-demanded, however the line was stored.
+  // Stored single-line addresses must remain valid without re-demanding split fields.
   assert.deepEqual(validateLocationStep(undecomposed, undecomposed), {});
 });
 
@@ -208,8 +223,10 @@ test('display types and commercial subtypes invert to wizard keys', () => {
 
 test('legacy missing answers stay blank and search availability is not a calendar date', () => {
   const vm = toViewModel({ address: '  Unit 9, Some building\nPune  ', deposit: null,
-    maintenance: null, negotiable: null, availableFrom: 'within-month', possession: 'ready-to-move' });
+    maintenance: null, negotiable: null, availableFrom: 'within-month', availableDate: '2027-03-15',
+    possession: 'ready-to-move' });
   for (const key of ['deposit', 'maintenance', 'negotiable']) assert.equal(vm[key], null, key);
+  assert.equal(vm.availableDate, '2027-03-15');
   const form = toEditForm(vm);
   assert.equal(form.existingAddress, vm.address);
   for (const key of ['flatNumber', 'tower', 'society', 'street', 'ownership', 'agreementDuration',
@@ -257,12 +274,13 @@ test('area writes accept positive decimals only and prefer canonical built-up ar
   assert.deepEqual(toListingCreate({ formDetails: {} }).formDetails, {});
 });
 
-test('video metadata survives a read but is never written by the listing mapper', () => {
-  const video = { url: '/video.mp4', duration: 20 };
+test('the YouTube walkthrough id survives a read and round-trips through the listing mapper', () => {
+  const video = 'dQw4w9WgXcQ';
   const vm = toViewModel({ ...wire, video });
-  assert.deepEqual(vm.video, video);
+  assert.equal(vm.video, video);
   assert.deepEqual(vm.formDetails, details);
-  assert.equal(Object.hasOwn(toListingCreate(vm), 'video'), false);
+  assert.equal(toListingCreate(vm).video, video);
+  assert.equal(toListingCreate({ ...vm, video: undefined }).video, undefined);
 });
 
 test('form-details helper matches the backend allowlist and preserves exact empty answers', async () => {

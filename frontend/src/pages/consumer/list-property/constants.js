@@ -1,18 +1,15 @@
 import {
   ShieldCheck,
   Tv, Refrigerator, Sofa, Shirt, BedDouble, CookingPot, WashingMachine, AirVent,
-  Microwave, Utensils, ShowerHead, Fan, Blinds, Droplets, Lamp, Flame,
+  Microwave, Utensils, ShowerHead, Fan, Blinds, Droplets, Lamp, Flame, ChefHat,
   Waves, Dumbbell, Zap, ArrowUpDown, Landmark, Trees, Footprints,
   Briefcase, Goal, Blocks, Armchair,
   Bike, Car
 } from 'lucide-react';
 import { localityNames, localityCoordMap } from '../../../data/localities.js';
 
-/* Derived from the canonical registry so "Search an area" works offline; free text still falls back
-   to geocoding and a Google pick refines the pin. */
 export const localities = localityNames();
 export const localityCoords = localityCoordMap();
-/* Separate choices let owners state both compass direction and view. */
 export const facingOptions = ['East', 'West', 'North', 'South'];
 export const overlookingOptions = ['Garden', 'Amenity', 'Parking', 'Main Road'];
 export const ageOptions = [
@@ -23,8 +20,7 @@ export const ageOptions = [
   { value: '15+', label: '15+ years' },
 ];
 export const ownershipOptions = ['Freehold', 'Leasehold', 'Co-operative Society', 'Power of Attorney'];
-/* MIDC estates lease the land for 95 years and sell only the structure, so an industrial title is
-   neither freehold nor an ordinary lease. Commercial branch only — a flat is never held this way. */
+/* Commercial branch only — a flat is never held this way. */
 export const commercialOwnershipOptions = [...ownershipOptions, 'MIDC / Industrial Lease'];
 export const floorOptions = ['Ground', ...Array.from({ length: 50 }, (_, i) => String(i + 1))];
 export const totalFloorsOptions = Array.from({ length: 50 }, (_, i) => String(i + 1));
@@ -38,8 +34,6 @@ export const lockinOptions = [
 ];
 export const noticeOptions = [{ value: '1', label: '1 month' }, { value: '2', label: '2 months' }, { value: '3', label: '3 months' }];
 
-/* Commercial leases run in years, not months, with longer lock-ins. Values stored in months so
-   downstream parsing matches the residential lists. */
 export const commercialAgreementOptions = [
   { value: '36', label: '3 years' }, { value: '60', label: '5 years' },
   { value: '108', label: '9 years' }, { value: '120', label: '10+ years' },
@@ -55,7 +49,7 @@ export const commercialNoticeOptions = [
 ];
 
 /* A plot or farm is let by the year, never on the 11-month tenancy the Rent Act shapes a flat's
-   lease around. Values in months, like the lists above. */
+ * lease around. */
 export const landAgreementOptions = [
   { value: '12', label: '1 year' }, { value: '36', label: '3 years' },
   { value: '60', label: '5 years' }, { value: '108', label: '9 years' },
@@ -69,16 +63,14 @@ export const landNoticeOptions = [
   { value: '1', label: '1 month' }, { value: '3', label: '3 months' }, { value: '6', label: '6 months' },
 ];
 
-/* `Select` renders an unmatched value as a bare number rather than refusing it, so a flat's '11'
-   carried into a plot would publish an 11-month tenancy on a field. */
 export const LEASE_DEFAULTS = {
   residential: { agreementDuration: '11', lockIn: '0', noticePeriod: '1' },
   commercial: { agreementDuration: '12', lockIn: '0', noticePeriod: '1' },
   land: { agreementDuration: '12', lockIn: '0', noticePeriod: '1' },
 };
 
-/* Pune market norms: commercial deposits three to four months, bare land half a year or more. Shared
-   with the desk console so the same owner is never quoted different norms for the same property. */
+/* Shared with the desk console so the same owner is never quoted different norms for the same
+ * property. */
 export const DEPOSIT_MONTHS = {
   residential: [2, 3], commercial: [3, 4], land: [6, 12],
 };
@@ -89,7 +81,7 @@ export const furnitureItems = [
   { label: 'Washing Machine', Icon: WashingMachine }, { label: 'AC', Icon: AirVent }, { label: 'Microwave', Icon: Microwave },
   { label: 'Dining Table', Icon: Utensils }, { label: 'Geyser', Icon: ShowerHead }, { label: 'Fans', Icon: Fan },
   { label: 'Curtains', Icon: Blinds }, { label: 'Water Purifier', Icon: Droplets }, { label: 'Light Fittings', Icon: Lamp },
-  { label: 'Chimney', Icon: Flame },
+  { label: 'Chimney', Icon: Flame }, { label: 'Modular Kitchen', Icon: ChefHat },
 ];
 export const amenitiesList = [
   { label: 'Swimming Pool', Icon: Waves }, { label: 'Gym', Icon: Dumbbell },
@@ -97,41 +89,82 @@ export const amenitiesList = [
   { label: 'Smart Security', Icon: ShieldCheck }, { label: 'Power Backup', Icon: Zap }, { label: 'Lift', Icon: ArrowUpDown },
   { label: 'Club House', Icon: Landmark }, { label: 'Garden', Icon: Trees }, { label: 'Jogging Track', Icon: Footprints },
   { label: 'Co-Working Spaces', Icon: Briefcase }, { label: 'Sports Court', Icon: Goal }, { label: 'Kids Play Zone', Icon: Blocks },
-  { label: 'Senior Seating', Icon: Armchair },
+  { label: 'Senior Seating', Icon: Armchair }, { label: 'Piped Gas', Icon: Flame },
 ];
+export const SOCIETY_AMENITY_LABELS = [
+  'Swimming Pool', 'Gym', '2-Wheeler Parking', '4-Wheeler Parking', 'Smart Security', 'Power Backup',
+  'Lift', 'Club House', 'Garden', 'Jogging Track', 'Sports Court', 'Kids Play Zone', 'Senior Seating', 'Piped Gas',
+];
+const LEGACY_IN_FLAT_AMENITIES = { 'Modular Kitchen': 'Modular Kitchen', AC: 'AC', Wardrobes: 'Wardrobe', 'Water Purifier': 'Water Purifier', Geyser: 'Geyser' };
+export const withInFlatAsFurniture = (listing) => {
+  const amenities = listing.amenities || [];
+  const moved = amenities.filter((a) => Object.hasOwn(LEGACY_IN_FLAT_AMENITIES, a));
+  if (!moved.length) return listing;
+  return {
+    ...listing,
+    amenities: amenities.filter((a) => !moved.includes(a)),
+    furniture: [...new Set([...(listing.furniture || []), ...moved.map((a) => LEGACY_IN_FLAT_AMENITIES[a])])],
+  };
+};
 export const lifestyleTags = ['Non-smoker', 'Early riser', 'Night owl', 'Pet-friendly', 'Working professional', 'Student', 'Fitness', 'Vegetarian'];
 
-// Badge evidence is optional for publishing; only staff can grant the badge after review.
-const badgeDocsFor = (deal) => [
-  { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload original MSEDCL PDF', hint: 'Download the original bill from MSEDCL. No photos, scans or print-to-PDF copies. Keep it under 1 MB; we preserve the original bytes.', verifies: true, originalPdf: true },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt', hint: 'Use a current property-tax receipt instead of the electricity bill.', verifies: true },
-  ...(deal === 'rent' ? [] : [{ key: 'Index II', label: 'Index II', cta: 'Upload Index II', hint: 'For a sale, include Index II as well as a current bill or tax receipt. A sale deed is supporting evidence only.', verifies: true }]),
-];
+const lightBillDoc = (deal) => ({
+  key: 'Electricity Bill',
+  i18n: 'lightBill',
+  verifies: deal === 'rent',
+  supporting: deal === 'buy',
+  recommended: deal === 'rent',
+});
+const propertyTaxDoc = (deal) => ({
+  key: 'Property Tax Receipt',
+  i18n: 'propertyTax',
+  verifies: deal === 'rent',
+  supporting: deal === 'buy',
+});
+const titleProofDocsFor = (propertyType) => {
+  if (propertyType === 'farmland') {
+    return [
+      { key: '7/12 Extract', i18n: 'satbara', verifies: true },
+      { key: '8A Extract', i18n: 'eightA', verifies: true },
+    ];
+  }
+  if (propertyType === 'openplot') {
+    return [
+      { key: '7/12 Extract', i18n: 'satbara', verifies: true },
+      { key: '8A Extract', i18n: 'eightA', verifies: true },
+      { key: 'Property Card', i18n: 'propertyCard', verifies: true },
+    ];
+  }
+  return [
+    { key: 'Index II', i18n: 'indexII', verifies: true },
+    { key: 'Share Certificate', i18n: 'shareCertificate', verifies: true },
+  ];
+};
 
-export const badgeDocumentProgress = (deal, documents = {}) => {
-  const address = Number(!!(documents['Electricity Bill'] || documents['Property Tax Receipt']));
-  return deal === 'rent' ? address : (address + Number(!!documents['Index II'])) / 2;
+export const badgeDocsFor = (deal, propertyType) => {
+  const titleDocs = titleProofDocsFor(propertyType);
+  if (propertyType === 'openplot' || propertyType === 'farmland' || propertyType === 'plot') return titleDocs;
+  return deal === 'rent'
+    ? [lightBillDoc(deal), ...titleDocs, propertyTaxDoc(deal)]
+    : [...titleDocs, propertyTaxDoc(deal), lightBillDoc(deal)];
+};
+
+export const badgeDocumentProgress = (deal, propertyType, documents = {}) => {
+  const titleKeys = titleProofDocsFor(propertyType).map((doc) => doc.key);
+  if (deal === 'rent') {
+    const keys = badgeDocsFor(deal, propertyType).filter((doc) => doc.verifies).map((doc) => doc.key);
+    return Number(keys.some((key) => documents[key]));
+  }
+  return Number(titleKeys.some((key) => documents[key]));
 };
 
 export const saleDocs = [
   ...badgeDocsFor('buy'),
-  { key: 'Agreement to Sale', label: 'Registered Agreement for Sale', cta: 'Upload Agreement for Sale' },
-  { key: 'Sale Deed', label: 'Registered Sale Deed', cta: 'Upload Sale Deed' },
-  { key: 'Occupancy Certificate', label: 'Occupancy Certificate', cta: 'Upload Occupancy Certificate' },
-  { key: 'Share Certificate', label: 'Share Certificate', cta: 'Upload Share Certificate' },
-  { key: 'Society Registration Certificate', label: 'Society Registration Certificate', cta: 'Upload Society Certificate' },
-  { key: 'Sanctioned Building Plan', label: 'Approved Plan Copy', cta: 'Upload Approved Plan' },
-  { key: 'Conveyance Deed', label: 'Conveyance Deed', cta: 'Upload Conveyance Deed' },
-  { key: 'Maintenance Bill', label: 'Maintenance Bill', cta: 'Upload Maintenance Bill' },
-  { key: 'Builder Payment Receipts', label: 'Payment Receipts from Builder', cta: 'Upload Payment Receipts' },
 ];
 export const rentDocs = [
   ...badgeDocsFor('rent'),
-  { key: 'Society NOC', label: 'Society NOC', cta: 'Upload Society NOC', hint: 'Keep your society’s no-objection certificate with the property records.' },
 ];
 
-/* Single source of truth for the property-type model: dropdown order, Step-1 groups, validation,
-   progress and admin all read here. */
 export const PROPERTY_TYPES = [
   { value: 'flat', label: 'Flat / Apartment' },
   { value: 'independent', label: 'Independent House' },
@@ -141,8 +174,8 @@ export const PROPERTY_TYPES = [
   { value: 'farmland', label: 'Farm Land' },
 ];
 
-/* Co-working is absent because it is transacted per seat per month and this wizard collects one lump
-   rent. `data/propertyTypes.js` keeps the subtype so listings posted under it stay searchable. */
+/* Co-working is absent because it is transacted per seat per month and this wizard collects one
+ * lump rent. */
 export const COMMERCIAL_SUBTYPES = [
   { value: 'office', label: 'Office Space' },
   { value: 'shop', label: 'Shop / Showroom' },
@@ -151,8 +184,6 @@ export const COMMERCIAL_SUBTYPES = [
   { value: 'industrial', label: 'Industrial / Factory' },
 ];
 
-/* A listing published under a retired subtype keeps it: re-saving it as the generic "Commercial"
-   would drop it out of `commercial_use_key` and so out of the subtype filter it is found through. */
 const RETIRED_COMMERCIAL_SUBTYPES = [{ value: 'coworking', label: 'Co-working Space' }];
 export const commercialSubtypeOptions = (current) => {
   const retired = RETIRED_COMMERCIAL_SUBTYPES.find((s) => s.value === current);
@@ -175,14 +206,8 @@ export const isCommercialType = (t) => groupOf(t) === 'commercial';
 export const isLandType = (t) => groupOf(t) === 'land';
 export const isHouseType = (t) => !!TYPE_CONFIG[t]?.house;
 
-/* The flatmate wizard's home-type pills, as one `[propertyType, label]` list because the two are
-   halves of a single answer and the server stores both. Row House shares `independent`: it is let
-   exactly like one, and `propertyType` only picks which physical fields to ask for. Which of the
-   pair the host actually picked rides on the label, which is what the room card renders.
-
-   Listed once so a re-type cannot leave the other half behind — `homeTypeLabelFor` reads this same
-   list, and the first entry for a type is its default, which is why Independent House precedes Row
-   House. Two copies would drift silently: nothing type-checks a label against a type. */
+/* The flatmate wizard's home-type pills, as one `[propertyType, label]` list because the two are halves of a single
+   answer and the server stores both. */
 export const HOME_TYPE_PILLS = [
   ['flat', 'Flat'],
   ['independent', 'Independent House'],
@@ -191,29 +216,23 @@ export const HOME_TYPE_PILLS = [
 ];
 export const homeTypeLabelFor = (t) => HOME_TYPE_PILLS.find(([pt]) => pt === t)?.[1] || '';
 
-/* Which lease vocabulary a type is let on. The three groups happen to name it today, but the
-   question is its own — a type could share a group and not a lease. */
 export const leaseKindOf = (t) => (isCommercialType(t) ? 'commercial' : isLandType(t) ? 'land' : 'residential');
 
-/* Non-residential type keys. Legacy 'plot' is kept so listings saved before the
-   Open Plot / Farm Land split still classify correctly. */
 export const NONRES = ['commercial', 'openplot', 'farmland', 'plot'];
 
 export const shellOptions = [['bareShell', 'Bare Shell'], ['warmShell', 'Warm Shell'], ['furnished', 'Furnished']];
 export const washroomOptions = ['1', '2', '3', '4+'];
-/* The full set the server's `ListingFormDetails` accepts. The wizard offers the per-profile subsets
-   below; this union is what a stored value is validated against, including legacy rows. */
+/* The full set the server's `ListingFormDetails` accepts. */
 export const suitableForTags = ['Office', 'Retail', 'Restaurant', 'Clinic', 'Showroom', 'Warehouse', 'Bank / ATM', 'Gym / Studio'];
-/* The vocabulary a Pune Zone Certificate is issued in. "Residential" alone cannot distinguish an R1
-   plot from an R2 one — a difference of FSI and permitted height, which is why a buyer asks. */
+/* "Residential" alone cannot distinguish an R1 plot from an R2 one — a difference of FSI and
+ * permitted height, which is why a buyer asks. */
 export const plotZoneOptions = [
   'Residential (R1)', 'Residential (R2)', 'Commercial (C-1)', 'Industrial (I-1)',
   'Public / Semi-public', 'Mixed-Use', 'Agriculture Zone', 'Green Zone / No-Development Zone',
 ];
 export const openSidesOptions = ['1', '2', '3', '4'];
 
-/* `plotZone` is the owner's label; `landUse` is the column the Land-use filter reads. The five bare
-   labels are retired from the picker but stay mapped, or a re-save drops that plot out of the filter. */
+/* `plotZone` is the owner's label; `landUse` is the column the Land-use filter reads. */
 const LAND_USE_BY_ZONE = {
   'Residential (R1)': 'residential', 'Residential (R2)': 'residential',
   'Commercial (C-1)': 'commercial', 'Industrial (I-1)': 'industrial',
@@ -228,23 +247,22 @@ export const landUseFor = (propertyType, plotZone) => {
   return TYPE_CONFIG[propertyType]?.land === 'farm' ? 'agricultural' : LAND_USE_BY_ZONE[plotZone];
 };
 
-export const plotUnitOptions = [['sqft', 'sq.ft.'], ['sqyd', 'sq.yd.'], ['guntha', 'Guntha']];
+export const plotUnitOptions = [['sqft', 'sq.ft.'], ['sqyd', 'sq.yd.'], ['sqm', 'sq.m.'], ['guntha', 'Guntha']];
 export const farmUnitOptions = [['acre', 'Acre'], ['guntha', 'Guntha'], ['hectare', 'Hectare']];
 export const landUnitOptionsFor = (propertyType) => (
   TYPE_CONFIG[propertyType]?.land === 'farm' ? farmUnitOptions : plotUnitOptions
 );
-/* The unit a type's own list can render. `sqft` is absent from the farm list, so the plot default
-   left the Select on its placeholder while the suffix fell to "Acre" — 5 typed, 5 sq.ft. posted. */
 export const defaultAreaUnitFor = (propertyType) => (
   TYPE_CONFIG[propertyType]?.land === 'farm' ? 'guntha' : 'sqft'
 );
 
-/* Bounds per unit, because the number means nothing without one: a floor of 1 on Acre refuses most
-   farm inventory and a ceiling of 1,000,000 on Acre accepts a district. */
+/* Bounds per unit, because the number means nothing without one: a floor of 1 on Acre refuses
+ * most farm inventory and a ceiling of 1,000,000 on Acre accepts a district. */
 const NON_LAND_AREA_RANGE = [1, 1000000];
 const AREA_RANGE_BY_UNIT = {
   sqft: [100, 1000000],
   sqyd: [10, 110000],
+  sqm: [10, 93000],
   guntha: [1, 4000],
   acre: [0.1, 100],
   hectare: [0.04, 40],
@@ -255,16 +273,14 @@ export const areaRangeFor = (propertyType, areaUnit) => (
 
 export const waterSourceOptions = ['Borewell', 'Open Well', 'Canal', 'Municipal', 'River / Stream', 'None'];
 
-/* Three states, not a checkbox: a checkbox conflates "still agricultural" with "unanswered" and
-   cannot say deemed-NA (s.42B/42C), a different document and a different risk. */
 export const naStatusOptions = [
   { value: 'agricultural', label: 'Still agricultural (no NA)' },
   { value: 'deemed', label: 'Deemed NA (s.42B / 42C)' },
   { value: 'sanctioned', label: 'NA order sanctioned' },
 ];
 
-/* Every parcel has a 7/12; what decides whether a buyer needs a title search is the Other Rights
-   column. One headline state, because any answer but `clear` sends the buyer to the extract. */
+/* Every parcel has a 7/12; what decides whether a buyer needs a title search is the Other
+ * Rights column. */
 export const otherRightsOptions = [
   { value: 'clear', label: 'Clear — no entries in Other Rights' },
   { value: 'mortgage', label: 'Mortgage / bank charge entered' },
@@ -274,8 +290,7 @@ export const otherRightsOptions = [
   { value: 'unknown', label: 'Not checked yet' },
 ];
 
-/* s.63 of the Bombay Tenancy Act bars a non-agriculturist from buying agricultural land outright.
-   A buyer who discovers this at the sub-registrar has lost the deal and the deposit. */
+/* A buyer who discovers this at the sub-registrar has lost the deal and the deposit. */
 export const buyerEligibilityOptions = [
   { value: 'agriculturist', label: 'Agriculturist buyer only' },
   { value: 'permission', label: 'Non-agriculturist buyer — needs s.63(1A) Collector permission' },
@@ -283,33 +298,28 @@ export const buyerEligibilityOptions = [
   { value: 'unknown', label: 'Not sure' },
 ];
 
-/* Three commercial profiles that differ in what a seeker needs to see: workspace, retail and
-   industrial. */
 export const commercialProfileOf = (subtype) => {
   if (subtype === 'shop' || subtype === 'retail') return 'retail';
   if (subtype === 'warehouse' || subtype === 'industrial') return 'industrial';
-  /* Not-yet-picked is its own answer: every lookup below is keyed on the profile, so defaulting to
-     'workspace' offers a warehouse owner office fixtures before they have chosen anything. */
+  /* Not-yet-picked is its own answer: every lookup below is keyed on the profile, so defaulting to 'workspace' offers
+     a warehouse owner office fixtures before they have chosen anything. */
   return subtype ? 'workspace' : null;
 };
 
-/* Returned in place of a profile's list when no subtype has been picked — a stable identity so a
-   re-render does not hand a multi-select a brand-new empty array. */
 const NO_OPTIONS = [];
 
 /* Scoped by the same three profiles as commercialProfileOf so a warehouse never offers
-   "Reception". */
+ * "Reception". */
 export const COMMERCIAL_FIXTURES = {
   workspace: ['Server / UPS Room', 'Meeting Cabins', 'Reception Area', 'Conference Room', 'False Ceiling', 'Central AC'],
   retail: ['Main-Road Frontage', 'Display Windows', 'Rolling Shutter', 'Signage Space', 'Mezzanine Floor', 'Customer Washroom'],
   industrial: ['Loading Bay / Dock', 'High Ceiling', '3-Phase Power', 'Wide Truck Access', 'Crane / Gantry Support', 'Covered Yard'],
 };
 
-/* Options for the fixtures multi-select, given the chosen commercial subtype value. */
 export const fixturesFor = (subtype) => COMMERCIAL_FIXTURES[commercialProfileOf(subtype)] ?? NO_OPTIONS;
 
 /* The businesses each profile can actually house, drawn from `suitableForTags` so every offered
-   value stays inside the server's own set. */
+ * value stays inside the server's own set. */
 const COMMERCIAL_SUITABLE_FOR = {
   workspace: ['Office', 'Clinic', 'Bank / ATM'],
   retail: ['Retail', 'Showroom', 'Restaurant', 'Clinic', 'Gym / Studio', 'Bank / ATM'],
@@ -317,8 +327,7 @@ const COMMERCIAL_SUITABLE_FOR = {
 };
 export const suitableForFor = (subtype) => COMMERCIAL_SUITABLE_FOR[commercialProfileOf(subtype)] ?? NO_OPTIONS;
 
-/* Physical specs scoped per use-profile so a shop is never asked its floor load. `key` is both the
-   form field and the i18n suffix. */
+/* Physical specs scoped per use-profile so a shop is never asked its floor load. */
 const COMMERCIAL_SPECS = {
   workspace: [{ key: 'seatCount', unit: '', ph: 'eg40', max: 4 }],
   retail: [{ key: 'frontage', unit: 'ft', ph: 'eg30', max: 4 }],
@@ -330,22 +339,20 @@ const COMMERCIAL_SPECS = {
   ],
 };
 export const commercialSpecsFor = (subtype) => COMMERCIAL_SPECS[commercialProfileOf(subtype)] ?? NO_OPTIONS;
-/* Every spec key across every profile: what a type switch has to clear, and what the write spreads
-   onto the wire. Derived so neither can fall behind COMMERCIAL_SPECS. */
+/* Every spec key across every profile: what a type switch has to clear, and what the write
+ * spreads onto the wire. */
 export const COMMERCIAL_SPEC_KEYS = Object.values(COMMERCIAL_SPECS).flat().map((s) => s.key);
 
-/* Lease economics. Every Pune commercial tenancy is negotiated on these three before the rent is
-   agreed, and a listing that states none of them cannot be compared with one that does. */
 export const fitOutOptions = [
   { value: '0', label: 'None' }, { value: '1', label: '1 month' }, { value: '2', label: '2 months' },
   { value: '3', label: '3 months' }, { value: '6', label: '6 months' },
 ];
 /* A leased asset is bought for its yield, so the buyer needs the rent in place and the date the
-   lease runs to; a vacant one is bought for its use. Neither answer describes the other. */
+ * lease runs to; a vacant one is bought for its use. */
 export const tenancyStatusOptions = [['vacant', 'Vacant'], ['leased', 'Leased / Tenanted']];
 
-/* Resolve a stored subtype value OR its display label (seed listings persist only the label
-   in `type`) to a use-profile — with a keyword fallback for legacy strings. */
+/* Resolve a stored subtype value OR its display label (seed listings persist only the label in
+ * `type`) to a use-profile — with a keyword fallback for legacy strings. */
 export const commercialProfileFromType = (valueOrLabel) => {
   if (!valueOrLabel) return 'workspace';
   const byValue = COMMERCIAL_SUBTYPES.find((s) => s.value === valueOrLabel);
@@ -358,7 +365,6 @@ export const commercialProfileFromType = (valueOrLabel) => {
   return 'workspace';
 };
 
-// Supporting records vary by property type; the badge requirements do not.
 export const commercialSaleDocs = [
   ...badgeDocsFor('buy'),
   { key: 'Occupancy Certificate', label: 'Occupancy / Completion Certificate', cta: 'Upload OC' },
@@ -369,7 +375,6 @@ export const commercialRentDocs = [
   ...badgeDocsFor('rent'),
   { key: 'Fire NOC', label: 'Fire / Trade NOC', cta: 'Upload NOC', hint: 'Supporting compliance records for business tenants.' },
 ];
-/* Extra, profile-specific compliance documents appended to the commercial base set. */
 const commercialProfileDocs = {
   workspace: { buy: [], rent: [] },
   retail: {
@@ -384,34 +389,26 @@ const commercialProfileDocs = {
     rent: [{ key: 'MPCB Consent', label: 'MPCB Consent (optional)', cta: 'Upload MPCB Consent', hint: 'Reassures manufacturing tenants the site is compliant.' }],
   },
 };
-/* The NA Order slot is on all four land sets because the conversion question is asked of both branches
-   in both deals. `Property Card` exists because a 7/12 stops being maintained once land is surveyed. */
+/* The NA Order slot is on all four land sets because the conversion question is asked of both
+ * branches in both deals. */
 const naOrderDoc = { key: 'NA Order', label: 'NA Order / Zone Certificate', cta: 'Upload NA Order', hint: 'Confirms the plot is sanctioned for non-agricultural use.' };
-const propertyCardDoc = { key: 'Property Card', label: 'Property Card (City Survey)', cta: 'Upload Property Card', hint: 'The record of rights for surveyed, non-agricultural land — the 7/12 is not maintained for it.' };
 export const plotSaleDocs = [
-  ...badgeDocsFor('buy'),
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
-  propertyCardDoc,
+  ...badgeDocsFor('buy', 'openplot'),
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   naOrderDoc,
 ];
 export const plotRentDocs = [
-  ...badgeDocsFor('rent'),
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
-  propertyCardDoc,
+  ...badgeDocsFor('rent', 'openplot'),
   naOrderDoc,
 ];
 export const farmSaleDocs = [
-  ...badgeDocsFor('buy'),
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
-  { key: '8A Extract', label: '8A Extract (Holding Record)', cta: 'Upload 8A Extract', hint: 'Village holding record confirming the cultivator’s account.' },
+  ...badgeDocsFor('buy', 'farmland'),
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt', cta: 'Upload Revenue Receipt' },
   naOrderDoc,
 ];
 export const farmRentDocs = [
-  ...badgeDocsFor('rent'),
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
+  ...badgeDocsFor('rent', 'farmland'),
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt (optional)', cta: 'Upload Revenue Receipt' },
   naOrderDoc,
 ];
@@ -427,8 +424,8 @@ export const docsFor = (deal, propertyType, commercialType) => {
   return rentDocs;
 };
 
-/* Not merely a label: tagging a photo with it is how an owner states "this is my unit's plan", and
-   `submit.js` reads it into `floorPlan`. Exported so the three files matching on it cannot drift. */
+/* Not merely a label: tagging a photo with it is how an owner states "this is my unit's plan",
+ * and `submit.js` reads it into `floorPlan`. */
 export const FLOOR_PLAN_CATEGORY = 'Floor Plan';
 const RESIDENTIAL_PHOTO_CATS = ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom', 'Balcony', 'Exterior / Building', FLOOR_PLAN_CATEGORY, 'Other'];
 const COMMERCIAL_PHOTO_CATS = {
@@ -443,8 +440,8 @@ const COMMERCIAL_KEY_CATS = {
 };
 const PLOT_PHOTO_CATS = ['Front / Entrance', 'Road / Access', 'Corner / Boundary', 'Surroundings', 'Layout Plan', 'Other'];
 const FARM_PHOTO_CATS = ['Front / Entrance', 'Road / Access', 'Water Source', 'Boundary', 'Surroundings', 'Layout Plan', 'Other'];
-/* "Surroundings" is excluded: it is the one land category that can be shot without standing on the
-   land, and a parcel is bought on where its edges run, not on a photograph of the horizon. */
+/* "Surroundings" is excluded: it is the one land category that can be shot without standing on the land, and a parcel
+   is bought on where its edges run, not on a photograph of the horizon. */
 const PLOT_KEY_CATS = ['Corner / Boundary', 'Layout Plan', 'Road / Access'];
 const FARM_KEY_CATS = ['Boundary', 'Layout Plan', 'Road / Access'];
 
@@ -459,14 +456,11 @@ export const keyPhotoCategoriesFor = (propertyType, commercialType) => {
   return ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom'];
 };
 
-/* PUBLISH is the least a seeker needs to judge the place; STRONG is what wins the scroll and the
-   meter only nudges toward it. Any raise to the floor must stay below the target. */
-export const MIN_PUBLISH_PHOTOS = 3;
+export const MIN_PUBLISH_PHOTOS = 1;
 export const MIN_PUBLISH_KEY_CATEGORIES = 2;
 export const STRONG_PHOTO_COUNT = 5;
 
-/* Amenities are type-aware: raw land has none (section hidden); a godown should not advertise a
-   club house or co-working. */
+const RESIDENTIAL_AMENITIES = amenitiesList.filter((a) => SOCIETY_AMENITY_LABELS.includes(a.label));
 const COMMERCIAL_AMENITY_LABELS = {
   workspace: ['2-Wheeler Parking', '4-Wheeler Parking', 'Power Backup', 'Lift', 'Smart Security', 'Co-Working Spaces', 'Club House'],
   retail: ['2-Wheeler Parking', '4-Wheeler Parking', 'Power Backup', 'Lift', 'Smart Security'],
@@ -478,5 +472,5 @@ export const amenitiesFor = (propertyType, commercialType) => {
     const labels = COMMERCIAL_AMENITY_LABELS[commercialProfileOf(commercialType)];
     return labels ? amenitiesList.filter((a) => labels.includes(a.label)) : NO_OPTIONS;
   }
-  return amenitiesList;
+  return RESIDENTIAL_AMENITIES;
 };

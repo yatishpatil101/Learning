@@ -1,4 +1,4 @@
-import { MapPin, ArrowLeft, ArrowRight } from 'lucide-react';
+import { MapPin, ArrowLeft, ArrowRight, LocateFixed, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { FieldError } from './controls.jsx';
@@ -14,15 +14,14 @@ import SocietySelect from './SocietySelect.jsx';
 const LocationStep = ({
   form, set, errors, isLand, isCommercial, legacyAddress,
   mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, geoFillStatus, flyTo,
-  onLocalityChange, onPinMove, locationSet, onAreaSelect,
-  prevStep, nextStep, onReset,
+  onLocalityChange, onPinMove, locationSet, onAreaSelect, onSocietyPick, societyFillNotice,
+  canUseCurrentLocation, useCurrentLocation, currentLocationStatus,
+  prevStep, nextStep, nextPending, onReset,
 }) => {
   const { t } = useTranslation();
   const land = isLand();
   const commercial = isCommercial();
   const addressOptional = isIndustrial(form);
-  // Address terminology adapts to the property type: a shop isn't a "flat" and a
-  // business park isn't a "society".
   const unitLabel = commercial
     ? t(addressOptional ? 'listProperty.fields.unitShopNo' : 'listProperty.fields.unitShopNoReq')
     : t('listProperty.fields.flatUnitNoReq');
@@ -36,10 +35,31 @@ const LocationStep = ({
       : t('listProperty.fields.buildingSocietyNameReq');
   const projectPlaceholder = land ? t('listProperty.ph.egGreenAcres') : commercial ? t('listProperty.ph.egWtc') : t('listProperty.ph.egSkyline');
   const projectError = commercial ? t('listProperty.err.projectCommercial') : t('listProperty.err.society');
+  const showSocietyFirst = !land && !commercial && !addressOptional;
+  const societyFields = societyFillNotice?.fields?.map((key) => t(`listProperty.locationSmart.fields.${key}`)).filter(Boolean).join(', ');
+  const locationMessage = currentLocationStatus ? t(`listProperty.locationSmart.geo.${currentLocationStatus}`) : '';
+  const pinLat = form.pinPlaced ? form.propLat : null;
+  const pinLng = form.pinPlaced ? form.propLng : null;
 
   return (
     <div className="lp-step">
       <StepHeader title={t('listProperty.steps.locationTitle')} subtitle={t('listProperty.steps.locationSubtitle')} onReset={onReset} />
+
+      {showSocietyFirst && (
+        <div className="mb-6" data-err="society">
+          <label className={`${lbl} mb-1`}>{t('listProperty.locationSmart.findSociety')}</label>
+          <p className="text-gray-500 text-xs mb-3">{t('listProperty.locationSmart.findSocietyHelp')}</p>
+          <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={pinLat} lng={pinLng} invalid={!!errors.society} placeholder={projectPlaceholder} onChange={onSocietyPick} />
+          <p className="text-gray-500 text-xs mt-2">{t('listProperty.locationSmart.notListed')}</p>
+          {societyFillNotice && (
+            <p className="text-teal-300/90 text-xs mt-2" role="status">
+              {t('listProperty.locationSmart.filledFrom', { society: societyFillNotice.name })}
+              {societyFields ? ` ${t('listProperty.locationSmart.filledFields', { fields: societyFields })}` : ''}
+            </p>
+          )}
+          <FieldError show={!!errors.society}>{errors.society === 'contact' ? t('listProperty.err.contactDetails') : projectError}</FieldError>
+        </div>
+      )}
 
       {/* Locate first so the owner can confirm auto-filled details below. */}
       <div className="mb-6" data-err="location">
@@ -53,10 +73,30 @@ const LocationStep = ({
             onSelectPlace={onAreaSelect}
             status={mapSearchStatus}
             placeholder={t('listProperty.ph.areaSearch')}
-          />
+          >
+            {canUseCurrentLocation && (
+              <button
+                type="button"
+                onClick={useCurrentLocation}
+                disabled={currentLocationStatus === 'locating'}
+                aria-label={t('listProperty.locationSmart.useCurrentLocation')}
+                title={t('listProperty.locationSmart.useCurrentLocation')}
+                className="btn-outline w-12 shrink-0 rounded-xl text-gray-200 flex items-center justify-center disabled:opacity-70"
+              >
+                {currentLocationStatus === 'locating'
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <LocateFixed className="w-5 h-5" />}
+              </button>
+            )}
+          </AreaSearch>
+          {locationMessage && (
+            <p className={`text-xs mt-2 ${currentLocationStatus === 'denied' || currentLocationStatus === 'timeout' || currentLocationStatus === 'error' || currentLocationStatus === 'unavailable' ? 'text-amber-300' : 'text-gray-500'}`} role="status">
+              {locationMessage}
+            </p>
+          )}
         </div>
         <div style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${errors.location ? 'rgba(248,113,113,.6)' : 'rgba(255,255,255,.1)'}` }}>
-          <LocationPicker lat={form.propLat} lng={form.propLng} flyTo={flyTo} onMove={(la, ln) => onPinMove(la, ln)} />
+          <LocationPicker lat={form.propLat} lng={form.propLng} flyTo={flyTo} onMove={(la, ln) => onPinMove(la, ln)} gestureHandling="cooperative" defaultZoom={16} recenterZoom={16} showZoomControls />
         </div>
         {locationSet ? (
           <p className="text-emerald-300/90 text-xs mt-2 flex items-center gap-1.5">
@@ -85,28 +125,27 @@ const LocationStep = ({
       )}
 
       <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Spans the row so the `sm:contents` pair below starts on a column boundary: with locality
-            occupying one cell, unit and wing land either side of a row break and stop being a pair. */}
+
         <div className="sm:col-span-2"><label className={lbl}>{t('listProperty.fields.locality')}</label><LocalitySelect value={form.locality} onChange={(v) => onLocalityChange(v)} onSelect={(sel) => onLocalityChange(sel.name, sel)} placeholder={t('listProperty.ph.selectLocality')} options={localities} dataErr="locality" invalid={!!errors.locality} /><FieldError show={!!errors.locality}>{t('listProperty.err.locality')}</FieldError></div>
         {!land && (
           <div className="grid grid-cols-2 gap-3 sm:contents">
-            <div className="min-w-0"><label className={lbl}>{unitLabel}</label><input autoComplete="address-line2" value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>
-            <div className="min-w-0"><label className={lbl}>{blockLabel}</label><input autoComplete="address-line2" value={form.tower} maxLength={30} onChange={(e) => set('tower', cleanText(e.target.value))} placeholder={blockPlaceholder} className={fld} /></div>
+            <div className="min-w-0"><label className={lbl}>{unitLabel}</label><input autoComplete="address-line2" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{errors.flatNumber === 'contact' ? t('listProperty.err.contactDetails') : commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>
+            <div className="min-w-0"><label className={lbl}>{blockLabel}</label><input autoComplete="address-line2" value={form.tower} maxLength={30} onChange={(e) => set('tower', cleanText(e.target.value))} data-err="tower" placeholder={blockPlaceholder} className={`${fld} ${errors.tower ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.tower}>{t('listProperty.err.contactDetails')}</FieldError></div>
           </div>
         )}
-        <div><label className={lbl}>{projectLabel}</label>{(!land && !commercial) ? (
-          <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} invalid={!!errors.society} placeholder={projectPlaceholder} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
+        {!showSocietyFirst && <div><label className={lbl}>{projectLabel}</label>{(!land && !commercial) ? (
+          <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={pinLat} lng={pinLng} invalid={!!errors.society} placeholder={projectPlaceholder} onChange={onSocietyPick} />
         ) : (
           <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={projectPlaceholder} className={`${fld} ${errors.society ? 'dz-invalid' : ''}`} />
-        )}<FieldError show={!!errors.society}>{projectError}</FieldError></div>
-        <div><label className={lbl}>{t('listProperty.fields.streetRoad')}</label><input autoComplete="address-line1" value={form.street} maxLength={60} onChange={(e) => set('street', cleanText(e.target.value))} placeholder={t('listProperty.ph.egBanerRoad')} className={fld} /></div>
+        )}<FieldError show={!!errors.society}>{errors.society === 'contact' ? t('listProperty.err.contactDetails') : projectError}</FieldError></div>}
+        <div><label className={lbl}>{t('listProperty.fields.streetRoad')}</label><input autoComplete="address-line1" value={form.street} maxLength={60} onChange={(e) => set('street', cleanText(e.target.value))} data-err="street" placeholder={t('listProperty.ph.egBanerRoad')} className={`${fld} ${errors.street ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.street}>{t('listProperty.err.contactDetails')}</FieldError></div>
         <div><label className={lbl}>{t('listProperty.fields.landmark')}</label><input autoComplete="address-line3" value={form.landmark} maxLength={60} onChange={(e) => set('landmark', cleanText(e.target.value))} placeholder={t('listProperty.ph.egDMart')} className={fld} /></div>
         <div><label className={lbl}>{t('listProperty.fields.pincodeReq')}</label><input autoComplete="postal-code" inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, ''))} data-err="pincode" placeholder="411045" className={`${fld} ${errors.pincode ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.pincode}>{t('listProperty.err.pincode')}</FieldError></div>
       </div>
 
       <div className="flex justify-between lp-step-actions">
         <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
-        <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
+        <button onClick={nextStep} disabled={nextPending} aria-busy={nextPending || undefined} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-70">{nextPending ? t('listProperty.checking') : t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
       </div>
     </div>
   );

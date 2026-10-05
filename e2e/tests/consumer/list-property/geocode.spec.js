@@ -1,28 +1,7 @@
-/**
- * Reverse-geocoding on step 2 of the posting wizard, against the live backend.
- *
- * The geocoder itself is stubbed — `stubGeo` replaces `window.google.maps.Geocoder` so the address
- * a search resolves to is fixed rather than whatever Google returns today, which is the only way
- * these assertions can name a pincode. Everything underneath is live: the wizard is mounted for an
- * account the server registered, and the locality dropdown these tests assert on is populated by
- * the API.
- *
- * The draft-restore test keeps its `LIST_PROPERTY_DRAFT_KEY` seed. That key is a real browser-side
- * draft, not a stand-in for the server, and the bug it reproduces — a returning owner whose stale
- * address refuses to refresh — only exists because the draft is client-owned.
- */
 import { test, expect } from '../../../fixtures/live.js';
-import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { signedInAsNew, API } from '../../../helpers/liveAuth.js';
 import { pickFloors, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
-
-/* Reverse-geocode auto-fill, forward society search, and pin-first ordering on
-   List Property → Location. The Google Places library + Geocoder are
-   stubbed (after the SDK loads) so the tests are deterministic and don't depend
-   on live geocoding responses. */
-
-// Replace the SDK's Places library (primary path) and Geocoder (fallback) with
-// deterministic fakes. Must run AFTER the map's Google SDK has loaded (i.e. after
-// `.gm-style` appears). `fail:true` makes every lookup come back empty.
+// Stub Places and Geocoder after SDK load so geocode paths are deterministic.
 async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb = 'Baner', lat = 18.559, lng = 73.776, fail = false, types = ['sublocality_level_1', 'sublocality', 'political'], name = 'Test Place' } = {}) {
   await page.evaluate(({ pincode, road, suburb, lat, lng, fail, types, name }) => {
     const placeComps = [
@@ -42,8 +21,6 @@ async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb =
       searchByText: async () => ({ places: fail ? [] : [placeObj] }),
     };
 
-    // Autocomplete (Places New) — a session token constructor plus a suggestion
-    // fetcher that returns one prediction whose toPlace() resolves to `placeObj`.
     const makePrediction = (label) => ({
       placeId: 'test-place-id',
       text: { toString: () => label },
@@ -72,9 +49,6 @@ async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb =
     const gcComps = placeComps.map((c) => ({ types: c.types, long_name: c.longText }));
     window.google.maps.Geocoder = class {
       geocode(_req, cb) {
-        // Counted so the failure test can prove the lookup was attempted. Asserting the fields are
-        // empty proves nothing on its own -- they are empty before the search too, and would stay
-        // empty against a page that never wired the geocoder up at all.
         window.__geocodeCalls = (window.__geocodeCalls || 0) + 1;
         const results = [{ address_components: gcComps, geometry: { location: { lat: () => lat, lng: () => lng } } }];
         if (typeof cb === 'function') {
@@ -91,14 +65,10 @@ async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb =
 async function gotoStep2(page) {
   await signedInAsNew(page);
   await page.goto('/list-property');
-  /* `.lp-steps` rather than `.lp-meter`: the meter renders on the listing-limit paywall as well as
-     on the wizard, so it cannot tell them apart. The step rail exists only on the wizard branch. */
+  // Use .lp-steps: .lp-meter also appears on listing-limit paywall.
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* Wait for the portalled menu rather than guarding the click with `count()`: `count()` does not
-     retry, so one frame from open (Select.jsx:178) it returns 0, the click is skipped, and the
-     wizard carries its default type through a test that appears to have chosen one. */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
@@ -113,17 +83,12 @@ async function searchArea(page, q) {
   await page.getByRole('button', { name: /Search location/i }).click();
 }
 
-test('map (pin your location) appears before the address fields', async ({ page }) => {
+test('a known locality reverse-geocodes into the address fields, and the map sits above them', async ({ page }) => {
   await gotoStep2(page);
-  const map = page.locator('.gm-style').first();
-  const localityLabel = page.getByText('Locality *', { exact: true });
-  const mapY = (await map.boundingBox()).y;
-  const locY = (await localityLabel.boundingBox()).y;
+  const mapY = (await page.locator('.gm-style').first().boundingBox()).y;
+  const locY = (await page.getByText('Locality *', { exact: true }).boundingBox()).y;
   expect(mapY).toBeLessThan(locY);
-});
 
-test('searching a known locality reverse-geocodes and fills empty address fields', async ({ page }) => {
-  await gotoStep2(page);
   await stubGeo(page);
   // "Baner" is a known locality (offline gazetteer moves the pin); the reverse
   // geocode of that spot then fills the address via the stubbed Places lookup.
@@ -134,48 +99,26 @@ test('searching a known locality reverse-geocodes and fills empty address fields
   await expect(page.getByText(/Filled some address fields from the map/i)).toBeVisible();
 });
 
-test('searching a named society (not a known locality) moves the pin via Places', async ({ page }) => {
+test('searching a named society (not a known locality) pins it via Places and fills the society name', async ({ page }) => {
   await gotoStep2(page);
-  await stubGeo(page, { lat: 18.5938, lng: 73.7416 });
-  // "Aspiria" isn't in the offline gazetteer — forward search must resolve it
-  // through Google Places and drop the pin (no "couldn't find that area").
+  await stubGeo(page, { lat: 18.5938, lng: 73.7416, name: 'Aspiria', types: ['premise', 'point_of_interest', 'establishment'] });
+  // "Aspiria" isn't in the offline gazetteer, so the forward search must resolve it
+  // through Google Places and drop the pin.
   await searchArea(page, 'Aspiria');
   await expect(page.getByText(/Location set:/i)).toBeVisible({ timeout: 8000 });
   await expect(page.getByText(/Couldn't find that area/i)).toHaveCount(0);
-});
-
-test('searching a named society auto-fills the society name from the pin', async ({ page }) => {
-  await gotoStep2(page);
-  // A place tagged as a premise/POI is a society/building — its name fills the
-  // "Building / Society Name" field (alongside pincode/street/locality).
-  await stubGeo(page, { lat: 18.5938, lng: 73.7416, name: 'Aspiria', types: ['premise', 'point_of_interest', 'establishment'] });
-  await searchArea(page, 'Aspiria');
-  await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria', { timeout: 8000 });
+  await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria');
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411045');
 });
 
-test('an off-list / differently-spelled locality snaps to the nearest known locality', async ({ page }) => {
+test('an off-list locality snaps to the nearest known one, and a corrective re-search replaces the auto-filled address', async ({ page }) => {
   await gotoStep2(page);
-  // Google returns an area name that ISN'T in our gazetteer ("Rajiv Gandhi Infotech
-  // Park") but whose pin sits on canonical "Hinjawadi" — the coords fallback must
-  // resolve it to "Hinjawadi" so the Locality field is never left with an unknown raw
-  // name for an area we can actually name.
-  await stubGeo(page, { lat: 18.591, lng: 73.738, suburb: 'Rajiv Gandhi Infotech Park', name: 'Aspiria', types: ['premise', 'point_of_interest'] });
+  await stubGeo(page, { lat: 18.591, lng: 73.738, suburb: 'Rajiv Gandhi Infotech Park', road: 'Nirmitee Road', pincode: '411057', name: 'Aspiria', types: ['premise', 'point_of_interest'] });
   await searchArea(page, 'Aspiria');
   await expect(page.locator('[data-err="locality"]')).toContainText('Hinjawadi', { timeout: 8000 });
-});
-
-test('a corrective re-search replaces the previous auto-filled address', async ({ page }) => {
-  await gotoStep2(page);
-  // First pick a named society: fills society + pincode from its components.
-  await stubGeo(page, { lat: 18.591, lng: 73.738, suburb: 'Hinjawadi', road: 'Nirmitee Road', pincode: '411057', name: 'Aspiria', types: ['premise', 'point_of_interest'] });
-  await searchArea(page, 'Aspiria');
-  await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria', { timeout: 8000 });
+  await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria');
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411057');
 
-  // Now correct it to a different area (not a named society). The stale auto-filled
-  // values must update to the new place — and the society (which the new area can't
-  // supply) must clear, not linger.
   await stubGeo(page, { lat: 18.598, lng: 73.762, suburb: 'Wakad', road: 'Wakad Road', pincode: '411058', name: 'Shankar Kalat Nagar', types: ['sublocality', 'political'] });
   await searchArea(page, 'Shankar Kalat Nagar');
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411058', { timeout: 8000 });
@@ -193,27 +136,22 @@ test('auto-fill never overwrites a value the owner already typed', async ({ page
 });
 
 test('a search updates address fields restored from a saved draft (not just freshly auto-filled)', async ({ page }) => {
-  // Reproduces the real-world bug: the owner returns to a draft whose address was filled
-  // in a PRIOR session, so nothing is tracked in memory as "auto-filled". A new area
-  // search MUST still refresh the stale values — restored draft fields aren't sacred
-  // (only fields the owner edits in THIS session are). Deciding ownership by comparing
-  // values reads the pre-filled fields as "not ours" and refuses to touch them.
   await signedInAsNew(page);
   await page.addInitScript((key) => {
+    const user = JSON.parse(localStorage.getItem('draazyUser') || '{}');
     localStorage.setItem(key, JSON.stringify({
-      carpetArea: '1050', propertyType: 'flat',
+      deal: 'buy', carpetArea: '1050', propertyType: 'flat', bhk: '2', bathrooms: '2',
       // A tower's floors are answered on step 1, and a draft that predates the question
       // would strand its owner there — which is not the bug this test is about.
       floor: '9', totalFloors: '14',
       locality: 'Hinjawadi', society: 'Aspiria', pincode: '411057', street: 'Nirmitee Road',
+      __owner: user.id || user.uuid || user.mobile || '',
     }));
   }, LIST_PROPERTY_DRAFT_KEY);
   await page.goto('/list-property');
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
-  // carpetArea + propertyType are restored from the draft — just advance to step 2.
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  // Sanity: the draft address really did restore into the fields.
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411057');
   await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria');
   // Now search a different area (not a named society): every stale field must update,
@@ -225,29 +163,76 @@ test('a search updates address fields restored from a saved draft (not just fres
   await expect(page.locator('input[data-err="society"]')).toHaveValue('');
 });
 
-test('a geocode failure leaves fields empty for manual entry (no crash)', async ({ page, consoleErrors }) => {
-  await gotoStep2(page);
-  await stubGeo(page, { fail: true });
-  await searchArea(page, 'Baner');
-  // The lookup ran and came back ZERO_RESULTS. Without this the two assertions below are satisfied
-  // by a page that never called the geocoder, which is the opposite of what this test claims.
-  await expect.poll(() => page.evaluate(() => window.__geocodeCalls || 0)).toBeGreaterThan(0);
-  await expect(page.locator('input[data-err="pincode"]')).toHaveValue('');
-  await expect(page.locator('input[placeholder*="Baner-Balewadi Road"]')).toHaveValue('');
-  expect(consoleErrors, consoleErrors.join('\n')).toHaveLength(0);
-});
-
 test('typing shows live autocomplete suggestions and picking one pins + fills the address', async ({ page }) => {
   await gotoStep2(page);
   await stubGeo(page, { lat: 18.5938, lng: 73.7416 });
   await page.locator('input[placeholder*="Search a locality"]').fill('Aspiria');
-  // Dropdown of predictions appears as you type (google.com/maps style).
   const option = page.locator('.dz-ac-item').first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
-  // Selecting resolves the place: pin set + address fields filled from its components.
   await expect(page.getByText(/Location set:/i)).toBeVisible({ timeout: 8000 });
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411045', { timeout: 8000 });
   await expect(page.locator('input[placeholder*="Baner-Balewadi Road"]')).toHaveValue('Baner Road');
 });
 
+test('society field offers Google Maps buildings our catalogue lacks, and picking one mints it', async ({ page, request }) => {
+  await gotoStep2(page);
+  const NAME = `Zz Gmaps Tower ${Date.now().toString(36)}`;
+  await stubGeo(page, { lat: 18.5938, lng: 73.7416, name: NAME, types: ['premise', 'establishment'] });
+  const society = page.locator('input[data-err="society"]');
+  await society.click();
+  await society.fill(NAME);
+  const googleRow = page.getByTestId('society-google-option').filter({ hasText: NAME });
+  await expect(googleRow).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText('From Google Maps')).toBeVisible();
+  await googleRow.click();
+
+  await expect(society).toHaveValue(NAME);
+  await expect(page.getByText(/pending verification/i)).toBeVisible({ timeout: 8000 });
+  await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411045');
+
+  const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
+  expect(found.status()).toBe(200);
+  const row = (await found.json()).content.find((s) => s.name === NAME);
+  expect(row, 'the Google pick never reached the shared catalogue').toBeTruthy();
+  expect(row.mintOrigin).toBe('listing');
+  expect(Number(row.lat)).toBeCloseTo(18.5938, 3);
+});
+
+test('picking a Google Maps society fills the locality from its place', async ({ page }) => {
+  await gotoStep2(page);
+  const NAME = `Zz Gmaps Locality ${Date.now().toString(36)}`;
+  await stubGeo(page, { lat: 18.591, lng: 73.738, suburb: 'Hinjawadi', pincode: '411057', name: NAME, types: ['premise', 'establishment'] });
+  const society = page.locator('input[data-err="society"]');
+  await society.click();
+  await society.fill(NAME);
+  await page.getByTestId('society-google-option').filter({ hasText: NAME }).click();
+
+  await expect(page.locator('[data-err="locality"]')).toContainText('Hinjawadi', { timeout: 8000 });
+  await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411057');
+});
+
+test('with no geocoder result, a typed society leaves the pin unset and a search leaves the fields empty for manual entry', async ({ page, request, consoleErrors }) => {
+  await gotoStep2(page);
+  await stubGeo(page, { fail: true });
+  const NAME = `Zz Typed Society ${Date.now().toString(36)}`;
+  const society = page.locator('input[data-err="society"]');
+  await society.click();
+  await society.fill(NAME);
+  await page.getByTestId('society-add-option').click();
+  await expect(page.getByText(/pending verification/i)).toBeVisible({ timeout: 8000 });
+
+  await expect(page.getByText(/Location set:/i)).toHaveCount(0);
+  await expect(page.locator('[data-err="locality"]')).not.toContainText('Baner');
+  const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
+  const row = (await found.json()).content.find((s) => s.name === NAME);
+  expect(row, 'the typed society never reached the shared catalogue').toBeTruthy();
+  expect(row.lat).toBeNull();
+
+  await searchArea(page, 'Baner');
+  // Prove geocoder was called; empty fields alone could mean the lookup never ran.
+  await expect.poll(() => page.evaluate(() => window.__geocodeCalls || 0)).toBeGreaterThan(0);
+  await expect(page.locator('input[data-err="pincode"]')).toHaveValue('');
+  await expect(page.locator('input[placeholder*="Baner-Balewadi Road"]')).toHaveValue('');
+  expect(consoleErrors, consoleErrors.join('\n')).toHaveLength(0);
+});

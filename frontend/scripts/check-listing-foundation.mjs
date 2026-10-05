@@ -7,10 +7,9 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
 
-/* Two Java files because the rule and the reaction to it are split: ListingEditRules decides what an edit
-   costs, ListingService acts on the answer. Matched as literal text, so either file moving is a change here. */
 const RULES = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingEditRules.java');
 const SERVICE = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingService.java');
+const LIFECYCLE = join(repo, 'backend/src/main/java/com/draazy/api/catalog/property/PropertyLifecycle.java');
 const TEST = join(repo, 'backend/src/test/java/com/draazy/api/catalog/listing/ListingFoundationTest.java');
 
 const failures = [];
@@ -47,11 +46,7 @@ function ok(condition, what) {
 
 const quoted = (blob) => [...blob.matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2]);
 
-/* 1. The server's set, read off ListingEditRules.apply. The scan only sees blocks opening `if (in.field()`,
-   which is every foundation block but two: `commercialTypeChanged(p, in)` reads its subtype out of
-   formDetails, and the `clearLandUse` arm nests an inner `if`. Each sets a flag this scan credits to no
-   field, and is harmless only because a flat sibling block names that same field anyway. A *new* foundation
-   field written in either shape would be dropped here in silence — write it flat, or widen this pattern. */
+/* The scan sees flat `if (in.field())` blocks; derived-field helpers are checked separately. */
 console.log('\n  1. ListingEditRules.apply — the two foundation sets');
 const serviceSrc = read(SERVICE);
 const applyBody = (read(RULES).split('EditImpact apply(Property p, ListingUpdate in) {')[1] || '')
@@ -73,6 +68,7 @@ ok(serverStaysLive.size > 0, 'no stays-live fields parsed out of ListingEditRule
 /* A field in both sets would make the outcome depend on block order; a field in neither is a search
    facet that costs nothing, which is the bait-and-switch this whole rule exists to price. */
 const inBoth = [...serverOffSearch].filter((f) => serverStaysLive.has(f));
+/* Guard placement matters: an approved listing must not leave search because staff fixed a typo. */
 ok(
   inBoth.length === 0,
   `ListingEditRules.apply puts ${inBoth.join(', ')} in BOTH foundation sets. The outcome would then`
@@ -98,9 +94,7 @@ sameSet(serverStaysLive, oracle('STAYS_LIVE'), 'ListingEditRules.apply stays-liv
    `updateAsModerator` deliberately does not, and mirroring `apply` alone would not catch an inversion. */
 console.log('  3. update() reverts or queues a re-check; updateAsModerator() does neither');
 
-/* Blanks out every innermost `{...}` until none is left, so what remains is the statements the branch runs
-   unconditionally. Position stopped being a proxy for that in 23aa4651, which opened two of these branches
-   with a status guard; `beforeFirstIf` then read as "the rule is gone" rather than "the rule moved". */
+/* Position no longer proves unconditional execution; status guards can wrap these branches. */
 const atDepthZero = (s) => {
   let out = s;
   let prev;
@@ -108,16 +102,21 @@ const atDepthZero = (s) => {
   return out;
 };
 
-const updateBody = (serviceSrc.split('public Property update(UUID userId,')[1] || '').split('\n    }')[0];
+const lifecycleSrc = read(LIFECYCLE);
+const methodBody = (name) => (lifecycleSrc.split(`public void ${name}(`)[1] || '').split('\n    }')[0];
+const outerReenter = methodBody('reenterPending');
+const reenterBody = outerReenter.includes('reenterPendingAfterSecondApproval(')
+  ? outerReenter + methodBody('reenterPendingAfterSecondApproval')
+  : outerReenter;
+const REVERTS = reenterBody.includes('revertToPending();') ? /revertToPending\(\);|reenterPending\(/ : /revertToPending\(\);/;
+const updateBody = (serviceSrc.split('public Property update(AuthPrincipal actor,')[1] || '').split('\n    }')[0];
+ok(updateBody.length > 0, 'ListingService.update not found — its signature changed, so section 3 is reading nothing');
 const remoderationBranch = (updateBody.split('if (impact.remoderationRequired()')[1] || '').split('} else if')[0];
 ok(
-  remoderationBranch.includes('p.revertToPending();'),
+  REVERTS.test(remoderationBranch),
   'ListingService.update no longer reverts to pending on an off-search foundation change — the client'
   + ' banner now describes a rule the server does not have. Decide which is right before editing this check.',
 );
-/* Asserted on the guard rather than on its absence, because narrowing it is legitimate — a draft or an
-   archived listing has no search placement to lose. APPROVED is the one status that must stay inside it:
-   drop that and a live listing keeps answering a filter it was never re-checked against, silently. */
 ok(
   remoderationBranch.includes('PropertyStatus.APPROVED.equals(p.getStatus())'),
   'ListingService.update reverts on an off-search foundation change, but no longer for an APPROVED'
@@ -144,12 +143,9 @@ ok(
   'updateAsModerator now files a re-check ticket, so staff are queued to check their own correction.'
   + ' If that is intended it is a product change, not a checker change.',
 );
-/* It may re-pend, and since 23aa4651 it does — but only a listing that is *already* pending, to reset a
-   lifecycle verification the edit invalidated. The harm this guards is the live case: an APPROVED listing
-   must never come off the site because staff fixed a typo, so the revert has to stay behind the guard. */
 ok(
-  !atDepthZero(moderatorBody).includes('revertToPending')
-    && (!moderatorBody.includes('revertToPending')
+  !REVERTS.test(atDepthZero(moderatorBody))
+    && (!REVERTS.test(moderatorBody)
       || moderatorBody.includes('PropertyStatus.PENDING.equals(p.getStatus())')),
   'updateAsModerator reverts to pending without first establishing the listing was already pending, so a'
   + ' staff typo fix would take a live listing off the site. If that is intended it is a product change,'
@@ -182,7 +178,7 @@ for (const [wire, formKeys] of Object.entries(FOUNDATION_FORM_KEYS)) {
 /* 5. The lists agreeing is not the promise; the banner is. "Your listing comes off search" is a lie in both
    directions, so each edit must land in the right bucket and *not* in the other, nor in `instant`. */
 console.log('  5. classifyChanges routes each foundation edit to the outcome the server will pick');
-const PROBE = { price: ['1000000', '1200000'], monthlyRent: ['25000', '31000'], bhk: ['2', '3'], propertyType: ['flat', 'villa'], locality: ['Kothrud', 'Baner'], deal: ['sale', 'rent'], furnishing: ['unfurnished', 'semi'], possession: ['ready', 'under-construction'] };
+const PROBE = { price: ['1000000', '1200000'], monthlyRent: ['25000', '31000'], bhk: ['2', '3'], propertyType: ['flat', 'villa'], locality: ['Kothrud', 'Baner'], deal: ['sale', 'rent'], furnishing: ['unfurnished', 'semi'], possession: ['ready', 'under-construction'], society: ['old-society', 'new-society'], electricityMeterNo: ['170012345678', '170087654321'], carpetArea: ['1000', '1250'] };
 const probe = (key) => {
   // The gallery is not a form field; it reaches classifyChanges as the two url lists.
   if (key === PHOTO_FIELD.key) return classifyChanges({}, {}, ['a.jpg', 'b.jpg'], ['a.jpg']);

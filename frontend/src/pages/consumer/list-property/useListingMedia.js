@@ -1,16 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
 import { uploadPhoto } from '../../../services/photoService.js';
-import { prepareUpload } from '../../../lib/uploads/prepareUpload.js';
-import { MAX_PHOTOS } from '../../../lib/uploads/policy.js';
+import usePhotoLimit from '../../../lib/uploads/usePhotoLimit.js';
+
+const MAX_PARALLEL_PHOTO_UPLOADS = 3;
+const moveItem = (items, from, to) => {
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, item);
+  return next;
+};
 
 export default function useListingMedia({ setErrors }) {
+  const maxPhotos = usePhotoLimit();
   const [photos, setPhotos] = useState([]);
   const [video, setVideo] = useState(null);
   const [videoName, setVideoName] = useState('');
-  const [documents, setDocuments] = useState({});
   const [mediaStatus, setMediaStatus] = useState('');
   const operation = useRef(null);
-  useEffect(() => () => { operation.current?.abort(); }, []);
+  const uploadSeq = useRef(0);
+  const previewUrls = useRef(new Set());
+  useEffect(() => () => {
+    operation.current?.abort();
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrls.current.clear();
+  }, []);
 
   const setError = (key, msg) => setErrors((prev) => ({ ...prev, [key]: msg }));
   const clearError = (key) => setErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
@@ -24,6 +37,27 @@ export default function useListingMedia({ setErrors }) {
     if (!controller.signal.aborted) { operation.current = null; setMediaStatus(''); }
   };
 
+  const uploadPhotoSlot = async (slot, controller) => {
+    setPhotos((prev) => prev.map((photo) => (photo.id === slot.id ? { ...photo, uploading: true, error: '' } : photo)));
+    try {
+      const { url } = await uploadPhoto(slot.file, { signal: controller.signal });
+      controller.signal.throwIfAborted();
+      setPhotos((prev) => prev.map((photo) => {
+        if (photo.id !== slot.id) return photo;
+        if (photo.previewUrl) {
+          URL.revokeObjectURL(photo.previewUrl);
+          previewUrls.current.delete(photo.previewUrl);
+        }
+        return { id: photo.id, url, category: photo.category || 'Other' };
+      }));
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPhotos((prev) => prev.map((photo) => (photo.id === slot.id
+        ? { ...photo, uploading: false, error: error.message || 'Upload failed. Please try again.' }
+        : photo)));
+    }
+  };
+
   const handlePhotoUpload = async (e) => {
     const input = e.target;
     const picked = Array.from(input.files || []);
@@ -31,58 +65,79 @@ export default function useListingMedia({ setErrors }) {
     if (!picked.length) return;
     const controller = start();
     if (!controller) return;
-    const available = Math.max(0, MAX_PHOTOS - photos.length);
+    const available = Math.max(0, maxPhotos - photos.length);
     const batch = picked.slice(0, available);
-    const failures = picked.length > available ? ['Only 10 photos are allowed. Extra selections were skipped.'] : [];
+    const failures = picked.length > available ? [`Only ${maxPhotos} photos are allowed. Extra selections were skipped.`] : [];
     clearError('photos');
+    const slots = batch.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrls.current.add(previewUrl);
+      return {
+        id: `photo-${Date.now()}-${uploadSeq.current++}`,
+        file,
+        previewUrl,
+        category: 'Other',
+        uploading: true,
+        error: '',
+      };
+    });
+    setPhotos((prev) => [...prev, ...slots]);
     try {
-      for (const [index, file] of batch.entries()) {
-        setMediaStatus(`Preparing and uploading photo ${index + 1} of ${batch.length}…`);
-        try {
-          const { url } = await uploadPhoto(file, { signal: controller.signal });
-          controller.signal.throwIfAborted();
-          setPhotos((prev) => [...prev, { url, category: 'Other' }]);
-        } catch (error) {
-          if (controller.signal.aborted) return;
-          failures.push(`${file.name}: ${error.message || 'Upload failed. Please try again.'}`);
+      let done = 0;
+      let cursor = 0;
+      await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_PHOTO_UPLOADS, slots.length) }, async () => {
+        for (;;) {
+          const slot = slots[cursor];
+          cursor += 1;
+          if (!slot) return;
+          setMediaStatus(`Uploading photo ${done + 1} of ${slots.length}…`);
+          await uploadPhotoSlot(slot, controller);
+          done += 1;
         }
-      }
+      }));
       if (failures.length) setError('photos', failures.join(' '));
     } finally { finish(controller); }
   };
-  const removePhoto = (i) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
-  const setPhotoCategory = (i, cat) => setPhotos((prev) => prev.map((p, idx) => idx === i ? { ...p, category: cat } : p));
-  const handleDocUpload = async (key, e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
+  const retryPhoto = async (i) => {
+    const slot = photos[i];
+    if (!slot?.file) return;
     const controller = start();
     if (!controller) return;
-    clearError(key);
-    setMediaStatus(`Preparing ${file.name}…`);
-    try {
-      const prepared = await prepareUpload(file, {
-        document: true, originalPdf: key === 'Electricity Bill', signal: controller.signal,
-      });
-      const data = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Could not read the document. Please try again.'));
-        reader.readAsDataURL(prepared);
-      });
-      controller.signal.throwIfAborted();
-      setDocuments((prev) => ({ ...prev, [key]: { name: prepared.name, data, size: prepared.size, mime: prepared.type } }));
-    } catch (error) {
-      if (!controller.signal.aborted) setError(key, error.message || 'Could not prepare the document.');
-    } finally { finish(controller); }
+    clearError('photos');
+    setMediaStatus(`Retrying ${slot.file.name}…`);
+    try { await uploadPhotoSlot(slot, controller); } finally { finish(controller); }
+  };
+  const removePhoto = (i) => setPhotos((prev) => {
+    if (prev[i]?.previewUrl) {
+      URL.revokeObjectURL(prev[i].previewUrl);
+      previewUrls.current.delete(prev[i].previewUrl);
+    }
+    return prev.filter((_, idx) => idx !== i);
+  });
+  const setPhotoCategory = (i, cat) => {
+    if (i === '__retry') { void retryPhoto(cat); return; }
+    setPhotos((prev) => {
+      if (i === '__move') return moveItem(prev, cat.from, cat.to);
+      if (i === '__cover') return moveItem(prev, cat, 0);
+      return prev.map((p, idx) => idx === i ? { ...p, category: cat } : p);
+    });
+  };
+  const resetMedia = () => {
+    operation.current?.abort();
+    operation.current = null;
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrls.current.clear();
+    setPhotos([]);
+    setVideo(null);
+    setVideoName('');
+    setMediaStatus('');
   };
 
   return {
     photos, setPhotos,
     video, setVideo,
     videoName, setVideoName,
-    documents, setDocuments,
-    mediaStatus, isMediaBusy: !!mediaStatus, isMediaProcessing: () => !!operation.current,
-    handlePhotoUpload, removePhoto, setPhotoCategory, handleDocUpload,
+    mediaStatus, isMediaBusy: !!mediaStatus, isMediaProcessing: () => !!operation.current, maxPhotos,
+    handlePhotoUpload, removePhoto, setPhotoCategory, retryPhoto, resetMedia,
   };
 }

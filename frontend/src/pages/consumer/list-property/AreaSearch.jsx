@@ -4,16 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { fld } from './styles.js';
 import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails } from './geocode.js';
 
-/* Google-Maps-style area/society search with live autocomplete predictions.
-   As the owner types we fetch Places (New) suggestions (debounced) and show them
-   in a dark dropdown; picking one resolves the exact location + address details and
-   hands them to `onSelectPlace`. The teal button + Enter still run the plain text
-   search (`onRunSearch`) as a fallback when no suggestion is highlighted. */
-
+/* The teal button + Enter still run the plain text search (`onRunSearch`) as a fallback when no
+ * suggestion is highlighted. */
 const DEBOUNCE_MS = 220;
 
 export default function AreaSearch({
-  value, onChange, onRunSearch, onSelectPlace, status, invalid, placeholder,
+  value, onChange, onRunSearch, onSelectPlace, status, invalid, placeholder, children,
 }) {
   const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState([]);
@@ -27,7 +23,6 @@ export default function AreaSearch({
   const boxRef = useRef(null);
   const debounceRef = useRef(null);
   const reqIdRef = useRef(0);
-  // Skip the fetch that would fire from the programmatic setValue after a pick.
   const skipNextRef = useRef(false);
 
   const ensureSession = () => {
@@ -35,7 +30,6 @@ export default function AreaSearch({
     return sessionRef.current;
   };
 
-  // Debounced suggestion fetch driven by the (parent-controlled) input value.
   useEffect(() => {
     if (skipNextRef.current) { skipNextRef.current = false; return; }
     const q = String(value || '').trim();
@@ -48,7 +42,7 @@ export default function AreaSearch({
     const id = ++reqIdRef.current;
     debounceRef.current = setTimeout(async () => {
       const list = await fetchSuggestions(q, ensureSession());
-      if (id !== reqIdRef.current) return; // a newer keystroke superseded this one
+      if (id !== reqIdRef.current) return;
       setSuggestions(list);
       setActive(-1);
       setOpen(list.length > 0);
@@ -57,7 +51,6 @@ export default function AreaSearch({
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [value]);
 
-  // Close the dropdown when clicking away.
   useEffect(() => {
     const onDocClick = (e) => {
       if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
@@ -147,6 +140,7 @@ export default function AreaSearch({
         >
           <Search className="w-4 h-4" /> <span className="hidden sm:inline">{t('listProperty.areaSearch.search')}</span>
         </button>
+        {children}
       </div>
       {status === 'searching' && <p className="text-gray-500 text-xs mt-2">{t('listProperty.areaSearch.searching')}</p>}
       {status === 'notfound' && <p className="text-red-400 text-xs mt-2">{t('listProperty.areaSearch.notfound')}</p>}

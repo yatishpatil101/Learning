@@ -11,8 +11,8 @@ const TIER_ICON = {
   ready: Trophy,
 };
 
-/* Dynamic keys are invisible to `check:i18n`, so the mobile wizard spec asserts the
-   rendered text instead — a missing key renders as the key itself and fails there. */
+/* Dynamic keys are invisible to `check:i18n`, so the mobile wizard spec asserts the rendered
+ * text instead — a missing key renders as the key itself and fails there. */
 const TIER_CHEER = {
   warmup: 'listProperty.meter.cheer.warmup',
   momentum: 'listProperty.meter.cheer.momentum',
@@ -23,13 +23,11 @@ const TIER_CHEER = {
 
 const NUDGE_TEXT = {
   photos: 'listProperty.meter.nudge.photos',
-  evidence: 'listProperty.meter.nudge.evidence',
   description: 'listProperty.meter.nudge.description',
   amenities: 'listProperty.meter.nudge.amenities',
-  documents: 'listProperty.meter.nudge.documents',
 };
 
-/* Milestone nodes light up as the owner crosses each threshold. It never gates publishing; `canPost` does. */
+/* Milestone nodes light up as the owner crosses each threshold. */
 const ProgressMeter = ({ pct, tierKey, label, done, total, nudge }) => {
   const { t } = useTranslation();
   const Icon = TIER_ICON[tierKey] || Sparkles;
@@ -42,8 +40,7 @@ const ProgressMeter = ({ pct, tierKey, label, done, total, nudge }) => {
           </span>
           <div className="min-w-0">
             <p className="text-white font-semibold text-sm sm:text-base leading-tight">{label}</p>
-            {/* One nudge, and only while it is still true — the tier cheer takes over once the
-               highest-impact answers are in, so nothing keeps asking for what is already there. */}
+
             <p className="lp-meter__cheer text-gray-400 text-xs sm:text-sm truncate" data-nudge={nudge || ''} role="status" aria-live="polite" aria-atomic="true">
               {nudge
                 ? t(NUDGE_TEXT[nudge], { count: STRONG_PHOTO_COUNT })

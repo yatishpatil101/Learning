@@ -1,27 +1,31 @@
 import { useEffect, useMemo, useRef, useState, useId } from 'react';
-import { Check, ShieldCheck, Plus } from 'lucide-react';
+import { Check, ShieldCheck, Plus, MapPin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { mintSociety } from '../../../services/societyService.js';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSocietySearch } from '../../../lib/useSocietySearch.js';
+import { fetchSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../../../lib/places.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
-/* Every listing binds to a real society entity rather than a raw string, and an unmatched name mints one
-   inline, so the listing funnel doubles as society acquisition. `mintOrigin` tells ops it came from a seller. */
 const norm = (s) => String(s || '').trim().toLowerCase();
+const GOOGLE_LIMIT = 5;
+const GOOGLE_BIAS_RADIUS_M = 3000;
+const GOOGLE_TYPES = ['establishment', 'premise'];
 
 export default function SocietySelect({
   value, name, onChange,
   localityLabel = '', lat = null, lng = null,
-  placeholder, invalid = false, dataErr = 'society',
+  placeholder, invalid = false, dataErr = 'society', inputClassName = fld, id,
 }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [query, setQuery] = useState(name || '');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [meta, setMeta] = useState(null); // { verified, community } of the bound society
-  // The mint is a round trip now, so the create row can be pressed twice — once by the mouse and
-  // once by an Enter that lands before the first answer — and each press is a society.
+  const [meta, setMeta] = useState(null);
+  // { verified, community } of the bound society The mint is a round trip now, so the create
+  // row can be pressed twice — once by the mouse and once by an Enter that lands.
   const [minting, setMinting] = useState(false);
   const [mintFailed, setMintFailed] = useState(false);
   const rootRef = useRef(null);
@@ -39,16 +43,39 @@ export default function SocietySelect({
   const { rows: results, loading } = useSocietySearch(query, localityLabel, open);
   const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  // `!exact` is only trustworthy once a search has answered: until then every name looks unknown
-  // and a fast typist would accept a mint of a society that already exists.
-  const canCreate = searched && query.trim().length >= 2 && !exact;
-  // Flat item list = societies + optional create row, for shared keyboard nav.
-  const items = useMemo(
-    () => (canCreate ? [...results, { create: true, name: query.trim() }] : results),
-    [results, canCreate, query],
-  );
+  const canCreate = !!user && searched && query.trim().length >= 2 && !exact;
 
-  // Resolve the badge shown under the field for the currently-bound society.
+  const [googleRaw, setGoogleRaw] = useState([]);
+  const sessionRef = useRef(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (!open || q.length < 2) { setGoogleRaw([]); return undefined; }
+    let alive = true;
+    const timer = setTimeout(async () => {
+      if (!sessionRef.current) sessionRef.current = newAutocompleteSession();
+      const out = await fetchSuggestions(q, sessionRef.current, {
+        includedPrimaryTypes: GOOGLE_TYPES,
+        ...(lat != null && lng != null ? { locationBias: { center: { lat: Number(lat), lng: Number(lng) }, radius: GOOGLE_BIAS_RADIUS_M } } : {}),
+      });
+      if (alive) setGoogleRaw(out);
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [query, open, lat, lng]);
+  const google = useMemo(() => {
+    const known = new Set(results.map((r) => norm(r.name)));
+    return googleRaw.filter((g) => g.mainText && !known.has(norm(g.mainText))).slice(0, GOOGLE_LIMIT);
+  }, [googleRaw, results]);
+
+  const items = useMemo(
+    () => [
+      ...results,
+      ...google.map((g) => ({ ...g, google: true })),
+      ...(canCreate ? [{ create: true, name: query.trim() }] : []),
+    ],
+    [results, google, canCreate, query],
+  );
+  const createIndex = results.length + google.length;
+
   useEffect(() => {
     if (!value) { setMeta(null); return; }
     const hit = results.find((r) => r.id === value);
@@ -65,28 +92,26 @@ export default function SocietySelect({
   const pickSociety = (s) => {
     setQuery(s.name);
     setMeta({ verified: s.verified, community: s.community });
-    onChange({ id: s.id, name: s.name, lat: s.lat, lng: s.lng });
+    onChange({ ...s, source: 'pick' });
     setOpen(false);
   };
 
-  const createSociety = async () => {
-    // Belt and braces with `canCreate`: Enter commits `items[active]`, and a list that shrinks as a
-    // newer search lands can leave `active` pointing where the create row sat.
+  const createSociety = async (place = null) => {
     if (!searched || minting) return;
     setMinting(true);
     setMintFailed(false);
     let out;
     try {
       out = await mintSociety({
-        name: query.trim(),
-        localityLabel: localityLabel || undefined,
-        lat: lat ?? undefined,
-        lng: lng ?? undefined,
+        name: place?.name || query.trim(),
+        localityLabel: localityLabel || place?.localityRaw || undefined,
+        lat: place?.lat ?? lat ?? undefined,
+        lng: place?.lng ?? lng ?? undefined,
         mintOrigin: 'listing',
       });
     } catch {
-      /* Say so rather than close the menu on a society that does not exist: the failure is now a network
-         the owner can retry, not the unsluggable name the old synchronous write could only fail on. */
+      /* Say so rather than close the menu on a society that does not exist: the failure is now a network the owner
+         can retry, not the unsluggable name the old synchronous write could only fail on. */
       setMinting(false);
       setMintFailed(true);
       return;
@@ -99,11 +124,41 @@ export default function SocietySelect({
     // minted — so trust the record rather than assuming what we asked for was created.
     const community = rec.source === 'community';
     setMeta({ verified: !community && !!(rec.registration && rec.conveyance), community });
-    onChange({ id: rec.id, name: rec.name, lat: rec.lat, lng: rec.lng });
+    onChange({
+      ...rec,
+      lat: rec.lat ?? place?.lat,
+      lng: rec.lng ?? place?.lng,
+      pincode: rec.pincode || place?.pincode || '',
+      localityRaw: place?.localityRaw || '',
+      community,
+      source: 'create',
+    });
     setOpen(false);
   };
 
-  const commit = (item) => (item.create ? createSociety() : pickSociety(item));
+  const pickGooglePlace = async (suggestion) => {
+    if (minting) return;
+    const details = await fetchPlaceDetails(suggestion);
+    sessionRef.current = null;
+    const place = {
+      name: cleanText(details?.name || suggestion.mainText).slice(0, 60),
+      lat: details?.lat ?? null,
+      lng: details?.lng ?? null,
+      pincode: details?.pincode || '',
+      localityRaw: details?.localityRaw || '',
+    };
+    if (user) { await createSociety(place); return; }
+    setQuery(place.name);
+    setMeta(null);
+    onChange({ id: '', name: place.name, lat: place.lat, lng: place.lng, pincode: place.pincode, localityRaw: place.localityRaw, source: 'place' });
+    setOpen(false);
+  };
+
+  const commit = (item) => {
+    if (item.create) return createSociety();
+    if (item.google) return pickGooglePlace(item);
+    return pickSociety(item);
+  };
 
   const onType = (raw) => {
     const v = cleanText(raw);
@@ -114,19 +169,14 @@ export default function SocietySelect({
     // Auto-bind on an exact name match, otherwise keep the name but drop the id so we never claim
     // a listing belongs to a society the user didn't pick. The effect below repairs a late match.
     const hit = results.find((r) => norm(r.name) === norm(v));
-    onChange({ id: hit ? hit.id : '', name: v, lat: hit?.lat, lng: hit?.lng });
+    onChange({ ...(hit || {}), id: hit ? hit.id : '', name: v, source: 'type' });
   };
 
-  /* Re-attempt the bind once a search settles: typing an exact name before the read lands leaves
-     `value` empty and nothing else re-derives it, so the listing would persist with no societyId. */
   useEffect(() => {
     if (!searched || value || !query.trim()) return;
     const hit = results.find((r) => norm(r.name) === norm(query));
-    // Repair the binding only: `norm` ignores case and spacing, so `hit.name` can differ
-    // cosmetically from text the owner never asked to have respelled.
-    if (hit) onChange({ id: hit.id, name: query, lat: hit.lat, lng: hit.lng });
-    // `onChange` is the parent's unmemoised setter; including it re-runs this every parent render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (hit) onChange({ ...hit, name: query, source: 'match' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-commit.
   }, [searched, results, query, value]);
 
   const onKeyDown = (e) => {
@@ -147,6 +197,7 @@ export default function SocietySelect({
   return (
     <div ref={rootRef} className={`dz-dropdown ${open ? 'is-open' : ''}`} style={{ position: 'relative' }}>
       <input
+        id={id}
         value={query}
         maxLength={60}
         onChange={(e) => onType(e.target.value)}
@@ -157,9 +208,10 @@ export default function SocietySelect({
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
+        aria-invalid={invalid || undefined}
         data-err={dataErr}
         placeholder={placeholder || t('listProperty.society.placeholder')}
-        className={`${fld} ${invalid ? 'dz-invalid' : ''}`}
+        className={`${inputClassName} ${invalid ? 'dz-invalid' : ''}`}
       />
 
       {open && (
@@ -184,17 +236,42 @@ export default function SocietySelect({
             </button>
           ))}
 
+          {google.length > 0 && <div className="dz-dropdown__group">{t('listProperty.society.googleHeading')}</div>}
+          {google.map((g, j) => {
+            const idx = results.length + j;
+            return (
+              <button
+                type="button"
+                key={g.placeId}
+                role="option"
+                aria-selected={false}
+                disabled={minting}
+                onMouseEnter={() => setActive(idx)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pickGooglePlace(g)}
+                data-testid="society-google-option"
+                className={`dz-dropdown__option ${idx === active ? 'is-active' : ''}`}
+              >
+                <MapPin className="opt-icon" />
+                <span className="opt-label" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.mainText}</span>
+                  {g.secondaryText ? <span className="text-xs text-gray-500" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.secondaryText}</span> : null}
+                </span>
+              </button>
+            );
+          })}
+
           {canCreate && (
             <button
               type="button"
               role="option"
               aria-selected={false}
-              onMouseEnter={() => setActive(results.length)}
+              onMouseEnter={() => setActive(createIndex)}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={createSociety}
+              onClick={() => createSociety()}
               disabled={minting}
               data-testid="society-add-option"
-              className={`dz-dropdown__option ${active === results.length ? 'is-active' : ''}`}
+              className={`dz-dropdown__option ${active === createIndex ? 'is-active' : ''}`}
             >
               <Plus className="opt-icon" />
               <span className="opt-label">
@@ -211,7 +288,7 @@ export default function SocietySelect({
             </div>
           )}
 
-          {results.length === 0 && !canCreate && <div className="dz-dropdown__empty">{t('listProperty.society.empty')}</div>}
+          {results.length === 0 && google.length === 0 && !canCreate && <div className="dz-dropdown__empty">{t('listProperty.society.empty')}</div>}
         </div>
       )}
 

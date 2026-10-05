@@ -1,7 +1,7 @@
 import { ADDRESS_PARTS, canStateBuyerEligibility, pickListingFormDetails } from '../../../lib/listingFormDetails.js';
 
 const FIELD_INPUTS = {
-  title: ['bhk', 'propertyType', 'commercialType', 'locality'],
+  title: ['title', 'bhk', 'propertyType', 'commercialType', 'locality'],
   type: ['propertyType', 'commercialType'], deal: ['deal'], bhkNum: ['bhk', 'propertyType'],
   price: ['price', 'monthlyRent', 'deal'], deposit: ['deposit', 'deal'],
   maintenance: ['monthlyMaintenance', 'rentMaintenance', 'rentMaintMode', 'deal'], tenants: ['preferredTenants'],
@@ -15,11 +15,9 @@ const FIELD_INPUTS = {
   bathrooms: ['bathrooms', 'propertyType'], balconies: ['balconies', 'propertyType'],
   parkingSpaces: ['parkingSpaces'], facing: ['facing'], overlooking: ['overlooking'],
   pincode: ['pincode'], reraId: ['reraId'], electricityConsumerNo: ['electricityConsumerNo'],
-  amenities: ['amenities'], desc: ['description'],
+  amenities: ['amenities'], desc: ['description'], video: ['youtubeId'],
 };
 
-/* Order-insensitive for arrays: `amenities` is a set the user toggles, and a chip re-selected in a different
-   order is not an edit — calling it one widens a deliberately sparse PATCH into a full rewrite. */
 const same = (a, b) => (Array.isArray(a) && Array.isArray(b)
   ? a.length === b.length && JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
   : JSON.stringify(a) === JSON.stringify(b));
@@ -35,32 +33,33 @@ export function editPayload(payload, form, original) {
     .map(([key]) => [key, payload[key]]));
   const clearsMaintenance = 'maintenance' in fields
     && fields.maintenance === undefined && original.maintenance != null;
-  /* A plot re-typed to a flat has no zoning to send, and an omitted key means "leave it alone" —
-     so without this word the old zoning survives and goes on answering the Land-use filter. */
+  /* A plot re-typed to a flat has no zoning to send, and an omitted key means "leave it alone",
+   * so without this the old zoning survives and keeps answering zoning filters. */
   const clearsLandUse = 'landUse' in fields
     && fields.landUse === undefined && original.landUse != null;
   const currentDetails = pickListingFormDetails(payload.formDetails ?? form);
   const carriesBuyerEligibility = canStateBuyerEligibility(form);
+  const removesLoanAvailable = Object.hasOwn(form, 'loanAvailable')
+    && (form.loanAvailable === '' || form.loanAvailable == null)
+    && 'loanAvailable' in pickListingFormDetails(original.formDetails);
   const storedDetails = Object.fromEntries(Object.entries(pickListingFormDetails(original.formDetails))
-    .filter(([key]) => carriesBuyerEligibility || key !== 'buyerEligibility'));
+    .filter(([key]) => (carriesBuyerEligibility || key !== 'buyerEligibility')
+      && !(removesLoanAvailable && key === 'loanAvailable')));
   const removesBuyerEligibility = !carriesBuyerEligibility && 'buyerEligibility' in pickListingFormDetails(original.formDetails);
   const propertyTypeChanged = !same(form.propertyType, before.propertyType);
   const changedDetails = Object.fromEntries(Object.entries(currentDetails)
-    .filter(([key, value]) => !same(value, before[key])));
-  /* A rewritten line must stay fully decomposed, or the next edit recomposes the address out of the
-     one box that happened to change and drops the rest. */
+    .filter(([key, value]) => !same(value, before[key]) || (key === 'furniture' && 'amenities' in fields)));
+  /* A rewritten line must stay fully decomposed, or the next edit recomposes the address out of
+   * the one box that happened to change and drops the rest. */
   const details = 'address' in fields
     ? { ...changedDetails, ...Object.fromEntries(ADDRESS_PARTS.map((key) => [key, form[key] ?? ''])) }
     : changedDetails;
   const gallery = original.gallery ?? original.images ?? [];
   const galleryChanged = !same(payload.gallery, gallery);
-  /* The plan is a tag on a photo, so it lives in `photos` and cannot be a `FIELD_INPUTS` entry. Blank means
-     withdrawn, except on a listing whose stored plan is not one of its photos and so had no control. */
   const storedPlan = original.floorPlan ?? '';
   const newPlan = payload.floorPlan ?? '';
   const planWasTaggable = gallery.includes(storedPlan);
   const floorPlanChanged = newPlan !== storedPlan && (newPlan !== '' || planWasTaggable);
-  // Keep an independently stated headline; only update it when it actually mirrored this input.
   const headlineChanged = !same(form.carpetArea, before.carpetArea)
     && Number(original.area) === Number(before.carpetArea);
   return {
@@ -70,8 +69,9 @@ export function editPayload(payload, form, original) {
     ...(headlineChanged && { area: payload.area }),
     ...(propertyTypeChanged
       ? { formDetails: currentDetails }
-      : (Object.keys(details).length || removesBuyerEligibility) && { formDetails: { ...storedDetails, ...details } }),
-    ...(galleryChanged && { gallery: payload.gallery, photoHashes: payload.photoHashes }),
+      : (Object.keys(details).length || removesBuyerEligibility || removesLoanAvailable)
+        && { formDetails: { ...storedDetails, ...details } }),
+    ...(galleryChanged && { gallery: payload.gallery }),
     ...(floorPlanChanged && { floorPlan: newPlan }),
   };
 }

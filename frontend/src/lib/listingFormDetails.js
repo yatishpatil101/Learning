@@ -7,13 +7,15 @@ export const DETAIL_KEYS = new Set([
   'lockIn', 'noticePeriod', 'foodPref', 'petsPolicy', 'availableFrom', 'possession',
   'transactionType', 'rentMaintMode', 'plotArea', 'floorsInHouse', 'washrooms', 'shellType', 'camCharges',
   'plotLength', 'plotWidth', 'openSides', 'roadWidth', 'plotZone', 'waterSource',
-  'loanAvailable', 'powerBackup', 'pantry', 'cornerPlot', 'boundaryWall',
+  'plottedProject', 'loanAvailable', 'powerBackup', 'pantry', 'cornerPlot', 'boundaryWall',
   'naStatus', 'otherRights', 'buyerEligibility',
   // Retired in favour of `naStatus` / `otherRights`; kept so published listings still read back.
   'naSanctioned', 'electricity', 'roadAccess', 'satbara',
   'furniture', 'fixtures', 'suitableFor', 'preferredTenants',
   'gstOnRent', 'fitOutMonths', 'escalationPct', 'tenancyStatus', 'inPlaceRent', 'leaseExpiry',
-  'seatCount', 'frontage', 'floorLoad', 'clearHeight', 'sanctionedPower', 'dockCount',
+  'seatCount', 'frontage', 'floorLoad', 'clearHeight', 'sanctionedPower', 'dockCount', 'bestTimeToCall',
+  // No longer asked; kept so listings that stored it still re-save.
+  'listerRelation',
 ]);
 
 export function pickListingFormDetails(form = {}) {

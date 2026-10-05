@@ -5,9 +5,7 @@ import Icon from './Icon.jsx';
 import Modal from './ui/Modal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSignInGate } from '../lib/useSignInGate.js';
-
-/* The one posting entry point for the whole consumer app — exactly one trigger per viewport,
-   every branch navigates. See docs/flows/consumer/flatmates.md § One posting entry point. */
+/* The one posting entry point for the whole consumer app — exactly one trigger per viewport, every branch navigates. */
 
 const Choice = ({ icon, title, desc, onClick, disabled }) => (
   <button
@@ -21,9 +19,9 @@ const Choice = ({ icon, title, desc, onClick, disabled }) => (
     <div className="min-w-0">
       <p className="text-sm font-semibold text-white">{title}</p>
       <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
+    {/* Centred against the whole row, not nudged down by a fixed margin — the descriptions run to three lines in mr,
+       which a magic offset cannot follow. */}
     </div>
-    {/* Centred against the whole row, not nudged down by a fixed margin — the
-        descriptions run to three lines in mr, which a magic offset cannot follow. */}
     <Icon name="chevron-right" className="w-4 h-4 text-gray-500 ml-auto shrink-0" />
   </button>
 );
@@ -36,17 +34,16 @@ export default function PostChooser({ open, onClose }) {
   // 'what' asks the one classifying question; 'who' only appears for people who
   // have no place yet, where the remaining choice is solo vs an existing group.
   const [step, setStep] = useState('what');
+  /* Every way out of the sheet resets the fork, so someone who backed out on the second question cannot reopen it
+     mid-flow looking at an answer they were never asked for. */
 
-  /* Every way out of the sheet resets the fork, so someone who backed out on the second
-     question cannot reopen it mid-flow looking at an answer they were never asked for. */
   const close = () => { setStep('what'); onClose(); };
 
   const go = (to) => {
     close();
-    /* `to`, not the page the sheet was opened from: the choice the visitor just made is where they
-       were going, so that is where sign-in should return them. Every navigating choice is
-       `disabled` while the session is still being read, so the gate's deferral branch is not
-       reachable from here and there is nothing to re-enable on a `false` return. */
+    /* `to`, not the page the sheet was opened from: the choice the visitor just made is where they were going, so
+       that is where sign-in should return them. */
+    if (to.startsWith('/list-property')) { navigate(to); return; }
     if (!isIn) { sendToSignIn('listproperty', to); return; }
     navigate(to);
   };
@@ -62,9 +59,9 @@ export default function PostChooser({ open, onClose }) {
       </p>
 
       {step === 'what' ? (
+          /* Supply-first, and the same order on every route — a sheet that reshuffles itself by where it was opened
+             has to be re-read each time. */
         <div className="space-y-2.5">
-          {/* Supply-first, and the same order on every route — a sheet that reshuffles itself
-              by where it was opened has to be re-read each time. */}
           <Choice icon="building-2" title={t('postChooser.propertyTitle')} desc={t('postChooser.propertyDesc')} onClick={() => go('/list-property')} disabled={loading} />
           <Choice icon="door-open" title={t('postChooser.roomTitle')} desc={t('postChooser.roomDesc')} onClick={() => go('/list-property?flatmate=1')} disabled={loading} />
           <Choice icon="users-round" title={t('postChooser.lookingTitle')} desc={t('postChooser.lookingDesc')} onClick={() => setStep('who')} />

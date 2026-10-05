@@ -3,9 +3,10 @@ import { Check, Plus, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 import { onActivateKey } from '../../lib/onActivateKey.js';
+import '../../styles/components/furniture-tiles.css';
+/* Custom entries are held in the same plain string array as the predefined ones, so they flow through the existing
+   state/submit path with no schema change. */
 
-/** Custom entries are held in the same plain string array as the predefined ones, so they flow
- *  through the existing state/submit path with no schema change. */
 export default function FeatureSelector({
   options,
   values,
@@ -19,7 +20,7 @@ export default function FeatureSelector({
   const [draft, setDraft] = useState('');
   // A short-lived confirmation so a commit always visibly "does something": re-adding an entry
   // already in the list would otherwise just clear the box and read as nothing happening.
-  const [status, setStatus] = useState(null); // { text, tone: 'ok' | 'muted' }
+  const [status, setStatus] = useState(null);
   const inputRef = useRef(null);
   const statusTimer = useRef(null);
 
@@ -67,9 +68,9 @@ export default function FeatureSelector({
             <div
               key={label}
               onClick={() => onToggle(label)}
-              onKeyDown={onActivateKey(() => onToggle(label))}
               // The app-wide :active press response selects on roles, never on tag names,
               // so without this the grid stays inert under a finger.
+              onKeyDown={onActivateKey(() => onToggle(label))}
               role="button"
               tabIndex={0}
               aria-pressed={on}
@@ -81,9 +82,8 @@ export default function FeatureSelector({
             </div>
           );
         })}
+          {/* aria-label overrides title for screen readers but not the mouse tooltip. */}
         {customValues.map((label) => {
-          // aria-label overrides title for a screen reader but not for the mouse tooltip,
-          // so both are needed and must not drift.
           const removeLabel = `Remove ${label}`;
           return (
             <div

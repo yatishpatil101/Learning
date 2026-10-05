@@ -1,9 +1,8 @@
-/* Listing strength, not completion: "100% complete" on a one-photo listing reads as "nothing left to gain".
-   Never a submission gate — validation governs publishing. Booleans are excluded, having no empty state. */
 
+/* Never a submission gate — validation governs publishing. */
 import {
   isLandType, isCommercialType, isResidentialType, isHouseType, commercialSpecsFor,
-  badgeDocumentProgress, docsFor, amenitiesFor, STRONG_PHOTO_COUNT,
+  amenitiesFor, STRONG_PHOTO_COUNT,
 } from './constants.js';
 
 export const MILESTONES = [20, 40, 60, 80, 100];
@@ -15,7 +14,7 @@ const validPin = (v) => /^[1-9]\d{5}$/.test(String(v || ''));
 // Grouped fields earn partial credit so one supporting document need not complete the group.
 const fracOf = (it) => (it.frac != null ? Math.max(0, Math.min(1, it.frac)) : (it.done ? 1 : 0));
 
-const wholePlaceItems = (form, photos, documents) => {
+const wholePlaceItems = (form, photos) => {
   const pt = form.propertyType;
   const isBuy = form.deal === 'buy';
   const isRent = form.deal === 'rent';
@@ -28,28 +27,23 @@ const wholePlaceItems = (form, photos, documents) => {
   const residentialPricing = !land && !commercial;
   const furnished = form.furnishing === 'furnished' || form.furnishing === 'semi';
 
-  const allDocs = docsFor(form.deal, pt, form.commercialType);
-  const optionalDocs = allDocs.filter((d) => !d.verifies);
-  const optionalDone = optionalDocs.filter((d) => !!documents[d.key]).length;
   const amenityOptions = amenitiesFor(pt, form.commercialType);
-  // The profile-scoped commercial questions do not exist until a subtype is chosen.
   const profiled = commercial && filled(form.commercialType);
 
   const items = [
     { done: filled(pt) },
     commercial && { done: filled(form.commercialType) },
-    residential && { done: filled(form.bhk) },               // BHK
-    residential && { done: filled(form.bathrooms) },         // Bathrooms
-    residential && { done: filled(form.balconies) },         // Balconies
-    { done: filled(form.carpetArea) },                       // Carpet / Plot / Land area *
-    !land && !commercial && { done: filled(form.builtUp) },  // Built-up area
-    !land && !commercial && { done: filled(form.superBuiltUp) }, // Super built-up area
+    residential && { done: filled(form.bhk) },
+    residential && { done: filled(form.bathrooms) },
+    residential && { done: filled(form.balconies) },
+    { done: filled(form.carpetArea) },
+    !land && !commercial && { done: filled(form.builtUp) },
+    !land && !commercial && { done: filled(form.superBuiltUp) },
     house && { done: filled(form.plotArea) },
     house && { done: filled(form.floorsInHouse) },
     towered && { done: filled(form.floor) },
-    towered && { done: filled(form.totalFloors) },           // Total floors
+    towered && { done: filled(form.totalFloors) },
     { done: filled(form.facing) },
-    // Commercial is not asked its age: `shellType` is the fit-out date that matters to a tenant.
     !land && !commercial && { done: filled(form.age) },
     residential && { done: filled(form.furnishing) },
     residential && furnished && { done: nonEmptyArr(form.furniture) },
@@ -73,9 +67,9 @@ const wholePlaceItems = (form, photos, documents) => {
     land && isFarm && isBuy && { done: filled(form.buyerEligibility) },
 
     { done: filled(form.locality) },
-    !land && { done: filled(form.flatNumber) },              // Unit / Flat no. *
-    !land && { done: filled(form.tower) },                   // Block / tower
-    !land && { done: filled(form.society) },                 // Building / project *
+    !land && { done: filled(form.flatNumber) },
+    !land && { done: filled(form.tower) },
+    !land && { done: filled(form.society) },
     { done: filled(form.street) },
     { done: filled(form.landmark) },
     { done: validPin(form.pincode) },
@@ -90,7 +84,7 @@ const wholePlaceItems = (form, photos, documents) => {
     isBuy && !land && { done: filled(form.construction) },
     isBuy && !land && (form.construction === 'new' || form.construction === 'under') && { done: filled(form.availableFrom) },
     /* MahaRERA registers the layout, not the NA plot being resold, so the plot keeps the input
-       but the meter must not dock a seller who has no number to give. */
+     * but the meter must not dock a seller who has no number to give. */
     isBuy && !land && { done: filled(form.reraId) },
 
     isRent && { done: filled(form.monthlyRent) },
@@ -101,16 +95,14 @@ const wholePlaceItems = (form, photos, documents) => {
     isRent && commercial && { done: filled(form.fitOutMonths) },
     isRent && commercial && { done: filled(form.escalationPct) },
     isRent && { done: filled(form.availableFrom) },
-    isRent && residentialPricing && { done: nonEmptyArr(form.preferredTenants) }, // Preferred tenants
+    isRent && residentialPricing && { done: nonEmptyArr(form.preferredTenants) },
     isRent && { done: filled(form.agreementDuration) },
     isRent && { done: filled(form.lockIn) },
     isRent && { done: filled(form.noticePeriod) },
-    isRent && residentialPricing && { done: filled(form.petsPolicy) }, // Pets policy
-    isRent && residentialPricing && { done: filled(form.foodPref) },   // Food preference
+    isRent && residentialPricing && { done: filled(form.petsPolicy) },
+    isRent && residentialPricing && { done: filled(form.foodPref) },
 
     { frac: Math.min(photos.length, STRONG_PHOTO_COUNT) / STRONG_PHOTO_COUNT, nudge: 'photos' },
-    { frac: badgeDocumentProgress(form.deal, documents), nudge: 'evidence' },
-    optionalDocs.length > 0 && { frac: optionalDone / optionalDocs.length, nudge: 'documents' },
     { done: filled(form.description), nudge: 'description' },
     amenityOptions.length > 0 && { done: nonEmptyArr(form.amenities), nudge: 'amenities' },
   ];
@@ -141,25 +133,63 @@ const TIERS = [
   { threshold: 0, key: 'warmup', label: 'Great start' },
 ];
 
-/* One nudge, in the order the answers change whether a buyer enquires. More than one reads as a
-   checklist the owner is failing, and the meter is not a gate. */
-const NUDGE_ORDER = ['photos', 'evidence', 'description', 'amenities', 'documents'];
+const NUDGE_ORDER = ['photos', 'description', 'amenities'];
+const EMPTY_DEFAULTS = {
+  balconies: '1',
+  furnishing: 'unfurnished',
+  areaUnit: 'sqft',
+  propLat: 18.5590,
+  propLng: 73.7760,
+  pinPlaced: false,
+  priceNegotiable: false,
+  pantry: false,
+  cornerPlot: false,
+  boundaryWall: false,
+  electricity: false,
+  roadAccess: false,
+  vegOnly: false,
+  petsAllowed: false,
+  agreementDuration: '11',
+  lockIn: '0',
+  noticePeriod: '1',
+  bestTimeToCall: 'anytime',
+  foodPref: 'any',
+  lookingFor: 'any',
+  hostRole: 'owner',
+  agreementDeclared: false,
+  ownerConsent: false,
+};
+
+const sameDefault = (value, def) => Array.isArray(def)
+  ? Array.isArray(value) && value.length === def.length && value.every((v, i) => v === def[i])
+  : value === def;
+
+const hasMeaningfulInput = (form, photos) => {
+  if (photos.length) return true;
+  return Object.entries(form || {}).some(([key, value]) => {
+    if (Object.prototype.hasOwnProperty.call(EMPTY_DEFAULTS, key) && sameDefault(value, EMPTY_DEFAULTS[key])) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'boolean') return value;
+    return filled(value);
+  });
+};
 
 const tierFor = (pct) => {
   const tier = TIERS.find((t) => pct >= t.threshold);
   return { key: tier.key, label: tier.label };
 };
 
-export const computeProgress = ({ form, photos = [], documents = {}, isFlatmateMode = false }) => {
+export const computeProgress = ({ form, photos = [], isFlatmateMode = false }) => {
   const items = isFlatmateMode
     ? flatmateItems(form, photos)
-    : wholePlaceItems(form, photos, documents);
+    : wholePlaceItems(form, photos);
   const total = items.reduce((s, it) => s + (it.weight ?? 1), 0);
   const earned = items.reduce((s, it) => s + (it.weight ?? 1) * fracOf(it), 0);
   const fieldFrac = total ? earned / total : 0;
   const pct = Math.round(100 * fieldFrac);
   const done = items.filter((item) => fracOf(item) === 1).length;
-  const nudge = NUDGE_ORDER.find((key) =>
+  const tier = tierFor(pct);
+  const nudge = !hasMeaningfulInput(form, photos) ? null : NUDGE_ORDER.find((key) =>
     items.some((item) => item.nudge === key && fracOf(item) < 1)) ?? null;
-  return { pct: Math.min(100, pct), done, total: items.length, nudge, ...tierFor(pct) };
+  return { pct: Math.min(100, pct), done, total: items.length, nudge, ...tier };
 };

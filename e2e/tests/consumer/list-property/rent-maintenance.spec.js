@@ -3,10 +3,6 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
-
-const PNG =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII=';
-
 // Track owners before submission so teardown can withdraw listings even after a mid-flow failure.
 const owners = new Set();
 
@@ -29,7 +25,6 @@ test.afterEach(async () => {
   owners.clear();
 });
 
-// The step rail distinguishes the wizard from the paywall, which also renders the meter.
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
   owners.add(mobile);
@@ -40,18 +35,33 @@ async function gotoFlow(page) {
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  // Portal mounting precedes interactivity by one animation frame.
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({ page }) => {
+test('Pill selection is keyboard-operable, and a rent "Charged Extra" maintenance amount is saved on the listing', async ({ page }) => {
+  test.slow();
   const mobile = await gotoFlow(page);
+
+  await test.step('Pill selection atoms are keyboard-operable', async () => {
+    const rentPill = page.locator('.radio-pill', { hasText: 'Rent' }).first();
+    await expect(rentPill).toHaveAttribute('role', 'button');
+    await rentPill.focus();
+    await rentPill.press('Enter');
+    await expect(rentPill).toHaveClass(/selected/);
+    await expect(rentPill).toHaveAttribute('aria-pressed', 'true');
+
+    const salePill = page.locator('.radio-pill', { hasText: 'Sale' }).first();
+    await salePill.focus();
+    await salePill.press(' ');
+    await expect(salePill).toHaveClass(/selected/);
+  });
 
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' }).first().click();
+  await page.locator('[data-err="bhk"]').getByRole('button', { name: '2', exact: true }).click();
   await page.locator('input[data-err="carpetArea"]').fill('900');
   for (const [dataErr, value] of [['floor', '9'], ['totalFloors', '14']]) {
     await page.locator(`[data-err="${dataErr}"] .dz-dropdown__trigger`).click();
@@ -73,37 +83,17 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.locator('input[placeholder="e.g. 2,500"]').fill('2500');
   await pickDate(page, '[data-err="availableFrom"]', '2027-12-31');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Photos & documents/i', { timeout: 15000 });
+  await page.waitForSelector('text=/Photos & description/i', { timeout: 15000 });
 
-  // Canvas-generated PNG bytes keep decode validation from masking the persistence assertion.
-  const buf = Buffer.from(PNG, 'base64');
   await uploadPublishablePhotos(page);
-  await page.locator('.doc-upload input[type="file"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
   await page.getByRole('button', { name: /Submit Property/i }).click();
-  await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('text=/Submitted for review/i')).toBeVisible({ timeout: 30000 });
 
   const res = await fetch(`${API}/me/listings`, { headers: await authHeaders(mobile) });
   expect(res.status).toBe(200);
   const body = await res.json();
   const rows = Array.isArray(body) ? body : (body.content ?? body.items ?? []);
-  // Brand-new account, one listing posted, free tier allows one — no search needed.
   expect(rows).toHaveLength(1);
   expect(rows[0].deal).toBe('rent');
   expect(rows[0].maintenance).toBe(2500);
-});
-
-test('Pill and Toggle selection atoms are keyboard-operable', async ({ page }) => {
-  await gotoFlow(page);
-
-  const rentPill = page.locator('.radio-pill', { hasText: 'Rent' }).first();
-  await expect(rentPill).toHaveAttribute('role', 'button');
-  await rentPill.focus();
-  await rentPill.press('Enter');
-  await expect(rentPill).toHaveClass(/selected/);
-  await expect(rentPill).toHaveAttribute('aria-pressed', 'true');
-
-  const salePill = page.locator('.radio-pill', { hasText: 'Sale' }).first();
-  await salePill.focus();
-  await salePill.press(' ');
-  await expect(salePill).toHaveClass(/selected/);
 });

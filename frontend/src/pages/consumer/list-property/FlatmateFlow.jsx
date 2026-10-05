@@ -10,7 +10,17 @@ import PhotoUploader from './PhotoUploader.jsx';
 import { fld, lbl, lbl3 } from './styles.js';
 import { localities, isHouseType } from './constants.js';
 import { cleanText } from './sanitize.js';
+import { moneyWords } from './format.js';
 import SocietySelect from './SocietySelect.jsx';
+import { roomHeadline } from './submit.js';
+import HeadlineField from '../../../components/ui/HeadlineField.jsx';
+
+const StepActions = ({ prevStep, nextStep, t }) => (
+  <div className="flex justify-between lp-step-actions">
+    <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
+    <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
+  </div>
+);
 
 // A room share needs the property's address and map, but owner-only sale and lease terms
 // do not apply to a sitting tenant or room host.
@@ -18,9 +28,10 @@ const FlatmateFlow = ({
   form, set, errors, money,
   photos, handlePhotoUpload, removePhoto, setPhotoCategory,
   isMediaBusy, mediaStatus,
-  currentStep, prevStep, nextStep, submitFlatmate, onReset,
+  currentStep, prevStep, nextStep, submitFlatmate, onReset, isEditing = false,
   mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, geoFillStatus,
   flyTo, onLocalityChange, onPinMove, locationSet, onAreaSelect, onSocietyPick,
+  needsAuthForMedia = false, onRequireAuth,
 }) => {
   const { t } = useTranslation();
   const isHouse = isHouseType(form.propertyType);
@@ -29,11 +40,9 @@ const FlatmateFlow = ({
       <div className="lp-step">
         <StepHeader title={t('listProperty.steps.flatmateLocationTitle')} subtitle={t('listProperty.steps.flatmateLocationSubtitle')} onReset={onReset} />
 
-        {/* Keep the map before the address: auto-fill must run before manual edits,
-          which it deliberately never overwrites. */}
+        {/* Keep the map before the address: auto-fill must run before manual edits. */}
         <div className="mb-6" data-err="location">
           <label className={`${lbl} mb-1`}>{t('listProperty.fields.pinFlatLocation')}</label>
-          <p className="text-gray-500 text-xs mb-3">{t('listProperty.help.pinPropertyHint')}</p>
           <div className="mb-2">
             <AreaSearch
               value={mapSearch}
@@ -72,7 +81,7 @@ const FlatmateFlow = ({
             {isHouse ? (
               <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'dz-invalid' : ''}`} />
             ) : (
-              <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} invalid={!!errors.society} onChange={onSocietyPick} />
+              <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.pinPlaced ? form.propLat : null} lng={form.pinPlaced ? form.propLng : null} invalid={!!errors.society} onChange={onSocietyPick} />
             )}
             <FieldError show={!!errors.society}>{isHouse ? t('listProperty.err.house') : t('listProperty.err.society')}</FieldError>
           </div>
@@ -98,15 +107,29 @@ const FlatmateFlow = ({
           </div>
         </div>
 
+        <StepActions prevStep={prevStep} nextStep={nextStep} t={t} />
+      </div>
+    );
+  }
+
+  if (currentStep === 3) {
+    return (
+      <div className="lp-step">
+        <StepHeader title={t('listProperty.steps.flatmatePriceTitle')} subtitle={t('listProperty.steps.flatmatePriceSubtitle')} onReset={onReset} />
+
         <div className="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className={lbl}>{t('listProperty.fields.yourShareRent')}</label>
+            <label className={lbl}>{t('listProperty.fields.roomRent')}</label>
             <div className="relative">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
               <input inputMode="numeric" maxLength={10} {...money('rentShare')} data-err="rentShare" placeholder={t('listProperty.ph.egRentShare')} className={`${fld} pl-10 pr-14 ${errors.rentShare ? 'dz-invalid' : ''}`} />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">{t('listProperty.unit.perMo')}</div>
             </div>
             <FieldError show={!!errors.rentShare}>{t('listProperty.err.rentShare')}</FieldError>
+            {moneyWords(form.rentShare) && <p className="mt-1.5 ml-1 text-xs text-gray-500">{moneyWords(form.rentShare)}</p>}
+            {form.roomType === 'Shared room' && Number(form.rentShare) > 0 && (
+              <p className="mt-1 ml-1 text-xs text-teal-300" data-testid="room-rent-split">{t('listProperty.help.roomRentSplit', { price: `₹${Math.round(Number(form.rentShare) / 2).toLocaleString('en-IN')}` })}</p>
+            )}
           </div>
           <div>
             <label className={lbl}>{t('listProperty.fields.securityDeposit')}</label>
@@ -114,6 +137,7 @@ const FlatmateFlow = ({
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
               <input inputMode="numeric" maxLength={10} {...money('deposit')} placeholder={t('listProperty.ph.egDeposit28')} className={`${fld} pl-10 pr-4`} />
             </div>
+            {moneyWords(form.deposit) && <p className="mt-1.5 ml-1 text-xs text-gray-500">{moneyWords(form.deposit)}</p>}
           </div>
           <div>
             <label className={lbl}>{t('listProperty.fields.availableFrom')}</label>
@@ -122,10 +146,7 @@ const FlatmateFlow = ({
           </div>
         </div>
 
-        <div className="flex justify-between lp-step-actions">
-          <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
-          <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
-        </div>
+        <StepActions prevStep={prevStep} nextStep={nextStep} t={t} />
       </div>
     );
   }
@@ -134,17 +155,37 @@ const FlatmateFlow = ({
     <div className="lp-step">
       <StepHeader title={t('listProperty.steps.flatmatePhotosTitle')} subtitle={t('listProperty.steps.flatmatePhotosSubtitle')} onReset={onReset} />
 
-      <PhotoUploader
-        form={form}
-        photos={photos}
-        handlePhotoUpload={handlePhotoUpload}
-        removePhoto={removePhoto}
-        setPhotoCategory={setPhotoCategory}
-        error={errors.photos}
-        isMediaBusy={isMediaBusy}
-        mediaStatus={mediaStatus}
-        label={t('listProperty.photoUploader.defaultLabel')}
-        hint={t('listProperty.flatmate.photosHint')}
+      {needsAuthForMedia ? (
+        <div className="mb-6 rounded-2xl border border-teal-400/25 bg-teal-400/10 p-4 sm:p-5">
+          <h3 className="text-base font-semibold text-white">{t('listProperty.deferredLogin.mediaTitle')}</h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-gray-300">{t('listProperty.deferredLogin.mediaBody')}</p>
+          <button type="button" onClick={onRequireAuth} className="mt-4 btn-teal min-h-[44px] rounded-xl px-5 text-sm font-semibold text-white">
+            {t('listProperty.deferredLogin.cta')}
+          </button>
+        </div>
+      ) : (
+        <PhotoUploader
+          form={form}
+          photos={photos}
+          handlePhotoUpload={handlePhotoUpload}
+          removePhoto={removePhoto}
+          setPhotoCategory={setPhotoCategory}
+          error={errors.photos}
+          isMediaBusy={isMediaBusy}
+          mediaStatus={mediaStatus}
+          label={t('listProperty.photoUploader.defaultLabel')}
+          hint={t('listProperty.flatmate.photosHint')}
+        />
+      )}
+
+      <HeadlineField
+        className="mb-6"
+        value={form.title}
+        onChange={(value) => set('title', value)}
+        suggestion={roomHeadline(form)}
+        error={errors.title ? t('common.headline.contact') : ''}
+        labelClassName={lbl3}
+        inputClassName={fld}
       />
 
       <div className="mb-8">
@@ -155,7 +196,7 @@ const FlatmateFlow = ({
       <div className="flex justify-between lp-step-actions">
         <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
         <button onClick={submitFlatmate} disabled={isMediaBusy} aria-busy={isMediaBusy} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
-          <Users className="w-4 h-4" /> {t('listProperty.flatmate.postFind')}
+          <Users className="w-4 h-4" /> {t(isEditing ? 'listProperty.edit.saveRoom' : needsAuthForMedia ? 'listProperty.deferredLogin.postCta' : 'listProperty.flatmate.postFind')}
         </button>
       </div>
     </div>

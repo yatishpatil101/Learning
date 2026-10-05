@@ -5,30 +5,25 @@ export default function ListPropertyModals({ ctx }) {
   const {
     t, showResetConfirm, setShowResetConfirm, confirmReset,
     showIdentityGuard, setShowIdentityGuard, showDupGuard, setShowDupGuard, dupExistingId, navigate,
+    showLeaveConfirm, setShowLeaveConfirm, confirmLeave, editId,
   } = ctx;
 
-  /**
-   * "Go to the listing you already have."
-   *
-   * This used to check `getListing(dupExistingId)` first and fall back to the dashboard, because
-   * the edit route prefilled from the local store only: on a device that had never held that
-   * listing the editor rendered empty, and telling an owner "here is the one you already have"
-   * while showing them a blank form was worse than not offering the link.
-   *
-   * The editor reads through the seam now (D237), so the id the server just handed back is an id
-   * it can open. The fallback is gone with the condition that needed it — keeping a dashboard
-   * detour for a form that works would send the owner somewhere they did not ask to go.
-   */
+  /* "Go to the listing you already have." This used to check `getListing(dupExistingId)` first and fall back to the
+     dashboard, because the edit route prefilled from the local store only. */
   const goToExisting = () => {
     if (dupExistingId) {
       navigate(`/list-property?edit=${dupExistingId}`);
       return;
     }
-    navigate('/dashboard');
+    navigate('/dashboard#properties');
   };
 
   return (
     <>
+      {/* Duplicate-property guard — this owner already has this exact unit (same electricity meter /
+         society+unit+pincode) listed, so we stop the second post and point them to the one they already have. */}
+      {/* Changing property type / locality makes this a different property, so we stop the edit and point the owner
+         to a plan rather than silently repurposing their listing to skip the paywall. */}
       <Modal
         open={showResetConfirm}
         onClose={() => setShowResetConfirm(false)}
@@ -58,9 +53,6 @@ export default function ListPropertyModals({ ctx }) {
         </p>
       </Modal>
 
-      {/* P2 — identity-change guard. Changing property type / locality makes this
-         a different property, so we stop the edit and point the owner to a plan
-         rather than silently repurposing their listing to skip the paywall. */}
       <Modal
         open={showIdentityGuard}
         onClose={() => setShowIdentityGuard(false)}
@@ -90,11 +82,6 @@ export default function ListPropertyModals({ ctx }) {
         </p>
       </Modal>
 
-      {/* Duplicate-property guard — this owner already has this exact unit
-         (same electricity meter / society+unit+pincode) listed, so we stop the
-         second post and point them to the one they already have. The id comes
-         from the server now (D226), so it names a listing that really exists —
-         but see `goToExisting` for why that is not enough to open the editor. */}
       <Modal
         open={showDupGuard}
         onClose={() => setShowDupGuard(false)}
@@ -121,6 +108,37 @@ export default function ListPropertyModals({ ctx }) {
       >
         <p className="text-sm text-gray-300 leading-relaxed">
           {t('listProperty.modal.dupBodyPre')} <strong className="text-white">{t('listProperty.modal.dupBodyTerm')}</strong> {t('listProperty.modal.dupBodyPost')}
+        </p>
+      </Modal>
+
+      <Modal
+        open={showLeaveConfirm}
+        onClose={() => setShowLeaveConfirm(false)}
+        title={t('listProperty.shell.leaveTitle')}
+        size="sm"
+        footer={(
+          <>
+            <button
+              type="button"
+              onClick={() => setShowLeaveConfirm(false)}
+              className="btn-outline px-5 py-2.5 rounded-xl text-gray-300 font-semibold text-sm"
+            >
+              {t('listProperty.shell.stay')}
+            </button>
+            <button
+              type="button"
+              onClick={confirmLeave}
+              className="btn-teal px-5 py-2.5 rounded-xl text-white font-semibold text-sm"
+            >
+              {t('listProperty.shell.leave')}
+            </button>
+          </>
+        )}
+      >
+        <p className="text-sm text-gray-300 leading-relaxed">
+          {editId
+            ? t('listProperty.shell.leaveBodyEdit', { defaultValue: 'Your unsaved changes will be lost if you leave now.' })
+            : t('listProperty.shell.leaveBody')}
         </p>
       </Modal>
     </>

@@ -2,18 +2,16 @@ import { ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select';
 import MultiSelect from '../../../components/ui/MultiSelect';
-import FeatureSelector from '../../../components/ui/FeatureSelector';
 import { Pill, FieldError, ToggleRow } from './controls.jsx';
 import { fld, lbl, lbl3, ddSolo, unitSuffix } from './styles.js';
-import { facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions, furnitureItems,
+import { facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions,
   PROPERTY_TYPES, commercialSubtypeOptions, shellOptions, washroomOptions, suitableForFor, fixturesFor,
   commercialSpecsFor, commercialProfileOf, landUnitOptionsFor, areaRangeFor, naStatusOptions,
   otherRightsOptions, buyerEligibilityOptions,
   plotZoneOptions, openSidesOptions, waterSourceOptions } from './constants.js';
 import { toDecimal } from './sanitize.js';
+import FurnitureIncluded from './FurnitureIncluded.jsx';
 
-/* One interaction model for one field: the slot count is a small number off a short list, so
-   commercial gets the same pills residential has rather than a free numeric box. */
 const parkingChoices = (tr) => [['0', tr('listProperty.opt.none')], ['1', '1'], ['2', '2'], ['3', '3+']];
 
 export default function PropertyDetailsWhole({ form, set, onPropertyType, onCommercialType, errors, isResidential, isLand, isCommercial, isHouse, toggleInArray, nextStep }) {
@@ -28,10 +26,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
 
   return (
                     <>
-                      {/* Property Type + BHK — the two most-defining fields share
-                         one row, keeping the dropdown compact instead of stretched.
-                         For commercial, the Commercial Type dropdown takes the
-                         right column so both selectors read as one balanced row. */}
+
                       <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.propertyType')}</label>
@@ -49,17 +44,16 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.bhk')}</label>
                             <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'dz-invalid-group' : ''}`} data-err="bhk">
-                              {['0', '1', '2', '3', '4'].map((n) => (
-                                <Pill key={n} selected={form.bhk === n} onClick={() => set('bhk', n)} className="px-5 py-2.5">{n === '0' ? tr('listProperty.opt.oneRk') : n === '4' ? '4+' : n}</Pill>
+                              {['0', '1', '2', '3', '4', '5'].map((n) => (
+                                <Pill key={n} selected={form.bhk === n} onClick={() => set('bhk', n)} className="px-5 py-2.5">{n === '0' ? tr('listProperty.opt.oneRk') : n === '5' ? '5+' : n}</Pill>
                               ))}
                             </div>
                             <FieldError show={!!errors.bhk}>{tr('listProperty.err.bhk')}</FieldError>
                           </div>
                         )}
 
-                        {/* Commercial sub-type — required second choice so a shop and a
-                           warehouse never share one bucket. Shares the Property Type
-                           row as a compact dropdown; only surfaces for Commercial. */}
+                        {/* Commercial sub-type — required second choice so a shop and a warehouse never share one
+                           bucket. */}
                         {isCommercial() && (
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.commercialType')}</label>
@@ -98,13 +92,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </div>
                       )}
 
-                      {/* Parking. Asked of a residential lister for the first time in D244: the
-                          detail page has always had a Parking tile, but the only control was on the
-                          commercial branch, so for every flat in the catalogue it rendered an em
-                          dash no matter what the owner would have said. A count and not a yes/no —
-                          "is there parking" is answered by the amenity list; the number of slots
-                          that come with the unit is the thing a two-car household compares, and it
-                          is the one the tile was always asking for. */}
                       {isResidential() && (
                         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                           <div>
@@ -118,14 +105,13 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </div>
                       )}
 
-                      {/* Paired dimensions share one row at every width. */}
                       <div className="mb-6 grid grid-cols-2 gap-4">
                         <div>
                           <label className={lbl3}>{areaLabel} *</label>
                           <div className="relative">
                             <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} data-err="carpetArea"
                               placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-14 ${errors.carpetArea ? 'dz-invalid' : ''}`} />
-                            {/* pr-14 clears the widest land unit, "Guntha", not just "sq.ft.". */}
+
                             <div className={unitSuffix}>{unitLabel}</div>
                           </div>
                           <FieldError show={!!errors.carpetArea}>
@@ -136,7 +122,9 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                                 max: areaRangeFor(form.propertyType, form.areaUnit)[1],
                                 unit: unitLabel || '',
                               })
-                              : tr('listProperty.err.enterArea', { label: areaLabel.toLowerCase() })}
+                              : isResidential()
+                                ? tr('listProperty.err.areaRange', { label: areaLabel.toLowerCase(), min: '100', max: '20,000', unit: 'sq.ft.' })
+                                : tr('listProperty.err.enterArea', { label: areaLabel.toLowerCase() })}
                           </FieldError>
                         </div>
                         {isLand() ? (
@@ -150,29 +138,27 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                             <label className={lbl3}>{tr('listProperty.fields.builtUpArea')}</label>
                             <div className="relative">
                               <input inputMode="decimal" maxLength={9} value={form.builtUp} onChange={(e) => set('builtUp', toDecimal(e.target.value))}
-                                placeholder={tr('listProperty.ph.eg1200')} className={`${fld} pr-12`} />
+                                data-err="builtUp" placeholder={tr('listProperty.ph.eg1200')} className={`${fld} pr-12 ${errors.builtUp ? 'dz-invalid' : ''}`} />
                               <div className={unitSuffix}>sq.ft.</div>
                             </div>
+                            <FieldError show={!!errors.builtUp}>{tr('listProperty.err.builtUpMin')}</FieldError>
                           </div>
                         )}
                       </div>
 
-                      {/* Optional, because only a builder-sold flat has one. Commercial is quoted
-                         and rented on carpet alone, and offering a second area there invites the
-                         loading-factor arithmetic this wizard refuses to host. */}
+                      {/* Optional, because only a builder-sold flat has one. */}
                       {!isLand() && !isCommercial() && (
                         <div className="mb-6">
                           <label className={lbl3}>{tr('listProperty.fields.superBuiltUpArea')}</label>
                           <div className="relative">
                             <input inputMode="decimal" maxLength={9} value={form.superBuiltUp} onChange={(e) => set('superBuiltUp', toDecimal(e.target.value))}
-                              data-err="superBuiltUp" placeholder={tr('listProperty.ph.eg1400')} className={`${fld} pr-12`} />
+                              data-err="superBuiltUp" placeholder={tr('listProperty.ph.eg1400')} className={`${fld} pr-12 ${errors.superBuiltUp ? 'dz-invalid' : ''}`} />
                             <div className={unitSuffix}>sq.ft.</div>
                           </div>
+                          <FieldError show={!!errors.superBuiltUp}>{tr('listProperty.err.superBuiltUpMin')}</FieldError>
                         </div>
                       )}
 
-                      {/* Plot area + storeys — houses sit on land they own, so they carry
-                         both a carpet area and a plot area, and floor count instead of floor no. */}
                       {isHouse() && (
                         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
@@ -194,9 +180,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </div>
                       )}
 
-                      {/* Required on a flat because the floor filter compares with >=/<=, so an
-                          unanswered floor is excluded from every floor-bounded search rather than
-                          merely unsorted. Optional on commercial: a godown has none to state. */}
                       {(form.propertyType === 'flat' || isCommercial()) && (
                         <div className="mb-6 grid grid-cols-2 gap-4">
                           <div>
@@ -212,12 +195,10 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </div>
                       )}
 
-                      {/* Separate controls let owners state both compass direction and view. Facing
-                         is asked of land too — which way a Pune plot faces moves its price — but a
-                         plot has no view to overlook and no construction to be the age of. */}
                       <div className="mb-6 grid grid-cols-2 gap-4">
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.facing')}</label>
+
                           {/* Disable auto-search so more options cannot summon a mobile keyboard. */}
                           <Select value={form.facing} onChange={(v) => set('facing', v)} ariaLabel={tr('listProperty.fields.facing')} placeholder={tr('listProperty.ph.selectFacing')} searchable={false} options={facingOptions} />
                         </div>
@@ -227,9 +208,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                             <Select value={form.overlooking} onChange={(v) => set('overlooking', v)} ariaLabel={tr('listProperty.fields.overlooking')} placeholder={tr('listProperty.ph.selectOverlooking')} searchable={false} options={overlookingOptions} />
                           </div>
                         )}
-                        {/* What dates a commercial space is the age of its fit-out, which `shellType`
-                           already states — the year the shed went up decides nothing a tenant is
-                           choosing between. */}
+
                         {!isLand() && !isCommercial() && (
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.ageOfProperty')}</label>
@@ -238,7 +217,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         )}
                       </div>
 
-                      {/* Furnishing */}
                       {isResidential() && (
                         <div className="mb-6">
                           <label className={lbl3}>{tr('listProperty.fields.furnishingStatus')}</label>
@@ -250,22 +228,8 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </div>
                       )}
 
-                      {/* Furniture */}
-                      {isResidential() && (form.furnishing === 'furnished' || form.furnishing === 'semi') && (
-                        <div className="mb-8">
-                          <label className={`${lbl} mb-1`}>{tr('listProperty.fields.whatsIncluded')}</label>
-                          <p className="text-gray-600 text-xs mb-3">{tr('listProperty.help.furnitureIncluded', { what: tr('listProperty.word.property') })}</p>
-                          <FeatureSelector
-                            options={furnitureItems}
-                            values={form.furniture}
-                            onToggle={(label) => toggleInArray('furniture', label)}
-                            placeholder={tr('listProperty.ph.addOtherFurniture')}
-                            addAriaLabel={tr('listProperty.aria.furnitureItem')}
-                          />
-                        </div>
-                      )}
+                      {isResidential() && <FurnitureIncluded form={form} toggleInArray={toggleInArray} whatKey="listProperty.word.property" />}
 
-                      {/* ===== Commercial specifics ===== */}
                       {isCommercial() && (
                         <>
                           <div className="mb-6">
@@ -297,10 +261,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                             </div>
                           </div>
 
-                          {/* Suitable For leads the row and the profile's own measurements follow
-                             it, so neither stretches the full width or leaves the other half
-                             empty. `items-end` keeps the controls on a line despite Suitable For
-                             carrying a help sentence its neighbours don't. */}
                           {commercialProfile && (
                             <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
                               <div>
@@ -327,8 +287,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                             </div>
                           )}
 
-                          {/* Power backup is not here: it is one of the amenities every commercial
-                             profile offers, and a second control would be a second answer. */}
                           {commercialProfile === 'workspace' && (
                             <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <ToggleRow title={tr('listProperty.toggle.pantry')} subtitle={tr('listProperty.toggle.pantrySub')} on={form.pantry} onClick={() => set('pantry', !form.pantry)} />
@@ -351,11 +309,9 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                         </>
                       )}
 
-                      {/* ===== Land specifics (Open Plot / Farm Land) ===== */}
                       {isLand() && (
                         <>
-                          {/* A grower who knows his parcel as 20 guntha does not know it as
-                              60 × 40 ft, and that rectangle is not the shape of an irregular field. */}
+
                           {!isFarm && (
                             <div className="mb-6 grid grid-cols-2 gap-4">
                               <div>
@@ -412,9 +368,6 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, onComm
                             </div>
                           )}
 
-                          {/* Asked of both land branches. A farm that has been converted is exactly
-                              the parcel a plot buyer is hunting for, and a plot's Other Rights entry
-                              decides whether the buyer needs a title search before they negotiate. */}
                           <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                             <div>
                               <label className={lbl3}>{tr('listProperty.fields.naStatus')}</label>

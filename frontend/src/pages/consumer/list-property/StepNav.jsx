@@ -1,23 +1,13 @@
 import { Home, MapPin, IndianRupee, Images, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-/* Locating a property and pricing it are two different jobs, so the whole-place flow asks them on their
-   own screens; a room host answers both on one short screen and keeps a three-phase rail. */
-export const WHOLE_STEPS = [
+export const LISTING_STEPS = [
   { icon: Home, labelKey: 'listProperty.stepNav.details' },
   { icon: MapPin, labelKey: 'listProperty.stepNav.location' },
   { icon: IndianRupee, labelKey: 'listProperty.stepNav.pricing' },
   { icon: Images, labelKey: 'listProperty.stepNav.photosDocs' },
 ];
 
-export const FLATMATE_STEPS = [
-  { icon: Home, labelKey: 'listProperty.stepNav.details' },
-  { icon: MapPin, labelKey: 'listProperty.stepNav.locationPrice' },
-  { icon: Images, labelKey: 'listProperty.stepNav.photosDocs' },
-];
-
-/* Discrete labelled phases, complementary to the continuous momentum meter above rather than a second
-   copy of it. Completed steps are clickable to jump back. */
 export default function StepNav({ current, steps, onJump }) {
   const { t } = useTranslation();
   return (

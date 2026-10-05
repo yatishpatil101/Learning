@@ -1,7 +1,8 @@
 /* Bathrooms, Parking, Facing and Age tiles are an uncovered gap on purpose: no owner-posting path
  * can set them, and seeding such a row would report a feature that does not work. */
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
+import { signedInAsNew, authHeaders, API, uploadedListingPhotos } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch } from '../../../helpers/moderation.js';
 
 const created = new Set();
 
@@ -16,23 +17,22 @@ async function api(method, path, headers, body) {
 
 /* Approval is required because the detail page under test is the public one — an unmoderated
  * listing would leave the test asserting on a 404 page. */
-async function publishListing(fields) {
+async function publishListing(request, fields) {
   const mobile = `97${String(Date.now()).slice(-8)}`;
   const headers = await authHeaders(mobile);
   const res = await api('POST', '/me/listings', headers, {
     title: `Zztest consumer-fixes ${Date.now()}`,
     city: 'Pune',
     // A real entry in `GET /localities`, so the resolver files the listing rather than leaving
-    // `locality_slug` null and dropping it into the curation queue `live-locality-queue` owns.
+    // `locality_slug` null and dropping it into the curation queue `locality-queue` owns.
     locality: 'Baner',
+    images: await uploadedListingPhotos(headers),
     ...fields,
   });
   expect(res.status).toBe(201);
   created.add(res.body.id);
 
-  const approved = await api('PATCH', `/properties/${res.body.id}/status`, await authHeaders(ACTORS.admin), {
-    status: 'approved',
-  });
+  const approved = await approveListingWithFetch(res.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status).toBe(200);
   return res.body.slug || res.body.id;
 }
@@ -51,61 +51,43 @@ test.afterEach(async () => {
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
-     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
-test('switching property type clears the previous type-specific answers (cascade reset)', async ({ page }) => {
+test('switching property type clears the previous type-specific answers, but keeps a bedroom count through a non-residential detour', async ({ page }) => {
   await signedInAsNew(page);
   await page.goto('/list-property');
   /* `.lp-steps` rather than `.lp-meter`: the meter renders on the listing-limit paywall as well as
      on the wizard, so it cannot tell the two branches apart. */
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
 
-  /* `floorsInHouse` rather than `bhk`, which is deliberately absent from `TYPE_SPECIFIC_KEYS` —
-     see the sibling test below. A house floor count is the right probe because no other type asks
-     for one, so a stale answer would publish on a form that never shows it, which is the precise
-     harm the reset exists to prevent. */
-  await pickType(page, 'Independent House');
-  const gPlus2 = page.locator('.radio-pill', { hasText: 'G+2' });
-  await gPlus2.click();
-  await expect(gPlus2).toHaveClass(/selected/);
+  await test.step('switching property type clears the previous type-specific answers (cascade reset)', async () => {
+    await pickType(page, 'Independent House');
+    const gPlus2 = page.locator('.radio-pill', { hasText: 'G+2' });
+    await gPlus2.click();
+    await expect(gPlus2).toHaveClass(/selected/);
+    // Bounce to a plot, which has no storeys at all, and back - the pick must not survive.
+    await pickType(page, 'Open Plot');
+    await pickType(page, 'Independent House');
+    await expect(page.locator('.radio-pill', { hasText: 'G+2' })).not.toHaveClass(/selected/);
+  });
 
-  // Bounce to a plot, which has no storeys at all, and back - the pick must not survive.
-  await pickType(page, 'Open Plot');
-  await pickType(page, 'Independent House');
-  await expect(page.locator('.radio-pill', { hasText: 'G+2' })).not.toHaveClass(/selected/);
+  await test.step('a bedroom count survives a detour through a non-residential type', async () => {
+    await pickType(page, 'Flat / Apartment');
+    const threeBhk = page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' });
+    await threeBhk.click();
+    await expect(threeBhk).toHaveClass(/selected/);
+
+    await pickType(page, 'Open Plot');
+    await pickType(page, 'Flat / Apartment');
+    await expect(page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' })).toHaveClass(/selected/);
+  });
 });
 
-test('a bedroom count survives a detour through a non-residential type', async ({ page }) => {
-  await signedInAsNew(page);
-  await page.goto('/list-property');
-  await page.waitForSelector('.lp-steps', { timeout: 20000 });
-
-  await pickType(page, 'Flat / Apartment');
-  const threeBhk = page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' });
-  await threeBhk.click();
-  await expect(threeBhk).toHaveClass(/selected/);
-
-  /* The inverse of the cascade above, and deliberate: `bhk` is not a `TYPE_SPECIFIC_KEY`. It cannot
-     leak onto a plot, because `submit.js` gates both `bhk` and `bhkNum` behind `isResidentialType`
-     and publishes an empty label otherwise — so the reset would buy no data correctness. It would
-     cost something, though: `changePropertyType` fires on residential-to-residential moves too, so
-     resetting would silently drop a still-valid answer on Flat -> Villa, the common edit. This
-     asserts the trade rather than leaving it to be re-litigated from the code. */
-  await pickType(page, 'Open Plot');
-  await pickType(page, 'Flat / Apartment');
-  await expect(page.locator('[data-err="bhk"] .radio-pill', { hasText: '3' })).toHaveClass(/selected/);
-});
-
-test('detail page shows the owner’s real furnishing and floor, not a value derived from BHK', async ({ page }) => {
-  const slug = await publishListing({
+test('detail page shows the owner’s real furnishing and floor, not a value derived from BHK', async ({ page, request }) => {
+  const slug = await publishListing(request, {
     deal: 'buy', propertyType: 'Flat', bhk: 3, area: 1200, price: 12000000,
-    /* Spelled the server's way: `publishListing` posts with `fetch` below `propertyMapper`, so the
-       UI key `semi` is rejected 422 here — and the page can only print "Semi-Furnished" if the
-       mapper translated `semi-furnished` back on the way in. */
     furnishing: 'semi-furnished',
     floor: 5,
   });
@@ -118,8 +100,8 @@ test('detail page shows the owner’s real furnishing and floor, not a value der
   await expect(detail('Floor')).toContainText('5');
 });
 
-test('detail page shows the owner’s real deposit for a rental (not price × 2)', async ({ page }) => {
-  const slug = await publishListing({
+test('detail page shows the owner’s real deposit for a rental (not price × 2)', async ({ page, request }) => {
+  const slug = await publishListing(request, {
     deal: 'rent', propertyType: 'Flat', bhk: 2, area: 900, price: 20000,
     // The bug: an absent deposit fell back to a multiple of the rent. ₹45,000 is deliberately not
     // ₹40,000, so the fallback and the saved value cannot be confused.
