@@ -84,7 +84,17 @@ class SocietyContributionTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
+    }
+
+    private String staff(String mobile, String functionsJson) {
+        User u = new User(mobile, Roles.Wire.STAFF);
+        u.setName("Ops " + mobile.substring(6));
+        u.setMobileVerified(true);
+        User saved = users.saveAndFlush(u);
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
+                + "VALUES (?::uuid, ?::jsonb)", saved.getId().toString(), functionsJson);
+        return bearer(saved);
     }
 
     /**
@@ -416,6 +426,35 @@ class SocietyContributionTest extends AbstractApiTest {
         String theirs = tip(neighbour, slug, "The terrace is open till 10.");
         mvc.perform(delete("/societies/" + slug + "/contributions/" + theirs)
                         .header(HttpHeaders.AUTHORIZATION, ops))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("staff need the content function to remove contributions and replies")
+    void staffRemovalNeedsSocietiesWrite() throws Exception {
+        String slug = society(13);
+        User author = user("9864000024", "Rutuja Kale");
+        User replier = user("9864000025", "Neha Bhosale");
+        String denied = staff("9864000026", "[]");
+        String content = staff("9864000027", "[\"content\"]");
+        String id = tip(author, slug, "The intercom works again.");
+        String replyId = idOf(mvc.perform(post("/societies/" + slug + "/contributions/" + id + "/replies")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(replier))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"Thanks for checking.\"}"))
+                .andExpect(status().isCreated()));
+
+        mvc.perform(delete("/societies/" + slug + "/contributions/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, denied))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/societies/" + slug + "/contributions/" + id + "/replies/" + replyId)
+                        .header(HttpHeaders.AUTHORIZATION, denied))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/societies/" + slug + "/contributions/" + id + "/replies/" + replyId)
+                        .header(HttpHeaders.AUTHORIZATION, content))
+                .andExpect(status().isNoContent());
+        mvc.perform(delete("/societies/" + slug + "/contributions/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, content))
                 .andExpect(status().isNoContent());
     }
 

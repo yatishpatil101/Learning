@@ -1,36 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-/**
- * The city waitlist ask, against the live API.
- *
- * ## What this proves that nothing else did
- *
- * `POST /cities/waitlist` and the `city_waitlist` table shipped, and the form in front of them kept
- * writing to a `dzCityRequests` array in the shopper's own browser. Every ask ever made was
- * therefore recorded in the one place nobody at Draazy could read, and the shopper was told
- * "You're on the Mumbai waitlist 🎉" for a row that existed only until they cleared their cache.
- * The admin console even had a "City Expansion Requests" panel reading that key — which meant it
- * showed the operator the asks *the operator themselves* had made while browsing.
- *
- * Nothing failed, which is why it survived: the toast fired, the modal closed, and the demand
- * signal the expansion queue is supposed to run on was silently zero. So this spec is about the
- * request leaving the browser at all. The wire is the strongest assertion available *here* — a UI
- * check could not tell the fixed version from the broken one, since both toast. That the ask then
- * reaches an operator is a separate claim, owned by
- * `admin/live-analytics-page.spec.js` ("City Expansion Requests counts the asks the server holds"),
- * which reads them back through `GET /admin/cities/waitlist`.
- *
- * ## Why the refusal case is forced
- *
- * A POST that succeeds cannot demonstrate that a POST that fails is reported. Before this change
- * the handler was synchronous and could not fail, so the toast was unconditional; now it is awaited
- * and a rejection has to keep the shopper on their filled-in form instead of congratulating them.
- * The 500 is routed rather than provoked because the server has no input this form can send that it
- * would refuse — the client validates the mobile first.
- *
- * Public route (`security: []`), so no sign-in: the point of a waitlist is that the person is not a
- * user yet.
- */
+/* The waitlist must leave the browser and refusal must preserve the filled form; a toast alone
+   cannot distinguish server persistence from localStorage. */
 
 /** Not live in the seeded roster, so the switcher answers with the waitlist modal rather than a
  *  city switch. `live-geo-policy` asserts the same default from the other direction. */
@@ -50,21 +21,18 @@ async function fillWaitlist(page, mobile) {
 
 test.describe('City waitlist (live)', () => {
   test('joining the waitlist posts the ask to the server, not to this browser', async ({ page }) => {
-    /* Unique per run: the table takes repeats (the server answers 201 either way), but a fixed
-       number would make a passing run indistinguishable from one that matched an older row. */
-    const mobile = `9${String(Date.now()).slice(-9)}`;
+    /* Unique per run because duplicate rows also answer 201 and would hide a stale match. The "91"
+       lead is deliberate: a number that begins with the country code's digits is still a mobile. */
+    const mobile = `91${String(Date.now()).slice(-8)}`;
 
     await openWaitlistModal(page);
     await fillWaitlist(page, mobile);
-
     const posted = page.waitForRequest((r) => r.url().includes('/cities/waitlist') && r.method() === 'POST');
     const answered = page.waitForResponse((r) => r.url().includes('/cities/waitlist') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Notify me when live' }).click();
 
     const req = await posted;
-    /* The city has to travel. It is not in the form — the modal knows it from the switcher — so a
-       version that posted only the contact details would still 201 and still toast, and every ask
-       would land under whatever city the server defaulted to. */
+    /* City is switcher state, not form state; omitting it would still 201 and misfile the ask. */
     expect(req.postDataJSON()).toMatchObject({ city: CITY, mobile });
     expect((await answered).status()).toBe(201);
 

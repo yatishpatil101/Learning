@@ -69,7 +69,17 @@ class SocietyCommunityTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
+    }
+
+    private String staff(String mobile, String functionsJson) {
+        User u = new User(mobile, Roles.Wire.STAFF);
+        u.setName("Ops " + mobile.substring(6));
+        u.setMobileVerified(true);
+        User saved = users.saveAndFlush(u);
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
+                + "VALUES (?::uuid, ?::jsonb)", saved.getId().toString(), functionsJson);
+        return bearer(saved);
     }
 
     /**
@@ -300,6 +310,9 @@ class SocietyCommunityTest extends AbstractApiTest {
         mvc.perform(get("/societies/" + slug + "/board"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].title").value("Sooner tanker"))
+                // An anonymous reader is offered no delete control — the alternative is a button
+                // that 403s, which reads as a broken page rather than a rule.
+                .andExpect(jsonPath("$.content[0].canRemove").value(false))
                 .andExpect(jsonPath("$.content[1].title").value("Later AGM"))
                 .andExpect(jsonPath("$.content[2].title").value("Lift is noisy"));
 
@@ -310,23 +323,6 @@ class SocietyCommunityTest extends AbstractApiTest {
 
         mvc.perform(get("/societies/" + slug + "/board").param("kind", "rumour"))
                 .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("the board reads without a token, and tells an anonymous reader it cannot delete")
-    void boardReadsPublicly() throws Exception {
-        String slug = society(9);
-        String ops = staff("9863000014");
-
-        postItem(ops, slug, "{\"kind\":\"notice\",\"title\":\"Water tank cleaning\"}")
-                .andExpect(status().isCreated());
-
-        mvc.perform(get("/societies/" + slug + "/board"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].title").value("Water tank cleaning"))
-                // An anonymous reader is offered no delete control — the alternative is a button
-                // that 403s, which reads as a broken page rather than a rule.
-                .andExpect(jsonPath("$.content[0].canRemove").value(false));
     }
 
     @Test
@@ -378,6 +374,28 @@ class SocietyCommunityTest extends AbstractApiTest {
         mvc.perform(get("/societies/" + slug + "/board"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("staff need the content function to remove board items")
+    void staffRemovalNeedsSocietiesWrite() throws Exception {
+        String slug = society(11);
+        String ops = staff("9863000019");
+        String denied = staff("9863000020", "[]");
+        String content = staff("9863000021", "[\"content\"]");
+        User author = user("9863000022", "Board Writer");
+
+        makeResident(author, slug, "601", ops);
+        String itemId = idOf(postItem(bearer(author), slug,
+                "{\"kind\":\"notice\",\"title\":\"Pipe repair\"}")
+                .andExpect(status().isCreated()));
+
+        mvc.perform(delete("/societies/" + slug + "/board/" + itemId)
+                        .header(HttpHeaders.AUTHORIZATION, denied))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/societies/" + slug + "/board/" + itemId)
+                        .header(HttpHeaders.AUTHORIZATION, content))
+                .andExpect(status().isNoContent());
     }
 
     @Test

@@ -69,7 +69,7 @@ class SocietyMergeTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
     }
 
     /** Minted through the public route so it carries {@code source = 'community'}, like a member's. */
@@ -345,7 +345,7 @@ class SocietyMergeTest extends AbstractApiTest {
     // ------------------------------------------------------------- taking it back
 
     @Test
-    @DisplayName("an undo puts the society back exactly as it was")
+    @DisplayName("an undo puts the society back exactly as it was, and both decisions are in the audit log")
     void undoRestoresTheDuplicate() throws Exception {
         User author = user("9868000019", "Jyoti Merge");
         String ops = staff("9868000020");
@@ -353,8 +353,13 @@ class SocietyMergeTest extends AbstractApiTest {
         String keep = society(author, "Solstice Grove D243");
         String duplicate = society(author, "Solstise Grove D243");
         merge(ops, duplicate, keep).andExpect(status().isCreated());
+        assertThat(auditCount("society.merge", duplicate)).isOne();
 
         undo(ops, duplicate).andExpect(status().isNoContent());
+
+        // An undo takes all three merge columns back to null, so without the audit rows the fact
+        // that a merge was ever made would be gone from the database entirely.
+        assertThat(auditCount("society.unmerge", duplicate)).isOne();
 
         Map<String, Object> stored = row(duplicate);
         assertThat(stored.get("merged_into")).isNull();
@@ -427,26 +432,6 @@ class SocietyMergeTest extends AbstractApiTest {
                         .content("{\"name\":\"Astar Vale D243\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slug").value(keep));
-    }
-
-    @Test
-    @DisplayName("both the merge and the undo are written to the audit log")
-    void theDecisionSurvivesEvenWhenItIsReversed() throws Exception {
-        User author = user("9868000028", "Omkar Merge");
-        String ops = staff("9868000029");
-
-        String keep = society(author, "Verandah Court D243");
-        String duplicate = society(author, "Veranda Court D243");
-
-        merge(ops, duplicate, keep).andExpect(status().isCreated());
-        assertThat(auditCount("society.merge", duplicate)).isOne();
-
-        undo(ops, duplicate).andExpect(status().isNoContent());
-
-        // An undo takes all three merge columns back to null, so without the audit rows the fact
-        // that a merge was ever made would be gone from the database entirely.
-        assertThat(auditCount("society.unmerge", duplicate)).isOne();
-        assertThat(row(duplicate).get("merged_into")).isNull();
     }
 
     private Integer auditCount(String action, String slug) {

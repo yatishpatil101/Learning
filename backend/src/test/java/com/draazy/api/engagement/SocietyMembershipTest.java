@@ -23,60 +23,20 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
-/**
- * D240 — who lives in a society, and who runs its page.
- *
- * <p>Until this slice the answer to both lived in {@code localStorage}, owned by the person being
- * asked about. A resident who verified their flat on a laptop was a stranger on their phone; a
- * committee approving a neighbour approved them only in its own browser; and "one verified resident
- * per flat" was a rule enforced against a single device's memory of itself.
- *
- * <p>What is asserted here is the part that could not previously be true at all:
- *
- * <ol>
- *   <li><strong>A flat has one verified resident.</strong> Enforced by a partial unique index, so
- *       the second verification is refused rather than overwriting the first — and rejecting the
- *       outgoing resident frees the flat, because a handover must not need a DBA.</li>
- *   <li><strong>The reviewer is decided by the claim, not by a role.</strong> An unclaimed society
- *       is reviewed by ops; a claimed one reviews itself. Neither a resident nor a stranger may
- *       read the queue, because the queue publishes names and mobiles.</li>
- *   <li><strong>Approving a claim moves the society and the queue with it.</strong> A claim that
- *       says approved while the society still says unclaimed is a committee holding a permission
- *       the hub renders no control for.</li>
- *   <li><strong>The public membership read withholds the claimant's contact details.</strong> Who
- *       claimed a society must not be a way to lift a committee member's number off a page anybody
- *       can load.</li>
- *   <li><strong>A claim carries the proof it is asking to be judged on</strong> (V109). The queue is
- *       a proof-checking desk, and until the registration number and the certificate were on the
- *       wire the only evidence on it was the claimant's own free text. Both are optional, because a
- *       committee that cannot find its certificate today must still be able to reach us, and both
- *       are withheld from the public read, because an unreviewed claim is an assertion.</li>
- * </ol>
- */
+// Partial unique index refuses a second verified resident; rejection frees the flat.
+// The queue stays staff-only because it publishes names and mobiles.
 @DisplayName("Societies — residents, claims and who reviews them")
 class SocietyMembershipTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
 
-    /**
-     * Audit rows written by this class, swept both before and after.
-     *
-     * <p>{@code AuditService.record} runs {@code REQUIRES_NEW}, so its rows commit and the
-     * class-level rollback does not take them back out. The database here is shared and persistent
-     * (no Testcontainers — see {@code test/resources/application.properties}), so the reveal count
-     * asserted below would climb by one on every run and fail the second time, in a test that did
-     * nothing wrong. Swept before as well as after because a run killed mid-class leaves rows an
-     * {@code @AfterAll} never got to.
-     *
-     * <p>Scoped to this action, which no other test class writes — a broader delete would take out
-     * rows a concurrently running class is still asserting on.
-     */
+    // `AuditService.record` uses `REQUIRES_NEW`, so class rollback cannot clean it up.
+    // Without cleanup, shared database reveal counts climb on every run.
     @BeforeAll
     static void removeRevealRowsLeftByAnEarlierRun(@Autowired JdbcTemplate jdbc) {
         sweepOwnAuditRows(jdbc);
     }
 
-    /** @see #removeRevealRowsLeftByAnEarlierRun */
     @AfterAll
     static void removeRevealRowsThatEscapedRollback(@Autowired JdbcTemplate jdbc) {
         sweepOwnAuditRows(jdbc);
@@ -86,12 +46,7 @@ class SocietyMembershipTest extends AbstractApiTest {
         jdbc.update("delete from audit_log where action = 'societyClaim.certificate.reveal'");
     }
 
-    /**
-     * Mobile block 98620000xx, used by no other test class.
-     *
-     * <p>No {@code @AfterAll} cleanup: nothing here provisions an account through a
-     * {@code REQUIRES_NEW} path, so the class-level rollback takes these back out again.
-     */
+    // No `@AfterAll`: class rollback covers these rows because none use `REQUIRES_NEW`.
     private User user(String mobile, String name) {
         User u = new User(mobile, Roles.Wire.BUYER);
         u.setName(name);
@@ -100,21 +55,23 @@ class SocietyMembershipTest extends AbstractApiTest {
     }
 
     private String staff(String mobile) {
+        return staff(mobile, new String[0]);
+    }
+
+    private String staff(String mobile, String... permissions) {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+    // Filtering out `community` keeps the offset stable against suite-wide mints.
+        u = users.saveAndFlush(u);
+        if (permissions.length > 0) {
+            String json = "[\"" + String.join("\",\"", permissions) + "\"]";
+            jdbc.update("insert into back_office_permissions(user_id, permissions) "
+                    + "values (?::uuid, ?::jsonb)", u.getId().toString(), json);
+        }
+        return bearer(u);
     }
 
-    /**
-     * A seeded society, taken by position rather than by name.
-     *
-     * <p>Naming a slug would tie this file to the demo seed, and the seed is data: a curation pass
-     * that renames a building should not turn a rule about flats red.
-     *
-     * <p>{@code source <> 'community'} keeps the position stable against every mint the suite
-     * performs; see {@code SocietyContributionTest#society} for what an unfiltered offset costs.
-     */
     private String society(int offset) {
         List<String> slugs = jdbc.queryForList(
                 "select slug from societies where source <> 'community' order by slug offset ? limit 1",
@@ -161,8 +118,6 @@ class SocietyMembershipTest extends AbstractApiTest {
                         .content("{\"status\":\"approved\"}"))
                 .andExpect(status().isOk());
     }
-
-    /* --------------------------------------------------------------- the flat */
 
     @Test
     @DisplayName("wing and flat normalise to one unit key — B-704 and b 704 are the same flat")
@@ -223,6 +178,7 @@ class SocietyMembershipTest extends AbstractApiTest {
         decide(ops, slug, incoming, "verified")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("verified"))
+
                 // The advisory flag is cleared on verification: it described a state that no longer
                 // holds, and leaving it would tell the hub this resident is disputed forever.
                 .andExpect(jsonPath("$.flagged").doesNotExist());
@@ -283,38 +239,25 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    /* ------------------------------------------------------------ who reviews */
-
     @Test
-    @DisplayName("an unclaimed society's requests go to ops; a claimed one's go to its committee")
+    @DisplayName("an unclaimed society's requests go to ops; a claimed one's go to its committee, including those ops had not got to")
     void queueFollowsTheClaim() throws Exception {
         String slug = society(8);
-        apply(user("9862000014", "Nilesh"), slug, "G", "1")
+        User waiting = user("9862000014", "Nilesh");
+        apply(waiting, slug, "G", "1")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assignedTo").value("ops"));
 
         approveClaim(claim(user("9862000015", "Omkar"), slug));
 
-        apply(user("9862000016", "Pallavi"), slug, "G", "2")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assignedTo").value("committee"));
-    }
-
-    @Test
-    @DisplayName("approving a claim re-homes the requests ops had not got to yet")
-    void approvingReassignsPendingRequests() throws Exception {
-        String slug = society(9);
-        User waiting = user("9862000017", "Qadir");
-        apply(waiting, slug, "H", "1")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assignedTo").value("ops"));
-
-        approveClaim(claim(user("9862000018", "Rhea"), slug));
-
         mvc.perform(get("/societies/" + slug + "/membership")
                         .header(HttpHeaders.AUTHORIZATION, bearer(waiting)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resident.assignedTo").value("committee"));
+
+        apply(user("9862000016", "Pallavi"), slug, "G", "2")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignedTo").value("committee"));
     }
 
     @Test
@@ -326,14 +269,19 @@ class SocietyMembershipTest extends AbstractApiTest {
 
         User applicant = user("9862000020", "Tarun");
         String id = idOf(apply(applicant, slug, "J", "1").andExpect(status().isOk()));
+        String committeeId = idOf(apply(user("9862000046", "Yash"), slug, "J", "2")
+                .andExpect(status().isOk()));
 
-        // Living here is not a licence to read every neighbour's mobile.
         mvc.perform(get("/societies/" + slug + "/residents")
                         .header(HttpHeaders.AUTHORIZATION, bearer(applicant)))
                 .andExpect(status().isForbidden());
         decide(bearer(applicant), slug, id, "verified").andExpect(status().isForbidden());
 
-        decide(bearer(committee), slug, id, "verified").andExpect(status().isOk());
+        decide(staff("9862000088", "support"), slug, id, "verified")
+                .andExpect(status().isForbidden());
+        decide(staff("9862000089", "content"), slug, id, "verified")
+                .andExpect(status().isOk());
+        decide(bearer(committee), slug, committeeId, "verified").andExpect(status().isOk());
     }
 
     @Test
@@ -342,8 +290,6 @@ class SocietyMembershipTest extends AbstractApiTest {
         String slug = society(11);
         apply(user("9862000021", "Urmila"), slug, "K", "1").andExpect(status().isOk());
 
-        // A deliberate exception to withholding identity: the question is "does this person live in
-        // K/1", and it is answered against a members' register that has names in it.
         mvc.perform(get("/societies/" + slug + "/residents")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000096")))
                 .andExpect(status().isOk())
@@ -359,8 +305,6 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isOk()));
         decide(staff("9862000097"), slug, id, "approved").andExpect(status().isBadRequest());
     }
-
-    /* ---------------------------------------------------------------- claims */
 
     @Test
     @DisplayName("a second committee cannot claim a society that is already spoken for")
@@ -414,8 +358,6 @@ class SocietyMembershipTest extends AbstractApiTest {
         assertThat(jdbc.queryForObject("select claim_status from societies where slug = ?",
                 String.class, slug)).isEqualTo("claimed");
     }
-
-    /* ------------------------------------------------------------ membership */
 
     @Test
     @DisplayName("a stranger gets the society's facts and none of their own")
@@ -485,16 +427,6 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /* ------------------------------------------------------------------ proof */
-
-    /**
-     * A certificate already in this person's own KYC vault, inserted directly.
-     *
-     * <p>Going through {@code POST /me/documents/personal} would drag a multipart upload, the type
-     * allowlist and the malware scanner into a test about a society claim, and none of the three can
-     * make the claim behave differently. What the claim cares about is that the row exists and whose
-     * it is, which is exactly what this writes.
-     */
     private String vaultDocument(User owner) {
         return jdbc.queryForObject("""
                 insert into personal_documents (owner_id, category, file_name, storage_key)
@@ -520,9 +452,8 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.registrationNo").value("PNA/(PNA)/HSG/(TC)/1234/2015"))
                 .andExpect(jsonPath("$.certificateDocumentId").value(docId)));
 
-        // The queue, not the POST echo, is the surface the column renders from — a field that
-        // round-trips through the create response and is dropped on the way back out would look
-        // fixed from the claimant's side and still leave the reviewer with nothing.
+        // The queue is the reviewer surface; a field only echoed on POST
+        // would still leave the reviewer with nothing.
         mvc.perform(get("/admin/society-claims").param("status", "pending")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000097")))
                 .andExpect(status().isOk())
@@ -570,6 +501,7 @@ class SocietyMembershipTest extends AbstractApiTest {
                         .content("{\"name\":\"Lalit Shah\",\"certificateDocumentId\":\""
                                 + someoneElses + "\"}"))
                 .andExpect(status().isBadRequest())
+
                 // The same answer an unknown id gets. Distinguishing the two would confirm that a
                 // stranger's document exists, which is the enumeration this endpoint must not do.
                 .andExpect(jsonPath("$.message")
@@ -585,15 +517,6 @@ class SocietyMembershipTest extends AbstractApiTest {
                         .value("certificateDocumentId is not a document in your vault"));
     }
 
-    /* ------------------------------------------------- reading the proof back (D243) */
-
-    /**
-     * File a claim carrying {@code docId} and hand back its id.
-     *
-     * <p>Every certificate test below needs one, and building it inline three times would put the
-     * shape of the create call — which is not what any of them is asserting — in front of the thing
-     * that is.
-     */
     private String claimWithCertificate(String slug, User u, String docId) throws Exception {
         String body = docId == null
                 ? "{\"name\":\"" + u.getName() + "\"}"
@@ -618,16 +541,12 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.url").isNotEmpty())
                 .andExpect(jsonPath("$.fileName").value("reg-cert.pdf"))
-                // The id is deliberately absent from the response. The queue row already carries it
-                // — that is what decides whether the button renders — and echoing it beside a live
-                // link is the pairing that turns a leaked response body into a usable one.
+
+                // The id is deliberately absent from the response.
                 .andExpect(jsonPath("$.certificateDocumentId").doesNotExist())
                 .andExpect(jsonPath("$.storageKey").doesNotExist());
 
-        // Audited in the same class as the contact reveals: a staff account looked at a private
-        // document, and the row is the only reason that is answerable afterwards. The document id
-        // is metadata; the URL is not written down, because a log entry holding a live capability
-        // outlives the fifteen minutes the capability was meant to last.
+        // Staff viewed a private document; the audit row is the later answer.
         assertThat(jdbc.queryForObject("""
                 select count(*) from audit_log
                 where action = 'societyClaim.certificate.reveal' and entity_id = ?
@@ -640,29 +559,25 @@ class SocietyMembershipTest extends AbstractApiTest {
         String slug = society(25);
         User u = user("9862000041", "Oorja");
 
-        // No certificate on the claim.
         String bare = claimWithCertificate(slug, u, null);
         mvc.perform(get("/admin/society-claims/" + bare + "/certificate")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000092")))
                 .andExpect(status().isNotFound());
 
-        // No such claim.
         mvc.perform(get("/admin/society-claims/" + UUID.randomUUID() + "/certificate")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000093")))
                 .andExpect(status().isNotFound());
 
-        // A claim whose recorded document has since stopped being the claimant's. The write path
-        // already refuses a stranger's id, so this can only happen by a later deletion or transfer
-        // — and the read must not keep serving a link on the strength of a check made months ago.
+        // Later deletion or transfer can stale a once-valid id;
+        // reads must not serve links from old checks.
         String docId = vaultDocument(u);
         String claimId = claimWithCertificate(society(26), u, docId);
         jdbc.update("update personal_documents set owner_id = ? where id = ?::uuid",
                 user("9862000042", "Pranav").getId(), docId);
         mvc.perform(get("/admin/society-claims/" + claimId + "/certificate")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000094")))
-                // The same 404 as "no such claim". Separating them would tell a staff account
-                // whether a document exists that it is not allowed to see, which is the whole
-                // difference between a scoped route and an enumeration oracle.
+
+                // Separating these cases would reveal whether a forbidden document exists.
                 .andExpect(status().isNotFound());
     }
 

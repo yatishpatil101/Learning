@@ -70,7 +70,6 @@ public class SocietyProposalController {
 
     private static boolean isStaff(AuthPrincipal principal) {
         return principal != null
-                && (Roles.Wire.STAFF.equals(principal.role())
-                        || Roles.Wire.ADMIN.equals(principal.role()));
+                && Roles.isBackOffice(principal.role());
     }
 }

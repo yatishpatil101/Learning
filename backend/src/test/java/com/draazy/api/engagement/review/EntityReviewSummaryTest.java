@@ -7,9 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
@@ -289,36 +290,18 @@ class EntityReviewSummaryTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.categoryAverages.owner").doesNotExist());
     }
 
-    @Test
-    @DisplayName("an unknown entity type is 404, not a zeroed summary of a target kind we invented")
-    void unknownEntityTypeIs404() throws Exception {
-        mvc.perform(get("/reviews/banana/whatever/summary"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("property is not an entity type here, so it 404s rather than shadowing its own route")
-    void propertyIsNotAnEntityTarget() throws Exception {
-        // The contract's entityType enum is disjoint from `property` on purpose, and a second way
-        // to reach a property's summary would be a second thing to keep in step with the first.
-        mvc.perform(get("/reviews/property/" + UUID.randomUUID() + "/summary"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("an unknown entity id is 404, not a confident summary of nothing")
-    void unknownEntityIdIs404() throws Exception {
-        // A zeroed summary here would read as "this neighbourhood has no reviews yet" for a
-        // neighbourhood that does not exist -- resolution is the existence check.
-        mvc.perform(get("/reviews/society/no-such-society-anywhere/summary"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/reviews/locality/no-such-locality-anywhere/summary"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/reviews/owner/" + UUID.randomUUID() + "/summary"))
-                .andExpect(status().isNotFound());
-        // A malformed id is the same 404 as a well-formed miss, deliberately (D35): answering
-        // differently tells a caller which of the two they hit.
-        mvc.perform(get("/reviews/owner/not-a-uuid/summary"))
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("an unknown target is 404, not a zeroed summary of nothing")
+    @CsvSource(delimiter = '|', value = {
+            "unknown entity type | /reviews/banana/whatever/summary",
+            "property is not an entity type here | /reviews/property/00000000-0000-0000-0000-000000000000/summary",
+            "unknown society | /reviews/society/no-such-society-anywhere/summary",
+            "unknown locality | /reviews/locality/no-such-locality-anywhere/summary",
+            "unknown owner | /reviews/owner/00000000-0000-0000-0000-000000000000/summary",
+            "malformed owner id is the same 404 as a miss | /reviews/owner/not-a-uuid/summary"
+    })
+    void unknownTargetIs404(String label, String path) throws Exception {
+        mvc.perform(get(path))
                 .andExpect(status().isNotFound());
     }
 }

@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
@@ -91,8 +93,8 @@ class PropertyReviewSummaryTest extends AbstractApiTest {
     // ------------------------------------------------------------- the numbers
 
     @Test
-    @DisplayName("the average and count are the database's, over published reviews only, and public")
-    void averageAndCountComeFromTheDatabase() throws Exception {
+    @DisplayName("the figures are the database's over published reviews only, and public")
+    void summaryNumbersComeFromTheDatabase() throws Exception {
         Property p = reviewedListing("9840000001");
 
         // No Authorization header: the summary is as public as the list, because it is the same
@@ -100,34 +102,16 @@ class PropertyReviewSummaryTest extends AbstractApiTest {
         mvc.perform(get("/properties/" + p.getId() + "/reviews/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avgRating").value(3.5))
-                .andExpect(jsonPath("$.reviewCount").value(4));
-    }
-
-    @Test
-    @DisplayName("every star bucket is present, including the ones nobody used")
-    void distributionIsZeroFilledAcrossAllFiveBuckets() throws Exception {
-        Property p = reviewedListing("9840000002");
-
-        // 5,5,3,1 published. The two empty buckets are the assertion that matters: a `group by
-        // rating` would omit them, and a bar chart with a missing bar and one with a zero-height
-        // bar are not the same picture -- only one of them is true.
-        mvc.perform(get("/properties/" + p.getId() + "/reviews/summary"))
-                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviewCount").value(4))
+                // 5,5,3,1 published. The two empty buckets are the assertion that matters: a `group by
+                // rating` would omit them, and a bar chart with a missing bar and one with a
+                // zero-height bar are not the same picture -- only one of them is true.
                 .andExpect(jsonPath("$.distribution['1']").value(1))
                 .andExpect(jsonPath("$.distribution['2']").value(0))
                 .andExpect(jsonPath("$.distribution['3']").value(1))
                 .andExpect(jsonPath("$.distribution['4']").value(0))
                 // Two 5s, and the rejected 1-star has not become a second entry in bucket 1.
-                .andExpect(jsonPath("$.distribution['5']").value(2));
-    }
-
-    @Test
-    @DisplayName("each aspect averages over the reviews that answered it, not over all of them")
-    void categoryAveragesUseTheRightDenominator() throws Exception {
-        Property p = reviewedListing("9840000003");
-
-        mvc.perform(get("/properties/" + p.getId() + "/reviews/summary"))
-                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.distribution['5']").value(2))
                 // locality: 5 and 4 -> 4.5. Over all four published reviews it would be 2.25, and
                 // over all five it would be 2.5; the sparse denominator is the whole point.
                 .andExpect(jsonPath("$.categoryAverages.locality").value(4.5))
@@ -141,10 +125,15 @@ class PropertyReviewSummaryTest extends AbstractApiTest {
 
     // ------------------------------------------------------------- edge cases
 
-    @Test
-    @DisplayName("an unreviewed listing has no average, a zero count and five empty buckets")
-    void unreviewedListingDoesNotDivideByZero() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("a listing with no published reviews has no average, a zero count and five empty buckets")
+    @ValueSource(strings = {"no reviews at all", "only pending and rejected reviews"})
+    void unreviewedListingDoesNotDivideByZero(String scenario) throws Exception {
         Property p = listing(user("9840000004", "Nikhil Rao"));
+        if (scenario.startsWith("only")) {
+            review(p, 5, ReviewStatuses.PENDING, "{\"locality\":5}");
+            review(p, 1, ReviewStatuses.REJECTED, "{\"locality\":1}");
+        }
 
         mvc.perform(get("/properties/" + p.getId() + "/reviews/summary"))
                 .andExpect(status().isOk())
@@ -155,20 +144,6 @@ class PropertyReviewSummaryTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.distribution['1']").value(0))
                 .andExpect(jsonPath("$.distribution['5']").value(0))
                 .andExpect(jsonPath("$.categoryAverages").isMap())
-                .andExpect(jsonPath("$.categoryAverages.locality").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("a listing whose only reviews are unpublished reads as unreviewed, not as an error")
-    void onlyUnpublishedReviewsReadsAsUnreviewed() throws Exception {
-        Property p = listing(user("9840000005", "Meera Shah"));
-        review(p, 5, ReviewStatuses.PENDING, "{\"locality\":5}");
-        review(p, 1, ReviewStatuses.REJECTED, "{\"locality\":1}");
-
-        mvc.perform(get("/properties/" + p.getId() + "/reviews/summary"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.avgRating").doesNotExist())
-                .andExpect(jsonPath("$.reviewCount").value(0))
                 .andExpect(jsonPath("$.categoryAverages.locality").doesNotExist());
     }
 

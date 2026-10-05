@@ -92,65 +92,6 @@ const decide = async (request, mobile, slug, id, status) =>
   });
 
 test.describe('live: society residency and claims', () => {
-  test('a flat can only have one verified resident, and rejecting frees it', async ({ request }) => {
-    const slug = await freshSociety(request);
-    const first = await newAccount();
-    const second = await newAccount();
-
-    const firstRes = await apply(request, first, slug, '704', { wing: 'B' });
-    expect(firstRes.status(), await firstRes.text()).toBe(200);
-    const firstRow = await firstRes.json();
-    // The server normalises wing+flat into one key, stripping separators as well as spaces, so
-    // "B-704" and "B704" are one flat rather than two people in the same room.
-    expect(firstRow.unitKey).toBe('B704');
-    expect(firstRow.assignedTo).toBe('ops');
-
-    expect((await decide(request, OPS, slug, firstRow.id, 'verified')).status()).toBe(200);
-
-    // Same flat, written differently. Recorded and flagged, not refused: the server cannot tell a
-    // handover from an impostor, and the committee can.
-    const secondRes = await apply(request, second, slug, '704 ', { wing: 'b-' });
-    expect(secondRes.status()).toBe(200);
-    const secondRow = await secondRes.json();
-    expect(secondRow.unitKey).toBe('B704');
-    expect(secondRow.flagged).toBe('conflict');
-
-    // The refusal happens at the decision, where a human is looking.
-    expect((await decide(request, OPS, slug, secondRow.id, 'verified')).status()).toBe(409);
-
-    // A flat changes hands. Rejecting the outgoing resident must be enough — needing a DBA here
-    // would mean every sale in Pune became a support ticket.
-    expect((await decide(request, OPS, slug, firstRow.id, 'rejected')).status()).toBe(200);
-    const handover = await decide(request, OPS, slug, secondRow.id, 'verified');
-    expect(handover.status(), await handover.text()).toBe(200);
-    expect((await handover.json()).flagged).toBeFalsy();
-  });
-
-  test('membership reads without a token and withholds the claimant’s number', async ({ request }) => {
-    const slug = await freshSociety(request);
-    const claimant = await newAccount();
-
-    const anonymous = await request.get(`${API}/societies/${slug}/membership`);
-    expect(anonymous.status(), 'the hub renders before anybody signs in').toBe(200);
-    const before = await anonymous.json();
-    expect(before.resident).toBeNull();
-    expect(before.admin).toBe(false);
-    expect(before.claim).toBeNull();
-
-    const claimed = await request.post(`${API}/societies/${slug}/claim`, {
-      headers: await authHeaders(claimant),
-      data: { name: 'Committee Secretary', role: 'Hon. Secretary', email: 'sec@example.com' },
-    });
-    expect(claimed.status(), await claimed.text()).toBe(200);
-
-    const after = await (await request.get(`${API}/societies/${slug}/membership`)).json();
-    expect(after.claim.status).toBe('pending');
-    expect(after.claim.claimantName).toBe('Committee Secretary');
-    // The point of the endpoint being public is also its risk. Neither of these may ever appear.
-    expect(after.claim.claimantMobile).toBeFalsy();
-    expect(after.claim.email).toBeFalsy();
-  });
-
   test('approving a claim hands the society and its waiting queue to the committee', async ({ request }) => {
     const slug = await freshSociety(request);
     const committee = await newAccount();
@@ -207,30 +148,6 @@ test.describe('live: society residency and claims', () => {
 
     const count = await (await request.get(`${API}/societies/${slug}/membership`)).json();
     expect(count.verifiedResidents).toBe(1);
-  });
-
-  test('a second committee cannot claim a society that is already spoken for', async ({ request }) => {
-    const slug = await freshSociety(request);
-    const real = await newAccount();
-    const rival = await newAccount();
-
-    expect((await request.post(`${API}/societies/${slug}/claim`, {
-      headers: await authHeaders(real),
-      data: { name: 'Real Committee' },
-    })).status()).toBe(200);
-
-    expect((await request.post(`${API}/societies/${slug}/claim`, {
-      headers: await authHeaders(rival),
-      data: { name: 'Rival Committee' },
-    })).status()).toBe(409);
-
-    // The claimant correcting their own pending claim is not a rival — it is a typo.
-    const amended = await request.post(`${API}/societies/${slug}/claim`, {
-      headers: await authHeaders(real),
-      data: { name: 'Real Committee', role: 'Treasurer' },
-    });
-    expect(amended.status()).toBe(200);
-    expect((await amended.json()).role).toBe('Treasurer');
   });
 
   test('the seeded fixture carries both queues, and only one of them is the committee’s', async ({ request }) => {

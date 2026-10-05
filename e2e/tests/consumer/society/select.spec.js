@@ -1,17 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { API, signedInAs } from '../../../helpers/liveAuth.js';
 import { pickFloors } from '../../../helpers/listingForm.helper.js';
-
 // Society "select or create" typeahead on the list-property Location step: a listing must bind to
 // a real society entity, and an unknown name must mint a community society.
-
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543211';
 
-/**
- * `/list-property` is behind `ProtectedRoute`, so a real OTP sign-in is required: a localStorage
- * user without a token is nulled by `GET /auth/me` and the route redirects to `/signin`.
- */
 async function gotoForm(page) {
   await signedInAs(page, MOBILE);
   await page.goto(`${BASE}/list-property`);
@@ -21,8 +15,6 @@ async function gotoForm(page) {
 async function toStep2Flat(page) {
   await gotoForm(page);
   await page.locator('[data-err="propertyType"]').click();
-  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
-     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' }).first().click();
   await page.locator('input[data-err="carpetArea"]').fill('1200');
@@ -44,10 +36,6 @@ test('typing a known name lists the verified society and binds it on pick', asyn
   await expect(page.getByText(/Verified society/i)).toBeVisible();
 });
 
-/**
- * The read-back is made by `request`, a different HTTP client with no access to the page's storage:
- * a spec inspecting the browser that wrote cannot tell a local mint from a shared one.
- */
 test('an unknown name can be added inline and reaches the shared catalogue', async ({ page, request }) => {
   await toStep2Flat(page);
   const society = page.locator('input[data-err="society"]');
@@ -61,7 +49,6 @@ test('an unknown name can be added inline and reaches the shared catalogue', asy
   await addRow.click();
   await expect(society).toHaveValue(NAME);
   await expect(page.getByText(/pending verification/i)).toBeVisible();
-
   // Outside the browser: an anonymous reader searching the catalogue finds the building.
   const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
   expect(found.status()).toBe(200);

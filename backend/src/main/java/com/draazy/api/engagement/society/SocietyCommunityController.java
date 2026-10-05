@@ -3,7 +3,10 @@ package com.draazy.api.engagement.society;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.common.error.ForbiddenException;
+import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
@@ -36,9 +39,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SocietyCommunityController {
 
     private final SocietyCommunityService community;
+    private final AccountPermissions permissions;
 
-    public SocietyCommunityController(SocietyCommunityService community) {
+    public SocietyCommunityController(SocietyCommunityService community,
+            AccountPermissions permissions) {
         this.community = community;
+        this.permissions = permissions;
     }
 
     /* ------------------------------------------------------------------ Q&A */
@@ -98,7 +104,7 @@ public class SocietyCommunityController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void remove(@CurrentUser AuthPrincipal principal, @PathVariable String slug,
             @PathVariable UUID itemId) {
-        community.remove(slug, itemId, principal.userId(), isStaff(principal));
+        community.remove(slug, itemId, principal.userId(), staffRemoval(principal));
     }
 
     /** Null for an anonymous reader — a legitimate state on both reads, not a failure. */
@@ -106,8 +112,17 @@ public class SocietyCommunityController {
         return principal != null ? principal.userId() : null;
     }
 
-    private static boolean isStaff(AuthPrincipal principal) {
+    private boolean isStaff(AuthPrincipal principal) {
         return principal != null
-                && (Roles.Wire.STAFF.equals(principal.role()) || Roles.Wire.ADMIN.equals(principal.role()));
+                && Roles.isBackOffice(principal.role())
+                && permissions.granted(principal, BackOfficePermissions.SOCIETIES_WRITE);
+    }
+
+    private boolean staffRemoval(AuthPrincipal principal) {
+        if (principal != null && Roles.isBackOffice(principal.role())
+                && !permissions.granted(principal, BackOfficePermissions.SOCIETIES_WRITE)) {
+            throw new ForbiddenException("Your account cannot moderate society content.");
+        }
+        return isStaff(principal);
     }
 }

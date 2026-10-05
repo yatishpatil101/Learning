@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * also settles a question the alternative could not: {@code PropertyModerationService} now refuses
  * to approve a listing with no locality, and a moderator who could be stopped by that rule but not
  * permitted to clear it would be stuck with no route out of the deadlock. Whoever holds
- * {@code properties:write} holds both the block and its remedy.
+ * {@code properties:moderate} holds both the block and its remedy.
  *
  * <p>A separate controller from {@link LocalityAdminController} for the same reason that one is
  * separate from {@link LocalityController}: the two have different guards, and a file where the
@@ -39,8 +39,8 @@ public class LocalityQueueController {
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
 
     /** Filing one. */
-    private static final String PROPERTIES_WRITE =
-            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
+    private static final String PROPERTIES_MODERATE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE;
 
     private final LocalityQueueService service;
 
@@ -67,7 +67,7 @@ public class LocalityQueueController {
      * from the queue on the strength of the reply rather than a re-fetch it might race.
      */
     @PatchMapping(Routes.LocalityQueue.BY_PROPERTY)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     public LocalityQueueEntry assign(@CurrentUser AuthPrincipal principal,
             @PathVariable String propertyId, @Valid @RequestBody LocalityAssignRequest body) {
         return service.assign(principal, propertyId, body.slug());

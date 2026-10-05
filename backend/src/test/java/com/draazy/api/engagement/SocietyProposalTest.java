@@ -70,7 +70,7 @@ class SocietyProposalTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
     }
 
     /**
@@ -369,7 +369,7 @@ class SocietyProposalTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the author's own pending proposal comes back to them on the hub read")
+    @DisplayName("the author's own pending proposal comes back to them on the hub read, never with their mobile")
     void authorSeesTheirOwnPending() throws Exception {
         String slug = society(15);
         User author = user("9865000018", "Sanjay");
@@ -382,19 +382,11 @@ class SocietyProposalTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.pending[0].kind").value("details"))
                 .andExpect(jsonPath("$.pending[0].builder").value("Awaiting Review"))
                 .andExpect(jsonPath("$.pending[0].authorName").value("Sanjay"));
-    }
 
-    @Test
-    @DisplayName("a proposal is never published with the proposer's mobile")
-    void proposalsCarryNoMobile() throws Exception {
-        String slug = society(16);
-        propose(user("9865000019", "Tara"), slug, "{\"kind\":\"details\",\"builder\":\"Vilas\"}")
-                .andExpect(status().isCreated());
-
-        String json = mvc.perform(get("/societies/" + slug + "/proposals"))
+        String anonymous = mvc.perform(get("/societies/" + slug + "/proposals"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(json).doesNotContain("9865000019");
+        assertThat(anonymous).doesNotContain("9865000018");
     }
 
     @Test

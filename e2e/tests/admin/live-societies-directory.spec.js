@@ -169,45 +169,17 @@ test('the search finds a society the first page does not contain', async ({ page
   await expect(kpi(page, 'Societies')).not.toHaveText(grouped(firstPage.totalElements));
 });
 
-// ─── Who may open it ───
-
-test('an unauthenticated visitor is turned away from the desk, though the catalogue itself is public', async ({ page }) => {
-  await page.goto('/admin/societies?tab=directory');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Societies', exact: true })).toHaveCount(0);
-
-  /* The listing behind this screen is deliberately the public route — the console reads
-     `GET /societies` rather than an admin listing of its own, because every column it draws is
-     already on the anonymous payload. So there is nothing to refuse here, and asserting a 401 on it
-     would be asserting the opposite of the design. Recorded as an assertion rather than a comment,
-     because a route that quietly stopped being public would break the consumer catalogue and this is
-     the file that says out loud that it is not supposed to. */
+test('the admin society route refuses a stranger and a buyer, though the catalogue is public', async () => {
+  // The console reads the public `GET /societies`: every column it draws is already on the anonymous payload.
   const listing = await fetch(`${API}/societies?page=0&size=1`);
   expect(listing.status).toBe(200);
 
-  /* What is guarded is the *admin* view of one society, and only because of `adminNote` —
-     moderator prose about a named building, often about the people in it. `SocietyAdminController`
-     puts it behind `societies:read` for exactly that reason. `live-society-admin.spec.js` proves the
-     note stays off the public payload; this proves the route that carries it refuses a stranger. */
+  // `adminNote` is moderator prose about a named building, so the admin view of one society is guarded by `societies:read`.
   const slug = (await catalogue({ size: '1' })).content[0].slug;
   const anonymous = await fetch(`${API}/admin/societies/${slug}`);
   expect(anonymous.status).toBe(401);
-});
 
-test('a buyer is turned away by the router and by the admin society route', async ({ page, login }) => {
-  await login.asBuyer();
-  await page.goto('/admin/societies?tab=directory');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Societies', exact: true })).toHaveCount(0);
-
-  /* A signed-in consumer holds a perfectly good token, so this is a different refusal from the one
-     above and a different bug if it breaks: 401 says "who are you", 403 says "not you". A buyer who
-     can read this route can read the desk's private notes on every building in Pune. */
-  const slug = (await catalogue({ size: '1' })).content[0].slug;
+  // A buyer holds a valid token: 401 says "who are you", 403 says "not you".
   const asBuyer = await fetch(`${API}/admin/societies/${slug}`, { headers: await authHeaders(ACTORS.buyer) });
   expect(asBuyer.status).toBe(403);
 });

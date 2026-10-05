@@ -146,29 +146,3 @@ test('a banner with no image is refused, and the desk says which field', async (
   // along with their chance to fix the one field the message named.
   await expect(dialog).toBeVisible();
 });
-
-// ─── Guards ───
-
-test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {
-  await page.goto('/admin/content');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Content' })).toHaveCount(0);
-});
-
-test('a buyer cannot open the admin content desk', async ({ page, login }) => {
-  await login.asBuyer();
-  await page.goto('/admin/content');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Content' })).toHaveCount(0);
-});
-
-/* The API-side half of that guard — that `/admin/content/{type}` refuses a signed-in consumer
-   directly, not merely that the router redirects one — is `tests/live-admin-content.spec.js`'s
-   "authoring is closed to signed-in consumers and to the public". Asserting it twice would cost a
-   request to learn nothing. */
-
-

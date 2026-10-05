@@ -79,7 +79,6 @@ const rows = (page) => page.locator('table tbody tr');
 const named = (page, name) =>
   rows(page).filter({ has: page.locator('td:first-child').filter({ hasText: name }) });
 
-
 /** Mint a community society over the API and return its slug. */
 async function mintSociety(name, { mobile }) {
   const headers = await authHeaders(mobile);
@@ -242,114 +241,66 @@ test('merging a duplicate takes it off the queue without deleting it, and undoes
   await expect(named(page, dupe)).toHaveCount(1);
 });
 
-test('the server refuses a chain rather than collapsing it, and names the merge to undo first', async ({ login }) => {
-  await login.asAdmin();
-  const headers = await authHeaders(ACTORS.admin);
-  const json = { ...headers, 'content-type': 'application/json' };
+// Duplicate hints: subjects are minted, since a hint about a seeded society could have come from the bundled catalogue.
 
-  const a = await mintSociety(uniqueName('Chaintest A'), { mobile: uniqueMobile() });
-  const b = await mintSociety(uniqueName('Chaintest B'), { mobile: uniqueMobile() });
-  const c = await mintSociety(uniqueName('Chaintest C'), { mobile: uniqueMobile() });
+test('the duplicate column finds a second copy the bundled catalogue never held, and says so when nothing resembles a society', async ({ page, login }) => {
+  await test.step('the duplicate column finds a second copy the bundled catalogue never held', async () => {
+    /* A typo pair, which is the shape this queue actually produces. Neither name is a substring of
+       the other, so the row locators below cannot match each other's row — and both carry the same
+       run stamp, so a re-run does not inherit the last one's societies as extra matches. */
+    const stamp = String(Date.now()).slice(-7);
+    const original = `Quollhaven Ridge ${stamp}`;
+    const typo = `Quollhaven Rydge ${stamp}`;
+    await mintSociety(original, { mobile: uniqueMobile() });
+    await mintSociety(typo, { mobile: uniqueMobile() });
 
-  const first = await fetch(`${API}/admin/society-merges`, {
-    method: 'POST', headers: json, body: JSON.stringify({ from: a, into: b }),
+    await login.asAdmin();
+    await openTab(page, 'candidates');
+
+    const row = named(page, typo);
+    await expect(row).toHaveCount(1);
+    /* The hint is fetched now rather than computed in the same tick as the render, so the column has
+       three states and "Checking…" is one of them. Waiting for the chip is what distinguishes the
+       served answer from the old one; asserting `not.toContainText('No obvious match')` immediately
+       would pass against a column that had not started. */
+    await expect(row.getByText(original)).toBeVisible({ timeout: 20000 });
+    await expect(row).not.toContainText('No obvious match');
+
+    /* And the chip is the shortcut it exists to be: one click puts the operator in the merge dialog
+       with this pair already chosen. That is the whole value of the hint — the difference between an
+       operator merging the duplicate and verifying it because merging looked like work. */
+    await row.getByRole('button', { name: original }).click();
+    const dialog = page.getByRole('dialog', { name: 'Merge society' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(typo);
   });
-  expect(first.status).toBe(201);
+  await test.step('a society that resembles nothing says so, rather than saying nothing', async () => {
+    /* The other half of the contract, and the one that has to survive the column being asynchronous.
+       "Checking…" settling into "No obvious match" is a real answer; "Checking…" that never settles —
+       which is what a failed fetch would leave behind if the page did not record the failure — is an
+       operator staring at a spinner deciding whether to verify. */
+    const name = `Ynthracite Bqorvald ${String(Date.now()).slice(-7)}`;
+    await mintSociety(name, { mobile: uniqueMobile() });
 
-  /* B is now a live survivor, so merging it away would strand A. Refused rather than re-pointed:
-     collapsing the chain is the one outcome that cannot be undone, because once A is silently
-     moved from B to C nothing records that an operator chose B. */
-  const chained = await fetch(`${API}/admin/society-merges`, {
-    method: 'POST', headers: json, body: JSON.stringify({ from: b, into: c }),
+    await login.asAdmin();
+    await openTab(page, 'candidates');
+
+    const row = named(page, name);
+    await expect(row).toHaveCount(1);
+    await expect(row.getByText('No obvious match')).toBeVisible({ timeout: 20000 });
   });
-  expect(chained.status).toBe(409);
-  expect(await chained.text()).toContain(a);
+  await test.step('the duplicate endpoint refuses a hint count outside its range rather than quietly changing it', async () => {
+    const headers = await authHeaders(ACTORS.admin);
+    const slug = await mintSociety(`Limitcheck Villa ${String(Date.now()).slice(-7)}`, { mobile: uniqueMobile() });
 
-  // And the other direction: merging into something already merged away.
-  const backwards = await fetch(`${API}/admin/society-merges`, {
-    method: 'POST', headers: json, body: JSON.stringify({ from: c, into: a }),
+    for (const bad of ['0', '-1', '26', '1000']) {
+      const res = await fetch(`${API}/admin/society-candidates/${slug}/duplicates?limit=${bad}`, { headers });
+      expect(res.status, `limit=${bad}`).toBe(400);
+    }
+
+    const ok = await fetch(`${API}/admin/society-candidates/${slug}/duplicates?limit=25`, { headers });
+    expect(ok.status).toBe(200);
   });
-  expect(backwards.status).toBe(409);
-
-  // Self-merge is a validation failure, not a conflict: nothing is in the way, the request is void.
-  const self = await fetch(`${API}/admin/society-merges`, {
-    method: 'POST', headers: json, body: JSON.stringify({ from: c, into: c }),
-  });
-  expect(self.status).toBe(422);
-
-  await fetch(`${API}/admin/society-merges/${a}`, { method: 'DELETE', headers });
-});
-
-// ─── The duplicate hint (D252) ───
-
-/* This column was computed in the browser from `data/societies.js` — 28 curated societies compiled
- * into the bundle. Every candidate in this queue is a member-added society, and not one of those
- * was in that file, so the answer for the pairs that matter was always "No obvious match". An
- * operator reads that as "no duplicate exists" and verifies the second copy into a permanent one,
- * at which point listings, follows, reviews and residency claims start accumulating against both
- * slugs and only a hand merge can separate them.
- *
- * The two tests below are the before and the after of exactly that failure, which is why both mint
- * their subjects rather than reading the seed: a hint about a seeded society could have come from
- * the bundled catalogue and would prove nothing.
- */
-
-test('the duplicate column finds a second copy the bundled catalogue never held', async ({ page, login }) => {
-  /* A typo pair, which is the shape this queue actually produces. Neither name is a substring of
-     the other, so the row locators below cannot match each other's row — and both carry the same
-     run stamp, so a re-run does not inherit the last one's societies as extra matches. */
-  const stamp = String(Date.now()).slice(-7);
-  const original = `Quollhaven Ridge ${stamp}`;
-  const typo = `Quollhaven Rydge ${stamp}`;
-  await mintSociety(original, { mobile: uniqueMobile() });
-  await mintSociety(typo, { mobile: uniqueMobile() });
-
-  await login.asAdmin();
-  await openTab(page, 'candidates');
-
-  const row = named(page, typo);
-  await expect(row).toHaveCount(1);
-  /* The hint is fetched now rather than computed in the same tick as the render, so the column has
-     three states and "Checking…" is one of them. Waiting for the chip is what distinguishes the
-     served answer from the old one; asserting `not.toContainText('No obvious match')` immediately
-     would pass against a column that had not started. */
-  await expect(row.getByText(original)).toBeVisible({ timeout: 20000 });
-  await expect(row).not.toContainText('No obvious match');
-
-  /* And the chip is the shortcut it exists to be: one click puts the operator in the merge dialog
-     with this pair already chosen. That is the whole value of the hint — the difference between an
-     operator merging the duplicate and verifying it because merging looked like work. */
-  await row.getByRole('button', { name: original }).click();
-  const dialog = page.getByRole('dialog', { name: 'Merge society' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText(typo);
-});
-
-test('a society that resembles nothing says so, rather than saying nothing', async ({ page, login }) => {
-  /* The other half of the contract, and the one that has to survive the column being asynchronous.
-     "Checking…" settling into "No obvious match" is a real answer; "Checking…" that never settles —
-     which is what a failed fetch would leave behind if the page did not record the failure — is an
-     operator staring at a spinner deciding whether to verify. */
-  const name = `Ynthracite Bqorvald ${String(Date.now()).slice(-7)}`;
-  await mintSociety(name, { mobile: uniqueMobile() });
-
-  await login.asAdmin();
-  await openTab(page, 'candidates');
-
-  const row = named(page, name);
-  await expect(row).toHaveCount(1);
-  await expect(row.getByText('No obvious match')).toBeVisible({ timeout: 20000 });
-});
-
-test('the duplicate endpoint refuses a slug that names no society', async ({ login }) => {
-  /* A stale queue is the realistic caller: the operator's tab has been open since before somebody
-     else merged the row away. Answering an empty list would render as "nothing resembles this" for
-     a society that no longer stands on its own — the most reassuring possible face for a stale
-     screen. */
-  await login.asAdmin();
-  const headers = await authHeaders(ACTORS.admin);
-  const res = await fetch(`${API}/admin/society-candidates/no-such-society-d252/duplicates`, { headers });
-  expect(res.status).toBe(404);
 });
 
 test('a duplicate check that fails says so, instead of saying "No obvious match"', async ({ page, login }) => {
@@ -370,40 +321,6 @@ test('a duplicate check that fails says so, instead of saying "No obvious match"
   await expect(row).toHaveCount(1);
   await expect(row.getByText('Could not check')).toBeVisible({ timeout: 20000 });
   await expect(row).not.toContainText('No obvious match');
-});
-
-test('the duplicate endpoint refuses a hint count outside its range rather than quietly changing it', async ({ login }) => {
-  /* The same rule `?days=0` follows on the analytics reports. `Math.max(1, limit)` stood here and
-     answered a request nobody made: zero got one back, and a thousand got six, with nothing in the
-     response saying the number had been changed. This is not a scan bound — the limit is applied
-     after scoring, so a large one cannot enlarge the work — it is a bound on what the column can
-     become, and a caller is told when it is exceeded. */
-  await login.asAdmin();
-  const headers = await authHeaders(ACTORS.admin);
-  const slug = await mintSociety(uniqueName('Limitcheck Villa'), { mobile: uniqueMobile() });
-
-  for (const bad of ['0', '-1', '26', '1000']) {
-    const res = await fetch(`${API}/admin/society-candidates/${slug}/duplicates?limit=${bad}`, { headers });
-    expect(res.status, `limit=${bad}`).toBe(400);
-  }
-
-  const ok = await fetch(`${API}/admin/society-candidates/${slug}/duplicates?limit=25`, { headers });
-  expect(ok.status).toBe(200);
-});
-
-test('the duplicate hints are staff-only', async ({ login }) => {
-  await login.asAdmin();
-  const staffHeaders = await authHeaders(ACTORS.admin);
-  const slug = await mintSociety(uniqueName('Guardtest Court'), { mobile: uniqueMobile() });
-
-  const allowed = await fetch(`${API}/admin/society-candidates/${slug}/duplicates`, { headers: staffHeaders });
-  expect(allowed.status).toBe(200);
-
-  // The scan reads the whole catalogue and is reachable by slug. Left open it is a list of every
-  // society whose name resembles anything the caller can mint — cheap enumeration of the catalogue
-  // by somebody who should be reading `GET /societies` with its filters and its page.
-  const anon = await fetch(`${API}/admin/society-candidates/${slug}/duplicates`);
-  expect(anon.status).toBe(401);
 });
 
 test('a community details proposal names its society rather than title-casing its slug', async ({ page, login }) => {

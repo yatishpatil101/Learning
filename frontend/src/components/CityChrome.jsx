@@ -7,7 +7,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import MobileField from './MobileField.jsx';
 import useScrollLock from '../hooks/useScrollLock.js';
 
-const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^91/, '');
+/* The +91 prefix only comes off a number longer than ten digits: a real mobile can begin 91. */
+const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
 
 export default function CityChrome() {
   const { city, isLive, setCity, modal, openWaitlist, closeModal, requestCity } = useCity();

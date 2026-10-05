@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><strong>The two methods are guarded differently, and the gap is the point.</strong> Taking a
  * city live is the same class of decision as editing the platform policy document (D192/D13), so
  * {@code PATCH} needs {@code settings:write} on top of the admin role and writes a
- * {@code city.update} audit row. Reading how many people asked for a city is a dashboard read, so
+ * {@code city.update} audit row. Reading how many people asked for a city is an analytics read, so
  * {@code GET} is staff-visible like {@link Routes.Admin#SUPPLY_GAP} — it renders on the same Supply
  * Gap tab, and an ops operator who can see the gap but not the waitlist gets a screen that
  * half-loads with no way to tell that from nobody having asked.
@@ -39,10 +39,10 @@ public class CityAdminController {
     private static final String ADMIN_ONLY = "hasRole('" + Roles.ADMIN + "')";
     private static final String SETTINGS_WRITE =
             ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_SETTINGS_WRITE;
-    private static final String DASHBOARD_READ =
+    private static final String ANALYTICS_READ =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')"
                     + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD
-                    + " and " + BackOfficePermissions.REQUIRE_DASHBOARD_READ;
+                    + " and " + BackOfficePermissions.REQUIRE_ANALYTICS_READ;
 
     private final CityAdminService cities;
 
@@ -58,7 +58,7 @@ public class CityAdminController {
      * named. Both absences are argued in {@link CityWaitlistRepository#demandByCity()}.
      */
     @GetMapping(Routes.Admin.CITY_WAITLIST)
-    @PreAuthorize(DASHBOARD_READ)
+    @PreAuthorize(ANALYTICS_READ)
     public List<CityWaitlistDemandRow> waitlist() {
         return cities.expansionDemand();
     }
@@ -73,4 +73,3 @@ public class CityAdminController {
         cities.updateLive(slug, request, principal);
     }
 }
-

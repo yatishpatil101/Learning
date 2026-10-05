@@ -13,10 +13,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.JwtService;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,14 +27,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Contract + behaviour proof for the Engagement slice (8a-8d): saved properties, society follows,
- * saved searches, and notifications.
- *
- * <p>The load-bearing assertions here are caller-scoping (user A never sees user B's rows),
- * idempotency (PUT twice = one row, DELETE on absent = 204), FK validation (saving a non-existent
- * property = 404), and the PageEnvelope shape for notifications.
- */
+// Engagement slice proof: saved properties, society follows, saved searches and notifications.
+// Load-bearing assertions are caller scope, idempotency, FK validation and envelope shape.
 class EngagementEndpointsTest extends AbstractApiTest {
 
     @Autowired MockMvc mvc;
@@ -40,8 +36,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
     @Autowired UserRepository users;
     @Autowired PropertyRepository properties;
     @Autowired JdbcTemplate jdbc;
-
-    // ---- fixtures ----
 
     private User user(String mobile) {
         User u = new User(mobile, "buyer");
@@ -51,24 +45,21 @@ class EngagementEndpointsTest extends AbstractApiTest {
     }
 
     private Property listing(User owner) {
+        return listing(owner, PropertyStatus.APPROVED);
+    }
+
+    private Property listing(User owner, String status) {
         Property p = new Property(owner, "Test flat", "rent", "apartment", 25000L, "Kothrud", "Pune");
         p.setBhk(new BigDecimal("2"));
         p.setPriceUnit("per-month");
         p.setArea(new BigDecimal("1000"));
-        p.setStatus("approved");
+        p.setStatus(status);
         return properties.saveAndFlush(p);
     }
 
     private UUID societyId(String slug) {
         return jdbc.queryForObject("select id from societies where slug = ?", UUID.class, slug);
     }
-
-    // ========================= 8a  Saved properties =========================
-    //
-    // Paged as of the API-polish pass: nothing caps a shortlist, and each row is a 22-field
-    // PropertySummary. Assertions read `$.content` and `$.totalElements` rather than `$` — note
-    // that `$.length()` against an envelope silently returns the number of envelope *fields*, so a
-    // stale assertion of this kind fails with a confusing number rather than a helpful one.
 
     @Test
     void listSaved_emptyByDefault() throws Exception {
@@ -96,7 +87,51 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].title").value("Test flat"));
     }
 
-    /** Invariant 4: PUT twice = one row, still 204. */
+    @Test
+    void listSaved_countsOnlyBuyerVisibleRowsButKeepsSavedRows() throws Exception {
+        User u = user("9820100043");
+        String auth = bearer(u);
+        Property approved = listing(u, PropertyStatus.APPROVED);
+        Property rented = listing(u, PropertyStatus.RENTED);
+        Property pending = listing(u, PropertyStatus.PENDING);
+        Property paused = listing(u, PropertyStatus.PAUSED);
+        Property rejected = listing(u, PropertyStatus.REJECTED);
+        Property flagged = listing(u, PropertyStatus.FLAGGED);
+        Property archived = listing(u, PropertyStatus.APPROVED);
+        archived.archive("test");
+        properties.saveAndFlush(archived);
+
+        for (Property p : List.of(approved, rented, pending, paused, rejected, flagged, archived)) {
+            mvc.perform(put("/me/saved/" + p.getId()).header(HttpHeaders.AUTHORIZATION, auth))
+                    .andExpect(status().isNoContent());
+        }
+
+        String body = mvc.perform(get("/me/saved").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andReturn().getResponse().getContentAsString();
+        List<String> ids = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].id");
+        List<String> statuses = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].status");
+        assertThat(ids).containsExactlyInAnyOrder(approved.getId().toString(), rented.getId().toString());
+        assertThat(statuses).contains(PropertyStatus.RENTED);
+
+        pending.setStatus(PropertyStatus.APPROVED);
+        properties.saveAndFlush(pending);
+        body = mvc.perform(get("/me/saved").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andReturn().getResponse().getContentAsString();
+        ids = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].id");
+        assertThat(ids).contains(pending.getId().toString());
+
+        mvc.perform(delete("/me/saved/" + paused.getId()).header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isNoContent());
+        Integer savedRows = jdbc.queryForObject("""
+                select count(*) from saved_properties where user_id = ? and property_id = ?
+                """, Integer.class, u.getId(), paused.getId());
+        assertThat(savedRows).isZero();
+    }
+
     @Test
     void saveTwice_idempotent() throws Exception {
         User u = user("9820100003");
@@ -112,7 +147,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(1));
     }
 
-    /** Invariant 4: DELETE on non-existent = 204. */
     @Test
     void unsaveNonExistent_returns204() throws Exception {
         User u = user("9820100004");
@@ -121,7 +155,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNoContent());
     }
 
-    /** Invariant 7: saving a non-existent property -> 404 (not a dangling FK / 500). */
     @Test
     void saveNonExistentProperty_returns404() throws Exception {
         User u = user("9820100005");
@@ -159,9 +192,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
-    // ========================= 8b  Society follow =========================
-
-    /** Invariant 4: PUT twice = 204, one row. */
     @Test
     void followSociety_idempotent() throws Exception {
         User u = user("9820100010");
@@ -181,7 +211,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
         assertThat(count).isOne();
     }
 
-    /** Invariant 4: unfollow on non-existent = 204. */
     @Test
     void unfollowWithoutFollowing_returns204() throws Exception {
         User u = user("9820100011");
@@ -190,7 +219,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNoContent());
     }
 
-    /** Invariant 7: following a non-existent society slug -> 404. */
     @Test
     void followNonExistentSociety_returns404() throws Exception {
         User u = user("9820100012");
@@ -218,8 +246,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
         assertThat(count).isZero();
     }
 
-    // ========================= 8c  Saved searches =========================
-
     @Test
     void createAndListSavedSearch() throws Exception {
         User u = user("9820100020");
@@ -234,7 +260,7 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.query").value("2BHK Kothrud"))
                 .andExpect(jsonPath("$.name").value("My search"))
                 .andExpect(jsonPath("$.alertFrequency").value("daily"))
-                .andExpect(jsonPath("$.channel").value("whatsapp"))
+                .andExpect(jsonPath("$.channel").value("push"))
                 .andExpect(jsonPath("$.newCount").value(0));
 
         mvc.perform(get("/me/saved-searches").header(HttpHeaders.AUTHORIZATION, auth))
@@ -259,7 +285,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
-    /** Invariant 1: acting on another user's saved search returns 404, not 403. */
     @Test
     void deleteSavedSearch_anotherUser_returns404() throws Exception {
         User a = user("9820100023");
@@ -307,13 +332,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /**
-     * A flatmates alert carries a {@code criteria} object and no query string.
-     *
-     * <p>Before V27 this was impossible twice over: {@code query} was {@code NOT NULL} in the
-     * schema and {@code @NotBlank} on the request, so every flatmate alert the UI tried to save
-     * came back 422. The requirement did not disappear — it became conditional on {@code kind}.
-     */
     @Test
     void createSavedSearch_flatmatesKind_needsCriteriaNotQuery() throws Exception {
         User u = user("9820100027");
@@ -329,7 +347,7 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("flatmates"))
                 .andExpect(jsonPath("$.criteria.locality").value("Baner"))
-                // No query string, and none invented to fill the column.
+
                 .andExpect(jsonPath("$.query").doesNotExist());
 
         // The other half of the rule: flatmates without criteria is still a validation failure.
@@ -340,24 +358,17 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /** {@code sms} is in the contract's channel enum but was missing from the old V8's CHECK until the old V27. */
     @Test
-    void createSavedSearch_smsChannel_isAccepted() throws Exception {
+    void createSavedSearch_smsChannel_isAcceptedAsInApp() throws Exception {
         User u = user("9820100028");
         mvc.perform(post("/me/saved-searches")
                         .header(HttpHeaders.AUTHORIZATION, bearer(u))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"query\":\"2bhk Baner\",\"channel\":\"sms\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.channel").value("sms"));
+                .andExpect(jsonPath("$.channel").value("push"));
     }
 
-    /**
-     * Regression (slice-8 review): {@code alertFrequency} and {@code channel} are pattern-validated
-     * at the edge. Before the fix they were passed straight through to a column with a CHECK
-     * constraint, so a typo became a constraint violation and surfaced as a 500 — a server error
-     * any authenticated caller could trigger.
-     */
     @Test
     void createSavedSearch_invalidAlertFrequency_returns422NotServerError() throws Exception {
         User u = user("9820100027");
@@ -379,13 +390,8 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /**
-     * Every value the contract lists must be accepted — the pattern must not be over-tight.
-     *
-     * <p>The twelve combinations exceed the per-user saved-search cap, so each combination uses its
-     * own fresh user; the cap is exercised separately in {@code SavedSearchCapTest}. This test is
-     * only about the accepted vocabulary, not the count limit.
-     */
+    // Every legacy value the contract lists must be accepted — the pattern must not be over-tight.
+    // This test is only about the accepted vocabulary, not the count limit.
     @Test
     void createSavedSearch_allContractVocabularyAccepted() throws Exception {
         int i = 0;
@@ -399,19 +405,13 @@ class EngagementEndpointsTest extends AbstractApiTest {
                                         + "\",\"channel\":\"" + channel + "\"}"))
                         .andExpect(status().isCreated())
                         .andExpect(jsonPath("$.alertFrequency").value(freq))
-                        .andExpect(jsonPath("$.channel").value(channel));
+                        .andExpect(jsonPath("$.channel").value("push"));
             }
         }
     }
 
-    /**
-     * Regression (slice-8 security review): the free-form {@code filters} object is size-bounded.
-     *
-     * <p>It is typed {@code Object} to match the contract, so Bean Validation has nothing to hang a
-     * {@code @Size} on and the column is unbounded {@code jsonb}. Without an explicit bound an
-     * authenticated caller could store a multi-megabyte document per saved search, unbounded in
-     * count, and have it re-serialized into the response on every list read.
-     */
+    // The field is `Object`, so Bean Validation cannot attach `@Size`.
+    // Without this bound, every list read re-serializes unbounded JSONB.
     @Test
     void createSavedSearch_oversizedFilters_returns400() throws Exception {
         User u = user("9820100033");
@@ -438,8 +438,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
     }
 
-    // ========================= 8d  Notifications =========================
-
     @Test
     void listNotifications_pagedShape() throws Exception {
         User u = user("9820100030");
@@ -459,7 +457,54 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalPages").value(1));
     }
 
-    /** Invariant 5: absurd size is clamped to 100. */
+    @Test
+    void unreadCount_countsUnreadDeliverableOnly() throws Exception {
+        User u = user("9820100044");
+        jdbc.update("insert into notifications (user_id, type, title, read) values (?, 'info', 'Unread', false)",
+                u.getId());
+        jdbc.update("insert into notifications (user_id, type, title, read) values (?, 'info', 'Read', true)",
+                u.getId());
+        jdbc.update("""
+                insert into notifications (user_id, type, title, read, deliver_after)
+                values (?, 'info', 'Deferred', false, now() + interval '1 hour')
+                """, u.getId());
+
+        mvc.perform(get("/notifications/unread-count").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(1));
+        String body = mvc.perform(get("/notifications").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+        List<Boolean> readFlags = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].read");
+        assertThat(readFlags).containsExactlyInAnyOrder(false, true);
+    }
+
+    @Test
+    void listNotifications_hidesReadRowsOlderThanThirtyDays() throws Exception {
+        User u = user("9820100045");
+        jdbc.update("""
+                insert into notifications (user_id, type, title, read, created_at)
+                values (?, 'info', 'Old read', true, now() - interval '31 days')
+                """, u.getId());
+        jdbc.update("""
+                insert into notifications (user_id, type, title, read, created_at)
+                values (?, 'info', 'Old unread', false, now() - interval '31 days')
+                """, u.getId());
+        jdbc.update("""
+                insert into notifications (user_id, type, title, read, created_at)
+                values (?, 'info', 'Recent read', true, now() - interval '2 days')
+                """, u.getId());
+
+        String body = mvc.perform(get("/notifications").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andReturn().getResponse().getContentAsString();
+        List<String> titles = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].title");
+        assertThat(titles).containsExactlyInAnyOrder("Old unread", "Recent read");
+    }
+
     @Test
     void notifications_absurdSize_clamped() throws Exception {
         User u = user("9820100031");
@@ -469,19 +514,8 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.size").value(100));
     }
 
-    /**
-     * Regression (slice-8 review): a malformed id in the mark-read body is a 400, not a 500.
-     *
-     * <p>The naive alternatives are both wrong. Raw {@code UUID.fromString} throws
-     * {@code IllegalArgumentException}, which the global handler can only render as a 500. Silently
-     * skipping unparseable ids is worse still: an all-garbage list would arrive empty, and an empty
-     * list is the signal for "mark <em>all</em> read" — so a client typo would clear the inbox.
-     *
-     * <p>The 400 is also the deliberate exception to {@code Ids}' 404-for-a-bad-id rule, which
-     * governs path tokens only — see {@code NotificationController.parseId} (tech-debt D74). This
-     * test is what pins that decision, so changing the status here should mean changing it there.
-     * The token itself must not come back in the body.
-     */
+    // Skipping bad ids would turn an all-garbage list into "mark all read";
+    // a client typo must not clear the inbox.
     @Test
     void markRead_malformedId_returns400NotServerError() throws Exception {
         User u = user("9820100032");
@@ -495,12 +529,10 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(not(containsString("not-a-uuid"))));
 
-        // and the inbox was NOT silently marked read
         mvc.perform(get("/notifications").header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(jsonPath("$.content[0].read").value(false));
     }
 
-    /** Invariant 5: hostile ?sort=nosuchfield is ignored, not 500. */
     @Test
     void notifications_hostileSort_ignored() throws Exception {
         User u = user("9820100032");
@@ -522,7 +554,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
         jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'For B')",
                 notifB, b.getId());
 
-        // B tries to mark A's notification read
         mvc.perform(post("/notifications/read")
                         .header(HttpHeaders.AUTHORIZATION, bearer(b))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -534,7 +565,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
         assertThat(read).isFalse();
     }
 
-    /** Invariant 3: mark-read with no body marks all of the caller's, and nobody else's. */
     @Test
     void markAllRead_callerScoped() throws Exception {
         User a = user("9820100035");
@@ -572,7 +602,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(0));
     }
 
-    /** Dismiss removes the caller's own notification: 204, and it is gone from the inbox (D93). */
     @Test
     void dismiss_removesCallerOwnRow() throws Exception {
         User u = user("9820100039");
@@ -588,7 +617,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(0));
     }
 
-    /** Invariant 1: dismissing another user's notification is 404 (never 403), and leaves it intact. */
     @Test
     void dismiss_callerScoped_returns404() throws Exception {
         User a = user("9820100040");
@@ -605,15 +633,12 @@ class EngagementEndpointsTest extends AbstractApiTest {
         assertThat(stillThere).isOne();
     }
 
-    /** A non-UUID path token is a 400 (type-mismatch), not a 500 — same as {@code markRead}. */
     @Test
     void dismiss_malformedId_returns400NotServerError() throws Exception {
         User u = user("9820100042");
         mvc.perform(delete("/notifications/not-a-uuid").header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isBadRequest());
     }
-
-    // ========================= Auth required =========================
 
     @Test
     void allEngagementEndpoints_requireAuth() throws Exception {
@@ -630,6 +655,7 @@ class EngagementEndpointsTest extends AbstractApiTest {
         mvc.perform(delete("/me/saved-searches/" + UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/notifications")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/notifications/unread-count")).andExpect(status().isUnauthorized());
         mvc.perform(post("/notifications/read")).andExpect(status().isUnauthorized());
         mvc.perform(delete("/notifications/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
     }

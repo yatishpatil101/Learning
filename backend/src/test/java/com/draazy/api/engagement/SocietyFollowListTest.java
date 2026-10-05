@@ -84,31 +84,33 @@ class SocietyFollowListTest extends AbstractApiTest {
                 Timestamp.from(Instant.now().minus(minutes, ChronoUnit.MINUTES)), u.getId(), slug);
     }
 
+    /**
+     * A card here must be the card the directory renders. If this endpoint assembled its own,
+     * thinner shape, the same society would show a different follower count or lose its star
+     * depending on which screen you found it on — and the drift would be silent. {@code followedByMe}
+     * is computed, not hard-coded {@code true}, so it can report a follow removed on another device.
+     */
     @Test
-    @DisplayName("a caller who follows nothing gets an empty page, not a 404")
-    void emptyByDefault() throws Exception {
-        User u = user("9821200001");
-        mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(u)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(0))
-                .andExpect(jsonPath("$.totalElements").value(0));
-    }
-
-    @Test
-    @DisplayName("a follow made through the toggle is readable through the list")
+    @DisplayName("a follow made through the toggle is readable as the directory's card")
     void followThenRead() throws Exception {
-        User u = user("9821200002");
+        User a = user("9821200002");
+        User b = user("9821200009");
         String slug = someSocieties(1).get(0);
 
-        follow(u, slug);
+        follow(a, slug);
+        follow(b, slug);
 
-        mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+        mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(a)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].slug").value(slug))
-                .andExpect(jsonPath("$.content[0].name").isNotEmpty());
+                .andExpect(jsonPath("$.content[0].name").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].followedByMe").value(true))
+                // Everyone's follows, not just the caller's — the same count the hub shows.
+                .andExpect(jsonPath("$.content[0].followerCount").value(2))
+                .andExpect(jsonPath("$.content[0].listingCount").exists())
+                .andExpect(jsonPath("$.content[0].reviewCount").exists());
     }
-
     @Test
     @DisplayName("the most recent follow comes first — a follow made just now is not buried")
     void newestFollowFirst() throws Exception {
@@ -155,8 +157,10 @@ class SocietyFollowListTest extends AbstractApiTest {
 
         follow(a, slug);
 
+        // A caller who follows nothing gets an empty page, not a 404.
         mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(b)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0))
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
@@ -184,47 +188,6 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.totalElements").value(3));
-    }
-
-    /**
-     * A card here must be the card the directory renders. If this endpoint assembled its own,
-     * thinner shape, the same society would show a different follower count or lose its star
-     * depending on which screen you found it on — and the drift would be silent.
-     */
-    @Test
-    @DisplayName("the cards carry the directory's aggregates, not a thinner shape")
-    void cardsMatchTheDirectory() throws Exception {
-        User a = user("9821200008");
-        User b = user("9821200009");
-        String slug = someSocieties(1).get(0);
-
-        follow(a, slug);
-        follow(b, slug);
-
-        mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(a)))
-                .andExpect(status().isOk())
-                // Everyone's follows, not just the caller's — the same count the hub shows.
-                .andExpect(jsonPath("$.content[0].followerCount").value(2))
-                .andExpect(jsonPath("$.content[0].listingCount").exists())
-                .andExpect(jsonPath("$.content[0].reviewCount").exists());
-    }
-
-    /**
-     * Computed, not assumed. Hard-coding {@code true} here would make this the one endpoint that
-     * cannot report a follow removed on another device — which is the exact bug the route exists to
-     * fix.
-     */
-    @Test
-    @DisplayName("followedByMe is computed, so it agrees with the row it is attached to")
-    void followedByMeIsComputed() throws Exception {
-        User u = user("9821200010");
-        String slug = someSocieties(1).get(0);
-
-        follow(u, slug);
-
-        mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(u)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].followedByMe").value(true));
     }
 
     /**

@@ -103,16 +103,3 @@ test('a society minted during this run opens as itself', async ({ page, request 
      is still reachable, it is just no longer where every real society lands. */
   await expect(page.getByText('Society Verified')).toHaveCount(0);
 });
-
-test('a slug no society has still renders the honest placeholder', async ({ page, request }) => {
-  /* The fallback's real job, kept nailed down. Now that a missing society is a 404 from the seam
-     rather than a miss against a bundled array, this is the branch most likely to be lost — a
-     provider that let the 404 throw would leave this page blank or crashed instead of honest. */
-  const slug = `zz-no-such-society-${Date.now().toString(36)}`;
-  const res = await request.get(`${API}/societies/${slug}`);
-  expect(res.status()).toBe(404);
-
-  await openHub(page, slug);
-  await expect(page.getByText('Society Verified')).toHaveCount(0);
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-});

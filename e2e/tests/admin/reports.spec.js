@@ -36,307 +36,290 @@ async function tile(page, label) {
   return Number((await value.innerText()).replace(/[^\d]/g, ''));
 }
 
-test('the queue loads with the seeded reports and no console errors', async ({ page, login, consoleErrors }) => {
+test('the queue renders its rows and tiles, and the tabs switch by tile and by deep link', async ({ page, login, consoleErrors }) => {
+  test.slow();
   await login.asAdmin();
-  await openReports(page);
+  await test.step('the queue loads with the seeded reports and no console errors', async () => {
+    await openReports(page);
 
-  await expect(page.getByRole('heading', { name: 'Reports & Moderation' })).toBeVisible();
-  await expect(page.getByText('Review reported properties, users and flatmate posts, and take action.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Reports & Moderation' })).toBeVisible();
+    await expect(page.getByText('Review reported properties, users and flatmate posts, and take action.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
 
-  /* Three seeded reports on p5002. Scoped to the target rather than the tab, so another spec filing
-     a report on a different listing cannot move this number. */
-  await expect(rows(page).filter({ hasText: REPORTED_PROPERTY })).toHaveCount(3);
+    /* Three seeded reports on p5002. Scoped to the target rather than the tab, so another spec filing
+       a report on a different listing cannot move this number. */
+    await expect(rows(page).filter({ hasText: REPORTED_PROPERTY })).toHaveCount(3);
 
-  /* A CP1252 round-trip turns the queue's em-dashes and curly quotes into Latin-1 runs. Needles are
-     built from code points so this file need not be exempted from `noMojibakeOrBom`. */
-  const body = await page.locator('body').innerText();
-  for (const lead of [0x00e2, 0x00c3, 0x00c2]) {
-    expect(body, `mojibake starting U+${lead.toString(16)}`).not.toContain(String.fromCharCode(lead, 0x20ac));
-  }
+    /* A CP1252 round-trip turns the queue's em-dashes and curly quotes into Latin-1 runs. Needles are
+       built from code points so this file need not be exempted from `noMojibakeOrBom`. */
+    const body = await page.locator('body').innerText();
+    for (const lead of [0x00e2, 0x00c3, 0x00c2]) {
+      expect(body, `mojibake starting U+${lead.toString(16)}`).not.toContain(String.fromCharCode(lead, 0x20ac));
+    }
 
-  expect(consoleErrors).toHaveLength(0);
+    expect(consoleErrors).toHaveLength(0);
+  });
+  await test.step('the five KPI tiles agree with each other and with the rows on screen', async () => {
+    await openReports(page);
+
+    const open = await tile(page, 'Open reports');
+    const listings = await tile(page, 'Reported properties');
+    const users = await tile(page, 'Reported users');
+    const posts = await tile(page, 'Reported posts');
+    const closed = await tile(page, 'Closed');
+
+    /* `open`/`closed` and `listings`/`users`/`posts` partition the same queue, so both must total the
+       same thing — which also fails if a target type is on the wire with no tab to show it. */
+    expect(open + closed).toBe(listings + users + posts);
+
+    /* Absolute, because nothing else in the suite reports a person or a post. */
+    expect(users).toBe(2);
+    expect(posts).toBe(2);
+    await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Reported users & owners/ }).click();
+    await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
+  });
+  await test.step('the property, user and post tiles switch tabs', async () => {
+    await openReports(page);
+
+    await page.getByText('Reported users', { exact: true }).click();
+    await expect(page.getByRole('columnheader', { name: 'User / Owner' })).toBeVisible();
+
+    await page.getByText('Reported posts', { exact: true }).click();
+    await expect(page.getByRole('columnheader', { name: 'Flatmate post' })).toBeVisible();
+
+    await page.getByText('Reported properties', { exact: true }).click();
+    await expect(page.getByRole('columnheader', { name: 'Property' })).toBeVisible();
+  });
+  await test.step('listings is the default tab, and ?tab= deep links to the other two', async () => {
+    await openReports(page);
+    await expect(page.getByRole('columnheader', { name: 'Property' })).toBeVisible();
+
+    await openReports(page, '?tab=users');
+    await expect(page.getByRole('columnheader', { name: 'User / Owner' })).toBeVisible();
+    await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
+
+    await openReports(page, '?tab=posts');
+    await expect(page.getByRole('columnheader', { name: 'Flatmate post' })).toBeVisible();
+    await expect(rows(page)).toHaveCount(2);
+  });
 });
 
-test('the five KPI tiles agree with each other and with the rows on screen', async ({ page, login }) => {
+test('every report row reads in its own vocabulary, escalates at three, and withholds the reporter', async ({ page, login }) => {
+  test.slow();
   await login.asAdmin();
-  await openReports(page);
+  await test.step('a flatmate post report is reachable, and reads in the post vocabulary', async () => {
+  /* Every flatmate report is filed as `targetType: 'post'` → `kind: 'share'`, which the two-branch tab
+     predicate matched in neither — filed and stored correctly, invisible to whoever must action it. */
+    await openReports(page, '?tab=posts');
 
-  const open = await tile(page, 'Open reports');
-  const listings = await tile(page, 'Reported properties');
-  const users = await tile(page, 'Reported users');
-  const posts = await tile(page, 'Reported posts');
-  const closed = await tile(page, 'Closed');
+    await expect(rows(page)).toHaveCount(2);
+    await expect(rows(page).filter({ hasText: REPORTED_ROOM })).toHaveCount(1);
 
-  /* `open`/`closed` and `listings`/`users`/`posts` partition the same queue, so both must total the
-     same thing — which also fails if a target type is on the wire with no tab to show it. */
-  expect(open + closed).toBe(listings + users + posts);
+    /* `filled` is legal for a post and for nothing else, so this label cannot be produced by either
+       other vocabulary — it proves the row is being labelled as a post and not as a listing. */
+    await expect(rows(page).filter({ hasText: 'Already filled / no longer available' })).toHaveCount(1);
 
-  /* Absolute, because nothing else in the suite reports a person or a post. */
-  expect(users).toBe(2);
-  expect(posts).toBe(2);
-  await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(0);
-  await page.getByRole('button', { name: /^Reported users & owners/ }).click();
-  await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
+    /* `broker` is shared with the listing vocabulary under *different wording*. The listing wording
+       is "Posted by a broker / not the owner", which is about the person who owns the flat; a
+       flatmate post is somebody looking for a housemate. Getting the right one here is the whole
+       reason `reasonLabel` takes a target type. */
+    await expect(rows(page).filter({ hasText: 'Broker or agent, not a genuine seeker' })).toHaveCount(1);
+    await expect(page.getByText('Posted by a broker / not the owner')).toHaveCount(0);
+
+    /* A post is content: the enforcement is to take the post down, not to suspend its author. */
+    await expect(rows(page).filter({ hasText: 'Take down' })).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'Suspend' })).toHaveCount(0);
+  });
+  await test.step('a property report renders the reason the reporter chose, in words', async () => {
+    await openReports(page);
+
+    const onP5002 = rows(page).filter({ hasText: REPORTED_PROPERTY });
+
+    /* Labels, not codes. The wire carries `fake`/`pricing`/`broker`; a moderator must never be shown
+       those. And they are the *listing* vocabulary's wording specifically — `reasonLabel` indexes by
+       target type, so a `spam` report on a flatmate post does not read "duplicate listing". */
+    await expect(onP5002.filter({ hasText: 'Fake photos or misleading info' })).toHaveCount(1);
+    await expect(onP5002.filter({ hasText: 'Overpriced / incorrect price' })).toHaveCount(1);
+    await expect(onP5002.filter({ hasText: 'Posted by a broker / not the owner' })).toHaveCount(1);
+
+    /* The reporter's own words come down on `details` and are what a moderator actually reads.
+       Scoped to the table because the stacked card renders the same sentence. */
+    await expect(onP5002.filter({ hasText: 'The same photos appear on another listing in Kothrud' })).toHaveCount(1);
+  });
+  await test.step('the reporter is withheld on every row', async () => {
+    await openReports(page);
+
+    /* `ReportResponse` omits `reporterId` on purpose — naming the reporter to all of ops is how a
+       complaint becomes a reprisal. "Withheld" and not "Anonymous": the platform knows exactly who
+       filed this, and an unattributable complaint is an easier one to wave away. */
+    const count = await rows(page).count();
+    await expect(rows(page).filter({ hasText: 'Withheld' })).toHaveCount(count);
+    await expect(page.getByText('Anonymous')).toHaveCount(0);
+  });
+  await test.step('a user report renders the owner vocabulary, not the listing one', async () => {
+    await openReports(page, '?tab=users');
+
+    const onRahul = rows(page).filter({ hasText: REPORTED_USER });
+    await expect(onRahul.filter({ hasText: 'Asked for brokerage / advance payment' })).toHaveCount(1);
+    await expect(onRahul.filter({ hasText: 'Abusive or harassing behaviour' })).toHaveCount(1);
+  });
+  await test.step('the escalation badge fires on the thrice-reported target and not the twice-reported one', async () => {
+    await openReports(page);
+
+    /* Threshold is three. p5002 has three, Rahul two — so this is one assertion and one refutation,
+       which together pin the boundary. The mock version asserted `>= 0`. */
+    const badge = rows(page).filter({ hasText: REPORTED_PROPERTY }).first()
+      .locator('[title="3 reports on this target"]');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('3x');
+
+    await page.getByRole('button', { name: /^Reported users & owners/ }).click();
+    await expect(rows(page).locator('[title$="reports on this target"]')).toHaveCount(0);
+  });
 });
 
-test('the property, user and post tiles switch tabs', async ({ page, login }) => {
+test('the queue filters by status, reason and search, and clears them again', async ({ page, login }) => {
+  test.slow();
   await login.asAdmin();
-  await openReports(page);
+  await test.step('the status filter narrows to the seeded statuses', async () => {
+    await openReports(page);
 
-  await page.getByText('Reported users', { exact: true }).click();
-  await expect(page.getByRole('columnheader', { name: 'User / Owner' })).toBeVisible();
+    await pick(page, 'Filter by status', 'Being reviewed');
+    const reviewing = rows(page).filter({ hasText: REPORTED_PROPERTY });
+    await expect(reviewing).toHaveCount(1);
+    await expect(reviewing).toContainText('Overpriced / incorrect price');
 
-  await page.getByText('Reported posts', { exact: true }).click();
-  await expect(page.getByRole('columnheader', { name: 'Flatmate post' })).toBeVisible();
+    await pick(page, 'Filter by status', 'Dismissed');
+    const dismissed = rows(page).filter({ hasText: REPORTED_PROPERTY });
+    await expect(dismissed).toHaveCount(1);
+    await expect(dismissed).toContainText('Posted by a broker / not the owner');
+  });
+  await test.step('the reason filter offers the vocabulary that belongs to the tab', async () => {
+    await openReports(page);
 
-  await page.getByText('Reported properties', { exact: true }).click();
-  await expect(page.getByRole('columnheader', { name: 'Property' })).toBeVisible();
+    /* A hand-written filter list drifting from the server's four per-target vocabularies empties the
+       queue silently — it reads as "no such complaints" rather than as a broken filter. */
+    await page.getByRole('button', { name: 'Filter by reason' }).click();
+    await expect(page.getByRole('option', { name: 'Posted by a broker / not the owner' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Already sold or rented out' })).toBeVisible();
+    // Owner-only reasons are meaningless about a listing, and the server refuses the pairing.
+    await expect(page.getByRole('option', { name: 'Fake or impersonated profile' })).toHaveCount(0);
+    await expect(page.getByRole('option', { name: /inaccurate|offensive/i })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: /^Reported users & owners/ }).click();
+    await page.getByRole('button', { name: 'Filter by reason' }).click();
+    await expect(page.getByRole('option', { name: 'Asked for brokerage / advance payment' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Posted by a broker / not the owner' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: /^Reported flatmate posts/ }).click();
+    await page.getByRole('button', { name: 'Filter by reason' }).click();
+    await expect(page.getByRole('option', { name: 'Already filled / no longer available' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Broker or agent, not a genuine seeker' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Asked for brokerage / advance payment' })).toHaveCount(0);
+  });
+  await test.step('a reason that cannot exist in the other tab is cleared when the tab changes', async () => {
+    await openReports(page);
+
+    await pick(page, 'Filter by reason', 'Posted by a broker / not the owner');
+    await expect(rows(page)).toHaveCount(1);
+
+    /* `broker` is not in the owner vocabulary. Left standing it would filter the users tab by a code
+       no row there can carry, and an empty queue reads as "no reports" rather than "you are filtering
+       by something impossible here". */
+    await page.getByRole('button', { name: /^Reported users & owners/ }).click();
+    await expect(page.getByRole('button', { name: 'Filter by reason' })).toContainText('All reasons');
+    await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
+  });
+  await test.step("search narrows the queue by the reporter\'s own words", async () => {
+    await openReports(page);
+
+    await page.getByPlaceholder('Search reports…').fill('Kothrud');
+    await expect(rows(page)).toHaveCount(1);
+    await expect(rows(page).first()).toContainText('Fake photos or misleading info');
+
+    /* Asserted on the empty copy, not a row count of zero: `Table` keeps one `tr` to hold the empty
+       state. Read out of the table, since the copy renders twice and `.first()` finds the hidden card. */
+    await page.getByPlaceholder('Search reports…').fill('nothing matches this at all');
+    await expect(page.locator('table').getByText('No reports match — all clear!')).toBeVisible();
+    await expect(rows(page).filter({ hasText: REPORTED_PROPERTY })).toHaveCount(0);
+  });
+  await test.step('clear all filters restores the full queue', async () => {
+    await openReports(page);
+    const before = await rows(page).count();
+
+    await pick(page, 'Filter by status', 'Dismissed');
+    await expect(rows(page)).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'Clear all filters' }).click();
+    await expect(rows(page)).toHaveCount(before);
+    await expect(page.getByRole('button', { name: 'Clear all filters' })).toHaveCount(0);
+  });
 });
 
-test('listings is the default tab, and ?tab= deep links to the other two', async ({ page, login }) => {
+test('triage controls, bulk selection, the detail drawer and the ?open= deep link', async ({ page, login }) => {
+  test.slow();
   await login.asAdmin();
-  await openReports(page);
-  await expect(page.getByRole('columnheader', { name: 'Property' })).toBeVisible();
+  await test.step('an open report offers triage and a decided one says so', async () => {
+    await openReports(page);
 
-  await openReports(page, '?tab=users');
-  await expect(page.getByRole('columnheader', { name: 'User / Owner' })).toBeVisible();
-  await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
+    await pick(page, 'Filter by status', 'Open');
+    const open = rows(page).filter({ hasText: REPORTED_PROPERTY }).first();
+    await expect(open.getByRole('button', { name: 'Take down' })).toBeVisible();
+    await expect(open.getByRole('button', { name: 'Resolve' })).toBeVisible();
+    await expect(open.getByRole('button', { name: 'Dismiss' })).toBeVisible();
 
-  await openReports(page, '?tab=posts');
-  await expect(page.getByRole('columnheader', { name: 'Flatmate post' })).toBeVisible();
-  await expect(rows(page)).toHaveCount(2);
-});
+    /* Terminal is terminal, server-side: `canTriage` gates on `open`/`reviewing`, so a decided report
+       renders a note and no buttons. The mock spec asserted a Reopen button here, which the live page
+       cannot render under any state. */
+    await pick(page, 'Filter by status', 'Dismissed');
+    const decided = rows(page).filter({ hasText: REPORTED_PROPERTY }).first();
+    await expect(decided.getByText('Decided')).toBeVisible();
+    await expect(decided.getByRole('button', { name: 'Dismiss' })).toHaveCount(0);
+  });
+  await test.step('only open reports carry a selection checkbox', async () => {
+    await openReports(page);
 
-/* Every flatmate report is filed as `targetType: 'post'` → `kind: 'share'`, which the two-branch tab
-   predicate matched in neither — filed and stored correctly, invisible to whoever must action it. */
-test('a flatmate post report is reachable, and reads in the post vocabulary', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page, '?tab=posts');
+    /* Selectable and triageable are deliberately different sets: bulk triage sends a blind PATCH per id
+       with one shared note, so sweeping in a `reviewing` row loses an in-progress investigation. */
+    await expect(rows(page).filter({ hasText: 'Take down' })).toHaveCount(2);
+    const boxes = rows(page).locator('input[type="checkbox"]');
+    await expect(boxes).toHaveCount(1);
 
-  await expect(rows(page)).toHaveCount(2);
-  await expect(rows(page).filter({ hasText: REPORTED_ROOM })).toHaveCount(1);
+    await boxes.first().check();
+    await expect(page.getByText('1 selected')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Bulk Resolve' })).toBeVisible();
+    await page.getByRole('button', { name: 'Deselect all' }).click();
+    await expect(page.getByText('1 selected')).toHaveCount(0);
+  });
+  await test.step('the detail drawer shows the report and closes', async () => {
+    await openReports(page);
 
-  /* `filled` is legal for a post and for nothing else, so this label cannot be produced by either
-     other vocabulary — it proves the row is being labelled as a post and not as a listing. */
-  await expect(rows(page).filter({ hasText: 'Already filled / no longer available' })).toHaveCount(1);
+    await rows(page).filter({ hasText: REPORTED_PROPERTY }).first()
+      .getByRole('button', { name: 'View details' }).click();
 
-  /* `broker` is shared with the listing vocabulary under *different wording*. The listing wording
-     is "Posted by a broker / not the owner", which is about the person who owns the flat; a
-     flatmate post is somebody looking for a housemate. Getting the right one here is the whole
-     reason `reasonLabel` takes a target type. */
-  await expect(rows(page).filter({ hasText: 'Broker or agent, not a genuine seeker' })).toHaveCount(1);
-  await expect(page.getByText('Posted by a broker / not the owner')).toHaveCount(0);
+    const drawer = page.getByRole('dialog');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText('Reason', { exact: true })).toBeVisible();
+    await expect(drawer.getByText('Reported by', { exact: true })).toBeVisible();
+    // Same withholding as the column — it was fixed in one place and missed in the other once.
+    await expect(drawer.getByText('Withheld')).toBeVisible();
+    await expect(drawer.getByText(/Escalated \(3 reports\)/)).toBeVisible();
 
-  /* A post is content: the enforcement is to take the post down, not to suspend its author. */
-  await expect(rows(page).filter({ hasText: 'Take down' })).toHaveCount(2);
-  await expect(page.getByRole('button', { name: 'Suspend' })).toHaveCount(0);
-});
-
-test('a property report renders the reason the reporter chose, in words', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  const onP5002 = rows(page).filter({ hasText: REPORTED_PROPERTY });
-
-  /* Labels, not codes. The wire carries `fake`/`pricing`/`broker`; a moderator must never be shown
-     those. And they are the *listing* vocabulary's wording specifically — `reasonLabel` indexes by
-     target type, so a `spam` report on a flatmate post does not read "duplicate listing". */
-  await expect(onP5002.filter({ hasText: 'Fake photos or misleading info' })).toHaveCount(1);
-  await expect(onP5002.filter({ hasText: 'Overpriced / incorrect price' })).toHaveCount(1);
-  await expect(onP5002.filter({ hasText: 'Posted by a broker / not the owner' })).toHaveCount(1);
-
-  /* The reporter's own words come down on `details` and are what a moderator actually reads.
-     Scoped to the table because the stacked card renders the same sentence. */
-  await expect(onP5002.filter({ hasText: 'The same photos appear on another listing in Kothrud' })).toHaveCount(1);
-});
-
-test('the reporter is withheld on every row', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  /* `ReportResponse` omits `reporterId` on purpose — naming the reporter to all of ops is how a
-     complaint becomes a reprisal. "Withheld" and not "Anonymous": the platform knows exactly who
-     filed this, and an unattributable complaint is an easier one to wave away. */
-  const count = await rows(page).count();
-  await expect(rows(page).filter({ hasText: 'Withheld' })).toHaveCount(count);
-  await expect(page.getByText('Anonymous')).toHaveCount(0);
-});
-
-test('a user report renders the owner vocabulary, not the listing one', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page, '?tab=users');
-
-  const onRahul = rows(page).filter({ hasText: REPORTED_USER });
-  await expect(onRahul.filter({ hasText: 'Asked for brokerage / advance payment' })).toHaveCount(1);
-  await expect(onRahul.filter({ hasText: 'Abusive or harassing behaviour' })).toHaveCount(1);
-});
-
-test('the escalation badge fires on the thrice-reported target and not the twice-reported one', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  /* Threshold is three. p5002 has three, Rahul two — so this is one assertion and one refutation,
-     which together pin the boundary. The mock version asserted `>= 0`. */
-  const badge = rows(page).filter({ hasText: REPORTED_PROPERTY }).first()
-    .locator('[title="3 reports on this target"]');
-  await expect(badge).toBeVisible();
-  await expect(badge).toHaveText('3x');
-
-  await page.getByRole('button', { name: /^Reported users & owners/ }).click();
-  await expect(rows(page).locator('[title$="reports on this target"]')).toHaveCount(0);
-});
-
-test('the status filter narrows to the seeded statuses', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  await pick(page, 'Filter by status', 'Being reviewed');
-  const reviewing = rows(page).filter({ hasText: REPORTED_PROPERTY });
-  await expect(reviewing).toHaveCount(1);
-  await expect(reviewing).toContainText('Overpriced / incorrect price');
-
-  await pick(page, 'Filter by status', 'Dismissed');
-  const dismissed = rows(page).filter({ hasText: REPORTED_PROPERTY });
-  await expect(dismissed).toHaveCount(1);
-  await expect(dismissed).toContainText('Posted by a broker / not the owner');
-});
-
-test('the reason filter offers the vocabulary that belongs to the tab', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  /* A hand-written filter list drifting from the server's four per-target vocabularies empties the
-     queue silently — it reads as "no such complaints" rather than as a broken filter. */
-  await page.getByRole('button', { name: 'Filter by reason' }).click();
-  await expect(page.getByRole('option', { name: 'Posted by a broker / not the owner' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Already sold or rented out' })).toBeVisible();
-  // Owner-only reasons are meaningless about a listing, and the server refuses the pairing.
-  await expect(page.getByRole('option', { name: 'Fake or impersonated profile' })).toHaveCount(0);
-  await expect(page.getByRole('option', { name: /inaccurate|offensive/i })).toHaveCount(0);
-  await page.keyboard.press('Escape');
-
-  await page.getByRole('button', { name: /^Reported users & owners/ }).click();
-  await page.getByRole('button', { name: 'Filter by reason' }).click();
-  await expect(page.getByRole('option', { name: 'Asked for brokerage / advance payment' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Posted by a broker / not the owner' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
-
-  await page.getByRole('button', { name: /^Reported flatmate posts/ }).click();
-  await page.getByRole('button', { name: 'Filter by reason' }).click();
-  await expect(page.getByRole('option', { name: 'Already filled / no longer available' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Broker or agent, not a genuine seeker' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Asked for brokerage / advance payment' })).toHaveCount(0);
-});
-
-test('a reason that cannot exist in the other tab is cleared when the tab changes', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  await pick(page, 'Filter by reason', 'Posted by a broker / not the owner');
-  await expect(rows(page)).toHaveCount(1);
-
-  /* `broker` is not in the owner vocabulary. Left standing it would filter the users tab by a code
-     no row there can carry, and an empty queue reads as "no reports" rather than "you are filtering
-     by something impossible here". */
-  await page.getByRole('button', { name: /^Reported users & owners/ }).click();
-  await expect(page.getByRole('button', { name: 'Filter by reason' })).toContainText('All reasons');
-  await expect(rows(page).filter({ hasText: REPORTED_USER })).toHaveCount(2);
-});
-
-test('search narrows the queue by the reporter\'s own words', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  await page.getByPlaceholder('Search reports…').fill('Kothrud');
-  await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toContainText('Fake photos or misleading info');
-
-  /* Asserted on the empty copy, not a row count of zero: `Table` keeps one `tr` to hold the empty
-     state. Read out of the table, since the copy renders twice and `.first()` finds the hidden card. */
-  await page.getByPlaceholder('Search reports…').fill('nothing matches this at all');
-  await expect(page.locator('table').getByText('No reports match — all clear!')).toBeVisible();
-  await expect(rows(page).filter({ hasText: REPORTED_PROPERTY })).toHaveCount(0);
-});
-
-test('clear all filters restores the full queue', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-  const before = await rows(page).count();
-
-  await pick(page, 'Filter by status', 'Dismissed');
-  await expect(rows(page)).toHaveCount(1);
-
-  await page.getByRole('button', { name: 'Clear all filters' }).click();
-  await expect(rows(page)).toHaveCount(before);
-  await expect(page.getByRole('button', { name: 'Clear all filters' })).toHaveCount(0);
-});
-
-test('an open report offers triage and a decided one says so', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  await pick(page, 'Filter by status', 'Open');
-  const open = rows(page).filter({ hasText: REPORTED_PROPERTY }).first();
-  await expect(open.getByRole('button', { name: 'Take down' })).toBeVisible();
-  await expect(open.getByRole('button', { name: 'Resolve' })).toBeVisible();
-  await expect(open.getByRole('button', { name: 'Dismiss' })).toBeVisible();
-
-  /* Terminal is terminal, server-side: `canTriage` gates on `open`/`reviewing`, so a decided report
-     renders a note and no buttons. The mock spec asserted a Reopen button here, which the live page
-     cannot render under any state. */
-  await pick(page, 'Filter by status', 'Dismissed');
-  const decided = rows(page).filter({ hasText: REPORTED_PROPERTY }).first();
-  await expect(decided.getByText('Decided')).toBeVisible();
-  await expect(decided.getByRole('button', { name: 'Dismiss' })).toHaveCount(0);
-});
-
-test('only open reports carry a selection checkbox', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  /* Selectable and triageable are deliberately different sets: bulk triage sends a blind PATCH per id
-     with one shared note, so sweeping in a `reviewing` row loses an in-progress investigation. */
-  await expect(rows(page).filter({ hasText: 'Take down' })).toHaveCount(2);
-  const boxes = rows(page).locator('input[type="checkbox"]');
-  await expect(boxes).toHaveCount(1);
-
-  await boxes.first().check();
-  await expect(page.getByText('1 selected')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Bulk Resolve' })).toBeVisible();
-  await page.getByRole('button', { name: 'Deselect all' }).click();
-  await expect(page.getByText('1 selected')).toHaveCount(0);
-});
-
-test('the detail drawer shows the report and closes', async ({ page, login }) => {
-  await login.asAdmin();
-  await openReports(page);
-
-  await rows(page).filter({ hasText: REPORTED_PROPERTY }).first()
-    .getByRole('button', { name: 'View details' }).click();
-
-  const drawer = page.getByRole('dialog');
-  await expect(drawer).toBeVisible();
-  await expect(drawer.getByText('Reason', { exact: true })).toBeVisible();
-  await expect(drawer.getByText('Reported by', { exact: true })).toBeVisible();
-  // Same withholding as the column — it was fixed in one place and missed in the other once.
-  await expect(drawer.getByText('Withheld')).toBeVisible();
-  await expect(drawer.getByText(/Escalated \(3 reports\)/)).toBeVisible();
-
-  await page.keyboard.press('Escape');
-  await expect(drawer).toHaveCount(0);
-});
-
-test('?open=<uuid> deep links straight to one report', async ({ page, login }) => {
-  await login.asAdmin();
-
-  /* The mock version used `?open=REP5000`, so it never met the id shape it will actually be handed.
-     The match is string-for-string against `report.id`, which live is a UUID. */
-  await openReports(page, `?open=${SEEDED_OPEN_REPORT}`);
-  const drawer = page.getByRole('dialog');
-  await expect(drawer).toBeVisible();
-  await expect(drawer).toContainText(SEEDED_OPEN_REPORT);
-  await expect(drawer).toContainText('Fake photos or misleading info');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+  });
+  await test.step('?open=<uuid> deep links straight to one report', async () => {
+    /* The mock version used `?open=REP5000`, so it never met the id shape it will actually be handed.
+       The match is string-for-string against `report.id`, which live is a UUID. */
+    await openReports(page, `?open=${SEEDED_OPEN_REPORT}`);
+    const drawer = page.getByRole('dialog');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText(SEEDED_OPEN_REPORT);
+    await expect(drawer).toContainText('Fake photos or misleading info');
+  });
 });
 
 /* Declared last because it mutates: files its *own* report rather than triaging a seeded one, whose

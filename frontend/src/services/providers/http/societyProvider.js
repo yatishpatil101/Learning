@@ -86,11 +86,14 @@ export async function searchSocieties(query) {
       slug: s.slug,
       name: s.name || '',
       localitySlug: s.localitySlug || '',
+      pincode: s.pincode || s.pinCode || s.postalCode || '',
       // The registry already knows where the society is, which is the whole reason a host who has
       // named one should not also be made to drag a map pin onto it.
       lat: s.lat == null ? null : Number(s.lat),
       lng: s.lng == null ? null : Number(s.lng),
       builder: s.builder || '',
+      year: s.year ?? null,
+      rera: s.rera || '',
       verified: !community && !!(s.registration && s.conveyance),
       community,
     };
@@ -357,8 +360,8 @@ export async function mergeSocieties(from, into) {
   return post('/admin/society-merges', { from, into });
 }
 
-// Addressed by the society that was **merged away** — a survivor can have absorbed several
-// duplicates, so keying on it would resolve silently to the wrong one.
+// Addressed by source society: a survivor can absorb several duplicates, so keying on it
+// would resolve silently to the wrong one.
 export async function undoSocietyMerge(slug) {
   await del(`/admin/society-merges/${encodeURIComponent(slug)}`);
 }

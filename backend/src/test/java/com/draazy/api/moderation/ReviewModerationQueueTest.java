@@ -53,7 +53,16 @@ class ReviewModerationQueueTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName("Reviewer " + mobile);
         u.setMobileVerified(true);
-        return users.saveAndFlush(u);
+        User saved = users.saveAndFlush(u);
+        if ("staff".equals(role)) {
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                    """, saved.getId().toString(),
+                    "[\"kyc\",\"propertyVerification\",\"listingModeration\",\"support\",\"content\",\"reports\",\"desk:rental\"]");
+        }
+        return saved;
     }
 
     private Review review(UUID authorId, String status) {

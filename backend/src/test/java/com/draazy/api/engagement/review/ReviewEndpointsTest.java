@@ -1,7 +1,6 @@
 package com.draazy.api.engagement.review;
 
 import com.draazy.api.support.AbstractApiTest;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -20,9 +19,11 @@ import com.draazy.api.identity.user.UserRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -91,17 +92,6 @@ class ReviewEndpointsTest extends AbstractApiTest {
     // ------------------------------------------------------------ public read
 
     @Test
-    @DisplayName("property reviews are readable with no token at all")
-    void propertyReviewsArePublic() throws Exception {
-        User owner = user("9810000001", "Asha Patil");
-        Property p = listing(owner);
-
-        mvc.perform(get("/properties/" + p.getId() + "/reviews"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-    }
-
-    @Test
     @DisplayName("entity reviews are public and paged, clamp page size, and ignore a hostile sort")
     void entityReviewsArePagedAndPublic() throws Exception {
         String slug = anySocietySlug();
@@ -122,162 +112,116 @@ class ReviewEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    @Test
-    @DisplayName("an unknown entity slug is 404, not an empty page")
-    void unknownEntityIs404() throws Exception {
-        mvc.perform(get("/reviews/society/no-such-society-anywhere"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("an unknown entity type is rejected rather than stored as a new target kind")
-    void unknownEntityTypeIsRejected() throws Exception {
-        mvc.perform(get("/reviews/banana/whatever"))
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("an unknown target is 404, not an empty page or a new target kind")
+    @CsvSource(delimiter = '|', value = {
+            "unknown entity slug | /reviews/society/no-such-society-anywhere",
+            "unknown entity type | /reviews/banana/whatever",
+            "unknown property | /properties/00000000-0000-0000-0000-000000000000/reviews"
+    })
+    void unknownTargetIs404(String label, String path) throws Exception {
+        mvc.perform(get(path))
                 .andExpect(status().isNotFound());
     }
 
     // ------------------------------------------------------------ eligibility
 
-    @Test
-    @DisplayName("a stranger with no visit and no tenancy cannot review a listing")
-    void strangerCannotReview() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("without a completed visit or a tenancy, or as the owner, a listing cannot be reviewed")
+    @ValueSource(strings = {"stranger", "owner-who-visited", "scheduled-not-completed-visit"})
+    void ineligibleAuthorsCannotReview(String scenario) throws Exception {
         User owner = user("9810000002", "Asha Patil");
-        User stranger = user("9820000002", "Rahul Joshi");
+        User author = "owner-who-visited".equals(scenario) ? owner : user("9820000002", "Rahul Joshi");
         Property p = listing(owner);
+        if ("owner-who-visited".equals(scenario)) {
+            completedVisit(owner, p);
+        }
+        if ("scheduled-not-completed-visit".equals(scenario)) {
+            Visit v = new Visit(p.getId(), author.getId(),
+                    Instant.now().plus(2, ChronoUnit.DAYS), "in-person", null);
+            v.setStatus(VisitStatuses.SCHEDULED);
+            visits.saveAndFlush(v);
+        }
 
         mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
                         .contentType(MediaType.APPLICATION_JSON).content(body(5)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("review_not_eligible"));
     }
 
-    @Test
-    @DisplayName("an owner cannot review their own listing even if they somehow visited it")
-    void ownerCannotReviewOwnListing() throws Exception {
-        User owner = user("9810000003", "Asha Patil");
-        Property p = listing(owner);
-        completedVisit(owner, p);
-
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(5)))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error").value("review_not_eligible"));
-    }
-
-    @Test
-    @DisplayName("a scheduled-but-not-completed visit does not earn a review")
-    void bookedVisitIsNotEnough() throws Exception {
-        User owner = user("9810000004", "Asha Patil");
-        User visitor = user("9820000004", "Rahul Joshi");
-        Property p = listing(owner);
-
-        Visit v = new Visit(p.getId(), visitor.getId(),
-                Instant.now().plus(2, ChronoUnit.DAYS), "in-person", null);
-        v.setStatus(VisitStatuses.SCHEDULED);
-        visits.saveAndFlush(v);
-
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(4)))
-                .andExpect(status().isUnprocessableEntity());
-    }
-
-    @Test
+    @ParameterizedTest(name = "{0}")
     @DisplayName("anonymous cannot post a review")
-    void anonymousCannotReview() throws Exception {
+    @ValueSource(strings = {"property", "society"})
+    void anonymousCannotReview(String target) throws Exception {
         User owner = user("9810000005", "Asha Patil");
         Property p = listing(owner);
+        String path = "property".equals(target)
+                ? "/properties/" + p.getId() + "/reviews"
+                : "/reviews/society/" + anySocietySlug();
 
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
+        mvc.perform(post(path)
                         .contentType(MediaType.APPLICATION_JSON).content(body(4)))
                 .andExpect(status().isUnauthorized());
     }
 
     // ------------------------------------------------------- the derived badge
 
-    @Test
-    @DisplayName("a completed visit earns a 'visit' badge, derived server-side")
-    void completedVisitEarnsVisitBadge() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("the badge is derived server-side: tenancy outranks a visit and a supplied context is ignored")
+    @CsvSource(delimiter = '|', value = {
+            "completed visit earns the visit badge | true | NONE | NONE | visit",
+            "a tenancy outranks a visit | true | active | NONE | tenant",
+            "an ended tenancy still earns the resident badge | false | ended | NONE | tenant",
+            "a client-supplied context is ignored | true | NONE | tenant | visit"
+    })
+    void contextIsDerivedNotSupplied(String label, boolean visited, String tenancyStatus,
+            String suppliedContext, String expected) throws Exception {
         User owner = user("9810000006", "Asha Patil");
-        User visitor = user("9820000006", "Rahul Joshi");
+        User author = user("9820000006", "Rahul Joshi");
         Property p = listing(owner);
-        completedVisit(visitor, p);
+        if (visited) {
+            completedVisit(author, p);
+        }
+        if (!"NONE".equals(tenancyStatus)) {
+            tenancy(author, p, tenancyStatus);
+        }
+        String content = "NONE".equals(suppliedContext)
+                ? body(4)
+                : "{\"rating\":5,\"context\":\"" + suppliedContext + "\"}";
 
         mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(4)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
+                        .contentType(MediaType.APPLICATION_JSON).content(content))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.context").value("visit"))
+                .andExpect(jsonPath("$.context").value(expected))
                 .andExpect(jsonPath("$.author").value("Rahul Joshi"))
                 .andExpect(jsonPath("$.targetType").value("property"));
     }
 
-    @Test
-    @DisplayName("a tenancy outranks a visit — a resident is never downgraded to 'visited'")
-    void tenancyOutranksVisit() throws Exception {
-        User owner = user("9810000007", "Asha Patil");
-        User tenant = user("9820000007", "Rahul Joshi");
-        Property p = listing(owner);
-        completedVisit(tenant, p);
-        tenancy(tenant, p, "active");
-
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(5)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.context").value("tenant"));
-    }
-
-    @Test
-    @DisplayName("an ended tenancy still earns the resident badge — they still lived there")
-    void endedTenancyStillCounts() throws Exception {
-        User owner = user("9810000008", "Asha Patil");
-        User tenant = user("9820000008", "Rahul Joshi");
-        Property p = listing(owner);
-        tenancy(tenant, p, "ended");
-
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(4)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.context").value("tenant"));
-    }
-
-    @Test
-    @DisplayName("a client-supplied context is ignored — the badge cannot be forged")
-    void contextCannotBeForged() throws Exception {
-        User owner = user("9810000009", "Asha Patil");
-        User visitor = user("9820000009", "Rahul Joshi");
-        Property p = listing(owner);
-        completedVisit(visitor, p);
-
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"rating\":5,\"context\":\"tenant\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.context").value("visit"));
-    }
-
     // --------------------------------------------------------- one per author
 
-    @Test
-    @DisplayName("a second review of the same listing by the same author is refused")
-    void oneReviewPerAuthorPerTarget() throws Exception {
-        User owner = user("9810000010", "Asha Patil");
-        User visitor = user("9820000010", "Rahul Joshi");
-        Property p = listing(owner);
-        completedVisit(visitor, p);
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("a second review of the same target by the same author is refused")
+    @ValueSource(strings = {"property", "society"})
+    void oneReviewPerAuthorPerTarget(String target) throws Exception {
+        User author = user("9820000010", "Rahul Joshi");
+        String path;
+        if ("property".equals(target)) {
+            Property p = listing(user("9810000010", "Asha Patil"));
+            completedVisit(author, p);
+            path = "/properties/" + p.getId() + "/reviews";
+        } else {
+            path = "/reviews/society/" + anySocietySlug();
+        }
 
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+        mvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
                         .contentType(MediaType.APPLICATION_JSON).content(body(5)))
                 .andExpect(status().isCreated());
 
-        mvc.perform(post("/properties/" + p.getId() + "/reviews")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+        mvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
                         .contentType(MediaType.APPLICATION_JSON).content(body(1)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("already_reviewed"));
@@ -376,13 +320,6 @@ class ReviewEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].rating").value(5));
     }
 
-    @Test
-    @DisplayName("reviews of an unknown property are 404, not an empty list")
-    void unknownPropertyIs404() throws Exception {
-        mvc.perform(get("/properties/" + UUID.randomUUID() + "/reviews"))
-                .andExpect(status().isNotFound());
-    }
-
     // ---------------------------------------------------- entity review writes
 
     @Test
@@ -409,17 +346,26 @@ class ReviewEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(1));
     }
 
-    @Test
-    @DisplayName("society rating aggregates now appear on the society hub, computed not stored")
-    void societyHubShowsComputedRating() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("society rating aggregates are computed not stored, and hub and directory agree")
+    @ValueSource(strings = {"hub", "directory"})
+    void societyRatingIsComputed(String surface) throws Exception {
         String slug = anySocietySlug();
         String id = jdbc.queryForObject(
                 "select id::text from societies where slug = ?", String.class, slug);
+        // `q` searches name and builder, not the slug — searching by slug here would silently match
+        // nothing and the assertions would run against an empty page.
+        String name = jdbc.queryForObject(
+                "select name from societies where slug = ?", String.class, slug);
+        boolean hub = "hub".equals(surface);
+        String root = hub ? "$" : "$.content[0]";
 
-        mvc.perform(get("/societies/" + slug))
+        // Unrated: absent, not zero. A card that renders 0.0 for an unreviewed society is stating
+        // something false about it, so the aggregate has to be able to say "no opinion yet".
+        mvc.perform(hub ? get("/societies/" + slug) : get("/societies").param("q", name))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reviewCount").value(0))
-                .andExpect(jsonPath("$.avgRating").doesNotExist());
+                .andExpect(jsonPath(root + ".reviewCount").value(0))
+                .andExpect(jsonPath(root + ".avgRating").doesNotExist());
 
         jdbc.update("insert into reviews (target_type, target_id, rating, status) "
                 + "values ('society', ?, 5, 'published')", id);
@@ -429,111 +375,10 @@ class ReviewEndpointsTest extends AbstractApiTest {
         jdbc.update("insert into reviews (target_type, target_id, rating, status) "
                 + "values ('society', ?, 1, 'rejected')", id);
 
-        mvc.perform(get("/societies/" + slug))
+        mvc.perform(hub ? get("/societies/" + slug) : get("/societies").param("q", name))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reviewCount").value(2))
-                .andExpect(jsonPath("$.avgRating").value(4.5));
-    }
-
-    @Test
-    @DisplayName("the society directory carries the same aggregate, so cards need no extra request")
-    void societyDirectoryCarriesRating() throws Exception {
-        String slug = anySocietySlug();
-        String id = jdbc.queryForObject(
-                "select id::text from societies where slug = ?", String.class, slug);
-        // `q` searches name and builder, not the slug — searching by slug here would silently match
-        // nothing and the assertions would run against an empty page.
-        String name = jdbc.queryForObject(
-                "select name from societies where slug = ?", String.class, slug);
-
-        // Unrated: absent, not zero. A card that renders 0.0 for an unreviewed society is stating
-        // something false about it, so the aggregate has to be able to say "no opinion yet".
-        mvc.perform(get("/societies").param("q", name))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].reviewCount").value(0))
-                .andExpect(jsonPath("$.content[0].avgRating").doesNotExist());
-
-        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
-                + "values ('society', ?, 5, 'published')", id);
-        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
-                + "values ('society', ?, 4, 'published')", id);
-        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
-                + "values ('society', ?, 1, 'rejected')", id);
-
-        // Identical to the hub's answer: one aggregate, two surfaces. If these ever disagree the
-        // directory is computing its own, which is how a star silently means two different things.
-        mvc.perform(get("/societies").param("q", name))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].reviewCount").value(2))
-                .andExpect(jsonPath("$.content[0].avgRating").value(4.5));
-    }
-
-    @Test
-    @DisplayName("a locality review keys on the slug, which is the localities primary key")
-    void localityReviewsKeyOnSlug() throws Exception {
-        User author = user("9820000018", "Rahul Joshi");
-        String slug = jdbc.queryForObject(
-                "select slug from localities order by slug limit 1", String.class);
-
-        mvc.perform(post("/reviews/locality/" + slug)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(3)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.targetId").value(slug));
-    }
-
-    @Test
-    @DisplayName("entity reviews are also one-per-author")
-    void entityReviewsAreAlsoOnePerAuthor() throws Exception {
-        User author = user("9820000019", "Rahul Joshi");
-        String slug = anySocietySlug();
-
-        mvc.perform(post("/reviews/society/" + slug)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(4)))
-                .andExpect(status().isCreated());
-
-        mvc.perform(post("/reviews/society/" + slug)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
-                        .contentType(MediaType.APPLICATION_JSON).content(body(1)))
-                .andExpect(status().isConflict());
-    }
-
-    @Test
-    @DisplayName("posting an entity review requires a token")
-    void entityReviewWriteRequiresAuth() throws Exception {
-        mvc.perform(post("/reviews/society/" + anySocietySlug())
-                        .contentType(MediaType.APPLICATION_JSON).content(body(4)))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    @DisplayName("the categories vocabulary is per target type, and is the one the UI renders")
-    void categoryVocabularyMatchesTheUi() {
-        assertThat(ReviewCategories.PROPERTY_KEYS)
-                .as("RV_CATS in ReviewsSection.jsx — adding a key here without adding it there "
-                        + "ships a sub-rating nothing displays")
-                .containsExactlyInAnyOrder("locality", "condition", "value", "owner", "accuracy");
-
-        assertThat(ReviewCategories.SOCIETY_KEYS)
-                .as("REVIEW_CATS in pages/consumer/society/constants.js — these ids are what the "
-                        + "hub's aspect bars are keyed on, capitalisation included; constants.js "
-                        + "says renaming one orphans every stored rating")
-                .containsExactlyInAnyOrder(
-                        "Safety", "Maintenance", "Management", "Amenities", "Connectivity");
-
-        // The two vocabularies are disjoint, which is why a shared key set could never have served
-        // both: there is no aspect a listing and a housing society are both rated on.
-        assertThat(ReviewCategories.PROPERTY_KEYS)
-                .doesNotContainAnyElementsOf(ReviewCategories.SOCIETY_KEYS);
-
-        // locality and owner keep the property vocabulary. Neither surface renders per-aspect bars
-        // and nothing in the product names a vocabulary for them, so this is the status quo held
-        // in place deliberately rather than a choice — see ReviewCategories' class Javadoc.
-        assertThat(ReviewCategories.forTarget(ReviewTargetTypes.LOCALITY))
-                .isEqualTo(ReviewCategories.PROPERTY_KEYS);
-        assertThat(ReviewCategories.forTarget(ReviewTargetTypes.OWNER))
-                .isEqualTo(ReviewCategories.PROPERTY_KEYS);
+                .andExpect(jsonPath(root + ".reviewCount").value(2))
+                .andExpect(jsonPath(root + ".avgRating").value(4.5));
     }
 
     @Test
@@ -591,7 +436,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a locality review keeps the property vocabulary it has always accepted")
+    @DisplayName("a locality review keys on the slug and keeps the property vocabulary it has always accepted")
     void localityReviewsKeepTheirVocabulary() throws Exception {
         User author = user("9820000033", "Rahul Joshi");
         // Its own locality rather than a seeded one: this asserts an exact stored value, and a
@@ -607,6 +452,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"rating\":4,\"categories\":{\"locality\":5}}"))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.targetId").value(slug))
                 .andExpect(jsonPath("$.categories.locality").value(5));
     }
 

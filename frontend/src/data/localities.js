@@ -1,17 +1,6 @@
-// Locality entities — canonical registry, Pune-first. THE system of record for
-// locality identity: search, filters, SEO, rate benchmarks and alerts key off
-// these rows, never off raw Google Places strings.
-//
-// Google Places is only an input/discovery aid: every pick is matched back to a
-// canonical locality here (matchLocalityToCanonical), or minted as a community
-// locality by store.js (Phase B). This mirrors the society graph (societies.js).
-//
-// Dependency-free (like societies.js): store.js imports THIS, so this file must
-// NEVER import store.js — that would create a circular dependency.
 
-// Curated Pune localities. Coordinates are approximate area centres — enough for
-// the offline coords-match and instant map centring; a live Google pick refines
-// the exact pin. `tier` mirrors societies.js: 'curated' vs (Phase B) 'community'.
+/** Dependency-free (like societies.js): store.js imports THIS, so this file must NEVER import store.js — that would
+ * create a circular dependency. */
 export const LOCALITIES = [
   { slug: 'baner', name: 'Baner', lat: 18.559, lng: 73.776, tier: 'curated' },
   { slug: 'wakad', name: 'Wakad', lat: 18.598, lng: 73.762, tier: 'curated' },
@@ -189,25 +178,7 @@ export const LOCALITIES = [
 const BY_SLUG = Object.fromEntries(LOCALITIES.map((l) => [l.slug, l]));
 const BY_NAME = Object.fromEntries(LOCALITIES.map((l) => [l.name.toLowerCase(), l]));
 
-// A `COMMUNITY` array and a `registerCommunityLocalities(list)` used to sit here. The listing flow
-// minted a `community`-tier locality whenever a lister's Google pick matched no curated area, and
-// this registered the slug at runtime so every lookup resolved it.
-//
-// Both are gone (register item 24). Free text coins a slug, so the tier turned "Undhera Wasti",
-// "undhera wasti " and "Undhera-Wasti" into three localities, each with a landing page and a share
-// of the search facet — and the queue that was supposed to reconcile them lived in one browser's
-// localStorage, so no operator but the one who caused it could see the mess. The server has always
-// declined to invent a slug for text it cannot resolve; the listing now simply carries none, and a
-// human files it from Admin ▸ Localities.
-//
-// The consequence for this module is that its registry is a constant again: `allLocalities()`
-// returns `LOCALITIES` and nothing at runtime can add to it. `tier: 'curated'` is left on every row
-// because callers still read it, and because a field whose only other value has been deleted is
-// cheaper to leave than to chase through fifty call sites.
-
-// Turn a locality name into a stable, URL-safe slug (same rule as slugifySociety
-// so "Koregaon Park" → "koregaon-park", never the first-word-only truncation the
-// listing flow used before).
+/** Kept for callers that still read the field after the alternate value was removed. */
 export const slugifyLocality = (name) =>
   (name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -217,11 +188,18 @@ export const localityByName = (name) => {
   return k ? BY_NAME[k] || null : null;
 };
 
+// Must match the gram-panchayat slugs in the backend R__DML_seed_reference_data.sql; the server
+// prices from its own copy, this one only previews the fee.
+const GRAM_PANCHAYAT = new Set([
+  'hinjawadi', 'hinjawadi-phase-1', 'hinjawadi-phase-2', 'hinjawadi-phase-3', 'marunji', 'maan',
+  'nande', 'chande', 'pirangut', 'bhugaon', 'bhukum', 'lonikand',
+]);
+export const isGramPanchayat = (name) => GRAM_PANCHAYAT.has(localityByName(name)?.slug);
+
 // The registry — used by dropdowns, coord maps and the match layer.
 export const allLocalities = () => LOCALITIES;
 
-// Canonical name list + coord map — the single source the three legacy constant
-// files (list-property, flatmates, homeData) now derive from.
+// Canonical name list + coord map for the route-specific constants.
 export const localityNames = () => allLocalities().map((l) => l.name);
 export const localityCoordMap = () =>
   Object.fromEntries(allLocalities().filter((l) => l.lat != null && l.lng != null).map((l) => [l.name, [l.lat, l.lng]]));
@@ -235,12 +213,6 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-// Bind a raw pick (typed name and/or Google coords) to a canonical locality.
-// Name is authoritative: exact-slug first, then a whole-name fuzzy contain; only
-// when the name resolves nothing do we fall back to the nearest area within
-// ~2.5 km. Returns { slug, name } of the canonical row, or null when nothing
-// matches (the caller then honestly full-slugifies the typed name, or Phase B
-// mints a new community locality).
 export function matchLocalityToCanonical(name, lat, lng) {
   const nm = (name || '').trim();
   if (nm) {
@@ -268,11 +240,6 @@ export function matchLocalityToCanonical(name, lat, lng) {
   return null;
 }
 
-// Nearest canonical locality to a coordinate, with a caller-chosen max radius.
-// Unlike matchLocalityToCanonical's fixed 2.5 km gate (shared with the listing-bind
-// path), this lets a filter pick — a street or sub-area anywhere inside a locality —
-// always snap UP to its parent locality. Returns { slug, name } or null (no coords,
-// or nothing within maxKm).
 export function nearestLocality(lat, lng, maxKm = Infinity) {
   if (lat == null || lng == null) return null;
   let best = null;
@@ -285,9 +252,6 @@ export function nearestLocality(lat, lng, maxKm = Infinity) {
   return best && bestKm <= maxKm ? { slug: best.slug, name: best.name } : null;
 }
 
-// Resolve a typed/picked locality to a canonical slug, never truncating a
-// multi-word name to its first word. Prefers the canonical match; otherwise an
-// honest full slug of the typed name.
 export const resolveLocalitySlug = (name, lat, lng) => {
   const canon = matchLocalityToCanonical(name, lat, lng);
   return canon ? canon.slug : slugifyLocality(name);

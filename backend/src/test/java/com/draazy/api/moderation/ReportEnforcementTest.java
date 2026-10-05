@@ -53,10 +53,15 @@ class ReportEnforcementTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName(name);
         u.setMobileVerified(true);
-        // Staff without a desk are refused outright; the seeded document grants all six the same
-        // set, so which one is immaterial here.
         if (Roles.Wire.STAFF.equals(role)) u.setTeam(Teams.RENTAL);
         User saved = users.saveAndFlush(u);
+        if (Roles.Wire.STAFF.equals(role)) {
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                    """, saved.getId().toString(), "[\"analytics\",\"reports\",\"listingModeration\",\"desk:rental\"]");
+        }
         createdActors.add(saved.getId().toString());
         return saved;
     }

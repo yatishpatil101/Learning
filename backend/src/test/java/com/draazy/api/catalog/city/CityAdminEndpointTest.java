@@ -9,6 +9,8 @@ import com.draazy.api.support.AbstractApiTest;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -89,29 +91,11 @@ class CityAdminEndpointTest extends AbstractApiTest {
                 .contains("\"afterLive\": true");
     }
 
-    @Test
-    void routeIsAdminOnly() throws Exception {
+    @ParameterizedTest(name = "{0} is refused")
+    @CsvSource({"routeIsAdminOnly_owner, 9877731002, owner", "aManagerCannotEditCities, 9877731006, manager"})
+    void aNonAdminCannotEditCities(String name, String mobile, String role) throws Exception {
         mvc.perform(patch(Routes.Admin.CITY_BY_SLUG.replace("{slug}", "mumbai"))
-                        .header(HttpHeaders.AUTHORIZATION, token("9877731002", Roles.Wire.OWNER))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"live":true}"""))
-                .andExpect(status().isForbidden());
-    }
-
-    /** The role is only half the guard: without this, deleting {@code settings:write} from the
-     *  {@code @PreAuthorize} would leave every other test here green. */
-    @Test
-    void anAdministratorNarrowedOffSettingsWriteIsRefused() throws Exception {
-        User scoped = new User("9877731006", Roles.Wire.ADMIN);
-        scoped.setName("narrowed admin");
-        scoped.setMobileVerified(true);
-        User saved = users.saveAndFlush(scoped);
-        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
-                + "VALUES (?::uuid, ?::jsonb)", saved.getId().toString(), "[\"settings:read\"]");
-
-        mvc.perform(patch(Routes.Admin.CITY_BY_SLUG.replace("{slug}", "mumbai"))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(saved))
+                        .header(HttpHeaders.AUTHORIZATION, token(mobile, role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"live":true}"""))

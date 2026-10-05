@@ -3,7 +3,10 @@ package com.draazy.api.engagement.society;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.common.error.ForbiddenException;
+import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
@@ -36,9 +39,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SocietyContributionController {
 
     private final SocietyContributionService contributions;
+    private final AccountPermissions permissions;
 
-    public SocietyContributionController(SocietyContributionService contributions) {
+    public SocietyContributionController(SocietyContributionService contributions,
+            AccountPermissions permissions) {
         this.contributions = contributions;
+        this.permissions = permissions;
     }
 
     /**
@@ -69,7 +75,7 @@ public class SocietyContributionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void remove(@CurrentUser AuthPrincipal principal, @PathVariable String slug,
             @PathVariable UUID contributionId) {
-        contributions.remove(slug, contributionId, principal.userId(), isStaff(principal));
+        contributions.remove(slug, contributionId, principal.userId(), staffRemoval(principal));
     }
 
     /** {@code PUT …/helpful} — mark helpful. Answers with the new count, which is what the button draws. */
@@ -101,7 +107,7 @@ public class SocietyContributionController {
     public void removeReply(@CurrentUser AuthPrincipal principal, @PathVariable String slug,
             @PathVariable UUID contributionId, @PathVariable UUID replyId) {
         contributions.removeReply(slug, contributionId, replyId, principal.userId(),
-                isStaff(principal));
+                staffRemoval(principal));
     }
 
     /** Null for an anonymous reader — a legitimate state on the list read, not a failure. */
@@ -109,9 +115,17 @@ public class SocietyContributionController {
         return principal != null ? principal.userId() : null;
     }
 
-    private static boolean isStaff(AuthPrincipal principal) {
+    private boolean isStaff(AuthPrincipal principal) {
         return principal != null
-                && (Roles.Wire.STAFF.equals(principal.role())
-                        || Roles.Wire.ADMIN.equals(principal.role()));
+                && Roles.isBackOffice(principal.role())
+                && permissions.granted(principal, BackOfficePermissions.SOCIETIES_WRITE);
+    }
+
+    private boolean staffRemoval(AuthPrincipal principal) {
+        if (principal != null && Roles.isBackOffice(principal.role())
+                && !permissions.granted(principal, BackOfficePermissions.SOCIETIES_WRITE)) {
+            throw new ForbiddenException("Your account cannot moderate society content.");
+        }
+        return isStaff(principal);
     }
 }

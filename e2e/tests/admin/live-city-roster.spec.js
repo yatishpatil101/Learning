@@ -90,65 +90,64 @@ test.describe('the admin city roster is server-owned', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
   });
 
-  test('a roster that will not load shows nothing rather than a guess', async ({ page, login }) => {
+  test('a roster that will not load shows nothing rather than a guess, and does not un-hide blacklisted places', async ({ page, login }) => {
     await login.asAdmin();
-    // Fail only the roster. `/geo` stays healthy, which is the situation that matters: the panel has
-    // map coverage to render and no launch state to render.
-    await page.route('**/api/cities', (route) => route.abort());
-    await page.goto('/admin/settings?tab=maps');
-
-    await expect(page.getByText(/city roster could not be loaded/i)).toBeVisible();
-    // No switch at all. A disabled one would be defensible; a working-looking one built on a guessed
-    // slug is what this asserts against.
-    await expect(page.getByRole('switch', { name: /Set .* live/i })).toHaveCount(0);
-
-    // The rest of the panel is unaffected — the roster and the map policy are two different reads,
-    // and one being down must not take the other with it.
-    await expect(page.getByRole('switch', { name: /Restrict Places to selected city/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Blacklisted localities/i })).toBeVisible();
-  });
-
-  test('a failing roster does not silently un-hide blacklisted places', async ({ page, login }) => {
-    // Hide a place through the real settings document first.
-    const res = await fetch(`${API}/admin/settings`, {
-      method: 'PUT',
-      headers: await authHeaders(ACTORS.admin),
-      body: JSON.stringify({
-        geo: { blacklist: [{ id: 'bl-roster-probe', term: 'Kharadi' }] },
-      }),
-    });
-    expect(res.ok).toBe(true);
-
-    try {
-      await login.asAdmin();
+    await test.step('a roster that will not load shows nothing rather than a guess', async () => {
+      // Fail only the roster. `/geo` stays healthy, which is the situation that matters: the panel has
+      // map coverage to render and no launch state to render.
       await page.route('**/api/cities', (route) => route.abort());
       await page.goto('/admin/settings?tab=maps');
 
-      // The blacklist survived a failed roster fetch. Under `Promise.all` this list would be empty:
-      // the roster's rejection would have thrown away the `/geo` response that carries it, and the
-      // client would be suppressing nothing while believing it had no policy to apply.
-      await expect(page.getByText('Kharadi')).toBeVisible();
+      await expect(page.getByText(/city roster could not be loaded/i)).toBeVisible();
+      // No switch at all. A disabled one would be defensible; a working-looking one built on a guessed
+      // slug is what this asserts against.
+      await expect(page.getByRole('switch', { name: /Set .* live/i })).toHaveCount(0);
 
-      // `loadGeoPolicy()` rather than `geoPolicySettled()`: an `import()` from inside `evaluate`
-      // hands back a module whose cache is cold, so waiting on it settles instantly and answers
-      // from the built-ins — which would pass this test for the wrong reason once and fail it
-      // forever after. Driving the load here is also the stronger probe: `/api/cities` is aborted
-      // for the duration, so the blacklist can only be non-empty if the two reads were settled
-      // independently. Swap the `Promise.allSettled` in `loadGeoPolicy` for `Promise.all` and this
-      // goes red.
-      const blacklisted = await page.evaluate(async () => {
-        const geoConfig = await import('/src/lib/geoConfig.js');
-        await geoConfig.loadGeoPolicy();
-        return geoConfig.isBlacklisted({ mainText: 'Kharadi', secondaryText: 'Pune' });
-      });
-      expect(blacklisted).toBe(true);
-    } finally {
-      await fetch(`${API}/admin/settings`, {
+      // The rest of the panel is unaffected — the roster and the map policy are two different reads,
+      // and one being down must not take the other with it.
+      await expect(page.getByRole('switch', { name: /Restrict Places to selected city/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /Blacklisted localities/i })).toBeVisible();
+    });
+    await test.step('a failing roster does not silently un-hide blacklisted places', async () => {
+      // Hide a place through the real settings document first.
+      const res = await fetch(`${API}/admin/settings`, {
         method: 'PUT',
         headers: await authHeaders(ACTORS.admin),
-        body: JSON.stringify({ geo: { blacklist: [] } }),
+        body: JSON.stringify({
+          geo: { blacklist: [{ id: 'bl-roster-probe', term: 'Kharadi' }] },
+        }),
       });
-    }
+      expect(res.ok).toBe(true);
+
+      try {
+        await page.goto('/admin/settings?tab=maps');
+
+        // The blacklist survived a failed roster fetch. Under `Promise.all` this list would be empty:
+        // the roster's rejection would have thrown away the `/geo` response that carries it, and the
+        // client would be suppressing nothing while believing it had no policy to apply.
+        await expect(page.getByText('Kharadi')).toBeVisible();
+
+        // `loadGeoPolicy()` rather than `geoPolicySettled()`: an `import()` from inside `evaluate`
+        // hands back a module whose cache is cold, so waiting on it settles instantly and answers
+        // from the built-ins — which would pass this test for the wrong reason once and fail it
+        // forever after. Driving the load here is also the stronger probe: `/api/cities` is aborted
+        // for the duration, so the blacklist can only be non-empty if the two reads were settled
+        // independently. Swap the `Promise.allSettled` in `loadGeoPolicy` for `Promise.all` and this
+        // goes red.
+        const blacklisted = await page.evaluate(async () => {
+          const geoConfig = await import('/src/lib/geoConfig.js');
+          await geoConfig.loadGeoPolicy();
+          return geoConfig.isBlacklisted({ mainText: 'Kharadi', secondaryText: 'Pune' });
+        });
+        expect(blacklisted).toBe(true);
+      } finally {
+        await fetch(`${API}/admin/settings`, {
+          method: 'PUT',
+          headers: await authHeaders(ACTORS.admin),
+          body: JSON.stringify({ geo: { blacklist: [] } }),
+        });
+      }
+    });
   });
 
   test('the retired settings key is refused, so a stale console cannot write a dead launch flag', async () => {

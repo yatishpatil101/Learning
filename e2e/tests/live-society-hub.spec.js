@@ -78,11 +78,13 @@ test('a question asked on the hub is still there after a reload', async ({ page 
   await expect(card).toContainText(/asked by \S+/i);
 });
 
-test('Helpful is a server count, not a browser one — pressing it twice settles at one', async ({ page }) => {
+test('a tip on the hub: Helpful is a server count, and the report dialog and the ops queue name the contribution', async ({ page, request }) => {
+  test.slow();
   const mobile = await uniqueMobile();
   await signIn(page, mobile);
 
   const body = `Tanker fills at 7am, keep the sump open. ${Date.now()}`;
+  const cardOf = () => page.getByText(body).locator('xpath=ancestor::div[contains(@class,"glass")][1]');
 
   await openHub(page, 'community');
   await page.getByRole('button', { name: 'Add tip' }).click();
@@ -90,81 +92,43 @@ test('Helpful is a server count, not a browser one — pressing it twice settles
   await page.getByRole('button', { name: 'Post to community' }).click();
   await expect(page.getByText(body)).toBeVisible({ timeout: 10000 });
 
-  const card = page.getByText(body).locator('xpath=ancestor::div[contains(@class,"glass")][1]');
-  const helpful = card.getByRole('button', { name: /Helpful/i });
+  await test.step('Helpful settles at one and survives a reload', async () => {
+    const helpful = cardOf().getByRole('button', { name: /Helpful/i });
+    await expect(helpful).toHaveAttribute('aria-pressed', 'false');
+    await helpful.click();
+    await expect(helpful).toHaveAttribute('aria-pressed', 'true');
 
-  /* Off before, on after — `aria-pressed` is the rendered truth, and it is driven by `helpfulByMe`,
-     which now arrives on the wire rather than being recomputed from a local array. */
-  await expect(helpful).toHaveAttribute('aria-pressed', 'false');
-  await helpful.click();
-  await expect(helpful).toHaveAttribute('aria-pressed', 'true');
+    await page.reload();
+    await page.getByRole('tab', { name: /Community/ }).click();
+    const after = cardOf().getByRole('button', { name: /Helpful/i });
+    await expect(after).toHaveAttribute('aria-pressed', 'true');
+    // The server's PUT/DELETE pair is idempotent, so one press cannot inflate the count.
+    await expect(after).toContainText(/\b1\b/);
+  });
 
-  await page.reload();
-  await page.getByRole('tab', { name: /Community/ }).click();
-  const after = page.getByText(body).locator('xpath=ancestor::div[contains(@class,"glass")][1]')
-    .getByRole('button', { name: /Helpful/i });
-  await expect(after).toHaveAttribute('aria-pressed', 'true');
+  await test.step('the report dialog names the contribution, not "review"', async () => {
+    await cardOf().getByRole('button', { name: /Report contribution/i }).click();
+    const dialog = page.getByRole('dialog', { name: 'Submit report' });
+    await expect(dialog).toContainText(/Report this contribution/i);
+    await expect(dialog).not.toContainText(/Report this review/i);
+  });
 
-  /* One, not two. The old toggle pushed a row per press into a browser array; a retried tap — the
-     ordinary consequence of a flaky mobile connection — double-counted. The server's PUT/DELETE
-     pair is idempotent, so a second press of the same intent cannot inflate it. */
-  await expect(after).toContainText(/\b1\b/);
-});
+  await test.step('the filed report lands in the moderation queue with its reason code', async () => {
+    const dialog = page.getByRole('dialog', { name: 'Submit report' });
+    await dialog.getByRole('button', { name: /Reason/i }).click();
+    await page.getByRole('option', { name: /Spam, advertising/i }).click();
+    await dialog.getByPlaceholder(/Anything else/i).fill('Posted the same thing four times.');
+    await dialog.getByRole('button', { name: 'Submit report' }).click();
+    // Unscoped `toHaveCount(0)` can never pass however well the report worked.
+    await expect(page.getByRole('dialog', { name: 'Submit report' })).toHaveCount(0, { timeout: 10000 });
 
-test('the report dialog names the thing that was clicked, not "review"', async ({ page }) => {
-  const mobile = await uniqueMobile();
-  await signIn(page, mobile);
-
-  const body = `Milk delivery from the D-wing shop is reliable. ${Date.now()}`;
-
-  await openHub(page, 'community');
-  await page.getByRole('button', { name: 'Add tip' }).click();
-  await page.getByPlaceholder(/Water tanker fills/i).fill(body);
-  await page.getByRole('button', { name: 'Post to community' }).click();
-  await expect(page.getByText(body)).toBeVisible({ timeout: 10000 });
-
-  const card = page.getByText(body).locator('xpath=ancestor::div[contains(@class,"glass")][1]');
-  await card.getByRole('button', { name: /Report contribution/i }).click();
-
-  const dialog = page.getByRole('dialog', { name: 'Submit report' });
-  await expect(dialog).toContainText(/Report this contribution/i);
-  await expect(dialog).not.toContainText(/Report this review/i);
-});
-
-test('a report filed from the hub lands in the moderation queue with its reason code', async ({ page, request }) => {
-  const mobile = await uniqueMobile();
-  await signIn(page, mobile);
-
-  const body = `Plumber leaves the stairwell wet every visit. ${Date.now()}`;
-
-  await openHub(page, 'community');
-  await page.getByRole('button', { name: 'Add tip' }).click();
-  await page.getByPlaceholder(/Water tanker fills/i).fill(body);
-  await page.getByRole('button', { name: 'Post to community' }).click();
-  await expect(page.getByText(body)).toBeVisible({ timeout: 10000 });
-
-  const card = page.getByText(body).locator('xpath=ancestor::div[contains(@class,"glass")][1]');
-  await card.getByRole('button', { name: /Report contribution/i }).click();
-
-  const dialog = page.getByRole('dialog', { name: 'Submit report' });
-  /* `spam` rather than the default `abuse`, so the assertion below cannot pass on a report whose
-     reason was never read off the picker at all. */
-  await dialog.getByRole('button', { name: /Reason/i }).click();
-  await page.getByRole('option', { name: /Spam, advertising/i }).click();
-  await dialog.getByPlaceholder(/Anything else/i).fill('Posted the same thing four times.');
-  await dialog.getByRole('button', { name: 'Submit report' }).click();
-  /* Scoped by name: the cookie-consent banner is also a `role="dialog"` and sits on every page, so
-     an unscoped `toHaveCount(0)` can never pass however well the report worked. */
-  await expect(page.getByRole('dialog', { name: 'Submit report' })).toHaveCount(0, { timeout: 10000 });
-
-  /* Read it back as ops would. This is the half no UI assertion can reach: the dialog closing means
-     the request returned 2xx, not that a moderator will ever see the row. */
-  const headers = await authHeaders(ADMIN);
-  const res = await request.get(`${API}/reports?targetType=society_contribution&status=open&size=100`, { headers });
-  expect(res.status()).toBe(200);
-  const page1 = await res.json();
-  const mine = (page1.content || []).find((r) => (r.details || '').includes('four times'));
-  expect(mine, 'the report filed through the hub is missing from the ops queue').toBeTruthy();
-  expect(mine.reason).toBe('spam');
-  expect(mine.targetType).toBe('society_contribution');
+    const headers = await authHeaders(ADMIN);
+    const res = await request.get(`${API}/reports?targetType=society_contribution&status=open&size=100`, { headers });
+    expect(res.status()).toBe(200);
+    const queue = await res.json();
+    const mine = (queue.content || []).find((r) => (r.details || '').includes('four times'));
+    expect(mine, 'the report filed through the hub is missing from the ops queue').toBeTruthy();
+    expect(mine.reason).toBe('spam');
+    expect(mine.targetType).toBe('society_contribution');
+  });
 });

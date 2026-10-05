@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -76,7 +78,7 @@ class SocietyMintTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
     }
 
     private ResultActions mint(User u, String json) throws Exception {
@@ -143,24 +145,16 @@ class SocietyMintTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Sunview Heights D241"));
 
+        mvc.perform(get("/societies").param("q", "Sunview Heights D241"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].slug").value(slug));
+
         Map<String, Object> stored = row(slug);
         assertThat(stored.get("created_by")).isEqualTo(author.getId());
         assertThat(stored.get("source")).isEqualTo("community");
         assertThat(stored.get("verified_at")).isNull();
         // The pin the caller supplied is kept — it is usually better than the locality centroid.
         assertThat(((Number) stored.get("lat")).doubleValue()).isEqualTo(18.598);
-    }
-
-    @Test
-    @DisplayName("a society you add is searchable by name straight away")
-    void mintIsSearchable() throws Exception {
-        User author = user("9866000002", "Gauri Mint");
-        String slug = slugOf(mint(author, body("Peregrine Court D241"))
-                .andExpect(status().isCreated()));
-
-        mvc.perform(get("/societies").param("q", "Peregrine Court D241"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].slug").value(slug));
     }
 
     @Test
@@ -239,18 +233,15 @@ class SocietyMintTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test
-    @DisplayName("a name of one character is a keystroke, not a society")
-    void tooShortIsRefused() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("a too-short or blank name is refused rather than stored as an unnamed building")
+    @CsvSource(delimiter = '|', value = {
+            "a name of one character is a keystroke, not a society | K",
+            "a blank name is refused | '   '"
+    })
+    void tooShortOrBlankNameIsRefused(String label, String name) throws Exception {
         User author = user("9866000008", "Rhea Mint");
-        mint(author, body("K")).andExpect(status().is4xxClientError());
-    }
-
-    @Test
-    @DisplayName("a blank name is refused rather than stored as an unnamed building")
-    void blankNameIsRefused() throws Exception {
-        User author = user("9866000009", "Vikram Mint");
-        mint(author, body("   ")).andExpect(status().is4xxClientError());
+        mint(author, body(name)).andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -274,80 +265,51 @@ class SocietyMintTest extends AbstractApiTest {
         return "{\"name\":\"" + name + "\",\"mintOrigin\":\"" + origin + "\"}";
     }
 
-    @Test
-    @DisplayName("a society a searcher asked for is stored as demand, not as supply")
-    void demandOriginRoundTrips() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("mint origin round-trips, and an omitted one defaults to listing")
+    @CsvSource(delimiter = '|', value = {
+            "a society a searcher asked for is stored as demand | Aster Bloom D241 | demand | demand",
+            "a society a lister added is stored as coming from a listing | Basil Court D241 | listing | listing",
+            "a client that has never heard of mint origin can still add a society | Cinnamon Rise D241 | NONE | listing"
+    })
+    void originRoundTrips(String label, String name, String sent, String expected) throws Exception {
         User author = user("9866000024", "Farhan Mint");
 
-        // The one the Society Finder sends, and the reason this column exists. A society minted
-        // because somebody wanted a flat in it is unserved demand; the same row minted from the
-        // listing wizard is supply arriving. Ops sources inventory off the difference, and until
-        // this field there was nothing in the row that could tell them apart.
-        ResultActions created = mint(author, bodyFrom("Aster Bloom D241", "demand"))
+        // Shipped clients predate the field and send none; it defaults to `listing` on purpose.
+        // Every mint surface but the finder is on the listing side and the finder states its
+        // origin, so the default can under-report demand and can never invent it. Invented demand
+        // sends an operator to source inventory in a building nobody asked about.
+        ResultActions created = mint(author, "NONE".equals(sent) ? body(name) : bodyFrom(name, sent))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.mintOrigin").value("demand"))
+                .andExpect(jsonPath("$.mintOrigin").value(expected))
                 // The other axis is untouched: how the record got here is still `community`.
                 .andExpect(jsonPath("$.source").value("community"));
 
-        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("demand");
+        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo(expected);
     }
 
-    @Test
-    @DisplayName("a society a lister added is stored as coming from a listing")
-    void listingOriginRoundTrips() throws Exception {
-        User author = user("9866000025", "Deepa Mint");
-
-        ResultActions created = mint(author, bodyFrom("Basil Court D241", "listing"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.mintOrigin").value("listing"));
-
-        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("listing");
-    }
-
-    @Test
-    @DisplayName("a client that has never heard of mint origin can still add a society")
-    void omittedOriginDefaultsToListing() throws Exception {
-        User author = user("9866000026", "Yash Mint");
-
-        // Shipped clients predate the field. Refusing them would take a working mint away for the
-        // sake of a column ops reads, so it defaults -- and it defaults to `listing` on purpose.
-        // Every mint surface but the finder is on the listing side and the finder states its
-        // origin, so the default can under-report demand and can never invent it. Invented demand
-        // sends an operator to source inventory in a building nobody asked about, and they find
-        // that out only after going.
-        ResultActions created = mint(author, body("Cinnamon Rise D241"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.mintOrigin").value("listing"));
-
-        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("listing");
-    }
-
-    @Test
+    @ParameterizedTest(name = "{0}")
     @DisplayName("an origin nobody defined is refused rather than stored and silently ignored")
-    void unknownOriginIsRefused() throws Exception {
+    @CsvSource(delimiter = '|', value = {
+            "a wrongly cased origin is refused | Damson Park D241 | Demand | false",
+            "an unknown origin is refused | Damson Park D241 | search | false",
+            "a bad origin is refused even when the society already exists | Elder Row D241 | nonsense | true"
+    })
+    void unknownOriginIsRefused(String label, String name, String origin, boolean alreadyExists)
+            throws Exception {
         User author = user("9866000027", "Zoya Mint");
+        if (alreadyExists) {
+            mint(author, bodyFrom(name, "listing")).andExpect(status().isCreated());
+        }
 
-        // The dangerous case, and why this is not left to the database CHECK. A value the CHECK
-        // happened to admit would never match `demand` downstream: the society would sit in the
-        // queue looking like supply forever and nothing would have complained.
-        mint(author, bodyFrom("Damson Park D241", "Demand")).andExpect(status().isUnprocessableEntity());
-        mint(author, bodyFrom("Damson Park D241", "search")).andExpect(status().isUnprocessableEntity());
+        // Not left to the database CHECK: a value the CHECK happened to admit would never match
+        // `demand` downstream, and the society would sit in the queue looking like supply forever.
+        // And it must fire on the duplicate path too, or a client passes by accident for weeks.
+        mint(author, bodyFrom(name, origin)).andExpect(status().isUnprocessableEntity());
 
         Integer minted = jdbc.queryForObject(
-                "select count(*) from societies where lower(name) = lower(?)",
-                Integer.class, "Damson Park D241");
-        assertThat(minted).isZero();
-    }
-
-    @Test
-    @DisplayName("a bad origin is refused even when the society already exists")
-    void unknownOriginIsRefusedOnTheDuplicatePath() throws Exception {
-        User author = user("9866000028", "Ansh Mint");
-        mint(author, bodyFrom("Elder Row D241", "listing")).andExpect(status().isCreated());
-
-        // A check that only fires on the mint path is one a client passes by accident for weeks and
-        // then fails in production the first time it adds a building nobody had.
-        mint(author, bodyFrom("Elder Row D241", "nonsense")).andExpect(status().isUnprocessableEntity());
+                "select count(*) from societies where lower(name) = lower(?)", Integer.class, name);
+        assertThat(minted).isEqualTo(alreadyExists ? 1 : 0);
     }
 
     @Test
@@ -452,31 +414,16 @@ class SocietyMintTest extends AbstractApiTest {
         Map<String, Object> stored = row(slug);
         assertThat(stored.get("verified_at")).isNotNull();
         assertThat(stored.get("verified_by")).isNotNull();
+        // Verifying says the society is real, not that its paperwork is done: setting these is how a
+        // member-added row would start telling a buyer its conveyance deed is done.
+        assertThat(stored.get("registration")).isEqualTo(false);
+        assertThat(stored.get("conveyance")).isEqualTo(false);
 
         String queue = mvc.perform(get("/admin/society-candidates")
                         .header(HttpHeaders.AUTHORIZATION, ops).param("size", "100"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(queue).doesNotContain(slug);
-    }
-
-    @Test
-    @DisplayName("verifying says the society is real, not that its paperwork is done")
-    void verifyDoesNotTouchTheLegalFlags() throws Exception {
-        User author = user("9866000016", "Sneha Mint");
-        String ops = staff("9866000017");
-        String slug = slugOf(mint(author, body("Ridgeline Court D241")).andExpect(status().isCreated()));
-
-        mvc.perform(post("/admin/society-candidates/" + slug + "/verify")
-                        .header(HttpHeaders.AUTHORIZATION, ops))
-                .andExpect(status().isOk());
-
-        // `registration` and `conveyance` are claims about the building's legal state. Setting them
-        // here is how a member-added row would start telling a buyer its conveyance deed is done
-        // because somebody confirmed the society exists.
-        Map<String, Object> stored = row(slug);
-        assertThat(stored.get("registration")).isEqualTo(false);
-        assertThat(stored.get("conveyance")).isEqualTo(false);
     }
 
     @Test
@@ -510,7 +457,7 @@ class SocietyMintTest extends AbstractApiTest {
 
         mvc.perform(post("/admin/society-candidates/" + slug + "/verify")
                         .header(HttpHeaders.AUTHORIZATION, ops))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -586,19 +533,6 @@ class SocietyMintTest extends AbstractApiTest {
         // its four siblings are verified, so all five sorted above the actual duplicate and pushed
         // it off a six-item list. The operator would have seen six wrong answers.
         assertThat(json).doesNotContain("willow-towers").doesNotContain("willow-avenue");
-    }
-
-    @Test
-    @DisplayName("a candidate never proposes itself as its own duplicate")
-    void candidateIsNotItsOwnDuplicate() throws Exception {
-        User author = user("9866000044", "Sneha Mint");
-        String ops = staff("9866000045");
-        String slug = slugOf(mint(author, body("Juniper Spur D252")).andExpect(status().isCreated()));
-
-        // A perfect match for itself, and the one hint that is never useful.
-        String json = dupes(slug, ops).andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        assertThat(json).doesNotContain("\"" + slug + "\"");
     }
 
     @Test

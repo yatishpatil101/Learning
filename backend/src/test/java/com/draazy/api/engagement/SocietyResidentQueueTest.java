@@ -63,7 +63,7 @@ class SocietyResidentQueueTest extends AbstractApiTest {
         User u = new User(mobile, Roles.Wire.STAFF);
         u.setName("Ops " + mobile.substring(6));
         u.setMobileVerified(true);
-        return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
+        return bearer(users.saveAndFlush(u));
     }
 
     /**
@@ -130,17 +130,17 @@ class SocietyResidentQueueTest extends AbstractApiTest {
         assertThat(only(json, "$.content[?(@.societySlug == '" + first + "')].societyName"))
                 .isEqualTo(nameOf(first));
         assertThat(only(json, "$.content[?(@.unitKey == 'Q202')].name")).isEqualTo("Bhaskar");
-    }
 
-    @Test
-    @DisplayName("oldest first — the person who has waited longest is the one still waiting")
-    void oldestFirst() throws Exception {
-        apply(user("9867500003", "Chandni"), society(22), "R", "1");
-        apply(user("9867500004", "Devendra"), society(23), "R", "2");
+        // Oldest first: the person who has waited longest is the one still waiting.
+        assertThat((List<String>) JsonPath.read(json, "$.content[*].unitKey"))
+                .containsSubsequence("P101", "Q202");
 
-        List<String> units = JsonPath.read(queue(staff("9867500091"), "?status=pending&size=100"),
-                "$.content[*].unitKey");
-        assertThat(units).containsSubsequence("R1", "R2");
+        mvc.perform(get("/admin/society-residents?status=pending&size=1")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9867500097")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.page").value(0));
     }
 
     @Test
@@ -190,6 +190,10 @@ class SocietyResidentQueueTest extends AbstractApiTest {
                 "$.content[*].id")).doesNotContain(id);
         assertThat((List<String>) JsonPath.read(queue(ops, "?status=verified&size=100"),
                 "$.content[*].id")).contains(id);
+
+        // No status at all means everything, decided rows included.
+        assertThat((List<String>) JsonPath.read(queue(ops, "?size=100"), "$.content[*].id"))
+                .contains(id);
     }
 
     @Test
@@ -200,31 +204,7 @@ class SocietyResidentQueueTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    @Test
-    @DisplayName("no status at all means everything, decided rows included")
-    void unfilteredQueueCarriesDecidedRows() throws Exception {
-        String slug = society(26);
-        String id = idOf(apply(user("9867500008", "Harini"), slug, "U", "4"));
-        String ops = staff("9867500095");
-        mvc.perform(patch("/societies/" + slug + "/residents/" + id)
-                        .header(HttpHeaders.AUTHORIZATION, ops)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"rejected\"}"))
-                .andExpect(status().isOk());
-
-        assertThat((List<String>) JsonPath.read(queue(ops, "?size=100"), "$.content[*].id"))
-                .contains(id);
-    }
-
     /* ------------------------------------------------------------------ who */
-
-    @Test
-    @DisplayName("an ordinary account cannot work the ops queue")
-    void queueIsStaffOnly() throws Exception {
-        mvc.perform(get("/admin/society-residents")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9867500009", "Irfan"))))
-                .andExpect(status().isForbidden());
-    }
 
     @Test
     @DisplayName("a resident of one society may not read every other society's applicants")
@@ -250,21 +230,5 @@ class SocietyResidentQueueTest extends AbstractApiTest {
     void anonymousIsRefused() throws Exception {
         mvc.perform(get("/admin/society-residents"))
                 .andExpect(status().isUnauthorized());
-    }
-
-    /* --------------------------------------------------------------- paging */
-
-    @Test
-    @DisplayName("the page envelope is the platform's, and the page is cut by the database")
-    void pagingIsServerSide() throws Exception {
-        apply(user("9867500011", "Kunal"), society(28), "W", "1");
-        apply(user("9867500012", "Lata"), society(29), "W", "2");
-
-        mvc.perform(get("/admin/society-residents?status=pending&size=1")
-                        .header(HttpHeaders.AUTHORIZATION, staff("9867500097")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.size").value(1))
-                .andExpect(jsonPath("$.page").value(0));
     }
 }

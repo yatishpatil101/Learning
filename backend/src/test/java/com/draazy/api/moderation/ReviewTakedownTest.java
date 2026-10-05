@@ -85,7 +85,7 @@ class ReviewTakedownTest extends AbstractApiTest {
         User glowing = user("9810000401", Roles.Wire.BUYER);
         User damaging = user("9810000402", Roles.Wire.BUYER);
         User staff = user("9810000403", Roles.Wire.STAFF);
-        String staffToken = "Bearer " + jwtService.issueAccessToken(staff);
+        String staffToken = bearer(staff);
 
         review(society, glowing.getId(), 5);
         Review toReject = review(society, damaging.getId(), 1);
@@ -131,7 +131,7 @@ class ReviewTakedownTest extends AbstractApiTest {
         Review r = review(society, author.getId(), 4);
 
         mvc.perform(patch("/reviews/" + r.getId() + "/status")
-                .header("Authorization", "Bearer " + jwtService.issueAccessToken(staff))
+                .header("Authorization", bearer(staff))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"deleted\"}"))
                 .andExpect(status().isBadRequest());
@@ -143,7 +143,7 @@ class ReviewTakedownTest extends AbstractApiTest {
     @Test
     @DisplayName("an unknown review id is 404, and a malformed one is too")
     void unknownAndMalformedIdsBothLookTheSame() throws Exception {
-        String token = "Bearer " + jwtService.issueAccessToken(user("9810000406", Roles.Wire.STAFF));
+        String token = bearer(user("9810000406", Roles.Wire.STAFF));
         String body = "{\"status\":\"rejected\"}";
 
         mvc.perform(patch("/reviews/" + UUID.randomUUID() + "/status")

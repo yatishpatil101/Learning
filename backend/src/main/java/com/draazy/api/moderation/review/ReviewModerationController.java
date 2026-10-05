@@ -89,7 +89,7 @@ public class ReviewModerationController {
 
     @PatchMapping(Routes.Moderation.REVIEW_STATUS)
     @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
-            + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE)
+            + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE)
     @Transactional
     public void setStatus(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusRequest body) {
