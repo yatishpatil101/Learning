@@ -7,25 +7,28 @@ import com.draazy.api.catalog.property.PropertyLifecycle;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
-import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.moderation.verification.ApprovalGate;
+import com.draazy.api.moderation.verification.PropertyReview;
+import com.draazy.api.moderation.verification.PropertyReviewRepository;
+import com.draazy.api.moderation.verification.ReviewChecklistItem;
+import com.draazy.api.moderation.verification.ReviewReasonCodes;
 import com.draazy.api.moderation.verification.VerificationCases;
+import com.draazy.api.moderation.signal.ListingSignalService;
 import com.draazy.api.security.AuthPrincipal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Listing moderation: the state transitions a moderator can drive on somebody else's listing.
- * Every method writes an audit row — these are the operations where one user changes another's.
- */
+// Every method writes an audit row because one user is changing another's listing.
 @Service
 public class PropertyModerationService {
 
-    /** The statuses a moderator may set directly. */
     private static final Set<String> SETTABLE = Set.of(
             PropertyStatus.PENDING, PropertyStatus.APPROVED, PropertyStatus.REJECTED);
 
@@ -34,102 +37,114 @@ public class PropertyModerationService {
     private final Notifier notifier;
     private final PropertyLifecycle lifecycle;
     private final VerificationCases cases;
+    private final PropertyReviewRepository reviews;
+    private final ListingSignalService signals;
 
     public PropertyModerationService(PropertyRepository properties, AuditService audit,
-            Notifier notifier, PropertyLifecycle lifecycle, VerificationCases cases) {
+            Notifier notifier, PropertyLifecycle lifecycle, VerificationCases cases,
+            PropertyReviewRepository reviews, ListingSignalService signals) {
         this.properties = properties;
         this.audit = audit;
         this.notifier = notifier;
         this.lifecycle = lifecycle;
         this.cases = cases;
+        this.reviews = reviews;
+        this.signals = signals;
     }
 
-    /**
-     * {@code PATCH /properties/{id}/status} — approve or reject. {@code flagged}/{@code archived}
-     * are refused here: each owns state this route cannot maintain, so the row would go incoherent.
-     */
     @Transactional
-    public Property setStatus(AuthPrincipal actor, String id, String status, String reason) {
+    public Property setStatus(AuthPrincipal actor, String id, String status, String reason,
+            String reasonCode, String expectedStatus) {
         if (!SETTABLE.contains(status)) {
-            throw new BadRequestException("status must be one of " + SETTABLE
+            throw new BadRequestException("invalid_status", "status must be one of " + SETTABLE
                     + "; use /flag or /archive for the others");
         }
         Property property = load(id);
-        denySelfDealing(actor, property);
+        lifecycle.requireChecker(actor, property);
+        String from = property.getStatus();
+        boolean clearingApprovedRecheck = PropertyStatus.APPROVED.equals(status)
+                && PropertyStatus.APPROVED.equals(from) && property.isRecheckPending();
+        requireExpected(from, expectedStatus);
         if (PropertyStatus.APPROVED.equals(status)) {
+            if (PropertyStatus.REJECTED.equals(from)) {
+                throw new ConflictException("second_approver_required",
+                        "A final rejection requires a second staff approver to approve.");
+            }
+
             // Before anything is written, so a refusal costs the moderator nothing to retry.
             lifecycle.requireFiled(property);
+        } else if (PropertyStatus.REJECTED.equals(status)) {
+            ReviewReasonCodes.require("reject", reasonCode, reason);
         }
 
-        String from = property.getStatus();
         if (PropertyStatus.APPROVED.equals(status)) {
+
             /* Re-listing a home whose deal fell through is an approval, so return the row to the queue first
                and let the verification below be real. An archived listing has its own restore verb. */
             if (!property.isArchived() && (PropertyStatus.SOLD.equals(from) || PropertyStatus.RENTED.equals(from))) {
-                property.revertToPending();
+                lifecycle.reenterPending(actor, property);
             }
-            // Approving from the queue *is* the verification. Recording it before publishing lets
-            // publication keep demanding one without making one-click approve a two-step dance.
-            lifecycle.verify(actor, property);
-            lifecycle.publish(actor, property);
+            PropertyReview review = cases.ensure(property.getId(), property.getDeal());
+            ApprovalGate.require(review);
+            if (!clearingApprovedRecheck) {
+                requireNoSecondApproverBlock(property);
+                if (review.getDecidedAt() == null || !PropertyStatus.APPROVED.equals(review.getStatus())) {
+                    review.decide(PropertyStatus.APPROVED, actor.userId().toString(), reason, null);
+                    reviews.saveAndFlush(review);
+                }
+                lifecycle.publish(actor, property);
+            }
+        } else if (PropertyStatus.REJECTED.equals(status)) {
+            String normalizedReason = ReviewReasonCodes.require("reject", reasonCode, reason);
+            PropertyReview review = cases.ensure(property.getId(), property.getDeal());
+            review.decide(PropertyStatus.REJECTED, actor.userId().toString(), reason, normalizedReason);
+            review.addMessage(actor.userId(), rejectionMessage(normalizedReason, reason));
+            reviews.saveAndFlush(review);
+            property.setStatus(status);
         } else {
-            lifecycle.requireChecker(actor, property);
             if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
                     || PropertyStatus.RENTED.equals(property.getStatus())) {
                 throw new ConflictException("Restore or reopen this listing first");
             }
-            property.setStatus(status);
+            if (PropertyStatus.REJECTED.equals(property.getStatus())) {
+                throw new ConflictException("second_approver_required",
+                        "A final rejection requires a second staff approver to reopen.");
+            }
+            lifecycle.reenterPending(actor, property);
         }
-        // A moderator has now looked at this listing, which is what a pending stays-live re-check
-        // was asking for; the re-check is a request for a decision, and this is where they are made.
         property.clearRecheck();
-        /* This route decides without opening the case file, so left alone the file goes on reading
-           `pending` and unattributed beside a listing that is now live or rejected. */
-        if (!PropertyStatus.PENDING.equals(status)) {
-            cases.recordExternalDecision(property.getId(), status, actor.userId().toString(), reason);
-        }
         audit.record(actor, "property.status", "property", id, "from", from, "to", status,
-                "reason", reason, "owner", String.valueOf(property.getOwner().getId()));
+                "reason", reason, "reasonCode", reasonCode,
+                "checklist", checklistSnapshot(property.getId()),
+                "owner", String.valueOf(property.getOwner().getId()));
 
         // Only the two terminal verdicts are announced; a bounce back to `pending` is a queue move.
         // A rejected listing is not publicly viewable, so its link points at the dashboard.
         UUID ownerId = property.getOwner().getId();
-        if (PropertyStatus.APPROVED.equals(status)) {
+        if (PropertyStatus.APPROVED.equals(status) && !clearingApprovedRecheck) {
             notifier.notify(ownerId, "listing.approved",
                     "Your listing is approved",
                     "It is now live and visible to buyers.",
                     "/property/" + property.getId());
         } else if (PropertyStatus.REJECTED.equals(status)) {
+            String ownerMessage = ReviewReasonCodes.ownerMessage(reasonCode, reason);
             notifier.notify(ownerId, "listing.rejected",
-                    "Your listing needs changes",
-                    reason == null || reason.isBlank()
-                            ? "A moderator could not approve it. Please review and resubmit."
-                            : "A moderator could not approve it: " + reason,
+                    "Your listing was not approved",
+                    "A moderator could not approve it: " + ownerMessage,
                     "/dashboard");
         }
         return property;
     }
 
-    /** {@code POST /properties/{id}/toggle-featured} — homepage merchandising. */
-    @Transactional
-    public Property toggleFeatured(AuthPrincipal actor, String id) {
-        Property property = load(id);
-        denySelfDealing(actor, property);
-
-        property.setFeatured(!property.isFeatured());
-        audit.record(actor, "property.featured", "property", id, "featured", property.isFeatured(),
-                "owner", String.valueOf(property.getOwner().getId()));
-        return property;
-    }
-
-    /**
-     * {@code POST /properties/{id}/flag} — raise a moderation flag. Sets both {@code status} and
-     * {@code flag_reason}: the status delists, the reason is what a human reads. Neither alone works.
-     */
+    // Sets both status and flag_reason: the status delists, the reason is for humans.
     @Transactional
     public Property flag(AuthPrincipal actor, String id, String reason) {
         Property property = load(id);
-        denySelfDealing(actor, property);
+        lifecycle.requireChecker(actor, property);
+        if (PropertyStatus.REJECTED.equals(property.getStatus())) {
+            throw new ConflictException("second_approver_required",
+                    "A final rejection requires a second staff approver to reopen.");
+        }
 
         String from = property.getStatus();
         property.setStatus(PropertyStatus.FLAGGED);
@@ -139,17 +154,14 @@ public class PropertyModerationService {
         return property;
     }
 
-    /**
-     * {@code DELETE /properties/{id}/flag} — withdraw the flag and return the listing to the review queue.
-     * Clearing a flag says the complaint does not stand, not that the listing is verified.
-     */
     @Transactional
     public void clearFlag(AuthPrincipal actor, String id) {
         Property property = load(id);
         lifecycle.requireChecker(actor, property);
+        if (!PropertyStatus.FLAGGED.equals(property.getStatus())) {
+            throw new ConflictException("Listing is not flagged");
+        }
 
-        /* A concluded or archived listing must not be returned to the queue with nothing to decide.
-           The flag still goes: the complaint does not stand against it either. */
         if (property.isArchived() || PropertyStatus.SOLD.equals(property.getStatus())
                 || PropertyStatus.RENTED.equals(property.getStatus())) {
             property.setFlagReason(null);
@@ -160,25 +172,42 @@ public class PropertyModerationService {
 
         String from = property.getStatus();
         property.setFlagReason(null);
-        property.revertToPending();
+        lifecycle.reenterPending(actor, property);
         audit.record(actor, "property.flag.clear", "property", id, "from", from,
                 "owner", String.valueOf(property.getOwner().getId()));
     }
 
-    /**
-     * A moderator may not moderate their own listing. Staff are owners too — the role is additive —
-     * and self-approval leaves an audit trail that looks entirely normal.
-     */
-    private static void denySelfDealing(AuthPrincipal actor, Property property) {
-        if (actor.userId().equals(property.getOwner().getId())) {
-            throw new ForbiddenException("You cannot moderate your own listing");
+    private static void requireExpected(String current, String expected) {
+        if (expected != null && !expected.isBlank() && !current.equals(expected)) {
+            throw new ConflictException("stale_decision",
+                    "Listing status changed; refresh before deciding");
         }
     }
 
-    /**
-     * Resolve the path token to a listing, accepting a <strong>slug or a UUID</strong> as the public
-     * read does. No visibility filter: pending, rejected, flagged and archived rows are the job.
-     */
+    private static String rejectionMessage(String reasonCode, String note) {
+        return "\u26D4 Your property could not be approved.\nReason: "
+                + ReviewReasonCodes.ownerMessage(reasonCode, note);
+    }
+
+    private Map<String, Boolean> checklistSnapshot(UUID propertyId) {
+        return reviews.findByPropertyId(propertyId)
+                .map(review -> {
+                    Map<String, Boolean> snapshot = new LinkedHashMap<>();
+                    for (ReviewChecklistItem item : review.getChecklist()) {
+                        snapshot.put(item.getItem(), item.isPass());
+                    }
+                    return snapshot;
+                })
+                .orElseGet(Map::of);
+    }
+
+    private void requireNoSecondApproverBlock(Property property) {
+        if (signals.hasHardSignal(property.getId())) {
+            throw new ConflictException("second_approver_required",
+                    "A hard broker signal requires a second staff approver.");
+        }
+    }
+
     private Property load(String idOrSlug) {
         UUID id = Ids.parseUuid(idOrSlug).orElseGet(() -> properties.findBySlug(idOrSlug)
             .map(Property::getId).orElseThrow(() -> NotFoundException.of("Property")));

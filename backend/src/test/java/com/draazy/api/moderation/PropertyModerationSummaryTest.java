@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.draazy.api.billing.plan.TestPlanGrants;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
@@ -18,27 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/**
- * {@code GET /admin/properties/summary} — the console's headline counts, computed by the database.
- *
- * <p><strong>What this endpoint is for.</strong> The console derived these numbers from the rows
- * {@code GET /admin/properties} had already returned. That read pages at 100, so every counter
- * silently meant "of the newest hundred" while being labelled "Total" and "Pending" — and the
- * failure was invisible in exactly the situation the numbers exist for, because a backlog past the
- * page size simply stopped counting and looked calm.
- *
- * <p><strong>Every assertion here is a delta, not an absolute.</strong> The counters are unfiltered
- * by design — they describe the whole table — so their absolute values depend on whatever else the
- * suite has left behind. Asserting {@code total == 4} would make this test a report on its
- * neighbours. Reading the summary before and after, and asserting how much it moved, tests the
- * thing that actually matters and cannot be broken by test ordering.
- *
- * <p><strong>Statuses are exactly {@code pending|approved|rejected|flagged|archived|sold|rented}.</strong>
- * The first draft of this test tried to insert {@code 'Under Review'}, because the console treats
- * it as a real alternative to {@code pending} in every tab that looks for waiting work.
- * {@code properties_status_check} rejected the row. It is a mock-side spelling that no API response
- * can ever carry.
- */
+// `GET /admin/properties/summary` ? the console's headline counts, computed by the database.
+// Counters describe the whole table, so absolute values depend on shared suite data.
 @DisplayName("D214 — the moderation summary counts the table, not the page")
 class PropertyModerationSummaryTest extends AbstractApiTest {
 
@@ -46,6 +28,8 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    TestPlanGrants grants;
 
     private User user(String mobile, String role) {
         User u = new User(mobile, role);
@@ -71,11 +55,7 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
                 .andReturn().getResponse().getContentAsString();
     }
 
-    /**
-     * The counters move by exactly what was added, and each lands on its own tile. One listing per
-     * status, so a query that dropped or duplicated a {@code filter (where ...)} clause shows up as
-     * the wrong tile moving rather than as a plausible-looking total.
-     */
+    // One listing per status makes dropped or duplicated filters move the wrong tile.
     @Test
     @DisplayName("each status lands on its own counter")
     void eachStatusLandsOnItsOwnCounter() throws Exception {
@@ -93,22 +73,28 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
         moved(before, after, "pending", 1);
         moved(before, after, "flagged", 1);
         moved(before, after, "approved", 1);
+
         // `rejected` has no tile of its own — it is in `total` and nowhere else, which is why
         // `total` moves by four while the three named counters account for only three of them.
     }
 
-    /**
-     * A closed deal is still inventory, but it is not work. {@code sold} and {@code rented} belong
-     * in {@code total} and on no tile of their own — a moderation strip that broke them out would
-     * be offering a queue nobody ever drains.
-     *
-     * <p>This also pins the absence of {@code 'Under Review'}. The console tests for it everywhere
-     * it looks for a waiting listing, but {@code properties_status_check} allows only
-     * {@code pending|approved|rejected|flagged|archived|sold|rented}, so the database refuses the
-     * row: it was a mock-side spelling, and the second half of every
-     * {@code status === 'pending' || status === 'Under Review'} in the console is unreachable
-     * against the API.
-     */
+    @Test
+    @DisplayName("featured counts the live listings of owners on a paid Owner plan (D292)")
+    void featuredFollowsThePaidPlan() throws Exception {
+        User free = user("9851000011", "owner");
+        User paying = user("9851000012", "owner");
+        grants.grant(paying.getId(), TestPlanGrants.OWNER_PLUS);
+        User staff = user("9851000013", "staff");
+        String before = summary(staff);
+
+        listing(free, "Summary free owner", PropertyStatus.APPROVED);
+        listing(paying, "Summary paying owner", PropertyStatus.APPROVED);
+
+        moved(before, summary(staff), "featured", 1);
+    }
+
+    // `sold` and `rented` count only in total; separate tiles would be undrainable queues.
+    // This also pins the absence of `'Under Review'`.
     @Test
     @DisplayName("a closed deal counts in total and on no queue tile")
     void closedDealsCountInTotalOnly() throws Exception {
@@ -125,11 +111,8 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
         moved(before, after, "approved", 0);
     }
 
-    /**
-     * The stays-live re-check (Q14) is its own counter because the rows in it raise no other one:
-     * they are approved, un-archived and in search, so a moderator watching {@code pending} would
-     * never learn the queue existed.
-     */
+    // Stays-live rows are approved, unarchived and searchable,
+    // so `pending` counters never reveal that queue.
     @Test
     @DisplayName("a queued re-check counts as recheck while still counting as approved")
     void recheckIsCountedSeparatelyFromApproved() throws Exception {
@@ -146,10 +129,23 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
         moved(before, after, "approved", 1);
     }
 
-    /**
-     * Archived is the one counter outside the {@code not archived} floor. If it were inside
-     * {@code total}, the tiles would disagree with the table under them, which lists live inventory.
-     */
+    // Archived is the one counter outside the `not archived` floor.
+    @Test
+    @DisplayName("a badge-only request counts as a badge request, not a re-check")
+    void badgeRequestIsNotARecheck() throws Exception {
+        User owner = user("9851000015", "owner");
+        User staff = user("9851000016", "staff");
+        String before = summary(staff);
+
+        Property p = listing(owner, "Summary badge", PropertyStatus.APPROVED);
+        p.requestOwnershipReview(java.time.Instant.now());
+        properties.saveAndFlush(p);
+
+        String after = summary(staff);
+        moved(before, after, "badgeRequests", 1);
+        moved(before, after, "recheck", 0);
+    }
+
     @Test
     @DisplayName("archived is counted apart and stays out of total")
     void archivedIsCountedApartAndStaysOutOfTotal() throws Exception {
@@ -167,11 +163,7 @@ class PropertyModerationSummaryTest extends AbstractApiTest {
         moved(before, after, "approved", 0);
     }
 
-    /**
-     * Same lock as the queue. The counts are a coarser view of rows {@code GET /admin/properties}
-     * already returns, so a weaker guard here would be no guard — a buyer who cannot see the
-     * backlog must not be able to measure it either.
-     */
+    // Summary counts reveal the backlog size, so they need the same guard as queue rows.
     @Test
     @DisplayName("a buyer cannot measure the backlog")
     void buyerCannotMeasureTheBacklog() throws Exception {

@@ -1,13 +1,32 @@
 import { fmtArea, fmtINR, fmtNum, isSqftUnit } from '../../../lib/format.js';
 
+// The four pending buckets the server partitions by `progress`; their labels match the tracker's.
+export const PROGRESS_OPTS = [
+  { value: 'awaiting_confirmation', label: 'Awaiting owner confirmation' },
+  { value: 'ready', label: 'Ready for review' },
+  { value: 'in_review', label: 'In review' },
+  { value: 'needs_info', label: 'Waiting on owner' },
+];
+const PROGRESS = new Set(PROGRESS_OPTS.map((o) => o.value));
+
 export const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'rejected', label: 'Rejected' },
+  ...PROGRESS_OPTS,
+  { value: 'approved', label: 'Live' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'sold', label: 'Sold' },
+  { value: 'rented', label: 'Rented' },
+  { value: 'rejected', label: 'Not approved' },
   { value: 'flagged', label: 'Flagged' },
   { value: 'archived', label: 'Archived' },
 ];
+
+// Archived is its own axis, not a status: unset, a moderation read mixes soft-deleted rows in.
+export const statusQuery = (value) => (value === 'archived'
+  ? { archived: true }
+  : PROGRESS.has(value)
+    ? { archived: false, progress: value }
+    : { archived: false, status: value || undefined });
 export const DEAL_OPTS = [
   { value: '', label: 'Buy & Rent' },
   { value: 'buy', label: 'Buy' },
@@ -20,42 +39,18 @@ export const EDIT_DEAL_OPTS = [
 export const EDIT_STATUS_OPTS = [
   { value: 'approved', label: 'Approved' },
   { value: 'pending', label: 'Pending' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'flagged', label: 'Flagged' },
 ];
 
-export const PAGE_LIMIT = 15;
-
-/* Only the first four are a stored stage: `derived: true` marks the two the board works out from `status`,
-   because storing them would write the same fact twice from two actions that can disagree. */
-export const PIPELINE_STAGES = [
-  { key: 'contacted', label: 'Contacted', color: 'bg-gray-500/15 text-gray-300 border-gray-500/30' },
-  { key: 'info_collected', label: 'Info Collected', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
-  { key: 'listed', label: 'Listed', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  { key: 'docs_submitted', label: 'Docs Submitted', color: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
-  { key: 'under_review', label: 'Under Review', color: 'bg-teal-500/15 text-teal-300 border-teal-500/30', derived: true },
-  { key: 'live', label: 'Live', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', derived: true },
-];
-
-/* The owner's half of the funnel: a separate axis from the stages above, because a listing has a
-   place on the acquisition funnel and a hand-back milestone at the same time. */
-export const HANDBACK_MILESTONES = [
-  { key: 'photos_uploaded', label: 'Photos uploaded' },
-  { key: 'identity_verified', label: 'Identity verified' },
-  { key: 'claim_sent', label: 'Claim sent' },
-  { key: 'claimed', label: 'Claimed' },
-];
-
-export const KPI_TINTS = {
-  indigo: 'bg-indigo-500/15 text-indigo-300',
-  emerald: 'bg-emerald-500/15 text-emerald-300',
-  amber: 'bg-amber-500/15 text-amber-300',
-  rose: 'bg-rose-500/15 text-rose-300',
-  teal: 'bg-teal-500/15 text-teal-300',
-};
+export const PAGE_LIMIT = 10;
 
 export const dealLabel = (d) => (d === 'rent' ? 'For Rent' : 'For Sale');
 export const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : s);
+export const statusLabel = (status) => ({
+  pending: 'Pending',
+  needs_info: 'Needs info',
+  approved: 'Approved',
+  rejected: 'Not approved',
+}[status] || cap(String(status || '').replace(/[_-]/g, ' ')));
 export const perSqftLabel = (l) =>
   // A plot priced by the acre divided by its acreage is a per-acre figure, so the row that captions
   // it "/ sq.ft" has nothing honest to say about one.
@@ -66,8 +61,6 @@ export const perSqftLabel = (l) =>
     : '\u2014';
 export const liveHref = (l) => `/property/${l.realId || l.id}`;
 
-/* Re-exported so the admin property modules keep importing it from here: AdminPropertyCard is a component
-   and has no business reaching into a page's constants module. */
 export { fmtAgo } from '../../../lib/format.js';
 
 export { exportCsv } from '../../../lib/csv.js';
@@ -80,7 +73,7 @@ export function detailKvs(l) {
   const isLive = l.status === 'approved';
   const kvs = [
     ['Listing ID', l.id],
-    ['Status', cap(l.status)],
+    ['Status', statusLabel(l.status)],
     ['Property type', l.type],
     ['Configuration', l.bhk || '\u2014'],
     ['Deal', dealLabel(l.deal)],

@@ -19,6 +19,9 @@ import com.draazy.api.moderation.duplicate.DuplicateClusterReport;
 import com.draazy.api.moderation.duplicate.DuplicateDismissRequest;
 import com.draazy.api.moderation.duplicate.DuplicateMergeRequest;
 import com.draazy.api.moderation.duplicate.ListingDuplicateClusterService;
+import com.draazy.api.moderation.signal.ListingSignalService;
+import com.draazy.api.moderation.signal.ListingSignals;
+import com.draazy.api.moderation.signal.PropertyModerationResponse;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
@@ -26,6 +29,8 @@ import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -41,31 +46,21 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Listing moderation endpoints (contract tag {@code Moderation}).
- * Rationale: docs/flows/admin/property-verification.md#moderation-controller.
- */
+// Rationale: docs/flows/admin/property-verification.md#moderation-controller.
 @RestController
 public class PropertyModerationController {
 
     private static final String STAFF_OR_ADMIN =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
 
-    /** Seeing the queue. */
     private static final String PROPERTIES_READ =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
 
-    /**
-     * Acting on a listing — approve, reject, feature, flag, correct. One atom for all five: the
-     * console offers them from the same table row, so a finer split would describe no real screen.
-     */
-    private static final String PROPERTIES_WRITE =
-            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
+    // One atom for these actions because the console offers them from the same row.
+    private static final String PROPERTIES_MODERATE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE;
 
-    /**
-     * Creating a listing owned by somebody else. Its own atom, not {@link #PROPERTIES_WRITE}: the
-     * only route where the caller names the owner of what they create.
-     */
+    // Separate atom because this route lets the caller name another listing owner.
     private static final String POST_ON_BEHALF_WRITE =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_POSTONBEHALF_WRITE;
 
@@ -77,11 +72,13 @@ public class PropertyModerationController {
     private final PropertyModerationSummaryRepository summaries;
     private final OwnerOutreachService outreach;
     private final ListingDuplicateClusterService duplicateClusters;
+    private final ListingSignalService signals;
 
     public PropertyModerationController(PropertyModerationService service, ListingService listings,
             PropertyService propertyService, PropertyMapper propertyMapper,
             OnBehalfListingService onBehalf, PropertyModerationSummaryRepository summaries,
-            OwnerOutreachService outreach, ListingDuplicateClusterService duplicateClusters) {
+            OwnerOutreachService outreach, ListingDuplicateClusterService duplicateClusters,
+            ListingSignalService signals) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
@@ -90,15 +87,13 @@ public class PropertyModerationController {
         this.summaries = summaries;
         this.outreach = outreach;
         this.duplicateClusters = duplicateClusters;
+        this.signals = signals;
     }
 
-    /**
-     * {@code GET /admin/properties} (contract {@code listPropertiesForModeration}) — the queue.
-     * Rationale: docs/flows/admin/property-verification.md#moderation-controller.
-     */
+    // Queue rationale: docs/flows/admin/property-verification.md#moderation-controller.
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(PROPERTIES_READ)
-    public PageResponse<PropertyResponse> queue(
+    public PageResponse<PropertyModerationResponse> queue(
             @RequestParam(required = false) String deal,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String locality,
@@ -114,25 +109,28 @@ public class PropertyModerationController {
             @RequestParam(required = false) Boolean featured,
             @RequestParam(required = false) Boolean postedByAdmin,
             @RequestParam(required = false) Boolean unconfirmed,
+            @RequestParam(required = false) String progress,
+            @RequestParam(required = false) Boolean badge,
             @PageableDefault(size = 20) Pageable pageable) {
+
         // The owner facet is the public profile page's, deliberately not offered here: the desk
         // already reaches an owner's stock through the user record.
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 null);
-        ModerationFacets mod =
-                new ModerationFacets(archived, recheck, featured, postedByAdmin, unconfirmed);
+        ModerationFacets mod = new ModerationFacets(
+                archived, recheck, featured, postedByAdmin, unconfirmed, progress, badge);
         Page<Property> page = propertyService.searchForModeration(filters, mod, pageable);
         OutreachCounts counts = outreach.countsFor(page.getContent());
+        Map<UUID, ListingSignals> pageSignals = signals.forProperties(page.getContent());
         return PageResponse.of(page,
-                p -> propertyMapper.toResponse(p, ContactVisibility.REVEALED,
-                        BackOfficeVisibility.VISIBLE, counts, PrivateFieldVisibility.VISIBLE));
+                p -> new PropertyModerationResponse(
+                        propertyMapper.toResponse(p, ContactVisibility.REVEALED,
+                                BackOfficeVisibility.VISIBLE, counts, PrivateFieldVisibility.VISIBLE),
+                        pageSignals.getOrDefault(p.getId(), ListingSignals.NONE)));
     }
 
-    /**
-     * {@code GET /admin/properties/summary} — platform-wide headline counts. Unfiltered on purpose:
-     * "how much is waiting that I am not looking at" is what a filtered count cannot answer.
-     */
+    // Unfiltered because it answers "how much is waiting that I am not looking at".
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_SUMMARY)
     @PreAuthorize(PROPERTIES_READ)
     public PropertyModerationSummary summary() {
@@ -141,22 +139,16 @@ public class PropertyModerationController {
 
     /** {@code PATCH /properties/{id}/status} (contract {@code setPropertyStatus}). */
     @PatchMapping(Routes.Moderation.PROPERTY_STATUS)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     public void setStatus(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusRequest body) {
-        service.setStatus(principal, id, body.status(), body.reason());
-    }
-
-    /** {@code POST /properties/{id}/toggle-featured} (contract {@code toggleFeatured}). */
-    @PostMapping(Routes.Moderation.PROPERTY_FEATURED)
-    @PreAuthorize(PROPERTIES_WRITE)
-    public void toggleFeatured(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        service.toggleFeatured(principal, id);
+        service.setStatus(principal, id, body.status(), body.reason(),
+                body.reasonCode(), body.expectedStatus());
     }
 
     /** {@code POST /properties/{id}/flag} (contract {@code flagProperty}). */
     @PostMapping(Routes.Moderation.PROPERTY_FLAG)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     public void flag(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody ReasonRequest body) {
         service.flag(principal, id, body.reason());
@@ -165,17 +157,14 @@ public class PropertyModerationController {
     /** {@code DELETE /properties/{id}/flag} (contract {@code clearFlag}) — 204. */
     @DeleteMapping(Routes.Moderation.PROPERTY_FLAG)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     public void clearFlag(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         service.clearFlag(principal, id);
     }
 
-    /**
-     * {@code PATCH /properties/{id}/admin} — correct another user's listing in place. The one
-     * moderation route returning a body; field mapping lives in {@link ListingService}.
-     */
+    // Returns a body because field mapping lives in ListingService.
     @PatchMapping(Routes.Moderation.PROPERTY_ADMIN_UPDATE)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     public PropertyResponse adminUpdate(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody ListingUpdate body) {
         Property updated = listings.updateAsModerator(principal, id, body);
@@ -184,87 +173,52 @@ public class PropertyModerationController {
                 PrivateFieldVisibility.VISIBLE);
     }
 
-    /**
-     * {@code POST /admin/properties} — post a listing on an owner's behalf; 201. Carries
-     * {@link #POST_ON_BEHALF_WRITE} because the caller names somebody else as owner.
-     */
+    // Uses POST_ON_BEHALF_WRITE because the caller names somebody else as owner.
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
     @ResponseStatus(HttpStatus.CREATED)
     public PropertyResponse createOnBehalf(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody OnBehalfListingRequest body) {
+
         // NONE rather than a lookup: the listing did not exist a moment ago, so nobody can have
         // chased its owner about it. Querying would be a round trip guaranteed to return zero.
         return propertyMapper.toResponse(onBehalf.create(principal, body), ContactVisibility.REVEALED,
                 BackOfficeVisibility.VISIBLE, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 
-    /**
-     * {@code GET /admin/properties/owner-standing} — this owner's listing-ceiling usage; 200 even
-     * for a number with no account. Guarded by the write atom: its only audience is that desk.
-     */
+    // Guarded by the write atom because only the on-behalf desk uses this.
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_OWNER_STANDING)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
     public OnBehalfListingService.OwnerListingStanding ownerStanding(@RequestParam String mobile) {
         return onBehalf.standingFor(mobile);
     }
 
-    /**
-     * {@code GET /admin/properties/duplicates} — listings that look like the same doorway, grouped.
-     * A report, not a bare list, so the caller is told when the scan hit its ceiling.
-     */
+    // A report, not a bare list, so the caller sees when the scan hit its ceiling.
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES)
     @PreAuthorize(PROPERTIES_READ)
     public DuplicateClusterReport duplicates() {
         return duplicateClusters.clusters();
     }
 
-    /**
-     * {@code POST /admin/properties/duplicates/merge} — keep one, archive the rest; 204. Archiving
-     * is what {@link #PROPERTIES_WRITE} governs everywhere else, so it governs here too.
-     */
+    // Archiving is what PROPERTIES_MODERATE governs everywhere else, so it governs merges too.
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_MERGE)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void mergeDuplicates(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody DuplicateMergeRequest body) {
         duplicateClusters.resolve(principal, body.keepId(), body.dropIds());
     }
 
-    /**
-     * {@code POST /admin/properties/duplicates/dismiss} — record that a cluster is a coincidence;
-     * 204. Idempotent so a double-click or a second operator returns 204, not a unique-index clash.
-     */
+    // Idempotent so double-clicks and second operators return 204, not a unique-index clash.
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_DISMISS)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_MODERATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void dismissDuplicate(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody DuplicateDismissRequest body) {
         duplicateClusters.dismiss(principal, body.ids());
     }
 
-    /**
-     * {@code POST /properties/{id}/pipeline} — move a staff-posted listing along the owner hand-back
-     * funnel. {@link #POST_ON_BEHALF_WRITE}: the funnel only exists for listings that route created.
-     */
-    @PostMapping(Routes.Moderation.PROPERTY_PIPELINE)
-    @PreAuthorize(POST_ON_BEHALF_WRITE)
-    public PropertyResponse advancePipeline(@CurrentUser AuthPrincipal principal,
-            @PathVariable String id, @Valid @RequestBody PipelineRequest body) {
-        Property moved = onBehalf.advance(principal, id, body.stage());
-        return propertyMapper.toResponse(moved, ContactVisibility.REVEALED,
-                BackOfficeVisibility.VISIBLE, outreach.countsFor(List.of(moved)),
-                PrivateFieldVisibility.VISIBLE);
-    }
-
-    /** Body of {@code advancePropertyPipeline}. */
-    public record PipelineRequest(@NotBlank String stage) {
-    }
-
-    /**
-     * {@code POST /properties/{id}/outreach} — chase this listing's owner. The send happens on the
-     * staff member's own device, so the server records {@code prepared}, not a delivery.
-     */
+    // Send happens on staff's own device, so the server records prepared, not delivered.
     @PostMapping(Routes.Moderation.PROPERTY_OUTREACH)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
     public MessageSender.Prepared chaseOwner(@CurrentUser AuthPrincipal principal,
@@ -272,31 +226,20 @@ public class PropertyModerationController {
         return outreach.chase(principal, id, body.templateId());
     }
 
-    /**
-     * {@code GET /properties/{id}/outreach} — every chaser sent to this listing's owner. Read atom,
-     * not write: the colleague who should back off must be able to see somebody already called.
-     */
+    // Read atom, not write: colleagues must see when someone already called.
     @GetMapping(Routes.Moderation.PROPERTY_OUTREACH)
     @PreAuthorize(PROPERTIES_READ)
     public List<OwnerOutreachService.OwnerOutreachEntry> outreachHistory(@PathVariable String id) {
         return outreach.history(id);
     }
 
-    /** Body of {@code sendOwnerOutreach}. */
     public record OutreachRequest(@NotBlank String templateId) {
     }
 
-    @PostMapping("/properties/{id}/outreach/{messageId}/sent")
-    @PreAuthorize("hasAnyRole('STAFF', 'ADMIN') and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE
-            + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ)
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void recordClaimLinkSent(@CurrentUser AuthPrincipal actor, @PathVariable String id,
-            @PathVariable String messageId) {
-        outreach.recordClaimLinkSent(actor, id, messageId);
+    public record StatusRequest(@NotBlank String status, String reason,
+            String reasonCode, String expectedStatus) {
     }
 
-    /** Body of {@code setPropertyStatus} (schema {@code PropertyStatusUpdate}). */
-    public record StatusRequest(@NotBlank String status, String reason) {    }    /** Body of {@code flagProperty} (schema {@code ReasonRequest}). */
     public record ReasonRequest(String reason) {
     }
 }

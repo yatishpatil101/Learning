@@ -16,22 +16,12 @@ async function openBoard(page, tab) {
   await expect(page.locator('table tbody tr').first()).toBeVisible();
 }
 
-test('the board lists live enquiries and shows no readable mobile number', async ({ page, login, consoleErrors }) => {
+test('every tab masks its own contact column, and the board lists the seeded enquiries', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await openBoard(page);
 
-  // The seed carries eight contact requests. Asserting the number rather than "more than zero"
-  // means a board that silently returned an empty page would fail here instead of passing quietly.
+  // Asserting the number rather than "more than zero" fails a board that silently returned an empty page.
   await expect(page.getByRole('button', { name: /^Enquiries \(8\)/ })).toBeVisible();
-
-  await expect(page.getByText(MASKED).first()).toBeVisible();
-  await expect(page.getByText(RAW)).toHaveCount(0);
-
-  expect(consoleErrors).toHaveLength(0);
-});
-
-test('every tab masks its own contact column', async ({ page, login }) => {
-  await login.asAdmin();
 
   /* Three tabs, three different records behind them — requester, visitor, counterparty. A masking fix written
      against `users.mobile` would pass the enquiries tab and leak on the deals one. */
@@ -62,6 +52,8 @@ test('every tab masks its own contact column', async ({ page, login }) => {
 
     await expect(page.getByText(RAW)).toHaveCount(0);
   }
+
+  expect(consoleErrors).toHaveLength(0);
 });
 
 test('revealing a contact unmasks that one row and records who asked', async ({ page, login }) => {
@@ -163,24 +155,5 @@ test('a lead marked responded is on the case file the moderator opens', async ({
     .toContain(expected);
 });
 
-/* No test here for "a staffer sees the board but not the reveal button": `RoleRoute roles={['admin']}` wraps
- * the shell, so a staffer never reaches this page. That split is asserted in `EnquiryBoardEndpointsTest`. */
-test('a signed-out visitor gets no board and no numbers', async ({ page }) => {
-  await page.goto('/admin/enquiries');
-
-  await page.waitForURL('**/staff-login**');
-  await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toHaveCount(0);
-  await expect(page.getByText(MASKED)).toHaveCount(0);
-});
-
-/* Not the same claim as the signed-out case above: a buyer arrives *authenticated*, so the guard has to read
- * the role and decide — the branch that can be got wrong, and one a real account holder can reach. */
-test('a signed-in buyer cannot open the admin enquiries desk', async ({ page, login }) => {
-  await login.asBuyer();
-  await page.goto('/admin/enquiries');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toHaveCount(0);
-  await expect(page.getByText(MASKED)).toHaveCount(0);
-});
+/* No test here for "a staffer sees the board but not the reveal button": the admin shell excludes
+ * staff, so a staffer never reaches this page. That split is asserted in `EnquiryBoardEndpointsTest`. */

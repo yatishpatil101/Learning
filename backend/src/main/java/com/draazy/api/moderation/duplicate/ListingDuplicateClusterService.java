@@ -16,6 +16,7 @@ import com.draazy.api.common.trust.ContactVisibility;
 import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.security.AuthPrincipal;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -30,81 +31,16 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The ops desk's duplicate clustering — derived on demand, never stored (D255).
- *
- * <p><strong>Why this exists as a third reading of "the same doorway".</strong>
- * {@code ListingDuplicateProbe} already answers a duplicate question, and its javadoc is explicit
- * about the danger of a second answer drifting from it: "two readings of one rule about what counts
- * as the same doorway; if they ever disagree, the platform blocks owners on a definition it does not
- * flag strangers on." So a third reading needs its own justification rather than an apology.
- *
- * <p>The justification is that the three readings answer three different questions, and only one of
- * them is about a pair of listings:
- * <ul>
- *   <li>{@code findOwnDuplicateCandidates} — "have I already posted this?", asked of an owner in the
- *       wizard, so necessarily scoped to that owner.</li>
- *   <li>{@code findDuplicateCandidates} — "is this stranger's listing already on the platform?",
- *       asked at write time, so scoped away from the owner: a person colliding with themselves is
- *       not the abuse the probe exists to catch, and flagging it would file a moderation note about
- *       an owner's own housekeeping.</li>
- *   <li>this — "what does the catalogue currently contain that looks duplicated?", asked by a human
- *       looking at the whole catalogue rather than at one write.</li>
- * </ul>
- *
- * <p><strong>This one includes same-owner clusters, and that is the deliberate divergence.</strong>
- * The write-time probe excludes them because a note on an owner's file saying "you have posted this
- * twice" is noise at the moment of writing. But the same fact seen from the desk is a real supply
- * problem — one flat occupying two slots in search results is the same distortion whether it came
- * from one account or two, and a broker double-posting under a single login is a pattern the
- * cross-owner rule cannot see by construction. So the desk sees them and
- * {@link DuplicateCluster#sameOwner} says so on the card, because the operator's response differs:
- * a stranger collision is a moderation case, an owner colliding with themselves is usually a phone
- * call. Filtering them out here would have hidden the second case entirely; showing them unlabelled
- * would have invited the first response to the second situation.
- *
- * <p><strong>The signal definitions are not re-derived here.</strong> The doorway arm reads the same
- * {@code electricityMeterKey} and {@code addressKey}/{@code localitySlug} columns the probe indexes,
- * and the photo arm bands and verifies with {@link PhotoHash} exactly as the probe does. What is new
- * is only the shape of the answer: components rather than pairs.
- *
- * <p><strong>Nothing here blocks or hides anything.</strong> Like the probe, this reports a
- * suspicion. Listings in a cluster stay live and stay searchable; the only writes are the two an
- * operator asks for explicitly.
- */
+// Derived on demand, never stored, because the signals change with live listing edits.
 @Service
 public class ListingDuplicateClusterService {
 
-    /**
-     * The statuses that occupy a slot in search.
-     *
-     * <p>Identical to {@code ListingDuplicateProbe.OCCUPYING}, and identical for the same reason: a
-     * rejected or archived listing is not competing for a seeker's attention, so it is not a
-     * duplicate of anything in the sense this desk cares about.
-     */
-    private static final List<String> OCCUPYING =
-            List.of(PropertyStatus.PENDING, PropertyStatus.APPROVED);
+    private static final List<String> OCCUPYING = PropertyStatus.OCCUPYING_DUPLICATE_STATUSES;
 
-    /**
-     * How many signal-carrying listings one request will cluster.
-     *
-     * <p>Generous rather than tight, because the cost of binding is not a slow page — it is a pair
-     * split across the boundary and therefore invisible. The read is O(n) in signal-carrying
-     * listings plus the band buckets, both of which are small multiples of the catalogue, so this
-     * ceiling exists to stop a pathological catalogue from hanging the desk rather than to keep a
-     * normal one fast. When it does bind, {@link DuplicateClusterReport#truncated} says so.
-     */
+    // Generous because the real failure is splitting a duplicate pair across the boundary.
     static final int SCAN_CAP = 2000;
 
-    /**
-     * How many photos sharing one 16-bit band are worth comparing.
-     *
-     * <p>Mirrors {@code ListingDuplicateProbe.PHOTO_CANDIDATE_CAP}, deliberately the same number.
-     * A band shared by more than this many photographs is not evidence of anything — it is a plain
-     * wall, a floor plan template, or the builder's own render, and the pairs it would generate are
-     * noise that would bury the real ones. Capping here rather than filtering afterwards keeps the
-     * comparison count linear in the bucket instead of quadratic.
-     */
+    // Mirrors ListingDuplicateProbe.PHOTO_CANDIDATE_CAP so probe and desk agree.
     private static final int BAND_BUCKET_CAP = 200;
 
     private final PropertyRepository properties;
@@ -128,12 +64,10 @@ public class ListingDuplicateClusterService {
         this.audit = audit;
     }
 
-    /** Every unsettled cluster in the catalogue right now. */
     @Transactional(readOnly = true)
     public DuplicateClusterReport clusters() {
-        // One row past the ceiling, so a full page is distinguishable from a page that happens to
-        // be exactly the ceiling. Without the extra row the two are identical and the report would
-        // have to guess.
+
+        // One row past the ceiling distinguishes an exact page from a truncated scan.
         List<Property> scan = properties.findSignalCarrying(OCCUPYING, PageRequest.of(0, SCAN_CAP + 1));
         boolean truncated = scan.size() > SCAN_CAP;
         List<Property> candidates = truncated ? List.copyOf(scan.subList(0, SCAN_CAP)) : scan;
@@ -147,10 +81,7 @@ public class ListingDuplicateClusterService {
             components.union(link.a(), link.b());
         }
 
-        // Reasons are attributed after every union, keyed on the settled root. Doing it during the
-        // pass would key some sets on a root that later becomes a child of another cluster, and
-        // those reasons would be orphaned -- a cluster rendering with a blank reason for no reason
-        // the operator could see.
+        // Attribute after union so reasons key on the settled root, not a later child.
         Map<UUID, Set<String>> reasons = new HashMap<>();
         for (Link link : links) {
             reasons.computeIfAbsent(components.find(link.a()), k -> new TreeSet<>()).add(link.reason());
@@ -174,8 +105,6 @@ public class ListingDuplicateClusterService {
             found.add(new Candidate(DuplicateClusterSignature.of(ids), reason, members));
         }
 
-        // One round trip for every signature on the page. Asking per cluster would make the query
-        // count grow with the backlog, which is exactly when the desk is already slowest.
         Set<String> settled = found.isEmpty() ? Set.of()
                 : dismissals.findByClusterSignatureIn(found.stream().map(Candidate::signature).toList())
                         .stream().map(ListingDuplicateDismissal::getClusterSignature)
@@ -191,19 +120,7 @@ public class ListingDuplicateClusterService {
         return new DuplicateClusterReport(clusters, candidates.size(), truncated);
     }
 
-    /**
-     * Keep one listing, archive the rest of the cluster.
-     *
-     * <p>Archive rather than delete, and through {@link ListingArchiveService} rather than a bulk
-     * status write, so a merge is the same reversible act as any other takedown: the losing listings
-     * keep their history, their enquiries and their restore path. An operator who merges the wrong
-     * pair undoes it from the archive.
-     *
-     * <p>The kept listing is deliberately not touched. There is no "this is the canonical one" flag
-     * to set — the prototype wrote {@code duplicateFlag} and {@code duplicateOf} here, two fields no
-     * table on this platform has ever had, which is why the merge silently did nothing against a
-     * real server.
-     */
+    // Archive through ListingArchiveService so a merge is reversible like other takedowns.
     @Transactional
     public void resolve(AuthPrincipal actor, String keepId, List<String> dropIds) {
         if (keepId == null || keepId.isBlank()) {
@@ -225,14 +142,7 @@ public class ListingDuplicateClusterService {
                 "count", drops.size());
     }
 
-    /**
-     * Record that a cluster is a coincidence.
-     *
-     * <p>The signature is derived here from the ids the caller sent, never accepted from the caller.
-     * A client that computed its own would be a second implementation of
-     * {@link DuplicateClusterSignature}, and a client that sent a signature not matching its ids
-     * could settle a set nobody looked at.
-     */
+    // Signature is derived from submitted ids, never accepted from the caller.
     @Transactional
     public void dismiss(AuthPrincipal actor, List<String> memberIds) {
         List<UUID> ids = parseIds(memberIds);
@@ -240,6 +150,7 @@ public class ListingDuplicateClusterService {
             throw new BadRequestException("A cluster is at least two listings");
         }
         String signature = DuplicateClusterSignature.of(ids);
+
         // Idempotent: a double-clicked button and two operators reaching the same verdict are the
         // same fact, and the unique index would otherwise turn the second into a 500.
         if (dismissals.findByClusterSignature(signature).isPresent()) {
@@ -255,11 +166,8 @@ public class ListingDuplicateClusterService {
 
     private DuplicateCluster render(Candidate c) {
         List<PropertyResponse> listings = c.members().stream()
-                // REVEALED for the same reason the moderation queue reveals: this desk exists to
-                // ring an owner about a listing, and a masked number sends the operator to look it
-                // up somewhere the platform cannot see -- trading an audited disclosure for an
-                // unaudited one. OutreachCounts.NONE because the tab renders identity, not contact
-                // history, and a per-listing count would be a round trip nothing displays.
+
+                // Revealed so owner contact stays in the audited platform workflow.
                 .map(p -> propertyMapper.toResponse(p, ContactVisibility.REVEALED,
                         BackOfficeVisibility.VISIBLE, OutreachCounts.NONE,
                         PrivateFieldVisibility.VISIBLE))
@@ -268,21 +176,39 @@ public class ListingDuplicateClusterService {
                 .map(p -> p.getOwner() == null ? null : p.getOwner().getId())
                 .distinct()
                 .count() == 1;
-        return new DuplicateCluster(c.signature(), c.reason(), sameOwner, listings);
+        return new DuplicateCluster(c.signature(), c.reason(), sameOwner, hintsFor(c.members()), listings);
     }
 
-    /**
-     * The doorway arm: a shared electricity meter, or a shared address key within one locality.
-     *
-     * <p>Bucketed rather than compared pairwise. Every listing in a bucket is by definition linked
-     * to every other, so linking each to the bucket's first member produces the same component at
-     * linear cost instead of quadratic.
-     *
-     * <p>The address bucket key is a typed pair, not a joined string. That is the same care
-     * {@code ListingDuplicateProbe.signalOf} takes and for the same reason: a separator character
-     * occurring inside one of the values would make two different doorways compare equal, and the
-     * resulting false cluster would be indistinguishable from a real one.
-     */
+    private static List<DuplicateCluster.Hint> hintsFor(List<Property> members) {
+        for (int i = 0; i < members.size(); i++) {
+            for (int j = i + 1; j < members.size(); j++) {
+                if (sameSocietyBhkArea(members.get(i), members.get(j))) {
+                    return List.of(new DuplicateCluster.Hint("same_society_bhk_area", "soft",
+                            "Same society, BHK and carpet area within 10%."));
+                }
+            }
+        }
+        return List.of();
+    }
+
+    private static boolean sameSocietyBhkArea(Property a, Property b) {
+        if (a.getSocietyId() == null || !a.getSocietyId().equals(b.getSocietyId())) {
+            return false;
+        }
+        if (a.getBhk() == null || b.getBhk() == null || a.getBhk().compareTo(b.getBhk()) != 0) {
+            return false;
+        }
+        BigDecimal left = a.getCarpetArea();
+        BigDecimal right = b.getCarpetArea();
+        if (left == null || right == null || left.signum() <= 0 || right.signum() <= 0) {
+            return false;
+        }
+        BigDecimal min = left.min(right);
+        BigDecimal max = left.max(right);
+        return max.subtract(min).multiply(BigDecimal.TEN).compareTo(max) <= 0;
+    }
+
+    // Bucketed rather than pairwise so the desk can scan the full candidate set.
     private void linkByDoorway(List<Property> candidates, List<Link> links) {
         Map<String, List<Property>> byMeter = new HashMap<>();
         Map<DoorwayKey, List<Property>> byAddress = new HashMap<>();
@@ -312,13 +238,7 @@ public class ListingDuplicateClusterService {
         }
     }
 
-    /**
-     * The photo arm: band-index to find candidates, {@link PhotoHash#sameShot} to confirm them.
-     *
-     * <p>Exactly the probe's two-step, applied symmetrically instead of from one listing outward.
-     * The band lookup is fast and approximate; {@code sameShot} is exact and would be a scan. Doing
-     * only the first would cluster listings that merely share a 16-bit slice of a hash.
-     */
+    // Same two-step as the probe, applied symmetrically across all candidates.
     private void linkByPhotos(List<Property> candidates, List<Link> links) {
         List<UUID> ids = candidates.stream().map(Property::getId).toList();
         if (ids.isEmpty()) {
@@ -344,9 +264,8 @@ public class ListingDuplicateClusterService {
                     if (a.getPropertyId().equals(b.getPropertyId())) {
                         continue;
                     }
-                    // A pair sharing several bands appears in several buckets. Verifying it once is
-                    // not just cheaper -- it keeps `links` from carrying the same edge repeatedly,
-                    // which would make the reason attribution loop do redundant finds.
+
+                    // Same pair can share several bands; verify once to avoid duplicate edges.
                     if (!seen.add(pairKey(a, b))) {
                         continue;
                     }
@@ -391,7 +310,6 @@ public class ListingDuplicateClusterService {
     private record DoorwayKey(String addressKey, String localitySlug) {
     }
 
-    /** Which of the four bands, and its value. */
     private record BandKey(int index, int value) {
     }
 
@@ -399,14 +317,7 @@ public class ListingDuplicateClusterService {
     private record Candidate(String signature, String reason, List<Property> members) {
     }
 
-    /**
-     * Union-find with path compression.
-     *
-     * <p>Union by nothing in particular — no rank, no size. The sets here are tiny (a cluster of
-     * more than a handful of listings is already an anomaly worth looking at by hand), so the
-     * balancing that makes union-find asymptotically interesting would be code with no measurable
-     * effect on any catalogue this platform will have.
-     */
+    // Union-find with path compression. Union by nothing in particular — no rank, no size.
     private static final class DisjointSet {
 
         private final Map<UUID, UUID> parent = new HashMap<>();

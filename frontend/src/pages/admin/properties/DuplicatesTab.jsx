@@ -3,6 +3,8 @@ import { Link } from 'react-router';
 import { Copy, Check, X, MapPin, User, Calendar, ArrowUpRight, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { listDuplicateClusters, mergeDuplicateCluster, dismissDuplicateCluster } from '../../../services/propertyService.js';
 import { useToast } from '../../../context/ToastContext.jsx';
+import { signalLabel } from './reviewReasons.js';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 
 const fmtDate = (ts) => {
   if (!ts) return '—';
@@ -16,7 +18,7 @@ function ListingColumn({ listing: l, isNewest, onKeep, disabled }) {
     <div className="flex flex-1 min-w-[240px] flex-col rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
       <div className="relative h-32 bg-white/5">
         {l.image ? (
-          <img src={l.image} alt={l.title} className="h-full w-full object-cover" loading="lazy" />
+          <PropertyImage src={l.image} sizes="320px" alt={l.title} className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="grid h-full place-items-center text-gray-600 text-xs">No photo</div>
         )}
@@ -36,20 +38,22 @@ function ListingColumn({ listing: l, isNewest, onKeep, disabled }) {
           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 capitalize text-gray-300">{l.status || 'pending'}</span>
           {l.verified && <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-emerald-300"><ShieldCheck className="h-3 w-3" /> Verified</span>}
         </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onKeep(l.id)}
-          className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-semibold text-ink transition hover:brightness-110 disabled:opacity-50"
-        >
-          <Check className="h-4 w-4" /> Keep this, archive the rest
-        </button>
+        {onKeep ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onKeep(l.id)}
+            className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-semibold text-ink transition hover:brightness-110 disabled:opacity-50"
+          >
+            <Check className="h-4 w-4" /> Keep this, archive the rest
+          </button>
+        ) : null}
       </div>
     </div>
   );
 }
 
-export default function DuplicatesTab({ onRefresh }) {
+export default function DuplicatesTab({ onRefresh, canModerate = true }) {
   const { toast } = useToast();
   const [state, setState] = useState({ status: 'loading', clusters: [], truncated: false, scanned: 0 });
   const [busy, setBusy] = useState(false);
@@ -64,11 +68,8 @@ export default function DuplicatesTab({ onRefresh }) {
         scanned: res.scanned ?? 0,
       });
     } catch (err) {
-      // An error state, never an empty one. "No duplicate clusters — supply looks clean" rendered
-      // after a failed read is a false negative about real supply, stated confidently, to the one
-      // person whose job is to act on it. The previous version of this tab did exactly that against
-      // the live API for four releases (D249).
       console.error('[DuplicatesTab] failed to load clusters', err);
+      // A failed read must not render as "supply looks clean"; that is a false negative.
       setState({ status: 'error', clusters: [], truncated: false, scanned: 0 });
     }
   }, []);
@@ -77,11 +78,6 @@ export default function DuplicatesTab({ onRefresh }) {
 
   const reload = () => { load(); onRefresh?.(); };
 
-  /* Both handlers below used to call `logAudit('Listings', …)` after their decision. The lines are
-     gone, and now stay gone for a better reason than when they were removed: the server writes the
-     audit row itself, inside the same transaction as the archive. The old ones wrote a sentence
-     into `db.auditLog` in this browser's localStorage, which no auditor could reach and which
-     described an action taken on fixture data. */
   const keepOne = async (cluster, keepId) => {
     if (busy) return;
     setBusy(true);
@@ -139,10 +135,8 @@ export default function DuplicatesTab({ onRefresh }) {
         <span>Listings that look like the <strong className="text-gray-200">same physical property</strong> — matched by electricity meter / tax ID, structured address, or perceptually similar photos. Keep the best one and archive the rest, or dismiss if they&apos;re genuinely different.</span>
       </p>
 
-      {/* Rendered because of how a capped clustering fails: not as a short list, but as a clean
-          one. A pair split across the scan ceiling disappears entirely rather than showing as half
-          a cluster, so this is the single condition under which the empty state below is a lie. */}
       {truncated && (
+        /* Capped clustering fails by omission, not by partial clusters, so the list must say incomplete. */
         <p className="dz-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
@@ -168,27 +162,32 @@ export default function DuplicatesTab({ onRefresh }) {
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300">
                     <Copy className="h-3.5 w-3.5" /> {cluster.listings.length} listings · {cluster.reasonLabel || cluster.reason}
                   </span>
-                  {/* The write-time probe never compares a person with themselves, so without this
-                      label an operator would treat an owner's own re-post as a stranger hijacking
-                      their listing. Same evidence, different conversation. */}
                   {cluster.sameOwner && (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/25 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-300">
                       <User className="h-3.5 w-3.5" /> same owner
                     </span>
                   )}
+                  {(cluster.hints || []).map((hint) => (
+                    <span key={`${cluster.id}:${hint.code}`} title={hint.detail || signalLabel(hint.code)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-gray-300">
+                      {signalLabel(hint.code)}
+                    </span>
+                  ))}
                 </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => notDup(cluster)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/5 disabled:opacity-50"
-                >
-                  <X className="h-4 w-4" /> Not a duplicate
-                </button>
+                {canModerate ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => notDup(cluster)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <X className="h-4 w-4" /> Not a duplicate
+                  </button>
+                ) : null}
               </div>
               <div className="flex flex-wrap gap-3">
                 {cluster.listings.map((l, i) => (
-                  <ListingColumn key={l.id} listing={l} isNewest={i === 0} onKeep={(id) => keepOne(cluster, id)} disabled={busy} />
+                  <ListingColumn key={l.id} listing={l} isNewest={i === 0} onKeep={canModerate ? (id) => keepOne(cluster, id) : null} disabled={busy} />
                 ))}
               </div>
             </div>
