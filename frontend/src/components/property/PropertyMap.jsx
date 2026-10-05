@@ -142,7 +142,7 @@ function PropertyPopup({ p, locName }) {
   );
 }
 
-export default function PropertyMap({ properties, locName, focus = [], activeId, onSelect, wrapStyle: wrapStyleProp }) {
+export default function PropertyMap({ properties, locName, focus = [], activeId, onSelect, wrapStyle: wrapStyleProp, gestureHandling = 'cooperative' }) {
   const [openId, setOpenId] = useState(null); // single-property InfoWindow (no onSelect)
   // Single-property mode (Property details page): one pin, no listings drawer.
   const single = !onSelect && properties.length === 1;
@@ -158,7 +158,7 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
   const initialZoom = single ? 15 : (focusCenter ? 14 : 12);
   // Callers can hand an explicit footprint (e.g. an embedded locality map card);
   // otherwise fall back to the mode's default height.
-  const wrapStyle = wrapStyleProp || (single ? { height: '100%' } : { height: '72vh', minHeight: 520 });
+  const wrapStyle = wrapStyleProp || (single ? { height: '100%' } : { height: '72dvh', minHeight: 'min(520px, 70dvh)' });
   if (!GOOGLE_MAPS_API_KEY) return <MapUnavailable style={wrapStyle} />;
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
@@ -168,10 +168,7 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
           colorScheme="DARK"
           defaultCenter={initialCenter}
           defaultZoom={initialZoom}
-          /* Not greedy: every caller embeds this in a scrolling document — the locality card, the
-             detail page's tab panel, the results pane — so a greedy map swallows the one-finger
-             drag meant for the page. Cooperative pans on two fingers instead. */
-          gestureHandling="cooperative"
+          gestureHandling={gestureHandling}
           clickableIcons={false}
           mapTypeControl={false}
           streetViewControl={false}

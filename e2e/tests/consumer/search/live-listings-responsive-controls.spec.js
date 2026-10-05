@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 900 };
 
 /* The in-page Buy/Rent deal toggle duplicates a journey that already lives in the
@@ -9,41 +8,38 @@ const DESKTOP = { width: 1280, height: 900 };
    stand-in for it — it must only render on mobile/tablet (`lg:hidden`) and stay
    hidden on the web/desktop view.
 
-   The "Looking to share? Browse flatmates & rooms" ticker used to sit beside it and
-   is now asserted gone: Flatmates is a permanent slot in the mobile bottom nav, so
-   the ticker was a duplicate entry point that pushed results below the fold. */
+   The "Looking to share? Browse flatmates & rooms" ticker must stay gone: Flatmates is a
+   permanent slot in the mobile bottom nav, so a ticker would be a duplicate entry point
+   that pushes results below the fold. */
 
 const dealToggle = (page) => page.getByRole('radiogroup', { name: /Switch between renting and buying/i });
 const flatmateTicker = (page) => page.getByRole('link', { name: /Browse flatmates & rooms/i });
 
 test.describe('Listings — mobile-only deal toggle', () => {
-  test('Desktop hides the deal toggle', async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await page.goto(`${BASE}/listings?deal=rent`);
-    await expect(dealToggle(page)).toBeHidden();
-  });
-
-  test('Mobile keeps the deal toggle', async ({ page }) => {
-    await page.setViewportSize(MOBILE);
-    await page.goto(`${BASE}/listings?deal=rent`);
-    await expect(dealToggle(page)).toBeVisible();
-  });
-
-  test('the toggle sits beside the heading on one row, without wrapping it', async ({ page }) => {
-    /* It used to be a full-bleed bar stacked under the heading — ~90px of the first
-       viewport spent on two words. Beside the heading it costs nothing extra, but only
+  test('the toggle is hidden on desktop and sits beside the heading on one row on mobile, without wrapping it', async ({ page }) => {
+    /* Beside the heading the toggle costs no extra height, but only
        if the shortened phone-width title still fits on one line at 360px.
 
        The header carries `.list-reveal`, which slides it in on load; measuring mid-flight
        reads a stale y. Everything is therefore polled until the animations settle rather
        than sampled once. */
-    test.slow(); // two cold /listings loads.
+    test.slow(); // three cold /listings loads.
+
+    await test.step('Desktop hides the deal toggle and mounts no flatmates ticker', async () => {
+      await page.setViewportSize(DESKTOP);
+      await page.goto(`${BASE}/listings?deal=rent`);
+      await expect(dealToggle(page)).toBeHidden();
+      // The bottom nav owns Flatmates now; a second link on the Rent tab is redundant.
+      await expect(flatmateTicker(page), `${DESKTOP.width}px should mount no ticker`).toHaveCount(0);
+    });
+
     for (const width of [360, 390]) {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`${BASE}/listings?deal=rent`);
       const h1 = page.getByRole('heading', { level: 1 });
       await expect(h1).toBeVisible();
       await expect(dealToggle(page)).toBeVisible();
+      await expect(flatmateTicker(page), `${width}px should mount no ticker`).toHaveCount(0);
       await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 
       const boxes = async () => ({ head: await h1.boundingBox(), pill: await dealToggle(page).boundingBox() });
@@ -69,16 +65,6 @@ test.describe('Listings — mobile-only deal toggle', () => {
         (el) => parseFloat(getComputedStyle(el, '::before').height)
       );
       expect(tapH, `${width}px: tap target restored by .tap-extend`).toBeGreaterThanOrEqual(44);
-    }
-  });
-
-  test('the flatmates ticker is gone at both widths', async ({ page }) => {
-    // The bottom nav owns Flatmates now; a second link on the Rent tab is redundant.
-    test.slow(); // two cold /listings loads in one test.
-    for (const size of [MOBILE, DESKTOP]) {
-      await page.setViewportSize(size);
-      await page.goto(`${BASE}/listings?deal=rent`);
-      await expect(flatmateTicker(page), `${size.width}px should mount no ticker`).toHaveCount(0);
     }
   });
 });

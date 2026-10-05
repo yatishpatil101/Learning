@@ -15,17 +15,12 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
   // value settles, so every read-out below tracks the thumb rather than freezing mid-drag.
   const [liveRadius, setLiveRadius, radiusCommit] = useCommitOnRelease(f.nearRadius, (v) => set({ nearRadius: v }));
   const nearMax = nearMaxFor(nearMode);
-  /* The number field's half-typed text, held here rather than in the filter. A blank or
-     out-of-range string is a keystroke on the way somewhere, not a radius the user chose: writing
-     it through stores `''`, which makes `nearParams` drop the centre point along with the radius —
-     the whole proximity filter silently off while the chip still names the place.
-     `null` means "not being typed in", so the field shows the committed radius. */
+  /* `null` means "not being typed in", so the field shows the committed radius. */
   const [radiusDraft, setRadiusDraft] = useState(null);
   const onRadiusType = useCallback((e) => {
     const raw = e.target.value;
     setRadiusDraft(raw);
     const n = Number(raw);
-    // Commit as they type, but only a value they could have meant; the rest waits for blur.
     if (raw !== '' && Number.isInteger(n) && n >= 1 && n <= nearMax) set({ nearRadius: n });
   }, [nearMax, set]);
   const onRadiusSettle = useCallback((e) => {
@@ -56,7 +51,7 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     if (!pts.length) return null;
     const lat = pts.reduce((a, l) => a + l.lat, 0) / pts.length;
     const lng = pts.reduce((a, l) => a + l.lng, 0) / pts.length;
-    const d = 0.06; // ~6 km ranking box around the selected area
+    const d = 0.06;
     return { north: lat + d, south: lat - d, east: lng + d, west: lng - d };
   }, [f.localities]);
   // A point set from a home-search POI is surfaced as a synthetic option so the Select trigger
@@ -90,27 +85,22 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     }));
   }, [nearBias]);
   const onNearChange = useCallback((v) => {
-    // A still-resolving live pick carries the placeholder marker; ignore it here and let
-    // onNearPick set the real coordinates once its details resolve.
     if (typeof v === 'string' && v.startsWith('__place__:')) return;
-    // The only non-placeholder option is the already-selected place (or a clear).
     const opt = nearOpts.find((o) => o.value === v);
     set({ near: v || '', nearLabel: v ? (opt?.label || f.nearLabel || '') : '' });
   }, [nearOpts, set, f.nearLabel]);
   const onNearPick = useCallback(async (opt) => {
-    if (!opt?.meta) return; // the already-selected place — onNearChange handled it
-    const pickId = ++nearPickIdRef.current; // supersede any in-flight pick
+    if (!opt?.meta) return;
+    const pickId = ++nearPickIdRef.current;
     const placeId = String(opt.value).replace('__place__:', '');
     const details = await fetchPlaceDetails({ placeId, _p: opt.meta._p });
     // Ignore a stale/late response once a newer pick started or the panel unmounted.
     if (pickId !== nearPickIdRef.current || !mountedRef.current) return;
     if (!details || details.lat == null || details.lng == null) return;
-    nearTokenRef.current = null; // Places billing: close the session after a pick.
+    nearTokenRef.current = null;
     set({ near: `${details.lat.toFixed(4)},${details.lng.toFixed(4)}`, nearLabel: details.name || opt.meta.name || opt.label || '' });
   }, [set]);
 
-  // Accept the "add this place's locality" nudge: register + select the parent
-  // locality. The derived nearHint then self-hides once the locality is selected.
   const onAddNearLocality = useCallback(() => {
     if (!nearHint) return;
     onAddLocality?.({ slug: nearHint.slug, name: nearHint.name });
@@ -166,7 +156,7 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
           ) : null}
           {f.near ? (
             <div ref={nearPanelRef} className="space-y-4 pt-1">
-              {/* Distance vs commute-time — segmented control */}
+
               <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/5 border border-white/10">
                 {[['km', 'navigation', t('listings.distance')], ['min', 'clock', t('listings.commuteTime')]].map(([mode, ic, label]) => (
                   <button
@@ -181,8 +171,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                 ))}
               </div>
 
-              {/* Selected radius */}
               <div className="flex items-baseline justify-center gap-1.5">
+                {/* Lifted on release, not per step — a whole drag is one search otherwise. */}
                 <input
                   type="number"
                   min={1}
@@ -196,10 +186,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                 <span className="text-sm text-gray-400 font-medium">{nearMode === 'km' ? t('listings.kmAway') : t('listings.minCommute')}</span>
               </div>
 
-              {/* Distance slider */}
               <div>
-                {/* Lifted on release, not per step — a whole drag is one search otherwise.
-                    The twin number field above stays immediate: typing is already one intent. */}
+
                 <input
                   type="range"
                   min="1"
@@ -217,7 +205,6 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                 </div>
               </div>
 
-              {/* Quick presets */}
               <div className="flex flex-wrap gap-1.5">
                 {(nearMode === 'km' ? [1, 3, 5, 10, nearMax] : [5, 10, 15, 20, nearMax]).map((v) => (
                   <button

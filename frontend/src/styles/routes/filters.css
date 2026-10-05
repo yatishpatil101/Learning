@@ -1,5 +1,5 @@
-/* Shared filter-sheet chrome (Tier 1), imported by BOTH /listings and /flatmates so the two
-   search surfaces read as one filter. Listings-only rules belong in routes/listings.css. */
+/* Shared chrome (Tier 1) for the filter sheet and result tiles, imported by BOTH /listings and
+   /flatmates so the two search surfaces read as one. Listings-only rules belong in routes/listings.css. */
 
 /* --- DualRange ------------------------------------------------------------ */
 
@@ -43,6 +43,18 @@
   appearance: none;
   background: transparent;
   pointer-events: none;
+  touch-action: pan-y;
+}
+
+.rng-thumb-hit {
+  position: absolute;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  touch-action: none;
+  cursor: pointer;
 }
 
 .rng input[type=range]::-webkit-slider-thumb {
@@ -55,11 +67,25 @@
   border: 2px solid #0f0d1a;
   box-shadow: 0 0 0 1px var(--teal-2);
   cursor: pointer;
-  transition: transform 0.15s;
+  transition: transform 0.15s ease;
 }
 
-.rng input[type=range]::-webkit-slider-thumb:hover {
-  transform: scale(1.18);
+@media (hover: hover) and (pointer: fine) {
+  .rng-val:hover {
+    text-decoration-color: rgb(94 234 212);
+  }
+
+  .rng input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.18);
+  }
+
+  .rng input[type=range]::-moz-range-thumb:hover {
+    transform: scale(1.18);
+  }
+}
+
+.rng input[type=range]::-webkit-slider-thumb:active {
+  transform: scale(1.08);
 }
 
 .rng input[type=range]::-moz-range-thumb {
@@ -70,40 +96,41 @@
   background: var(--teal-2);
   border: 2px solid #0f0d1a;
   cursor: pointer;
+  transition: transform 0.15s ease;
 }
 
-/* A 16px thumb is a mouse-sized target, and a price range is one of the most-dragged controls in
-   the funnel. Coarse only: 20px knob (smaller stops reading as grabbable), 28px strip unchanged. */
+.rng input[type=range]::-moz-range-thumb:active {
+  transform: scale(1.08);
+}
+
 @media (pointer: coarse) {
   .rng-wrap {
-    padding: 0 15px;
+    padding: 0 22px;
   }
 
   .rng {
-    height: 32px;
+    height: 44px;
   }
 
   .rng-track {
-    top: 14px;
+    top: 20px;
   }
 
   .rng input[type=range] {
-    top: 2px;
-    height: 28px;
+    top: 0;
+    height: 44px;
   }
 
   .rng input[type=range]::-webkit-slider-thumb {
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
   }
 
   .rng input[type=range]::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
   }
 
-  /* The two value labels are buttons: tapping one swaps in a text input, the only way to type an
-     exact budget on a phone. Extend the target, not the box, so they stay quiet numbers. */
   .rng-val {
     position: relative;
   }
@@ -173,8 +200,15 @@
   transform: translateY(-55%) rotate(45deg) scale(1);
 }
 
-.filter-group .grid .custom-cb+label {
-  white-space: nowrap;
+/* A two-up cell is ~114px on the desktop sidebar, so long labels wrap; the box tracks the first line. */
+.filter-group .grid :is(.custom-cb, .custom-radio)+label {
+  display: inline-block;
+  line-height: 18px;
+}
+
+.filter-group .grid :is(.custom-cb, .custom-radio)+label::before,
+.filter-group .grid :is(.custom-cb, .custom-radio)+label::after {
+  top: 9px;
 }
 
 .custom-radio {
@@ -339,4 +373,22 @@
 .page-btn.active {
   background: var(--brand-gradient);
   color: #fff;
+}
+
+.badge-verified-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+}
+
+.badge-verified-icon svg {
+  width: 16px;
+  height: 16px;
 }

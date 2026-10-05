@@ -1,39 +1,70 @@
 import { useTranslation } from 'react-i18next';
 import DualRange from '../../../../components/ui/DualRange.jsx';
-import MultiSelect from '../../../../components/ui/MultiSelect.jsx';
-import { FilterGroup, Divider, Rb } from '../FilterControls.jsx';
+import { FilterGroup, Divider, Rb, CbGrid } from '../FilterControls.jsx';
+import { toggleSet } from '../matchers.js';
 import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { RANGE } from '../../../../lib/listings/filterState.js';
 import { fmtRent } from '../format.js';
-import { tLabel, optsOf } from './helpers.js';
+import { tLabel } from './helpers.js';
 import { AVAIL_FROM, TENANTS } from '../constants.js';
+import { FOOD } from './facetOptions.js';
 
 const [DEP_MIN, DEP_MAX] = RANGE.deposit;
 
-export default function RentExtraSections({ f, set, idp }) {
+const ChipButton = ({ active, children, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    className={`min-h-11 rounded-xl border px-3 text-sm font-semibold text-left t-all ${active ? 'border-teal-300 bg-teal-400/15 text-teal-100' : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'}`}
+  >
+    {children}
+  </button>
+);
+
+export function TenantsSection({ f, set, idp }) {
+  const { t } = useTranslation();
+  if (!sectionVisible('tenants', f.types)) return null;
+  return (
+    <>
+      <FilterGroup icon="users" title={t('listings.preferredTenants')} summary={tLabel(TENANTS, f.tenants)}>
+        <CbGrid idp={idp} name="tenant" options={TENANTS} selected={f.tenants} onToggle={(v) => set((p) => ({ tenants: toggleSet(p.tenants, v) }))} />
+      </FilterGroup>
+      <Divider />
+    </>
+  );
+}
+
+export function AvailFromSection({ f, set, idp }) {
+  const { t } = useTranslation();
+  if (!sectionVisible('availFrom', f.types)) return null;
+  const label = (AVAIL_FROM.find(([v]) => v === f.availFrom) || [])[1];
+  return (
+    <>
+      <FilterGroup icon="calendar-check" title={t('listings.availableFrom')} summary={label === 'Anytime' ? '' : label}>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+          {AVAIL_FROM.map(([v, optLabel]) => (
+            <Rb key={v || 'any'} id={`${idp}avf-${v || 'any'}`} name={`${idp}rentAvail`} label={optLabel} checked={f.availFrom === v} onChange={() => set({ availFrom: v })} />
+          ))}
+        </div>
+      </FilterGroup>
+      <Divider />
+    </>
+  );
+}
+
+export default function RentExtraSections({ f, set }) {
   const { t } = useTranslation();
   const isRent = f.deal === 'rent';
   const vis = (section) => sectionVisible(section, f.types);
   if (!isRent) return null;
+  const foodOptions = FOOD.map(([v, key]) => [v, t(key)]);
   return (
     <>
       <FilterGroup icon="wallet" title={t('listings.securityDeposit')} summary={f.deposit[0] === DEP_MIN && f.deposit[1] === DEP_MAX ? '' : `${fmtRent(f.deposit[0])} - ${fmtRent(f.deposit[1])}`}>
         <DualRange min={DEP_MIN} max={DEP_MAX} step={10000} value={f.deposit} onChange={(v) => set({ deposit: v })} label={t('listings.securityDeposit')} format={(v) => (v === DEP_MAX ? `${fmtRent(v)}+` : fmtRent(v))} />
       </FilterGroup>
       <Divider />
-
-      {vis('availFrom') && (
-        <>
-          <FilterGroup icon="calendar-check" title={t('listings.availableFrom')} summary={(AVAIL_FROM.find(([v]) => v === f.availFrom) || [])[1] === 'Anytime' ? '' : (AVAIL_FROM.find(([v]) => v === f.availFrom) || [])[1]}>
-            <div className="space-y-3">
-              {AVAIL_FROM.map(([v, label]) => (
-                <Rb key={v || 'any'} id={`${idp}avf-${v || 'any'}`} name={`${idp}rentAvail`} label={label} checked={f.availFrom === v} onChange={() => set({ availFrom: v })} />
-              ))}
-            </div>
-          </FilterGroup>
-          <Divider />
-        </>
-      )}
 
       {vis('age') && (
         <>
@@ -53,18 +84,14 @@ export default function RentExtraSections({ f, set, idp }) {
         </>
       )}
 
-      {vis('tenants') && (
+      {vis('food') && (
         <>
-          <FilterGroup icon="users" title={t('listings.preferredTenants')} summary={tLabel(TENANTS, f.tenants)} defaultCollapsed>
-            <MultiSelect
-              values={[...f.tenants]}
-              onChange={(arr) => set({ tenants: new Set(arr) })}
-              options={optsOf(TENANTS)}
-              placeholder={t('listings.anyTenants')}
-              ariaLabel={t('listings.preferredTenants')}
-              className="w-full"
-              autoClose
-            />
+          <FilterGroup icon="utensils" title={t('listings.foodPreference')} summary={tLabel(foodOptions, new Set(f.food ? [f.food] : []))} defaultCollapsed>
+            <div className="grid grid-cols-2 gap-2">
+              {foodOptions.map(([v, label]) => (
+                <ChipButton key={v} active={f.food === v} onClick={() => set((p) => ({ food: p.food === v ? '' : v }))}>{label}</ChipButton>
+              ))}
+            </div>
           </FilterGroup>
           <Divider />
         </>

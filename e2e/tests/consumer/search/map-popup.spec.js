@@ -1,21 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { API } from '../../../helpers/liveAuth.js';
 
-/* Listings "Map view" marker interaction. Clicking a price marker opens the slide-in Map Detail
-   Panel (`.dz-mdp`) — a compact, richer clone of the property tile — and never a map InfoWindow.
-   (The InfoWindow now only exists on the property-page mini-map, which passes no `onSelect`.)
-
-   WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor fabricated a villa in `localStorage` so it
-   could pin every number it asserted. Here the drawer renders a row the server returned, so the row
-   is seeded instead — `p5150`, the Baner villa in `R__zz_DML_dev_demo_data.sql`, whose header comment
-   explains which of its fields are load-bearing and why.
-
-   THE CLICK TARGET IS A COMPUTED LABEL, NOT A SELECTOR. `PropertyMap.mapLabel` renders a buy marker
-   as `₹(price / 1e7).toFixed(2)Cr`, so the fixture's ₹2,73,00,000 is the only pin reading `₹2.73Cr`.
-   Markers overlap, and clicking `.first()` would let an adjacent pin intercept — so the label is
-   both derived from the API price and asserted to be unique among the listings on the map, before
-   it is used to click. A second Baner listing rounding to the same two decimals would otherwise turn
-   this file into a coin flip that fails once a fortnight. */
+/* The map marker is clicked by its computed price label because markers overlap; uniqueness is
+   asserted first so the live seeded row cannot be confused with neighbouring pins. */
 
 const SLUG = 'p5150';
 
@@ -64,29 +51,17 @@ async function openDrawer(page, label) {
   return drawer;
 }
 
-test('clicking a map marker opens the detail drawer, not a map InfoWindow', async ({ page }) => {
+test('clicking a map marker opens the detail drawer of the property that was pinned, not a map InfoWindow', async ({ page }) => {
   const { villa, label } = await banerStock();
   const drawer = await openDrawer(page, label);
 
-  // The listings map opens the drawer. The InfoWindow is the thing that must not appear, and the
-  // drawer above is the positive anchor that makes this absence mean "instead of" rather than
-  // "nothing rendered at all".
+  // The drawer above anchors this absence so it means "drawer instead of InfoWindow".
   await expect(page.locator('.dz-gm-iw-prop')).toHaveCount(0);
 
-  // Same building blocks as the standard tile, richer. The deal word is derived rather than
-  // written as `/For Rent|For Sale/` — an alternation over the only two possible values asserts
-  // the element is non-empty and nothing else, and would stay green on a drawer that called this
-  // sale listing a rental.
+  // Derive the deal word from the fixture; `/For Rent|For Sale/` would only prove non-empty text.
   await expect(drawer.locator('.dz-mdp-deal')).toHaveText(villa.deal === 'buy' ? /For Sale/i : /For Rent/i);
   await expect(drawer.locator('.dz-mdp-price')).toContainText('₹');
   await expect(drawer.locator('.dz-mdp-loc')).toContainText('Pune');
-  // "Open full page" links to a real property page.
-  await expect(drawer.locator('.dz-mdp-full')).toHaveAttribute('href', /^\/property\//i);
-});
-
-test('the drawer reflects the property that was pinned, not the first one on the map', async ({ page }) => {
-  const { villa, label } = await banerStock();
-  const drawer = await openDrawer(page, label);
 
   // Identity first. Everything below is only evidence of "the right listing" if this holds.
   await expect(drawer.locator('.dz-mdp-full')).toHaveAttribute('href', `/property/${villa.slug}`);
@@ -102,17 +77,8 @@ test('the drawer reflects the property that was pinned, not the first one on the
 });
 
 test('the bathroom tile is missing because the search contract omits it, not because the drawer drops it', async () => {
-  /* The mock ancestor asserted a "3 Bath" tile, because its fabricated row carried `bath: 3`. Live it
-     cannot appear: the drawer is fed by the SEARCH response, and `PropertySummary` has no bathroom
-     count, so `factsOf()` reads `Number(undefined) || 0` and skips the tile. `properties.bathrooms`
-     IS set on the fixture (V114, and the seed sets it to 3), so the gap is a contract gap between
-     the detail shape and the summary shape.
-
-     Asserted here rather than as a bare `toHaveCount(0)` in the drawer, for two reasons. A count of
-     zero in the panel is satisfied by a panel that never opened. And an absence blessed in the UI
-     reads as "the drawer is right to hide it", which is the opposite of true — so this names the
-     cause and goes red the day the summary grows the field, which is the day the tile should come
-     back and the test above should assert it. */
+  /* The search summary omits bathrooms while the detail shape has them; this names the contract gap
+     so the tile comes back when summaries grow the field. */
   const summary = (await get(`deal=buy&localities=baner&size=100`)).content.find((p) => p.slug === SLUG);
   expect(summary, `the map fixture ${SLUG} is missing from the seed`).toBeTruthy();
   expect(Object.keys(summary)).not.toContain('bathrooms');

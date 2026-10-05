@@ -1,74 +1,68 @@
 import { memo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
+import { CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
-import { fmtINR, timeAgo } from '../../../lib/format.js';
+import { fmtArea, fmtINR } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { useCompare } from '../../../context/CompareContext.jsx';
 import { useSaved } from '../../../context/SavedContext.jsx';
-import { useToast } from '../../../context/ToastContext.jsx';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { haptic } from '../../../lib/haptics.js';
+import { onActivateKey } from '../../../lib/onActivateKey.js';
 import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
-import { isFeaturedActive } from '../../../lib/featured.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
+
+const isLandListing = (p) => {
+  const type = (p.type || '').toLowerCase();
+  return ['plot', 'open plot', 'farm land', 'farmland'].includes(type) || !!p.landUse;
+};
+
+const landTitle = (p, t) => {
+  const type = (p.type || '').trim();
+  const lower = type.toLowerCase();
+  if (lower.includes('farm') || p.landUse === 'agricultural') return t('listings.titleFarmland');
+  if (lower.includes('na') || p.naStatus === 'sanctioned') return t('listings.titleNaPlot');
+  if (p.landUse === 'commercial') return t('listings.titleCommercialPlot');
+  if (p.landUse === 'residential') return t('listings.titleResidentialPlot');
+  if (type && !['plot', 'open plot'].includes(lower)) return type;
+  return t('listings.titlePlot');
+};
 
 const Card = memo(function Card({ p, locName, index = 0, list = false, linkState, onOpen }) {
   const { t } = useTranslation();
   const { isIn } = useAuth();
-  const { flagEnabled } = useAppFlags();
-  const compare = useCompare();
   const savedList = useSaved();
-  const { toast } = useToast();
   const sendToSignIn = useSignInGate();
   // Read from the shared set rather than per-card state: thirty cards asking the network the same
   // question thirty times is what this context exists to prevent.
   const saved = savedList.has(p.id);
-  const showCompare = flagEnabled('compareProperties');
-  const inCompare = compare ? compare.has(p.id) : false;
   const handleHeart = (e) => {
     e.preventDefault();
     if (!isIn) { sendToSignIn('save'); return; }
     savedList.toggle(p.id, p.uuid);
-    /* Saving changes nothing but a small heart's colour, easy to miss with a thumb over it. Fired on the
-       tap, not the response: haptics a round trip late read as lag. */
     haptic('tick');
   };
-  const handleCompare = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!compare) return;
-    if (inCompare || compare.count < 4) {
-      compare.toggle(p.id);
-      toast(inCompare ? t('listings.removedFromCompare') : t('listings.addedToCompare'), 'toggle');
-    } else {
-      toast(t('listings.compareLimit'), 'warning');
-    }
-  };
-  // Make the span[role=button] controls keyboard-operable (Enter/Space). They can't
-  // be real <button>s here because the whole card is an <a> (nested-interactive).
-  const onKeyActivate = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } };
+  const onHeartKey = onActivateKey(handleHeart);
   const isRent = p.deal === 'rent';
   const verified = p.ownerVerified || p.ownershipVerified;
-  const verifiedLabel = [p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ');
+  const posterVerifiedLabel = p.ownerVerified
+    ? t('property.verifiedOwner')
+    : '';
+  const verifiedLabel = [posterVerifiedLabel, p.ownershipVerified ? t('property.ownershipVerified') : ''].filter(Boolean).join(' · ');
   const isShare = p.shareType === 'flatmates';
-  const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
+  const isPlot = isLandListing(p);
   const baths = Number(p.bath) || 0;
-  const psf = p.area ? Math.round((p.price || 0) / p.area) : 0;
-  const deposit = Number(p.deposit) || (isRent ? (p.price || 0) * 2 : 0);
-  // `dealStatus` mirrors the deal on the listing (reserved = under offer, still open to backup
-  // offers). The legacy `'under-offer'` string stays as a fallback for rows still carrying it.
+  const area = Number(p.area) > 0 ? Number(p.area) : 0;
+  const areaLabel = area ? fmtArea(area, p.areaUnit) : '';
+  const psf = !isRent && area ? Math.round((p.price || 0) / area) : 0;
+  const deposit = Number(p.deposit) > 0 ? Number(p.deposit) : 0;
+  const maintenance = Number(p.maintenance) > 0 ? Number(p.maintenance) : 0;
   const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
   const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
-  const postedByDraazy = !!p.postedByAdmin;
-  const posterLabel = postedByDraazy ? 'Draazy' : t('listings.owner');
-  const posterIcon = postedByDraazy ? 'shield-check' : 'user';
   const bhkLabel = p.bhkNum == null ? '' : p.bhkNum === 0 ? '1 RK' : `${p.bhkNum} BHK`;
-  let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : bhkLabel ? `${bhkLabel} ${p.type}` : p.type;
+  let title = isPlot ? landTitle(p, t) : bhkLabel ? `${bhkLabel} ${p.type}` : p.type;
   if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
   const chips = [];
   if (isRent) {
@@ -81,7 +75,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     if (p.construction === 'ready') chips.push(['building-2', t('listings.readyToMove')]);
     else if (p.construction === 'under') chips.push(['building-2', t('listings.underConstruction')]);
     else if (p.construction === 'new') chips.push(['sparkles', t('listings.newLaunch')]);
-    if (p.rera) chips.push(['badge-check', 'RERA']);
+    if (p.reraId) chips.push(['badge-check', t('listings.reraBadge')]);
   }
   if (isUnderOffer) chips.push(['handshake', t('listings.underOffer')]);
   if (isDealClosed) chips.push(['lock', isRent ? t('listings.rentedOut') : t('listings.soldOut')]);
@@ -92,49 +86,42 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     const status = isRent
       ? ({ now: t('listings.listStatusAvailableNow'), '15': t('listings.listStatusAvailable15'), '30': t('listings.listStatusAvailable30') }[p.availableFrom] || t('listings.listStatusAvailable'))
       : ({ ready: t('listings.readyToMove'), under: t('listings.underConstruction'), new: t('listings.newLaunch') }[p.construction] || '');
-    const sub = isRent ? furn : t('listings.psfEmi', { psf: Math.round((p.price || 0) / (p.area || 1)).toLocaleString('en-IN'), emi: emiOf(p.price) });
+    const sub = isRent
+      ? (maintenance ? t('listings.maintenanceExtra', { amount: maintenance.toLocaleString('en-IN') }) : '')
+      : (psf ? t('listings.psfEmi', { psf: psf.toLocaleString('en-IN'), emi: emiOf(p.price) }) : t('listings.emiFrom', { emi: emiOf(p.price) }));
     const amenChips = (p.amenities || []).slice(0, 4);
     return (
       <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
         <div className="lr">
           <div className="lr-img">
-            <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
+            <PropertyImage src={p.image} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
             {verified ? (
               <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
                 <Icon name="shield-check" />
               </span>
             ) : null}
             <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
-              {isFeaturedActive(p) && (
+              {p.featured && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
               )}
-              {p.boosted ? (
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
-              ) : null}
             </div>
-            <div className="absolute top-3 right-3 flex flex-col gap-2">
-              <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-                <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
-              </span>
-              {showCompare ? (
-                <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
-                  <Icon name="git-compare" className="w-4 h-4" />
-                </span>
-              ) : null}
-            </div>
+            <span className={'heart-btn absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+              <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
+            </span>
           </div>
           <div className="lr-body">
             <div className="lr-info">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-bold text-white">{title}</h3>
-                {p.ownerVerified ? <span className="badge-verified px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1"><Icon name="user-check" className="w-2.5 h-2.5" /> {t('listings.verifOwner')}</span> : null}
-                {p.ownershipVerified ? <span className="badge-rera px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1"><Icon name="file-check" className="w-2.5 h-2.5" /> {t('listings.verifOwnership')}</span> : null}
+                {p.ownerVerified ? <span className="badge-verified px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1"><Icon name="user-check" className="w-2.5 h-2.5" /> {posterVerifiedLabel}</span> : null}
+                {p.ownershipVerified ? <span className="badge-rera px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1"><Icon name="file-check" className="w-2.5 h-2.5" /> {t('property.ownershipVerified')}</span> : null}
+                {p.reraId ? <span className="badge-rera px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1"><Icon name="badge-check" className="w-2.5 h-2.5" /> {t('listings.reraBadge')}</span> : null}
               </div>
               <p className="flex items-center gap-1 text-sm text-gray-400 mt-1"><Icon name="map-pin" className="w-3.5 h-3.5 text-teal-400" /> {loc}, {cityLabelFor(p)}</p>
               <div className="flex items-center gap-4 mt-3 text-sm text-gray-300 flex-wrap">
                 {bhkLabel ? <span className="flex items-center gap-1.5"><Icon name="bed-double" className="w-4 h-4 text-gray-500" /> {bhkLabel}</span> : null}
                 {baths ? <span className="flex items-center gap-1.5"><Icon name="bath" className="w-4 h-4 text-gray-500" /> {baths} {t('listings.baths')}</span> : null}
-                <span className="flex items-center gap-1.5"><Icon name="maximize-2" className="w-4 h-4 text-gray-500" /> {(p.area || 0).toLocaleString('en-IN')} {t('listings.sqftDot')}</span>
+                {areaLabel ? <span className="flex items-center gap-1.5"><Icon name="maximize-2" className="w-4 h-4 text-gray-500" /> {areaLabel}</span> : null}
                 {furn ? <span className="flex items-center gap-1.5"><Icon name="sofa" className="w-4 h-4 text-gray-500" /> {furn}</span> : null}
               </div>
               {amenChips.length ? (
@@ -144,16 +131,13 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                   ))}
                 </div>
               ) : null}
-              <p className="flex items-center gap-1 text-[11px] mt-3 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-                {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
-              </p>
             </div>
             <div className="lr-aside">
               <span className="lr-status">{status}</span>
               <h3 className="text-xl font-extrabold text-white mt-1">
                 {isRent ? <>₹{(p.price || 0).toLocaleString('en-IN')}<span className="text-sm font-medium text-gray-400">{t('listings.perMonth')}</span></> : fmtINR(p.price)}
               </h3>
-              <span className="text-[11px] text-gray-500 mt-0.5">{sub}</span>
+              {sub ? <span className="text-[11px] text-gray-500 mt-0.5">{sub}</span> : null}
               <span className="lr-cta mt-3">{t('listings.viewDetails')} <Icon name="arrow-right" className="w-4 h-4" /></span>
             </div>
           </div>
@@ -165,37 +149,27 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   return (
     <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
       <div className="relative overflow-hidden card-img-wrap h-48">
-        <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
+        <PropertyImage src={p.image} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
           <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
             <Icon name="shield-check" />
           </span>
         ) : null}
-        <div className="absolute top-3 right-3 flex flex-col gap-2">
-          <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-            <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
-          </span>
-          {showCompare ? (
-            <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
-              <Icon name="git-compare" className="w-4 h-4" />
-            </span>
-          ) : null}
-        </div>
+        <span className={'heart-btn absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+          <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
+        </span>
         <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
-          {isFeaturedActive(p) && (
+          {p.featured && (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
           )}
-          {/* Paid placement, disclosed (D59). Deliberately a separate badge from Featured and not
-              merged with it: Featured is an editorial pick, this one was bought, and collapsing the
-              two would turn a paid ad into what looks like a staff recommendation. */}
-          {p.boosted ? (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
-          ) : null}
           {isRent ? (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-teal-600/50 text-teal-50">{t('listings.badgeRent')}</span>
           ) : (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600/50 text-emerald-50">{t('listings.badgeSale')}</span>
           )}
+          {p.reraId ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600/60 text-emerald-50">{t('listings.reraBadge')}</span>
+          ) : null}
         </div>
       </div>
       <div className="p-4">
@@ -220,15 +194,15 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           {isShare ? (
             <>
               <span className="flex items-center gap-1"><Icon name="users" className="w-3.5 h-3.5" /> {t('listings.sharing')}</span>
-              {p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null}
+              {areaLabel ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {areaLabel}</span> : null}
             </>
           ) : isPlot ? (
-            p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null
+            areaLabel ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {areaLabel}</span> : null
           ) : (
             <>
               {bhkLabel ? <span className="flex items-center gap-1"><Icon name="bed-double" className="w-3.5 h-3.5" /> {bhkLabel}</span> : null}
               {baths ? <span className="flex items-center gap-1"><Icon name="bath" className="w-3.5 h-3.5" /> {baths} {t('listings.bath')}</span> : null}
-              {p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null}
+              {areaLabel ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {areaLabel}</span> : null}
               {isRent && p.furnishing ? <span className="flex items-center gap-1"><Icon name="sofa" className="w-3.5 h-3.5" /> {FURN_LBL[p.furnishing] || p.furnishing}</span> : null}
             </>
           )}
@@ -240,9 +214,6 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
             ))}
           </div>
         ) : null}
-        <p className="flex items-center gap-1 text-[11px] mt-3 pt-3 border-t border-white/5 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-          {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
-        </p>
       </div>
     </Link>
   );

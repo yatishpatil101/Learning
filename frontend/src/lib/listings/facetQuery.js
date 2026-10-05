@@ -2,13 +2,10 @@
    100-row page in the browser and reporting that as a fact about the catalogue. */
 import { sectionVisible } from './filterRelevance.js';
 import { RANGE } from './filterState.js';
+import { areaBounds, areaProfileForTypes } from './areaUnits.js';
 
-/* UI possession shorthand → the vocabulary the `construction` facet matches. Duplicated rather than imported
-   from the http mapper: this module is provider-agnostic.
-
-   Prototype-less, as are the two tables below, because each is indexed with a key read straight out of the
-   URL: on a plain object `?constr=toString` would resolve to `Object.prototype`'s member and survive the
-   `filter(Boolean)` meant to drop unknown keys. */
+/** UI possession shorthand → the vocabulary the `construction` facet matches. Duplicated rather than imported from
+ * the http mapper: this module is provider-agnostic. */
 const CONSTRUCTION_TO_WIRE = Object.assign(Object.create(null), {
   ready: 'ready-to-move',
   new: 'new-launch',
@@ -23,14 +20,9 @@ const FURNISHING_TO_WIRE = Object.assign(Object.create(null), {
   furnished: 'furnished',
 });
 
-/* "Availability" is a coarser cut of the same column as "Construction Status": `uc` is the other two
-   statuses together. Expressed as a set so the two controls can be intersected below. */
-const AVAIL_TO_CONSTRUCTION = Object.assign(Object.create(null), {
-  ready: ['ready'],
-  uc: ['new', 'under'],
-});
-
 const list = (set) => (set && set.size ? [...set] : undefined);
+const csv = (set) => (set && set.size ? [...set].join(',') : undefined);
+const MIN_BATH_KEYS = new Set(['1', '2', '3', '4']);
 
 /* The ceiling reads as "and above" and a range still at its defaults reads as unfiltered, returning
    `[undefined, undefined]` — which the query serialiser drops. */
@@ -53,7 +45,7 @@ export function toFacetQuery(df, opts = {}) {
   const [minPrice, maxPrice] = isBuy
     ? bounds(df.budget, RANGE.budget)
     : bounds(df.rent, RANGE.rent);
-  const [minArea, maxArea] = bounds(df.area, RANGE.area);
+  const [minArea, maxArea] = rel('area') ? areaBounds(df.area, areaProfileForTypes(df.types, df.areaUnit)) : [undefined, undefined];
   // The deposit is a rent-side control; a sale has no deposit column to narrow on.
   const [minDeposit, maxDeposit] = isBuy
     ? [undefined, undefined]
@@ -71,7 +63,7 @@ export function toFacetQuery(df, opts = {}) {
   return {
     deal: df.deal,
     q: q || undefined,
-    rank: sort === 'newest' ? 'newest' : 'relevance',
+    rank: sort === 'newest' ? 'newest' : sort === 'price-psf' ? 'pricePerSqft' : sort === 'verified' ? 'verified' : 'relevance',
     // Only an explicit price order goes through `sort`; `relevance` and `newest` are rankings, not
     // column orders, and an explicit `sort` disables ranking server-side (`PropertySort`).
     sort: sort === 'price-low' ? 'price,asc' : sort === 'price-high' ? 'price,desc' : undefined,
@@ -79,12 +71,17 @@ export function toFacetQuery(df, opts = {}) {
     types: types && types.length ? types : undefined,
     // Only meaningful once the Commercial chip is on — that is what reveals the sub-filter.
     commercialUses: df.types?.has('commercial') ? list(df.commercialTypes) : undefined,
-    bhks: rel('bhk') ? list(df.bhk)?.map((bhk) => isBuy && bhk === '4' ? '4plus' : bhk) : undefined,
+    bhks: rel('bhk') ? list(df.bhk) : undefined,
     furnishings: rel('furnishing') ? list(df.furnishing)?.map((f) => FURNISHING_TO_WIRE[f]).filter(Boolean) : undefined,
+    facing: rel('facing') ? csv(df.facing) : undefined,
+    minBaths: rel('baths') && MIN_BATH_KEYS.has(String(df.minBaths)) ? Number(df.minBaths) : undefined,
     localities: dropLocalities ? undefined : list(df.localities),
     societies: list(df.societies),
     amenities: rel('amenities') ? list(df.amenities) : undefined,
     landUse: rel('landUse') ? list(df.landUse) : undefined,
+    shell: rel('shell') ? csv(df.shell) : undefined,
+    preLeased: isBuy && rel('preLeased') && df.preLeased ? true : undefined,
+    na: rel('na') ? csv(df.na) : undefined,
     room: !isBuy && rel('room') ? list(df.room) : undefined,
     tenants: !isBuy && rel('tenants') ? list(df.tenants) : undefined,
     construction: isBuy ? constructionFacet(df, rel) : undefined,
@@ -92,15 +89,13 @@ export function toFacetQuery(df, opts = {}) {
     // Only ever sent as `true`: "pets not allowed" is not a thing anyone searches for, and sending
     // `false` would narrow to listings that explicitly forbid them.
     pets: !isBuy && df.pets && rel('amenities') ? true : undefined,
+    food: !isBuy && df.food && rel('food') ? df.food : undefined,
 
     ownerVerified: verified.owner || undefined,
     ownershipVerified: verified.ownership || undefined,
     rera: verified.rera && rel('verifRera') ? true : undefined,
     societyVerified: verified.society && rel('verifSociety') ? true : undefined,
     conveyanceDone: verified.conveyance && rel('verifSociety') ? true : undefined,
-    // Never sent as `false`: that would narrow to listings a broker posted, which is the one
-    // search nobody comes here to run.
-    postedByOwner: df.ownerOnly || undefined,
 
     minPrice,
     maxPrice,
@@ -116,22 +111,13 @@ export function toFacetQuery(df, opts = {}) {
   };
 }
 
-/* The wire spelling of "this facet was used and nothing can satisfy it". A reserved token rather than `[]`,
-   because `buildQuery` omits an empty array and Spring binds an absent list param to an empty list too — so
-   present-but-empty would answer an impossible filter with the entire catalogue. Frozen: handed out by
-   reference, unlike every other array here. */
+/* Reserved no-match token: empty arrays are omitted and bind like absent lists in Spring. */
 const UNMATCHABLE = Object.freeze(['no.such.possession']);
 
-/* Both controls narrow the same column, so both set means their intersection — which can be empty when
-   they contradict, and that is a genuinely empty result, not an absent filter. */
 function constructionFacet(df, rel) {
-  const fromAvail = df.avail && rel('availability') ? AVAIL_TO_CONSTRUCTION[df.avail] : null;
   const fromChecks = df.constr?.size && rel('construction') ? [...df.constr] : null;
-  if (!fromAvail && !fromChecks) return undefined;
-  const chosen = fromAvail && fromChecks
-    ? fromAvail.filter((k) => fromChecks.includes(k))
-    : fromAvail || fromChecks;
-  const wire = chosen.map((k) => CONSTRUCTION_TO_WIRE[k]).filter(Boolean);
+  if (!fromChecks) return undefined;
+  const wire = fromChecks.map((k) => CONSTRUCTION_TO_WIRE[k]).filter(Boolean);
   return wire.length ? wire : UNMATCHABLE;
 }
 

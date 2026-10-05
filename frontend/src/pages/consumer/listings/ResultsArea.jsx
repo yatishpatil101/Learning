@@ -5,27 +5,31 @@ import Icon from '../../../components/Icon.jsx';
 import LoadError from '../../../components/LoadError.jsx';
 import Card from './Card.jsx';
 import NotifyMeCard from './NotifyMeCard.jsx';
+import MyListingsStrip from './MyListingsStrip.jsx';
 import MapGate from './MapGate.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import Pager from '../../../components/ui/Pager.jsx';
+import useBackToClose from '../../../hooks/useBackToClose.js';
 import { flatmatesUrl } from './matchers.js';
-import { RANGE } from '../../../lib/listings/filterState.js';
+import { RANGE, rangeChanged } from '../../../lib/listings/filterState.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
 const MapDetailPanel = lazy(() => import('../../../components/property/MapDetailPanel.jsx'));
 
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, unstatedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, savingSearch = false, results, total, verifiedCount = 0, unstatedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, filterTriggerRef, mapGated, mapAreaCount: _mapAreaCount, mapMaxAreas, mapMarkerCap: _mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable, suggestedMapLocalities = [] }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
+  const resultsMapStyle = { height: 'clamp(320px, calc(100dvh - var(--dz-nav-h) - 11rem), 72dvh)', minHeight: 320 };
+  useBackToClose(view === 'map' && !!activeProperty, onCloseProperty, { key: '__dzMapDetail' });
   // Offer to relax whichever narrowing filters are actually active, so a dead-end search has a
   // one-tap path back to results rather than only "clear everything".
   const isRent = f.deal === 'rent';
   const broadeners = [];
   if (f.localities.size) broadeners.push({ id: 'loc', label: t('listings.broadenAllLocalities'), apply: () => set({ localities: new Set() }) });
-  if (isRent && (f.rent[0] !== RANGE.rent[0] || f.rent[1] !== RANGE.rent[1])) broadeners.push({ id: 'rent', label: t('listings.broadenRent'), apply: () => set({ rent: [...RANGE.rent] }) });
-  if (!isRent && (f.budget[0] !== RANGE.budget[0] || f.budget[1] !== RANGE.budget[1])) broadeners.push({ id: 'budget', label: t('listings.broadenBudget'), apply: () => set({ budget: [...RANGE.budget] }) });
+  if (isRent && rangeChanged(f.rent, RANGE.rent)) broadeners.push({ id: 'rent', label: t('listings.broadenRent'), apply: () => set({ rent: [...RANGE.rent] }) });
+  if (!isRent && rangeChanged(f.budget, RANGE.budget)) broadeners.push({ id: 'budget', label: t('listings.broadenBudget'), apply: () => set({ budget: [...RANGE.budget] }) });
   if (f.bhk.size) broadeners.push({ id: 'bhk', label: t('listings.broadenAnyBhk'), apply: () => set({ bhk: new Set() }) });
   if (f.types.size) broadeners.push({ id: 'type', label: t('listings.broadenAnyType'), apply: () => set({ types: new Set(), commercialTypes: new Set() }) });
 
@@ -47,14 +51,15 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
         { value: 'price-low', label: t('listings.sortPriceLow') },
         { value: 'price-high', label: t('listings.sortPriceHigh') },
         { value: 'newest', label: t('listings.sortNewest') },
+        { value: 'price-psf', label: t('listings.sortPricePerSqft') },
+        { value: 'verified', label: t('listings.sortVerified') },
       ]}
       className="dz-dd-sort"
       ariaLabel={t('listings.sortAria')}
     />
   );
 
-  /* A refinement keeps the previous page on screen, so the count beside it is momentarily the
-     previous query's answer. `aria-busy` tells a screen reader the number is being updated. */
+  /* `aria-busy` tells a screen reader the number is being updated. */
   const countLine = loaded ? (
     <p className="text-gray-400 text-sm" aria-busy={searching ? 'true' : undefined}>{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
@@ -62,7 +67,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
     </p>
   ) : loadFailed ? (
     /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read a false
-       one — say nothing about the count; the card below says what happened. */
+     * one — say nothing about the count; the card below says what happened. */
     <p className="text-gray-400 text-sm">{t('listings.countUnavailable')}</p>
   ) : (
     <p className="text-gray-400 text-sm inline-flex items-center gap-2" aria-live="polite">
@@ -73,36 +78,32 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   return (
             <div className="flex-1 min-w-0">
               <div className="mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '120ms' }}>
-                <div className="flex gap-2">
+                <div className="flex gap-2" role="search">
                   <div className="flex-1 relative">
                     <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} enterKeyHint="search" placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="lst-search-field w-full pl-9 pr-[88px] sm:pr-3 h-11 sm:h-10 rounded-full glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
-                    {/* Two controls in one pill row, so the submit circle needs the flex track.
-                        `live-search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
+                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) smartSearch(); }} enterKeyHint="search" aria-label={t('listings.smartSearch')} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="lst-search-field w-full pl-9 pr-[88px] sm:pr-3 h-11 sm:h-10 rounded-full glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
+
+                    {/* `live-search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
                     <div className="sm:hidden absolute inset-y-0 right-1 flex items-center gap-1">
-                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="lst-search-bell w-11 self-stretch flex items-center justify-center text-gray-400 hover:text-teal-300 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
+                      <button type="button" onClick={saveSearch} disabled={savingSearch} aria-busy={savingSearch || undefined} aria-label={t('listings.saveSearch')} className="lst-search-bell w-11 self-stretch flex items-center justify-center text-gray-400 hover:text-teal-300 disabled:opacity-50 disabled:pointer-events-none t-all"><Icon name={savingSearch ? 'loader' : 'bell-plus'} className={'w-4 h-4' + (savingSearch ? ' animate-spin' : '')} /></button>
                       <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="lst-search-go tap-extend relative w-9 h-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="hidden sm:flex gap-2">
                     <Button onClick={smartSearch} variant="primary" icon="search">{t('listings.smartSearch')}</Button>
-                    <Button onClick={saveSearch} variant="secondary" icon="bell-plus" aria-label={t('listings.saveSearch')}><span className="hidden sm:inline">{t('listings.saveSearch')}</span></Button>
+                    <Button onClick={saveSearch} variant="secondary" icon="bell-plus" loading={savingSearch} aria-label={t('listings.saveSearch')}><span className="hidden sm:inline">{t('listings.saveSearch')}</span></Button>
                   </div>
                 </div>
               </div>
 
-              {/* A direct child of the tall results column so it stays stuck under the header
-                  across the whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              {/* `.dz-docks-under-nav` owns the offset below lg (it tracks the hide-on-scroll top
-              bar) and this element is `sm:hidden`, so the override always wins here and a
-              `top-*` utility alongside it would be dead weight that reads as the real value. */}
+
+              {/* `.dz-docks-under-nav` owns the offset below lg (it tracks the hide-on-scroll top bar); no `top-*` here. */}
               <div className="dz-docks-under-nav sm:hidden sticky z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}
               </div>
 
-              {/* Tablet & desktop: single row — count left, controls right (unchanged). */}
               <div className="hidden sm:flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-6 list-reveal" style={{ animationDelay: '180ms' }}>
                 {countLine}
                 <div className="flex items-center justify-end gap-3">
@@ -126,7 +127,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                       <Icon name="x" className="w-3 h-3" />
                     </button>
                   ))}
-                  <button type="button" onClick={clearAll} className="text-xs font-medium text-gray-400 hover:text-white underline underline-offset-2 ml-1">{t('listings.clearAllLower')}</button>
+                  <button type="button" onClick={clearAll} className="af-clear-all text-xs font-medium text-gray-400 hover:text-white underline underline-offset-2 ml-1">{t('listings.clearAllLower')}</button>
                 </div>
               ) : null}
 
@@ -158,9 +159,11 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 </div>
               ) : null}
 
+              {view !== 'map' && isIn && <MyListingsStrip deal={f.deal} />}
+
               {view === 'map' && flagEnabled('mapSearch') ? (
                 mapGated ? (
-                  <MapGate localities={localities} f={f} set={set} locNameBySlug={locNameBySlug} maxAreas={mapMaxAreas} setView={setView} />
+                  <MapGate localities={localities} f={f} set={set} locNameBySlug={locNameBySlug} maxAreas={mapMaxAreas} setView={setView} suggestedLocalities={suggestedMapLocalities} />
                 ) : (
                   <>
                     {mapCapped && (
@@ -172,11 +175,12 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                         </p>
                       </div>
                     )}
-                    {/* `data-no-ptr` opts the map out of pull-to-refresh: it is not an overflow
-                        scroller, so a downward pan would otherwise arm the pull and refetch. */}
+
+                    {/* `data-no-ptr` opts the map out of pull-to-refresh: it is not an overflow scroller, so a
+                       downward pan would otherwise arm the pull and refetch. */}
                     <div data-no-ptr>
                       <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
-                        <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
+                        <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} wrapStyle={resultsMapStyle} gestureHandling="greedy" />
                       </Suspense>
                     </div>
                     {activeProperty ? (
@@ -201,7 +205,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 )
               ) : loadFailed ? (
                 /* A search that could not run must not look like one that found nothing: the
-                   empty state below would send the user to widen a budget never applied. */
+                 * empty state below would send the user to widen a budget never applied. */
                 <LoadError message={t('listings.loadError')} error={loadError} onRetry={onRetryLoad} className="glass rounded-2xl px-5 py-8 sm:p-12" />
               ) : !loaded ? (
                 <div className={view === 'list' ? 'flex flex-col gap-4' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'}>
@@ -249,10 +253,10 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
 
               {view !== 'map' && <Pager page={page} pageCount={pageCount} onGoTo={goToPage} />}
 
-              {/* Puts filtering in the thumb arc without moving the top controls bar. Anchored
-                  bottom-LEFT: the Draaz FAB owns bottom-right and intercepts taps there. */}
+              {/* Puts filtering in the thumb arc without moving the top controls bar. */}
               <button
                 type="button"
+                ref={filterTriggerRef}
                 onClick={onOpenFilters}
                 aria-label={activeChips.length ? t('listings.filtersActiveAria', { count: activeChips.length }) : t('listings.filters')}
                 className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : ' pr-4')}

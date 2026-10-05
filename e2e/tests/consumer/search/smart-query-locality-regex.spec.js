@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Smart search matches a typed query against every locality's slug and name, word by word, with a
    `RegExp` built by string concatenation. The locality registry is server data — Pune has
@@ -30,8 +31,7 @@ test('a locality name with regex punctuation is matched as text, not compiled as
     body: JSON.stringify(REGISTRY),
   }));
 
-  const thrown = [];
-  page.on('pageerror', (e) => thrown.push(String(e)));
+  const thrown = trackErrors(page);
 
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/listings?deal=buy`);

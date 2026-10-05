@@ -1,12 +1,8 @@
 import { test, expect } from '../../../fixtures/live.js';
-
 // The `compareProperties` flag is server state (`GET /flags`), so the `flags` fixture writes it via
 // `PUT /admin/settings`; `draazyCompare` stays in localStorage because CompareContext really uses it.
-
-// Two real, approved listings — both live rows in Postgres, not db.json fixtures.
 const A = 'p5013'; // 1 BHK Flat, Baner (buy)
 const B = 'p5121'; // 2 BHK Flat, Wakad (rent)
-
 // The global cookie-consent banner is also role="dialog"; seed consent so it never
 // overlays the comparison surface.
 async function seedConsent(page) {
@@ -18,15 +14,12 @@ async function seedConsent(page) {
   });
 }
 
-// Seed the CompareContext store before boot — the same state CompareToggleBar writes on "Compare".
 async function seedCompare(page, ids) {
   await page.addInitScript((list) => {
     localStorage.setItem('draazyCompare', JSON.stringify(list));
   }, ids);
 }
 
-// `useScrollLock` writes the root rather than `body`: the root carries `overflow-x: clip`, which
-// stops `body`'s overflow propagating to the viewport.
 const rootOverflow = (page) => page.evaluate(() => getComputedStyle(document.documentElement).overflowY);
 
 test.describe('Compare properties — /compare', () => {
@@ -37,11 +30,10 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.getByRole('heading', { name: 'No properties to compare' })).toBeVisible();
     await expect(page.getByText('Add properties from listings to see them side by side.')).toBeVisible();
     await expect(page.getByRole('link', { name: /Browse Listings/i })).toBeVisible();
-    // Reset / Export actions only exist once something is being compared.
     await expect(page.getByRole('button', { name: 'Reset' })).toHaveCount(0);
   });
 
-  test('renders the comparison table for two seeded properties', async ({ page }) => {
+  test('renders the comparison table for two seeded properties with no real console errors', async ({ page, consoleErrors }) => {
     await seedConsent(page);
     await seedCompare(page, [A, B]);
     await page.goto('/compare');
@@ -51,7 +43,6 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
     await expect(page.locator(`a[href="/property/${B}"]`)).toBeVisible();
 
-    // Real comparison rows (labels come straight from compare-saved.json).
     await expect(page.getByText('Property Type', { exact: true })).toBeVisible();
     await expect(page.getByText('Configuration', { exact: true })).toBeVisible();
     // Plain "Area": a parcel is measured in acres or guntha, so the unit lives in each cell; the
@@ -61,9 +52,9 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.getByText('RERA Verified', { exact: true })).toBeVisible();
     await expect(page.getByText('Amenities', { exact: true })).toBeVisible();
 
-    // Action bar appears now that there is something to compare.
     await expect(page.getByRole('button', { name: 'Reset' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Export PDF' })).toBeVisible();
+    expect(consoleErrors).toEqual([]);
   });
 
   test('removing a property drops its column but keeps the rest', async ({ page }) => {
@@ -93,12 +84,10 @@ test.describe('Compare properties — /compare', () => {
   });
 
   test('a property can be added via the property-page compare toggle', async ({ page, flags }) => {
-    // Before the navigation: AppFlagRoute redirects a page that boots with the flag off.
     await flags.enable('compareProperties');
     await seedConsent(page);
     await page.goto(`/property/${A}`);
 
-    // The compare control lives in the property action bar (title toggles on click).
     const addBtn = page.getByTitle('Add to Compare', { exact: true });
     await expect(addBtn).toBeVisible({ timeout: 10_000 });
     await addBtn.click();
@@ -109,13 +98,12 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
   });
 
-  test('the comparison table loads with no real console errors', async ({ page, consoleErrors }) => {
+  test('listing cards carry only the save heart, never a compare toggle', async ({ page, flags }) => {
+    await flags.enable('compareProperties');
     await seedConsent(page);
-    await seedCompare(page, [A, B]);
-    await page.goto('/compare');
-    await expect(page.getByRole('heading', { name: 'Compare properties' })).toBeVisible();
-    await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
-    expect(consoleErrors).toEqual([]);
+    await page.goto('/listings?deal=buy');
+    await expect(page.locator('.heart-btn').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('button', { name: /add to compare/i })).toHaveCount(0);
   });
 
   // Ungated, the picker's catalogue search pulls a 100-row page on every visit and every
@@ -139,7 +127,6 @@ test.describe('Compare properties — /compare', () => {
     // Greater-than rather than exactly one: StrictMode mounts the route twice under the dev server.
     await expect.poll(() => catalogueHits.length).toBeGreaterThan(0);
   });
-
   // `pickable` starts null ("not answered yet"), so an uncaught rejection would sit on the loading
   // line forever, and answering `[]` would claim the catalogue is exhausted.
   test('a failed picker search says so instead of claiming there is nothing to add', async ({ page }) => {
@@ -154,10 +141,11 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.getByText('Could not load properties. Check your connection and try again.')).toBeVisible();
     await expect(page.getByText('No more properties to add.')).toHaveCount(0);
   });
-
   /* The picker takes the scroll lock, so the table behind it is unreachable by pointer and wheel —
-     but with no `role`, a screen reader could still read it and `isTopDialog` could not see it. */
-  test('the picker announces itself as a modal dialog while it holds the scroll lock', async ({ page }) => {
+     but with no `role`, a screen reader could still read it and `isTopDialog` could not see it.
+     Untrapped, Tab walks straight out of the picker into that table, so the two would disagree about
+     where the user is. */
+  test('the picker announces itself as a modal dialog while it holds the scroll lock, and keeps Tab inside itself', async ({ page }) => {
     await seedConsent(page);
     await seedCompare(page, [A]);
     await page.goto('/compare');
@@ -168,25 +156,16 @@ test.describe('Compare properties — /compare', () => {
     const picker = page.getByRole('dialog', { name: 'Add a property to compare' });
     await expect(picker).toBeVisible();
     expect(await rootOverflow(page)).toBe('hidden');
-
     /* `aria-modal` claims the page behind is inert, so the keyboard has to have a way out of the
        claim: focus lands in the panel, Escape closes it, and the lock is released with it. */
+
     await expect(picker).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(picker).toBeHidden();
     expect(await rootOverflow(page)).not.toBe('hidden');
-  });
 
-  /* Untrapped, Tab walks straight out of the picker into the comparison table — content the
-     panel's own `aria-modal` declares unreachable, so the two disagree about where the user is. */
-  test('the picker keeps Tab inside itself', async ({ page }) => {
-    await seedConsent(page);
-    await seedCompare(page, [A]);
-    await page.goto('/compare');
     await page.getByRole('button', { name: 'Add Property' }).click();
-    const picker = page.getByRole('dialog', { name: 'Add a property to compare' });
     await expect(picker).toBeVisible();
-
     // Far more presses than the panel has stops, so a leak shows up wherever the exit sits.
     for (let i = 0; i < 25; i += 1) await page.keyboard.press('Tab');
     await expect(picker.locator(':focus')).toHaveCount(1);

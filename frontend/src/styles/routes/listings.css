@@ -1,9 +1,6 @@
 /* Listings route styles (Tier 1), loaded with the /listings chunk. Anything shared with
    /flatmates (DualRange, checkbox marks, .fg-*, .page-btn) lives in routes/filters.css. */
 
-/* This is the half of the property-card hover block that was split out of index.css, and it
-   carries the same gate: touch fakes a hover on first tap and holds it until the next tap
-   elsewhere, which would leave a tapped result card raised for the rest of the session. */
 @media (hover: hover) {
   .card-hover:hover {
     transform: translateY(-6px);
@@ -97,22 +94,4 @@
 
 .badge-rera {
   background: linear-gradient(135deg, #059669, #10b981);
-}
-
-.badge-verified-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-}
-
-.badge-verified-icon svg {
-  width: 16px;
-  height: 16px;
 }

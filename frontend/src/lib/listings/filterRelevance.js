@@ -17,23 +17,27 @@ export function typeGroups(types) {
 }
 
 /* Sections whose relevance depends on the selected type. Anything not listed here
-   (budget, property type, localities, area, verification, near a place) is always
+   (budget, property type, localities, verification, near a place) is always
    relevant. `commercialType` keeps its own upstream condition. `room` (Private/
    Shared) is a flatmates-only concept. */
 export function sectionVisible(section, types) {
   const g = typeGroups(types || new Set());
-  // Land Use is a land-only filter: gate it on the land group even in browse-all,
-  // so a stale zone selection can never apply to (or hide) non-land listings.
-  if (section === 'landUse') return g.has('land');
+  if (section === 'landUse' || section === 'na') return g.size === 1 && g.has('land');
   if (section === 'room') return !!types && types.has('flatmates');
+  if (section === 'food') return g.size === 1 && g.has('residential');
+  if (section === 'shell' || section === 'preLeased') return g.size === 1 && g.has('commercial');
   if (!types || types.size === 0) return true; // browse-all
   const builtOrCommercial = g.has('residential') || g.has('commercial');
+  const builtOnly = builtOrCommercial && !g.has('land');
+  const residentialOnly = g.size === 1 && g.has('residential');
   switch (section) {
     case 'bhk':
+    case 'facing':
+    case 'baths':
     case 'tenants':
     // falls through — housing-society & society-conveyance checks only exist for residential homes.
     case 'verifSociety':
-      return g.has('residential');
+      return residentialOnly;
     case 'furnishing':
     case 'availability':
     case 'construction':
@@ -43,7 +47,7 @@ export function sectionVisible(section, types) {
     case 'availFrom':
     // falls through — RERA registration covers residential & commercial projects, not raw land.
     case 'verifRera':
-      return builtOrCommercial;
+      return builtOnly;
     default:
       return true;
   }

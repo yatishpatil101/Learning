@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { API, authHeaders, signedInAsNew, grantIdentityBadge } from '../../../helpers/liveAuth.js';
+import { API, E2E_OTP, authHeaders, signedInAsNew, grantIdentityBadge, seedConsent, uniqueMobile } from '../../../helpers/liveAuth.js';
 
 /* Per ADR-019 the identity badge is a badge, not a gate: a signed-in buyer — verified or not —
  * starts an in-app chat request from the drawer with no verification detour. */
@@ -68,6 +68,30 @@ async function grantAndProve(mobile) {
   ).toBe(true);
 }
 
+async function namedMobile(name) {
+  const mobile = uniqueMobile();
+  const res = await fetch(`${API}/auth/me`, {
+    method: 'PATCH',
+    headers: await authHeaders(mobile),
+    body: JSON.stringify({ name }),
+  });
+  expect(res.ok, `PATCH /auth/me -> ${res.status}`).toBe(true);
+  return mobile;
+}
+
+async function signInInlineFromDrawer(page, drawer, mobile) {
+  await drawer.getByRole('button', { name: /Contact Owner/i }).click();
+  const sheet = page.getByRole('dialog', { name: /sign in to contact the owner/i });
+  await expect(sheet).toBeVisible();
+  await sheet.getByLabel(/Mobile Number/i).fill(mobile);
+  await sheet.getByRole('button', { name: /Send OTP/i }).click();
+  await expect(sheet.getByLabel('OTP digit 1')).toBeVisible();
+  for (let i = 0; i < E2E_OTP.length; i++) {
+    await sheet.getByLabel(`OTP digit ${i + 1}`).fill(E2E_OTP[i]);
+  }
+  await sheet.getByRole('button', { name: /Verify & Sign In/i }).click();
+}
+
 test('a verified buyer reaches the owner from the map drawer, in the app and not by phone', async ({ page }) => {
   const { villa, label } = await banerVilla();
   const mobile = await signedInAsNew(page);
@@ -79,6 +103,21 @@ test('a verified buyer reaches the owner from the map drawer, in the app and not
   // Straight into the thread for this listing. No number-reveal popup, no interstitial.
   await expect(page).toHaveURL(new RegExp(`/messages\\?openProp=${villa.slug}`, 'i'));
   await expect(page.getByText(/Waiting for the owner to accept/i)).toBeVisible({ timeout: 10000 });
+});
+
+test('a signed-out buyer signs in inline from the map drawer and stays on the staged chat', async ({ page }) => {
+  const { villa, label } = await banerVilla();
+  const mobile = await namedMobile('Zztest Map Inline OTP Buyer');
+  await seedConsent(page);
+  const drawer = await openDrawer(page, label);
+
+  await signInInlineFromDrawer(page, drawer, mobile);
+
+  const messagesUrl = new RegExp(`/messages\\?openProp=${villa.slug}`, 'i');
+  await expect(page).toHaveURL(messagesUrl, { timeout: 20000 });
+  await expect(page.getByText(/Waiting for the owner to accept/i)).toBeVisible({ timeout: 10000 });
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(messagesUrl);
 });
 
 test('an unverified buyer reaches the same owner the same way (badge-not-gate, ADR-019)', async ({ page }) => {

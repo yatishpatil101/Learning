@@ -1,25 +1,19 @@
 import { INITIAL, RANGE, normBhk, serializeF, deserializeF } from '../../../lib/listings/filterState.js';
 import { sectionVisible } from '../../../lib/listings/filterRelevance.js';
+import { areaProfileForTypes, defaultAreaRangeSqft } from '../../../lib/listings/areaUnits.js';
 import { SEARCH_TYPES, BUY_TYPES, RENT_TYPES } from '../../../data/propertyTypes.js';
 import { AMEN_BUY, AMEN_RENT, AMEN_LBL, FURN_LBL } from './constants.js';
 
-/* Parses a natural-language query into filter state, for Smart search and Save search alike.
-
-   Two contracts the callers depend on. The parse MERGES onto the filters already on screen, because
-   a typed phrase refines the search the user has been building rather than restarting it. And every
-   word it could not claim comes back as `q`, because a society, a builder or a landmark is exactly
-   what a shopper types and none of them is a facet. */
+/* The parse MERGES onto the filters already on screen, because a typed phrase refines the search the user has been
+   building rather than restarting it. */
 const GENERIC_LOC_WORDS = new Set([
   'nagar', 'road', 'park', 'east', 'west',
   // City-wide words and bare suffixes: alone they name no area, so a query that merely mentions the
   // city would otherwise select every locality carrying the suffix.
   'pune', 'city', 'gaon', 'wadi', 'peth', 'pimpri',
-  // Left to the amenity rule: only Boat Club Road carries it, and that name still has "boat".
   'club',
 ]);
 
-/* Connectors and politeness. An `in` forwarded to a LIKE matches half the catalogue, and "pune" on
-   a Pune-only marketplace matches none of it, since no title or locality repeats the city. */
 const FILLER = new Set([
   'in', 'at', 'for', 'with', 'and', 'or', 'of', 'on', 'to', 'a', 'an', 'the', 'is', 'are', 'any',
   'i', 'me', 'my', 'we', 'want', 'need', 'looking', 'search', 'searching', 'show', 'find', 'get',
@@ -29,8 +23,6 @@ const FILLER = new Set([
   'under', 'below', 'upto', 'above', 'over', 'within', 'max', 'min',
 ]);
 
-/* The rent slider's ceiling is also the line between the two journeys: above it the Rent tab cannot
-   express the number at all, so clamping lands on the default and filters nothing. */
 const RENT_CEILING = RANGE.rent[1];
 
 // What a shopper types ("elevator", "power backup") is not what the chip says, so this cannot be
@@ -46,20 +38,14 @@ const AMENITY_WORDS = [
   ['club', /\b(?:club\s?house|club)\b/],
 ];
 
-/* Longest first, so "independent house" is claimed whole before the bare "house" can take half of
-   it. Derived from the browse taxonomy's `matches`, which `flatmates` has none of — it is resolved
-   from `shareType`, not from the type string. */
 const TYPE_PHRASES = SEARCH_TYPES
   .flatMap((t) => (t.key === 'flatmates'
-    ? ['flatmate', 'flatmates', 'roommate', 'shared room', 'pg']
+    ? ['flatmate', 'flatmates', 'roommate', 'shared room']
     : t.matches || []).map((w) => [t.key, w]))
   .sort((a, b) => b[1].length - a[1].length);
 
 const UNIT = '(k|thousand|lakh|lakhs|lac|lacs|l|cr|crore|crores)?';
-/* A figure trailed by a land unit is a size, not a price: "office under 1000 sqft" must not become
-   a budget of ₹1,000, a reading that would also throw the search onto the other tab. The second
-   lookahead covers the low end of a size RANGE, whose own unit sits after the high end. */
-const SIZE_UNIT = '(?:sq|acre|guntha|gunthe|cent|hectare|yard)';
+const SIZE_UNIT = '(?:sq|sqm|acre|guntha|gunthe|cent|hectare|yard|metre|meter)';
 const NOT_A_SIZE = `(?!\\s*${SIZE_UNIT})(?!\\s*(?:-|–|to)\\s*\\d+(?:\\.\\d+)?\\s*${SIZE_UNIT})`;
 const AMOUNT = `(?:₹|rs\\.?)?\\s*\\b(\\d+(?:\\.\\d+)?)\\s*${UNIT}\\b${NOT_A_SIZE}`;
 const MAX_WORDS = 'under|below|upto|up to|max|maximum|within|less than|budget|at most|atmost';
@@ -70,9 +56,8 @@ const MAX_RE = new RegExp(`\\b(?:${MAX_WORDS})\\s*${AMOUNT}`);
 const MIN_RE = new RegExp(`\\b(?:${MIN_WORDS})\\s*${AMOUNT}`);
 const BARE_RE = new RegExp(AMOUNT);
 
-/* Locality names are data, not pattern source: a `.` or `(` in one would otherwise be compiled as
-   syntax and either match the wrong places or throw — taking down the whole submit, since this runs
-   over every locality before any of the parse is applied. */
+/* Locality names are data, not pattern source: a `.` or `(` in one would otherwise be compiled as syntax and either
+   match the wrong places or throw. */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const word = (w) => new RegExp('\\b' + escapeRe(w) + '\\b');
 
@@ -87,17 +72,14 @@ const toRupees = (amt, unit) => {
 // is what stops it writing through into the filter state still on screen.
 const cloneFilters = (f) => deserializeF(serializeF(f));
 
-/* "80,00,000" is how the amount is written here, so splitting on the comma would read it as ₹80.
-   Collapsing whitespace matters as much: the money patterns nest optional groups around `\s*`, and
-   a pasted run of spaces makes them backtrack for tens of seconds on the main thread. */
 const normalise = (s) => s.replace(/(\d),(?=\d)/g, '$1').replace(/[,;/]/g, ' ').replace(/\s+/g, ' ');
 
 export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   const typed = (raw || '').toLowerCase().trim();
   if (!typed) return null;
 
-  /* The parse is destructive on purpose: each rule blanks the text it claimed, so what survives to
-     the end is exactly the words no rule understood — which is what `q` has to carry. */
+  /* The parse is destructive on purpose: each rule blanks the text it claimed, so what survives to the end is exactly
+     the words no rule understood — which is what `q` has to carry. */
   let rest = ` ${normalise(typed)} `;
   const peek = (re) => rest.match(re);
   const eat = (re) => {
@@ -112,17 +94,13 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   const wantsBuy = wantsRent ? null : eat(/\b(?:buy|sale|sell|purchase|resale)\b/);
   const explicitDeal = wantsRent ? 'rent' : wantsBuy ? 'buy' : null;
 
-  /* RK and studio before the type rule, because "studio" is also one of the browse taxonomy's
-     matches for Flat — it is both the size and the kind, and only one rule may consume it. Both
-     before localities, because the digit in "3 bhk" is also a word of "Hinjawadi Phase 3". */
+  /* RK and studio before the type rule, because "studio" is also one of the browse taxonomy's matches for Flat — it
+     is both the size and the kind, and only one rule may consume it. */
   const rkM = eat(/\b(?:1\s*rk|rk|studio)\b/);
   const bhkM = eat(/\b(\d)\s*(?:bhk|bed\s?rooms?|beds?)\b/);
 
-  /* Localities are read early so an area name keeps its whole self: "Pimple Saudagar" must not leave
-     "saudagar" stranded in the free text. Richest match first, because the registry holds
-     overlapping names — "Pimple Gurav" beside "Pimple Saudagar", "Hinjawadi Phase 2" beside
-     "Hinjawadi" — and whichever is read first eats the shared word. A tie goes to the shorter name,
-     which is the one the query accounted for in full. */
+  /* Localities are read early so an area name keeps its whole self: "Pimple Saudagar" must not leave "saudagar"
+     stranded in the free text. */
   const locSlugs = [];
   localities
     .map((l) => {
@@ -131,8 +109,6 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
     })
     .sort((a, b) => b.score - a.score || a.words.length - b.words.length)
     .forEach(({ slug, words }) => {
-      // Re-tested against what is left: a richer name may already have taken the only word that
-      // qualified this one.
       if (!words.some((w) => w.length >= 4 && !GENERIC_LOC_WORDS.has(w) && word(w).test(rest))) return;
       locSlugs.push(slug);
       words.forEach((w) => eat(word(w)));
@@ -142,10 +118,7 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   // can say "near Baner" rather than restate it as the area itself.
   const nearWord = Boolean(eat(/\b(?:nearby|near|close to|next to|walking distance (?:of|to|from))\b/));
 
-  /* Two different claims, so two reads: "no broker" is about who posted the listing, a bare "owner"
-     is likelier to mean the identity check. The compound phrases must be eaten first or the bare
-     pattern would take the word out of "owner only" and leave the modifier stranded. */
-  const ownerOnly = Boolean(eat(/\b(?:owner only|only owner|direct owner|no broker|nobroker|without broker)\b/));
+  eat(/\b(?:owner only|only owner|direct owner|no broker|nobroker|without broker)\b/);
   const verifiedOwner = Boolean(eat(/\bowner\b/));
 
   const readyM = eat(/\b(?:ready to move|ready-to-move|ready possession|ready)\b/);
@@ -159,8 +132,6 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   const amenHits = AMENITY_WORDS.flatMap(([k, re]) => { const m = eat(re); return m ? [[k, m[0].trim()]] : []; });
   const pets = Boolean(eat(/\b(?:pet[- ]?friendly|pets allowed|pets?)\b/));
 
-  // Every phrase is eaten, not just the first per key, so "commercial shop" does not leave "shop"
-  // behind as free text.
   const typeHits = [];
   TYPE_PHRASES.forEach(([key, phrase]) => {
     const m = eat(word(phrase));
@@ -171,27 +142,25 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
 
   const money = readMoney(eat, peek);
 
-  /* Deal, strongest signal first. An explicit word is a statement; a shared-room search exists only
-     on Rent; otherwise the magnitude decides, because the rent slider's ceiling is also the line
-     above which no amount is a rent — and staying put there clamps to that ceiling, which is the
-     default, and so filters nothing at all. */
+  /* An explicit word is a statement; a shared-room search exists only on Rent; otherwise the magnitude decides,
+     because the rent slider's ceiling is also the line above which no amount is a rent. */
   let deal = explicitDeal || current.deal;
   if (!explicitDeal && typeKeys.includes('flatmates')) deal = 'rent';
   else if (!explicitDeal && money.amount != null) deal = money.amount > RENT_CEILING ? 'buy' : 'rent';
   const isRent = deal === 'rent';
 
-  /* Switching journey resets, exactly as the Rent/Buy toggle does: the two carry different filter
-     shapes, so a Buy area range or a Rent tenant set has no meaning on the other side. Within one
-     journey the typed phrase adds to whatever the panel already holds. */
   const next = current.deal === deal ? cloneFilters(current) : INITIAL(deal);
 
   locSlugs.forEach((s) => next.localities.add(s));
 
-  /* A key the other journey's panel does not offer goes back to the free text rather than being
-     dropped: the whole point of the remainder is that nothing the shopper typed disappears. */
   const allowedTypes = new Set((isRent ? RENT_TYPES : BUY_TYPES).map(([k]) => k));
   const usedTypes = typeKeys.filter((k) => allowedTypes.has(k));
   usedTypes.forEach((k) => next.types.add(k));
+  const afterTypeProfile = areaProfileForTypes(next.types, next.areaUnit);
+  if (usedTypes.length) {
+    next.area = defaultAreaRangeSqft(afterTypeProfile);
+    next.areaUnit = afterTypeProfile.unit;
+  }
   typeHits.forEach(([k, text]) => { if (!allowedTypes.has(k)) rest += ` ${text}`; });
 
   // A section the chosen type hides has no control in the panel, so a value written into it would
@@ -208,12 +177,14 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   usedAmen.forEach((k) => next.amenities.add(k));
   amenHits.forEach(([k, text]) => { if (!allowedAmen.has(k)) rest += ` ${text}`; });
 
-  if (ownerOnly) next.ownerOnly = true;
   if (verifiedOwner) next.verified = { ...next.verified, owner: true };
   if (isRent) {
     if (pets) next.pets = true;
-  } else if (readyM) next.avail = 'ready';
-  else if (ucM) next.avail = 'uc';
+  } else if (readyM) next.constr.add('ready');
+  else if (ucM) {
+    next.constr.add('under');
+    next.constr.add('new');
+  }
 
   if (money.amount != null) applyMoney(next, isRent, money);
 
@@ -230,17 +201,16 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   if (furn) parts.push(FURN_LBL[furn]);
   usedAmen.forEach((k) => parts.push(AMEN_LBL[k] || k));
   if (isRent && pets) parts.push('Pet-friendly');
-  if (!isRent && next.avail) parts.push(next.avail === 'ready' ? 'Ready to Move' : 'Under Construction');
-  if (ownerOnly) parts.push('Owner only');
-  if (verifiedOwner) parts.push('Verified Owner');
+  if (!isRent && readyM) parts.push('Ready to Move');
+  else if (!isRent && ucM) parts.push('Under Construction');
+  if (verifiedOwner) parts.push('Verified owner');
 
   const q = rest.split(/\s+/).filter((w) => w && !FILLER.has(w)).join(' ');
   return { next, deal, parts, q };
 }
 
-/* The amount, in rupees, however it was phrased. `lo` and `hi` are independently nullable: "above
-   1 cr" states a floor and no ceiling, and forcing the missing end to a default here would invent a
-   bound the user did not type. */
+/* `lo` and `hi` are independently nullable: "above 1 cr" states a floor and no ceiling, and forcing the missing end
+   to a default here would invent a bound the user did not type. */
 function readMoney(eat, peek) {
   const rangeM = eat(RANGE_RE);
   if (rangeM) {
@@ -262,11 +232,8 @@ function readMoney(eat, peek) {
     const lo = toRupees(parseFloat(minM[1]), minM[2]);
     return { lo, hi: null, amount: lo, text: minM[0].trim() };
   }
-  /* A bare amount with no preposition — "2 bhk baner 25k" is how the box is actually typed. Read
-     last, and only once every rule that owns a number has taken its own, so the 2 in "2 BHK" can no
-     longer be read as a budget. An unsuffixed figure must clear ₹1,000 to count: below that it is a
-     floor, a phase or a year rather than a price — and it is only eaten once it has counted, so a
-     rejected figure survives into `q` as the flat number it probably was. */
+  /* An unsuffixed figure must clear ₹1,000 to count: below that it is a floor, a phase or a year rather than a price
+     — and it is only eaten once it has counted. */
   const bareM = peek(BARE_RE);
   if (bareM && (bareM[2] || parseFloat(bareM[1]) >= 1000)) {
     eat(BARE_RE);

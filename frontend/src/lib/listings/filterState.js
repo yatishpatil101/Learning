@@ -1,14 +1,17 @@
 /* Single source of truth for the filter shape, the Set<->array serialisation used by return-to-search
    snapshots, and the two-way URL mapping that makes a search shareable and back-button-safe. */
 import { canonicalTypeKey, BUY_TYPES, RENT_TYPES } from '../../data/propertyTypes.js';
+import { BHK_KEYS, expandBhkToken, normBhk } from './bhkOptions.js';
 import { clampNearRadius, nearMaxFor, nearToParams } from '../nearParams.js';
+import { BUILT_AREA_RANGE, areaProfileForTypes, areaRangeToUrl, defaultAreaRangeSqft, isDefaultAreaRange, parseAreaRange } from './areaUnits.js';
+import { sectionVisible } from './filterRelevance.js';
 
 /* Default range values — a filter at its default is omitted from the URL so the
    address bar only ever carries what the user actually narrowed. */
 export const RANGE = {
   budget: [0, 50000000],
   rent: [0, 100000],
-  area: [0, 6000],
+  area: BUILT_AREA_RANGE,
   age: [0, 25],
   floor: [0, 40],
   deposit: [0, 1000000],
@@ -22,76 +25,95 @@ export const INITIAL = (deal) => ({
   commercialTypes: new Set(),
   bhk: new Set(),
   furnishing: new Set(),
+  facing: new Set(),
+  minBaths: '',
   localities: new Set(),
   societies: new Set(),
   area: [...RANGE.area],
+  areaUnit: 'sqft',
   amenities: new Set(),
   verified: {},
-  ownerOnly: false,
   locQuery: '',
   room: new Set(),
   tenants: new Set(),
   availFrom: '',
   pets: false,
-  avail: '',
+  food: '',
   age: [...RANGE.age],
   floor: [...RANGE.floor],
   deposit: [...RANGE.deposit],
   constr: new Set(),
   landUse: new Set(),
+  shell: new Set(),
+  preLeased: false,
+  na: new Set(),
   near: '',
   nearLabel: '',
   nearRadius: 5,
   nearMode: 'km',
 });
 
+export const FOOD_KEYS = ['veg', 'jain', 'nonveg'];
+// `true` is how snapshots stored before Veg/Jain existed spelled "Non-veg OK".
+const normalizeFood = (v) => (v === true ? 'nonveg' : FOOD_KEYS.includes(v) ? v : '');
+
 // Filter state carries Set instances that JSON can't represent, so return-to-search
 // snapshots round-trip these keys through arrays.
-export const SET_KEYS = ['types', 'commercialTypes', 'bhk', 'furnishing', 'localities', 'societies', 'amenities', 'room', 'tenants', 'constr', 'landUse'];
+export const SET_KEYS = ['types', 'commercialTypes', 'bhk', 'furnishing', 'facing', 'localities', 'societies', 'amenities', 'room', 'tenants', 'constr', 'landUse', 'shell', 'na'];
 export const serializeF = (f) => { const o = { ...f }; SET_KEYS.forEach((k) => { o[k] = [...f[k]]; }); return o; };
-// A snapshot is written by one deploy and read by the next, so a range key added since it was
-// stored is simply absent; starting from INITIAL keeps the restored panel from dereferencing it.
-export const deserializeF = (o) => { const f = { ...INITIAL(o?.deal), ...o }; SET_KEYS.forEach((k) => { f[k] = new Set(o[k] || []); }); return f; };
+// A snapshot can cross deploys; starting from INITIAL keeps missing newer keys safe.
+export const deserializeF = (o) => {
+  const f = { ...INITIAL(o?.deal), ...o };
+  SET_KEYS.forEach((k) => { f[k] = new Set(o?.[k] || []); });
+  f.minBaths = MIN_BATH_KEYS.has(String(f.minBaths)) ? String(f.minBaths) : '';
+  f.food = normalizeFood(f.food);
+  delete f.ownerOnly;
+  delete f.postedBy;
+  if (f.deal === 'buy' && f.avail && !f.constr.size) f.constr = new Set(legacyAvailToConstruction(f.avail));
+  delete f.avail;
+  Object.assign(f, normalizeArea(f.area, f.types, f.areaUnit));
+  return f;
+};
 
 /* Every URL param this module owns. The state->URL sync deletes all of these before writing the
    current filters, so clearing a filter reliably drops it from the address bar. */
 export const FILTER_PARAM_KEYS = [
-  'loc', 'soc', 'ptype', 'ctype', 'bhk', 'furn', 'amen', 'v', 'owneronly', 'room',
-  'tenants', 'landuse', 'constr', 'avail', 'availfrom', 'pets', 'budget',
-  'rent', 'area', 'age', 'floor', 'deposit', 'near', 'nearlabel', 'nearr', 'nearmode',
+  'loc', 'soc', 'ptype', 'ctype', 'bhks', 'bhk', 'furn', 'facing', 'minBaths', 'amen', 'v',
+  'postedBy', 'owneronly', 'postedByOwner', 'room', 'tenants', 'landuse', 'na', 'constr',
+  'avail', 'availfrom', 'pets', 'food', 'shell', 'preLeased', 'budget', 'rent', 'area',
+  'areaUnit', 'age', 'floor', 'deposit', 'near', 'nearlabel', 'nearr', 'nearmode',
 ];
 /* Retired params that still arrive from bookmarks and shared links. Listed so the state->URL sync
    strips them; otherwise a withdrawn filter rides along for the whole session. */
 const LEGACY_ALIASES = ['type', 'locality', 'sharing'];
 
-/* Whether a URL narrows anything of its own, which is what separates a deal *toggle* from a deal
-   *link*: "Buy plots" names a filter and must arrive clean, while a bare ?deal=buy is the same
-   search asked of the other side and keeps what carries over. */
+/* Filtered links reset cleanly; a bare deal switch keeps compatible state across journeys. */
 export const hasFilterParams = (params) => [...FILTER_PARAM_KEYS, ...LEGACY_ALIASES].some((k) => params.has(k));
 
 const VERIF_KEYS = ['owner', 'ownership', 'rera', 'society', 'conveyance'];
-const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4'] };
+const LEGACY_AVAIL_TO_CONSTRUCTION = Object.assign(Object.create(null), {
+  ready: ['ready'],
+  uc: ['under', 'new'],
+});
+const CONSTRUCTION_KEYS = new Set(['ready', 'under', 'new']);
+const MIN_BATH_KEYS = new Set(['1', '2', '3', '4']);
+
+export { normBhk };
 
 const joinSet = (s) => [...s].join(',');
 const splitCsv = (v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
-const rangeChanged = (v, def) => v[0] !== def[0] || v[1] !== def[1];
-
-/* Cross-deal BHK normalisation: a token from another deal (or a home-search
-   deep link) is coerced to the nearest bucket valid for the current deal. */
-export function normBhk(token, deal) {
-  const keys = BHK_KEYS[deal];
-  if (keys.includes(token)) return token;
-  let key = token;
-  if (key === '3plus') key = '3';          // Buy has no 3+ bucket -> nearest is 3 BHK
-  else if (key === '0') key = '1';         // Buy has no RK/studio -> nearest is 1 BHK
-  else {
-    const n = Number(key);
-    if (deal === 'rent' && n > 3) key = '3plus';
-    else if (deal === 'buy' && n >= 4) key = '4';
-    else key = String(n);
-  }
-  return keys.includes(key) ? key : null;
-}
+export const rangeChanged = (v, def) => v[0] !== def[0] || v[1] !== def[1];
+const validConstruction = (tokens) => tokens.filter((token) => CONSTRUCTION_KEYS.has(token));
+const legacyAvailToConstruction = (token) => LEGACY_AVAIL_TO_CONSTRUCTION[token] || [];
+const normalizeArea = (area, types, unit) => {
+  const profile = areaProfileForTypes(types, unit);
+  const current = Array.isArray(area) ? area : RANGE.area;
+  const unsupportedUnit = unit && profile.unit !== unit;
+  return {
+    area: unsupportedUnit || (profile.kind !== 'built' && rangeChanged(current, RANGE.area) === false) ? defaultAreaRangeSqft(profile) : current,
+    areaUnit: profile.unit,
+  };
+};
 
 function parseRange(v, def) {
   if (!v) return [...def];
@@ -107,30 +129,39 @@ function parseRange(v, def) {
 export function filtersToParams(f) {
   const p = {};
   const isRent = f.deal === 'rent';
+  const rel = (section) => sectionVisible(section, f.types);
   if (f.localities.size) p.loc = joinSet(f.localities);
   if (f.societies.size) p.soc = joinSet(f.societies);
   if (f.types.size) p.ptype = joinSet(f.types);
   if (f.types.has('commercial') && f.commercialTypes.size) p.ctype = joinSet(f.commercialTypes);
-  if (f.bhk.size) p.bhk = joinSet(f.bhk);
+  if (f.bhk.size) p.bhks = joinSet(f.bhk);
   if (f.furnishing.size) p.furn = joinSet(f.furnishing);
+  if (rel('facing') && f.facing.size) p.facing = joinSet(f.facing);
+  if (rel('baths') && MIN_BATH_KEYS.has(f.minBaths)) p.minBaths = f.minBaths;
   if (f.amenities.size) p.amen = joinSet(f.amenities);
-  if (f.landUse.size) p.landuse = joinSet(f.landUse);
+  if (rel('landUse') && f.landUse.size) p.landuse = joinSet(f.landUse);
+  if (rel('shell') && f.shell.size) p.shell = joinSet(f.shell);
+  if (rel('na') && f.na.size) p.na = joinSet(f.na);
   const vkeys = VERIF_KEYS.filter((k) => f.verified[k]);
   if (vkeys.length) p.v = vkeys.join(',');
-  if (f.ownerOnly) p.owneronly = '1';
   if (rangeChanged(f.age, RANGE.age)) p.age = `${f.age[0]}-${f.age[1]}`;
   if (rangeChanged(f.floor, RANGE.floor)) p.floor = `${f.floor[0]}-${f.floor[1]}`;
-  if (rangeChanged(f.area, RANGE.area)) p.area = `${f.area[0]}-${f.area[1]}`;
+  const areaProfile = areaProfileForTypes(f.types, f.areaUnit);
+  if (rel('area') && !isDefaultAreaRange(f.area, areaProfile)) {
+    p.area = areaRangeToUrl(f.area, areaProfile);
+    if (areaProfile.kind !== 'built') p.areaUnit = areaProfile.unit;
+  }
   if (isRent) {
     if (f.room.size) p.room = joinSet(f.room);
     if (f.tenants.size) p.tenants = joinSet(f.tenants);
     if (f.availFrom) p.availfrom = f.availFrom;
     if (f.pets) p.pets = '1';
+    if (f.food && rel('food')) p.food = f.food;
     if (rangeChanged(f.rent, RANGE.rent)) p.rent = `${f.rent[0]}-${f.rent[1]}`;
     if (rangeChanged(f.deposit, RANGE.deposit)) p.deposit = `${f.deposit[0]}-${f.deposit[1]}`;
   } else {
     if (f.constr.size) p.constr = joinSet(f.constr);
-    if (f.avail) p.avail = f.avail;
+    if (f.preLeased && rel('preLeased')) p.preLeased = 'true';
     if (rangeChanged(f.budget, RANGE.budget)) p.budget = `${f.budget[0]}-${f.budget[1]}`;
   }
   // Near-a-Place carries a human label so any point (a society/POI, not just a registry landmark)
@@ -161,32 +192,44 @@ export function paramsToFilters(params, deal) {
   const socTokens = splitCsv(get('soc'));
   if (socTokens.length) f.societies = new Set(socTokens);
 
-  const bhkKeys = splitCsv(get('bhk')).map((t) => normBhk(t, deal)).filter(Boolean);
+  const bhkParam = get('bhks');
+  const bhkKeys = splitCsv(bhkParam || get('bhk'))
+    .flatMap((t) => expandBhkToken(t, deal, { source: bhkParam ? 'url' : 'legacy' }))
+    .filter((key) => BHK_KEYS[deal].includes(key));
   if (bhkKeys.length) f.bhk = new Set(bhkKeys);
 
   if (get('furn')) f.furnishing = new Set(splitCsv(get('furn')));
+  if (get('facing')) f.facing = new Set(splitCsv(get('facing')));
+  if (MIN_BATH_KEYS.has(get('minBaths'))) f.minBaths = get('minBaths');
   if (get('amen')) f.amenities = new Set(splitCsv(get('amen')));
   if (get('landuse')) f.landUse = new Set(splitCsv(get('landuse')));
+  if (get('na')) f.na = new Set(splitCsv(get('na')));
+  if (get('shell')) f.shell = new Set(splitCsv(get('shell')));
 
   const vkeys = splitCsv(get('v')).filter((k) => VERIF_KEYS.includes(k));
   if (vkeys.length) f.verified = Object.fromEntries(vkeys.map((k) => [k, true]));
 
-  if (get('owneronly') === '1') f.ownerOnly = true;
-
   f.age = parseRange(get('age'), RANGE.age);
   f.floor = parseRange(get('floor'), RANGE.floor);
-  f.area = parseRange(get('area'), RANGE.area);
+  const areaUnit = get('areaUnit');
+  const areaProfile = areaProfileForTypes(f.types, areaUnit);
+  const areaDefault = defaultAreaRangeSqft(areaProfile);
+  f.areaUnit = areaProfile.unit;
+  f.area = areaUnit && areaProfile.unit !== areaUnit ? areaDefault : areaUnit ? parseAreaRange(get('area'), areaDefault, areaProfile.unit) : parseRange(get('area'), areaDefault);
 
   if (isRent) {
     if (get('room')) f.room = new Set(splitCsv(get('room')));
     if (get('tenants')) f.tenants = new Set(splitCsv(get('tenants')));
     if (get('availfrom')) f.availFrom = get('availfrom');
     if (get('pets') === '1') f.pets = true;
+    f.food = normalizeFood(get('food'));
     f.rent = parseRange(get('rent'), RANGE.rent);
     f.deposit = parseRange(get('deposit'), RANGE.deposit);
   } else {
-    if (get('constr')) f.constr = new Set(splitCsv(get('constr')));
-    if (get('avail')) f.avail = get('avail');
+    const construction = validConstruction(splitCsv(get('constr')));
+    const legacyAvail = legacyAvailToConstruction(get('avail'));
+    if (construction.length || legacyAvail.length) f.constr = new Set(construction.length ? construction : legacyAvail);
+    if (get('preLeased') === 'true') f.preLeased = true;
     f.budget = parseRange(get('budget'), RANGE.budget);
   }
 
@@ -205,26 +248,37 @@ export function paramsToFilters(params, deal) {
   return f;
 }
 
-/* Rent <-> buy is a change of journey, not a new search, so only what the new deal genuinely
-   cannot express is dropped; types and BHK are carried through the same coercion a cross-deal deep
-   link already gets, rather than discarded. */
+/* Deal switches keep compatible filters and drop only what the new journey cannot express. */
 export function switchDealFilters(prev, deal) {
   const f = INITIAL(deal);
   const allowedTypes = new Set((deal === 'rent' ? RENT_TYPES : BUY_TYPES).map(([k]) => k));
   f.types = new Set([...prev.types].filter((k) => allowedTypes.has(k)));
   if (f.types.has('commercial')) f.commercialTypes = new Set(prev.commercialTypes);
-  f.bhk = new Set([...prev.bhk].map((tok) => normBhk(tok, deal)).filter(Boolean));
+  f.bhk = new Set([...prev.bhk].flatMap((tok) => expandBhkToken(tok, deal)).filter((key) => BHK_KEYS[deal].includes(key)));
   f.localities = new Set(prev.localities);
   f.societies = new Set(prev.societies);
   f.amenities = new Set(prev.amenities);
   f.furnishing = new Set(prev.furnishing);
+  f.facing = new Set(prev.facing);
+  f.minBaths = prev.minBaths;
   f.landUse = new Set(prev.landUse);
+  f.shell = new Set(prev.shell);
+  f.na = new Set(prev.na);
   f.verified = { ...prev.verified };
-  f.ownerOnly = prev.ownerOnly;
   f.locQuery = prev.locQuery;
-  f.area = [...prev.area];
+  const prevAreaProfile = areaProfileForTypes(prev.types, prev.areaUnit);
+  const nextAreaProfile = areaProfileForTypes(f.types, prev.areaUnit);
+  if (prevAreaProfile.kind === nextAreaProfile.kind && !isDefaultAreaRange(prev.area, prevAreaProfile)) {
+    f.area = [...prev.area];
+    f.areaUnit = nextAreaProfile.unit;
+  } else {
+    f.area = defaultAreaRangeSqft(nextAreaProfile);
+    f.areaUnit = nextAreaProfile.unit;
+  }
   f.age = [...prev.age];
   f.floor = [...prev.floor];
+  f.food = deal === 'rent' ? prev.food : '';
+  f.preLeased = deal === 'buy' ? prev.preLeased : false;
   f.near = prev.near;
   f.nearLabel = prev.nearLabel;
   f.nearRadius = prev.nearRadius;

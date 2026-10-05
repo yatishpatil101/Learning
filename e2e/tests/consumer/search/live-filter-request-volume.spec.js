@@ -73,36 +73,38 @@ test.describe('Filter sliders fetch once per gesture', () => {
     await expect.poll(() => searches.n, { message: 'searches issued on release' }).toBe(1);
   });
 
-  test('arrow-key stepping still searches — commit is not pointer-only', async ({ page }) => {
-    /* Commit hangs off the native `change` event, not pointer gestures, so keyboard and AT slider
-       adjusts still reach the server — a `pointerup` commit would strand both. */
-    await page.goto('/listings?deal=buy');
+  test('keyboard stepping still searches, once per step or held run', async ({ page }) => {
     const thumb = maxThumb(page);
-    await expect(thumb).toBeVisible();
-    await page.waitForLoadState('networkidle').catch(() => {});
 
-    const searches = countSearches(page);
-    await thumb.focus();
-    await thumb.press('ArrowLeft');
+    await test.step('arrow-key stepping still searches — commit is not pointer-only', async () => {
+      /* Commit hangs off the native `change` event, not pointer gestures, so keyboard and AT slider
+         adjusts still reach the server — a `pointerup` commit would strand both. */
+      await page.goto('/listings?deal=buy');
+      await expect(thumb).toBeVisible();
+      await page.waitForLoadState('networkidle').catch(() => {});
 
-    await expect.poll(() => searches.n, { message: 'searches issued after one arrow step' }).toBe(1);
-  });
+      const searches = countSearches(page);
+      await thumb.focus();
+      await thumb.press('ArrowLeft');
 
-  test('holding an arrow key crosses the range in one search, not one per step', async ({ page }) => {
-    /* A range fires `change` on every keyboard step, so auto-repeat is a second route to the
-       request storm. Twelve steps stand in for a held key: only the last may be searched for. */
-    await page.goto('/listings?deal=buy');
-    const thumb = maxThumb(page);
-    await expect(thumb).toBeVisible();
-    await page.waitForLoadState('networkidle').catch(() => {});
+      await expect.poll(() => searches.n, { message: 'searches issued after one arrow step' }).toBe(1);
+    });
 
-    const searches = countSearches(page);
-    await thumb.focus();
-    for (let i = 0; i < 12; i += 1) await thumb.press('ArrowLeft', { delay: 30 });
+    await test.step('holding an arrow key crosses the range in one search, not one per step', async () => {
+      /* A range fires `change` on every keyboard step, so auto-repeat is a second route to the
+         request storm. Twelve steps stand in for a held key: only the last may be searched for. */
+      await page.goto('/listings?deal=buy');
+      await expect(thumb).toBeVisible();
+      await page.waitForLoadState('networkidle').catch(() => {});
 
-    await expect.poll(() => searches.n, { message: 'searches issued across 12 steps' }).toBe(1);
-    await page.waitForTimeout(600);
-    expect(searches.n, 'a late straggler arrived after the run settled').toBe(1);
+      const searches = countSearches(page);
+      await thumb.focus();
+      for (let i = 0; i < 12; i += 1) await thumb.press('ArrowLeft', { delay: 30 });
+
+      await expect.poll(() => searches.n, { message: 'searches issued across 12 steps' }).toBe(1);
+      await page.waitForTimeout(600);
+      expect(searches.n, 'a late straggler arrived after the run settled').toBe(1);
+    });
   });
 });
 

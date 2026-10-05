@@ -10,13 +10,20 @@ import { test, expect } from '@playwright/test';
    appears to make. The count line names how many never answered, counted over the whole match
    rather than the page, so it does not change as the buyer pages through.
 
-   Numbers are pinned against the seed: "more results than before" would pass under a coalesce to
-   zero, which is the other wrong answer (it reads silence as "brand new"). */
+   Totals are compared against the live API response so a shared non-reset lane can still prove the
+   UI is not reading silence as "brand new". */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 const cards = (page) => page.locator('a[href^="/property/"]');
 const countLine = (page) => page.locator('p:has-text("Showing")').first();
+const apiTotals = async (request, params) => {
+  const url = new URL(`${BASE}/api/properties`);
+  Object.entries({ ...params, size: '1' }).forEach(([key, value]) => url.searchParams.set(key, value));
+  const res = await request.get(url.toString());
+  expect(res.ok()).toBeTruthy();
+  return await res.json();
+};
 
 const hrefs = async (page) => cards(page).evaluateAll((els) => els.map((el) => el.getAttribute('href')));
 
@@ -27,36 +34,32 @@ const expectShowing = async (page, total) => {
     .toMatch(new RegExp(`Showing ${total} propert`, 'i'));
 };
 
-test('an age bound keeps the listings that never stated an age, and says how many', async ({ page }) => {
+test('an age bound keeps the listings that never stated an age, and says how many', async ({ page, request }) => {
+  const expected = await apiTotals(request, { deal: 'buy', maxAge: '3' });
   await page.goto(`${BASE}/listings?deal=buy&age=0-3`);
 
-  /* 33 approved buy rows: 21 state no age at all, 4 state 0-3 years, and 8 state an age outside
-     the bound (p5008=6, p5120=9, p5013=18, p5140=11, p5142=6, p5146=8, p5148=4, p5169=7). Pinning
-     the total is what proves those eight are the *only* exclusions — absence from page one proves
-     nothing at a page size of 24. It is also what rules out the hash these attributes were once
-     derived from, which invented an age for every row and could not produce this split. */
-  await expectShowing(page, 25);
-  await expect(countLine(page)).toContainText(/21 don't state this/i);
+  await expectShowing(page, expected.totalElements);
+  await expect(countLine(page)).toContainText(new RegExp(`${expected.unstatedElements} don't state this`, 'i'));
 
   const shown = await hrefs(page);
   expect(shown).toEqual(expect.arrayContaining(['/property/p5133', '/property/p5130', '/property/p5023']));
 });
 
-test('a floor bound keeps the listings that never stated a floor, and says how many', async ({ page }) => {
+test('a floor bound keeps the listings that never stated a floor, and says how many', async ({ page, request }) => {
+  const expected = await apiTotals(request, { deal: 'buy', minFloor: '8' });
   await page.goto(`${BASE}/listings?deal=buy&floor=8-40`);
 
-  /* 23 state no floor; p5008=9, p5120=11 and p5146=10 clear the bound; p5133=3, p5023=5, p5013=2,
-     p5140=3, p5142=7, p5144=1 and p5148=5 do not. */
-  await expectShowing(page, 26);
-  await expect(countLine(page)).toContainText(/23 don't state this/i);
+  await expectShowing(page, expected.totalElements);
+  await expect(countLine(page)).toContainText(new RegExp(`${expected.unstatedElements} don't state this`, 'i'));
 
   const shown = await hrefs(page);
   expect(shown).toEqual(expect.arrayContaining(['/property/p5008', '/property/p5120']));
 });
 
-test('the disclosure is absent when neither slider was moved', async ({ page }) => {
+test('the disclosure is absent when neither slider was moved', async ({ page, request }) => {
+  const expected = await apiTotals(request, { deal: 'buy' });
   await page.goto(`${BASE}/listings?deal=buy`);
-  await expectShowing(page, 33);
+  await expectShowing(page, expected.totalElements);
   // Nothing was asked about age or floor, so nobody is silent on a question that was put to them.
   await expect(countLine(page)).not.toContainText(/state this/i);
 });

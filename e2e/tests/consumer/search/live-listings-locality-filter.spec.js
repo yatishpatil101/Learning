@@ -115,3 +115,32 @@ test('with Google unavailable the filter falls back to the static canonical regi
   await expect(aside.locator('button[aria-label="Localities"] .dz-dropdown__value')).toHaveText(/Wakad/, { timeout: 8000 });
   expect(errors, errors.join('\n')).toHaveLength(0);
 });
+
+/* Regression guard: the filter's Localities search once knew only the listing-derived seed
+   localities, so any other Pune locality returned "No matches". The canonical registry is merged in,
+   searchable offline with no Maps SDK. */
+const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
+
+test('registry-only localities are searchable and selectable in the filter', async ({ page }) => {
+  const errors = trackErrors(page);
+
+  await page.goto(`${BASE}/listings`);
+  await filters(page).first().waitFor();
+
+  const group = filters(page).locator('.filter-group:has(h4:has-text("Localities"))').first();
+  await group.locator('.dz-dropdown__trigger').first().click();
+  await expect(page.locator('.dz-dropdown__menu--portal')).toBeVisible();
+
+  // "Kalyani Nagar" is in the canonical registry but NOT in the seed collection.
+  await page.locator('.dz-dropdown__menu--portal input').first().fill('Kalyani');
+  const option = page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: 'Kalyani Nagar' }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  // Selection applies; the chip shows the friendly name (not a raw slug).
+  await expect(group.locator('.dz-dropdown__trigger')).toContainText('Kalyani Nagar');
+  await expect(page.locator('.af-chip', { hasText: 'Kalyani Nagar' }).first()).toBeVisible();
+
+  const relevant = errors.filter((e) => !/favicon|leaflet|CDN|net::ERR|Download the React DevTools/i.test(e));
+  expect(relevant).toEqual([]);
+});

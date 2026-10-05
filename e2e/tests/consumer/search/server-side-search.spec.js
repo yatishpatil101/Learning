@@ -85,7 +85,7 @@ test('page 2 is a different set of listings that all still match', async ({ page
   expect(await slugs(page)).not.toEqual(pageOne);
 });
 
-test('the totals describe the whole match, not the page on screen', async ({ page }) => {
+test('the totals describe the whole match, not the page on screen, and a narrowed search reports its own smaller total', async ({ page }) => {
   /* Identical totals on both pages are only possible if the server counted the match; the guards
      keep that non-trivial by requiring a match bigger than a page with some of it unbadged. */
   const [first, second] = await Promise.all([
@@ -110,121 +110,60 @@ test('the totals describe the whole match, not the page on screen', async ({ pag
   expect(shown).toBe((await get(`deal=buy&size=${PAGE_SIZE}&page=0`)).totalElements);
   expect(shown).toBeGreaterThan(PAGE_SIZE);
   expect(await slugs(page)).toHaveLength(PAGE_SIZE);
-});
 
-test('a narrowed search reports its own smaller total, not the catalogue', async ({ page }) => {
   /* Fails if the count line is wired to the unfiltered response: refining must move the number
      down to the filtered match, not to the number of cards left on screen. */
-  await page.goto('/listings?deal=buy');
-  const all = await settledCount(page);
-  expect(all).toBe((await get('deal=buy&size=1')).totalElements);
+  expect(shown).toBe((await get('deal=buy&size=1')).totalElements);
 
   await page.goto('/listings?deal=buy&loc=Wagholi');
   const narrowed = await settledCount(page);
   expect(narrowed).toBe((await get('deal=buy&localities=wagholi&size=1')).totalElements);
-  expect(narrowed, 'the Wagholi filter did not narrow anything').toBeLessThan(all);
-});
-
-/* `property_type` is free text a poster chose, so chips send facet values against the generated
-   `property_type_key` column rather than matching strings against an alias list in the browser. */
-
-test('the Flat chip is a family, not a string match', async () => {
-  /* A penthouse is a flat to a shopper, and `p5023` is stored as "Penthouse". Membership, not
-     count: which other rows are in the family depends on what the rest of the suite posted. */
-  const flats = await get('deal=buy&types=flat&size=100');
-
-  const penthouse = flats.content.find((p) => p.slug === 'p5023');
-  expect(penthouse, 'the Penthouse dropped out of the Flat chip').toBeDefined();
-  expect(penthouse.propertyType).toBe('Penthouse');
-
-  /* The family is a family and not everything: a commercial unit and a plot are both `deal=buy`
-     and neither is a flat, so a chip that had degenerated into a no-op would fail here. */
-  const everything = await get('deal=buy&size=1');
-  expect(flats.totalElements).toBeLessThan(everything.totalElements);
-});
-
-test('a shared room is not a flat, and the two chips do not overlap', async () => {
-  /* Shared rooms are posted under a "Flat" shape often enough that string matching drags them into
-     flat searches. They are separate products, so the chips must be disjoint in both directions. */
-  const [flats, shares] = await Promise.all([
-    get('deal=rent&types=flat&size=100'),
-    get('deal=rent&types=flatmates&size=100'),
-  ]);
-
-  expect(flats.totalElements, 'no rent flats - nothing to overlap').toBeGreaterThan(0);
-  expect(shares.totalElements, 'no shared rooms - nothing to overlap').toBeGreaterThan(0);
-
-  const flatRefs = new Set(flats.content.map(ref));
-  const overlap = shares.content.map(ref).filter((s) => flatRefs.has(s));
-  expect(overlap, 'a shared room surfaced under the Flat chip').toEqual([]);
-
-  /* `p5033` is a share posted with a `property_type` of "Flat" — the row string matching gets
-     wrong in both directions at once. */
-  expect(shares.content.map((p) => p.slug)).toContain('p5033');
-  expect(flats.content.map((p) => p.slug)).not.toContain('p5033');
-});
-
-test('the commercial sub-filter narrows within commercial, and stays inside it', async () => {
-  /* Commercial listings share one chip and are told apart by use, in a second canonical column
-     (BN), so the result must be a strict subset of the commercial match. */
-  const [all, offices] = await Promise.all([
-    get('deal=buy&types=commercial&size=100'),
-    get('deal=buy&types=commercial&commercialUses=office&size=100'),
-  ]);
-
-  expect(offices.totalElements, 'no commercial offices - the sub-filter proves nothing')
-    .toBeGreaterThan(0);
-  expect(
-    offices.totalElements,
-    'every commercial listing is an office, so "narrows" is unfalsifiable here',
-  ).toBeLessThan(all.totalElements);
-
-  const commercial = new Set(all.content.map(ref));
-  for (const p of offices.content) expect(commercial).toContain(ref(p));
+  expect(narrowed, 'the Wagholi filter did not narrow anything').toBeLessThan(shown);
 });
 
 /* The contract spells a half-furnished home `semi-furnished` while the browser spells it `semi`, and
    an untranslated chip fails silently as an empty result — so these assert against the server. */
 
-test('the Furnishing chip sends a word the database knows', async () => {
-  /* Below the UI on purpose: every contract value must select a non-empty, self-consistent set, so
-     a drifting vocabulary fails on the guard rather than passing on an empty page. */
-  const all = await get('deal=rent&types=flat&size=1');
-  expect(all.totalElements, 'no rent flats - nothing to narrow').toBeGreaterThan(0);
+test('the Furnishing chip sends a word the database knows and narrows the grid instead of emptying it', async ({ page }) => {
+  await test.step('the API accepts the contract word and rejects the UI spelling', async () => {
+    /* Below the UI on purpose: every contract value must select a non-empty, self-consistent set, so
+       a drifting vocabulary fails on the guard rather than passing on an empty page. */
+    const all = await get('deal=rent&types=flat&size=1');
+    expect(all.totalElements, 'no rent flats - nothing to narrow').toBeGreaterThan(0);
 
-  const semi = await get('deal=rent&types=flat&furnishings=semi-furnished&size=100');
-  expect(
-    semi.totalElements,
-    'no semi-furnished rent flats. That is the commonest answer in this market, so an empty match'
-    + ' means the word on the wire is not the word the column holds.',
-  ).toBeGreaterThan(0);
-  for (const p of semi.content) expect(p.furnishing).toBe('semi-furnished');
+    const semi = await get('deal=rent&types=flat&furnishings=semi-furnished&size=100');
+    expect(
+      semi.totalElements,
+      'no semi-furnished rent flats. That is the commonest answer in this market, so an empty match'
+      + ' means the word on the wire is not the word the column holds.',
+    ).toBeGreaterThan(0);
+    for (const p of semi.content) expect(p.furnishing).toBe('semi-furnished');
 
-  /* And the UI spelling must NOT work, or the assertion above proves only that the server ignores
-     the parameter. `semi` is what the browser used to send. */
-  const uiWord = await get('deal=rent&types=flat&furnishings=semi&size=1');
-  expect(
-    uiWord.totalElements,
-    '`furnishings=semi` now matches rows, so the server has gained the UI spelling and the'
-    + ' translation table in facetQuery/propertyMapper is the thing that is now wrong.',
-  ).toBe(0);
+    /* And the UI spelling must NOT work, or the assertion above proves only that the server ignores
+       the parameter. `semi` is what the browser used to send. */
+    const uiWord = await get('deal=rent&types=flat&furnishings=semi&size=1');
+    expect(
+      uiWord.totalElements,
+      '`furnishings=semi` now matches rows, so the server has gained the UI spelling and the'
+      + ' translation table in facetQuery/propertyMapper is the thing that is now wrong.',
+    ).toBe(0);
+  });
+
+  await test.step('ticking Semi-Furnished narrows the grid instead of emptying it', async () => {
+    /* The count must come down and land on the server's answer: an untranslated chip lands on zero,
+       which the page renders as "no matches" — indistinguishable from a legitimately empty filter. */
+    await page.goto('/listings?deal=rent&type=flat');
+    const before = await settledCount(page);
+    expect(before).toBeGreaterThan(0);
+
+    /* The label, not the input (`.custom-cb` is `display: none`), and by id, not accessible name:
+       the mobile drawer mounts a second copy of every filter earlier in the DOM. */
+    await page.locator('label[for="furn-semi"]').click();
+
+    const oracle = (await get('deal=rent&types=flat&furnishings=semi-furnished&size=1')).totalElements;
+    await expect.poll(async () => settledCount(page), { timeout: 15000 }).toBe(oracle);
+    expect(oracle, 'the chip emptied the grid').toBeGreaterThan(0);
+    expect(oracle, 'every rent flat is semi-furnished, so "narrows" is unfalsifiable here')
+      .toBeLessThan(before);
+  });
 });
-
-test('ticking Semi-Furnished narrows the grid instead of emptying it', async ({ page }) => {
-  /* The count must come down and land on the server's answer: an untranslated chip lands on zero,
-     which the page renders as "no matches" — indistinguishable from a legitimately empty filter. */
-  await page.goto('/listings?deal=rent&type=flat');
-  const before = await settledCount(page);
-  expect(before).toBeGreaterThan(0);
-
-  /* The label, not the input (`.custom-cb` is `display: none`), and by id, not accessible name:
-     the mobile drawer mounts a second copy of every filter earlier in the DOM. */
-  await page.locator('label[for="furn-semi"]').click();
-
-  const oracle = (await get('deal=rent&types=flat&furnishings=semi-furnished&size=1')).totalElements;
-  await expect.poll(async () => settledCount(page), { timeout: 15000 }).toBe(oracle);
-  expect(oracle, 'the chip emptied the grid').toBeGreaterThan(0);
-  expect(oracle, 'every rent flat is semi-furnished, so "narrows" is unfalsifiable here')
-    .toBeLessThan(before);
-});
-

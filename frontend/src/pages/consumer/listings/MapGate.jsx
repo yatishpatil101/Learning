@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 
@@ -16,16 +17,40 @@ const popularAreas = (localities, limit = 8) =>
     .sort((a, b) => (b.listings || 0) - (a.listings || 0) || (b.demand || 0) - (a.demand || 0))
     .slice(0, limit);
 
-export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, setView }) {
+export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, setView, suggestedLocalities = [] }) {
   const { t } = useTranslation();
   const selected = [...f.localities];
   const overLimit = selected.length > maxAreas;
+  const initialDraft = useMemo(() => suggestedLocalities.slice(0, maxAreas), [suggestedLocalities, maxAreas]);
+  const [draft, setDraft] = useState(() => new Set(initialDraft));
+
+  useEffect(() => {
+    if (f.localities.size === 0) setDraft(new Set(initialDraft));
+  }, [f.localities.size, initialDraft]);
+
+  const choices = useMemo(() => {
+    const bySlug = new Map(localities.filter((l) => l.active !== false).map((l) => [l.slug, l]));
+    const picked = initialDraft.map((slug) => bySlug.get(slug)).filter(Boolean);
+    const rest = popularAreas(localities, 10).filter((l) => !initialDraft.includes(l.slug));
+    return [...picked, ...rest].slice(0, 8);
+  }, [localities, initialDraft]);
 
   const toggleArea = (slug) => {
     const next = new Set(f.localities);
     if (next.has(slug)) next.delete(slug);
     else next.add(slug);
     set({ localities: next });
+  };
+  const toggleDraftArea = (slug) => {
+    setDraft((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else if (next.size < maxAreas) next.add(slug);
+      return next;
+    });
+  };
+  const showMap = () => {
+    if (draft.size) set({ localities: new Set([...draft].slice(0, maxAreas)) });
   };
 
   return (
@@ -74,16 +99,16 @@ export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, s
             </p>
 
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              {popularAreas(localities).map((l) => {
-                const on = f.localities.has(l.slug);
+              {choices.map((l) => {
+                const on = draft.has(l.slug);
                 return (
                   <button
                     key={l.slug}
                     type="button"
-                    onClick={() => toggleArea(l.slug)}
+                    onClick={() => toggleDraftArea(l.slug)}
                     aria-pressed={on}
                     className={
-                      'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium t-all ' +
+                      'inline-flex min-h-11 items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium t-all ' +
                       (on
                         ? 'bg-teal-500/15 border-teal-400/40 text-teal-200'
                         : 'bg-white/5 border-white/10 text-gray-300 hover:border-teal-400/40 hover:text-white')
@@ -94,6 +119,15 @@ export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, s
                 );
               })}
             </div>
+
+            <button
+              type="button"
+              onClick={showMap}
+              disabled={draft.size === 0}
+              className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition-all disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-gray-500"
+            >
+              <Icon name="map" className="w-4 h-4" /> {t('listings.showBtn')} {t('listings.mapView')}
+            </button>
 
             <p className="mt-6 text-xs text-gray-600">
               {t('listings.preferSwitch')}{' '}
