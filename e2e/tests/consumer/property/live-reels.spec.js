@@ -136,7 +136,7 @@ test('the feed is the catalogue, not a curated list — every qualifying home is
   expect(shown.sort()).toEqual(eligible.map(refOf).sort());
 });
 
-test('loads with no console errors and core chrome present', async ({ page, consoleErrors }) => {
+test('loads with no console errors and core chrome present, and the contact link and View home resolve', async ({ page, consoleErrors }) => {
   await openFeed(page);
   await expect(page.getByText('Reels', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Rent' })).toBeVisible();
@@ -149,6 +149,12 @@ test('loads with no console errors and core chrome present', async ({ page, cons
   const ref = href.split('/').pop();
   const res = await fetch(`${API}/properties/${ref}`);
   expect(res.status, `the first reel links to ${ref}, which the API does not resolve`).toBe(200);
+
+  await expect(page.getByRole('link', { name: 'Contact owner' }).first())
+    .toHaveAttribute('href', /\/contact\?ref=[a-z0-9-]+/i);
+  await page.getByRole('link', { name: /View home/i }).first().click();
+  await expect(page).toHaveURL(/\/property\/[a-z0-9-]+/i);
+  await expect(page.getByText(/not found/i)).toHaveCount(0);
 
   expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
 });
@@ -210,25 +216,7 @@ test('saving from a reel reaches the caller shortlist on the server', async ({ p
     .toEqual([ref]);
 });
 
-test('Like toggles the pressed state', async ({ page }) => {
-  await openFeed(page);
-  const likeBtn = page.getByRole('button', { name: 'Like', exact: true }).first();
-  await expect(likeBtn).toHaveAttribute('aria-pressed', 'false');
-  await likeBtn.click();
-  await expect(page.getByRole('button', { name: 'Unlike', exact: true }).first())
-    .toHaveAttribute('aria-pressed', 'true');
-});
-
-test('Contact link carries a property ref and View home resolves', async ({ page }) => {
-  await openFeed(page);
-  await expect(page.getByRole('link', { name: 'Contact owner' }).first())
-    .toHaveAttribute('href', /\/contact\?ref=[a-z0-9-]+/i);
-  await page.getByRole('link', { name: /View home/i }).first().click();
-  await expect(page).toHaveURL(/\/property\/[a-z0-9-]+/i);
-  await expect(page.getByText(/not found/i)).toHaveCount(0);
-});
-
-test('Like and Save icons render (not fill=none invisible)', async ({ page }) => {
+test('the Like and Save icons render, and Like toggles the pressed state', async ({ page }) => {
   await openFeed(page);
   const like = page.locator('.rail button[aria-label="Like"] svg').first();
   const save = page.locator('.rail button[aria-label="Save property"] svg').first();
@@ -237,6 +225,12 @@ test('Like and Save icons render (not fill=none invisible)', async ({ page }) =>
   const box = await like.boundingBox();
   expect(box.width).toBeGreaterThan(10);
   expect(await like.locator('path').count()).toBeGreaterThan(0);
+
+  const likeBtn = page.getByRole('button', { name: 'Like', exact: true }).first();
+  await expect(likeBtn).toHaveAttribute('aria-pressed', 'false');
+  await likeBtn.click();
+  await expect(page.getByRole('button', { name: 'Unlike', exact: true }).first())
+    .toHaveAttribute('aria-pressed', 'true');
 });
 
 test('photos scroll horizontally within a property and dots update', async ({ page }) => {

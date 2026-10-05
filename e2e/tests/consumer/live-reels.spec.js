@@ -73,41 +73,13 @@ test('the count on the card agrees with the gallery on the detail page', async (
   }
 });
 
-test('the feed is not empty, and holds exactly the listings that qualify', async ({ page }) => {
+test('the feed is served by the API, is not empty, holds exactly the qualifying listings, and every reel holds its frames', async ({ page }) => {
   const catalogue = await (await fetch(`${API}/properties?size=${WHOLE_CATALOGUE}`)).json();
   const qualify = eligible(catalogue.content);
   /* Derived, not hardcoded. The bug being pinned is "zero reels"; a literal expectation would go red
      for the wrong reason the first time somebody seeds another flat. */
   expect(qualify.length, 'some seeded homes have enough photos to be a walkthrough').toBeGreaterThan(0);
 
-  await page.goto('/reels');
-
-  /* The regression itself. Before the count existed this was 0 forever, while the page showed a
-     spinner rather than its empty state. */
-  const viewHome = page.getByRole('link', { name: /View home/i });
-  await expect(viewHome.first()).toBeVisible();
-  const shown = await viewHome.count();
-  expect(shown).toBeGreaterThan(0);
-  expect(shown, 'the feed never invents a reel the catalogue does not justify').toBeLessThanOrEqual(qualify.length);
-});
-
-test('every reel actually holds its frames', async ({ page }) => {
-  await page.goto('/reels');
-  await expect(page.getByRole('link', { name: /View home/i }).first()).toBeVisible();
-
-  /* Filtering correctly and hydrating wrongly would produce a feed of one-frame "tours" — worse than
-     an empty feed, because it looks like broken listings rather than a quiet page. The gate is
-     re-applied after hydration in the page for this reason; this asserts it held.
-
-     Counted off `.reel-slide` rather than `img`, because the frames are background images on divs —
-     an `img` selector finds nothing here and would have made this test pass by never looking. */
-  const frames = await page.locator('.reel-slide').count();
-  const reels = await page.getByRole('link', { name: /View home/i }).count();
-  expect(reels).toBeGreaterThan(0);
-  expect(frames, 'at least MIN_PHOTOS frames per reel').toBeGreaterThanOrEqual(reels * MIN_PHOTOS);
-});
-
-test('the feed is served by the API, not from a bundled array', async ({ page }) => {
   /* Armed before the navigation. The page began life as eight hardcoded entries whose CTAs merely
      pointed at real ids, so "it renders reels linking to real properties" is exactly what the
      version this replaces would also have passed. The request is the only thing that separates
@@ -120,4 +92,21 @@ test('the feed is served by the API, not from a bundled array', async ({ page })
   /* And the second round, which is what makes the photos real: the card cannot carry them, so a feed
      that never opened a detail request could not be showing a genuine gallery. */
   await detailCall;
+
+  /* The regression itself. Before the count existed this was 0 forever, while the page showed a
+     spinner rather than its empty state. */
+  const viewHome = page.getByRole('link', { name: /View home/i });
+  await expect(viewHome.first()).toBeVisible();
+  const shown = await viewHome.count();
+  expect(shown).toBeGreaterThan(0);
+  expect(shown, 'the feed never invents a reel the catalogue does not justify').toBeLessThanOrEqual(qualify.length);
+
+  /* Filtering correctly and hydrating wrongly would produce a feed of one-frame "tours" — worse than
+     an empty feed, because it looks like broken listings rather than a quiet page. The gate is
+     re-applied after hydration in the page for this reason; this asserts it held.
+
+     Counted off `.reel-slide` rather than `img`, because the frames are background images on divs —
+     an `img` selector finds nothing here and would have made this test pass by never looking. */
+  const frames = await page.locator('.reel-slide').count();
+  expect(frames, 'at least MIN_PHOTOS frames per reel').toBeGreaterThanOrEqual(shown * MIN_PHOTOS);
 });
