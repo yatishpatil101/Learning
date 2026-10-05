@@ -1,7 +1,7 @@
 /* Pure presentation only, so a component needing a timestamp formatted does not thereby pull in a
    data layer. The one dependency is `contactService`, which is a real service call. */
 
-import { contactStatus } from '../services/contactService.js';
+import { isFullMobile } from './contact.js';
 
 const DAY = 86400000;
 const now = () => Date.now();
@@ -37,11 +37,7 @@ export function relTime(at, fallback = '') {
 // A thread the server holds implies an approved contact request in one direction, so the owner side
 // is decided by the row in hand; the buyer side must ask the gate. Promise either way, for one shape.
 export async function canRevealParty(conv) {
-  if (!conv) return false;
-  if (conv.youAre !== 'buyer') return !conv.staged;
-  if (!conv.propertyId) return false;
-  const { status } = await contactStatus(conv.propertyId);
-  return status === 'approved' || status === 'owner';
+  return !!conv && isFullMobile(conv.party?.mobile);
 }
 
 export const messagesLinkForProp = (p) => `/messages?openProp=${encodeURIComponent(String(p?.id || ''))}`;

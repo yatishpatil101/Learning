@@ -1,6 +1,5 @@
 package com.draazy.api.leads.conversation;
 
-import com.draazy.api.common.attachment.MessageAttachmentDto;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
@@ -9,13 +8,16 @@ import com.draazy.api.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,28 +25,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * {@code /messages} — the in-app inbox.
- *
- * <p>No {@code @PreAuthorize} anywhere: every guard on this resource is about <em>who the caller is
- * to the other party</em>, not what role they hold, and roles cannot express that. The service owns
- * all four decisions.
- *
- * <p>The inbox is paged. It was a bare array on §5.1's "grows with one user's own activity"
- * reasoning, which holds for a seeker and fails for an owner: a row appears every time somebody
- * else enquires about their listing, so the collection is driven by demand rather than by the
- * caller.
- */
+// Role guards cannot express conversation access; participant checks do.
 @RestController
+@Validated
 public class ConversationsController {
 
     private final ConversationService service;
 
-    /**
-     * Opening a thread is a different use-case from carrying one on, and after §4.1 a different
-     * service — see {@link ConversationOpeningService}. Only {@code POST /messages} reaches it.
-     */
+    // Opening a thread has separate trust rules from carrying one on.
     private final ConversationOpeningService opening;
 
     public ConversationsController(ConversationService service, ConversationOpeningService opening) {
@@ -52,26 +42,26 @@ public class ConversationsController {
         this.opening = opening;
     }
 
-    /**
-     * {@code GET /messages} (contract {@code myMessages}) — paged.
-     *
-     * <p>Most-recent-first is fixed in the query, so a client sort is stripped rather than honoured;
-     * see {@code ConversationRepository.inboxOf}.
-     */
     @GetMapping(Routes.Conversations.BASE)
     public PageResponse<ConversationDto> inbox(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(service.inbox(principal, Pageables.unsorted(pageable)), c -> c);
     }
 
-    /**
-     * {@code POST /messages} (contract {@code startConversation}, spec fix S48).
-     *
-     * <p>201 when the thread was created, 200 when it already existed — hence {@code ResponseEntity}
-     * rather than {@code @ResponseStatus}. Both carry the same body, so a client that ignores the
-     * distinction still behaves correctly; one that honours it can tell a new chat from a resumed one
-     * without a second request.
-     */
+    @GetMapping(Routes.Conversations.UNREAD_COUNT)
+    public ConversationService.UnreadCount unreadCount(@CurrentUser AuthPrincipal principal) {
+        return service.unreadCount(principal);
+    }
+
+    @GetMapping(Routes.Conversations.STREAM)
+    public ResponseEntity<SseEmitter> stream(@CurrentUser AuthPrincipal principal) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .header("X-Accel-Buffering", "no")
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache")
+                .body(service.stream(principal));
+    }
+
     @PostMapping(Routes.Conversations.BASE)
     public ResponseEntity<ConversationDto> start(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody ConversationCreate body) {
@@ -81,60 +71,82 @@ public class ConversationsController {
                 .body(started.conversation());
     }
 
-    /** {@code GET /messages/{id}} (contract {@code getConversation}). */
     @GetMapping(Routes.Conversations.BY_ID)
     public ConversationDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.get(principal, id);
     }
 
-    /** {@code POST /messages/{id}/reply} (contract {@code replyConversation}) — 201. */
     @PostMapping(Routes.Conversations.REPLY)
-    @ResponseStatus(HttpStatus.CREATED)
-    public MessageDto reply(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+    public ResponseEntity<MessageDto> reply(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody MessageCreate body) {
-        return service.reply(principal, id, body.body(), body.attachments());
+        ConversationService.Sent sent = service.reply(principal, id,
+                new ConversationService.ReplyCreate(body.body(), body.clientId(), body.replyToId()));
+        return ResponseEntity.status(sent.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(sent.message());
     }
 
-    /**
-     * {@code POST /messages/{id}/attachments} (contract {@code attachToConversation}) — 201.
-     *
-     * <p>Multipart, and {@code consumes} is pinned so a JSON body is refused with a 415 by the
-     * routing table rather than by handler code — the same reason {@code MeDocumentsController}
-     * pins it. The response is an attachment id the caller then names in a
-     * {@link MessageCreate#attachments()}; the bytes are not visible to anyone until that reply
-     * lands.
-     */
-    @PostMapping(value = Routes.Conversations.ATTACHMENTS,
-            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @ResponseStatus(HttpStatus.CREATED)
-    public MessageAttachmentDto attach(@CurrentUser AuthPrincipal principal, @PathVariable String id,
-            @RequestParam("file") MultipartFile file) {
-        return service.attach(principal, id, file);
+    @PostMapping(value = Routes.Conversations.PHOTOS, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<MessageDto> photo(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "clientId", required = false) @Size(max = 120) String clientId,
+            @RequestParam(value = "caption", required = false) @Size(max = 1000) String caption) {
+        ConversationService.Sent sent = service.photo(principal, id,
+                new ConversationService.PhotoCreate(file, clientId, caption));
+        return ResponseEntity.status(sent.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(sent.message());
     }
 
-    /** {@code POST /messages/{id}/read} (contract {@code readConversation}) — 204. */
     @PostMapping(Routes.Conversations.READ)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void markRead(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         service.markRead(principal, id);
     }
 
-    /**
-     * Contract schema {@code MessageCreate}.
-     *
-     * <p>{@code attachments} names uploads the caller has already made against this thread via
-     * {@link #attach}; it is not a list of URLs and never was one, because a client-supplied
-     * location stored and re-served by the platform is a request-forgery surface (D49). Each entry
-     * is an attachment id, and the service refuses any that is not the caller's own, on this thread,
-     * and unsent.
-     *
-     * <p>The size cap is duplicated from {@code MessageAttachmentUploads.MAX_PER_MESSAGE} rather
-     * than referenced because {@code @Size} needs a constant expression; the service enforces the
-     * same number, and that is the one that decides.
-     */
-    public record MessageCreate(
-            @NotBlank @Size(max = 4000) String body,
-            @Size(max = 5, message = "A message can carry at most 5 attachments")
-            List<String> attachments) {
+    @PostMapping(Routes.Conversations.TYPING)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void typing(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        service.typing(principal, id);
     }
-}
+
+    @PatchMapping(Routes.Conversations.STATE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void state(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @RequestBody ConversationService.ThreadState body) {
+        service.updateState(principal, id, body);
+    }
+
+    @DeleteMapping(Routes.Conversations.ITEM)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteForMe(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @PathVariable String messageId) {
+        service.deleteForMe(principal, id, messageId);
+    }
+
+    @PostMapping(Routes.Conversations.BLOCK)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void block(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        service.block(principal, id);
+    }
+
+    @DeleteMapping(Routes.Conversations.BLOCK)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unblock(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        service.unblock(principal, id);
+    }
+
+    @PostMapping(Routes.Conversations.FLATMATE_GROUP)
+    public ConversationDto openGroup(@CurrentUser AuthPrincipal principal,
+            @PathVariable String groupId) {
+        return service.openGroup(principal, groupId);
+    }
+
+    @PostMapping(Routes.Conversations.FLATMATE_REQUEST)
+    public ConversationDto openForFlatmateRequest(@CurrentUser AuthPrincipal principal,
+            @PathVariable String requestId) {
+        return opening.openForFlatmateRequest(principal, requestId);
+    }
+
+    public record MessageCreate(@NotBlank @Size(max = 4000) String body,
+            @Size(max = 120) String clientId, String replyToId) {
+    }
+    }

@@ -1,4 +1,4 @@
-import { get, post } from '../../http.js';
+import { del, get, openEventStream, patch, post, postMultipart } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import {
   stagedToViewModel,
@@ -46,7 +46,48 @@ export async function startConversation({ counterpartyMobile, propertyId, firstM
 }
 
 export async function replyToConversation(id, body) {
-  return toMessage(await post(`/messages/${encodeURIComponent(id)}/reply`, { body }), viewerId());
+  const input = typeof body === 'string' ? { body } : body;
+  return toMessage(await post(`/messages/${encodeURIComponent(id)}/reply`, {
+    body: input.body,
+    clientId: input.clientId,
+    replyToId: input.replyToId,
+  }), viewerId());
+}
+
+export async function sendConversationPhoto(id, { file, caption, clientId }) {
+  const form = new FormData();
+  form.set('file', file);
+  if (clientId) form.set('clientId', clientId);
+  if (caption) form.set('caption', caption);
+  return toMessage(await postMultipart(`/messages/${encodeURIComponent(id)}/photos`, form), viewerId());
+}
+
+export async function updateConversationState(id, state) {
+  if (String(id).startsWith('staged:')) return;
+  await patch(`/messages/${encodeURIComponent(id)}/state`, state);
+}
+
+export async function deleteMessageForMe(id, messageId) {
+  await del(`/messages/${encodeURIComponent(id)}/items/${encodeURIComponent(messageId)}`);
+}
+
+export async function setConversationBlocked(id, blocked) {
+  const path = `/messages/${encodeURIComponent(id)}/block`;
+  if (blocked) await post(path, {});
+  else await del(path);
+}
+
+export async function openGroupConversation(groupId) {
+  try {
+    return toViewModel(await post(`/messages/flatmate-groups/${encodeURIComponent(groupId)}`, {}), viewerId());
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+export async function openFlatmateRequestConversation(requestId) {
+  return toViewModel(await post(`/messages/flatmate-requests/${encodeURIComponent(requestId)}`, {}), viewerId());
 }
 
 export async function markConversationRead(id) {
@@ -54,12 +95,20 @@ export async function markConversationRead(id) {
   await post(`/messages/${encodeURIComponent(id)}/read`, {});
 }
 
+export async function sendTyping(id) {
+  if (String(id).startsWith('staged:')) return;
+  await post(`/messages/${encodeURIComponent(id)}/typing`, {});
+}
+
+export async function openMessageStream(opts) {
+  return openEventStream('/messages/stream', opts);
+}
+
 /* No count endpoint exists, so this sums the inbox page. Accurate up to the ceiling, and audibly wrong
    beyond it rather than silently. */
 export async function unreadCount() {
-  const page = await get('/messages', { size: PAGE_SIZE });
-  const fromServer = (page?.content ?? []).reduce((n, c) => n + (c.unread || 0), 0);
-  return fromServer + readQueue().length;
+  const res = await get('/messages/unread-count');
+  return Number(res?.count) || 0;
 }
 
 /* "Message owner" is reachable before the contact gate opens, where `POST /messages` answers 403 — so stage
@@ -75,6 +124,8 @@ export async function queuePendingChat(property, { firstMessage, active = false 
     return;
   }
   queue.push({
+    kind: 'chat',
+    userId: viewerId(),
     propertyId: String(property.id),
     at: Date.now(),
     property: {
@@ -115,7 +166,6 @@ export async function drainPendingChats() {
   return { sent, blocked: remaining.length };
 }
 
-
 /* `null` is survivable: the mapper then treats every message as the counterparty's, which is the safer
    direction than claiming a stranger's words are the reader's. */
 const viewerId = () => readUser()?.id ?? null;
@@ -124,10 +174,27 @@ function readQueue() {
   try {
     const raw = localStorage.getItem(QUEUE_KEY);
     const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
+    if (!Array.isArray(arr)) return [];
+    const mine = viewerId();
+    return arr.filter((item) => item?.userId === mine);
   } catch {
     // A corrupt queue must not take the inbox down with it.
     return [];
+  }
+}
+
+export function clearConversationDeviceState() {
+  try {
+    const mine = viewerId();
+    const raw = localStorage.getItem(QUEUE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(arr)) writeQueue(arr.filter((item) => item?.userId && item.userId !== mine));
+    localStorage.removeItem('dzDismissedNotifs');
+    Object.keys(sessionStorage)
+      .filter((key) => key.startsWith('dzMsgDraft:'))
+      .forEach((key) => sessionStorage.removeItem(key));
+  } catch {
+    /* storage cleanup is best-effort */
   }
 }
 

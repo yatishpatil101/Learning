@@ -22,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -51,6 +52,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * assertions honest.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @DisplayName("Two first messages in one thread, sent together")
 class ConversationStartRaceTest {
 
