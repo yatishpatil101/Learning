@@ -91,7 +91,7 @@ test('a post removed from the reports queue is gone from the society page a neig
   try {
     await signIn(opsPage, ACTORS.admin, { screen: 'staff', role: 'admin' });
     await opsPage.goto(`${BASE}/admin/reports?tab=society`);
-    const row = opsPage.getByRole('table').getByRole('row', { name: new RegExp(marker) });
+    const row = opsPage.getByTestId('queue-row').filter({ hasText: marker });
     await expect(row).toBeVisible({ timeout: 20_000 });
     await row.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(opsPage.getByRole('alert')).toContainText('Society post removed', { timeout: 20_000 });

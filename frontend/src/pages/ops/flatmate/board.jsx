@@ -16,35 +16,13 @@ export function Block({ icon: Icon, title, children, className, aside }) {
   );
 }
 
-/** Labels only in the accessible names — no live counts that go stale between two decisions. */
-export function Tabs({ tabs, active, onChange, label }) {
-  return (
-    <div role="group" aria-label={label} className="mb-4 flex w-full flex-wrap gap-1 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-max">
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          aria-pressed={active === t.id}
-          onClick={() => onChange(t.id)}
-          className={classNames(
-            'rounded-lg px-3 py-1.5 text-sm font-medium transition',
-            active === t.id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:bg-white/5',
-          )}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /* A failed read must never render as an empty queue: "nothing to do" and "the read did not work"
    look the same and only one of them means the desk can go home. */
 export function QueueState({ state, onRetry, empty }) {
   if (state.status === 'loading') return <Loading />;
   if (state.status === 'error') {
     return (
-      <div className="dz-card flex items-start gap-3 p-6 text-sm text-gray-300">
+      <div className="flex items-start gap-3 p-6 text-sm text-gray-300">
         <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
         <div>
           <div className="font-semibold text-gray-100">This queue could not be read.</div>
@@ -57,7 +35,7 @@ export function QueueState({ state, onRetry, empty }) {
     );
   }
   if (!state.items.length) {
-    return <div className="dz-card p-10 text-center text-sm text-gray-500">{empty}</div>;
+    return <p className="p-10 text-center text-sm text-gray-400">{empty}</p>;
   }
   return null;
 }

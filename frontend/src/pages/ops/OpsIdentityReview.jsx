@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, RefreshCw, Search, X } from 'lucide-react';
+import { Clock, RefreshCw } from 'lucide-react';
 import { identityReviewSummary, listIdentityReviews } from '../../services/identityReviewService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { hasPermission } from '../../lib/adminModules.js';
 import { classNames, fmtNum } from '../../lib/format.js';
 import { useTabParam } from '../../lib/useTabParam.js';
-import { Chips, PageNav } from '../admin/properties/QueueFilterBar.jsx';
+import { Chips, ClearFilters, PageNav, QueueTabs, SearchBox } from '../../components/admin/WorkQueue.jsx';
 import KycReviewModal from './kyc/KycReviewModal.jsx';
 import { CLAIM_HOLD_LIMIT, DOC_OPTIONS, STATUS_LABELS, dateLabel, docLabel, elapsed } from './kyc/vocabulary.js';
 
@@ -114,43 +114,19 @@ export default function OpsIdentityReview() {
         actions={<button type="button" onClick={reload} className="dz-btn dz-btn-ghost"><RefreshCw className="h-4 w-4" /> Refresh</button>}
       />
 
-      <div role="tablist" aria-label="KYC queues" className="mb-4 flex gap-1 border-b border-white/10">
-        {TABS.map((t) => {
-          const n = summary ? t.count(summary) : null;
-          const on = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              id={`kyc-tab-${t.key}`}
-              aria-controls="kyc-panel"
-              aria-selected={on}
-              onClick={() => setTab(t.key)}
-              className={classNames(
-                '-mb-px flex cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-                on ? 'border-brand-teal text-white' : 'border-transparent text-gray-400 hover:text-white',
-              )}
-            >
-              {t.label}
-              {n != null ? (
-                <span data-testid={`kyc-count-${t.key}`} className={classNames('rounded-full px-1.5 py-px text-[11px] tabular-nums', on ? 'bg-brand-teal/20 text-teal-200' : n ? 'bg-white/10 text-gray-200' : 'bg-white/5 text-gray-500')}>
-                  {fmtNum(n)}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+      <QueueTabs
+        label="KYC queues"
+        idPrefix="kyc"
+        countTestId="kyc-count"
+        active={tab}
+        onChange={setTab}
+        tabs={TABS.map((t) => ({ key: t.key, label: t.label, count: summary ? t.count(summary) : null }))}
+      />
 
       <section id="kyc-panel" role="tabpanel" aria-labelledby={`kyc-tab-${tab}`} className="dz-card overflow-hidden p-0">
         <p className="border-b border-white/10 px-4 py-2.5 text-xs text-gray-400">{active.note}</p>
         <div className="flex flex-wrap items-center gap-2 border-b border-white/10 p-3">
-          <label className="relative w-64">
-            <span className="sr-only">Search name or mobile</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" aria-hidden="true" />
-            <input value={filters.q} onChange={(e) => changeFilters({ q: e.target.value })} placeholder="Name or mobile" className="dz-input !h-9 !pl-9 text-sm" />
-          </label>
+          <SearchBox value={filters.q} onChange={(q) => changeFilters({ q })} placeholder="Name or mobile" label="Search name or mobile" />
           <div className="w-36"><Select value={filters.docType} onChange={(docType) => changeFilters({ docType })} options={DOC_OPTIONS} ariaLabel="Document type" size="sm" /></div>
           {tab === 'needs' ? (
             <>
@@ -177,11 +153,7 @@ export default function OpsIdentityReview() {
           ) : null}
           {tab === 'decided' ? <Chips label="Outcome" options={OUTCOME_CHIPS} value={filters.outcome} onChange={(outcome) => changeFilters({ outcome })} /> : null}
           <Chips label="Sort" options={SORT_CHIPS} value={filters.sort} onChange={(sort) => changeFilters({ sort })} />
-          {filtered ? (
-            <button type="button" onClick={() => changeFilters(defaults)} className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-gray-400 hover:text-white">
-              <X className="h-3.5 w-3.5" /> Clear
-            </button>
-          ) : null}
+          {filtered ? <ClearFilters onClick={() => changeFilters(defaults)} /> : null}
           <div className="ml-auto"><PageNav {...paging} /></div>
         </div>
 

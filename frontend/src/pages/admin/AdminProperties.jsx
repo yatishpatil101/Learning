@@ -5,7 +5,6 @@ import { searchForModeration, getProperty, setListingStatus, clearFlag, flagList
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview, listPropertyReviewQueue } from '../../services/propertyReviewService.js';
 import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
-import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { freshnessState } from '../../lib/freshness.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -14,9 +13,9 @@ import { hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Loading from '../../components/ui/Loading.jsx';
-import HScroll from '../../components/ui/HScroll.jsx';
+import { PageNav, QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import QueueTable from './properties/QueueTable.jsx';
-import QueueFilterBar, { PageNav, EMPTY_FILTERS, ALL_TAB_DEFAULTS } from './properties/QueueFilterBar.jsx';
+import QueueFilterBar, { EMPTY_FILTERS, ALL_TAB_DEFAULTS } from './properties/QueueFilterBar.jsx';
 import DuplicatesTab from './properties/DuplicatesTab.jsx';
 import PropertyReviewModal from './properties/PropertyReviewModal.jsx';
 import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyRecheckRejectModal } from './properties/PropertyModals.jsx';
@@ -432,35 +431,12 @@ export default function AdminProperties() {
         actions={optionEnabled('properties.csvExport') && isQueueTab ? <button type="button" onClick={exportCurrentCsv} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" /> Export CSV</button> : null}
       />
 
-      <HScroll role="tablist" aria-label="Queues" wrapClassName="mb-4" fadeColor="var(--brand-dark)" className="flex gap-1 border-b border-white/10">
-        {TABS.map((t) => {
-          const n = t.count(summary, dupCount);
-          const on = activeTab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              id={`queue-tab-${t.key}`}
-              aria-controls="queue-panel"
-              data-tab={t.key}
-              aria-selected={on}
-              onClick={() => setTab(t.key)}
-              className={classNames(
-                '-mb-px flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-                on ? 'border-brand-teal text-white' : 'border-transparent text-gray-400 hover:text-white',
-              )}
-            >
-              {t.label}
-              {n != null ? (
-                <span data-testid={`tab-count-${t.key}`} className={classNames('rounded-full px-1.5 py-px text-[11px] tabular-nums', on ? 'bg-brand-teal/20 text-teal-200' : n ? 'bg-white/10 text-gray-200' : 'bg-white/5 text-gray-500')}>
-                  {fmtNum(n)}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </HScroll>
+      <QueueTabs
+        label="Queues"
+        active={activeTab}
+        onChange={setTab}
+        tabs={TABS.map((t) => ({ key: t.key, label: t.label, count: t.count(summary, dupCount) }))}
+      />
 
       {activeTab === 'duplicates' ? <DuplicatesTab onRefresh={refresh} canModerate={canModerate} /> : (
         <section id="queue-panel" role="tabpanel" aria-labelledby={`queue-tab-${activeTab}`} className="dz-card overflow-hidden p-0">

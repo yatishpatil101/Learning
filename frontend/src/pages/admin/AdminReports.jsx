@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Search, UserX, XCircle } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Download, Eye, Flag, XCircle } from 'lucide-react';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
 import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS, SOCIETY_REPORT_REASONS } from '../../lib/reportReasons.js';
-import { fmtNum, classNames, timeAgo } from '../../lib/format.js';
+import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -12,13 +12,13 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
-import Table from '../../components/ui/Table.jsx';
-import HScroll from '../../components/ui/HScroll.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import DateRangePills from '../../components/ui/DateRangePills.jsx';
+import {
+  CHIP, CHIP_TONE, Cell, Chips, ClearFilters, DATE_CHIPS, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+} from '../../components/admin/WorkQueue.jsx';
 import ReviewsTab from './reports/ReviewsTab.jsx';
 
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
@@ -69,6 +69,27 @@ const TAB_KIND = {
   society: ['contribution', 'reply', 'question', 'answer', 'board'],
 };
 const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
+
+const TABS = [
+  { key: 'listings', label: 'Properties', flag: 'reports.properties' },
+  { key: 'users', label: 'Users & owners', flag: 'reports.users' },
+  { key: 'posts', label: 'Flatmate posts', flag: 'reports.posts' },
+  { key: 'society', label: 'Society posts', flag: 'reports.society' },
+];
+
+const NOTES = {
+  listings: 'Complaints about listings. Take down hides the listing from search; Resolve keeps it up. Tab count = reports still undecided.',
+  users: 'Complaints about people. Suspend blocks the account; Resolve keeps it active. The reporter is withheld on purpose.',
+  posts: 'Complaints about flatmate rooms, groups and seeker posts. Take down hides the post; its author is not suspended.',
+  society: 'Complaints about society recommendations, Q&A and noticeboard posts. Remove takes the post down for everyone.',
+};
+
+const KIND_LABEL = {
+  listing: 'Property', user: 'User', share: 'Flatmate post', contribution: 'Recommendation', reply: 'Reply', question: 'Question', answer: 'Answer', board: 'Noticeboard post',
+};
+
+const DANGER_BTN = 'dz-btn dz-btn-ghost dz-btn-sm border-rose-400/30 text-rose-300 hover:bg-rose-500/10';
+const PAGE_SIZE = 10;
 
 export default function AdminReports() {
   const { toast } = useToast();
@@ -164,20 +185,19 @@ export default function AdminReports() {
     return map;
   }, [all]);
 
-  const kpis = useMemo(() => {
-    const list = all || [];
-    return {
-      open: list.filter((r) => r.status === 'open').length,
-      listings: list.filter((r) => inTab(r, 'listings')).length,
-      users: list.filter((r) => inTab(r, 'users')).length,
-      posts: list.filter((r) => inTab(r, 'posts')).length,
-      society: list.filter((r) => inTab(r, 'society')).length,
-      closed: list.filter((r) => r.status !== 'open').length,
-    };
+  const undecided = useMemo(() => {
+    const list = (all || []).filter(canTriage);
+    return Object.fromEntries(TABS.map((t) => [t.key, list.filter((r) => inTab(r, t.key)).length]));
   }, [all]);
 
+  const tabRows = useMemo(() => (all || []).filter((r) => inTab(r, tab)), [all, tab]);
+  const statusChips = STATUS_OPTS.map((o) => ({
+    value: o.value,
+    label: `${o.value ? o.label : 'All'} ${fmtNum(o.value ? tabRows.filter((r) => r.status === o.value).length : tabRows.length)}`,
+  }));
+
   const rows = useMemo(() => {
-    let list = (all || []).filter((r) => inTab(r, tab));
+    let list = tabRows;
     if (statusF) list = list.filter((r) => r.status === statusF);
     if (activeReason) list = list.filter((r) => r.reason === activeReason);
     if (dateRange) {
@@ -186,10 +206,11 @@ export default function AdminReports() {
     }
     if (q) { const n = q.toLowerCase(); list = list.filter((r) => JSON.stringify(r).toLowerCase().includes(n)); }
     return list;
-  }, [all, tab, statusF, activeReason, dateRange, q]);
+  }, [tabRows, statusF, activeReason, dateRange, q]);
 
   const hasFilters = statusF || activeReason || dateRange || q;
   const clearFilters = () => { setStatusF(''); setReasonF(''); setDateRange(''); setQ(''); };
+  const page = useClientPaging(rows, PAGE_SIZE, `${tab}|${statusF}|${activeReason}|${dateRange}|${q}`);
 
   useEffect(() => { setSelected(new Set()); }, [tab, statusF, activeReason, dateRange, q]);
 
@@ -211,172 +232,78 @@ export default function AdminReports() {
     }
   };
 
-  const reportActions = (r) => (
-    <div className="flex flex-wrap justify-end gap-1">
-      <button onClick={() => setDetail(r)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5" title="View details"><Eye className="h-3.5 w-3.5" /></button>
-      {canTriage(r) ? (
-        <>
-          {tab === 'listings'
-            ? <button onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
-            : tab === 'posts'
-              /* `hide_content`, not `suspend_account`. A flatmate post is content, and the offending
-                 thing is the post — suspending the person who wrote it is a different, heavier
-                 decision that the listings tab does not make either. */
-              ? <button onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
-              : tab === 'society'
-                /* Same reasoning, and one consequence worth stating: upholding this removes the
-                   post from the hub for everybody. That is the point — the reason `personal`
-                   exists is a recommendation publishing a tradesman's real mobile number, and a
-                   complaint that leaves it up has not answered him. */
-                ? <button onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Remove post"><Ban className="mr-0.5 inline h-3 w-3" />Remove</button>
-                : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
-          <button onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal" title="Resolve"><CheckCircle2 className="mr-0.5 inline h-3 w-3" />Resolve</button>
-          <button onClick={() => act(r.id, 'dismissed')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Dismiss"><XCircle className="mr-0.5 inline h-3 w-3" />Dismiss</button>
-        </>
-      ) : (
-        /* No Reopen. A decided report is terminal server-side, and the refusal is the point:
-           re-opening erases the record that somebody judged it, and is the obvious way for one
-           moderator to quietly undo a colleague's decision. Filing afresh costs nothing and leaves
-           both decisions visible. The button used to be here and would now 409 on click. */
-        <span className="px-2 py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
-      )}
-    </div>
-  );
+  const triageButtons = (r) => (canTriage(r) ? (
+    <>
+      {inTab(r, 'listings')
+        ? <button type="button" onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Take down</button>
+        : inTab(r, 'posts')
+          /* `hide_content`, not `suspend_account`: a flatmate post is content, and suspending its author is a heavier decision. */
+          ? <button type="button" onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Take down</button>
+          : inTab(r, 'society')
+            /* Upholding removes the post for everybody: a `personal` report is often a leaked mobile number. */
+            ? <button type="button" onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Remove</button>
+            : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Suspend</button>}
+      <button type="button" onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="dz-btn dz-btn-primary dz-btn-sm"><CheckCircle2 className="h-3.5 w-3.5" />Resolve</button>
+      <button type="button" onClick={() => act(r.id, 'dismissed')} className="dz-btn dz-btn-ghost dz-btn-sm"><XCircle className="h-3.5 w-3.5" />Dismiss</button>
+    </>
+  ) : (
+    /* No Reopen: a decided report is terminal server-side, and reopening would let a moderator quietly undo a colleague's decision. */
+    <span className="py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
+  ));
 
-  const cols = [
-    {
-      key: 'select',
-      header: (
-        <input
-          type="checkbox"
-          checked={rows.filter((r) => r.status === 'open').length > 0 && selected.size === rows.filter((r) => r.status === 'open').length}
-          onChange={toggleAll}
-          className="accent-teal-400 w-4 h-4 rounded"
-          title="Select all open"
-        />
-      ),
-      className: 'w-10',
-      render: (r) => r.status === 'open' ? (
-        <input
-          type="checkbox"
-          checked={selected.has(r.id)}
-          onChange={() => toggleSelect(r.id)}
-          className="accent-teal-400 w-4 h-4 rounded"
-        />
-      ) : null,
-    },
-    {
-      key: 'target',
-      header: tab === 'listings' ? 'Property' : tab === 'posts' ? 'Flatmate post' : tab === 'society' ? 'Society post' : 'User / Owner',
-      render: (r) => {
-        const repeatCount = (targetCounts[r.targetId] || 1);
-        return (
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold">{r.targetTitle || r.targetId || '—'}</span>
-              {repeatCount >= 3 && (
-                <span className="inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-300" title={`${repeatCount} reports on this target`}>
-                  <AlertTriangle className="h-2.5 w-2.5" /> {repeatCount}x
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-gray-400">{r.targetOwner || ''}{r.ownerMobile ? ' · ' + r.ownerMobile : ''}</div>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'reason',
-      header: 'Reason',
-      render: (r) => (
-        <div>
-          <div className="font-medium">{r.reasonLabel}</div>
-          {r.details ? <div className="max-w-xs truncate text-xs text-gray-400">{r.details}</div> : null}
-        </div>
-      ),
-    },
-    {
-      key: 'reporter',
-      /**
-       * The reporter, when we are allowed to name them.
-       *
-       * Live, we never are. `ReportResponse` omits `reporterId` deliberately — the queue tells a
-       * moderator *what* was complained about and *why*, not *who* complained, because naming the
-       * reporter to every member of ops is how a complaint becomes a reprisal. The http mapper
-       * therefore resolves `reportedBy` to `''` on every row.
-       *
-       * The fallback is "Withheld", not "Anonymous", and the difference is the whole point. The
-       * reporter is *not* anonymous: `reports.reporter_id` is NOT NULL and drives the duplicate
-       * check. The platform knows exactly who filed this. "Anonymous" would tell a moderator the
-       * reporter chose not to identify themselves — and an unattributable complaint is a much
-       * easier one to dismiss. "Withheld" says the true thing: somebody is on the hook for this
-       * report, and it isn't your business who.
-       */
-      header: 'Reported by',
-      render: (r) => (
-        <div>
-          <div>{r.reportedBy || 'Withheld'}</div>
-          {r.reporterMobile ? <div className="text-xs text-gray-400">{r.reporterMobile}</div> : null}
-        </div>
-      ),
-    },
-    {
-      key: 'at',
-      header: 'Reported',
-      render: (r) => (
-        <div className="text-xs text-gray-400">
-          <div>{fmtDate(r.at)}</div>
-          <div className="text-gray-500">{timeAgo(r.at)}</div>
-        </div>
-      ),
-    },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
-    {
-      key: 'actions',
-      header: '',
-      className: 'text-right',
-      render: (r) => reportActions(r),
-    },
-  ];
-
-  const reportCard = (r) => {
+  const reportRow = (r) => {
     const repeatCount = targetCounts[r.targetId] || 1;
+    const titled = r.targetTitle && r.targetTitle !== r.targetId;
     return (
-      <div className={classNames('dz-card p-3.5', selected.has(r.id) && 'ring-1 ring-teal-400/40')}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2">
-            {r.status === 'open' ? (
-              <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="mt-1 h-4 w-4 shrink-0 rounded accent-teal-400" aria-label="Select report" />
+      <RowCard
+        key={r.id}
+        id={r.id}
+        selected={selected.has(r.id)}
+        lead={r.status === 'open' ? (
+          <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="h-4 w-4 shrink-0 rounded accent-teal-400" aria-label="Select report" />
+        ) : null}
+        title={r.targetTitle || r.targetId || '—'}
+        badges={(
+          <>
+            <Badge status={r.status} />
+            {repeatCount >= 3 ? (
+              <span className={classNames(CHIP, CHIP_TONE.red, 'gap-0.5')} title={`${repeatCount} reports on this target`}>
+                <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />{repeatCount}x
+              </span>
             ) : null}
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-semibold">{r.targetTitle || r.targetId || '—'}</span>
-                {repeatCount >= 3 && (
-                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-300"><AlertTriangle className="h-2.5 w-2.5" /> {repeatCount}x</span>
-                )}
-              </div>
-              <div className="truncate text-xs text-gray-400">{r.targetOwner || ''}{r.ownerMobile ? ' · ' + r.ownerMobile : ''}</div>
-            </div>
-          </div>
-          <Badge status={r.status} />
-        </div>
-        <div className="mt-2 text-sm">
-          <span className="font-medium">{r.reasonLabel}</span>
-          {r.details ? <span className="text-gray-400"> — {r.details}</span> : null}
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-500">
-          {/* "Withheld", matching the table column and the detail drawer — see the `reporter`
-              column for why the distinction from "Anonymous" matters. */}
-          <span className="truncate">By {r.reportedBy || 'Withheld'}{r.reporterMobile ? ` · ${r.reporterMobile}` : ''}</span>
-          <span className="shrink-0">{timeAgo(r.at)}</span>
-        </div>
-        <div className="mt-3 border-t border-white/5 pt-3">
-          {reportActions(r)}
-        </div>
-      </div>
+          </>
+        )}
+        meta={(
+          <>
+            <span>{KIND_LABEL[r.kind] || r.kind}</span>
+            {titled ? <><span className="text-gray-600" aria-hidden="true">·</span><span className="truncate text-gray-500">{r.targetId}</span></> : null}
+          </>
+        )}
+        facts={(
+          <>
+            <FactRow label="Reason">
+              <Cell className="font-medium text-gray-200 md:col-span-2">{r.reasonLabel}</Cell>
+              <Cell className="tabular-nums">{fmtDate(r.at)}</Cell>
+              {r.actionTaken ? <Cell className="text-emerald-300">{r.actionTaken}</Cell> : null}
+            </FactRow>
+            {r.details ? (
+              <FactRow label="Note">
+                <span className="col-span-2 text-gray-300 md:col-span-4">{r.details}</span>
+              </FactRow>
+            ) : null}
+            {/* "Withheld", not "Anonymous": the platform knows who filed this; ops is not told. */}
+            <FactRow label="People">
+              <Cell>{`Reporter: ${r.reportedBy || 'Withheld'}`}</Cell>
+              {r.reporterMobile ? <Cell className="tabular-nums">{r.reporterMobile}</Cell> : null}
+              {r.targetOwner ? <Cell className="md:col-span-2">{`Owner: ${r.targetOwner}${r.ownerMobile ? ` · ${r.ownerMobile}` : ''}`}</Cell> : null}
+            </FactRow>
+          </>
+        )}
+        primary={triageButtons(r)}
+        icons={<IconAction label="View details" onClick={() => setDetail(r)} icon={Eye} />}
+      />
     );
   };
-
   const doExport = () => exportCsv(
     `draazy-reports-${tab}.csv`,
     ['ID', 'Kind', 'Target', 'Reason', 'Reporter', 'Reported', 'Status', 'Action Taken'],
@@ -385,101 +312,64 @@ export default function AdminReports() {
     rows.map((r) => [r.id, r.kind, r.targetTitle || r.targetId, r.reasonLabel, r.reportedBy || 'Withheld', fmtDate(r.at), r.status, r.actionTaken || '']),
   );
 
-  const KPIS = [
-    { label: 'Open reports', value: fmtNum(kpis.open), icon: Flag, clickTab: null, color: 'text-amber-400' },
-    { label: 'Reported properties', value: fmtNum(kpis.listings), icon: Building2, clickTab: 'listings', color: 'text-brand-teal' },
-    { label: 'Reported users', value: fmtNum(kpis.users), icon: UserX, clickTab: 'users', color: 'text-rose-400' },
-    { label: 'Reported posts', value: fmtNum(kpis.posts), icon: Flag, clickTab: 'posts', color: 'text-violet-400' },
-    { label: 'Closed', value: fmtNum(kpis.closed), icon: CheckCircle2, clickTab: null, color: 'text-emerald-400' },
+  const visibleTabs = TABS.filter((t) => optionEnabled(t.flag));
+  const tabs = [
+    ...visibleTabs.map((t) => ({ key: t.key, label: t.label, count: undecided[t.key] })),
+    ...(canSeeReviews && optionEnabled('reports.reviews') ? [{ key: 'reviews', label: 'Reviews', count: null }] : []),
   ];
+  const openInView = rows.filter((r) => r.status === 'open');
+  const allOpenSelected = openInView.length > 0 && selected.size === openInView.length;
 
   return (
-    <div>
+    <div className="pb-20">
       <PageHeader
         title="Reports & Moderation"
         subtitle="Review reported properties, users and posts, moderate reviews, and take action."
-        actions={<button onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>}
+        actions={tab !== 'reviews' ? <button type="button" onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button> : null}
       />
 
-      {/* KPI tiles */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {KPIS.map((k) => (
-          <div key={k.label} onClick={k.clickTab ? () => setTab(k.clickTab) : undefined} className={classNames('dz-card p-4', k.clickTab && 'cursor-pointer hover:bg-white/5 transition')}>
-            <div className="flex items-start justify-between">
-              <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
-              <span className={classNames('grid h-9 w-9 place-items-center rounded-xl bg-white/5', k.color)}><k.icon className="h-4 w-4" /></span>
-            </div>
-          </div>
-        ))}
-      </div>
+      <QueueTabs label="Report queues" active={tab} onChange={setTab} tabs={tabs} />
 
-      {/* Tabs */}
-      <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-4" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-            {[['listings', 'Reported properties', kpis.listings, 'reports.properties'], ['users', 'Reported users & owners', kpis.users, 'reports.users'], ['posts', 'Reported flatmate posts', kpis.posts, 'reports.posts'], ['society', 'Reported society posts', kpis.society, 'reports.society']].map(([id, label, count, flag]) => (
-          optionEnabled(flag) ? (
-            <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-              {label} <span className="opacity-70">({fmtNum(count)})</span>
-            </button>
-          ) : null
-        ))}
-        {canSeeReviews && optionEnabled('reports.reviews') ? (
-          <button onClick={() => setTab('reviews')} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === 'reviews' ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            Reviews
-          </button>
-        ) : null}
-      </HScroll>
-
-      {tab === 'reviews' ? <ReviewsTab /> : (<>
-
-      {/* Filter bar */}
-      <div className="dz-card mb-4 p-3 space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative w-full sm:w-1/2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500 pointer-events-none" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search reports…"
-              className="dz-input w-full"
-              style={{ paddingLeft: '2.25rem' }}
-            />
-          </div>
-          <div className="flex w-full gap-2 sm:w-1/2">
-            <div className="w-1/2">
-              {/* `searchable={false}` on both: `Select` turns itself into a search combobox at eight
-                  options and autofocuses the input, which on mobile summons the keyboard over a
-                  bottom sheet of eight items. Both reason lists are exactly eight, status is five,
-                  so without this the two filters sitting side by side would behave differently. */}
-              <Select value={statusF} onChange={setStatusF} options={STATUS_OPTS} searchable={false} ariaLabel="Filter by status" />
-            </div>
-            <div className="w-1/2">
-              <Select value={activeReason} onChange={setReasonF} options={reasonOpts} searchable={false} ariaLabel="Filter by reason" />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <DateRangePills value={dateRange} onChange={setDateRange} />
-          {hasFilters && (
-            <button onClick={clearFilters} className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-white/10 transition">
-              <XCircle className="h-3.5 w-3.5" /> Clear all filters
-            </button>
+      {tab === 'reviews' ? <ReviewsTab /> : (
+        <QueuePanel
+          active={tab}
+          note={NOTES[tab]}
+          noteTestId={`${tab}-note`}
+          toolbar={(
+            <>
+              <SearchBox value={q} onChange={setQ} placeholder="Item, reason or note" label="Search reports" />
+              <Chips label="Status" options={statusChips} value={statusF} onChange={setStatusF} />
+              {/* `searchable={false}`: `Select` turns itself into a search combobox at eight options and
+                  autofocuses the input, which on mobile summons the keyboard over eight items. */}
+              <div className="w-56"><Select value={activeReason} onChange={setReasonF} options={reasonOpts} searchable={false} ariaLabel="Filter by reason" size="sm" /></div>
+              <Chips label="Reported" options={DATE_CHIPS} value={dateRange} onChange={setDateRange} />
+              {hasFilters ? <ClearFilters onClick={clearFilters} /> : null}
+              <div className="ml-auto"><PageNav {...page.paging} /></div>
+            </>
           )}
-                <span className="text-xs text-gray-500 ml-auto">{rows.length} of {(all || []).filter((r) => inTab(r, tab)).length}</span>
-        </div>
-      </div>
-
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-teal-400/30 bg-teal-500/10 px-4 py-2.5">
-          <span className="text-sm font-medium text-teal-200">{selected.size} selected</span>
-          <button onClick={bulkResolve} className="dz-btn dz-btn-primary px-3 py-1.5 text-xs"><CheckCircle2 className="h-3.5 w-3.5" /> Bulk Resolve</button>
-          <button onClick={bulkDismiss} className="dz-btn dz-btn-ghost px-3 py-1.5 text-xs"><XCircle className="h-3.5 w-3.5" /> Bulk Dismiss</button>
-          <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-gray-400 hover:text-white">Deselect all</button>
-        </div>
+          footer={page.paging.pageCount > 1 ? <PageNav {...page.paging} /> : null}
+        >
+          {openInView.length ? (
+            <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-2 text-xs text-gray-400">
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input type="checkbox" checked={allOpenSelected} onChange={toggleAll} className="h-4 w-4 rounded accent-teal-400" />
+                Select all open ({fmtNum(openInView.length)})
+              </label>
+              {selected.size > 0 ? (
+                <>
+                  <span className="font-medium text-teal-200">{selected.size} selected</span>
+                  <button type="button" onClick={bulkResolve} className="dz-btn dz-btn-primary dz-btn-sm"><CheckCircle2 className="h-3.5 w-3.5" /> Bulk Resolve</button>
+                  <button type="button" onClick={bulkDismiss} className="dz-btn dz-btn-ghost dz-btn-sm"><XCircle className="h-3.5 w-3.5" /> Bulk Dismiss</button>
+                  <button type="button" onClick={() => setSelected(new Set())} className="ml-auto hover:text-white">Deselect all</button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <RowList isEmpty={!rows.length} empty={hasFilters ? 'No reports match these filters.' : 'All clear — nothing reported here.'}>
+            {page.items.map(reportRow)}
+          </RowList>
+        </QueuePanel>
       )}
-
-      <Table columns={cols} rows={rows} pageSize={10} label="reports" empty="No reports match — all clear!" mobileCard={reportCard} />
-      </>)}
 
       {/* Detail modal */}
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Report · ${detail.id}` : ''} size="lg">
@@ -513,22 +403,8 @@ export default function AdminReports() {
             </dl>
             {detail.details ? <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-gray-300">&ldquo;{detail.details}&rdquo;</p> : null}
             {detail.actionTaken ? <p className="text-sm text-emerald-300">Action: {detail.actionTaken}</p> : null}
-            <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
-              {canTriage(detail) ? (
-                <>
-                  {detail.kind === 'listing'
-                    ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down', 'hide_content')} className="dz-btn dz-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
-                    : <button onClick={() => act(detail.id, 'actioned', 'User suspended', 'suspend_account')} className="dz-btn dz-btn-ghost text-red-300"><Ban className="h-4 w-4" />Suspend</button>}
-                  <button onClick={() => act(detail.id, 'resolved', 'Reviewed, content kept')} className="dz-btn dz-btn-ghost"><CheckCircle2 className="h-4 w-4" />Resolve</button>
-                  <button onClick={() => act(detail.id, 'dismissed')} className="dz-btn dz-btn-ghost text-gray-300"><XCircle className="h-4 w-4" />Dismiss</button>
-                </>
-              ) : (
-                /* Same as the row actions: a decided report is terminal server-side, so there is no
-                   Reopen here either. This copy was missed when the row was fixed — the drawer still
-                   rendered the old button, which was both a dead `RotateCcw` reference (the import
-                   had gone) and a control that would 409 on click. */
-                <span className="px-2 py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
-              )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+              {triageButtons(detail)}
               <button onClick={() => setDetail(null)} className="dz-btn dz-btn-primary ml-auto">Close</button>
             </div>
           </div>

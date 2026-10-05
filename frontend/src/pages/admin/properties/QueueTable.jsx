@@ -9,12 +9,10 @@ import { signalLabel } from './reviewReasons.js';
 import { statusLabel } from './constants.js';
 import { onlySeeksOwnershipBadge, seeksOwnershipBadge } from '../../../lib/recheckFields.js';
 import { FURN_LBL } from '../../consumer/listings/constants.js';
+import { CHIP, Cell, FactRow, IconAction } from '../../../components/admin/WorkQueue.jsx';
 
-const CHIP = 'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold';
 const RED_CHIP = classNames(CHIP, 'border-rose-400/40 bg-rose-500/15 text-rose-200');
-const ICON_BTN = 'grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-gray-400 transition hover:border-white/20 hover:bg-white/5 hover:text-white';
 const GROUP = 'mt-2.5 border-t border-white/[0.06] pt-2.5';
-const DASH = '\u2014';
 
 /* Which clock each queue answers to. The age is the desk's whole point: a row nobody opens
    escalates by colour and by a text token, so the warning never rests on colour alone. */
@@ -83,14 +81,6 @@ function RowChips({ listing: l, ownerReplied, hasPhoto }) {
   );
 }
 
-function IconAction({ label, onClick, icon: Icon, className, testId }) {
-  return (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className={classNames(ICON_BTN, className)} data-testid={testId}>
-      <Icon className="h-4 w-4" />
-    </button>
-  );
-}
-
 // The slot keeps its height when empty so price and icons sit at the same spot on every tile.
 function PrimaryActions({ listing: l, actions }) {
   const recheck = l.recheckPending && !onlySeeksOwnershipBadge(l);
@@ -139,20 +129,6 @@ function IconActions({ listing: l, actions }) {
 }
 
 const rowPhoto = (l) => l.image || (Array.isArray(l.gallery) ? l.gallery.find(Boolean) : null) || l.img;
-
-// Fixed columns so a value sits in the same place on every tile; a missing one shows a dash.
-function FactRow({ label, children }) {
-  return (
-    <div className="flex items-baseline gap-3">
-      <dt className="w-14 shrink-0 text-[11px] text-gray-500">{label}</dt>
-      <dd className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-gray-300 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">{children}</dd>
-    </div>
-  );
-}
-
-const Cell = ({ children, className }) => (
-  <span className={classNames('truncate', className)} title={typeof children === 'string' ? children : undefined}>{children || DASH}</span>
-);
 
 function QueueRow({ listing: l, tab, ownerReplied, actions, showScore }) {
   const photo = rowPhoto(l);

@@ -123,10 +123,10 @@ test.describe('admin review moderation', () => {
       await page.goto('/admin/reports?tab=reviews');
       await appReady(page);
 
-      await expect(page.getByText('Approve or reject user reviews.')).toBeVisible();
+      await expect(page.getByTestId('reviews-note')).toBeVisible();
 
       /* The author name proves the row came from the server, not from a plausible-looking localStorage fixture. */
-      const table = page.getByRole('table');
+      const table = page.locator('#queue-panel');
       await expect(table.getByText(row.author, { exact: true }).first()).toBeVisible();
 
       // And the target, which the mapper composes from `targetType` + `targetId`. A moderator who
@@ -155,7 +155,8 @@ test.describe('admin review moderation', () => {
       /* Author and target together: the pair is unique by `idx_reviews_author_target`, while author alone can
          match several rows (strict-mode violation) and `.first()` would drift. */
       const rowKey = `${target.targetType[0].toUpperCase()}${target.targetType.slice(1)}: ${target.targetId}`;
-      const row = page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey });
+      await page.getByLabel('Search reviews').fill(target.targetId);
+      const row = page.getByTestId('queue-row').filter({ hasText: target.author }).filter({ hasText: rowKey });
       await expect(row).toHaveCount(1);
       await row.getByRole('button', { name: 'Reject' }).click();
       await expect(page.getByRole('alert')).toContainText('Rejected');
@@ -163,7 +164,8 @@ test.describe('admin review moderation', () => {
       /* Reload: the in-place update only proves the browser's belief, not that Postgres changed. */
       await page.reload();
       await appReady(page);
-      await expect(page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey }))
+      await page.getByLabel('Search reviews').fill(target.targetId);
+      await expect(page.getByTestId('queue-row').filter({ hasText: target.author }).filter({ hasText: rowKey }))
         .toContainText(/Rejected/i);
 
       /* Archived reviews leave the public read, so the aggregate rating must drop them too. */

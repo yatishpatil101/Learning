@@ -130,7 +130,7 @@ const card = (page, text) => page.getByTestId('flatmate-queue-card').filter({ ha
 const cardFor = (page, text) => card(page, text).first();
 
 const openTab = (page, label) =>
-  page.getByRole('group', { name: 'Flatmate queues' }).getByRole('button', { name: label }).click();
+  page.getByRole('tablist', { name: 'Flatmate queues' }).getByRole('tab', { name: label }).click();
 
 async function review(page, text) {
   await cardFor(page, text).getByRole('button', { name: 'Review' }).click();
@@ -151,9 +151,13 @@ test.describe('Ops → flatmate desk (live)', () => {
   test('the desk has three status tabs and no board switcher, type tabs narrow the queue, and the queue can be searched, sorted and cut by date', async ({ page, login }) => {
     await test.step('one Pending tab, three tabs in all — no board switcher', async () => {
       await openDesk(page, login);
-      const tabs = page.getByRole('group', { name: 'Flatmate queues' }).getByRole('button');
-      await expect(tabs).toHaveText(['Pending', 'Published', 'Hidden & removed']);
-      await expect(tabs.first()).toHaveAttribute('aria-pressed', 'true');
+      const tabs = page.getByRole('tablist', { name: 'Flatmate queues' }).getByRole('tab');
+      await expect(tabs).toHaveCount(3);
+      await expect(tabs.nth(0)).toContainText('Pending');
+      await expect(tabs.nth(1)).toHaveText('Published');
+      await expect(tabs.nth(2)).toHaveText('Hidden & removed');
+      await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('fm-count-pending')).toHaveText(/^\d+\+?$/);
       await expect(page.getByRole('group', { name: 'Flatmate boards' })).toHaveCount(0);
     });
     await test.step('type tabs under each status narrow the queue to rooms, groups (applications included) or seeker posts', async () => {
@@ -200,11 +204,10 @@ test.describe('Ops → flatmate desk (live)', () => {
       await expect(page.getByRole('status').filter({ hasText: 'items' })).toHaveText('2 items');
       await expect(cards.first()).toContainText(`${tag} first`);
 
-      await page.getByRole('button', { name: 'Sort' }).click();
-      await page.getByRole('option', { name: 'Newest first' }).click();
+      await page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: 'Newest' }).click();
       await expect(cards.first()).toContainText(`${tag} second`);
 
-      await page.getByRole('button', { name: 'Today', exact: true }).click();
+      await page.getByRole('group', { name: 'Posted' }).getByRole('button', { name: 'Today', exact: true }).click();
       await expect(cards).toHaveCount(2);
 
       await page.getByRole('textbox', { name: 'Search the queue' }).fill(`${tag} nothing-like-this`);

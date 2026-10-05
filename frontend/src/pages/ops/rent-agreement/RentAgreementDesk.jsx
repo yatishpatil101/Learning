@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock, RefreshCw, Search } from 'lucide-react';
+import { Clock, RefreshCw } from 'lucide-react';
 import { getServiceRequestQueueSummary, listServiceRequestQueue } from '../../../services/serviceRequestService.js';
 import PageHeader from '../../../components/ui/PageHeader.jsx';
 import Loading from '../../../components/ui/Loading.jsx';
 import { classNames, fmtINR, fmtNum } from '../../../lib/format.js';
 import { useTabParam } from '../../../lib/useTabParam.js';
-import { PageNav } from '../../admin/properties/QueueFilterBar.jsx';
+import { PageNav, QueueTabs, SearchBox } from '../../../components/admin/WorkQueue.jsx';
 import AgeTone from '../service-queue/AgeTone.jsx';
 import RaCaseModal from './RaCaseModal.jsx';
 import { caseSummary, nextStep } from './stages.js';
@@ -91,42 +91,18 @@ export default function RentAgreementDesk() {
         actions={<button type="button" onClick={reload} className="dz-btn dz-btn-ghost"><RefreshCw className="h-4 w-4" /> Refresh</button>}
       />
 
-      <div role="tablist" aria-label="Rent agreement queues" className="mb-4 flex gap-1 overflow-x-auto border-b border-white/10">
-        {TABS.map((t) => {
-          const n = summary ? t.count(summary) : null;
-          const on = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              id={`ra-tab-${t.key}`}
-              aria-controls="ra-panel"
-              aria-selected={on}
-              onClick={() => setTab(t.key)}
-              className={classNames(
-                '-mb-px flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-                on ? 'border-brand-teal text-white' : 'border-transparent text-gray-400 hover:text-white',
-              )}
-            >
-              {t.label}
-              {n != null ? (
-                <span data-testid={`ra-count-${t.key}`} className={classNames('rounded-full px-1.5 py-px text-[11px] tabular-nums', on ? 'bg-brand-teal/20 text-teal-200' : n ? 'bg-white/10 text-gray-200' : 'bg-white/5 text-gray-500')}>
-                  {fmtNum(n)}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+      <QueueTabs
+        label="Rent agreement queues"
+        idPrefix="ra"
+        countTestId="ra-count"
+        active={tab}
+        onChange={setTab}
+        tabs={TABS.map((t) => ({ key: t.key, label: t.label, count: summary ? t.count(summary) : null }))}
+      />
 
       <section id="ra-panel" role="tabpanel" aria-labelledby={`ra-tab-${tab}`} className="dz-card overflow-hidden p-0">
         <div className="flex flex-wrap items-center gap-2 border-b border-white/10 p-3">
-          <label className="relative w-full sm:w-72">
-            <span className="sr-only">Search name, mobile or request id</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" aria-hidden="true" />
-            <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Name, mobile or request id" className="dz-input !h-9 !pl-9 text-sm" />
-          </label>
+          <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Name, mobile or request id" label="Search name, mobile or request id" className="w-full sm:w-72" />
           <button
             type="button"
             aria-pressed={overdue}

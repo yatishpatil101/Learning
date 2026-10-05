@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
 import { listReviewsForModeration, setReviewStatus } from '../../../services/reviewService.js';
 import { useToast } from '../../../context/ToastContext.jsx';
+import { classNames, fmtNum } from '../../../lib/format.js';
 import Badge from '../../../components/ui/Badge.jsx';
-import Table from '../../../components/ui/Table.jsx';
 import Loading from '../../../components/ui/Loading.jsx';
+import {
+  CHIP, CHIP_TONE, Chips, ClearFilters, PageNav, QueuePanel, RowCard, RowList, SearchBox, useClientPaging,
+} from '../../../components/admin/WorkQueue.jsx';
 
 /* Reviews are taken down through `PATCH /reviews/{id}/status`, not the report queue; `rejected` both hides the text and drops it from the rating aggregate. */
 export default function ReviewsTab() {
   const { toast } = useToast();
   const [reviews, setReviews] = useState(null);
   const [error, setError] = useState('');
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -36,45 +41,61 @@ export default function ReviewsTab() {
     }
   };
 
+  const list = reviews || [];
+  const needle = q.trim().toLowerCase();
+  const rows = list.filter((r) => (!status || r.status === status)
+    && (!needle || [r.user, r.target, r.text].join(' ').toLowerCase().includes(needle)));
+  const page = useClientPaging(rows, 10, `${status}|${q}`);
+
   if (!reviews) return <Loading />;
 
-  const actions = (r) => (
-    <>
-      {r.status !== 'published' ? <button onClick={() => decide(r, 'published')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal">Approve</button> : null}
-      {r.status !== 'rejected' ? <button onClick={() => decide(r, 'rejected')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300">Reject</button> : null}
-    </>
-  );
-
-  const cols = [
-    { key: 'author', header: 'Author', render: (r) => <div><div className="font-semibold">{r.user || r.author || 'User'}</div><div className="text-xs text-gray-400">{r.target || '—'}</div></div> },
-    { key: 'rating', header: 'Rating', render: (r) => <span className="flex items-center gap-1"><Star className="h-3.5 w-3.5 text-amber-400" />{r.rating || '—'}</span> },
-    { key: 'text', header: 'Review', render: (r) => <span className="max-w-xs truncate text-sm">{r.text || r.body || '—'}</span> },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status || 'pending'} /> },
-    { key: 'actions', header: '', className: 'whitespace-nowrap', render: (r) => <div className="flex gap-1">{actions(r)}</div> },
+  const countOf = (s) => list.filter((r) => r.status === s).length;
+  const statusChips = [
+    { value: '', label: `All ${fmtNum(list.length)}` },
+    { value: 'pending', label: `Pending ${fmtNum(countOf('pending'))}` },
+    { value: 'published', label: `Published ${fmtNum(countOf('published'))}` },
+    { value: 'rejected', label: `Rejected ${fmtNum(countOf('rejected'))}` },
   ];
 
-  const card = (r) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{r.user || r.author || 'User'}</div>
-          <div className="truncate text-xs text-gray-400">{r.target || '—'}</div>
-        </div>
-        <div className="shrink-0 text-right">
-          <span className="flex items-center justify-end gap-1 text-sm"><Star className="h-3.5 w-3.5 text-amber-400" />{r.rating || '—'}</span>
-          <div className="mt-1"><Badge status={r.status || 'pending'} /></div>
-        </div>
-      </div>
-      {(r.text || r.body) ? <div className="mt-2 text-sm text-gray-300">{r.text || r.body}</div> : null}
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">{actions(r)}</div>
-    </div>
-  );
-
   return (
-    <div>
-      {error ? <div role="alert" className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-sm text-rose-200">{error}</div> : null}
-      <p className="mb-3 text-xs text-gray-400">Approve or reject user reviews. ({reviews.length} total)</p>
-      <Table columns={cols} rows={reviews} pageSize={10} label="reviews" empty="No reviews yet." mobileCard={card} />
-    </div>
+    <QueuePanel
+      active="reviews"
+      note="User reviews on listings and societies. Approve publishes one; Reject hides the text and drops it from the rating."
+      noteTestId="reviews-note"
+      toolbar={(
+        <>
+          <SearchBox value={q} onChange={setQ} placeholder="Author, item or text" label="Search reviews" />
+          <Chips label="Status" options={statusChips} value={status} onChange={setStatus} />
+          {status || q ? <ClearFilters onClick={() => { setStatus(''); setQ(''); }} /> : null}
+          <div className="ml-auto"><PageNav {...page.paging} /></div>
+        </>
+      )}
+      footer={page.paging.pageCount > 1 ? <PageNav {...page.paging} /> : null}
+    >
+      {error ? <div role="alert" className="border-b border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-sm text-rose-200">{error}</div> : null}
+      <RowList isEmpty={!rows.length} empty={status || q ? 'No reviews match these filters.' : 'No reviews yet.'}>
+        {page.items.map((r) => (
+          <RowCard
+            key={r.id}
+            id={r.id}
+            title={r.user}
+            badges={(
+              <>
+                <Badge status={r.status} />
+                <span className={classNames(CHIP, CHIP_TONE.amber, 'gap-0.5')}><Star className="h-2.5 w-2.5" aria-hidden="true" />{r.rating || '—'}</span>
+              </>
+            )}
+            meta={<><span>{r.target || '—'}</span>{r.at ? <><span className="text-gray-600" aria-hidden="true">·</span><span>{r.at}</span></> : null}</>}
+            chips={r.text ? <p className="text-sm text-gray-300">{r.text}</p> : null}
+            primary={(
+              <>
+                {r.status !== 'published' ? <button type="button" onClick={() => decide(r, 'published')} className="dz-btn dz-btn-primary dz-btn-sm">Approve</button> : null}
+                {r.status !== 'rejected' ? <button type="button" onClick={() => decide(r, 'rejected')} className="dz-btn dz-btn-ghost dz-btn-sm border-rose-400/30 text-rose-300 hover:bg-rose-500/10">Reject</button> : null}
+              </>
+            )}
+          />
+        ))}
+      </RowList>
+    </QueuePanel>
   );
 }
