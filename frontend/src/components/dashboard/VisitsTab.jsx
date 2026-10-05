@@ -6,16 +6,17 @@ import Modal from '../ui/Modal.jsx';
 import DateField from '../ui/DateField.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import { parseWhen, formatWhen } from '../../lib/visitWhen.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { isVisitHost } from '../../pages/consumer/dashboard/dashboardData.js';
+/* Intl ships month and weekday names for hi and mr, so the calendar chrome reads in the visitor's language without a
+   hand-maintained table to drift. */
 
-/* Intl ships month and weekday names for hi and mr, so the calendar chrome reads
-   in the visitor's language without a hand-maintained table to drift. */
 const calMonths = (locale) => {
   const f = new Intl.DateTimeFormat(locale, { month: 'long' });
   return Array.from({ length: 12 }, (_, i) => f.format(new Date(2024, i, 1)));
 };
 const calDays = (locale) => {
   const f = new Intl.DateTimeFormat(locale, { weekday: 'short' });
-  // 2024-01-07 was a Sunday, so this walks Sun→Sat in the calendar's own order.
   return Array.from({ length: 7 }, (_, i) => f.format(new Date(2024, 0, 7 + i)));
 };
 
@@ -51,10 +52,9 @@ const StatusBadge = ({ status, t }) => (
 const btnConfirm = 'px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/25 flex items-center gap-1';
 const btnCancel = 'px-2.5 py-1.5 rounded-lg bg-rose-500/15 text-rose-300 text-xs font-semibold hover:bg-rose-500/25 flex items-center gap-1';
 const btnGhost = 'px-2.5 py-1.5 rounded-lg bg-white/5 text-gray-300 text-xs font-semibold hover:bg-white/10 flex items-center gap-1';
+// Status → calendar colours (chip background + legend/dot). Scheduled uses amber (matching the "Awaiting
+// confirmation" badge) so it reads clearly apart from the emerald "Confirmed / visited" family.
 
-// Status → calendar colours (chip background + legend/dot). Scheduled uses amber
-// (matching the "Awaiting confirmation" badge) so it reads clearly apart from the
-// emerald "Confirmed / visited" family; cancelled/no-show are rose.
 const visitChip = (status) =>
   status === 'completed' ? { chip: 'bg-emerald-500/15 text-emerald-200', dot: 'bg-emerald-400' }
     : (status === 'cancelled' || status === 'no-show') ? { chip: 'bg-rose-500/15 text-rose-300', dot: 'bg-rose-400' }
@@ -65,26 +65,10 @@ const LegendDot = ({ cls, label }) => (
   <span className="inline-flex items-center gap-1.5 text-gray-400"><span className={'w-2 h-2 rounded-full ' + cls} />{label}</span>
 );
 
-// ─── WhatsApp handoff (prototype: opens wa.me with a status-aware, pre-filled
-// message). The owner messages the visitor (v.visitorMobile); the seeker messages the
-// owner (v.ownerMobile, enriched at load). Matches the app-wide wa.me/91… pattern.
-//
-// Field names are the visit seam's, not this component's: `visitService.js` publishes
-// `visitorName`/`visitorMobile` and both providers write exactly those. This tab used to read
-// `v.customer`/`v.mobile`, which nothing populates — the owner saw a blank visitor name and no
-// handoff button (the `isFullMobile` guard swallowed the undefined number, so it failed safe and
-// silently). Read the seam's names here; do not re-alias in the dashboard enrichment.
-const waDigits = (m) => (m || '').replace(/\D/g, '').replace(/^91/, '');
-// D5 (global number-privacy policy): a WhatsApp handoff must only render for a genuinely dialable,
-// full 10-digit number. A contact-gated value arrives masked (`98XXXXX543`), which strips to a
-// 5-digit fragment — a broken `wa.me/9198543` link, never a real number. This guard suppresses the
-// button for any masked/partial value while still rendering it for a genuinely revealed number.
+const waDigits = (m) => (m || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
 const isFullMobile = (m) => waDigits(m).length === 10;
 const btnWhatsapp = 'px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/25 flex items-center gap-1';
 
-// The visitor-facing WhatsApp message the owner sends. Under the D5 number-privacy policy only the
-// owner→visitor handoff exists (a buyer never gets the owner's number), so there is no seeker
-// variant here.
 function visitWaMessage(v, dateStr, timeLabel, t) {
   const listing = (v.listing || t('visits.propertyFallback')).split(' in ')[0];
   // Built as whole sentences per status: word order differs across languages, so
@@ -100,22 +84,23 @@ const waHref = (mobile, text) => `https://wa.me/91${waDigits(mobile)}?text=${enc
 
 export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) {
   const { t, i18n } = useTranslation();
+  const { user } = useAuth();
   const locale = i18n.language;
   const CAL_MONTHS = useMemo(() => calMonths(locale), [locale]);
   const CAL_DAYS = useMemo(() => calDays(locale), [locale]);
-  // Render straight from the `visits` prop (the single source in Dashboard) so
-  // confirm/cancel/reschedule/visited persist and stay in sync with the leads
-  // badge + Action Center. `onUpdate(id, patch)` lifts the change to the parent.
-  const visitList = visits || [];
+  // Render straight from the `visits` prop (the single source in Dashboard) so confirm/cancel/reschedule/visited
+  // persist and stay in sync with the leads badge + Action Center.
+  const visitList = useMemo(() => visits || [], [visits]);
 
-  const updateVisit = (id, status) => {
-    onUpdate?.(id, { status });
+  const updateVisit = async (id, status) => {
+    const ok = await onUpdate?.(id, { status });
+    if (!ok) return;
     const msg = status === 'confirmed' ? t('visits.confirmedToast') : status === 'cancelled' ? t('visits.cancelledToast') : status === 'completed' ? t('visits.visitedToast') : t('visits.updatedToast');
     toast(msg, 'success');
   };
-
   // Reschedule uses the shared Modal + a date field, then rewrites the visit's
   // date and returns it to "scheduled" so the other party re-confirms the slot.
+
   const [reschedule, setReschedule] = useState(null);
   const [reDate, setReDate] = useState('');
   const [reTime, setReTime] = useState('');
@@ -126,13 +111,14 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     setReTime(p.timeLabel || '10:30 AM');
   };
   const closeReschedule = () => { setReschedule(null); setReDate(''); setReTime(''); };
-  const saveReschedule = () => {
+  const saveReschedule = async () => {
     if (!reschedule || !reDate || !reTime) return;
     const id = reschedule.id;
     // Keep the visit's original mode (in-person / video) and fold date + time back
     // into one `when` string that parseWhen can read, so the chosen slot persists.
     const mode = parseWhen(reschedule.when).mode || 'in-person';
-    onUpdate?.(id, { when: formatWhen(reDate, reTime, mode), status: 'scheduled' });
+    const ok = await onUpdate?.(id, { when: formatWhen(reDate, reTime, mode), status: 'scheduled' });
+    if (!ok) return;
     closeReschedule();
     toast(t('visits.rescheduledToast'), 'success');
   };
@@ -186,15 +172,16 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     if (diff === 1) return t('visits.tomorrow');
     return '';
   };
-
   // ─── One actionable upcoming-visit row (confirm / reschedule / cancel / mark visited) ───
+
   const UpcomingRow = ({ v }) => {
     const p = parsed.get(v.id) || {};
     const d = p.date;
     const dateStr = d ? d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }) : t('visits.dateTbd');
     const tag = dayTag(d);
     const isPast = d && d < startOfToday;
-    const who = isOwner ? v.visitorName : t('visits.yourVisitMode', { mode: p.mode || t('visits.visitWord') });
+    const hostedByMe = isVisitHost(v, user?.id);
+    const who = hostedByMe ? v.visitorName : t('visits.yourVisitMode', { mode: p.mode || t('visits.visitWord') });
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
         <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="calendar-clock" className="w-5 h-5 text-teal-400" /></div>
@@ -208,18 +195,14 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
             <span>·</span>
             <span className={tag ? 'text-teal-300 font-semibold' : ''}>{tag || dateStr}</span>
             {p.timeLabel && <><span>·</span><span>{p.timeLabel}</span></>}
-            {p.mode && isOwner && <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400 capitalize"><Icon name={p.mode === 'video' ? 'video' : 'map-pin'} className="w-3 h-3" /> {p.mode}</span>}
+            {p.mode && hostedByMe && <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400 capitalize"><Icon name={p.mode === 'video' ? 'video' : 'map-pin'} className="w-3 h-3" /> {p.mode}</span>}
           </p>
+        {/* Action buttons meet the 44px tap-target minimum on phones (the same standard as CallBtn/WhatsAppBtn) then
+           relax to their compact size from `sm` up, so the desktop row stays exactly as before. */}
         </div>
-        {/* Action buttons meet the 44px tap-target minimum on phones (the same
-            standard as CallBtn/WhatsAppBtn) then relax to their compact size from
-            `sm` up, so the desktop row stays exactly as before. */}
         <div className="flex items-center gap-1.5 flex-wrap [&>*]:min-h-[44px] sm:[&>*]:min-h-0">
           {(() => {
-            // D5: a buyer never gets the owner's number — the buyer→owner channel is in-app
-            // messaging, not a wa.me handoff. Only the owner's outbound handoff to the visitor
-            // remains, and only for a genuinely dialable full number.
-            if (!isOwner) return null;
+            if (!hostedByMe) return null;
             const target = v.visitorMobile;
             if (!isFullMobile(target)) return null;
             const text = visitWaMessage(v, tag || dateStr, p.timeLabel, t);
@@ -229,8 +212,9 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
               </a>
             );
           })()}
-          {v.status === 'scheduled' && isOwner && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> {t('visits.confirm')}</button>}
-          {v.status === 'confirmed' && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> {t('visits.markVisited')}</button>}
+          {v.status === 'scheduled' && hostedByMe && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> {t('visits.confirm')}</button>}
+          {v.status === 'scheduled' && !hostedByMe && <span className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-300">{t('visits.awaitingOwner')}</span>}
+          {v.status === 'confirmed' && hostedByMe && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> {t('visits.markVisited')}</button>}
           <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>
           <button onClick={() => updateVisit(v.id, 'cancelled')} className={btnCancel}><Icon name="x" className="w-3.5 h-3.5" /> {t('visits.cancel')}</button>
           <Link to={`/property/${v.listingId}`} className={btnGhost}><Icon name="arrow-right" className="w-3.5 h-3.5" /> {t('visits.property')}</Link>
@@ -275,7 +259,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                 <div className={`w-10 h-10 rounded-xl ${iconCls.includes('emerald') ? 'bg-emerald-500/15' : 'bg-rose-500/15'} flex items-center justify-center flex-shrink-0`}><Icon name={icon} className={`w-5 h-5 ${iconCls}`} /></div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium truncate">{v.listing}</p>
-                  <p className="text-gray-500 text-xs">{isOwner ? v.visitorName : t('visits.yourVisit')} · {dateStr}</p>
+                  <p className="text-gray-500 text-xs">{isVisitHost(v, user?.id) ? v.visitorName : t('visits.yourVisit')} · {dateStr}</p>
                 </div>
                 <Link to={`/property/${v.listingId}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 font-semibold hover:bg-white/10">{t('visits.viewProperty')}</Link>
               </div>
@@ -285,19 +269,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       </Card>
     ) : null
   );
+  /* A JSX value, not a nested `const RescheduleModal = () => (…)` component. */
 
-  /* A JSX value, not a nested `const RescheduleModal = () => (…)` component.
-     A component declared in the render body is a NEW function identity on every render, so React
-     treats it as a different component type and unmounts + remounts its whole subtree rather than
-     reconciling it. For a dialog that means the DOM nodes are destroyed and rebuilt underneath the
-     user: an open calendar popover inside `DateField` closes on its own, and focus is lost, for no
-     reason the user can see.
-
-     Latent until visits started re-reading after a write — nothing else re-rendered this tab while
-     the modal was open, so the remount had no observable moment to happen in. It is reachable now:
-     confirm a visit, open Reschedule on another one, and the refetch lands mid-dialog. Holding the
-     element instead of a component keeps the type stable at `Modal`, so the same instance is
-     reconciled and the dialog survives a re-render. */
   const rescheduleModal = (
     <Modal
       open={!!reschedule}
@@ -313,7 +286,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     >
       {reschedule ? (
         <div className="space-y-3">
-          <p className="text-sm text-gray-400">{isOwner ? reschedule.visitorName : t('visits.yourVisit')}</p>
+          <p className="text-sm text-gray-400">{isVisitHost(reschedule, user?.id) ? reschedule.visitorName : t('visits.yourVisit')}</p>
           <label className="block text-xs font-semibold text-gray-300">{t('visits.newDate')}</label>
           <DateField
             value={reDate}
@@ -328,11 +301,9 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
             className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white"
             ariaLabel={t('visits.newTime')}
           />
-          <p className="text-xs text-gray-500">{isOwner ? t('visits.reconfirmVisitor') : t('visits.reconfirmOwner')}</p>
+          <p className="text-xs text-gray-500">{isVisitHost(reschedule, user?.id) ? t('visits.reconfirmVisitor') : t('visits.reconfirmOwner')}</p>
           {(() => {
-            // D5: the buyer→owner reschedule ping is in-app, not a wa.me handoff. Only the owner's
-            // handoff to the visitor remains, and only for a genuinely dialable full number.
-            if (!isOwner) return null;
+            if (!isVisitHost(reschedule, user?.id)) return null;
             const target = reschedule.visitorMobile;
             if (!isFullMobile(target) || !reDate || !reTime) return null;
             const label = new Date(reDate + 'T00:00:00').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -348,8 +319,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       ) : null}
     </Modal>
   );
-
   // Empty state — a user with zero visits of any kind.
+
   if (visitList.length === 0) {
     return (
       <div className="space-y-6">
@@ -365,8 +336,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       </div>
     );
   }
-
   // ─── WEEK VIEW (per-day agenda — real slot time when known, else "Time TBD") ───
+
   if (weekView) {
     const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekView); d.setDate(weekView.getDate() + i); return d; });
     const weekLabel = `${weekDays[0].toLocaleDateString(locale, { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
@@ -404,7 +375,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                         return (
                           <Link key={v.id} to={`/property/${v.listingId}`} className={'block rounded-lg border px-2 py-1.5 ' + colors}>
                             <p className="text-[11px] font-bold truncate leading-tight">{v.listing.split(' in ')[0]}</p>
-                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || t('visits.timeTbd')} · {isOwner ? v.visitorName : t('visits.you')}</p>
+                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || t('visits.timeTbd')} · {isVisitHost(v, user?.id) ? v.visitorName : t('visits.you')}</p>
                           </Link>
                         );
                       })}
@@ -419,8 +390,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       </div>
     );
   }
-
   // ─── MONTH VIEW ───
+
   return (
     <div className="space-y-6">
       <UpcomingCard />
@@ -454,8 +425,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
               );
             })}
           </div>
-
           {/* Day grid — one uniform whisper-soft hairline (white/[0.04]) replaces the old stacked borders */}
+
           <div className="grid grid-cols-7">
             {Array.from({ length: firstDay }).map((_, i) => <div key={'e' + i} className="min-h-[76px] border-b border-r border-white/[0.04] bg-white/[0.008]" />)}
             {Array.from({ length: daysInMonth }).map((_, i) => {
@@ -465,7 +436,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
               const dayVisits = allVisitMap.get(dateKey) || [];
               const hasVisit = dayVisits.length > 0;
               return (
-                <div key={day} onClick={() => openWeek(day)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && openWeek(day)} className={'relative p-1.5 min-h-[76px] cursor-pointer transition border-b border-r border-white/[0.04] focus-visible:ring-2 focus-visible:ring-teal-400/50 focus-visible:z-10 outline-none ' + (isToday ? 'bg-teal-500/[0.12]' : hasVisit ? 'bg-white/[0.02] hover:bg-white/[0.05]' : 'hover:bg-white/[0.03]')}>
+                <button type="button" key={day} onClick={() => openWeek(day)} className={'relative min-h-[76px] cursor-pointer border-b border-r border-white/[0.04] p-1.5 text-left transition focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-teal-400/50 outline-none ' + (isToday ? 'bg-teal-500/[0.12]' : hasVisit ? 'bg-white/[0.02] hover:bg-white/[0.05]' : 'hover:bg-white/[0.03]')}>
                   <span className={'inline-flex items-center justify-center mb-1 text-xs font-bold ' + (isToday ? 'w-6 h-6 rounded-full bg-teal-500 text-white shadow-[0_2px_8px_rgba(20,184,166,0.5)]' : 'text-gray-300')}>{day}</span>
                   <div className="hidden sm:block space-y-0.5">
                     {dayVisits.slice(0, 2).map((v) => {
@@ -484,7 +455,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                       {dayVisits.slice(0, 4).map((v) => <span key={v.id} className={'w-1.5 h-1.5 rounded-full ' + visitChip(v.status).dot} />)}
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
             {(() => {

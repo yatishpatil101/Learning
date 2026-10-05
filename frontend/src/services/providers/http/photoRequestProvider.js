@@ -1,50 +1,26 @@
-/**
- * HTTP photo-request provider.
- *
- * No mapper module alongside this one: the server's `PhotoRequestResponse` was designed against
- * this seam, so the only translation left is unwrapping Spring's page envelope. A mapper here would
- * be a file of identity functions.
- *
- * Nothing in this file sees an owner's phone number: the server derives the owner from the listing,
- * which is what lets the create call take a listing id and the inbox call take no argument at all.
- */
-import { get, patch, post, unwrapPage } from '../../http.js';
+import { get, patch, post, unwrapFullPage } from '../../http.js';
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 
-/**
- * Ask for more photos. Always resolves on a repeat press — the server answers `created: false`
- * rather than a 409, because asking twice is a no-op, not an error, and a 409 would route the
- * caller's happy path through its failure handler.
- *
- * 401 and 400 propagate as-is: "sign in" and "this is your own listing" are both things the user
- * can act on, so neither may be flattened into a silent success.
- */
+/** Duplicate asks are no-ops, not 409s, so happy paths do not use failure handlers. */
 export async function requestPhotos(propertyIdOrSlug) {
   return post(`/properties/${encodeURIComponent(propertyIdOrSlug)}/photo-requests`);
 }
 
 /** The owner's inbox, newest first. */
-export async function myPhotoRequests({ page = 0, size = 20 } = {}) {
+export async function myPhotoRequests({ page = 0, size = MAX_PAGE_SIZE } = {}) {
   const res = await get('/me/photo-requests', { page, size });
-  // `total` is `totalElements` — the whole result set, not this page — which is what any
-  // "N requests" label depends on. See `unwrapPage` for why `page` is not read from Spring's
-  // `number`, and why the *requested* page is not a safe fallback.
-  return unwrapPage(res, { page, size });
+  const items = unwrapFullPage(res, 'photo-request');
+  return {
+    items,
+    page: res?.page ?? res?.number ?? page,
+    size: res?.size ?? size,
+    total: res?.totalElements ?? items.length,
+    totalPages: res?.totalPages ?? 0,
+  };
 }
 
-/** Counted server-side, so it stays correct past the first page. */
-export async function pendingPhotoRequestCount() {
-  const res = await get('/me/photo-requests/pending-count');
-  return res?.pending ?? 0;
-}
-
-/**
- * Answer one request, either way.
- *
- * <p>The body is mandatory: there are two transitions, so the decision is a required field and a
- * call without it is a 400. This is not a place where an omitted argument degrades to a default.
- *
- * @param {'resolved'|'declined'} decision
- */
+/** The body is mandatory: there are two transitions, so the decision is a required field and a call without it is a
+ * 400. This is not a place where an omitted argument degrades to a default. */
 export async function decidePhotoRequest(reqId, decision) {
   return patch(`/me/photo-requests/${encodeURIComponent(reqId)}`, { decision });
 }

@@ -1,36 +1,9 @@
-/**
- * HTTP contact provider.
- *
- * There is deliberately no `contactMapper.js` alongside this, unlike the property slice. The
- * server's `ContactStatus` and `ContactRequest` schemas were designed against this seam, so the
- * only translation left is unwrapping Spring's page envelope. A mapper module here would be a file
- * of identity functions.
- *
- * The gate is keyed on the listing and the owner is derived server-side, so nothing in this file
- * ever sees or needs an owner's phone number to answer a permission question.
- */
-import { get, patch, post, unwrapPage } from '../../http.js';
+import { get, patch, post, unwrapFullPage } from '../../http.js';
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import { NO_CONTACT_GATE } from '../../../lib/contact.js';
 
-/**
- * The caller's gate state for one listing.
- *
- * An anonymous visitor is answered locally. The gate asks "where does *this caller* stand with this
- * owner", and someone with no session has by definition made no request — the server can only ever
- * say 401, so asking is a round trip whose answer we already have. It is not free either: the
- * property page mounts this hook from several places, so a signed-out visitor to a public listing
- * would fire four doomed requests and paint four red 401s in the console, which is the sort of
- * noise that hides a real failure.
- *
- * The 401 branch below is still kept, because the check above is a fast path and not a guarantee:
- * a token can expire between the read and the response, and that must land on "no gate" too.
- *
- *   401 — not signed in. Semantically this is `status: 'none'`; they have made no request. Letting
- *         it throw would blank a public page for exactly the visitor we want to convert.
- *   404 — no such listing, which is also "no gate". The page's own not-found handling owns that
- *         message; the gate has no opinion to add.
- */
+/** Signed-out callers get the empty gate locally, avoiding noisy doomed 401s. */
 export async function contactStatus(propertyId) {
   if (!propertyId) return NO_CONTACT_GATE;
   if (!readAccessToken()) return NO_CONTACT_GATE;
@@ -42,25 +15,22 @@ export async function contactStatus(propertyId) {
   }
 }
 
-/**
- * Ask the owner for their number. Returns the resulting gate state — the server models this as
- * "tell me where I now stand" rather than "create a request", which is what makes a repeat press
- * idempotent instead of stacking duplicate rows in the owner's inbox.
- *
- * Errors propagate as-is: 401 (sign in) and 403 `verification_required` are both things the user
- * can act on, so unlike the read above they must not be flattened into a silent no-op.
- */
+/* The server keeps this idempotent and returns 401/403 exactly as the UI must explain them. */
 export async function requestContact(propertyId, message) {
   return post('/contacts/request', { propertyId, ...(message ? { message } : {}) });
 }
 
 /** The owner's inbox, newest first. */
-export async function myContactRequests({ page = 0, size = 20 } = {}) {
+export async function myContactRequests({ page = 0, size = MAX_PAGE_SIZE } = {}) {
   const res = await get('/me/contact-requests', { page, size });
-  // `total` is `totalElements` — the whole result set, not this page — which is what the badge
-  // and any "N enquiries" label depend on. See `unwrapPage` for why `page` is not read from
-  // Spring's `number`.
-  return unwrapPage(res, { page, size });
+  const items = unwrapFullPage(res, 'contact');
+  return {
+    items,
+    page: res?.page ?? res?.number ?? page,
+    size: res?.size ?? size,
+    total: res?.totalElements ?? items.length,
+    totalPages: res?.totalPages ?? 0,
+  };
 }
 
 export async function respondToContactRequest(reqId, status) {

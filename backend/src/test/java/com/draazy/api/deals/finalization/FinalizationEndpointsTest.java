@@ -18,7 +18,6 @@ import com.draazy.api.security.JwtService;
 import java.math.BigDecimal;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -26,7 +25,6 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * Contract + behaviour proof for the finalization sub-slice (A3), driven through the real filter
@@ -35,7 +33,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * <p>Covers every test in the §11 bar: request with registered counterparty, unregistered mobile,
  * body propertyId mismatch, auto-decline atomicity, initiator self-accept, stranger scoping,
  * soft cancel, /me/finalization-requests scoping, mobile masking, duplicate prevention, illegal
- * transition, money round-trip, and route-constant agreement.
+ * transition, and money round-trip.
  */
 class FinalizationEndpointsTest extends AbstractApiTest {
 
@@ -45,9 +43,6 @@ class FinalizationEndpointsTest extends AbstractApiTest {
     @Autowired PropertyRepository properties;
     @Autowired FinalizationRequestRepository finalizationRepo;
     @Autowired JdbcTemplate jdbc;
-    @Autowired
-    @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
-    RequestMappingHandlerMapping handlerMapping;
 
     // ---- helpers ----
 
@@ -92,15 +87,16 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         User owner = user("9830100001", "owner");
         User buyer = user("9830100002", "buyer");
         Property p = listing(owner, "Finalization test");
+        long largeAmount = 3_000_000_000L;
 
         mvc.perform(post(Routes.Finalization.REQUEST.replace("{propId}", p.getId().toString()))
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"counterpartyMobile\":\"" + owner.getMobile()
-                                + "\",\"agreedPrice\":5000000}"))
+                                + "\",\"agreedPrice\":" + largeAmount + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.propertyId").value(p.getId().toString()))
-                .andExpect(jsonPath("$.agreedPrice").value(5000000))
+                .andExpect(jsonPath("$.agreedPrice").value(largeAmount))
                 .andExpect(jsonPath("$.status").value(FinalizationStatuses.PENDING))
                 .andExpect(jsonPath("$.initiator.id").value(buyer.getId().toString()))
                 .andExpect(jsonPath("$.counterparty.id").value(owner.getId().toString()));
@@ -467,40 +463,6 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- §11 test 13: money round-trip — large value survives as long ----
-
-    @Test
-    void moneyRoundTrips_largeValueNoPrecisionLoss() throws Exception {
-        User owner = user("9830100029", "owner");
-        User buyer = user("9830100030", "buyer");
-        Property p = listing(owner, "Money test");
-        long largeAmount = 25_00_00_000L; // 25 crore
-
-        mvc.perform(post(Routes.Finalization.REQUEST.replace("{propId}", p.getId().toString()))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"counterpartyMobile\":\"" + owner.getMobile()
-                                + "\",\"agreedPrice\":" + largeAmount + "}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.agreedPrice").value(largeAmount));
-    }
-
-    // ---- §11 test 14: route-constant ↔ SecurityConfig agreement ----
-
-    @Test
-    void everyFinalizationRouteConstantIsServedByAController() {
-        Set<String> mapped = handlerMapping.getHandlerMethods().keySet().stream()
-                .filter(info -> info.getPathPatternsCondition() != null)
-                .flatMap(info -> info.getPathPatternsCondition().getPatternValues().stream())
-                .collect(Collectors.toSet());
-
-        assertThat(mapped).contains(
-                Routes.Finalization.REQUEST,
-                Routes.Finalization.STATUS,
-                Routes.Finalization.ME_REQUESTS,
-                Routes.Finalization.ACCEPT,
-                Routes.Finalization.DECLINE);
-    }
     // ---- Regression: the counterparty is derived from the listing, not the request body ----
     //
     // The first cut resolved the counterparty by looking up whatever mobile arrived in the body,

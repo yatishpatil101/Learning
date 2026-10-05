@@ -26,10 +26,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
-/**
- * Contract + behaviour proof for the contacts + contact-gate slice, organised around invariants:
- * badge-not-gate (ADR-019), reveal-only-on-owner-or-approved, owner-scoping, and request idempotency.
- */
+// Contract + behaviour proof for the contacts + contact-gate slice, organised around invariants:
+// badge-not-gate (ADR-019), reveal-only-on-owner-or-approved, owner-scoping, and request idempotency.
 class ContactGateEndpointsTest extends AbstractApiTest {
 
     @Autowired
@@ -77,7 +75,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .content("{\"propertyId\":\"" + p.getId() + "\"}"));
     }
 
-    /** The id of the single request in an owner's inbox — the {@code reqId} path token. */
+    // The id of the single request in an owner's inbox — the {@code reqId} path token.
     private String requestId(User owner) throws Exception {
         String json = mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -85,14 +83,16 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    // ---------------- GET /contacts/status ----------------
-
+    // Badge-not-gate (ADR-019): unverified callers must succeed against an ordinary owner; the badge
+    // bites only when the owner opts in.
     @Test
     void myContactRequests_isEmptyForAnOwnerWithNoListings_ratherThanEveryonesInbox() throws Exception {
         User busyOwner = user("9820000090", "owner");
         User idleOwner = user("9820000091", "owner");
         ask(user("9820000092", "buyer"), listing(busyOwner, "Busy owner flat"));
 
+        // The buyer's number stays masked to the owner too: the inbox never emits a raw contact
+        // number, so the revealed `contact` object is absent.
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(idleOwner)))
                 .andExpect(status().isOk())
@@ -155,10 +155,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(ContactStatuses.APPROVED));
     }
 
-    /**
-     * Approving notifies the buyer at the listing where the number is now visible; nobody is told
-     * about their own decision.
-     */
     @Test
     void approvingAContactRequest_notifiesTheBuyer_andNotTheOwner() throws Exception {
         User owner = user("9820000200", "owner");
@@ -176,10 +172,12 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         assertThat(notes).hasSize(1);
         assertThat(notes.getFirst().get("type")).isEqualTo("contact.approved");
         assertThat(notes.getFirst().get("link")).isEqualTo("/property/" + p.getId());
+        assertThat(notes.getFirst().get("body").toString())
+                .contains("see their number unless they keep it hidden")
+                .doesNotContain(owner.getMobile());
         assertThat(notificationsFor(owner)).isEmpty();
     }
 
-    /** A decline is a terminal "no", not news to push at the buyer — recorded so silence is defended. */
     @Test
     void decliningAContactRequest_notifiesNobody() throws Exception {
         User owner = user("9820000202", "owner");
@@ -196,13 +194,11 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         assertThat(notificationsFor(buyer)).isEmpty();
     }
 
-    /** Read straight from the table: the notification is a side effect, not part of any response. */
     private List<Map<String, Object>> notificationsFor(User user) {
         return jdbc.queryForList(
                 "select type, title, body, link from notifications where user_id = ?", user.getId());
     }
 
-    /** Mock-shape parity: exactly the four keys {@code frontend/src/lib/contact.js} reads. */
     @Test
     void contactStatus_shapeMatchesTheFrontendMock() throws Exception {
         User owner = user("9820000005", "owner");
@@ -216,8 +212,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.verificationRequired").exists())
                 .andExpect(jsonPath("$.ownerHidesNumber").exists());
     }
-
-    // ---------------- POST /contacts/request ----------------
 
     @Test
     void requestContact_createsOnePendingRow_andIsIdempotent() throws Exception {
@@ -254,10 +248,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 Pageable.unpaged())).isEmpty();
     }
 
-    /**
-     * Badge-not-gate (ADR-019): unverified callers must succeed against an ordinary owner; the badge
-     * bites only when the owner opts in.
-     */
     @Test
     void requestContact_succeedsForUnverifiedCaller_whenOwnerHasNotOptedIn() throws Exception {
         User owner = user("9820000009", "owner");
@@ -289,8 +279,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("verification_required"));
 
-        // Same owner, same listing: a badged caller sails through, proving the 403 is the owner's
-        // opt-in and not a blanket verification requirement.
         mvc.perform(post(Routes.Contacts.REQUEST).header(HttpHeaders.AUTHORIZATION, bearer(badged))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
@@ -308,8 +296,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
         mvc.perform(get(Routes.MeContactRequests.BASE)).andExpect(status().isUnauthorized());
     }
-
-    // ---------------- /me/contact-requests ----------------
 
     @Test
     void myContactRequests_areOwnerScoped_maskTheRequester_andHideContactUntilApproved()
@@ -379,26 +365,21 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    // ---------------- the payoff: masked, and stays masked (D5 global policy) ----------------
-
     @Test
-    void ownerMobileStaysMaskedEvenAfterApproval_onPropertyDetail() throws Exception {
+    void approvedBuyerSeesOwnerMobileWhenOwnerAllowsIt_onPropertyDetail() throws Exception {
         User owner = user("9829876543", "owner");
         User buyer = user("9820000023", "buyer");
         Property p = listing(owner, "Reveal");
         String detail = "/properties/" + p.getId();
 
-        // Anonymous, and signed-in-but-unrequested: masked.
         mvc.perform(get(detail)).andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
 
-        // Pending is not approval.
         ask(buyer, p);
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
 
-        // The owner always sees their own number.
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(jsonPath("$.owner.mobile").value("9829876543"));
 
@@ -408,18 +389,36 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                         .content("{\"status\":\"approved\"}"))
                 .andExpect(status().isOk());
 
-        // Approval unlocks the in-app conversation, not the digits — the number stays masked to
-        // the approved buyer and to everyone else.
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
-                .andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
+                .andExpect(jsonPath("$.owner.mobile").value("9829876543"));
         mvc.perform(get(detail)).andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
 
-        // The buyer's number stays masked to the owner too: the inbox never emits a raw contact
-        // number, so the revealed `contact` object is absent.
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$.content[0].contact").doesNotExist())
+                .andExpect(jsonPath("$.content[0].contact.mobile").value("9820000023"))
                 .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX023"));
+    }
+
+    @Test
+    void approvedBuyerStillSeesMaskWhenOwnerHidesNumber() throws Exception {
+        User owner = user("9829876545", "owner");
+        owner.setHideNumber(true);
+        users.saveAndFlush(owner);
+        User buyer = user("9820000025", "buyer");
+        Property p = listing(owner, "Hidden");
+        ask(buyer, p);
+
+        mvc.perform(patch(Routes.MeContactRequests.BASE + "/" + requestId(owner))
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"approved\"}"));
+
+        mvc.perform(get(Routes.Contacts.STATUS).param("propertyId", p.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(jsonPath("$.ownerHidesNumber").value(true));
+        mvc.perform(get("/properties/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(jsonPath("$.owner.mobile").value("98XXXXX545"));
     }
 
     @Test
@@ -438,12 +437,6 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.owner.mobile").value("98XXXXX544"));
     }
 
-    // ---------------- api-standards.md §2.1 route-constant agreement ----------------
-
-    /**
-     * A typo in either the constants or the controllers compiles, passes every happy path, and
-     * quietly leaves a route unguarded — this catches it.
-     */
     @Test
     void everySliceRouteConstantIsServedByAController() {
         Set<String> mapped = handlerMapping.getHandlerMethods().keySet().stream()

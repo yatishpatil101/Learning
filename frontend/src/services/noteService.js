@@ -1,70 +1,12 @@
-/**
- * Note Service — the internal notes staff keep on a case.
- *
- * ## `property`, not `listing`
- *
- * Every call site in this app says `listing`. The contract says `property`, as it does everywhere
- * else — `/properties`, `ReportTargetTypes.PROPERTY`, `PropertyResponse`. Rather than rename forty
- * call sites or bend the API to one client's vocabulary, the provider's mapper bridges the two
- * words once, in one place. Callers keep saying `listing`; the wire keeps saying `property`.
- *
- * ## Notes are retained customer information, not scratch
- *
- * That is what makes this domain look unlike the audit log next to it:
- *
- * - **Mutable.** `editNote` exists. A note that recorded the wrong flat number should be corrected,
- *   not contradicted three notes later. The previous wording survives in the audit log, so mutable
- *   does not mean quietly rewritable.
- * - **No per-team walls.** Any staff or admin reads any note. Deliberately inter-transparent: a
- *   note the next shift cannot see is a note that did not need writing.
- * - **No delete.** There is no `deleteNote` here because there is no DELETE route. Retained
- *   information is retained.
- *
- * ## Not the timeline
- *
- * `GET /users/{id}/timeline` is admin-only and its `kind` enum has no `note`. Notes on a person go
- * through this domain instead, which staff can reach — the audience that writes them is the
- * audience that must be able to read them back.
- */
+/** The app says `listing`; the provider maps it to the API's `property`. */
 import { createProvider } from './config.js';
 
 const provider = createProvider('note');
 
-/**
- * Every note on one entity, newest first.
- *
- * @param {'listing'|'user'|'review'|'report'} entityType which kind of record. `listing` is bridged
- *   to the contract's `property` inside the provider.
- * @param {string} entityId the record's id
- * @returns {Promise<Array<{id: string, author: string, action: string, text: string, at: string,
- *   editedAt: string|null}>>} `author` is a display name where the account is still resolvable and
- *   the raw author id otherwise — an id is uglier than a name and far better than an empty byline.
- * @throws {ApiError} 403 when the caller is not staff or admin.
- */
+/** Notes expose display authors only when the account is still resolvable. */
 export const listNotes = async (entityType, entityId) =>
   (await provider()).listNotes(entityType, entityId);
 
-/**
- * Add a note. The author is taken from the caller's token, never from here.
- *
- * @param {'listing'|'user'|'review'|'report'} entityType
- * @param {string} entityId
- * @param {string} text required and non-blank — an action label with no text renders as an empty
- *   bullet under somebody's name
- * @param {string} [action] the decision this note was filed beside, e.g. `Approved`. Recorded once
- *   and not editable afterwards: it describes what happened, not what somebody thinks about it.
- * @returns {Promise<object>} the stored note, in the same shape `listNotes` returns
- */
+/** Add a note. The author is taken from the caller's token, never from here. */
 export const addNote = async (entityType, entityId, text, action) =>
   (await provider()).addNote(entityType, entityId, text, action);
-
-/**
- * Correct the wording of an existing note. Any staff member may correct any note, and the byline
- * does not change hands when they do.
- *
- * @param {string} id the note's id
- * @param {string} text the replacement wording
- * @returns {Promise<object>} the corrected note
- * @throws {ApiError} 404 when no note has this id
- */
-export const editNote = async (id, text) => (await provider()).editNote(id, text);

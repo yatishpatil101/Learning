@@ -41,9 +41,9 @@ import org.springframework.stereotype.Component;
  * matters, because a note taken as a listing is archived is the case the guarantee is about, and
  * resolving it any other way would split the bucket at the one moment it must not.
  *
- * <p>The other three kinds have no second spelling: {@code user}, {@code review} and {@code report}
- * are addressed by uuid alone. They pass through untouched rather than through a lookup that could
- * only ever return what it was given.
+ * <p>The other kinds have no second spelling: {@code user}, {@code review}, {@code report} and
+ * {@code service_request} are addressed by uuid alone. They pass through untouched rather than
+ * through a lookup that could only ever return what it was given.
  */
 @Component
 public class NoteEntityKey {
@@ -60,7 +60,7 @@ public class NoteEntityKey {
      * <p>Callers pass the raw path segment. The type is assumed already validated by
      * {@code NoteEntityTypes}; an unknown one is simply not a property and falls through.
      *
-     * @param entityType one of the four note kinds, in the wire's vocabulary ({@code property}, not
+     * @param entityType one of the note kinds, in the wire's vocabulary ({@code property}, not
      *                   {@code listing})
      * @param entityId   the slug or uuid the caller holds
      * @return the canonical key — never {@code null}, and never an exception for a miss

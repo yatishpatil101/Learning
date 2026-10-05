@@ -4,13 +4,14 @@ import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
-import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { maskPhone, fmtPhone } from '../../../lib/contact.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
 import { useEntitlements, contactsLeft } from './useEntitlements.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
+import { dialableMobile, telHref } from './contactPhone.js';
 
 export function ContactBox({ p, isIn, toast }) {
   const { t } = useTranslation();
@@ -29,6 +30,7 @@ export function ContactBox({ p, isIn, toast }) {
   // Owner phone privacy) — approved buyers are routed to in-app chat instead.
   const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
+  const ownerDialable = dialableMobile(ownerMobile);
 
   const request = async () => {
     if (!isIn) {
@@ -38,8 +40,8 @@ export function ContactBox({ p, isIn, toast }) {
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: String(propId) });
 
-    /* Captured before the await: `signInPath` reads `window.location` at call time, so a 401 that
-       lands after the visitor has navigated away would otherwise return them to the wrong page. */
+    /* Captured before the await: `signInPath` reads `window.location` at call time, so a 401 that lands after the
+       visitor has navigated away would otherwise return them to the wrong page. */
     const back = window.location.pathname + window.location.search;
     setBusy(true);
     try {
@@ -68,9 +70,16 @@ export function ContactBox({ p, isIn, toast }) {
     <div className="mb-3 rounded-xl bg-white/5 border border-white/10 px-3 py-2.5">
       {revealed ? (
         <>
-          <a href={`tel:+91${digits(ownerMobile)}`} className="flex items-center gap-2 text-sm text-brand-teal-3 hover:underline transition-smooth">
-            <Icon name="phone" className="w-4 h-4" /> {fmtPhone(ownerMobile)}
-          </a>
+          {ownerDialable ? (
+            <a href={telHref(ownerMobile)} className="flex items-center gap-2 text-sm text-brand-teal-3 hover:underline transition-smooth">
+              <Icon name="phone" className="w-4 h-4" /> {fmtPhone(ownerMobile)}
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-slate-300">
+              <Icon name="phone-off" className="w-4 h-4 text-slate-500" />
+              <span className="tracking-wider">{maskPhone(ownerMobile)}</span>
+            </div>
+          )}
           <p className="text-[11px] text-emerald-300 mt-1 flex items-center gap-1">
             {status === 'owner'
               ? <>{t('property.yourListingNumber')}</>
@@ -84,9 +93,8 @@ export function ContactBox({ p, isIn, toast }) {
             <span className="tracking-wider">{maskPhone(ownerMobile)}</span>
           </div>
           {loading ? (
-            /* `NO_CONTACT_GATE` is also the state that shows the request button, so rendering the
-               action row before the network answer lands flashes "Request number" at a buyer who
-               was already approved. Hold the row — the masked number above is true in every state. */
+            /* `NO_CONTACT_GATE` is also the state that shows the request button, so rendering the action row before
+               the network answer lands flashes "Request number" at a buyer who was already approved. */
             <div className="mt-2 h-9 rounded-lg bg-white/5 animate-pulse" aria-hidden="true" />
           ) : ownerHides ? (
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-300 font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">

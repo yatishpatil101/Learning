@@ -16,8 +16,7 @@ import { displayDate, todayIso } from '../../lib/visitWhen.js';
 import AutosaveBanner from '../../components/AutosaveBanner.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../lib/hooks.js';
-
-const FALLBACK_IMG = 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 
 export default function ScheduleVisit() {
   const rootRef = useScrollReveal();
@@ -42,9 +41,9 @@ export default function ScheduleVisit() {
   const draft = useFormDraft('dzDraft:schedule-visit', form, setForm);
   const formRef = useRef(null);
   const err = useFieldErrors(formRef);
-
   // Resolve the real listing so the page always shows the correct property
   // context (title, price, owner) rather than a hardcoded placeholder.
+
   useEffect(() => {
     if (!listingId) { setListing(null); return undefined; }
     let alive = true;
@@ -56,7 +55,7 @@ export default function ScheduleVisit() {
   const ownerMobile = ownerParam || listing?.ownerMobile || '';
 
   const confirm = () => {
-    const d = (form.phone || '').replace(/\D/g, '').replace(/^91/, '');
+    const d = (form.phone || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: t('misc1.svErrName') },
       { name: 'phone', ok: /^[6-9]\d{9}$/.test(d), msg: t('misc1.svErrPhone') },
@@ -68,9 +67,8 @@ export default function ScheduleVisit() {
       toast(t('misc1.svToastRequested'), 'success');
       return;
     }
+    /* One write, not two. */
 
-    /* One write, not two. A visit is one real-world event: writing it to both the global collection
-       and the owner's bucket gives two records that drift the moment either is updated alone. */
     setBusy(true);
     scheduleVisit({
       propertyId: listingId || listing?.id || '',
@@ -88,9 +86,8 @@ export default function ScheduleVisit() {
         setBooked(true);
         toast(t('misc1.svToastRequested'), 'success');
       })
+        /* A live visit already exists; the server refuses rather than moving the slot. */
       .catch((e) => {
-        // A live visit already exists on this listing. The server refuses rather than moving the
-        // slot, so say so instead of showing a success screen for a booking that did not happen.
         if (e?.code === 'visit_exists') toast(t('misc1.svToastAlreadyBooked'), 'info');
         else toast(t('misc1.svToastFailed'), 'error');
       })
@@ -106,7 +103,6 @@ export default function ScheduleVisit() {
           <Link to={listingId ? `/property/${listingId}` : '/listings'} className="inline-flex items-center gap-2 text-gray-400 hover:text-teal-400 text-sm mb-6 transition-colors"><Icon name="arrow-left" className="w-4 h-4" /> {listingId ? t('misc1.svBackToProperty') : t('misc1.svBackToListings')}</Link>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
-            {/* Form */}
             <div className="glass-card rounded-2xl p-6 sm:p-8 reveal">
               {propTitle && (
                 <div className="flex items-center gap-2 text-sm text-teal-300 bg-teal-500/10 border border-teal-500/20 rounded-xl px-4 py-2.5 mb-5"><Icon name="building-2" className="w-4 h-4" /> {t('misc1.svVisiting')} <span className="font-semibold text-white">{propTitle}</span></div>
@@ -162,7 +158,7 @@ export default function ScheduleVisit() {
                     {ownerMobile && (() => {
                       const listingName = (propTitle || 'the property').split(' in ')[0];
                       const text = `Hi, I've requested a ${mode} visit to ${listingName} on ${displayDate(visitDate)} at ${visitTime} (via Draazy). Could you confirm the slot?`;
-                      const href = `https://wa.me/91${(ownerMobile || '').replace(/\D/g, '').replace(/^91/, '')}?text=${encodeURIComponent(text)}`;
+                      const href = `https://wa.me/91${(ownerMobile || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '')}?text=${encodeURIComponent(text)}`;
                       return (
                         <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2.5 px-4 transition-colors">
                           <Icon name="message-circle" className="w-4 h-4" /> {t('misc1.svMessageOwnerWA')}
@@ -183,13 +179,13 @@ export default function ScheduleVisit() {
                 </>
               )}
             </div>
-
             {/* Property summary */}
+
             <div className="reveal">
               <div className="glass-card rounded-2xl overflow-hidden sticky top-28">
                 {listing ? (
                   <>
-                    <img src={listing.image || FALLBACK_IMG} className="w-full h-40 object-cover" alt={listing.title || t('misc1.svPropertyAlt')} />
+                    <PropertyImage src={listing.image} sizes="(max-width: 1023px) 100vw, 340px" className="w-full h-40 object-cover" alt={listing.title || t('misc1.svPropertyAlt')} />
                     <div className="p-5">
                       <p className="text-xl font-bold gradient-text">{priceLabel(listing)}</p>
                       <p className="text-white font-semibold mt-1">{listing.title}</p>

@@ -1,20 +1,6 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
-
-/**
- * Owner-private lead notes, against the real API.
- *
- * These two fields — a free-text note and a follow-up date — used to live in
- * `localStorage` under `draazyLeadNotes:<ownerDigits>`, which meant they were per-browser: an
- * owner who took a note on their phone opened the laptop to an empty CRM. No spec could catch
- * that, because a single browser context is exactly the one place where the old storage looked
- * correct.
- *
- * So a reload-and-still-there assertion would prove nothing here — `localStorage` survives a
- * reload too, and this spec would have passed identically before the move. The load-bearing
- * assertions are the two that read the value back from a place the writing browser does not own:
- * the API read below, and the second browser context at the end.
- */
+import { API, authHeaders, uploadedListingPhotos, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
 
 const createdListings = new Set();
 let actorSequence = 0;
@@ -49,13 +35,12 @@ async function isolatedListing() {
     locality: 'Baner',
     bhk: 2,
     area: 900,
+    images: await uploadedListingPhotos(owner.headers),
   });
   expect(created.status, 'creating the isolated listing').toBe(201);
   createdListings.add(created.body.id);
 
-  const approved = await api('PATCH', `/properties/${created.body.id}/status`, await authHeaders(ACTORS.admin), {
-    status: 'approved',
-  });
+  const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the isolated listing').toBe(200);
   return { owner, id: created.body.id };
 }
@@ -63,8 +48,7 @@ async function isolatedListing() {
 test.afterEach(async () => {
   const adminHeaders = await authHeaders(ACTORS.admin);
   for (const id of createdListings) {
-    const rejected = await api('PATCH', `/properties/${id}/status`, adminHeaders, {
-      status: 'rejected',
+    const rejected = await rejectListingWithFetch(id, adminHeaders, {
       reason: 'Zztest cleanup - isolated lead notes fixture',
     });
     expect(rejected.status, `cleaning up isolated listing ${id}`).toBe(200);
@@ -87,9 +71,9 @@ test('an owner note and follow-up date are stored on the server, not in the brow
   const row = inbox.body.content.find((item) => item.propertyId === fixture.id);
   expect(row, 'the owner must receive the new request').toBeTruthy();
   const leadKey = `number:${row.id}`;
-
   /* The owner starts with no annotation at all. Asserted as the BEFORE half of the pair, because
      "the note is on the server" is not evidence of a write if every account ships with one. */
+
   const empty = await api('GET', '/me/lead-notes', fixture.owner.headers);
   expect(empty.status).toBe(200);
   expect(empty.body.find((n) => n.leadKey === leadKey), 'no annotation should exist yet').toBeFalsy();
@@ -97,9 +81,6 @@ test('an owner note and follow-up date are stored on the server, not in the brow
   await signedInAs(page, fixture.owner.mobile);
   await page.goto('/dashboard#enquiries');
 
-  /* Positive anchor before anything else. Every assertion that follows is scoped to a dialog that
-     only exists if this row rendered, and a dialog-scoped assertion reports nothing at all when
-     the dialog never opens. */
   const lead = page.locator('div.group.relative.rounded-xl').filter({ hasText: buyer.name }).first();
   await expect(lead).toBeVisible();
 
@@ -123,26 +104,20 @@ test('an owner note and follow-up date are stored on the server, not in the brow
   );
   await sheet.locator('#lead-followup').fill('2027-03-14');
   await savedDate;
-
   /* Read back below the UI. This is the assertion the old localStorage implementation could not
      have passed: it proves the value left the browser that typed it. */
+
   const stored = await api('GET', '/me/lead-notes', fixture.owner.headers);
   expect(stored.status).toBe(200);
   const annotation = stored.body.find((n) => n.leadKey === leadKey);
   expect(annotation, 'the annotation must exist server-side').toBeTruthy();
   expect(annotation.note).toContain('before Diwali');
 
-  /* The sheet emits the follow-up date as epoch milliseconds, while the server field is an
-     `Instant` — which Jackson reads a bare number into as epoch *seconds*, landing the value some
-     fifty thousand years out. The service's range guard rejects that with a 400, so the failure
-     mode is a date that silently never saves rather than a corrupt row. Pinning the calendar year
-     is what makes the client-side conversion a covered one: with it removed, the PUT above never
-     reaches 200. */
   expect(new Date(annotation.followUpAt).getUTCFullYear()).toBe(2027);
   expect(annotation.followUpAt.startsWith('2027-03-14'), `follow-up stored as ${annotation.followUpAt}`).toBe(true);
-
   /* A second browser context: a different profile, a different localStorage, the same owner. This
      is the defect being fixed, stated as a test — the phone and the laptop must agree. */
+
   const other = await page.context().browser().newContext();
   const otherPage = await other.newPage();
   await signedInAs(otherPage, fixture.owner.mobile);
@@ -192,14 +167,14 @@ test('clearing both fields deletes the annotation instead of storing a blank one
   await sheet.locator('#lead-note').fill('Temporary note that is about to be removed.');
   await sheet.locator('#lead-note').blur();
   await written;
-
   /* The BEFORE half. Without it, the emptiness asserted below could be the emptiness of a note
      that was never written in the first place. */
+
   const before = await api('GET', '/me/lead-notes', fixture.owner.headers);
   expect(before.body.find((n) => n.leadKey === leadKey), 'the note must exist before it is cleared').toBeTruthy();
-
   /* Emptying the last populated field is a delete, not a write of two nulls — the endpoint answers
      204 and drops the row, which is why the client treats a null result as "remove this key". */
+
   const cleared = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/me/lead-notes/${encodeURIComponent(leadKey)}`
     && response.request().method() === 'PUT'

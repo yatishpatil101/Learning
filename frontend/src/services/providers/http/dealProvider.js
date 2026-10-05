@@ -1,27 +1,4 @@
-/**
- * HTTP deal provider.
- *
- * Eighteen endpoints across three controllers, covering one flow: reserve → negotiate → finalize.
- *
- * ```
- *   owner       GET/POST /me/deals[/{propId}][/reserve|close|reopen|parties]   GET /me/offers
- *   buyer       POST /offers · GET /offers/mine · POST /finalization/{propId}/request
- *   either      POST /offers/{id}/respond (counter only, for a buyer)
- *   counterparty GET /me/finalization-requests · POST /finalization/requests/{id}/accept|decline
- * ```
- *
- * ## Every read here is caller-scoped
- *
- * Nothing here takes an owner: the token decides. A signature that accepted one would imply a
- * buyer could enumerate a stranger's offer book by naming them. See the note at the top of
- * `dealMapper.js`.
- *
- * ## Two operations the API cannot serve
- *
- * `dealStatusForBuyer` and the buyer's accept-a-counter button. Both are documented at their call
- * sites below rather than smoothed over, because a control that quietly does nothing is worse than
- * one that is absent.
- */
+/* Offer books are token-scoped; accepting an owner id would imply enumeration is allowed. */
 import { del, get, post, unwrapFullPage } from '../../http.js';
 // Leaf module, no imports of its own — see its header. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
@@ -39,28 +16,7 @@ const signedIn = () => !!readAccessToken();
 
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
 
-/**
- * The four owner/buyer collections below are paged on the wire and read as plain lists here.
- *
- * Every screen that consumes them — the dashboard's listing cards, the property page's deal panel —
- * filters and totals the rows client-side, so none of them has a pager to drive. `size=100` is the
- * server's ceiling: the request is bounded, the read is index-served, and {@link unwrapFullPage}
- * warns on the console the day a caller outgrows it. Handing the envelope through the seam instead
- * would change the shape of six service functions and every page that calls them, to feed pagers
- * that do not exist.
- *
- * The other reads in this file stay on {@link toList}: they are bare arrays server-side and
- * deliberately so (`/me/deals/{propId}/parties` is bounded by the parties to one deal).
- *
- * A function rather than a constant, kept that way on purpose. `config.js` globs every provider in
- * this directory and `http.js` imports `config.js` for `API_BASE`, so whenever a page
- * reaches `http.js` first this module is evaluated *inside* `http.js`'s own evaluation. Reading a
- * `MAX_PAGE_SIZE` that lived in `http.js` at module scope would throw `Cannot access
- * 'MAX_PAGE_SIZE' before initialization` and blank the whole app, from a file the failing screen
- * never used. It comes from the import-free `apiLimits.js` instead, which is always evaluated
- * first — but the cycle itself is still there, and deferring the read to call time keeps this
- * module out of its critical section regardless of what else `http.js` grows.
- */
+/** Keep pages capped uniformly without adding unused pager shapes to callers. */
 const paged = () => ({ size: MAX_PAGE_SIZE });
 
 /** `GET /me/deals` — every deal on the caller's own listings. Paged. */
@@ -69,30 +25,13 @@ export async function myDeals() {
   return unwrapFullPage(await get('/me/deals', paged()), 'deal').map(toDealViewModel);
 }
 
-/**
- * `GET /me/deals/{propId}` — the deal on one of the caller's listings.
- *
- * **Owner-only.** A property the caller does not own answers 404, deliberately: the server does not
- * confirm the existence of someone else's listing. So this is not the call to make on a public
- * property page — see `dealStatusForBuyer`.
- *
- * A property with no stored deal row is synthesized `active` rather than 404, so a successful
- * response is always a real deal document.
- */
+/** Missing deal rows synthesize `active`, so successful responses are always documents. */
 export async function getDeal(propId) {
   if (!signedIn() || !propId) return null;
   return toDealViewModel(await get(`/me/deals/${encodeURIComponent(propId)}`));
 }
 
-/**
- * The buyer's view of whether a listing is closed — read from the property itself.
- *
- * The state rides on the property payload: {@code dealStatus} mirrors the owner-scoped deal
- * (active|reserved|closed), and a closed sale also flips the property's own status to the terminal
- * {@code sold}/{@code rented}. The caller already holds the property view-model from the page load,
- * so this reads its {@code dealStatus} rather than spending a redundant fetch. The server still
- * refuses a stale offer with 409 as the backstop.
- */
+/** Property cards already carry deal status; stale offers still fail server-side with 409. */
 export async function dealStatusForBuyer(property) {
   return property?.dealStatus || 'active';
 }
@@ -102,16 +41,8 @@ export async function reserveDeal(propId) {
   await post(`/me/deals/${encodeURIComponent(propId)}/reserve`, {});
 }
 
-/**
- * `POST /me/deals/{propId}/close` — close the deal.
- *
- * `agreedPrice` and `counterpartyMobile` are **required and validated**: the price must be positive
- * and the mobile must be ten digits. The server rejects a masked number outright rather than
- * storing five plausible digits as somebody's identity.
- *
- * This is why the property page's bare "Finalize deal" button cannot call this directly — it
- * collected neither. The dashboard's finalize modal does collect both, and is the path that works.
- */
+/** `agreedPrice` and `counterpartyMobile` are **required and validated**: the price must be positive and the mobile
+ * must be ten digits. */
 export async function closeDeal(propId, { agreedPrice, counterpartyMobile, note } = {}) {
   await post(`/me/deals/${encodeURIComponent(propId)}/close`, {
     agreedPrice: Number(agreedPrice) || 0,
@@ -131,36 +62,8 @@ export async function listParties(propId) {
   return toList(await get(`/me/deals/${encodeURIComponent(propId)}/parties`), toPartyViewModel);
 }
 
-/** `POST /me/deals/{propId}/parties` — record an off-platform interested party. 201. */
-export async function addParty(propId, party = {}) {
-  return toPartyViewModel(await post(`/me/deals/${encodeURIComponent(propId)}/parties`, {
-    name: party.name || 'Interested party',
-    mobile: party.mobile ? String(party.mobile).replace(/\D/g, '') : undefined,
-    note: party.note || undefined,
-  }));
-}
-
-/**
- * `DELETE /me/deals/{propId}/parties/{partyId}` — soft-delete a party. 204.
- *
- * Takes the party's **id**, never an array index: a refetch that filters out a soft-deleted row
- * shifts every position after it, and the next remove takes the wrong person.
- */
-export async function removeParty(propId, partyId) {
-  await del(`/me/deals/${encodeURIComponent(propId)}/parties/${encodeURIComponent(partyId)}`);
-}
-
-
-/**
- * `POST /offers` — the buyer opens a negotiation. 201.
- *
- * 409 when a closed deal blocks the listing or the caller already has a live offer on it. That is
- * surfaced rather than smoothed over: a call site written against gentler behaviour would break the
- * first time a buyer double-submitted.
- *
- * `OfferCreateRequest` carries `moveIn` as an optional `date`, so the buyer's preferred possession
- * date travels as its own value — filterable and shown as a field, not buried in `message` prose.
- */
+/** That is surfaced rather than smoothed over: a call site written against gentler behaviour would break the first
+ * time a buyer double-submitted. */
 export async function submitOffer(req = {}) {
   return toOfferViewModel(await post('/offers', {
     propertyId: req.propId || req.propertyId,
@@ -170,18 +73,7 @@ export async function submitOffer(req = {}) {
   }));
 }
 
-/**
- * `POST /offers/{id}/respond` — accept, decline or counter.
- *
- * **Accept and decline are the owner's alone.** A buyer attempting either gets 403, by design: it
- * would let them mark a price as agreed with no owner involvement, and (through the status-driven
- * contact reveal) unmask a mobile the owner never chose to share. Counter is two-sided.
- *
- * The guard is here rather than only at the call site so that every caller inherits it. It throws
- * locally instead of spending a round trip to be told the same thing.
- *
- * Answers 200 with no body, so the caller re-reads rather than being handed a synthesized row.
- */
+/** **Accept and decline are the owner's alone.** A buyer attempting either gets 403, by design. */
 export async function respondOffer(id, action, counterAmount, opts = {}) {
   if (!mayRespond(action, opts.isOwner)) {
     throw new Error(
@@ -207,12 +99,7 @@ export async function offersOnMine() {
   return unwrapFullPage(await get('/me/offers', paged()), 'offer').map(toOfferViewModel);
 }
 
-/**
- * `POST /finalization/{propId}/request` — the buyer proposes to close.
- *
- * `counterpartyMobile` and a positive `agreedPrice` are both required, which is why the property
- * page's "Request to finalize" button has to supply them.
- */
+/** Finalization requires counterparty mobile and a positive agreed price. */
 export async function requestFinalization(propId, { counterpartyMobile, agreedPrice } = {}) {
   return toFinalizationViewModel(
     await post(`/finalization/${encodeURIComponent(propId)}/request`, {
@@ -223,18 +110,8 @@ export async function requestFinalization(propId, { counterpartyMobile, agreedPr
   );
 }
 
-/**
- * `GET /finalization/{propId}/status` — the caller's most recent request on this listing.
- *
- * **404 is still a normal answer here.** The endpoint 404s when the caller has never had a request
- * on this property — the ordinary state of every listing nobody has proposed to close — so letting
- * it surface would put a 404 in the console on every property page view. It is caught and mapped to
- * `null`.
- *
- * Terminal rows (declined/cancelled/accepted) are returned too, not pending only: the newest
- * request wins, so a turned-down buyer reads `declined` rather than the same blank state as a buyer
- * who never asked.
- */
+/** **404 is still a normal answer here.** The endpoint 404s when the caller has never had a request on this property
+ * — the ordinary state of every listing nobody has proposed to close. */
 export async function finalizationStatus(propId) {
   if (!signedIn() || !propId) return null;
   try {
@@ -250,24 +127,13 @@ export async function cancelFinalization(propId) {
   await del(`/finalization/${encodeURIComponent(propId)}/status`);
 }
 
-/**
- * `GET /me/finalization-requests` — requests awaiting the caller's decision.
- *
- * Counterparty-scoped and **not** per-property: the panel filters by `propId` client-side. A
- * per-property variant would be a second endpoint answering a subset of this one.
- */
+/** A per-property variant would be a second endpoint answering a subset of this one. */
 export async function myFinalizationRequests() {
   if (!signedIn()) return [];
   const rows = unwrapFullPage(await get('/me/finalization-requests', paged()), 'finalization');
   return rows.map(toFinalizationViewModel).filter(Boolean);
 }
 
-/**
- * `POST /finalization/requests/{reqId}/accept` — the counterparty agrees.
- *
- * One call does three things server-side: accepts this request, auto-declines every sibling on the
- * same property, and closes the deal.
- */
 export async function acceptFinalization(reqId) {
   await post(`/finalization/requests/${encodeURIComponent(reqId)}/accept`, {});
 }

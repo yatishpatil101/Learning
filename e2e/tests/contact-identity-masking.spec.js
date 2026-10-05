@@ -1,17 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-/* Masked owner numbers must never key storage: two owners sharing a first-two/last-three prefix
- * mask identically, so one bucket would surface owner A's request in owner B's dashboard. */
-
+// Masked mobiles are not unique enough to key owner contact storage.
 const MOD = '/src/lib/contact.js';
 
-/** Load lib/contact.js inside the page and run `fn` against its exports.
- *
- * Passed as a STRING expression rather than compiled page-side with `new Function`: the app serves
- * `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'` and NOT 'unsafe-eval', so the browser
- * refused the constructor before any assertion ran. A string goes through Playwright's CDP
- * evaluation, which the page's own CSP does not govern. `fn` is test-authored source, never input.
- */
+// Load lib/contact.js inside the page and run `fn` against its exports.
 async function withContact(page, fn) {
   await page.goto('/');
   return page.evaluate(`(async () => {
@@ -90,6 +82,7 @@ test('real 10-digit owners keep separate contact buckets', async ({ page }) => {
 });
 
 test('a masked owner number neither reads nor writes contact state', async ({ page }) => {
+  // Guards the fix from over-correcting: real 10-digit identities must keep working.
   const res = await withContact(page, (m) => {
     localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
     const before = Object.keys(localStorage).length;
@@ -112,7 +105,8 @@ test('a masked owner number neither reads nor writes contact state', async ({ pa
 });
 
 test('the owner of a listing is still recognised by their full number', async ({ page }) => {
-  // Guards the fix from over-correcting: real 10-digit identities must keep working.
+  // loginStaff() stores `mobile: ''`, so a mobile-less session is reachable; a shared badge bucket
+  // would let one of them verifying bypass every owner's "verified contacts only" preference.
   const res = await withContact(page, (m) => {
     localStorage.setItem('draazyUser', JSON.stringify({ name: 'Owner', mobile: '9530047855' }));
     return {
@@ -135,8 +129,8 @@ test('the owner of a listing is still recognised by their full number', async ({
 });
 
 test('a session without a mobile does not inherit a shared Verified badge', async ({ page }) => {
-  // loginStaff() stores `mobile: ''`, so a mobile-less session is reachable; a shared badge bucket
-  // would let one of them verifying bypass every owner's "verified contacts only" preference.
+  // The other side of the guarantee: failing closed must not lock out a genuinely
+  // verified buyer.
   const res = await withContact(page, (m) => {
     // Someone else's badge, sitting in the legacy shared bucket.
     localStorage.setItem('draazyIdentity:anon', JSON.stringify({ verified: true }));
@@ -153,8 +147,6 @@ test('a session without a mobile does not inherit a shared Verified badge', asyn
 });
 
 test('a real Verified badge still satisfies a verified-only owner', async ({ page }) => {
-  // The other side of the guarantee: failing closed must not lock out a genuinely
-  // verified buyer.
   const res = await withContact(page, (m) => {
     localStorage.setItem('dzOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
     localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));

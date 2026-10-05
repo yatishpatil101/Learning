@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
@@ -6,6 +6,7 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { referralContactsPerReward } from '../../lib/referralConfig.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
+import useModalDialog from '../../hooks/useModalDialog.js';
 
 /* Shown when a seeker has spent every free owner contact. Two honest ways out:
    refer a friend (free, +15 contacts each) or buy Seeker Plus (unlimited).
@@ -23,7 +24,6 @@ export default function ContactsExhaustedModal({ onClose }) {
   const { flagEnabled } = useAppFlags();
   const canRefer = flagEnabled('referralRewards');
   const [counts, setCounts] = useState(null);
-  const closeRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -34,28 +34,17 @@ export default function ContactsExhaustedModal({ onClose }) {
   }, []);
 
   useScrollLock();
-  useEffect(() => {
-    // Move focus into the dialog, and hand it back to the trigger on close —
-    // otherwise Tab walks the page behind the backdrop.
-    const prevFocus = document.activeElement;
-    closeRef.current?.focus();
-    const onKey = (e) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      if (prevFocus instanceof HTMLElement) prevFocus.focus();
-    };
-  }, [onClose]);
+  const panelRef = useModalDialog(true, onClose);
 
   return (
-    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.contactsExhausted.title')} data-testid="contacts-exhausted" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div ref={panelRef} tabIndex={-1} className="dz-modal-backdrop outline-none" role="dialog" aria-modal="true" aria-label={t('property.contactsExhausted.title')} data-testid="contacts-exhausted" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.contactsExhausted.title')}</h3>
             {counts && <p className="text-xs text-slate-400 mt-0.5">{t('property.contactsExhausted.sub', { used: counts.used, allowance: counts.allowance })}</p>}
           </div>
-          <button ref={closeRef} onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>
 
         {/* Free path — refer. Withdrawn entirely when Ops disables referral rewards. */}

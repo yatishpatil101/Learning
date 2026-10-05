@@ -1,41 +1,4 @@
-/**
- * Contact Service — the owner-contact gate (ADR-019).
- *
- * ## Why this contract is keyed on `propertyId` alone
- *
- * The gate is **per listing**: approving Asha for a 2BHK in Baner says nothing about the same
- * owner's shop in Kothrud, and she must ask again there. The server enforces that with a unique
- * constraint on `(requester, property)`, so a listing id is the whole key and the owner is derived
- * from it server-side.
- *
- * Nothing here takes an `ownerMobile`. It is an identifier the browser should never need: it
- * would force every caller to resolve a phone number before it could ask a permission question,
- * and a masked number (`98XXXXX210`) is not a usable key — that mismatch is exactly how a caller
- * ends up silently reading an empty bucket.
- *
- * ## Shape
- *
- * Every read returns the same gate object, mirroring the server's `ContactStatus` schema:
- *
- *   { status, verifiedContactOnly, verificationRequired, ownerHidesNumber }
- *
- *   status               'owner' | 'approved' | 'pending' | 'declined' | 'none'
- *   verifiedContactOnly  the owner accepts enquiries from Verified-badge users only
- *   verificationRequired this caller is blocked by that opt-in right now
- *   ownerHidesNumber     the owner stays masked even once approved — offer chat, not a call
- *
- * Returning one object rather than a bare status string is what lets `ownerHidesNumber` stop being
- * a second lookup keyed on a phone number. It arrives from the same round trip that decided the
- * status, so the two can never disagree.
- *
- * ## Failure
- *
- * Reads reject with an `ApiError`, so callers branch on a stable `code` rather than on an in-band
- * sentinel string indistinguishable from a real status:
- *
- *   401 unauthorized           not signed in — send them to /signin
- *   403 verification_required  owner accepts verified contacts only, and this caller has no badge
- */
+/* Contact requests are per listing; the server derives owner and enforces the unique key. */
 import { createProvider } from './config.js';
 
 const provider = createProvider('contact');
@@ -43,26 +6,17 @@ const provider = createProvider('contact');
 /** Read the gate for one listing. Safe for signed-out callers — they get `status: 'none'`. */
 export const contactStatus = async (propertyId) => (await provider()).contactStatus(propertyId);
 
-/**
- * Ask this listing's owner for their number. Idempotent: asking twice returns the existing state
- * rather than stacking duplicate rows in the owner's inbox.
- *
- * @param {string} propertyId
- * @param {string} [message]  optional note to the owner, capped at 1000 chars server-side
- */
+/** Ask this listing's owner for their number. Idempotent: asking twice returns the existing state rather than
+ * stacking duplicate rows in the owner's inbox. */
 export const requestContact = async (propertyId, message) => (await provider()).requestContact(propertyId, message);
 
-/** The owner's inbox — requests against listings *they* own. Paged; the server default is 20. */
+/** The owner's inbox — requests against listings *they* own. Paged; read at the UI's bounded maximum by default. */
 export const myContactRequests = async (opts) => (await provider()).myContactRequests(opts);
 
 /** Approve or decline one request. `status` is 'approved' | 'declined'. */
 export const respondToContactRequest = async (reqId, status) =>
   (await provider()).respondToContactRequest(reqId, status);
 
-/**
- * How many requests are waiting on the signed-in owner, across *all* pages.
- *
- * Deliberately not derived from `myContactRequests`: that is one page, so a busy owner's badge
- * would silently cap at the page size and under-report exactly when it matters most.
- */
+/** Deliberately not derived from `myContactRequests`: that is one page, so a busy owner's badge would silently cap at
+ * the page size and under-report exactly when it matters most. */
 export const pendingContactCount = async () => (await provider()).pendingContactCount();

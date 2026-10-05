@@ -1,7 +1,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, uploadedListingPhotos, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
 
-const createdListingIds = new Set();
+const createdListings = new Map();
 let actorSequence = 0;
 
 async function api(method, path, headers, body) {
@@ -33,13 +34,12 @@ async function createApprovedListing(owner) {
     locality: 'Baner',
     bhk: 2,
     area: 900,
+    images: await uploadedListingPhotos(owner.headers),
   });
   expect(created.status, 'creating the isolated deal listing').toBe(201);
-  createdListingIds.add(created.body.id);
+  createdListings.set(created.body.id, owner.headers);
 
-  const approved = await api('PATCH', `/properties/${created.body.id}/status`, await authHeaders(ACTORS.admin), {
-    status: 'approved',
-  });
+  const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the isolated deal listing').toBe(200);
   return created.body;
 }
@@ -67,14 +67,20 @@ async function approveContact(owner, buyer, propertyId) {
 
 test.afterEach(async () => {
   const adminHeaders = await authHeaders(ACTORS.admin);
-  for (const id of createdListingIds) {
-    const rejected = await api('PATCH', `/properties/${id}/status`, adminHeaders, {
-      status: 'rejected',
+  for (const [id, ownerHeaders] of createdListings) {
+    let rejected = await rejectListingWithFetch(id, adminHeaders, {
       reason: 'Zztest cleanup - deals and offers fixture',
     });
+    if (rejected.status === 409) {
+      const reopened = await api('POST', `/me/deals/${id}/reopen`, ownerHeaders, {});
+      expect(reopened.status, `reopening closed isolated listing ${id}`).toBe(200);
+      rejected = await rejectListingWithFetch(id, adminHeaders, {
+        reason: 'Zztest cleanup - deals and offers fixture',
+      });
+    }
     expect(rejected.status, `cleaning up isolated listing ${id}`).toBe(200);
   }
-  createdListingIds.clear();
+  createdListings.clear();
 });
 
 test('a buyer offer is countered, agreed and accepted through the real deal API', async ({ page }) => {
@@ -154,9 +160,6 @@ test('an owner can decline a real finalization request and later accept the buye
   await signedInAs(page, buyer.mobile);
   await page.goto(`/property/${listing.id}`);
   await expect(page.getByText("The owner hasn't confirmed yet. You can request again.")).toBeVisible();
-  /* The public property payload masks the owner number after contact approval. The retry UI therefore
-     cannot currently construct FinalizationCreateRequest's required counterpartyMobile; exercise the
-     server retry here and report the missing post-approval identity seam as a capability gap. */
   const retried = await api('POST', `/finalization/${listing.id}/request`, buyer.headers, {
     propertyId: listing.id,
     counterpartyMobile: owner.mobile,

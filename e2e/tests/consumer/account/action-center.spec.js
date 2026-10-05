@@ -1,5 +1,6 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, uploadedListingPhotos, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
 
 const createdListingIds = new Set();
 let actorSequence = 0;
@@ -33,13 +34,12 @@ async function createApprovedListing(owner) {
     locality: 'Baner',
     bhk: 2,
     area: 850,
+    images: await uploadedListingPhotos(owner.headers),
   });
   expect(created.status, 'creating the owner listing').toBe(201);
   createdListingIds.add(created.body.id);
 
-  const approved = await api('PATCH', `/properties/${created.body.id}/status`, await authHeaders(ACTORS.admin), {
-    status: 'approved',
-  });
+  const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the owner listing').toBe(200);
   return created.body;
 }
@@ -57,8 +57,7 @@ async function ownerContactRequest(owner, propertyId, buyerName) {
 test.afterEach(async () => {
   const adminHeaders = await authHeaders(ACTORS.admin);
   for (const id of createdListingIds) {
-    const rejected = await api('PATCH', `/properties/${id}/status`, adminHeaders, {
-      status: 'rejected',
+    const rejected = await rejectListingWithFetch(id, adminHeaders, {
       reason: 'Zztest cleanup - Action Center fixture',
     });
     expect(rejected.status, `cleaning up isolated listing ${id}`).toBe(200);
@@ -94,7 +93,7 @@ test('an owner shares a real contact request from the Action Center and clears t
   await expect(actionCenter).toBeVisible();
   const action = actionCenter.getByTestId('action-item').filter({ hasText: buyer.name });
   await expect(action).toHaveCount(1);
-  await expect(action).toContainText(/wants your phone number/i);
+  await expect(action).toContainText(/wants to contact you/i);
   await expect(page.locator('aside button', { hasText: 'Requests' }).first()).toContainText('1');
 
   const approval = page.waitForResponse((response) =>
@@ -102,12 +101,12 @@ test('an owner shares a real contact request from the Action Center and clears t
     && response.request().method() === 'PATCH'
     && response.status() === 200,
   );
-  await action.getByRole('button', { name: 'Share' }).click();
+  await action.getByRole('button', { name: 'Accept' }).click();
   await approval;
   await expect(action).toHaveCount(0);
 
   const approved = await ownerContactRequest(owner, listing.id, buyer.name);
-  expect(approved.status, 'Share must persist the owner approval on the server').toBe('approved');
+  expect(approved.status, 'Accept must persist the owner approval on the server').toBe('approved');
 
   const pendingCount = await api('GET', '/me/contact-requests/pending-count', owner.headers);
   expect(pendingCount.status).toBe(200);

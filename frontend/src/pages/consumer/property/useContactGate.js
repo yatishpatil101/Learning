@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { NO_CONTACT_GATE } from '../../../lib/contact.js';
 import { contactStatus } from '../../../services/contactService.js';
 
-export function useContactGate(propertyId) {
+export function useContactGate(propertyId, refreshKey = '') {
   const [gate, setGate] = useState(NO_CONTACT_GATE);
   const [loading, setLoading] = useState(Boolean(propertyId));
 
@@ -46,7 +46,7 @@ export function useContactGate(propertyId) {
     return () => {
       alive = false;
     };
-  }, [propertyId]);
+  }, [propertyId, refreshKey]);
 
   return { gate, loading, setGate, refresh };
 }

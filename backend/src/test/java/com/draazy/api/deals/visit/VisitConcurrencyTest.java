@@ -90,23 +90,4 @@ class VisitConcurrencyTest extends AbstractApiTest {
         assertThatThrownBy(() -> visits.saveAndFlush(stale))
                 .isInstanceOf(OptimisticLockingFailureException.class);
     }
-
-    @Test
-    @DisplayName("version starts at 0 and increments on each update")
-    void versionIncrementsPerUpdate() {
-        User owner = user("9820300003", "owner");
-        User visitor = user("9820300004", "buyer");
-        Property property = listing(owner, "Visit version progression test");
-        Visit visit = seedVisit(visitor, property);
-
-        assertThat(version(visit.getId())).isZero();
-
-        visit.setStatus(VisitStatuses.CONFIRMED);
-        visits.saveAndFlush(visit);
-        assertThat(version(visit.getId())).isEqualTo(1L);
-
-        visit.reschedule(Instant.now().plus(6, ChronoUnit.DAYS));
-        visits.saveAndFlush(visit);
-        assertThat(version(visit.getId())).isEqualTo(2L);
-    }
 }

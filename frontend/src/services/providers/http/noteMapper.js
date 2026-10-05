@@ -26,13 +26,14 @@
  * `updatedAt != null` — presence would mark every note as edited the moment it was written.
  */
 
-/** The four kinds the server accepts, keyed by the word this app uses. */
+/** The entity kinds the server accepts, keyed by the word this app uses. */
 const WIRE_TYPES = {
   listing: 'property',
   property: 'property',
   user: 'user',
   review: 'review',
   report: 'report',
+  service_request: 'service_request',
 };
 
 /**

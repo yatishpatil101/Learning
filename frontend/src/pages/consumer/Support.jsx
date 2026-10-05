@@ -82,7 +82,7 @@ export default function Support() {
   useEffect(() => {
     if (user?.name && !form.name) setForm((p) => ({ ...p, name: user.name }));
     if (user?.mobile && !form.mobile) {
-      const m = user.mobile.replace(/\D/g, '').replace(/^91/, '');
+      const m = user.mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
       setForm((p) => ({ ...p, mobile: m }));
     }
   }, [user]);
@@ -102,7 +102,7 @@ export default function Support() {
      * is recorded as debt rather than papered over.
      */
     const name = form.name.trim();
-    const digits = form.mobile.replace(/\D/g, '').replace(/^91/, '');
+    const digits = form.mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
     const subject = form.subject.trim();
     const msg = form.message.trim();
     if (!name) {

@@ -6,6 +6,7 @@ import Icon from '../../../components/Icon.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { digits } from '../../../lib/contact.js';
+import { isoToDisplay } from '../../../lib/format.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import {
@@ -18,19 +19,15 @@ import { tenantsVerified } from '../../../services/rentService.js';
 
 const fmtOffer = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 
-/* The transaction panel on a property page: deal state, offer negotiation and maker/checker
-   finalization. Every read is caller-scoped and `reload()` re-reads after each mutation rather than
-   patching optimistically, because a panel showing an accepted offer the server rejected is worse
-   than one that takes a moment to catch up. Owner and buyer read different endpoints. */
+/* `reload` re-reads after each mutation rather than patching optimistically, because a panel showing an
+   accepted offer the server rejected is worse than one that takes a moment to catch up. */
 export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   const { t } = useTranslation();
   const sendToSignIn = useSignInGate();
   const { user } = useAuth();
   const owner = String(p.ownerMobile || '');
-  /* The deal routes parse their path parameter with `Ids.parseUuid` and 404 on anything else, so
-     they need the **UUID** — not the seam's `p.id`, which is the listing's slug (`p5015`) because
-     the property routes accept slug-or-id and a slug makes a prettier URL. `p.uuid` is the same
-     row's real key; the fallback covers rows with no separate uuid. */
+  /* The deal routes parse their path parameter with `Ids.parseUuid` and 404 on anything else, so they need the
+     **UUID**. */
   const propId = String(p.uuid || p.id || '');
   const isRent = p.deal === 'rent';
   const dealKind = isRent ? 'rent' : 'sell';
@@ -39,24 +36,20 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   const [offerErr, setOfferErr] = useState(false);
   const [offerMoveIn, setOfferMoveIn] = useState('');
 
-  /* Read from the session, because the answer picks between two sets of endpoints and must match
-     what the API is working from. `!!mine` stops an absent mobile claiming ownership — `digits()`
-     of nothing is the empty string. During `loading` the wrong panel costs one round trip; what it
-     may not do is decide a navigation, which is why those go through `useSignInGate`. */
+  /* Read from the session, because the answer picks between two sets of endpoints and must match what the API is
+     working from. */
   const mine = digits(user?.mobile);
   const isOwner = isIn && !!mine && mine === digits(owner);
 
-  /* Starts in the open state so a slow load shows the live controls rather than a "sold" banner it
-     has no evidence for. `verified` starts EMPTY instead, unlike `status`: a badge is a trust
-     claim, so the safe default is not to make it. */
+  /* `verified` starts EMPTY instead, unlike `status`: a badge is a trust claim, so the safe
+   * default is not to make it. */
   const [state, setState] = useState({
     status: 'active', parties: [], offers: [], myOffer: null, myFinalize: null, pending: [],
     verified: new Set(),
   });
 
-  /* Prefers the row's own `buyerVerified`, the only source that can answer live: a buyer's mobile
-     leaves the server irreversibly masked, so it can never equal the number the badge is stored
-     against. `state.verified` is a fallback set of unmasked mobiles. */
+  /* Prefers the row's own `buyerVerified`, the only source that can answer live: a buyer's mobile leaves the server
+     irreversibly masked, so it can never equal the number the badge is stored against. */
   const isVerifiedTenant = (row) => {
     if (row?.buyerVerified === true) return true;
     const d = digits(row?.buyerMobile || '').slice(-10);
@@ -77,10 +70,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       const ownOffers = (offers || []).filter((o) => String(o.propId) === propId);
       const pending = (requests || []).filter((r) => String(r.propId) === propId);
 
-      /* Fallback badge lookup for seams whose rows do not carry `buyerVerified`; one request for
-         the whole panel. Returns nothing against the live API by design — every mobile here is
-         masked. An empty set on failure is intended: a missing tick is recoverable, a trust signal
-         nobody earned on the screen where an owner picks a tenant is not. */
+      /* Fallback badge lookup for seams whose rows do not carry `buyerVerified`; one request for the whole panel. */
       const verified = await tenantsVerified([
         ...ownOffers.map((o) => o.buyerMobile),
         ...pending.map((r) => r.buyerMobile),
@@ -116,13 +106,13 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
     });
   }, [propId, isOwner, isIn, contactApproved]);
 
-  useEffect(() => { let alive = true; reload().catch(() => { if (alive) { /* keep the open state */ } }); return () => { alive = false; }; }, [reload]);
+  useEffect(() => { reload().catch(() => {}); }, [reload]);
 
   const closed = state.status === 'closed';
   const reserved = state.status === 'reserved';
   const dealWord = isRent ? t('property.rentedOutWord') : t('property.soldWord');
 
-  /** Every mutation funnels through here: surface the server's refusal, never a false success. */
+  /* Every mutation funnels through here: surface the server's refusal, never a false success. */
   const run = async (fn, okMsg, tone = 'success') => {
     try {
       await fn();
@@ -182,9 +172,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
     run(() => respondOffer(id, action, null, { isOwner: true, propId }),
       action === 'accept' ? t('property.offerAccepted') : t('property.offerDeclined'));
   };
-  /* The buyer agreeing to the owner's counter. Accept and decline are the owner's decision alone
-     (the server refuses a buyer's accept with 403), so countering at the owner's own number is the
-     one response a buyer is allowed that says "yes, that price". */
+  /* The buyer agreeing to the owner's counter. */
   const agreeToCounter = (offer) => run(
     () => respondOffer(offer.id, 'counter', offer.amount, { isOwner: false, propId }),
     t('property.agreedAwaitingOwner'),
@@ -317,7 +305,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
                         : <span className="text-slate-300">{t('property.statusPending')}</span>}
                     </span>
                   </div>
-                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isVerifiedTenant(o) ? <span style={{ color: '#6ee7b7', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: o.moveIn }) : ''}</p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isVerifiedTenant(o) ? <span style={{ color: '#6ee7b7', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: isoToDisplay(o.moveIn) || o.moveIn }) : ''}</p>
                   {o.status !== 'accepted' ? (
                     <div className="flex gap-1.5 mt-2">
                       <button onClick={() => ownerOfferAct(o.id, 'accept')} className="btn-teal text-[11px] px-2.5 py-1 rounded-lg shadow-none">{t('property.accept')}</button>

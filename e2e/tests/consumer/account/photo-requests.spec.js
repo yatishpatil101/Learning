@@ -1,9 +1,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
-
+import { API, authHeaders, uploadedListingPhotos, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
 /* Buyer and owner are separate accounts in separate contexts, so every hand-off is read back from a
  * place the writing side does not own — and both terminal decisions are pressed, not just present. */
-
 const createdListings = new Set();
 let actorSequence = 0;
 
@@ -16,7 +15,6 @@ async function api(method, path, headers, body) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
-
 /* The sequence byte rules out a same-millisecond `uniqueMobile()` collision, whose failure reads as
  * "the owner sees their own request" — a permissions bug rather than a fixture one. */
 async function actor(name) {
@@ -27,7 +25,6 @@ async function actor(name) {
   expect(named.status, `naming ${name}`).toBe(200);
   return { mobile, headers, name };
 }
-
 /* Not a seeded anchor listing: the inbox is keyed by ownership, so sharing one would make "exactly
  * one request" depend on whatever else ran that day. */
 async function isolatedListing() {
@@ -41,31 +38,27 @@ async function isolatedListing() {
     locality: 'Baner',
     bhk: 2,
     area: 850,
+    images: await uploadedListingPhotos(owner.headers),
   });
   expect(created.status, 'creating the isolated listing').toBe(201);
   createdListings.add(created.body.id);
 
-  const approved = await api('PATCH', `/properties/${created.body.id}/status`, await authHeaders(ACTORS.admin), {
-    status: 'approved',
-  });
+  const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the isolated listing').toBe(200);
   return { owner, id: created.body.id, slug: created.body.slug, title: created.body.title };
 }
-
 /** The owner's inbox, read outside the browser. */
 async function ownerInbox(owner) {
   const read = await api('GET', '/me/photo-requests?size=50', owner.headers);
   expect(read.status, 'reading the owner photo-request inbox').toBe(200);
   return read.body.content;
 }
-
 /** The buyer's notifications, read outside the browser. */
 async function notifications(actorWithHeaders) {
   const read = await api('GET', '/notifications?size=50', actorWithHeaders.headers);
   expect(read.status, 'reading the notification inbox').toBe(200);
   return read.body.content;
 }
-
 /** Open the owner's Photo requests sub-tab, asserting each step actually happened. */
 async function openPhotoRequests(page, owner) {
   await signedInAs(page, owner.mobile);
@@ -79,8 +72,7 @@ async function openPhotoRequests(page, owner) {
 test.afterEach(async () => {
   const adminHeaders = await authHeaders(ACTORS.admin);
   for (const id of createdListings) {
-    const rejected = await api('PATCH', `/properties/${id}/status`, adminHeaders, {
-      status: 'rejected',
+    const rejected = await rejectListingWithFetch(id, adminHeaders, {
       reason: 'Zztest cleanup - isolated photo request fixture',
     });
     expect(rejected.status, `cleaning up isolated listing ${id}`).toBe(200);
@@ -91,9 +83,9 @@ test.afterEach(async () => {
 test('a buyer asking for photos reaches the owner, and asking twice does not', async ({ page }) => {
   const listing = await isolatedListing();
   const buyer = await actor(`Zztest Photo Buyer ${Date.now()}`);
-
   /* BEFORE. Without this the "exactly one row" assertion below cannot tell a working write from an
      inbox that was already holding a row for some other reason. */
+
   expect(await ownerInbox(listing.owner), 'the owner inbox starts empty').toEqual([]);
 
   await signedInAs(page, buyer.mobile);
@@ -109,15 +101,11 @@ test('a buyer asking for photos reaches the owner, and asking twice does not', a
   expect((await firstAsk).status(), 'the first ask is accepted').toBe(200);
   await expect(page.getByRole('alert')).toContainText(/owner will see it/i);
 
-  /* The load-bearing assertion: the owner's inbox is a different account's read, so a row appearing
-     here cannot have come from this browser's storage. It also carries the buyer's *name*, which
-     the buyer's browser never sent — the server joined it from the account. */
   const afterFirst = await ownerInbox(listing.owner);
   expect(afterFirst, 'the ask reached the owner').toHaveLength(1);
   expect(afterFirst[0].requester.name).toBe(buyer.name);
   expect(afterFirst[0].propertyId).toBe(listing.id);
   expect(afterFirst[0].status).toBe('pending');
-
   /* De-dupe settled by the owner's inbox rather than by re-reading what this browser just wrote. */
   await expect(page.getByRole('alert')).toBeHidden({ timeout: 8000 });
   const secondAsk = page.waitForResponse((response) =>
@@ -144,9 +132,9 @@ test('the owner marks photos added, and the buyer is told where to look', async 
 
   await openPhotoRequests(page, listing.owner);
   await expect(page.getByText(buyer.name)).toBeVisible();
-
   /* `toPhotoRow` prefers the slug over the UUID, and `step=photos` matters because without it the
      answer to "send me pictures" is page one of a three-step wizard. */
+
   const editTarget = listing.slug || listing.id;
   const cta = page.getByRole('link', { name: /Add photos/i }).first();
   await expect(cta).toHaveAttribute('href', `/list-property?edit=${editTarget}&step=photos`);
@@ -160,7 +148,6 @@ test('the owner marks photos added, and the buyer is told where to look', async 
 
   const stored = await ownerInbox(listing.owner);
   expect(stored[0].status, 'the server stores the decision, not just the button state').toBe('resolved');
-
   /* Read as the buyer, so a server that recorded the decision but told nobody fails here. */
   const after = await notifications(buyer);
   const told = after.find((n) => n.type === 'photo.added');
@@ -188,21 +175,19 @@ test('the owner declines, and the buyer is told there are none coming', async ({
     response.request().method() === 'PATCH');
   await page.getByRole('button', { name: /^Decline$/ }).first().click();
   expect((await decided).status(), 'the decline is accepted').toBe(200);
-
   /* "Declined" and "Done" are different words on purpose — reporting a decline as done would tell
      the owner their listing has new pictures that do not exist. */
+
   await expect(page.getByText('Declined', { exact: true })).toBeVisible();
   await expect(page.getByText('Done', { exact: true })).toHaveCount(0);
 
   const stored = await ownerInbox(listing.owner);
   expect(stored[0].status, 'the decline is stored as its own terminal state').toBe('declined');
-
   const after = await notifications(buyer);
   const told = after.find((n) => n.type === 'photo.declined');
   expect(told, 'the buyer is told no more photos are coming').toBeTruthy();
   expect(told.title).toBe('No more photos available');
   expect(told.link).toBe(`/property/${listing.slug || listing.id}`);
-
   /* A declined request must not read as resolved anywhere in the buyer's inbox either. */
   expect(after.some((n) => n.type === 'photo.added'), 'a decline is never announced as an addition').toBe(false);
 });

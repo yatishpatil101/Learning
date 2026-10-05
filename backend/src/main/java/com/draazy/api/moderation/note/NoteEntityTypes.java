@@ -4,10 +4,10 @@ package com.draazy.api.moderation.note;
  * The {@code internal_notes.entity_type} vocabulary — what a note is attached to.
  *
  * <p>Feature-owned {@code String} constants rather than a Java enum, per api-standards.md §7.1 and
- * the schema's "text + CHECK" policy. The CHECK in {@code V90} and {@link #isValid(String)} are the
- * same list written twice on purpose: the database refuses a bad row even if a future caller
- * reaches the table another way, and the API refuses it with a 422 instead of a constraint
- * violation.
+ * the schema's "text + CHECK" policy. The CHECK in {@code V90}, widened by {@code V38}, and
+ * {@link #isValid(String)} are the same list written twice on purpose: the database refuses a bad
+ * row even if a future caller reaches the table another way, and the API refuses it with a 422
+ * instead of a constraint violation.
  *
  * <p><strong>The word is {@code property}, not {@code listing}</strong> — the same gap
  * {@code ReportTargetTypes} documents, and closed the same way. The frontend's note widget has said
@@ -37,9 +37,19 @@ public final class NoteEntityTypes {
     /** An abuse report — the note beside the triage decision. */
     public static final String REPORT = "report";
 
-    /** True if {@code value} is one of the four kinds that take notes. */
+    /**
+     * An assisted-service matter — a rent agreement, a valuation, a legal opinion.
+     *
+     * <p>The drafting desk's only other durable text is the message thread, which the customer
+     * reads, so an operator's private reasoning had nowhere to go that a colleague would find.
+     * Spelled with an underscore because that is the table's name and what {@code audit_log}
+     * already calls the same thing (V38).
+     */
+    public static final String SERVICE_REQUEST = "service_request";
+
+    /** True if {@code value} is one of the five kinds that take notes. */
     public static boolean isValid(String value) {
-        return PROPERTY.equals(value) || USER.equals(value)
-                || REVIEW.equals(value) || REPORT.equals(value);
+        return PROPERTY.equals(value) || USER.equals(value) || REVIEW.equals(value)
+                || REPORT.equals(value) || SERVICE_REQUEST.equals(value);
     }
 }
