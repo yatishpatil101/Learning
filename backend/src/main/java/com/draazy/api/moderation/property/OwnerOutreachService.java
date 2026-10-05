@@ -27,10 +27,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/**
- * Chasing the owner of a listing — the server behind the console's Follow-up tab and its WhatsApp
- * template panel. The message is composed once, by the server, and recorded for the next colleague.
- */
 @Service
 public class OwnerOutreachService {
 
@@ -62,10 +58,6 @@ public class OwnerOutreachService {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 
-    /**
-     * Compose a chaser to this listing's owner and record it. Audited on every call: this is the one
-     * operation that puts an unsolicited message on a member of the public's personal phone.
-     */
     @Transactional
     public MessageSender.Prepared chase(AuthPrincipal caller, String propertyId, String templateId) {
         Property property = load(propertyId);
@@ -84,11 +76,8 @@ public class OwnerOutreachService {
                 caller.userId(),
                 variables(property, owner, caller)));
 
-            // Click-to-chat is only prepared; only a transport-confirmed claim link counts as sent.
-            if ("sent".equals(prepared.status()) && prepared.body().contains(baseUrl + "/signin")
-                && "staff".equals(property.getLifecycleTrack()) && property.getLifecycleStage() == null
-                && !property.isArchived() && "pending".equals(property.getStatus())) {
-                property.recordLifecycleStage("link_sent");
+            if ("sent".equals(prepared.status()) && prepared.body().contains(baseUrl + "/signin")) {
+                property.recordClaimLinkSent();
             }
 
         audit.record(caller, "property.outreach", "property", property.getId().toString(),
@@ -96,7 +85,6 @@ public class OwnerOutreachService {
         return prepared;
     }
 
-    /** The chaser history for one listing, newest first. */
     @Transactional(readOnly = true)
     public List<OwnerOutreachEntry> history(String propertyId) {
         Property property = load(propertyId);
@@ -105,30 +93,7 @@ public class OwnerOutreachService {
                 .toList();
     }
 
-    @Transactional
-    public void recordClaimLinkSent(AuthPrincipal actor, String propertyId, String messageId) {
-        UUID id = Ids.parseUuid(propertyId).orElseThrow(() -> NotFoundException.of("Listing"));
-        Property property = properties.findForVerificationDecision(id)
-                .orElseThrow(() -> NotFoundException.of("Listing"));
-        OutboundMessage message = Ids.parseUuid(messageId).flatMap(ledger::findById)
-                .filter(m -> SUBJECT.equals(m.getSubjectType()) && id.equals(m.getSubjectId())
-                        && property.getOwner().getId().equals(m.getRecipientId()))
-                .orElseThrow(() -> NotFoundException.of("Message"));
-        if (!message.getBody().contains(baseUrl + "/signin") || "failed".equals(message.getStatus())) {
-            throw new ConflictException("This message is not a sendable claim link");
-        }
-        message.recordSent();
-        if ("staff".equals(property.getLifecycleTrack()) && property.getLifecycleStage() == null
-                && !property.isArchived() && "pending".equals(property.getStatus())) {
-            property.recordLifecycleStage("link_sent");
-        }
-        audit.record(actor, "property.claim-link.sent", "property", propertyId, "message", messageId);
-    }
-
-    /**
-     * Chaser counts for a page of listings, in one query. Narrowed to staff-posted listings, since
-     * only those render a count; an empty selection short-circuits rather than issuing {@code in ()}.
-     */
+    // Narrowed to staff-posted listings because only those render a chaser count.
     @Transactional(readOnly = true)
     public OutreachCounts countsFor(Collection<Property> page) {
         List<UUID> ids = page.stream()
@@ -145,10 +110,7 @@ public class OwnerOutreachService {
         return subject -> counts.getOrDefault(subject, 0);
     }
 
-    /**
-     * Values for the template's {@code {placeholder}} keys; an unresolved key is left standing so
-     * the gap shows up in the preview. Rationale: docs/flows/admin/property-verification.md.
-     */
+    // Unresolved placeholders are left standing so the preview exposes the gap.
     private Map<String, String> variables(Property property, User owner, AuthPrincipal caller) {
         Map<String, String> vars = new LinkedHashMap<>();
         vars.put("owner_name", owner.getName() != null ? owner.getName() : "there");
@@ -159,15 +121,12 @@ public class OwnerOutreachService {
         vars.put("market_rate", marketRate(property));
         vars.put("listing_id", property.getId().toString());
         vars.put("staff_name", staffName(caller));
-        vars.put("claim_link", baseUrl + "/signin");
+        vars.put("claim_link", baseUrl + "/signin?claim=" + property.getId());
         vars.put("listing_link", baseUrl + "/property/" + property.getId());
         return vars;
     }
 
-    /**
-     * The locality's published per-sqft rate, or {@code null} when it has not published one. Keyed
-     * on the FK-constrained slug, and {@code active} because a retired rate is one we have dropped.
-     */
+    // Active only because a retired locality rate is one we have dropped.
     private String marketRate(Property property) {
         String slug = property.getLocalitySlug();
         if (!StringUtils.hasText(slug)) {
@@ -179,10 +138,7 @@ public class OwnerOutreachService {
         return rate == null ? null : rate.stripTrailingZeros().toPlainString();
     }
 
-    /**
-     * The name the owner will see this message signed with. Read from the user row, not the token,
-     * so a display-name change takes effect without waiting for the session to expire.
-     */
+    // Read from the row, not the token, so name changes take effect immediately.
     private String staffName(AuthPrincipal caller) {
         return users.findById(caller.userId())
                 .map(User::getName)
@@ -195,10 +151,6 @@ public class OwnerOutreachService {
         return properties.findById(id).orElseThrow(() -> NotFoundException.of("Listing"));
     }
 
-    /**
-     * One chaser as the Follow-up tab renders it. {@code status} is {@code prepared} on every row:
-     * the platform knows a chaser was written and cannot know one was delivered.
-     */
     public record OwnerOutreachEntry(
             String id,
             String templateId,

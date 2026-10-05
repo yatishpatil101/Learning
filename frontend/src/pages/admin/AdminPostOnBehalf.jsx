@@ -2,18 +2,15 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
 import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
+import { addNote } from '../../services/noteService.js';
 import { classNames, parseAmount } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import {
-  STEPS, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialLabelOf, COMMERCIAL_SPEC_KEYS,
-  amenitiesFor, commercialProfileOf, commercialSpecsFor, fixturesFor, landUseFor, suitableForFor,
-  defaultAreaUnitFor,
+  STEPS, LAST_STEP, INITIAL_FORM, NONRES_TYPES, LAND_TYPES, DRAFT_KEY, commercialLabelOf, landUseFor,
 } from './post-on-behalf/constants.js';
 import { OwnerStep, PropertyStep, LocationStep, PricingStep, PhotosStep, ReviewStep } from './post-on-behalf/WizardSteps.jsx';
-import { resolveLocalitySlug } from '../../data/localities.js';
 
 function loadDraft() {
   try {
@@ -28,7 +25,6 @@ function loadDraft() {
 export default function AdminPostOnBehalf() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -83,14 +79,8 @@ export default function AdminPostOnBehalf() {
 
   const resumeDraft = () => {
     if (!draft) return;
-    const { powerBackup, ...restoredForm } = draft.form;
-    setForm({
-      ...restoredForm,
-      amenities: powerBackup && restoredForm.propertyType === 'commercial'
-        ? [...new Set([...(restoredForm.amenities || []), 'Power Backup'])]
-        : restoredForm.amenities || [],
-    });
-    setStep(Math.min(Math.max(draft.step || 1, 1), 6));
+    setForm({ ...INITIAL_FORM, ...draft.form });
+    setStep(Math.min(Math.max(draft.step || 1, 1), LAST_STEP));
     setRestored(true);
     setDraft(null);
   };
@@ -102,44 +92,14 @@ export default function AdminPostOnBehalf() {
       // the saved listing or the Review screen.
       if (field === 'propertyType') {
         next.bhk = '';
-        next.amenities = [];
-        next.furniture = [];
-        /* A value absent from the new type's list is still displayed by Select's raw-value fallback and
-           still published, so "Family" on a warehouse survives invisibly unless cleared. */
-        next.preferredTenants = []; next.ownership = '';
-        /* `11` is a residential month count `commercialAgreementOptions` does not carry, so a held value
-           would render as a bare number and publish a contract term the form never offered. */
-        if ((prev.propertyType === 'commercial') !== (value === 'commercial')) {
-          next.agreementDuration = value === 'commercial' ? '' : INITIAL_FORM.agreementDuration;
-          next.lockIn = ''; next.noticePeriod = '';
-        }
-        next.bathrooms = ''; next.balconies = ''; next.builtUp = ''; next.plotArea = ''; next.floorsInHouse = '';
-        if (value === 'commercial') { next.age = ''; next.furnishing = 'unfurnished'; }
-        next.washrooms = ''; next.shellType = ''; next.parkingSpaces = ''; next.pantry = false; next.camCharges = ''; next.suitableFor = []; next.fixtures = [];
-        next.gstOnRent = ''; next.fitOutMonths = ''; next.escalationPct = ''; next.tenancyStatus = ''; next.inPlaceRent = ''; next.leaseExpiry = '';
-        COMMERCIAL_SPEC_KEYS.forEach((key) => { next[key] = ''; });
-        next.plotLength = ''; next.plotWidth = ''; next.openSides = ''; next.roadWidth = ''; next.cornerPlot = false; next.boundaryWall = false; next.plotZone = ''; next.naStatus = ''; next.waterSource = ''; next.electricity = false; next.roadAccess = false; next.otherRights = ''; next.buyerEligibility = '';
-        /* Farm land has no square feet on its own unit list, so a plot's default would publish the
-           parcel three orders of magnitude small. Mirrors the consumer wizard. */
-        next.areaUnit = defaultAreaUnitFor(value);
-        if (value !== 'commercial') next.commercialType = '';
-        // Land and commercial state their recurring cost elsewhere (CAM), so the box goes away.
-        if (value === 'commercial' || LAND_TYPES.includes(value)) { next.maintenance = ''; next.rentMaintMode = ''; }
-        if (LAND_TYPES.includes(value)) {
-          // `facing` survives: it is the one of these a plot still has, and the desk now asks it.
-          next.floor = ''; next.totalFloors = ''; next.overlooking = ''; next.age = ''; next.furnishing = 'unfurnished';
-        }
+        next.commercialType = '';
+        next.shellType = '';
+        next.naStatus = ''; next.otherRights = ''; next.buyerEligibility = '';
+        if (NONRES_TYPES.includes(value)) next.furnishing = 'unfurnished';
+        if (LAND_TYPES.includes(value)) { next.floor = ''; next.totalFloors = ''; }
       }
       // Sale has no security deposit or preferred-tenant list — drop rent-era values.
-      if (field === 'deal' && value === 'buy') { next.deposit = ''; next.preferredTenants = []; next.rentMaintMode = ''; }
-      // Possession is asked on the sale branch only, so it must not survive the way back to rent.
-      if (field === 'deal' && value === 'rent') { next.possession = ''; next.transactionType = ''; }
-      // The specs and fixtures are profile-scoped, so a godown's dock count must not survive a
-      // switch to "Office" — it would publish under a label that never offered the question.
-      if (field === 'commercialType') {
-        next.fixtures = []; next.suitableFor = []; next.amenities = []; next.pantry = false;
-        COMMERCIAL_SPEC_KEYS.forEach((key) => { next[key] = ''; });
-      }
+      if (field === 'deal' && value === 'buy') next.deposit = '';
       return next;
     });
     setErrors((prev) => { if (prev[field] === undefined) return prev; const n = { ...prev }; delete n[field]; return n; });
@@ -150,12 +110,13 @@ export default function AdminPostOnBehalf() {
     if (s === 1) {
       if (!form.ownerName.trim()) err.ownerName = true;
       if (!/^[6-9]\d{9}$/.test(form.ownerMobile)) err.ownerMobile = true;
-    } else if (s === 2) {
       if (!form.propertyType) err.propertyType = true;
       if (form.propertyType === 'commercial' && !form.commercialType) err.commercialType = true;
       if (form.propertyType === 'commercial' && !form.shellType) err.shellType = true;
       if (!form.bhk && !NONRES_TYPES.includes(form.propertyType)) err.bhk = true;
       if (!form.carpetArea) err.carpetArea = true;
+      /* The server 422s this unnamed, so the operator would only see a generic toast on the last step. */
+      if (form.floor && form.totalFloors && (parseInt(form.floor, 10) || 0) > Number(form.totalFloors)) err.floor = true;
       /* Held to the same bar as the owner's own wizard: a land listing that reaches a buyer without
          these is one the ops desk has to chase the owner about later anyway. */
       if (LAND_TYPES.includes(form.propertyType)) {
@@ -163,140 +124,71 @@ export default function AdminPostOnBehalf() {
         if (!form.otherRights) err.otherRights = true;
         if (form.propertyType === 'farmland' && form.deal === 'buy' && !form.buyerEligibility) err.buyerEligibility = true;
       }
-    } else if (s === 3) {
+    } else if (s === 2) {
       if (!form.locality) err.locality = true;
-    } else if (s === 4) {
+    } else if (s === 3) {
       if (!form.price) err.price = true;
     }
     setErrors(err);
     return Object.keys(err).length === 0;
   }
 
-  function next() { if (!validateStep(step)) return; setStep((s) => Math.min(s + 1, 6)); }
+  function next() { if (!validateStep(step)) return; setStep((s) => Math.min(s + 1, LAST_STEP)); }
   function prev() { setStep((s) => Math.max(s - 1, 1)); }
 
   async function handleSubmit() {
-    const firstInvalidStep = [1, 2, 3, 4].find((candidate) => !validateStep(candidate));
+    const firstInvalidStep = [1, 2, 3].find((candidate) => !validateStep(candidate));
     if (firstInvalidStep) { setStep(firstInvalidStep); return; }
     setSubmitting(true);
     try {
       const land = LAND_TYPES.includes(form.propertyType);
       const isCommercial = form.propertyType === 'commercial';
+      const sale = form.deal === 'buy';
       const residentialHome = !NONRES_TYPES.includes(form.propertyType);
+      const datedPossession = !sale || (!land && (form.possession === 'new' || form.possession === 'under'));
+      const availableFrom = datedPossession ? form.availableFrom || '' : '';
       const bhkNum = residentialHome ? (Number(form.bhk) || 0) : 0;
       const typeMap = { flat: 'Flat', independent: 'Independent House', villa: 'Villa', commercial: 'Commercial', openplot: 'Open Plot', farmland: 'Farm Land' };
       const subtypeLabel = commercialLabelOf(form.commercialType);
       const typeLabel = (isCommercial && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
       const titlePrefix = bhkNum ? bhkNum + ' BHK ' : '';
       const title = titlePrefix + typeLabel + ' in ' + (form.locality || 'Pune');
-      /* The server takes `\d{1,9}(\.\d{1,2})?`, so a mid-typed "5." or a third decimal place is a 422 that
-         names no field at all — the constraint carries one static message. Repair rather than reject. */
-      const decimal = (v) => String(v ?? '')
-        .replace(/^\./, '0.').replace(/\.$/, '').replace(/^(\d+\.\d{2})\d+$/, '$1');
-
+      /* Only keys `toListingCreate` reads travel; everything else the owner adds after claiming. */
       const listing = {
-        title, type: typeLabel,
-        bhk: bhkNum ? bhkNum + ' BHK' : '', bhkNum, deal: form.deal,
-        bath: residentialHome ? (Number(form.bathrooms) || 0) : 0,
-        balconies: residentialHome ? (Number(form.balconies) || 0) : 0,
-        builtUpArea: residentialHome ? (Number(form.builtUp) || 0) : 0,
-        plotArea: Number(form.plotArea) || 0,
-        floorsInHouse: Number(form.floorsInHouse) || 0,
-        furniture: residentialHome ? form.furniture || [] : [],
-        ...(isCommercial && { parkingSpaces: Number(form.parkingSpaces) || 0 }),
+        title, type: typeLabel, bhkNum, deal: form.deal,
         locality: form.locality || 'Pune',
-        localitySlug: resolveLocalitySlug(form.locality || 'Pune'),
-        area: Number(form.carpetArea) || 0, floor: form.floor || 'N/A',
-        totalFloors: Number(form.totalFloors) || 0, facing: form.facing || '', overlooking: form.overlooking || '',
-        age: isCommercial ? '' : form.age || 'new', furnishing: residentialHome ? form.furnishing : undefined,
-        price: parseAmount(form.price), negotiable: !!form.priceNegotiable,
-        /* On a rental the figure is only owed when it is charged on top; "included in rent" is
-           already stated by the rent itself. Matches `submit.js`. */
-        maintenance: residentialHome && form.deal === 'rent' && form.rentMaintMode === 'extra'
-          ? parseAmount(form.maintenance)
-          : 0,
-        owner: form.ownerName, ownerMobile: form.ownerMobile,
-        ownerVerified: false, ownershipVerified: false,
-        image: form.photos[0] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80',
-        gallery: form.photos,
-        amenities: isCommercial
-          ? (form.amenities || []).filter((amenity) => amenitiesFor('commercial', form.commercialType).includes(amenity))
-          : form.amenities || [],
-        reraId: form.reraId || '',
-        landUse: landUseFor(form.propertyType, form.plotZone),
+        area: Number(form.carpetArea) || 0,
+        floor: land || !form.floor ? undefined : parseInt(form.floor, 10) || 0,
+        totalFloors: land ? undefined : form.totalFloors,
+        furnishing: residentialHome ? form.furnishing : undefined,
+        price: parseAmount(form.price),
+        images: form.photos,
+        reraId: sale && !land ? form.reraId.trim() : '',
+        landUse: landUseFor(form.propertyType),
         /* Possession is a sale-only question here and on the consumer form, so a rental or a plot
            states nothing rather than claiming "ready to move". `writePossession` omits the key. */
-        construction: form.deal === 'buy' && !land
-          ? (form.possession === 'available' ? 'ready' : form.possession || 'ready')
-          : undefined,
-        ownership: form.deal === 'buy' ? (form.ownership || '') : '',
-        loanAvailable: residentialHome ? form.loanAvailable : false,
-        available: (form.deal === 'rent' || (!land && (form.possession === 'new' || form.possession === 'under'))) ? (form.availableFrom || '') : '',
-        /* A list, not a joined string: `ListingCreate.tenants` is a `List<String>`, so a string makes the
-           whole body unreadable and every desk submit 400s. `anyone` is the absence of a preference. */
-        tenants: residentialHome
-          ? ((form.preferredTenants || []).includes('anyone') ? [] : (form.preferredTenants || []))
-          : [],
-        food: 'any',
-        lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration,
-        description: form.description || '', society: form.society || '',
-        address: form.address || '', landmark: form.landmark || '',
-        deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0,
-        /* The staff actor is server-set: a client that names the actor is a client asking to be
-           believed about it. Owner identity goes as request arguments, not listing fields. */
-        adminNotes: form.ownerNotes || '', status: 'pending',
-        /* `toListingCreate` forwards only this map, so an answer left at the listing's top level is dropped
-           on the wire. Deal-scoped: a sale has no GST-on-rent and a rental has no tenancy status. */
+        construction: sale && !land ? (form.possession || 'ready') : undefined,
+        available: availableFrom,
+        society: form.society || '',
+        // A society id or pin left over from an earlier residential type choice must not travel.
+        societyId: residentialHome ? form.societyId || undefined : undefined,
+        lat: residentialHome ? form.lat ?? undefined : undefined,
+        lng: residentialHome ? form.lng ?? undefined : undefined,
+        pincode: residentialHome ? form.pincode || undefined : undefined,
+        address: form.address || '',
+        deposit: sale ? 0 : parseAmount(form.deposit),
         formDetails: {
-          landmark: form.landmark || '',
-          /* At the top level `society` survives only inside the composed address line, and `available` is
-             coarsened to a 15/30-day bucket. Both answers are the operator's, so both belong here. */
           society: form.society || '',
-          availableFrom: form.availableFrom || '',
-          rentMaintMode: form.deal === 'rent' && residentialHome ? (form.rentMaintMode || '') : '',
-          transactionType: form.deal === 'buy' && !land ? (form.transactionType || '') : '',
+          availableFrom,
           ...(isCommercial && {
             commercialType: form.commercialType || '',
             shellType: form.shellType || '',
-            washrooms: form.washrooms || '',
-            camCharges: form.camCharges || '',
-            pantry: commercialProfileOf(form.commercialType) === 'workspace' && form.pantry,
-            suitableFor: (form.suitableFor || []).filter((value) => suitableForFor(form.commercialType).includes(value)),
-            fixtures: (form.fixtures || []).filter((value) => fixturesFor(form.commercialType).includes(value)),
-            gstOnRent: form.deal === 'rent' ? (form.gstOnRent || '') : '',
-            fitOutMonths: form.deal === 'rent' ? (form.fitOutMonths || '') : '',
-            escalationPct: form.deal === 'rent' ? decimal(form.escalationPct) : '',
-            tenancyStatus: form.deal === 'rent' ? '' : (form.tenancyStatus || ''),
-            inPlaceRent: form.deal !== 'rent' && form.tenancyStatus === 'leased' ? (form.inPlaceRent || '') : '',
-            leaseExpiry: form.deal !== 'rent' && form.tenancyStatus === 'leased' ? (form.leaseExpiry || '') : '',
-            ...Object.fromEntries(commercialSpecsFor(form.commercialType).map(({ key }) => [key, decimal(form[key])])),
           }),
           ...(land && {
-            plotLength: form.plotLength || '',
-            plotWidth: form.plotWidth || '',
-            openSides: form.openSides || '',
-            roadWidth: form.roadWidth || '',
-            plotZone: form.plotZone || '',
-            waterSource: form.waterSource || '',
-            cornerPlot: form.cornerPlot,
-            boundaryWall: form.boundaryWall,
             naStatus: form.naStatus || '',
-            electricity: form.electricity,
-            roadAccess: form.roadAccess,
             otherRights: form.otherRights || '',
-            buyerEligibility: form.deal === 'buy' && form.propertyType === 'farmland' ? (form.buyerEligibility || '') : '',
+            buyerEligibility: sale && form.propertyType === 'farmland' ? (form.buyerEligibility || '') : '',
           }),
-          ...(residentialHome && {
-            plotArea: form.plotArea || '',
-            floorsInHouse: form.floorsInHouse || '',
-            furniture: form.furniture || [],
-          }),
-          ownership: form.deal === 'buy' ? (form.ownership || '') : '',
-          loanAvailable: residentialHome && form.deal === 'buy' && form.loanAvailable,
-          agreementDuration: form.deal === 'rent' && !land ? (form.agreementDuration || '') : '',
-          lockIn: form.deal === 'rent' && !land ? (form.lockIn || '') : '',
-          noticePeriod: form.deal === 'rent' && !land ? (form.noticePeriod || '') : '',
-          preferredTenants: form.deal === 'rent' && residentialHome ? (form.preferredTenants || []) : [],
         },
       };
 
@@ -306,7 +198,13 @@ export default function AdminPostOnBehalf() {
       setCreatedId(created.id);
       setSuccess(true);
       clearDraft();
-      toast('Listing created \u2014 owner will receive claim link', 'success');
+      toast('Listing created \u2014 send the owner their claim link', 'success');
+      /* `ListingCreate` has no notes field, so the call notes go to the listing's internal-notes
+         timeline. The listing already exists, so a failure here is reported, not retried. */
+      if (form.ownerNotes.trim()) {
+        addNote('listing', created.uuid, form.ownerNotes)
+          .catch(() => toast('Listing created, but the internal note was not saved', 'error'));
+      }
     } catch (err) {
       /* A 422 names its field and `writePossession` names an unmappable value, but the toast can say
          neither — so log it, or staff can only report "it failed". */
@@ -318,14 +216,11 @@ export default function AdminPostOnBehalf() {
   }
 
   if (success) {
-    const hasPhotos = form.photos.length > 0;
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-teal-500/15"><CheckCircle2 className="h-10 w-10 text-teal-400" /></div>
         <h2 className="text-2xl font-bold mb-2">Listing Sent to Owner</h2>
-        <p className="text-gray-400 mb-2 max-w-md">A claim link has been sent to <span className="text-white font-medium">{form.ownerName}</span> (+91 {form.ownerMobile}). {hasPhotos
-          ? <>Photos are already attached — once they complete Aadhaar verification, the listing will appear in your verification queue.</>
-          : <>Once they upload photos &amp; complete Aadhaar verification, the listing will appear in your verification queue.</>}</p>
+        <p className="text-gray-400 mb-2 max-w-md">Saved under <span className="text-white font-medium">{form.ownerName}</span> (+91 {form.ownerMobile}). Send them the claim link on WhatsApp from Properties → Staff Posted; the listing can go live once they confirm it&apos;s theirs.</p>
         <p className="text-sm text-gray-500 mb-8">Listing ID: {createdId}</p>
         <div className="flex gap-3">
           <button onClick={() => navigate('/admin/properties')} className="rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium hover:bg-white/10 transition">View All Properties</button>
@@ -337,12 +232,20 @@ export default function AdminPostOnBehalf() {
 
   const stepContent = () => {
     switch (step) {
-      case 1: return <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} standing={standing} />;
-      case 2: return <PropertyStep form={form} set={set} errors={errors} />;
-      case 3: return <LocationStep form={form} set={set} errors={errors} />;
-      case 4: return <PricingStep form={form} set={set} errors={errors} />;
-      case 5: return <PhotosStep form={form} set={set} />;
-      case 6: return <ReviewStep form={form} />;
+      case 1: return (
+        <div className="space-y-6">
+          <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} standing={standing} />
+          <div className="border-t border-white/10 pt-6"><PropertyStep form={form} set={set} errors={errors} /></div>
+        </div>
+      );
+      case 2: return <LocationStep form={form} set={set} errors={errors} />;
+      case 3: return <PricingStep form={form} set={set} errors={errors} />;
+      case 4: return (
+        <div className="space-y-6">
+          <PhotosStep form={form} set={set} />
+          <div className="border-t border-white/10 pt-6"><ReviewStep form={form} /></div>
+        </div>
+      );
       default: return null;
     }
   };
@@ -361,7 +264,7 @@ export default function AdminPostOnBehalf() {
         </div>
       )}
 
-      {/* Rent vs Sale is the first decision an agent makes on the call — surface it up
+      {/* Rent vs Sale is the first decision staff make on the call — surface it up
           top and keep it visible on every step (it drives deposit, price labels & fields). */}
       <div className="mb-6 max-w-2xl">
         <span className="mb-1.5 block text-sm font-medium text-gray-300">Listing for</span>
@@ -390,7 +293,7 @@ export default function AdminPostOnBehalf() {
         {stepContent()}
         <div className="mt-8 flex items-center justify-between">
           {step > 1 ? <button onClick={prev} className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium hover:bg-white/10 transition"><ArrowLeft className="h-4 w-4" /> Back</button> : <div />}
-          {step < 6 ? (
+          {step < LAST_STEP ? (
             <button onClick={next} className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition">Next <ArrowRight className="h-4 w-4" /></button>
           ) : (
             <button onClick={handleSubmit} disabled={submitting} className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition disabled:opacity-50">{submitting ? 'Saving...' : 'Send to Owner'} <Send className="h-4 w-4" /></button>

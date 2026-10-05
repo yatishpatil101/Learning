@@ -25,10 +25,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * {@code /properties/{id}/outreach} — WhatsApp click-to-chat outreach. Every row records
- * {@code prepared}, not {@code sent}: the staff member's own WhatsApp does the send.
- */
 @DisplayName("D216 — chasing a listing's owner")
 class OwnerOutreachTest extends AbstractApiTest {
 
@@ -37,12 +33,12 @@ class OwnerOutreachTest extends AbstractApiTest {
     @Autowired
     PropertyRepository properties;
 
-    /** Read rather than hard-coded, so the test asserts the wiring and not a second copy of it. */
     @Value("${draazy.app.base-url}")
     String baseUrl;
 
     @AfterEach
     void clearAudit() {
+
         // AuditService commits in its own transaction, so its rows outlive this test's rollback.
         jdbc.update("delete from audit_log where action = 'property.outreach'");
         jdbc.update("delete from outbound_message where body like '%Outreach flat%'");
@@ -78,10 +74,7 @@ class OwnerOutreachTest extends AbstractApiTest {
                 .getContentAsString();
     }
 
-    /**
-     * Caller supplies a template id only. A request carrying the body would let staff send
-     * arbitrary text to a member of the public in the platform's name.
-     */
+    // Caller supplies a template id only.
     @Test
     @DisplayName("the message is rendered server-side from the listing, its owner and the sender")
     void rendersFromTheDatabase() throws Exception {
@@ -96,10 +89,7 @@ class OwnerOutreachTest extends AbstractApiTest {
         assertThat(body).doesNotContain("{owner_name}").doesNotContain("{staff_name}");
     }
 
-    /**
-     * Unresolved keys survive as literal text so the failure is loud in the staff member's preview
-     * rather than a silently truncated sentence. Here the listing carries no {@code localitySlug}.
-     */
+    // Unresolved keys stay literal so staff see the template failure.
     @Test
     @DisplayName("an unresolved placeholder survives as literal text, where a human will see it")
     void unresolvedPlaceholdersAreVisible() throws Exception {
@@ -128,10 +118,6 @@ class OwnerOutreachTest extends AbstractApiTest {
         assertThat(body).contains("{market_rate}");
     }
 
-    /**
-     * Quote the same figure {@code GET /localities/{slug}} shows buyers. {@code 11200} is
-     * {@code kothrud}'s seeded {@code rate_per_sqft} — hard-coded so a seed move fails loudly.
-     */
     @Test
     @DisplayName("a locality with a published rate is quoted, not guessed at")
     void publishedRateIsQuoted() throws Exception {
@@ -146,10 +132,6 @@ class OwnerOutreachTest extends AbstractApiTest {
         assertThat(body).contains("11200").doesNotContain("{market_rate}");
     }
 
-    /**
-     * Asserted against the configured base URL — a template hard-coding {@code draazy.com} looks
-     * plausible but 404s an owner on production against a staging id.
-     */
     @Test
     @DisplayName("the listing link points at the deployment that sent it, not at production")
     void theListingLinkIsBuiltFromTheConfiguredBaseUrl() throws Exception {
@@ -170,7 +152,6 @@ class OwnerOutreachTest extends AbstractApiTest {
         }
     }
 
-    /** A wrong number sends someone's flat details to a stranger's phone — not cosmetic. */
     @Test
     @DisplayName("the handoff link addresses the owner's own number and carries the message")
     void handoffLinkIsAddressedToTheOwner() throws Exception {
@@ -187,10 +168,7 @@ class OwnerOutreachTest extends AbstractApiTest {
                 .isEqualTo(body);
     }
 
-    /**
-     * Asserted through the read endpoint because a ledger nobody can query is not a ledger. The
-     * platform must not claim delivery: it only knows the message was composed and handed to a human.
-     */
+    // Asserted through the read endpoint because a ledger nobody can query is not a ledger.
     @Test
     @DisplayName("chasers accumulate in a log the next colleague can read, marked prepared")
     void chasersAreRecorded() throws Exception {
@@ -210,10 +188,7 @@ class OwnerOutreachTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[1].templateId").value("wa-photos"));
     }
 
-    /**
-     * Counted from the outbound-message table (never a stored column), so the number cannot drift
-     * from the messages actually sent. Asserted through the queue where it is computed page-wide.
-     */
+    // Count from outbound messages, not a stored column that can drift.
     @Test
     @DisplayName("reminderCount is counted from the ledger, not stored beside the listing")
     void reminderCountComesFromTheLedger() throws Exception {
@@ -234,7 +209,6 @@ class OwnerOutreachTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].adminPipeline.reminderCount").value(3));
     }
 
-    /** Silently sending the id would put "wa-onbaord" on an owner's phone. */
     @Test
     @DisplayName("an unknown template is refused")
     void unknownTemplatesAreRefused() throws Exception {
@@ -245,10 +219,37 @@ class OwnerOutreachTest extends AbstractApiTest {
         chase(staff, p, "wa-does-not-exist", 400);
     }
 
-    /**
-     * Guard is {@code postOnBehalf:write} not {@code properties:write}: this puts a message on a
-     * private phone in the platform's name, same power as creating a listing under their number.
-     */
+    // This messages a private phone in the platform's name,
+    // so it needs the post-on-behalf grant.
+    @Test
+    @DisplayName("verification reason templates render through the outreach endpoint")
+    void reasonTemplatesRender() throws Exception {
+        User owner = user("9853000017", "owner", "Maya Kulkarni");
+        User staff = user("9853000018", "staff", "Nora Desk");
+        Property p = listing(owner, true, staff.getId().toString());
+
+        for (String template : List.of(
+                "reason_photos_not_real",
+                "reason_duplicate",
+                "reason_broker",
+                "reason_wrong_details",
+                "reason_locality_unclear",
+                "reason_document_unreadable",
+                "reason_name_mismatch")) {
+            String body = JsonPath.read(chase(staff, p, template, 200), "$.body");
+
+            assertThat(body)
+                    .describedAs(template)
+                    .contains("Maya Kulkarni")
+                    .contains("Outreach flat")
+                    .contains("Draazy Team");
+            assertThat(body)
+                    .describedAs(template)
+                    .doesNotContain("{owner_name}")
+                    .doesNotContain("{title}");
+        }
+    }
+
     @Test
     @DisplayName("a buyer cannot send outreach")
     void buyersCannotChase() throws Exception {

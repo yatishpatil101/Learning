@@ -2,7 +2,7 @@
 // Assert network writes and independent reads so browser-local success cannot pass as persistence.
 import { test, expect } from '@playwright/test';
 import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
-import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
+import { trackErrors } from '../helpers/console.js';
 import { signedInAs, authHeaders, API } from '../helpers/liveAuth.js';
 
 async function unsignedPdfBuffer() {
@@ -12,9 +12,6 @@ async function unsignedPdfBuffer() {
 }
 
 const OWNER = { mobile: '9470744469' };
-
-// The local environment's TLS-intercepting proxy can produce external resource errors.
-const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 // Track created IDs so teardown leaves other specs' managed records intact.
 const created = [];
@@ -45,17 +42,15 @@ test.describe('LIVE: managed properties against the real API', () => {
   let apiFails;
 
   test.beforeEach(async ({ page }) => {
-    errors = [];
+    errors = trackErrors(page);
     apiFails = [];
     page.on('response', (r) => {
       if (r.url().includes('/api/') && r.status() >= 400) apiFails.push(`${r.status()} ${new URL(r.url()).pathname}`);
     });
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e)));
   });
 
   test.afterEach(() => {
-    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+    expect(errors, `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
   // The suite reseeds once; API cleanup must not depend on the screen under test still working.

@@ -13,6 +13,7 @@ import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,36 +23,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/**
- * The concierge desk and the freemium listing ceiling — why the desk is exempt, and what it is told
- * instead.
- *
- * <p><strong>The defect this was written for.</strong> {@code POST /admin/properties} creates a
- * listing owned by whoever the operator names, and it did so through the same
- * {@code ListingService.create} the owner's own wizard calls — so it inherited the owner's plan
- * ceiling. An operator on the phone with somebody who owns three flats could record one of them and
- * was refused the other two, with a 422 whose message is written for an owner sitting in the
- * wizard: "You already have 1 of 1 listings live. Take one down, upgrade your plan, or refer an
- * owner to earn another slot." Shown to a member of staff, about somebody else's account, offering
- * them remedies they cannot perform.
- *
- * <p>Worse, it was unconditional in practice rather than occasional. Every owner this route
- * provisions is brand new and therefore on the free tier, so the desk could never record a second
- * listing for any caller it had not previously seen — and the wizard's own duplicate safeguard
- * ("this owner already has N pending listings", the thing that stops a second operator taking the
- * same flat down twice) was unreachable for exactly the same reason.
- *
- * <p><strong>Why exemption is the right shape.</strong> The ceiling is a rule about self-service.
- * This route is staff-only behind its own {@code postOnBehalf:write} atom, writes two audit rows,
- * and has a person deciding. What it produces is a {@code pending} listing in a hand-back funnel
- * the owner has not accepted yet — the owner gains nothing they could have helped themselves to.
- *
- * <p><strong>What replaces the refusal.</strong> Not silence.
- * {@code GET /admin/properties/owner-standing} publishes the two numbers the gate would have
- * refused on, so the operator can see they are holding an upgrade conversation. Counts only, never
- * a plan name or a price: the operator needs to know there is a conversation, not what the account
- * is worth.
- */
+// Staff must not see owner self-service quota remedies they cannot perform.
+// This route is staff-only behind its own `postOnBehalf:write` atom, writes two audit rows, and has a person deciding.
 @DisplayName("D239 — the concierge desk could only ever record one listing per owner")
 class ConciergeListingQuotaTest extends AbstractApiTest {
 
@@ -60,23 +33,8 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
     @Autowired
     PropertyRepository properties;
 
-    /**
-     * Undo what the rollback cannot reach.
-     *
-     * <p>Two of this class's writes commit outside the test transaction: the desk's audit rows go
-     * through {@code REQUIRES_NEW}, and so does the provisioning of an owner who has never signed in
-     * — which is the point of that route, since "we opened an account for this number" must survive
-     * whatever happens to the listing afterwards. Both therefore outlive the class and are still in
-     * {@code draazy_test} when the next one runs, and a leftover account is not inert: it holds a
-     * unique mobile. The first draft borrowed a block {@code OwnerOutreachTest} already owned, and
-     * the next full suite failed on a unique-constraint violation reported against <em>that</em>
-     * class, which had changed nothing.
-     *
-     * <p>{@code @AfterAll}, not {@code @AfterEach}, because the listing rows referencing these
-     * accounts are still uncommitted while a test is in flight — deleting the owner there answers
-     * with a foreign-key violation rather than a clean-up. After the class, the rollback has already
-     * taken the listings and only the committed accounts are left.
-     */
+    // Audit rows and first-time owner provisioning use `REQUIRES_NEW`.
+    // They must survive whatever happens to the listing transaction.
     @AfterAll
     static void removeRowsThatEscapedRollback() {
         cleanup.update("delete from audit_log where action like '%_on_behalf'");
@@ -96,17 +54,14 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
              "listing":{"title":"%s","deal":"rent","propertyType":"apartment","price":25000,
                         "locality":"Kothrud","city":"Pune"}}
             """;
+    private static final String ON_BEHALF_WITH_IMAGES = """
+            {"ownerMobile":"%s","ownerName":"Phoned In",
+             "listing":{"title":"%s","deal":"rent","propertyType":"apartment","price":25000,
+                        "locality":"Kothrud","city":"Pune","images":["%s"]}}
+            """;
 
-    /**
-     * An account, saved directly.
-     *
-     * <p>Mobiles come from the <b>98539 000xx</b> block, which no other test class uses. That
-     * matters here in a way it does not in a rolled-back test: the desk's writes commit, so the
-     * accounts these tests create outlive the class and are still in {@code draazy_test} when the
-     * next class runs. The first draft borrowed 98530 000xx, which {@code OwnerOutreachTest} already
-     * owns, and the two passed in isolation and failed the full suite on a unique-constraint
-     * violation — reported against the *other* class, which had changed nothing.
-     */
+    // An account, saved directly.
+    // Desk-created accounts commit outside rollback, so this class must clean them up.
     private User user(String mobile, String role) {
         User u = new User(mobile, role);
         u.setName("Concierge " + mobile);
@@ -114,12 +69,7 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    /**
-     * A listing already in the catalogue, saved directly rather than posted.
-     *
-     * <p>The same reasoning as {@code ListingQuotaTest}: the count these tests are about comes from
-     * the catalogue, not from a session, so the fixture must arrive by a route no caller was part of.
-     */
+    // A listing already in the catalogue, saved directly rather than posted.
     private Property held(User owner, String title, String status) {
         Property p = new Property(owner, title, "rent", "apartment", 25000L, "Kothrud", "Pune");
         p.setBhk(new BigDecimal("2"));
@@ -138,6 +88,34 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andReturn().getResponse().getStatus();
     }
 
+    private int postOnBehalf(User staff, String ownerMobile, String title, String image) throws Exception {
+        return mvc.perform(post("/admin/properties")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ON_BEHALF_WITH_IMAGES.formatted(ownerMobile, title, image)))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private static String upload(User owner) {
+        return "/api/dev/storage/public/photos/" + owner.getId() + "/" + UUID.randomUUID();
+    }
+
+    @Test
+    @DisplayName("the desk can record a listing before photos exist")
+    void onBehalfCreateWithoutPhotosStillSucceeds() throws Exception {
+        User staff = user("9853900031", "staff");
+
+        assertThat(postOnBehalf(staff, "9853900032", "No photos yet")).isEqualTo(201);
+    }
+
+    @Test
+    @DisplayName("the desk can attach photos uploaded by the staff actor")
+    void onBehalfCreateWithStaffUploadedPhotoSucceeds() throws Exception {
+        User staff = user("9853900033", "staff");
+
+        assertThat(postOnBehalf(staff, "9853900034", "Staff photo", upload(staff))).isEqualTo(201);
+    }
+
     @Test
     @DisplayName("the desk can record a second listing for an owner whose own wizard would refuse")
     void theDeskIsNotBoundByTheOwnersPlan() throws Exception {
@@ -149,12 +127,8 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .isEqualTo(201);
     }
 
-    /**
-     * The case that made the exemption unavoidable rather than merely nicer. A caller the platform
-     * has never seen is provisioned onto the free tier by the first post, so without the exemption
-     * the second one is refused — meaning the desk could record exactly one listing per new caller,
-     * forever.
-     */
+    // First desk post provisions a free-tier owner; the exemption lets staff
+    // record more than one listing for that new caller.
     @Test
     @DisplayName("a brand-new owner does not run out after one, which is every first call")
     void aProvisionedOwnerIsNotCappedAtOne() throws Exception {
@@ -165,11 +139,7 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
         assertThat(postOnBehalf(staff, "9853900004", "Their third flat")).isEqualTo(201);
     }
 
-    /**
-     * The exemption is a property of the route, not of the owner. Nothing the desk does may make an
-     * owner's own wizard more permissive — otherwise "ring the office" becomes the documented way
-     * around the paywall.
-     */
+    // Desk posting must not make the owner's own wizard more permissive.
     @Test
     @DisplayName("the exemption does not follow the owner back to their own wizard")
     void theOwnersOwnPostIsStillRefused() throws Exception {
@@ -207,11 +177,7 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.overAllowance").value(true));
     }
 
-    /**
-     * An owner sitting exactly on their ceiling is not over it. The distinction matters because this
-     * is the state the desk sees most often — one free listing, already used — and an operator who
-     * is warned about every caller stops reading the warning.
-     */
+    // Warn only on exhaustion; warning on every caller trains operators to ignore it.
     @Test
     @DisplayName("at the ceiling is not over it")
     void standingDoesNotCryWolfAtExactlyTheLimit() throws Exception {
@@ -227,10 +193,8 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.overAllowance").value(false));
     }
 
-    /**
-     * "No account yet" is the ordinary answer on a first call, so it is a 200. A 404 would make the
-     * console render its error state for the commonest thing that happens at this desk.
-     */
+    // "No account yet" is the ordinary answer on a first call, so it is a 200.
+    // A 404 would make the console render its error state for the commonest thing that happens at this desk.
     @Test
     @DisplayName("a number with no account answers 200, not 404")
     void anUnknownNumberIsNotAnError() throws Exception {
@@ -245,11 +209,8 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.overAllowance").value(false));
     }
 
-    /**
-     * Separators, not a country code. {@code Mobile} is ten digits everywhere on this platform, and
-     * a route that quietly accepted {@code +91} would be the only one that did — the desk's own
-     * {@code POST} would still refuse the same string a moment later.
-     */
+    // Separators, not a country code.
+    // Mobile is ten digits everywhere; accepting `+91` here would disagree with POST.
     @Test
     @DisplayName("the number is normalised the way an operator types it")
     void spacingAndPunctuationAreStripped() throws Exception {
@@ -275,10 +236,8 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    /**
-     * The standing read discloses one named person's plan position, so it is guarded by the desk's
-     * own atom rather than by {@code properties:read}. A buyer must not reach it at all.
-     */
+    // The read discloses one person's plan position, so it needs the desk-specific grant.
+    // A buyer must not reach it at all.
     @Test
     @DisplayName("a buyer cannot read anybody's standing")
     void standingIsStaffOnly() throws Exception {

@@ -1,38 +1,5 @@
-/**
- * Managed-property shape translation — wire ⇄ owner-hub card.
- *
- * The two shapes were written years apart by people solving different problems, and this is where
- * the disagreement is paid for once instead of at every call site. `ManagedPropertyDto` is the
- * *source data*: the facts an owner typed in. The browser store was written to render, so it also
- * carries a formatted price, a composed "society, locality, Pune" line, a gallery, a BHK label and
- * the owner's own name and mobile — none of which the server keeps, because none of them are facts
- * about the property.
- *
- * Four of those translations are load-bearing rather than cosmetic:
- *
- * 1. **`deal`.** The catalogue says `buy`; the owner hub has always said `sale`, and it says it in
- *    conditionals, not just in copy. Sending `sale` to the server is a hard 422 on every sale
- *    record, so the swap happens here, in both directions, and nowhere else.
- * 2. **`bhk`.** The server keeps one number. The browser kept a number *and* the label rendered
- *    from it, which could disagree. The label is derived on read, so it cannot.
- * 3. **Timestamps.** The store wrote `Date.now()`; the wire is ISO-8601. Anything that sorts or
- *    compares these needs one representation, and epoch ms is the one the existing cards sort on.
- * 4. **`monthlyRent` and `publishedListingId`.** The store used `0` and `''` for "not set"; the
- *    server uses null. `0` is a legitimate rent to *store* and a falsy value to *test*, so the
- *    round trip normalises to the store's convention on read and back to null on write.
- *
- * Presentation-only fields the server has no column for (`img`, `gallery`, `owner`, `ownerMobile`)
- * are synthesized on read from the placeholder gallery and the signed-in user. They were never
- * durable data — a second device would have produced different values from the same record.
- */
+/* This mapper absorbs ManagedPropertyDto quirks once instead of at every call site. */
 import { readUser } from '../../../lib/auth.js';
-
-/** Same three placeholders the browser store minted, kept so a ported card looks unchanged. */
-const PLACEHOLDER_GALLERY = [
-  'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70',
-  'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=70',
-  'https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?auto=format&fit=crop&w=800&q=70',
-];
 
 const fmtIndian = (n) => Number(n || 0).toLocaleString('en-IN');
 
@@ -43,17 +10,14 @@ const toMillis = (iso) => {
   return Number.isNaN(ms) ? null : ms;
 };
 
-/** `4+ BHK` above three, `2 BHK` below, empty when the owner never said. */
 export const bhkLabel = (n) => {
   const num = Number(n) || 0;
   if (!num) return '';
-  return num >= 4 ? '4+ BHK' : `${num} BHK`;
+  return num >= 5 ? '5+ BHK' : `${num} BHK`;
 };
 
-/**
- * Wire deal → owner-hub deal. The catalogue only knows `buy` and `rent`; anything that is not
- * `rent` is a sale, which keeps a future third intent from silently rendering as a rental.
- */
+/** The catalogue only knows `buy` and `rent`; anything that is not `rent` is a sale, which keeps a future third
+ * intent from silently rendering as a rental. */
 export const toClientDeal = (deal) => (deal === 'rent' ? 'rent' : 'sale');
 
 /** Owner-hub deal → wire deal. The inverse, and the one that stops a 422. */
@@ -67,7 +31,6 @@ export function toManaged(dto) {
   const price = Number(dto.price) || 0;
   const bhkNum = Number(dto.bhk) || 0;
   const locality = dto.locality || '';
-  const img = PLACEHOLDER_GALLERY[0];
 
   return {
     id: dto.id,
@@ -87,9 +50,9 @@ export function toManaged(dto) {
     deal,
     price,
     priceStr: deal === 'rent' ? `₹${fmtIndian(price)}/mo` : `₹${fmtIndian(price)}`,
-    img,
-    image: img,
-    gallery: PLACEHOLDER_GALLERY,
+    img: null,
+    image: null,
+    gallery: [],
     // Never durable: the record belongs to the caller by construction — the server scopes every
     // read to the token — so the owner is whoever is holding it.
     owner: u.name || '',
@@ -108,17 +71,8 @@ export function toManaged(dto) {
 /** A page (or bare array) of managed records, wire → cards. */
 export const toManagedList = (rows) => (Array.isArray(rows) ? rows.map(toManaged).filter(Boolean) : []);
 
-/**
- * A manual rent receipt, wire → panel row.
- *
- * Every figure on it is the server's snapshot of the property at the moment the owner recorded the
- * month — not the property as it is now. The Rent Panel must render and print these values rather
- * than re-deriving them from the record it happens to be holding, or last March's receipt silently
- * reprints at this March's rent after a tenant change.
- *
- * `id` is the durable receipt reference. It replaced a `'RCPT' + Date.now()` minted at print time,
- * which meant the same month produced a different reference on every download and on every device.
- */
+/** The Rent Panel must render and print these values rather than re-deriving them from the record it happens to be
+ * holding, or last March's receipt silently reprints at this March's rent after a tenant change. */
 export function toRentReceipt(dto) {
   if (!dto) return null;
   return {
@@ -136,13 +90,8 @@ export function toRentReceipt(dto) {
 export const toRentReceiptList = (rows) =>
   (Array.isArray(rows) ? rows.map(toRentReceipt).filter(Boolean) : []);
 
-/**
- * Card → create request.
- *
- * Only the fields the server owns a column for survive; `visibility`, `status`, `owner` and
- * `publishedListingId` are refused by the contract on purpose — they are server-decided, and
- * sending them would be asking to be overruled.
- */
+/** Only the fields the server owns a column for survive; `visibility`, `status`, `owner` and `publishedListingId` are
+ * refused by the contract on purpose. */
 export function toCreateRequest(data = {}) {
   const deal = toWireDeal(data.deal);
   const price = Number(data.price) || 0;
@@ -167,13 +116,8 @@ export function toCreateRequest(data = {}) {
   };
 }
 
-/**
- * Card patch → update request.
- *
- * The update contract is all-nullable and the server treats null as "leave alone", so only keys the
- * caller actually passed are forwarded. Spreading the whole card here would blank every field the
- * caller did not mean to touch.
- */
+/** The update contract is all-nullable and the server treats null as "leave alone", so only keys the caller actually
+ * passed are forwarded. */
 export function toUpdateRequest(patch = {}) {
   const body = {};
   if ('deal' in patch) body.deal = toWireDeal(patch.deal);

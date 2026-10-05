@@ -19,17 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The owner's private managed-property lifecycle: {@code GET/POST /me/managed-properties},
- * {@code GET/PATCH/DELETE /me/managed-properties/{id}} and {@code POST …/{id}/publish} (slice B,
- * V33).
- *
- * <p>Organised around the invariants that make this its own resource rather than a flavour of
- * {@code /me/listings}: a record is owner-scoped (a cross-owner id is a {@code 404}, never a
- * {@code 403}), born {@code private}/{@code managed} with lifecycle fields the body can't set, and
- * enters the marketplace only through publish — which spawns an ordinary <em>pending</em> listing,
- * links back to it, and is idempotent.
- */
+// Managed records are owner-scoped private supply; only publish may create
+// the linked pending marketplace listing.
 class ManagedPropertyFlowTest extends AbstractApiTest {
 
     @Autowired
@@ -59,14 +50,13 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 + ",\"locality\":\"" + locality + "\"}";
     }
 
-    // ---------------- register ----------------
-
     @Test
     void register_isBornPrivateAndManaged_withServerOwnedLifecycle() throws Exception {
         User owner = user("9831003001");
 
         mvc.perform(post(Routes.MeManagedProperties.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+
                         // visibility/status in the body must be ignored, not honoured.
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
@@ -115,8 +105,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    // ---------------- list ----------------
-
     @Test
     void list_showsOnlyTheCallersOwnRecords_newestFirst() throws Exception {
         User owner = user("9831003005");
@@ -131,8 +119,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].locality").value("Kothrud"));
     }
-
-    // ---------------- get / ownership ----------------
 
     @Test
     void get_returnsAnOwnedRecord() throws Exception {
@@ -165,8 +151,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---------------- update ----------------
-
     @Test
     void update_appliesOnlySuppliedFields_leavingTheRestUntouched() throws Exception {
         User owner = user("9831003011");
@@ -180,7 +164,7 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.rented").value(true))
                 .andExpect(jsonPath("$.tenantName").value("Rohan"))
                 .andExpect(jsonPath("$.dueDay").value(5))
-                // untouched
+
                 .andExpect(jsonPath("$.locality").value("Baner"))
                 .andExpect(jsonPath("$.price").value(25000));
     }
@@ -197,8 +181,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                         .content("{\"rented\":true}"))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- delete ----------------
 
     @Test
     void delete_removesAnOwnedRecord() throws Exception {
@@ -224,8 +206,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(other)))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- publish ----------------
 
     @Test
     void publish_spawnsAPendingListing_linksBack_andFlipsTheRecordPublic() throws Exception {
@@ -282,9 +262,9 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
     @Test
     void publish_rejectsARecordThatCannotLegallyBecomeAListing() throws Exception {
         User owner = user("9831003021");
-        // A managed record may be captured with a zero price (a private draft); the marketplace
-        // contract requires a positive one. Publish is the boundary, so it must 422 rather than
-        // slip a ₹0 listing into the catalogue.
+
+        // Private drafts may have zero price; marketplace listings may not.
+        // Publish is the boundary, so it must 422 rather than slip a ?0 listing into the catalogue.
         String id = register(owner, "{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
                 + "\"price\":0,\"locality\":\"Baner\"}");
 
@@ -300,24 +280,16 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.publishedListingId").doesNotExist());
     }
 
-    // ---------------- adopt an existing listing ----------------
-
-    /*
-     * Publish runs managed → listing. The adopt path runs the other way: an owner who already
-     * advertised a flat, and only later opens the passport for it, must end up with ONE record
-     * covering both, not a private duplicate sitting alongside the live ad. The client cannot do
-     * this itself — it would be guessing which of its listings a new record refers to — so create
-     * takes an optional `publishedListingId` and the server does the linking.
-     */
-
-    /** Post an ordinary listing and return its id, so there is something real to adopt. */
+    // Adoption must merge an existing live ad into one managed record;
+    // the server links by `publishedListingId` because the client would guess.
     private String listing(User owner, String title) throws Exception {
         String json = mvc.perform(post(Routes.MeListings.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"" + title + "\",\"deal\":\"rent\","
                                 + "\"propertyType\":\"apartment\",\"price\":25000,"
-                                + "\"locality\":\"Baner\",\"city\":\"Pune\"}"))
+                                + "\"locality\":\"Baner\",\"city\":\"Pune\","
+                                + listingImages(owner) + "}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
@@ -335,6 +307,7 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                                 + "\"price\":25000,\"locality\":\"Baner\","
                                 + "\"publishedListingId\":\"" + listingId + "\"}"))
                 .andExpect(status().isCreated())
+
                 // This is the one exception to "born private/managed": the record is describing
                 // something the world can already see, so claiming otherwise would be a lie.
                 .andExpect(jsonPath("$.visibility").value("public"))
@@ -348,8 +321,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
         User other = user("9831003024");
         String listingId = listing(other, "Not yours");
 
-        // 404, not 403: a 403 would confirm the id names a real listing, which is exactly the
-        // probe an attacker enumerating ids is running.
         mvc.perform(post(Routes.MeManagedProperties.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -362,7 +333,7 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
     @Test
     void register_refusesToAdoptAListingThatAlreadyHasARecord() throws Exception {
         User owner = user("9831003025");
-        // Publishing mints a listing that is, by construction, already spoken for.
+
         String first = register(owner, flat("Baner", 25000));
         String json = mvc.perform(post(Routes.MeManagedProperties.BASE + "/" + first + "/publish")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -370,9 +341,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andReturn().getResponse().getContentAsString();
         String listingId = json.replaceAll("^.*?\"publishedListingId\":\"([^\"]+)\".*$", "$1");
 
-        // 409, not 404: the caller can see this listing — it is theirs — so hiding it would be
-        // confusing rather than protective. The answer is "that one is taken", and the partial
-        // unique index in V93 says the same thing one layer down.
         mvc.perform(post(Routes.MeManagedProperties.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -394,8 +362,6 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                                 + "\"publishedListingId\":\"MP-17\"}"))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- auth ----------------
 
     @Test
     void endpoints_requireAuthentication() throws Exception {

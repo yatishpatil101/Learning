@@ -25,10 +25,8 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Owner side of the private property record. Everything is keyed by the token principal, so a
- * cross-owner id is {@code 404} rather than {@code 403} — we never confirm someone else's record.
- */
+/** Owner side of the private property record. Everything is keyed by the token principal, so a
+ * cross-owner id is {@code 404} rather than {@code 403} — we never confirm someone else's record. */
 @Service
 public class ManagedPropertyService {
 
@@ -57,22 +55,16 @@ public class ManagedPropertyService {
         this.validator = validator;
     }
 
-    /** The caller's own managed records, newest first. */
     @Transactional(readOnly = true)
     public List<ManagedPropertyDto> list(UUID ownerId) {
         return mapper.toDtos(records.findByOwnerIdOrderByCreatedAtDescIdDesc(ownerId));
     }
 
-    /** A single owned record; {@code 404} if it isn't the caller's. */
     @Transactional(readOnly = true)
     public ManagedPropertyDto get(UUID ownerId, String id) {
         return mapper.toDto(ownedRecord(ownerId, id));
     }
 
-    /**
-     * Register a new private managed property, born private/managed with the owner from the token.
-     * Adopting a listing (see {@link #adopt}) is the one way a record is born public.
-     */
     @Transactional
     public ManagedPropertyDto register(UUID ownerId, ManagedPropertyCreateRequest in) {
         String title = (in.title() == null || in.title().isBlank())
@@ -95,10 +87,8 @@ public class ManagedPropertyService {
         return mapper.toDto(records.saveAndFlush(m));
     }
 
-    /**
-     * Resolve the listing a new record claims, or refuse. Someone else's listing is {@code 404} so
-     * the 403 does not confirm it exists; the caller's own, already claimed, is an honest {@code 409}.
-     */
+    /** Resolve the listing a new record claims, or refuse. Someone else's listing is {@code 404} so
+     * the 403 does not confirm it exists; the caller's own, already claimed, is an honest {@code 409}. */
     private UUID adopt(UUID ownerId, String listingId) {
         Property listing = Ids.parseUuid(listingId)
                 .flatMap(properties::findById)
@@ -163,16 +153,13 @@ public class ManagedPropertyService {
         return mapper.toDto(records.saveAndFlush(m));
     }
 
-    /** Hard-delete an owned record. The listing it may have spawned is untouched. */
     @Transactional
     public void delete(UUID ownerId, String id) {
         records.delete(ownedRecord(ownerId, id));
     }
 
-    /**
-     * Publish an owned record into the marketplace: create an ordinary pending listing from its
-     * facts and link back to it. Idempotent — a record already published is returned unchanged.
-     */
+    /** Publish an owned record into the marketplace: create an ordinary pending listing from its
+     * facts and link back to it. Idempotent — a record already published is returned unchanged. */
     @Transactional
     public ManagedPropertyDto publish(UUID ownerId, String id) {
         ManagedProperty m = ownedRecord(ownerId, id);
@@ -183,28 +170,28 @@ public class ManagedPropertyService {
                 m.getTitle(), m.getDeal(), m.getPropertyType(), m.getBhk(), m.getPrice(),
                 null, null, null, m.getArea(), m.getAreaUnit(), m.getFurnishing(),
                 m.getLocality(), CITY, null, null, null, null, null, null, null,
-                // floorPlan: nothing to tag — see photoHashes below, a managed record holds no
-                // photographs, and the plan is one of them.
-                null, null,
+
+                null, null, null,
+
                 // address / floor / societyId / electricityMeterNo: a managed record is a private
                 // file on a property already held, so there is no duplicate to detect.
                 null, null, null, null,
+
                 // bathrooms / parking / balconies / facing / overlooking / totalFloors / ageYears
                 // are not collected here, and publishing must not invent them.
                 null, null, null, null, null, null, null,
-                // photoHashes: a managed record holds no photographs, and there is no browser in
-                // this call path to hash what the owner picked.
-                null,
+
                 // Postcode, exact areas, move-in bucket, pet policy and supplemental wizard answers
                 // were not collected here, and a managed record is never a plot.
                 null, null, null, null, null, null, null, null);
+
         // Publish is the boundary between a freely captured record and the stricter marketplace
         // contract, so re-run the listing's bean-validation here — ListingService.create does not.
         Set<ConstraintViolation<ListingCreate>> violations = validator.validate(listing);
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
-        Property created = listingService.create(ownerId, listing);
+        Property created = listingService.createOnBehalf(ownerId, listing, ownerId);
         m.markPublished(created.getId());
         return mapper.toDto(records.saveAndFlush(m));
     }
@@ -216,22 +203,15 @@ public class ManagedPropertyService {
                 .orElseThrow(() -> NotFoundException.of("Managed property"));
     }
 
-    // Manual rent receipts (V120) — the owner's own record of cash or bank-transfer rent.
-    // Disjoint from the payment domain: nothing here is evidence money moved through Draazy.
-
-    /** Widest ledger a client may ask for. A year of history is more than the panel can show. */
     private static final int MAX_RECEIPT_MONTHS = 24;
 
-    /** What the panel asks for when it says nothing. */
     private static final int DEFAULT_RECEIPT_MONTHS = 6;
 
     /** How far back an owner may record a month they took in cash and never got round to logging. */
     private static final int RECEIPT_BACKDATE_YEARS = 5;
 
-    /**
-     * The newest receipts for one owned property, newest month first. {@code months} is a page size,
-     * so it is clamped rather than rejected; a foreign or unparseable id is {@code 404}.
-     */
+    /** The newest receipts for one owned property, newest month first. {@code months} is a page size,
+     * so it is clamped rather than rejected; a foreign or unparseable id is {@code 404}. */
     @Transactional(readOnly = true)
     public List<ManagedRentReceiptDto> listRentReceipts(UUID ownerId, String id, Integer months) {
         ManagedProperty m = ownedRecord(ownerId, id);
@@ -240,10 +220,8 @@ public class ManagedPropertyService {
                 receipts.findByManagedPropertyIdOrderByRentMonthDesc(m.getId(), Limit.of(limit)));
     }
 
-    /**
-     * Record one month as received and mint the immutable receipt. Every figure is snapshotted
-     * server-side: a rent receipt is a tax document, and "the browser said so" is not a provenance.
-     */
+    /** Record one month as received and mint the immutable receipt. Every figure is snapshotted
+     * server-side: a rent receipt is a tax document, and "the browser said so" is not a provenance. */
     @Transactional
     public ManagedRentReceiptDto recordRentReceipt(UUID ownerId, String id, String rentMonth) {
         ManagedProperty m = ownedRecord(ownerId, id);
@@ -268,10 +246,8 @@ public class ManagedPropertyService {
         return mapper.toDto(receipts.saveAndFlush(new ManagedRentReceipt(m, rentMonth, landlord)));
     }
 
-    /**
-     * Refuse a month no tenancy could have paid rent for — a receipt is immutable and undeletable,
-     * so an unbounded month mints nonsense documents without limit.
-     */
+    /** Refuse a month no tenancy could have paid rent for — a receipt is immutable and undeletable,
+     * so an unbounded month mints nonsense documents without limit. */
     private static void requireReceiptableMonth(String rentMonth) {
         YearMonth now = YearMonth.now(ZoneId.of("Asia/Kolkata"));
         if (rentMonth.compareTo(now.toString()) > 0) {
@@ -287,7 +263,7 @@ public class ManagedPropertyService {
         String bhkLabel = "";
         if (bhk != null && bhk.signum() > 0) {
             int n = bhk.intValue();
-            bhkLabel = (n >= 4 ? "4+ BHK" : n + " BHK") + " ";
+            bhkLabel = (n >= 5 ? "5+ BHK" : n + " BHK") + " ";
         }
         String t = (type == null || type.isBlank()) ? "Property" : type.trim();
         String loc = (locality == null || locality.isBlank()) ? "" : " in " + locality.trim();
