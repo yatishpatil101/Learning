@@ -5,14 +5,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Wire shape of a queue card (contract {@code IdentityReview}); {@code images} are short-lived
- * signed URLs, {@code warnings} carry dedup signals a reviewer must weigh before approving.
- */
+// Images are short-lived signed URLs; warnings carry dedup signals for approval.
 public record IdentityReviewResponse(
         UUID id,
         UUID userId,
         String userName,
+        String accountName,
         String userMobile,
         String userRole,
         String status,
@@ -22,12 +20,29 @@ public record IdentityReviewResponse(
         String docLast4,
         String holderName,
         LocalDate holderDob,
+        boolean holderDobYearOnly,
+        String liveness,
+        String livenessSource,
+        String livenessChallenge,
+        boolean numberOverridden,
         int attemptCount,
         Instant submittedAt,
         Instant decidedAt,
         String reviewerName,
+        String approvedByName,
         String rejectionReason,
         String rejectionNote,
+        Instant revokedAt,
+        String revokedByName,
+        String revocationReason,
+        String claimedByName,
+        Instant claimedAt,
+        boolean claimedByMe,
+        Instant qaSampledAt,
+        Instant qaReviewedAt,
+        String qaOutcome,
+        String qaReviewedByName,
+        boolean awaitingQa,
         Instant filesPurgedAt,
         Images images,
         List<Warning> warnings) {
@@ -39,10 +54,6 @@ public record IdentityReviewResponse(
     public record Images(String front, String back, String selfie) {
     }
 
-    /**
-     * Dedup signal shown on a queue card; {@code kind} is {@code same_document_verified} (hard),
-     * {@code same_document_claimed}, or {@code same_person_key} (name+DOB match; soft).
-     */
     public record Warning(String kind, UUID userId, String userName, UUID reviewId) {
     }
 }

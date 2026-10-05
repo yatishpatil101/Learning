@@ -1,218 +1,255 @@
 import { useCallback, useEffect, useState } from 'react';
-import { approveIdentityReview, getIdentityReview, listIdentityReviews, rejectIdentityReview } from '../../services/identityReviewService.js';
+import { Clock, RefreshCw, Search, X } from 'lucide-react';
+import { identityReviewSummary, listIdentityReviews } from '../../services/identityReviewService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import Badge from '../../components/ui/Badge.jsx';
+import Loading from '../../components/ui/Loading.jsx';
+import Select from '../../components/ui/Select.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { hasPermission } from '../../lib/adminModules.js';
+import { classNames, fmtNum } from '../../lib/format.js';
+import { useTabParam } from '../../lib/useTabParam.js';
+import { Chips, PageNav } from '../admin/properties/QueueFilterBar.jsx';
+import KycReviewModal from './kyc/KycReviewModal.jsx';
+import { CLAIM_HOLD_LIMIT, DOC_OPTIONS, STATUS_LABELS, dateLabel, docLabel, elapsed } from './kyc/vocabulary.js';
 
-const FILTERS = ['pending', 'verified', 'rejected'];
-const REASONS = ['blurry', 'cropped', 'mismatch', 'expired', 'not_holder', 'unsupported', 'other'];
+const PAGE_SIZE = 10;
+const TABS = [
+  { key: 'needs', label: 'Needs review', status: 'pending', count: (s) => s.pending, empty: 'All caught up — no KYC cases waiting.', note: 'Pending cases, oldest first. Opening one claims it for 30 minutes, so nobody else can decide it.' },
+  { key: 'qa', label: 'QA sample', status: 'qa', count: (s) => s.qa, empty: 'No approvals waiting for a QA check.', note: 'Approvals picked at random for a second check by a different reviewer. Your own approvals are not listed.' },
+  { key: 'decided', label: 'Decided', status: 'decided', count: (s) => s.decided, empty: 'Nothing decided yet.', note: 'Verified, rejected and revoked cases — open one to revoke a badge or read its history.' },
+];
+const TAB_KEYS = TABS.map((t) => t.key);
+const EMPTY_FILTERS = { q: '', docType: '', claim: '', overdue: false, outcome: '', sort: 'oldest' };
+const defaultsFor = (tab) => (tab === 'decided' ? { ...EMPTY_FILTERS, sort: 'newest' } : EMPTY_FILTERS);
+const OUTCOME_CHIPS = [{ value: '', label: 'Any outcome' }, { value: 'verified', label: 'Verified' }, { value: 'rejected', label: 'Rejected' }, { value: 'revoked', label: 'Revoked' }];
+const SORT_CHIPS = [{ value: 'oldest', label: 'Oldest' }, { value: 'newest', label: 'Newest' }];
+const GRID = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.2fr)_4.5rem] items-center gap-3';
+const AGE_TONE = { ok: 'text-gray-400', warn: 'font-semibold text-amber-300', breach: 'font-semibold text-rose-300' };
 
-const dateLabel = (value) => (value ? new Date(value).toLocaleString() : '—');
+/* Only the filters the tab's server query understands go on the wire. */
+function queryFor(tab, f, page) {
+  const base = { status: TABS.find((t) => t.key === tab).status, q: f.q.trim() || undefined, docType: f.docType || undefined, sort: f.sort, page: page - 1, size: PAGE_SIZE };
+  if (tab === 'needs') return { ...base, claim: f.claim || undefined, overdue: f.overdue || undefined };
+  if (tab === 'decided') return { ...base, outcome: f.outcome || undefined };
+  return base;
+}
+
+// `stale` keeps the last page on screen but inert until the newer query answers.
+function useKycQueue(query, reloadToken) {
+  const key = JSON.stringify(query);
+  const [state, setState] = useState({ page: null, failed: false, key: null });
+  const debounced = Boolean(query.q);
+  useEffect(() => {
+    let alive = true;
+    const run = () => listIdentityReviews(JSON.parse(key))
+      .then((res) => { if (alive) setState({ page: res, failed: false, key }); })
+      .catch((err) => {
+        console.error('[OpsIdentityReview] queue failed', key, err);
+        if (alive) setState({ page: null, failed: true, key });
+      });
+    const t = setTimeout(run, debounced ? 250 : 0);
+    return () => { alive = false; clearTimeout(t); };
+  }, [key, reloadToken, debounced]);
+  return { ...state, stale: state.key != null && state.key !== key };
+}
 
 export default function OpsIdentityReview() {
-  const [filter, setFilter] = useState('pending');
-  const [queue, setQueue] = useState({ items: [], total: 0 });
-  const [selectedId, setSelectedId] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [loadingQueue, setLoadingQueue] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [error, setError] = useState('');
-  const [decisionError, setDecisionError] = useState('');
-  // A decision is final and the server locks the case, so a second click loses: it comes back 409
-  // on a case the reviewer just decided correctly, and reads as a failure. Refuse it here instead.
-  const [deciding, setDeciding] = useState(false);
-  const [approval, setApproval] = useState({ number: '', name: '', dob: '' });
-  const [rejection, setRejection] = useState({ reason: 'blurry', note: '' });
+  const { user } = useAuth();
+  const canWrite = hasPermission(user, 'identity:write');
+  const [tab, setTab] = useTabParam(TAB_KEYS, 'needs');
+  const [filters, setFilters] = useState(() => defaultsFor(tab));
+  const [page, setPage] = useState(1);
+  // Reset during render, not in an effect: the tab also changes from outside (back button).
+  const [filtersTab, setFiltersTab] = useState(tab);
+  if (filtersTab !== tab) {
+    setFiltersTab(tab);
+    setFilters(defaultsFor(tab));
+    setPage(1);
+  }
+  const defaults = defaultsFor(tab);
+  const filtered = Object.keys(defaults).some((k) => filters[k] !== defaults[k]);
+  const changeFilters = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
 
-  const loadQueue = useCallback(async (activeFilter = filter) => {
-    setLoadingQueue(true);
-    setError('');
-    try {
-      const next = await listIdentityReviews({ status: activeFilter, size: 50 });
-      setQueue(next);
-      const first = next.items[0]?.id || null;
-      setSelectedId((current) => current && next.items.some((item) => item.id === current) ? current : first);
-    } catch (nextError) {
-      setError(nextError?.message || 'Could not load the KYC review queue.');
-    } finally {
-      setLoadingQueue(false);
-    }
-  }, [filter]);
+  // `null` on failure, so a tab count is omitted rather than reading "0" — an all-clear nobody issued.
+  const [summary, setSummary] = useState(null);
+  const loadSummary = useCallback(() => identityReviewSummary().then(setSummary).catch((err) => {
+    console.error('[OpsIdentityReview] summary unavailable', err);
+    setSummary(null);
+  }), []);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+  const [reloadToken, setReloadToken] = useState(0);
+  const reload = useCallback(() => { loadSummary(); setReloadToken((n) => n + 1); }, [loadSummary]);
 
-  useEffect(() => { loadQueue(filter); }, [filter, loadQueue]);
+  const queue = useKycQueue(queryFor(tab, filters, page), reloadToken);
+  const rows = queue.page?.items || [];
+  const total = queue.page?.total ?? 0;
+  const pageCount = queue.page?.totalPages ?? 0;
 
+  // A decision can empty the last page; step back rather than showing "nothing here" over a backlog.
   useEffect(() => {
-    if (!selectedId) {
-      setDetail(null);
-      return;
-    }
-    let alive = true;
-    setLoadingDetail(true);
-    setDecisionError('');
-    getIdentityReview(selectedId)
-      .then((next) => {
-        if (!alive) return;
-        setDetail(next);
-        setApproval({
-          number: '',
-          name: next?.claims?.name || '',
-          dob: next?.claims?.dob || '',
-        });
-        setRejection({ reason: next?.rejectionReason || 'blurry', note: next?.rejectionNote || '' });
-      })
-      .catch((nextError) => alive && setDecisionError(nextError?.message || 'Could not load this review.'))
-      .finally(() => alive && setLoadingDetail(false));
-    return () => { alive = false; };
-  }, [selectedId]);
+    if (queue.page && !queue.stale && rows.length === 0 && page > 1 && pageCount > 0) setPage(pageCount);
+  }, [queue.page, queue.stale, rows.length, page, pageCount]);
 
-  async function refreshDetail() {
-    if (!selectedId) return;
-    setLoadingDetail(true);
-    try {
-      const next = await getIdentityReview(selectedId);
-      setDetail(next);
-    } catch (nextError) {
-      setDecisionError(nextError?.message || 'Could not refresh image links.');
-    } finally {
-      setLoadingDetail(false);
-    }
-  }
+  // Without a tick a desk left open never escalates a row to overdue.
+  const [, setAgeTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setAgeTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
-  async function decide(submit, failureMessage) {
-    if (!detail || deciding) return;
-    setDeciding(true);
-    setDecisionError('');
-    try {
-      setDetail(await submit());
-      await loadQueue(filter);
-    } catch (nextError) {
-      setDecisionError(nextError?.message || failureMessage);
-    } finally {
-      setDeciding(false);
-    }
-  }
+  const [openId, setOpenId] = useState(null);
+  const openIndex = rows.findIndex((r) => r.id === openId);
+  const nextId = (openIndex >= 0 ? rows.slice(openIndex + 1) : rows)
+    .find((r) => r.id !== openId && (!r.claimedByName || r.claimedByMe))?.id || null;
 
-  const approve = () => decide(() => approveIdentityReview(detail.id, approval), 'Could not approve this review.');
-  const reject = () => decide(() => rejectIdentityReview(detail.id, rejection), 'Could not reject this review.');
+  const active = TABS.find((t) => t.key === tab);
+  const paging = { page, pageCount, total, size: PAGE_SIZE, onPage: setPage, stale: queue.stale };
 
   return (
-    <div className="space-y-5">
-      <PageHeader title="KYC Review" subtitle="Manual review for person identity verification. Approval confirms the badge; submission alone does not." />
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((value) => (
-          <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-xl px-4 py-2 text-sm font-semibold ${filter === value ? 'bg-brand-teal/20 text-brand-teal border border-brand-teal/30' : 'bg-white/5 text-gray-300 border border-white/10'}`}>
-            {value[0].toUpperCase() + value.slice(1)}
-          </button>
-        ))}
-        <button type="button" onClick={() => loadQueue(filter)} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300">Refresh queue</button>
+    <div className="pb-20">
+      <PageHeader
+        title="KYC Review"
+        subtitle="Verify one person at a time. Approval confirms the badge; submission alone does not."
+        actions={<button type="button" onClick={reload} className="dz-btn dz-btn-ghost"><RefreshCw className="h-4 w-4" /> Refresh</button>}
+      />
+
+      <div role="tablist" aria-label="KYC queues" className="mb-4 flex gap-1 border-b border-white/10">
+        {TABS.map((t) => {
+          const n = summary ? t.count(summary) : null;
+          const on = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              id={`kyc-tab-${t.key}`}
+              aria-controls="kyc-panel"
+              aria-selected={on}
+              onClick={() => setTab(t.key)}
+              className={classNames(
+                '-mb-px flex cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+                on ? 'border-brand-teal text-white' : 'border-transparent text-gray-400 hover:text-white',
+              )}
+            >
+              {t.label}
+              {n != null ? (
+                <span data-testid={`kyc-count-${t.key}`} className={classNames('rounded-full px-1.5 py-px text-[11px] tabular-nums', on ? 'bg-brand-teal/20 text-teal-200' : n ? 'bg-white/10 text-gray-200' : 'bg-white/5 text-gray-500')}>
+                  {fmtNum(n)}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
-      {error && <div role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>}
-      <div className="grid gap-5 lg:grid-cols-[320px,minmax(0,1fr)]">
-        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="mb-3 flex items-center justify-between text-sm text-gray-400"><span>{loadingQueue ? 'Loading…' : `${queue.total} cases`}</span><span>{filter}</span></div>
-          <div className="space-y-2">
-            {queue.items.map((item) => (
-              <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={`w-full rounded-2xl border px-4 py-3 text-left ${selectedId === item.id ? 'border-brand-teal/40 bg-brand-teal/10' : 'border-white/10 bg-white/[0.02]'}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">{item.userName || 'Unknown user'}</p>
-                    <p className="truncate text-xs text-gray-400">{item.userMobile || '—'} · {item.docType || '—'}</p>
-                  </div>
-                  <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-gray-300">{item.status}</span>
-                </div>
-                <p className="mt-2 text-xs text-gray-500">Submitted {dateLabel(item.submittedAt)}</p>
+
+      <section id="kyc-panel" role="tabpanel" aria-labelledby={`kyc-tab-${tab}`} className="dz-card overflow-hidden p-0">
+        <p className="border-b border-white/10 px-4 py-2.5 text-xs text-gray-400">{active.note}</p>
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 p-3">
+          <label className="relative w-64">
+            <span className="sr-only">Search name or mobile</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" aria-hidden="true" />
+            <input value={filters.q} onChange={(e) => changeFilters({ q: e.target.value })} placeholder="Name or mobile" className="dz-input !h-9 !pl-9 text-sm" />
+          </label>
+          <div className="w-36"><Select value={filters.docType} onChange={(docType) => changeFilters({ docType })} options={DOC_OPTIONS} ariaLabel="Document type" size="sm" /></div>
+          {tab === 'needs' ? (
+            <>
+              <Chips
+                label="Claim"
+                value={filters.claim}
+                onChange={(claim) => changeFilters({ claim })}
+                options={[
+                  { value: '', label: 'All' },
+                  { value: 'unclaimed', label: 'Unclaimed' },
+                  { value: 'mine', label: summary ? `Mine ${summary.mine}/${CLAIM_HOLD_LIMIT}` : 'Mine' },
+                  { value: 'others', label: 'Others' },
+                ]}
+              />
+              <button
+                type="button"
+                aria-pressed={filters.overdue}
+                onClick={() => changeFilters({ overdue: !filters.overdue })}
+                className={classNames('inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', filters.overdue ? 'border-rose-400/40 bg-rose-500/15 text-rose-200' : 'border-white/10 text-gray-400 hover:text-white')}
+              >
+                <Clock className="h-3.5 w-3.5" aria-hidden="true" /> Overdue{summary ? ` ${fmtNum(summary.overdue)}` : ''}
               </button>
-            ))}
-            {!loadingQueue && queue.items.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-gray-500">No {filter} cases.</div>}
-          </div>
-        </section>
-        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-          {!selectedId && <div className="grid min-h-[420px] place-items-center text-sm text-gray-500">Choose a case to review.</div>}
-          {selectedId && loadingDetail && <div className="grid min-h-[420px] place-items-center text-sm text-gray-500">Loading review…</div>}
-          {detail && !loadingDetail && (
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">{detail.userName || 'Unknown user'}</h2>
-                  <p className="mt-1 text-sm text-gray-400">{detail.userMobile || '—'} · {detail.userRole || '—'} · {detail.docType || '—'}</p>
-                  <p className="mt-1 text-xs text-gray-500">Submitted {dateLabel(detail.submittedAt)} · Decided {dateLabel(detail.decidedAt)}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" onClick={refreshDetail} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-gray-300">Refresh links</button>
-                  <span className="rounded-full bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.08em] text-gray-300">{detail.status}</span>
-                </div>
+            </>
+          ) : null}
+          {tab === 'decided' ? <Chips label="Outcome" options={OUTCOME_CHIPS} value={filters.outcome} onChange={(outcome) => changeFilters({ outcome })} /> : null}
+          <Chips label="Sort" options={SORT_CHIPS} value={filters.sort} onChange={(sort) => changeFilters({ sort })} />
+          {filtered ? (
+            <button type="button" onClick={() => changeFilters(defaults)} className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-gray-400 hover:text-white">
+              <X className="h-3.5 w-3.5" /> Clear
+            </button>
+          ) : null}
+          <div className="ml-auto"><PageNav {...paging} /></div>
+        </div>
+
+        <div aria-busy={queue.stale || undefined} className={queue.stale ? 'pointer-events-none select-none opacity-50' : undefined}>
+          {queue.failed && !queue.stale ? (
+            <p className="p-10 text-center text-sm text-gray-400" data-testid="queue-error">
+              Could not load the KYC queue. This is a failed request, not an empty queue — retry before acting on it.
+            </p>
+          ) : queue.page == null ? <Loading /> : rows.length === 0 ? (
+            <p className="p-10 text-center text-sm text-gray-400">{filtered ? 'No cases match these filters.' : active.empty}</p>
+          ) : (
+            <div>
+              <div aria-hidden="true" className={classNames(GRID, 'border-b border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500')}>
+                <div>Applicant</div>
+                <div>Document</div>
+                <div>{tab === 'needs' ? 'Waiting' : tab === 'qa' ? 'Sampled' : 'Decided'}</div>
+                <div>{tab === 'needs' ? 'Claim' : tab === 'qa' ? 'Approved by' : 'Outcome'}</div>
+                <div />
               </div>
-              {decisionError && <div role="alert" data-testid="ops-identity-decision-error" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{decisionError}</div>}
-              <div className="grid gap-3 md:grid-cols-3">
-                <ImageCard title="Front" href={detail.images?.front} />
-                <ImageCard title="Back" href={detail.images?.back} />
-                <ImageCard title="Selfie" href={detail.images?.selfie} />
-              </div>
-              <div className="grid gap-5 xl:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                  <p className="text-sm font-semibold text-white">OCR-derived fields</p>
-                  <dl className="mt-4 space-y-3 text-sm">
-                    <Field label="Number ending" value={detail.claims?.number || 'Not available'} />
-                    <Field label="Name" value={detail.claims?.name || 'Not available'} />
-                    <Field label="Date of birth" value={detail.claims?.dob || 'Not available'} />
-                  </dl>
-                  {detail.warnings?.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-sm font-semibold text-amber-300">Duplicate warnings</p>
-                      {detail.warnings.map((warning) => (
-                        <div key={`${warning.kind}:${warning.reviewId}`} className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">{warning.kind.replaceAll('_', ' ')} · {warning.userName || warning.userId}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                    <p className="text-sm font-semibold text-white">Approve</p>
-                    <p className="mt-1 text-xs text-gray-400">Type the full number from the image. Nothing here creates a new stored OCR field.</p>
-                    <div className="mt-4 space-y-3">
-                      <Input label="Document number" value={approval.number} onChange={(value) => setApproval((current) => ({ ...current, number: value }))} />
-                      <Input label="Holder name" value={approval.name} onChange={(value) => setApproval((current) => ({ ...current, name: value }))} />
-                      <Input label="Date of birth" type="date" value={approval.dob} onChange={(value) => setApproval((current) => ({ ...current, dob: value }))} />
-                    </div>
-                    <button type="button" data-testid="ops-identity-approve" onClick={approve} disabled={deciding} className="mt-4 rounded-xl bg-brand-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{deciding ? 'Saving…' : 'Approve review'}</button>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                    <p className="text-sm font-semibold text-white">Reject</p>
-                    <div className="mt-4 space-y-3">
-                      <label className="block text-sm text-gray-300">Reason<select value={rejection.reason} onChange={(event) => setRejection((current) => ({ ...current, reason: event.target.value }))} className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white">{REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label>
-                      <label className="block text-sm text-gray-300">Note<textarea value={rejection.note} onChange={(event) => setRejection((current) => ({ ...current, note: event.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white" /></label>
-                    </div>
-                    <button type="button" data-testid="ops-identity-reject" onClick={reject} disabled={deciding} className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/15 px-4 py-2 text-sm font-semibold text-rose-100 disabled:opacity-50">{deciding ? 'Saving…' : 'Reject review'}</button>
-                  </div>
-                </div>
-              </div>
-              {detail.filesPurgedAt && <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-gray-400">Images purged {dateLabel(detail.filesPurgedAt)}.</div>}
+              <ul>
+                {rows.map((row) => <QueueRow key={row.id} row={row} tab={tab} onOpen={() => setOpenId(row.id)} />)}
+              </ul>
             </div>
           )}
-        </section>
-      </div>
+        </div>
+        {pageCount > 1 ? <div className="flex justify-end border-t border-white/10 p-3"><PageNav {...paging} /></div> : null}
+      </section>
+
+      <KycReviewModal
+        openId={openId}
+        nextId={nextId}
+        onNext={() => setOpenId(nextId)}
+        onClose={() => setOpenId(null)}
+        onChanged={reload}
+        canWrite={canWrite}
+        user={user}
+      />
     </div>
   );
 }
 
-function ImageCard({ title, href }) {
+function QueueRow({ row, tab, onOpen }) {
+  const lockedByOther = row.claimedByName && !row.claimedByMe;
+  const age = tab === 'needs' ? elapsed(row.submittedAt) : tab === 'qa' ? elapsed(row.qaSampledAt) : null;
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/10">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-sm text-white"><span>{title}</span>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-teal">Open</a> : <span className="text-xs text-gray-500">Unavailable</span>}</div>
-      {href ? <img src={href} alt={`${title} identity evidence`} className="h-56 w-full object-cover" /> : <div className="grid h-56 place-items-center text-sm text-gray-500">No image available</div>}
-    </div>
-  );
-}
-
-function Field({ label, value }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-[0.08em] text-gray-500">{label}</dt>
-      <dd className="mt-1 text-sm text-white">{value}</dd>
-    </div>
-  );
-}
-
-function Input({ label, value, onChange, type = 'text' }) {
-  return (
-    <label className="block text-sm text-gray-300">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white" /></label>
+    <li className="border-b border-white/[0.06] last:border-b-0">
+      <button type="button" onClick={onOpen} data-testid="kyc-row" className={classNames(GRID, 'w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-white/[0.03]', lockedByOther && 'opacity-60')}>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-white">{row.userName || 'Unknown user'}</div>
+          <div className="truncate text-xs tabular-nums text-gray-500">{row.userMobile || '—'}</div>
+        </div>
+        <div className="truncate text-sm text-gray-300">{docLabel(row.docType)}</div>
+        <div className={classNames('flex items-center gap-1.5 text-xs tabular-nums', age ? AGE_TONE[age.tone] : 'text-gray-400')}>
+          {age ? <><Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{age.text}{age.tone === 'breach' ? ' · overdue' : age.tone === 'warn' ? ' · due soon' : ''}</> : dateLabel(row.revokedAt || row.decidedAt)}
+        </div>
+        <div className="min-w-0 truncate text-xs">
+          {tab === 'needs' ? (
+            row.claimedByMe ? <span className="text-teal-200">Claimed by you</span>
+              : lockedByOther ? <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-amber-200">In review · {row.claimedByName}</span>
+                : <span className="text-gray-500">Unclaimed</span>
+          ) : tab === 'qa' ? (
+            <span className="text-gray-300">{row.approvedByName || row.reviewerName || '—'}</span>
+          ) : (
+            <Badge status={row.status}>{STATUS_LABELS[row.status] || row.status}</Badge>
+          )}
+        </div>
+        <span className="justify-self-end text-xs font-semibold text-brand-teal">{tab === 'decided' ? 'View' : 'Review'}</span>
+      </button>
+    </li>
   );
 }
