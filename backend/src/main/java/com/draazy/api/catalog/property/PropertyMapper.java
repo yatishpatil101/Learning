@@ -3,10 +3,13 @@ package com.draazy.api.catalog.property;
 import com.draazy.api.catalog.listing.ListingCreate;
 import com.draazy.api.common.trust.BackOfficeVisibility;
 import com.draazy.api.common.trust.ContactVisibility;
+import com.draazy.api.common.trust.FlagReasonVisibility;
 import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.identity.user.User;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 import org.mapstruct.BeanMapping;
@@ -17,46 +20,35 @@ import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.ReportingPolicy;
 
-/**
- * Entity→wire mapper for the catalogue. Mechanical fields are generated; the trust decisions —
- * {@link #toOwner} masking and {@link #toAdminPipeline} — are hand-written so a refactor cannot lose them.
- */
-// Why ERROR: an unmapped response field is a silent contract hole - the UI would receive null with
-// no build signal. Failing the compile forces every new DTO field to be mapped or explicitly ignored.
+/** Entity→wire mapper for the catalogue. Mechanical fields are generated; the trust decisions —
+ * {@link #toOwner} masking and {@link #toAdminPipeline} — are hand-written so a refactor cannot lose them. */
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface PropertyMapper {
 
-    /**
-     * The freshness tier, derived at map time and shared by the card and detail mappings so there is
-     * exactly one definition. {@link Freshness} takes the clock, so boundaries stay testable.
-     */
+    /** The freshness tier, derived at map time and shared by the card and detail mappings so there is
+     * exactly one definition. {@link Freshness} takes the clock, so boundaries stay testable. */
     String FRESHNESS = "java(Freshness.of(property.getLastConfirmedAt(), property.getCreatedAt(),"
             + " java.time.Instant.now()).wire())";
 
     /** The cover, derived at map time so a listing's own photos are its card image. */
     String COVER = "java(coverImage(property))";
 
-    /** Every answer {@link PropertyResponse.Land} promotes; any one of them makes the block real. */
     List<String> LAND_KEYS = List.of("plotZone", "waterSource", "naStatus", "otherRights",
             "buyerEligibility", "openSides", "roadWidth", "plotLength", "plotWidth", "cornerPlot",
             "boundaryWall", "naSanctioned", "electricity", "roadAccess", "satbara");
 
-    /** Card projection for search/lists — fully mechanical, no owner contact by construction. */
     @Mapping(target = "imageCount",
             expression = "java(property.getImages() == null ? 0 : property.getImages().size())")
     @Mapping(target = "coverImage", expression = COVER)
     @Mapping(target = "freshness", expression = FRESHNESS)
     PropertySummary toSummary(Property property);
 
-    /**
-     * Full detail projection. {@code visibility} is required rather than defaulted, so a new detail
-     * endpoint cannot accidentally inherit "reveal".
-     */
     @Mapping(target = "adminPipeline", expression = "java(toAdminPipeline(property, backOffice, outreach))")
+    @Mapping(target = "progress", expression = "java(toProgress(property, backOffice, privateFields))")
     @Mapping(target = "coverImage", expression = COVER)
     @Mapping(target = "freshness", expression = FRESHNESS)
     @Mapping(target = "flagReason",
-            expression = "java(backOffice == com.draazy.api.common.trust.BackOfficeVisibility.VISIBLE"
+            expression = "java(flagReason == com.draazy.api.common.trust.FlagReasonVisibility.VISIBLE"
                     + " ? property.getFlagReason() : null)")
     @Mapping(target = "electricityMeterNo",
             expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
@@ -67,22 +59,41 @@ public interface PropertyMapper {
     @Mapping(target = "formDetails",
             expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
                     + " ? property.getFormDetails() : null)")
+    @Mapping(target = "resubmittedAt",
+            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
+                    + " ? property.getResubmittedAt() : null)")
+    @Mapping(target = "ownershipRequestedAt",
+            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
+                    + " ? property.getOwnershipRequestedAt() : null)")
+    @Mapping(target = "ownershipDeclinedReason",
+            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
+                    + " ? property.getOwnershipDeclinedReason() : null)")
     @Mapping(target = "ownership", expression = "java(formDetailText(property, \"ownership\"))")
     @Mapping(target = "loanAvailable", expression = "java(formDetailBoolean(property, \"loanAvailable\"))")
     @Mapping(target = "agreementDuration", expression = "java(formDetailText(property, \"agreementDuration\"))")
     @Mapping(target = "lockIn", expression = "java(formDetailText(property, \"lockIn\"))")
     @Mapping(target = "noticePeriod", expression = "java(formDetailText(property, \"noticePeriod\"))")
+    @Mapping(target = "foodPref", expression = "java(foodPref(property))")
+    @Mapping(target = "bestTimeToCall", expression = "java(formDetailText(property, \"bestTimeToCall\"))")
+    @Mapping(target = "availableDate", expression = "java(formDetailIsoDate(property, \"availableFrom\"))")
     @Mapping(target = "furniture", expression = "java(formDetailStrings(property, \"furniture\"))")
     @Mapping(target = "commercial", expression = "java(toCommercial(property))")
     @Mapping(target = "land", expression = "java(toLand(property))")
     PropertyResponse toResponse(Property property, @Context ContactVisibility visibility,
             @Context BackOfficeVisibility backOffice, @Context OutreachCounts outreach,
-            @Context PrivateFieldVisibility privateFields);
+            @Context PrivateFieldVisibility privateFields,
+            @Context FlagReasonVisibility flagReason);
 
-    /**
-     * Copy the client-settable half of a create body onto a listing the service already constructed.
-     * {@code ignoreByDefault} makes this an allowlist, so granting a client-settable field is a diff.
-     */
+    default PropertyResponse toResponse(Property property, ContactVisibility visibility,
+            BackOfficeVisibility backOffice, OutreachCounts outreach,
+            PrivateFieldVisibility privateFields) {
+        return toResponse(property, visibility, backOffice, outreach, privateFields,
+                backOffice == BackOfficeVisibility.VISIBLE
+                        ? FlagReasonVisibility.VISIBLE : FlagReasonVisibility.HIDDEN);
+    }
+
+    /** Copy the client-settable half of a create body onto a listing the service already constructed.
+     * {@code ignoreByDefault} makes this an allowlist, so granting a client-settable field is a diff. */
     @BeanMapping(ignoreByDefault = true,
             nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "bhk", source = "bhk")
@@ -107,13 +118,17 @@ public interface PropertyMapper {
     @Mapping(target = "tenants", source = "tenants")
     @Mapping(target = "amenities", source = "amenities")
     @Mapping(target = "images", source = "images")
+
     // Blank is the wizard's "no photo tagged"; the column's word for that is NULL, not "".
     @Mapping(target = "floorPlan",
             expression = "java(in.floorPlan() == null || in.floorPlan().isBlank() ? null : in.floorPlan())")
+    @Mapping(target = "video",
+            expression = "java(in.video() == null || in.video().isBlank() ? null : in.video())")
     @Mapping(target = "description", source = "description")
     @Mapping(target = "address", source = "address")
     @Mapping(target = "floor", source = "floor")
-    /* A field added to ListingCreate WITHOUT a line here is dropped in silence: it compiles, no test
+
+    /** A field to ListingCreate WITHOUT a line here is dropped in silence: it compiles, no test
      * fails, the POST returns 201, and the value never reaches the row. Add both in the same edit. */
     @Mapping(target = "bathrooms", source = "bathrooms")
     @Mapping(target = "parking", source = "parking")
@@ -126,10 +141,8 @@ public interface PropertyMapper {
     @Mapping(target = "electricityMeterNo", source = "electricityMeterNo")
     void applyTo(ListingCreate in, @MappingTarget Property property);
 
-    /**
-     * Hand-written owner projection — the trust boundary. Masked unless the caller's gate status is
-     * {@link ContactVisibility#REVEALED}, kept explicit so a DTO refactor cannot drop the masking.
-     */
+    /** Hand-written owner projection — the trust boundary. Masked unless the caller's gate status is
+     * {@link ContactVisibility#REVEALED}, kept explicit so a DTO refactor cannot drop the masking. */
     default PropertyResponse.Owner toOwner(User owner, @Context ContactVisibility visibility) {
         if (owner == null) {
             return null;
@@ -151,9 +164,26 @@ public interface PropertyMapper {
         return value instanceof String text ? text : null;
     }
 
+    default String foodPref(Property property) {
+        String food = formDetailText(property, "food");
+        return food != null ? food : formDetailText(property, "foodPref");
+    }
+
     default Boolean formDetailBoolean(Property property, String key) {
         Object value = formDetail(property, key);
         return value instanceof Boolean flag ? flag : null;
+    }
+
+    default String formDetailIsoDate(Property property, String key) {
+        String value = formDetailText(property, key);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value).toString();
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     default List<String> formDetailStrings(Property property, String key) {
@@ -172,10 +202,8 @@ public interface PropertyMapper {
         return value instanceof Boolean flag ? flag : value instanceof String text && !text.isBlank();
     }
 
-    /**
-     * The commercial answers, or null when the listing holds none. Presence decides rather than the
-     * declared type, which is a free-text label a legacy row may carry any spelling of.
-     */
+    /** The commercial answers, or null when the listing holds none. Presence decides rather than the
+     * declared type, which is a free-text label a legacy row may carry any spelling of. */
     default PropertyResponse.Commercial toCommercial(Property property) {
         if (formDetail(property, "commercialType") == null) {
             return null;
@@ -203,10 +231,8 @@ public interface PropertyMapper {
                 formDetailText(property, "dockCount"));
     }
 
-    /**
-     * The land answers, or null when none was <em>answered</em>. Unlike the commercial keys these are not
-     * stripped from a residential post, so keying off presence would hang an empty plot panel on every flat.
-     */
+    /** The land answers, or null when none was answered. Unlike the commercial keys these are not
+     * stripped from a residential post, so keying off presence would hang an empty plot panel on every flat. */
     default PropertyResponse.Land toLand(Property property) {
         if (LAND_KEYS.stream().noneMatch(key -> answered(formDetail(property, key)))) {
             return null;
@@ -229,10 +255,8 @@ public interface PropertyMapper {
                 formDetailBoolean(property, "satbara"));
     }
 
-    /**
-     * The card image: the stored cover, else the first gallery photo. Derived rather than
-     * denormalised so it cannot drift from the gallery it is the first frame of.
-     */
+    /** The card image: the stored cover, else the first gallery photo. Derived rather than
+     * denormalised so it cannot drift from the gallery it is the first frame of. */
     default String coverImage(Property property) {
         String stored = property.getCoverImage();
         if (stored != null && !stored.isBlank()) {
@@ -242,33 +266,28 @@ public interface PropertyMapper {
         return images == null || images.isEmpty() ? null : images.get(0);
     }
 
-    /**
-     * Hand-written back-office projection — null for everyone but staff, and null for listings staff
-     * never posted, since an all-false funnel would sit on the board as work that never completes.
-     */
+    /** Hand-written back-office projection — null for everyone but staff, and null for listings staff
+     * never posted, since an all-false funnel would sit on the board as work that never completes. */
     default PropertyResponse.AdminPipeline toAdminPipeline(Property property,
             @Context BackOfficeVisibility backOffice, @Context OutreachCounts outreach) {
         if (backOffice != BackOfficeVisibility.VISIBLE || property == null
                 || !property.isPostedByAdmin()) {
             return null;
         }
-        String stage = property.getPipelineStage();
-        String milestone = property.getHandbackMilestone();
         return new PropertyResponse.AdminPipeline(
                 true,
                 property.getPostedByStaff(),
-                stage,
-                milestone,
-                PipelineStage.reached(milestone, PipelineStage.CLAIM_SENT),
-                PipelineStage.reached(milestone, PipelineStage.PHOTOS_UPLOADED),
-                PipelineStage.reached(milestone, PipelineStage.IDENTITY_VERIFIED),
                 outreach.forSubject(property.getId()));
     }
 
-    /**
-     * Mask a mobile via {@link MobileMask}; anything not a clean 10-digit number becomes null rather
-     * than a partial leak. {@code private} so MapStruct cannot apply it to other String fields.
-     */
+    default ListingProgress toProgress(Property property, @Context BackOfficeVisibility backOffice,
+            @Context PrivateFieldVisibility privateFields) {
+        return privateFields == PrivateFieldVisibility.VISIBLE
+                ? ListingProgress.of(property, backOffice == BackOfficeVisibility.VISIBLE) : null;
+    }
+
+    /** Mask a mobile via {@link MobileMask}; anything not a clean 10-digit number becomes null rather
+     * than a partial leak. {@code private} so MapStruct cannot apply it to other String fields. */
     private String maskMobile(String mobile) {
         return MobileMask.mask(mobile);
     }

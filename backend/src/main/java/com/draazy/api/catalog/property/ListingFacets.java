@@ -12,6 +12,7 @@ public record ListingFacets(
         List<String> localities,
         List<String> societies,
         List<String> amenities,
+        List<String> facing,
         List<String> landUse,
         List<String> room,
         List<String> tenants,
@@ -23,9 +24,13 @@ public record ListingFacets(
         Boolean rera,
         Boolean societyVerified,
         Boolean conveyanceDone,
-        Boolean postedByOwner,
+        String food,
+        List<String> shell,
+        Boolean preLeased,
+        List<String> na,
         BigDecimal minArea,
         BigDecimal maxArea,
+        Integer minBaths,
         Integer minAge,
         Integer maxAge,
         Integer minFloor,
@@ -36,12 +41,25 @@ public record ListingFacets(
         Double nearLng,
         Double nearRadiusKm) {
 
-    /** Filter on none of this: the moderation search shares the facet builder but offers no controls. */
+    public ListingFacets(List<String> types, List<String> commercialUses, List<String> bhks,
+            List<String> furnishings, List<String> localities, List<String> societies,
+            List<String> amenities, List<String> landUse, List<String> room, List<String> tenants,
+            List<String> construction, String availableFrom, Boolean pets, Boolean ownerVerified,
+            Boolean ownershipVerified, Boolean rera, Boolean societyVerified, Boolean conveyanceDone,
+            BigDecimal minArea, BigDecimal maxArea, Integer minAge, Integer maxAge,
+            Integer minFloor, Integer maxFloor, Long minDeposit, Long maxDeposit, Double nearLat,
+            Double nearLng, Double nearRadiusKm) {
+        this(types, commercialUses, bhks, furnishings, localities, societies, amenities, null,
+                landUse, room, tenants, construction, availableFrom, pets, ownerVerified, ownershipVerified,
+                rera, societyVerified, conveyanceDone, null, null, null, null,
+                minArea, maxArea, null, minAge, maxAge, minFloor, maxFloor, minDeposit,
+                maxDeposit, nearLat, nearLng, nearRadiusKm);
+    }
+
     public static final ListingFacets NONE = new ListingFacets(
-            null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null,
-            null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null);
 
     /** Widest-first, or empty when unfiltered; kept here so the cumulative rule sits next to the field. */
     public List<String> availableFromBuckets() {
@@ -52,6 +70,7 @@ public record ListingFacets(
             case "now" -> List.of("now");
             case "15" -> List.of("now", "15");
             case "30" -> List.of("now", "15", "30");
+
             // An unknown bucket must match nothing, never everything: the CHECK admits only the
             // three buckets above, so this ordinary-looking token can never be a row's value.
             default -> List.of("no.such.bucket");
@@ -64,11 +83,9 @@ public record ListingFacets(
                 && nearLat >= -90 && nearLat <= 90 && nearLng >= -180 && nearLng <= 180;
     }
 
-    /** Clamped to {@value #MAX_RADIUS_KM} km: an unbounded radius is a full-table scan on an anonymous endpoint. */
     public double effectiveRadiusKm() {
         return Math.min(nearRadiusKm, MAX_RADIUS_KM);
     }
 
-    /** The widest radius served. Comfortably larger than the UI's slider, and finite. */
     public static final double MAX_RADIUS_KM = 50.0;
 }

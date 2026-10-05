@@ -7,12 +7,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.billing.plan.TestPlanGrants;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyPossession;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.JwtService;
+import com.draazy.api.security.Roles;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,16 +25,18 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Server-side invariants for {@code /properties} — approved-only floor, owner-scoping, foundation-edit
- * reverts, restore-pending, soft-delete — plus the wire shapes (masked owner, {@code PageEnvelope}).
- */
+// Server-side `/properties` invariants: approval floor, owner scope,
+// foundation-edit reverts and wire shapes.
 class PropertiesEndpointsTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    TestPlanGrants grants;
+    @Autowired
+    EntityManager em;
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
@@ -52,8 +57,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         }
         return properties.saveAndFlush(p);
     }
-
-    // ---------------- GET /properties (public search) ----------------
 
     @Test
     void searchReturnsOnlyApprovedNonArchived_inPageEnvelope() throws Exception {
@@ -98,6 +101,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     @Test
     void typesFacetMatchesTheChipTaxonomy_notTheStoredLabel() throws Exception {
         User o = owner("9810000012");
+
         // The chip taxonomy differs from the free-text {@code property_type} label stored on the row.
         save(o, "Studio unit", "rent", "Studio", new BigDecimal("1"), 18000, "Kothrud", "approved", false);
         save(o, "Penthouse top", "buy", "Penthouse", new BigDecimal("4"), 30000000, "Baner", "approved", false);
@@ -122,7 +126,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Green acres"));
 
-        // A union, comma-bound the way the browser sends it.
         mvc.perform(get("/properties").param("types", "flat,farmland"))
                 .andExpect(jsonPath("$.totalElements").value(4));
 
@@ -142,6 +145,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     @Test
     void shareChipMatchesShares_andWholeUnitChipsExcludeThem() throws Exception {
         User o = owner("9810000016");
+
         // Both are stored with a property_type of "Flat", which is how they are really posted: a
         // flatmate room is a room inside a flat. Only the first is a whole unit.
         save(o, "Whole flat", "rent", "Flat", new BigDecimal("2"), 30000, "Baner", "approved", false);
@@ -157,7 +161,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/properties").param("types", "flatmates"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Room in a flat"));
-        // Selecting both kinds of chip is a union, not the empty intersection of two columns.
+
         mvc.perform(get("/properties").param("types", "flat,flatmates"))
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
@@ -181,11 +185,11 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].title").value("Big godown"));
         mvc.perform(get("/properties").param("commercialUses", "shop,retail"))
                 .andExpect(jsonPath("$.totalElements").value(2));
-        // Co-working is its own key, not a shop: the label contains neither "shop" nor "retail".
+
         mvc.perform(get("/properties").param("commercialUses", "coworking"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Desk space"));
-        // A residential listing carries no subtype, so it can never be swept in by this facet.
+
         mvc.perform(get("/properties")
                         .param("commercialUses", "office,coworking,shop,retail,warehouse,industrial"))
                 .andExpect(jsonPath("$.totalElements").value(4));
@@ -209,7 +213,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(6))
                 .andExpect(jsonPath("$.verifiedElements").value(5));
 
-        // And it narrows with the filters, rather than being a catalogue-wide constant.
         mvc.perform(get("/properties").param("q", "Plain"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.verifiedElements").value(0));
@@ -249,7 +252,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
 
     @Test
     void searchFilterByLocalitySlug() throws Exception {
-        // locality_slug is FK-constrained; seed one curated locality row for the join.
+
         jdbc.update("INSERT INTO localities (slug, name) VALUES ('koregaon-park', 'Koregaon Park') "
                 + "ON CONFLICT (slug) DO NOTHING");
         User o = owner("9810000009");
@@ -276,6 +279,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 "Baner", "approved", false);
         under.setPossession(PropertyPossession.UNDER_CONSTRUCTION);
         properties.saveAndFlush(under);
+
         // Left unstated on purpose — this is the case the facet must NOT quietly include.
         save(o, "Unstated Plot", "buy", "plot", null, 5000000, "Baner", "approved", false);
 
@@ -305,7 +309,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                  "locality":"Baner","city":"Pune","possession":"Ready to move"}
                 """;
         mvc.perform(post("/me/listings").header("Authorization", bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isUnprocessableEntity());
     }
 
@@ -317,7 +321,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                  "locality":"Baner","city":"Pune","possession":"new-launch"}
                 """;
         mvc.perform(post("/me/listings").header("Authorization", bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.possession").value("new-launch"));
 
@@ -337,7 +341,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         User o = owner("9810000003");
         save(o, "Pending only", "rent", "apartment", new BigDecimal("2"), 20000, "Kothrud", "pending", false);
 
-        // A public caller asking for pending gets nothing — the approved floor can't be widened.
         mvc.perform(get("/properties").param("status", "pending"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
@@ -356,15 +359,12 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].bhk").value(2))
                 .andExpect(jsonPath("$.content[0].priceUnit").value("per-month"))
                 .andExpect(jsonPath("$.content[0].coverImage").value("https://img/x.jpg"))
+
                 // owner contact must never appear in the card projection
                 .andExpect(jsonPath("$.content[0].owner").doesNotExist())
                 .andExpect(jsonPath("$.content[0].mobile").doesNotExist());
     }
 
-    /**
-     * Anonymous, uncapped {@code size} would be one request against the largest table on the
-     * platform — this is the endpoint where the ceiling matters most.
-     */
     @Test
     void publicSearchClampsAHostilePageSize() throws Exception {
         User o = owner("9810000019");
@@ -375,22 +375,37 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.size").value(100));
     }
 
-    // ---------------- GET /properties/featured ----------------
     @Test
     void featuredReturnsFeaturedFirst() throws Exception {
         User o = owner("9810000005");
+        User paying = owner("9810000025");
+        grants.grant(paying.getId(), TestPlanGrants.OWNER_PLUS);
         save(o, "Plain", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
-        Property feat = save(o, "Featured", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
-        feat.setFeatured(true);
-        properties.saveAndFlush(feat);
+        save(paying, "Featured", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+
+        em.clear();
 
         mvc.perform(get("/properties/featured"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].title").value("Featured"));
+                .andExpect(jsonPath("$[0].title").value("Featured"))
+                .andExpect(jsonPath("$[0].featured").value(true))
+                .andExpect(jsonPath("$[1].featured").value(false));
     }
 
-    // ---------------- GET /properties/{id} ----------------
+    @Test
+    void featuredLapsesWithTheOwnerPlan() throws Exception {
+        User paying = owner("9810000026");
+        grants.grant(paying.getId(), TestPlanGrants.OWNER_PLUS);
+        save(paying, "Was featured", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        jdbc.update("update subscriptions set renews_at = now() - interval '1 day' where user_id = ?", paying.getId());
+        em.clear();
+
+        mvc.perform(get("/properties/featured"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").value("Was featured"))
+                .andExpect(jsonPath("$[0].featured").value(false));
+    }
 
     @Test
     void getPropertyMasksOwnerMobile_bySlugAndId() throws Exception {
@@ -400,13 +415,12 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         p.setDescription("Nice place");
         properties.saveAndFlush(p);
 
-        // by id
         mvc.perform(get("/properties/" + p.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").value("Nice place"))
                 .andExpect(jsonPath("$.owner.id").value(o.getId().toString()))
                 .andExpect(jsonPath("$.owner.mobile").value("98XXXXX210"));
-        // by slug
+
         mvc.perform(get("/properties/detail-kothrud-ab12"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slug").value("detail-kothrud-ab12"))
@@ -425,8 +439,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---------------- GET/POST /me/listings ----------------
-
     @Test
     void myListingsAreOwnerScoped_noCrossOwnerLeak() throws Exception {
         User a = owner("9810000010");
@@ -437,7 +449,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(a)))
                 .andExpect(status().isOk())
-                // A sees both of A's (incl pending) and none of B's
+
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
@@ -447,10 +459,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /**
-     * Clamp is a single global {@code spring.data.web.pageable.max-page-size} with no per-controller
-     * guard, so each endpoint has to say individually that it is still covered.
-     */
+    // The page-size clamp is global, so each endpoint must prove it is still covered.
     @Test
     void myListingsClampsAHostilePageSize() throws Exception {
         User o = owner("9810000018");
@@ -468,31 +477,26 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 + "\"price\":30000,\"locality\":\"Kothrud\",\"city\":\"Pune\",\"bhk\":2}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("pending"))
                 .andExpect(jsonPath("$.priceUnit").value("per-month"))
-                .andExpect(jsonPath("$.postedByType").value("owner"))
                 .andExpect(jsonPath("$.owner.id").value(o.getId().toString()));
     }
 
-    /**
-     * Owner-created listings could be saved with {@code locality_slug = null}, invisible to every
-     * locality facet, {@code /locality/{slug}} page and saved-search alert. Resolved server-side.
-     */
     @Test
     void createListingResolvesLocalitySlug_andBecomesFindableByTheLocalityFacet() throws Exception {
         jdbc.update("INSERT INTO localities (slug, name) VALUES ('kothrud', 'Kothrud') "
                 + "ON CONFLICT (slug) DO NOTHING");
         User o = owner("9810000021");
-        // Free text with different casing and a sub-area suffix — exactly what an owner types.
+
         String body = "{\"title\":\"Owner Typed\",\"deal\":\"rent\",\"propertyType\":\"apartment\","
                 + "\"price\":31000,\"locality\":\"kothrud depot\",\"city\":\"Pune\",\"bhk\":2}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
-                // display name is preserved verbatim; the key is the resolved slug
+
                 .andExpect(jsonPath("$.locality").value("kothrud depot"))
                 .andExpect(jsonPath("$.localitySlug").value("kothrud"));
 
@@ -510,10 +514,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].localitySlug").value("kothrud"));
     }
 
-    /**
-     * Column is FK-constrained: coining an owner-typed slug would either fail the insert or
-     * pollute the curated locality table (and the sitemap) with typos. Absent, not invented.
-     */
     @Test
     void createListingWithUnknownLocalitySucceedsWithoutASlug() throws Exception {
         User o = owner("9810000022");
@@ -521,7 +521,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 + "\"price\":31000,\"locality\":\"Completely Made Up Area\",\"city\":\"Pune\",\"bhk\":2}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.locality").value("Completely Made Up Area"))
                 .andExpect(jsonPath("$.localitySlug").doesNotExist());
@@ -540,14 +540,13 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"locality\":\"Baner\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.localitySlug").value("baner"))
+
                 // locality is a foundation field, so the edit also costs re-moderation
                 .andExpect(jsonPath("$.status").value("pending"));
     }
 
-    /**
-     * Coordinates are a non-foundation edit (no re-moderation), so re-resolving on them would let
-     * an owner silently move an approved listing into a different market's search results.
-     */
+    // Coordinates are non-foundation; re-resolving them would silently move
+    // an approved listing into another market's search.
     @Test
     void updatingOnlyCoordinatesDoesNotRebindTheSlug() throws Exception {
         jdbc.update("INSERT INTO localities (slug, name, lat, lng) "
@@ -560,7 +559,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         p.setLocalitySlug("kothrud");
         properties.saveAndFlush(p);
 
-        // Coordinates dropped onto Hinjawadi's centroid.
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"lat\":18.591,\"lng\":73.738}"))
@@ -573,13 +571,18 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     void createListingMissingRequiredFieldReturns422() throws Exception {
         User o = owner("9810000013");
         String body = "{\"deal\":\"rent\",\"propertyType\":\"apartment\",\"price\":30000,"
-                + "\"locality\":\"Kothrud\",\"city\":\"Pune\"}"; // no title
+                + "\"locality\":\"Kothrud\",\"city\":\"Pune\"}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("validation_failed"))
                 .andExpect(jsonPath("$.fields[0].field").value("title"));
+    }
+
+    private String withPhoto(String body, User owner) {
+        int close = body.lastIndexOf('}');
+        return body.substring(0, close) + "," + listingImages(owner) + body.substring(close);
     }
 
     @Test
@@ -591,8 +594,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/me/listings/" + aProp.getId()).header(HttpHeaders.AUTHORIZATION, bearer(b)))
                 .andExpect(status().isNotFound());
     }
-
-    // ---------------- PATCH /me/listings/{id} ----------------
 
     // BHK changes what the listing fundamentally is, so a stale index entry (a 2BHK appearing
     // under 3BHK) would be a wrong answer — the listing comes off search until re-moderation.
@@ -609,8 +610,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.recheckPending").value(false));
     }
 
-    // why: price is still the same property at a different number, so the listing keeps earning
-    // while staff confirm it — approved, searchable, and a re-check queued rather than a takedown.
     @Test
     void updatePriceStaysApprovedAndQueuesARecheck() throws Exception {
         User o = owner("9810000029");
@@ -652,8 +651,6 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value("approved"));
     }
 
-    // ---------------- PATCH /properties/{id}/archive|restore ----------------
-
     @Test
     void archiveHidesFromPublic_thenRestoreResetsPending() throws Exception {
         User o = owner("9810000018");
@@ -663,12 +660,12 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"sold offline\"}"))
                 .andExpect(status().isOk());
-        // gone from public search + detail
+
         mvc.perform(get("/properties"))
                 .andExpect(jsonPath("$.totalElements").value(0));
         mvc.perform(get("/properties/" + p.getId()))
                 .andExpect(status().isNotFound());
-        // restore resets status to pending
+
         mvc.perform(patch("/properties/" + p.getId() + "/restore")
                         .header(HttpHeaders.AUTHORIZATION, bearer(o)))
                 .andExpect(status().isOk())
@@ -684,5 +681,40 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(patch("/properties/" + p.getId() + "/archive")
                         .header(HttpHeaders.AUTHORIZATION, bearer(b)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void archiveAndRestoreByBackOfficeNeedListingModeration() throws Exception {
+        User owner = owner("9810000025");
+        Property p = save(owner, "Moderated", "rent", "apartment", new BigDecimal("2"), 25000,
+                "Kothrud", "approved", false);
+        User denied = staff("9810000026", "[]");
+        User moderator = staff("9810000027", "[\"listingModeration\"]");
+
+        mvc.perform(patch("/properties/" + p.getId() + "/archive")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(denied)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(patch("/properties/" + p.getId() + "/archive")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(moderator)))
+                .andExpect(status().isOk());
+
+        mvc.perform(patch("/properties/" + p.getId() + "/restore")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(denied)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(patch("/properties/" + p.getId() + "/restore")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(moderator)))
+                .andExpect(status().isOk());
+    }
+
+    private User staff(String mobile, String functionsJson) {
+        User u = new User(mobile, Roles.Wire.STAFF);
+        u.setName("Listing Moderator");
+        u.setMobileVerified(true);
+        User saved = users.saveAndFlush(u);
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
+                + "VALUES (?::uuid, ?::jsonb)", saved.getId().toString(), functionsJson);
+        return saved;
     }
 }

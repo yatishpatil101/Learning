@@ -9,6 +9,8 @@ export const featuredProperties = async (limit) => (await provider()).featuredPr
 // `verifiedOwners` counts distinct people, which no page can derive. `localitySlug` is optional.
 export const trustStats = async (localitySlug) => (await provider()).trustStats(localitySlug);
 
+export const propertyCounts = async () => (await provider()).propertyCounts();
+
 /** The public seller card. `null` when the owner is unknown, malformed or archived. */
 export const ownerProfile = async (id) => (await provider()).ownerProfile(id);
 
@@ -27,7 +29,7 @@ export const getPropertiesByIds = async (ids) => (await provider()).getPropertie
 export const searchListings = async (query, paging) => (await provider()).searchListings(query, paging);
 
 // Its own operation, not a flag: public search 403s no one and `/admin/properties` 403s non-staff.
-export const listForModeration = async (filters, sort) => (await provider()).listForModeration(filters, sort);
+export const listForModeration = async (filters, sort, opts) => (await provider()).listForModeration(filters, sort, opts);
 
 // Use wherever a number is shown to an operator, and because `filters.q` is answered by the
 // database rather than by the fetched page.
@@ -85,17 +87,12 @@ export const dismissDuplicateCluster = async (ids) =>
 export const setListingStatus = async (id, status, reason) => (await provider()).setListingStatus(id, status, reason);
 
 /** Toggle homepage merchandising. No status precondition on either side. */
-export const toggleFeatured = async (id) => (await provider()).toggleFeatured(id);
 
 /** Raise a moderation flag — takes the listing off the public site and records the reason. */
 export const flagListing = async (id, reason) => (await provider()).flagListing(id, reason);
 
-// **Publishes the listing**: status becomes `approved`, not whatever it was before being flagged.
+// **Publishes the listing**: clearing a flag sets status to `approved`.
 export const clearFlag = async (id) => (await provider()).clearFlag(id);
-
-// The server sorts acquisition stage from hand-back milestone. `under_review`/`live` are `status`
-// read sideways and are refused with a 400.
-export const setPipelineStage = async (id, stage) => (await provider()).setPipelineStage(id, stage);
 
 export const deleteListing = async (id) => (await provider()).deleteListing(id);
 export const updateListingFields = async (id, patch) => (await provider()).updateListingFields(id, patch);
@@ -103,6 +100,9 @@ export const updateListingFields = async (id, patch) => (await provider()).updat
 // The owner withdraws their own listing, no reason owed. Soft, since enquiries and deals still
 // point at the row. This exits the quota.
 export const takeListingDown = async (id, user) => (await provider()).takeListingDown(id, user);
+
+export const pauseListing = async (id) => (await provider()).pauseListing(id);
+export const resumeListing = async (id) => (await provider()).resumeListing(id);
 
 // Audited, cross-owner, and unlike the owner-scoped `updateListingFields` it does not revert the
 // listing to `pending`.
@@ -115,3 +115,7 @@ export const restoreListing = async (id) => (await provider()).restoreListing(id
 // Its own operation because an edit can revert a listing to `pending`, and answering the
 // anti-staleness nudge must not take it out of search.
 export const confirmListingFresh = async (id) => (await provider()).confirmListingFresh(id);
+
+export const recordClaimLinkOpened = async (id) => (await provider()).recordClaimLinkOpened(id);
+
+export const confirmOwnerListing = async (id) => (await provider()).confirmOwnerListing(id);

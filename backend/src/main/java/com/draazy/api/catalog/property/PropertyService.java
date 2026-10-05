@@ -27,10 +27,9 @@ public class PropertyService {
         this.properties = properties;
     }
 
-    /** Ranking and {@code newestOnly}: search-listings.md sections 9.3, 9.7. */
     @Transactional(readOnly = true)
     public SearchResult searchWithTotals(PropertySearchQuery filters, ListingFacets extra,
-            Pageable pageable, boolean newestOnly) {
+            Pageable pageable, PropertySort.Rank rank) {
         Pageable safe = PropertySort.sanitize(pageable);
         Specification<Property> match = PropertySpecs.publicSearch(filters, extra);
         Instant now = Instant.now();
@@ -41,13 +40,19 @@ public class PropertyService {
             ordered = match;
             exec = safe;
         } else {
-            ordered = match.and(newestOnly ? PropertySpecs.boostedFirst(now) : PropertySpecs.relevanceFirst(now));
+            ordered = match.and(switch (rank) {
+                case NEWEST -> PropertySpecs.newestFirst();
+                case PRICE_PER_SQFT -> PropertySpecs.pricePerSqftFirst();
+                case VERIFIED -> PropertySpecs.verifiedFirst(now);
+                case RELEVANCE -> PropertySpecs.relevanceFirst(now);
+            });
             exec = PageRequest.of(safe.getPageNumber(), safe.getPageSize());
         }
 
         List<Property> rows = properties.findPage(ordered, exec);
         PropertySearchFragment.Totals totals = properties.countTotals(
                 match, PropertySpecs.anyVerified(now), PropertySpecs.unstatedFiltered(extra));
+
         // `exec`, not `safe` — the page must carry the pageable its rows were actually read with, or
         // a client reading `sort` off the response would be told about an order that was overridden.
         return new SearchResult(new PageImpl<>(rows, exec, totals.total()), totals.verified(),
@@ -58,22 +63,20 @@ public class PropertyService {
     public record SearchResult(Page<Property> page, long verifiedTotal, long unstatedTotal) {
     }
 
-    /** <strong>No visibility floor</strong>, guarded only by {@code @PreAuthorize} on its single caller; a new caller must carry its own. */
+    /** No visibility floor, guarded only by {@code @PreAuthorize} on its single caller; a new caller must carry its own. */
     @Transactional(readOnly = true)
     public Page<Property> searchForModeration(PropertySearchQuery filters, ModerationFacets mod,
             Pageable pageable) {
         return properties.findAll(PropertySpecs.adminSearch(filters, mod),
-                PropertySort.sanitize(pageable));
+                PropertySort.sanitizeModeration(pageable));
     }
 
-    /** Featured-first live listings for the homepage (contract {@code featuredProperties}). */
     @Transactional(readOnly = true)
     public List<Property> featured() {
         return properties.findByStatusAndArchivedFalseOrderByFeaturedDescCreatedAtDesc(
                 PropertyStatus.APPROVED, PageRequest.of(0, FEATURED_CAP));
     }
 
-    /** Missing, archived or unapproved is a {@code 404}, except for the owner and a checker. */
     @Transactional(readOnly = true)
     public Property getPublic(String idOrSlug, UUID viewerId, boolean staff) {
         Property p = resolve(idOrSlug).orElseThrow(() -> NotFoundException.of("Property"));
@@ -89,7 +92,6 @@ public class PropertyService {
                 && viewerId.equals(p.getOwner().getId());
     }
 
-    /** Resolve a path token to a listing: parse as UUID → by id; otherwise treat as a slug. */
     private Optional<Property> resolve(String idOrSlug) {
         UUID id = tryUuid(idOrSlug);
         return id != null ? properties.findById(id) : properties.findBySlug(idOrSlug);

@@ -71,6 +71,7 @@ function writePossession(listing) {
 
 export function toViewModel(p) {
   if (!p) return null;
+  const signals = p.signals || null;
   return {
     // Routes accept slug-or-id; row operations still need the UUID.
     id: p.slug || p.id,
@@ -83,7 +84,7 @@ export function toViewModel(p) {
     video: p.video ?? null,
     desc: p.description,
     bhkNum: p.bhk ?? null,
-    bhk: p.bhk == null ? '' : Number(p.bhk) === 0 ? '1 RK' : `${p.bhk} BHK`,
+    bhk: p.bhk == null ? '' : Number(p.bhk) === 0 ? '1 RK' : Number(p.bhk) >= 5 ? '5+ BHK' : `${p.bhk} BHK`,
     rera: Boolean(p.reraId),
     reraId: p.reraId ?? '',
     // Unknown amounts must not become an owner's explicit zero when reopening an edit.
@@ -95,6 +96,8 @@ export function toViewModel(p) {
     agreementDuration: p.agreementDuration ?? null,
     lockin: p.lockIn ?? null,
     notice: p.noticePeriod ?? null,
+    food: p.foodPref ?? p.food ?? null,
+    bestTimeToCall: p.bestTimeToCall ?? null,
     furniture: Array.isArray(p.furniture) ? p.furniture : null,
     /* Spread flat because the detail page reads these keys flat and the names already match. A residential
        listing spreads nothing, leaving every commercial key undefined — the "unstated" the page tests for. */
@@ -105,6 +108,8 @@ export function toViewModel(p) {
     electricityConsumerNo: p.electricityMeterNo ?? undefined,
     formDetails: p.formDetails ?? null,
     createdAt: p.createdAt ? String(p.createdAt).slice(0, 10) : undefined,
+    submittedAt: p.createdAt ?? null,
+    resubmittedAt: p.resubmittedAt ?? null,
     // Missing confirmation must leave the freshness reader's createdAt fallback intact.
     freshenedAt: p.lastConfirmedAt ? String(p.lastConfirmedAt).slice(0, 10) : undefined,
     flagReason: p.flagReason ?? '',
@@ -115,6 +120,7 @@ export function toViewModel(p) {
     owner: p.owner?.name,
     ownerId: p.owner?.id,
     ownerMobile: p.owner?.mobile,
+    postedByType: p.postedByType ?? null,
     slug: p.slug,
     title: p.title,
     deal: p.deal,
@@ -131,14 +137,24 @@ export function toViewModel(p) {
     lat: p.lat,
     lng: p.lng,
     status: p.status,
+    progress: p.progress ?? null,
+    signals: signals ? {
+      possibleBroker: Boolean(signals.possibleBroker),
+      hardBlock: Boolean(signals.hardBlock),
+      conflict: Boolean(signals.conflict),
+      items: Array.isArray(signals.items) ? signals.items.map((row) => ({
+        code: row?.code || '',
+        severity: row?.severity === 'hard' ? 'hard' : 'soft',
+        detail: row?.detail || '',
+      })) : [],
+    } : null,
     dealStatus: p.dealStatus ?? 'active',
     featured: p.featured ?? false,
-    boosted: p.boosted ?? false,
     verified: p.verified ?? false,
     ownerVerified: p.ownerVerified ?? false,
     ownershipVerified: p.ownershipVerified ?? false,
-    // Null is "nobody recorded who posted this", which is not the same as "the owner did".
-    postedByType: p.postedByType ?? null,
+    ownershipRequestedAt: p.ownershipRequestedAt ?? null,
+    ownershipDeclinedReason: p.ownershipDeclinedReason ?? '',
     views: p.views ?? 0,
     enquiries: p.enquiries ?? 0,
     docsCount: p.docsCount ?? 0,
@@ -150,11 +166,6 @@ export function toViewModel(p) {
     // Back-office fields are withheld server-side; absence means no visible concierge involvement.
     postedByAdmin: p.adminPipeline?.postedByAdmin ?? false,
     postedByStaff: p.adminPipeline?.postedByStaff ?? null,
-    pipelineStage: p.adminPipeline?.pipelineStage ?? null,
-    handbackMilestone: p.adminPipeline?.handbackMilestone ?? null,
-    claimLinkSent: p.adminPipeline?.claimLinkSent ?? false,
-    photosUploaded: p.adminPipeline?.photosUploaded ?? false,
-    identityVerified: p.adminPipeline?.identityVerified ?? false,
     reminderCount: p.adminPipeline?.reminderCount ?? 0,
     construction: translateConstruction(CONSTRUCTION_FROM_WIRE, p.possession, 'from the server'),
     // Null means unstated, not a guessed age, direction, count or area ratio.
@@ -171,9 +182,11 @@ export function toViewModel(p) {
     builtUpArea: p.builtUpArea ?? null,
     superBuiltUpArea: p.superBuiltUpArea ?? null,
     floorPlan: p.floorPlan ?? null,
+    youtubeId: p.video ?? '',
     room: p.room ?? null,
     tenants: Array.isArray(p.tenants) ? p.tenants : [],
     availableFrom: p.availableFrom ?? null,
+    availableDate: p.availableDate ?? null,
     // Null stays null: the detail page renders it as a question, and `?? false` would publish the
     // owner's silence as "not allowed".
     pets: p.pets ?? null,
@@ -208,6 +221,12 @@ const SORTS = {
   'price-asc': 'price,asc',
   'price-desc': 'price,desc',
   'area-desc': 'area,desc',
+  'recheck-oldest': 'recheckRequestedAt,asc',
+  'recheck-newest': 'recheckRequestedAt,desc',
+  'badge-oldest': 'ownershipRequestedAt,asc',
+  'badge-newest': 'ownershipRequestedAt,desc',
+  'confirmed-oldest': 'lastConfirmedAt,asc',
+  'confirmed-newest': 'lastConfirmedAt,desc',
 };
 
 // Public search cannot widen into privileged moderation reads.
@@ -218,7 +237,7 @@ export const unsupportedFilters = (filters = {}) =>
 export function toModerationQuery(filters = {}, sort = 'newest') {
   return {
     ...toQuery(filters, sort),
-    ...Object.fromEntries(['archived', 'recheck', 'featured', 'postedByAdmin', 'unconfirmed']
+    ...Object.fromEntries(['archived', 'recheck', 'featured', 'postedByAdmin', 'unconfirmed', 'progress', 'badge']
       .filter((key) => filters[key] !== undefined).map((key) => [key, filters[key]])),
   };
 }
@@ -258,6 +277,7 @@ export function toEditForm(vm = {}) {
     rentMaintMode: isRent && vm.maintenance > 0 ? 'extra' : '',
     priceNegotiable: vm.negotiable ?? '',
     reraId: vm.reraId ?? '',
+    title: vm.title ?? '',
     description: vm.desc ?? '',
     amenities: vm.amenities ?? [],
     floor: vm.floor === 0 ? 'Ground' : formString(vm.floor),
@@ -286,7 +306,7 @@ export function toEditForm(vm = {}) {
     gstOnRent: '', fitOutMonths: '', escalationPct: '', tenancyStatus: '', inPlaceRent: '', leaseExpiry: '',
     seatCount: '', frontage: '', floorLoad: '', clearHeight: '', sanctionedPower: '', dockCount: '',
     plotLength: '', plotWidth: '', openSides: '', roadWidth: '', plotZone: '', waterSource: '',
-    naStatus: '', otherRights: '', buyerEligibility: '',
+    naStatus: '', otherRights: '', buyerEligibility: '', bestTimeToCall: '',
     loanAvailable: undefined, powerBackup: undefined, pantry: undefined, cornerPlot: undefined,
     boundaryWall: undefined, naSanctioned: undefined, electricity: undefined, roadAccess: undefined, satbara: undefined,
     furniture: [], fixtures: [], suitableFor: [],
@@ -348,7 +368,7 @@ export function toListingCreate(listing = {}) {
     price: listing.price,
     locality: listing.locality,
     city: listing.city ?? 'Pune',
-    bhk: listing.bhkNum ?? undefined,
+    bhk: listing.bhkNum ?? listing.bhk ?? undefined,
     area: listing.area,
     areaUnit: listing.areaUnit,
     landUse: listing.landUse,
@@ -371,6 +391,7 @@ export function toListingCreate(listing = {}) {
     /* `??`, not `||`: the wizard sends '' to mean "I removed the tag", and the server reads blank
        as a clear. Collapsing it to undefined would strip the key and leave the old plan standing. */
     floorPlan: listing.floorPlan ?? undefined,
+    video: listing.video ?? undefined,
     description: listing.desc ?? listing.description,
     address: listing.address || composed || undefined,
     pincode: listing.pincode,
@@ -379,12 +400,8 @@ export function toListingCreate(listing = {}) {
     // Duplicate detection needs a resolved society id, never a free-text name.
     societyId: listing.societyId || undefined,
     electricityMeterNo: listing.electricityConsumerNo || undefined,
-    // An empty PATCH array would erase stored photo evidence when no photo was decoded.
-    photoHashes: Array.isArray(listing.photoHashes) && listing.photoHashes.length
-      ? listing.photoHashes
-      : undefined,
     bathrooms: int(listing.bathrooms),
-    parking: int(listing.parkingSpaces),
+    parking: int(listing.parkingSpaces ?? listing.parking),
     balconies: int(listing.balconies),
     facing: listing.facing || undefined,
     overlooking: listing.overlooking || undefined,

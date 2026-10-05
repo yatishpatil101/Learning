@@ -5,6 +5,7 @@ import com.draazy.api.catalog.listing.ReasonRequest;
 import com.draazy.api.common.trust.ContactGate;
 import com.draazy.api.common.trust.BackOfficeVisibility;
 import com.draazy.api.common.trust.ContactVisibility;
+import com.draazy.api.common.trust.FlagReasonVisibility;
 import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.common.web.PageResponse;
@@ -27,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Public catalogue surface plus the authenticated archive/restore actions, which are authorized in the service. */
 @RestController
 public class PropertyController {
 
@@ -70,13 +70,12 @@ public class PropertyController {
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 owner);
         PropertyService.SearchResult result =
-                propertyService.searchWithTotals(filters, facets, pageable, "newest".equals(rank));
+                propertyService.searchWithTotals(filters, facets, pageable, PropertySort.rank(rank));
         return PropertySearchResponse.of(
                 PageResponse.of(result.page(), propertyMapper::toSummary), result.verifiedTotal(),
                 result.unstatedTotal());
     }
 
-    /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */
     @GetMapping(Routes.Properties.FEATURED)
     public List<PropertySummary> featured() {
         return propertyService.featured().stream().map(propertyMapper::toSummary).toList();
@@ -96,17 +95,17 @@ public class PropertyController {
         UUID ownerId = property.getOwner() != null ? property.getOwner().getId() : null;
         return propertyMapper.toResponse(property,
                 contactGate.visibilityFor(viewerId, property.getId(), ownerId),
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN,
+                mayPreview(principal) ? FlagReasonVisibility.VISIBLE : FlagReasonVisibility.HIDDEN);
     }
 
     /** The grant and not the bare role: a moderator whose {@code properties:read} was revoked loses this door too. */
     private boolean mayPreview(AuthPrincipal principal) {
         return principal != null
-                && (Roles.Wire.STAFF.equals(principal.role()) || Roles.Wire.ADMIN.equals(principal.role()))
+                && Roles.isBackOffice(principal.role())
                 && permissions.granted(principal, BackOfficePermissions.PROPERTIES_READ);
     }
 
-    /** Contact masked and private fields hidden even from the owner: search-listings.md section 9.8. */
     @PatchMapping(Routes.Properties.ARCHIVE)
     public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestBody(required = false) ReasonRequest body) {
@@ -116,7 +115,6 @@ public class PropertyController {
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 
-    /** Status is reset to {@code pending} for re-moderation; masked contact, as for archive. */
     @PatchMapping(Routes.Properties.RESTORE)
     public PropertyResponse restore(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return propertyMapper.toResponse(

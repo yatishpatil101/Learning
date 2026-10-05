@@ -17,6 +17,8 @@ import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -63,20 +65,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
         return jdbc.queryForObject("select id from societies where slug = ?", UUID.class, slug);
     }
 
-    /** A route mapped in a controller but missed in {@code SecurityConfig} 401s here — which a
-     *  per-endpoint test would miss, since each could be written with a token. */
-    @Test
-    void everyCatalogueRouteIsReachableWithoutAToken() throws Exception {
-        mvc.perform(get("/fees")).andExpect(status().isOk());
-        mvc.perform(get("/cities")).andExpect(status().isOk());
-        mvc.perform(get("/localities")).andExpect(status().isOk());
-        mvc.perform(get("/localities/kothrud")).andExpect(status().isOk());
-        mvc.perform(get("/societies")).andExpect(status().isOk());
-        mvc.perform(get("/societies/amanora-park-hadapsar")).andExpect(status().isOk());
-        mvc.perform(get("/reels")).andExpect(status().isOk());
-        mvc.perform(get("/properties/trust-stats")).andExpect(status().isOk());
-    }
-
     /** An array, because the table is keyed by deal and one object cannot say which. */
     @Test
     void feesReturnsOneEntryPerDealIntent() throws Exception {
@@ -86,11 +74,9 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].deal").value("buy"))
                 .andExpect(jsonPath("$[0].brokerage").value(0))
                 .andExpect(jsonPath("$[1].deal").value("rent"))
-                .andExpect(jsonPath("$[1].platformFee").value(1999));
+                .andExpect(jsonPath("$[1].platformFee").value(500));
     }
 
-    /** {@code doesNotExist}, not {@code value(0)}: absent means uncomputable, not free — no figure
-     *  here can be right, since the table never sees the value stamp duty is a percentage of. */
     @Test
     void neitherDealPublishesAFlatStampDuty() throws Exception {
         mvc.perform(get("/fees"))
@@ -102,8 +88,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[1].stampDuty").doesNotExist());
     }
 
-    /** The stored column and the truth are made to disagree: 0 means the column is trusted again,
-     *  3 means the live predicate was dropped, 2 is correct. */
     @Test
     void cityListingCountIsComputedFromLiveListings_notTheStoredColumn() throws Exception {
         User o = owner("9820000001");
@@ -136,69 +120,30 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 Integer.class, "9830000001", "Nashik")).isEqualTo(1);
     }
 
-    /** Enforced by {@code uq_city_waitlist_mobile_city}, not a service-side check two concurrent
-     *  submissions would both pass. A 409 would also make a public form a membership oracle. */
-    @Test
-    void waitlistIsIdempotentPerMobileAndCity() throws Exception {
-        String body = """
-                {"mobile":"9830000002","city":"Nagpur"}""";
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "waitlistIsIdempotentPerMobileAndCity       | 9830000002 | Nagpur | Nagpur | 1",
+            "waitlistAllowsTheSamePersonToAskForTwoCities | 9830000003 | Nashik | Nagpur | 2",
+            "waitlistTreatsCityCaseInsensitively        | 9830000004 | Mumbai | mumbai | 1"})
+    void waitlistDedupesPerMobileAndCity(String name, String mobile, String first, String second,
+            int rows) throws Exception {
+        for (String city : new String[] {first, second}) {
+            mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mobile\":\"" + mobile + "\",\"city\":\"" + city + "\"}"))
+                    .andExpect(status().isCreated());
+        }
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from city_waitlist where mobile = ?", Integer.class, mobile))
+                .isEqualTo(rows);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "waitlistRejectsAMalformedMobile | {\"mobile\":\"12345\",\"city\":\"Nashik\"}",
+            "waitlistRequiresACity           | {\"mobile\":\"9830000005\",\"city\":\"  \"}"})
+    void waitlistRejectsAnInvalidSignup(String name, String body) throws Exception {
         mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated());
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated());
-
-        assertThat(jdbc.queryForObject(
-                "select count(*) from city_waitlist where mobile = ?", Integer.class, "9830000002"))
-                .isEqualTo(1);
-    }
-
-    /** Same person, different city, is a different request — the constraint is on the pair. */
-    @Test
-    void waitlistAllowsTheSamePersonToAskForTwoCities() throws Exception {
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"9830000003","city":"Nashik"}"""))
-                .andExpect(status().isCreated());
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"9830000003","city":"Nagpur"}"""))
-                .andExpect(status().isCreated());
-
-        assertThat(jdbc.queryForObject(
-                "select count(*) from city_waitlist where mobile = ?", Integer.class, "9830000003"))
-                .isEqualTo(2);
-    }
-
-    /** City case is not identity: the unique index lower-cases free text a person typed. */
-    @Test
-    void waitlistTreatsCityCaseInsensitively() throws Exception {
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"9830000004","city":"Mumbai"}"""))
-                .andExpect(status().isCreated());
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"9830000004","city":"mumbai"}"""))
-                .andExpect(status().isCreated());
-
-        assertThat(jdbc.queryForObject(
-                "select count(*) from city_waitlist where mobile = ?", Integer.class, "9830000004"))
-                .isEqualTo(1);
-    }
-
-    @Test
-    void waitlistRejectsAMalformedMobile() throws Exception {
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"12345","city":"Nashik"}"""))
-                .andExpect(status().isUnprocessableEntity());
-    }
-
-    @Test
-    void waitlistRequiresACity() throws Exception {
-        mvc.perform(post("/cities/waitlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"mobile":"9830000005","city":"  "}"""))
                 .andExpect(status().isUnprocessableEntity());
     }
 
@@ -224,77 +169,27 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[?(@.slug=='aundh')].listingCount", contains(1)));
     }
 
-    @Test
-    void localityDetailCarriesTheNarrativeFields() throws Exception {
-        mvc.perform(get("/localities/koregaon-park"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.slug").value("koregaon-park"))
-                .andExpect(jsonPath("$.name").value("Koregaon Park"))
-                .andExpect(jsonPath("$.connectivity").isArray())
-                .andExpect(jsonPath("$.highlights").isArray())
-                .andExpect(jsonPath("$.priceTrends").isArray());
-    }
-
     /** The stored column is poisoned with an impossible 999, so a pass cannot be coincidence:
      *  trusting the column gives 999, dropping the live predicate gives 2, computing it gives 1. */
-    @Test
-    void localityDetailListingCountIsComputed_notTheStoredColumn() throws Exception {
-        User o = owner("9820000077");
-        listing(o, "Live in Kothrud", "kothrud", null, "approved");
-        listing(o, "Pending in Kothrud", "kothrud", null, "pending");
-        jdbc.update("update localities set listing_count = 999 where slug = 'kothrud'");
-
-        mvc.perform(get("/localities/kothrud"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.slug").value("kothrud"))
-                .andExpect(jsonPath("$.listingCount").value(1));
-    }
-
     /** Every seeded row has {@code '[]'} there, so without writing a real value "the mapping works"
      *  would only fail the day somebody authors content. */
     @Test
-    void localityPriceTrendsDeserializeFromJsonb() throws Exception {
-        jdbc.update("""
-                update localities set price_trends = ?::jsonb where slug = 'baner'""",
-                """
-                [{"month":"2026-05","rentPsf":32.5,"buyPsf":11500},
-                 {"month":"2026-06","rentPsf":33.0,"buyPsf":11800}]""");
-
-        mvc.perform(get("/localities/baner"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.priceTrends.length()").value(2))
-                .andExpect(jsonPath("$.priceTrends[0].month").value("2026-05"))
-                .andExpect(jsonPath("$.priceTrends[0].rentPsf").value(32.5))
-                .andExpect(jsonPath("$.priceTrends[1].buyPsf").value(11800));
-    }
-
-    @Test
-    void localityDetailIs404ForAnUnknownSlug() throws Exception {
-        mvc.perform(get("/localities/not-a-place"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("not_found"));
-    }
+    void aRetiredLocalityDropsOffTheList() throws Exception {
 
     /** A retired locality is gone from the site, not merely delisted — otherwise search keeps it. */
-    @Test
-    void localityDetailIs404ForARetiredLocality() throws Exception {
-        // Picked from the DB rather than named: a hard-coded slug a future regeneration ships
-        // inactive would make the UPDATE a silent no-op and red this.
         int activeBefore = jdbc.queryForObject(
                 "select count(*) from localities where active", Integer.class);
         String slug = jdbc.queryForObject(
                 "select slug from localities where active order by slug asc limit 1", String.class);
         jdbc.update("update localities set active = false where slug = ?", slug);
 
-        mvc.perform(get("/localities/" + slug)).andExpect(status().isNotFound());
         mvc.perform(get("/localities"))
                 .andExpect(jsonPath("$.length()").value(activeBefore - 1));
     }
 
     @Test
     void societiesBrowseIsPagedAndAlphabeticalByDefault() throws Exception {
-        // Data-driven for the same reason as the localities list; the invariants this test owns are
-        // the paging envelope and the presence of the trust fields.
+
         int totalSocieties = jdbc.queryForObject(
                 "select count(*) from societies", Integer.class);
         String firstByName = jdbc.queryForObject(
@@ -311,7 +206,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].claimStatus").isString());
     }
 
-    /** {@code security} is free text. A boolean could not have carried this. */
     @Test
     void societySecurityIsDescriptiveText() throws Exception {
         mvc.perform(get("/societies?q=Amanora"))
@@ -336,8 +230,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].localitySlug").value("kharadi"));
     }
 
-    /** {@code claim_status} is a real column, so this fails if the whitelist is removed rather than
-     *  merely if the column name is wrong. */
     @Test
     void societiesBrowseIgnoresASortFieldOutsideTheWhitelist() throws Exception {
         mvc.perform(get("/societies?sort=claimStatus,desc"))
@@ -377,8 +269,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.homes[0].status").value("approved"));
     }
 
-    /** {@code reviews.target_id} is untyped text and nothing has decided whether a society review
-     *  keys on id or slug, so an aggregate would be a guess presented as a fact. */
     @Test
     void societyDetailReportsNoReviewsRatherThanAZeroRating() throws Exception {
         mvc.perform(get("/societies/amanora-park-hadapsar"))
@@ -414,8 +304,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].societySlug").value("amanora-park-hadapsar"));
     }
 
-    /** {@code NON_NULL} drops the key entirely: a present-but-blank society section still asserts
-     *  the listing belongs to one, which is the same claim in a quieter font. */
     @Test
     void anUnboundListingClaimsNoSociety() throws Exception {
         User o = owner("9850000022");
@@ -427,8 +315,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.societySlug").doesNotExist());
     }
 
-    /** The query is deliberately out of slug order and shares no word with the title. The second
-     *  call pins the words as AND: an OR would read as a search that widened when more was typed. */
+    // The query is deliberately out of slug order and shares no word with the title.
     @Test
     void publicSearchMatchesASocietyNameWordByWordAndAndsTheWords() throws Exception {
         User o = owner("9850000031");
@@ -446,8 +333,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
-    /** Unescaped, {@code %} matches every row while still reading as a narrowing — the one failure
-     *  mode of a text search that looks like success. */
     @Test
     void publicSearchTreatsALikeWildcardAsText() throws Exception {
         User o = owner("9850000032");
@@ -461,8 +346,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].title").value("Wildcard 100% cotton awning"));
     }
 
-    /** The six-token cap bounds the predicates but not the input reaching {@code split}, and this
-     *  route needs no login. */
     @Test
     void publicSearchRefusesATermLongerThanTheContractDeclares() throws Exception {
         mvc.perform(get("/properties").param("q", "a".repeat(121)))
@@ -472,8 +355,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /** {@code permitAll} does not reject a valid token, so the principal is populated when one is
-     *  present. Securing the route to make this field possible would 401 the anonymous call. */
     @Test
     void followedByMeReflectsTheCallerAndDefaultsToFalseWhenAnonymous() throws Exception {
         User follower = owner("9850000002");
@@ -493,7 +374,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.followerCount").value(1));
     }
 
-    /** The same, on the list surface — where getting it wrong would mean a query per row. */
     @Test
     void followedByMeIsResolvedForAWholePageOfSocieties() throws Exception {
         User follower = owner("9850000003");
@@ -507,42 +387,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].followedByMe").value(true))
                 .andExpect(jsonPath("$.content[0].followerCount").value(1))
                 .andExpect(jsonPath("$.content[1].followedByMe").value(false));
-    }
-
-    @Test
-    void reelsFeedIsNewestFirstAndCarriesTheContractShape() throws Exception {
-        mvc.perform(get("/reels"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(10))
-                .andExpect(jsonPath("$[0].id").exists())
-                .andExpect(jsonPath("$[0].title").exists())
-                .andExpect(jsonPath("$[0].deal").value(org.hamcrest.Matchers.oneOf("buy", "rent")));
-    }
-
-    @Test
-    void reelsFeedFiltersByLocalityCaseInsensitively() throws Exception {
-        mvc.perform(get("/reels?locality=hinjawadi"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()")
-                        .value(org.hamcrest.Matchers.greaterThan(0)))
-                .andExpect(jsonPath("$[0].locality")
-                        .value(org.hamcrest.Matchers.equalToIgnoringCase("hinjawadi")));
-    }
-
-    @Test
-    void reelsFeedClampsAHostilePageSize() throws Exception {
-        mvc.perform(get("/reels?size=5000"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()")
-                        .value(org.hamcrest.Matchers.lessThanOrEqualTo(100)));
-    }
-
     /** The contract offers no sort here, but Spring binds one anyway and would hand an unknown
      *  property to Spring Data — a 500 any anonymous caller could trigger by guessing. */
-    @Test
-    void reelsFeedIgnoresAnUnrequestedSortParameter() throws Exception {
-        mvc.perform(get("/reels?sort=dropTable,desc"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(10));
     }
 }

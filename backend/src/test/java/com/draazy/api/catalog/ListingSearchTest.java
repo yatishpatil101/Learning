@@ -5,7 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.catalog.property.PostedByType;
+import com.draazy.api.billing.plan.TestPlanGrants;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyPossession;
 import com.draazy.api.catalog.property.PropertyRepository;
@@ -17,7 +17,9 @@ import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -35,6 +37,8 @@ class ListingSearchTest extends AbstractApiTest {
     PropertyRepository properties;
     @Autowired
     EntityManager em;
+    @Autowired
+    TestPlanGrants grants;
 
     private User seller;
 
@@ -85,16 +89,16 @@ class ListingSearchTest extends AbstractApiTest {
         @DisplayName("a rent listing scores each block exactly as specified")
         void rentScoreIsExact() {
             Property p = rent("Complete");
-            p.setImages(List.of("a", "b", "c"));            // photos: 3+          -> 25
-            p.setDescription("x".repeat(200));              // description: 200+   -> 15
-            p.setOwnerVerified(true);                       // trust: owner        -> 10
-            p.verifyOwnership(Instant.now(), null);         // trust: ownership    -> 10
-            p.setFurnishing("furnished");                   // completeness        ->  5
-            p.setFacing("east");                            //                     ->  5
-            p.setFloor(3);                                  //                     ->  5
-            p.setPossession("ready-to-move");               //                     ->  5
-            p.setDeposit(50000L);                           //                     ->  5
-            p.setAmenities(List.of("lift", "parking", "gym", "pool", "security")); // 5+ -> 15
+            p.setImages(List.of("a", "b", "c"));
+            p.setDescription("x".repeat(200));
+            p.setOwnerVerified(true);
+            p.verifyOwnership(Instant.now(), null);
+            p.setFurnishing("furnished");
+            p.setFacing("east");
+            p.setFloor(3);
+            p.setPossession("ready-to-move");
+            p.setDeposit(50000L);
+            p.setAmenities(List.of("lift", "parking", "gym", "pool", "security"));
 
             assertThat(persist(p).getQualityScore()).isEqualTo((short) 100);
         }
@@ -104,8 +108,7 @@ class ListingSearchTest extends AbstractApiTest {
         void coverImageIsAPhoto() {
             Property p = rent("Cover only");
             p.setCoverImage("https://example.test/cover.jpg");
-            // 8 for a single photo and nothing else: scoring `gallery` alone would give a listing
-            // with exactly one usable image the same score as one with none.
+
             assertThat(persist(p).getQualityScore()).isEqualTo((short) 8);
         }
 
@@ -127,17 +130,17 @@ class ListingSearchTest extends AbstractApiTest {
         @DisplayName("a buy listing scores its own blocks — paperwork replaces the owner check")
         void buyScoreIsExact() {
             Property p = buy("Complete sale");
-            p.setImages(List.of("a", "b", "c"));            // photos              -> 25
-            p.setDescription("x".repeat(200));              // description         -> 15
-            p.verifyOwnership(Instant.now(), null);         // trust: ownership    -> 10
-            p.setDocsCount(3);                              // trust: 3+ documents -> 10
-            p.setFurnishing("furnished");                   // completeness        ->  4
-            p.setFacing("east");                            //                     ->  4
-            p.setFloor(3);                                  //                     ->  4
-            p.setTotalFloors(12);                           //                     ->  4
-            p.setArea(new BigDecimal("1200"));              //                     ->  4
-            p.setPossession("ready-to-move");               //                     ->  5
-            p.setAmenities(List.of("lift", "parking", "gym", "pool", "security")); // -> 15
+            p.setImages(List.of("a", "b", "c"));
+            p.setDescription("x".repeat(200));
+            p.verifyOwnership(Instant.now(), null);
+            p.setDocsCount(3);
+            p.setFurnishing("furnished");
+            p.setFacing("east");
+            p.setFloor(3);
+            p.setTotalFloors(12);
+            p.setArea(new BigDecimal("1200"));
+            p.setPossession("ready-to-move");
+            p.setAmenities(List.of("lift", "parking", "gym", "pool", "security"));
 
             assertThat(persist(p).getQualityScore()).isEqualTo((short) 100);
         }
@@ -149,6 +152,7 @@ class ListingSearchTest extends AbstractApiTest {
             assertThat(p.getQualityScore()).isZero();
 
             p.setImages(List.of("a", "b", "c"));
+
             // No recompute call anywhere in this test, deliberately: the entire argument for a
             // generated column over a maintained one is that there is no call to forget.
             assertThat(persist(p).getQualityScore()).isEqualTo((short) 25);
@@ -185,8 +189,7 @@ class ListingSearchTest extends AbstractApiTest {
         @Test
         @DisplayName("a listing nobody has confirmed falls back to when it was posted")
         void neverConfirmedFallsBackToPosting() throws Exception {
-            // Posting is itself an assertion that the property is available, so a listing posted
-            // today is active even though nobody has answered a nudge yet.
+
             assertThat(tierOf(null)).isEqualTo("active");
         }
     }
@@ -222,9 +225,6 @@ class ListingSearchTest extends AbstractApiTest {
             persist(picky);
             persist(other);
 
-            // An owner who named no preference is open to anyone, so every tenant search admits
-            // them. Unlike `pets`, where null means the owner never answered a yes/no and matching
-            // it would advertise a fact nobody gave, an empty preference IS the answer.
             assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(2);
             assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(2);
         }
@@ -252,6 +252,7 @@ class ListingSearchTest extends AbstractApiTest {
         @DisplayName("an unknown move-in bucket matches nothing rather than everything")
         void unknownBucketMatchesNothing() throws Exception {
             persist(rent("Anything"));
+
             // Answering an unrecognised value with the whole catalogue is the failure that looks
             // most like success.
             assertThat(count("availableFrom=whenever&owner=" + seller.getId())).isZero();
@@ -266,8 +267,7 @@ class ListingSearchTest extends AbstractApiTest {
             // nobody could match with the whole catalogue.
             String owner = "&owner=" + seller.getId();
             assertThat(count("localities=%27%20or%201%3D1--" + owner)).isZero();
-            // `%3Cscript%3E` is normalised away before model binding, so the token shape here is one
-            // that reaches ListingFacets and is rejected there.
+
             assertThat(count("amenities=%27%20or%201%3D1--" + owner)).isZero();
             assertThat(count("tenants=%27%20or%201%3D1--" + owner)).isZero();
         }
@@ -306,6 +306,7 @@ class ListingSearchTest extends AbstractApiTest {
             assertThat(count("minAge=0&maxAge=10" + owner)).isEqualTo(2);
             assertThat(count("maxAge=3" + owner)).isEqualTo(1);
             assertThat(unstated("maxAge=3" + owner)).isEqualTo(1);
+
             // Nobody asked about age, so nothing is unstated with respect to the question.
             assertThat(unstated("owner=" + seller.getId())).isZero();
         }
@@ -322,6 +323,7 @@ class ListingSearchTest extends AbstractApiTest {
             String owner = "&owner=" + seller.getId();
             assertThat(count("minFloor=5" + owner)).isEqualTo(1);
             assertThat(unstated("minFloor=5" + owner)).isEqualTo(1);
+
             // Both columns asked: the subset is their union over the match, not their sum - the
             // silent row is silent on both and must still be counted once.
             assertThat(count("minFloor=1&maxAge=3" + owner)).isEqualTo(2);
@@ -360,32 +362,14 @@ class ListingSearchTest extends AbstractApiTest {
             assertThat(count("maxDeposit=100000" + owner)).isEqualTo(1);
             assertThat(unstated("maxDeposit=100000" + owner)).isEqualTo(1);
             assertThat(count("minDeposit=150000&maxDeposit=250000" + owner)).isEqualTo(2);
+
             // Bounds that exclude the only stated deposit leave the silent row and nothing else.
             assertThat(count("minDeposit=900000" + owner)).isEqualTo(1);
             assertThat(unstated("owner=" + seller.getId())).isZero();
         }
 
-        @Test
-        @DisplayName("owner-only drops both the broker's stock and the listing that never said")
-        void postedByOwnerExcludesSilence() throws Exception {
-            Property own = rent("Posted by the owner");
-            own.setPostedByType(PostedByType.OWNER);
-            Property broker = rent("Posted by an agent");
-            broker.setPostedByType(PostedByType.AGENT);
-            Property silent = rent("Nobody recorded who posted this");
-            persist(own);
-            persist(broker);
-            persist(silent);
-
-            // Equality, not a negation: "no brokerage" is a claim about who answers the phone, and
-            // a blank column cannot back it, so the silent row is dropped rather than disclosed.
-            String owner = "&owner=" + seller.getId();
-            assertThat(count("postedByOwner=true" + owner)).isEqualTo(1);
-            assertThat(unstated("postedByOwner=true" + owner)).isZero();
-            // Unticked is "I did not ask", which is the whole catalogue including the silent row.
-            assertThat(count("postedByOwner=false" + owner)).isEqualTo(3);
-        }
-
+            // Equality, not negation: a blank brokerage column cannot back
+            // the "no brokerage" claim, so the silent row stays hidden.
         @Test
         @DisplayName("room shape, zoning and pets each narrow on their own column")
         void remainingFacetsNarrow() throws Exception {
@@ -401,7 +385,7 @@ class ListingSearchTest extends AbstractApiTest {
             assertThat(count("room=shared" + owner)).isEqualTo(1);
             assertThat(count("pets=true" + owner)).isEqualTo(1);
             assertThat(count("landUse=agricultural" + owner)).isEqualTo(1);
-            // `pets=false` is "I did not ask", not "show me the ones that forbid pets".
+
             assertThat(count("pets=false" + owner)).isEqualTo(2);
         }
 
@@ -437,6 +421,165 @@ class ListingSearchTest extends AbstractApiTest {
     }
 
     @Nested
+    @DisplayName("W2 search facets — stated claims, JSONB filters and normalized area")
+    class W2Facets {
+
+        private long count(String query) throws Exception {
+            return number(query, "totalElements");
+        }
+
+        private long unstated(String query) throws Exception {
+            return number(query, "unstatedElements");
+        }
+
+        private long number(String query, String field) throws Exception {
+            String body = mvc.perform(get("/properties?" + query))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            return Long.parseLong(body.replaceAll("(?s).*\"" + field + "\"\\s*:\\s*(\\d+).*", "$1"));
+        }
+
+        @Test
+        @DisplayName("facing is a stated claim and excludes silence when asked")
+        void facingNarrowsAndExcludesSilence() throws Exception {
+            Property east = rent("East facing");
+            east.setFacing("east");
+            Property west = rent("West facing");
+            west.setFacing("west");
+            persist(east);
+            persist(west);
+            persist(rent("Facing unstated"));
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("facing=East" + owner)).isEqualTo(1);
+            assertThat(count("facing=EAST,sideways" + owner)).isEqualTo(1);
+            assertThat(unstated("facing=East" + owner)).isZero();
+        }
+
+        @Test
+        @DisplayName("a cardinal also matches the two corners beside it, which older listings may state")
+        void cardinalMatchesAdjacentCorners() throws Exception {
+            Property northEast = rent("North-East facing");
+            northEast.setFacing("North-East");
+            Property southWest = rent("South-West facing");
+            southWest.setFacing("South-West");
+            persist(northEast);
+            persist(southWest);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("facing=North" + owner)).isEqualTo(1);
+            assertThat(count("facing=east" + owner)).isEqualTo(1);
+            assertThat(count("facing=North,West" + owner)).isEqualTo(2);
+            assertThat(count("facing=South-East" + owner)).isZero();
+        }
+
+        @Test
+        @DisplayName("oversized CSV facets match nothing instead of silently dropping tokens")
+        void oversizedCsvFacetMatchesNothing() throws Exception {
+            Property east = rent("East facing");
+            east.setFacing("east");
+            persist(east);
+
+            String tooMany = String.join(",", Collections.nCopies(17, "east"));
+            assertThat(count("facing=" + tooMany + "&owner=" + seller.getId())).isZero();
+        }
+
+        @Test
+        @DisplayName("bathroom minimum keeps silence and counts it as unstated")
+        void minimumBathroomsKeepsSilence() throws Exception {
+            Property silent = rent("Baths unstated");
+            Property one = rent("One bath");
+            one.setBathrooms(1);
+            Property two = rent("Two baths");
+            two.setBathrooms(2);
+            persist(silent);
+            persist(one);
+            persist(two);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("minBaths=2" + owner)).isEqualTo(2);
+            assertThat(unstated("minBaths=2" + owner)).isEqualTo(1);
+            assertThat(count("minBaths=0" + owner)).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("food narrows to the owner's veg / jain rule, and non-veg excludes both")
+        void foodPreferenceNarrowsThroughJsonb() throws Exception {
+            Property veg = rent("Veg only");
+            veg.setFormDetails(Map.of("food", "veg"));
+            Property legacyVeg = rent("Legacy veg only");
+            legacyVeg.setFormDetails(Map.of("foodPref", "veg"));
+            Property jain = rent("Jain only");
+            jain.setFormDetails(Map.of("food", "jain"));
+            Property nonVeg = rent("Non veg okay");
+            nonVeg.setFormDetails(Map.of("food", "nonveg"));
+            persist(veg);
+            persist(legacyVeg);
+            persist(jain);
+            persist(nonVeg);
+            persist(rent("Food unstated"));
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("food=nonveg" + owner)).isEqualTo(2);
+            assertThat(count("food=veg" + owner)).isEqualTo(2);
+            assertThat(count("food=jain" + owner)).isEqualTo(1);
+            assertThat(count("food=halal" + owner)).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("commercial JSONB facets narrow on shell and pre-lease state")
+        void commercialJsonFacetsNarrow() throws Exception {
+            Property bare = buy("Bare shell office");
+            bare.setFormDetails(Map.of("shellType", "bareShell", "tenancyStatus", "leased"));
+            Property warm = buy("Warm shell office");
+            warm.setFormDetails(Map.of("shellType", "warmShell", "tenancyStatus", "vacant"));
+            persist(bare);
+            persist(warm);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("shell=bareShell,unknown" + owner)).isEqualTo(1);
+            assertThat(count("preLeased=true" + owner)).isEqualTo(1);
+            assertThat(count("preLeased=false" + owner)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("NA status narrows through JSONB")
+        void naStatusNarrows() throws Exception {
+            Property sanctioned = buy("Sanctioned NA plot");
+            sanctioned.setFormDetails(Map.of("naStatus", "sanctioned"));
+            Property deemed = buy("Deemed NA plot");
+            deemed.setFormDetails(Map.of("naStatus", "deemed"));
+            persist(sanctioned);
+            persist(deemed);
+            persist(buy("NA unstated"));
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("na=sanctioned" + owner)).isEqualTo(1);
+            assertThat(count("na=sanctioned,deemed,bogus" + owner)).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("area filters compare square feet regardless of the stored unit")
+        void areaBoundsNormalizeStoredUnits() throws Exception {
+            Property acre = buy("One acre farm");
+            acre.setArea(new BigDecimal("1"));
+            acre.setAreaUnit("acre");
+            Property small = buy("One thousand square feet");
+            small.setArea(new BigDecimal("1000"));
+            small.setAreaUnit("sqft");
+            Property silent = buy("Area unstated");
+            silent.setArea(null);
+            persist(acre);
+            persist(small);
+            persist(silent);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("minArea=43000&maxArea=44000" + owner)).isEqualTo(2);
+            assertThat(unstated("minArea=43000&maxArea=44000" + owner)).isEqualTo(1);
+        }
+    }
+
+    @Nested
     @DisplayName("near a point — a circle, without PostGIS")
     class NearPoint {
 
@@ -450,7 +593,7 @@ class ListingSearchTest extends AbstractApiTest {
         @Test
         @DisplayName("the radius is a circle, not the box used to find it")
         void cornersAreTrimmed() throws Exception {
-            // Pune centre.
+
             double lat = 18.5204;
             double lng = 73.8567;
 
@@ -509,6 +652,27 @@ class ListingSearchTest extends AbstractApiTest {
     @DisplayName("ranking — merit by default, and never over a buyer's own choice")
     class Ranking {
 
+        private final String tag = "rank" + System.nanoTime();
+
+        private Property featuredRent(String title) {
+            User payer = new User(String.format("8%09d", System.nanoTime() % 1_000_000_000L), "owner");
+            payer.setName("Paying Owner");
+            payer.setMobileVerified(true);
+            payer = users.saveAndFlush(payer);
+            grants.grant(payer.getId(), TestPlanGrants.OWNER_PLUS);
+            Property p = new Property(payer, title, "rent", "apartment", 25000L, tag, "Pune");
+            p.setBhk(new BigDecimal("2"));
+            p.setPriceUnit("per-month");
+            p.setStatus(PropertyStatus.APPROVED);
+            return p;
+        }
+
+        private Property plainRent(String title) {
+            Property p = rent(title);
+            p.setLocality(tag);
+            return p;
+        }
+
         private List<String> titles(String query) throws Exception {
             String body = mvc.perform(get("/properties?" + query))
                     .andExpect(status().isOk())
@@ -520,9 +684,8 @@ class ListingSearchTest extends AbstractApiTest {
         @Test
         @DisplayName("featured outranks every verification put together")
         void featuredDominates() throws Exception {
-            Property plain = rent("Featured but plain");
-            plain.setFeatured(true);
-            Property decorated = rent("Verified and complete");
+            Property plain = featuredRent("Featured but plain");
+            Property decorated = plainRent("Verified and complete");
             decorated.setOwnerVerified(true);
             decorated.verifyOwnership(Instant.now(), null);
             decorated.setReraId("P52100012345");
@@ -530,9 +693,7 @@ class ListingSearchTest extends AbstractApiTest {
             persist(plain);
             persist(decorated);
 
-            // 1000 beats 250 + 200 + 80 + freshness + score, and is spaced to do so on purpose:
-            // an editorial decision is not something a complete listing can out-accumulate.
-            assertThat(titles("owner=" + seller.getId())).containsExactly(
+            assertThat(titles("q=" + tag)).containsExactly(
                     "Featured but plain", "Verified and complete");
         }
 
@@ -552,17 +713,14 @@ class ListingSearchTest extends AbstractApiTest {
         @Test
         @DisplayName("an explicit price sort is honoured — merit does not outrank the buyer")
         void explicitSortWins() throws Exception {
-            Property dear = rent("Dear and featured");
+            Property dear = featuredRent("Dear and featured");
             dear.setPrice(90000L);
-            dear.setFeatured(true);
-            Property cheap = rent("Cheap and plain");
+            Property cheap = plainRent("Cheap and plain");
             cheap.setPrice(5000L);
             persist(dear);
             persist(cheap);
 
-            // The same rule paid placement obeys, extended to merit: a control
-            // that silently does something other than what it says is worse than no control.
-            assertThat(titles("owner=" + seller.getId() + "&sort=price,asc"))
+            assertThat(titles("q=" + tag + "&sort=price,asc"))
                     .containsExactly("Cheap and plain", "Dear and featured");
         }
 
@@ -576,10 +734,55 @@ class ListingSearchTest extends AbstractApiTest {
             Property newer = rent("Newer and bare");
             persist(newer);
 
-            // A buyer who asked for the newest listings and was shown the best-scoring ones has
-            // been given something other than what the control names.
             assertThat(titles("owner=" + seller.getId() + "&rank=newest").getFirst())
                     .isEqualTo("Newer and bare");
+        }
+
+        @Test
+        @DisplayName("rank=pricePerSqft orders by normalized area and leaves unstated area last")
+        void pricePerSqftUsesNormalizedArea() throws Exception {
+            Property cheap = buy("Cheap per sqft");
+            cheap.setPrice(90_000L);
+            cheap.setArea(new BigDecimal("100"));
+            cheap.setAreaUnit("sqyd");
+            Property costly = buy("Costly per sqft");
+            costly.setPrice(1_000_000L);
+            costly.setArea(new BigDecimal("100"));
+            costly.setAreaUnit("sqft");
+            Property unknown = buy("Unknown per sqft");
+            unknown.setPrice(1L);
+            unknown.setArea(null);
+            persist(costly);
+            persist(unknown);
+            persist(cheap);
+
+            assertThat(titles("owner=" + seller.getId() + "&rank=pricePerSqft"))
+                    .containsExactly("Cheap per sqft", "Costly per sqft", "Unknown per sqft");
+        }
+
+        @Test
+        @DisplayName("rank=verified puts verified rows before the default order")
+        void verifiedRankGroupsVerifiedRowsFirst() throws Exception {
+            Property featured = featuredRent("Featured but unverified");
+            Property verified = plainRent("Verified but plain");
+            verified.setOwnerVerified(true);
+            persist(featured);
+            persist(verified);
+
+            assertThat(titles("q=" + tag + "&rank=verified").getFirst())
+                    .isEqualTo("Verified but plain");
+        }
+
+        @Test
+        @DisplayName("an unknown rank falls back to relevance")
+        void unknownRankFallsBackToRelevance() throws Exception {
+            Property plain = plainRent("Plain rank fallback");
+            Property featured = featuredRent("Featured rank fallback");
+            persist(plain);
+            persist(featured);
+
+            assertThat(titles("q=" + tag + "&rank=surprise").getFirst())
+                    .isEqualTo("Featured rank fallback");
         }
     }
 
@@ -597,8 +800,6 @@ class ListingSearchTest extends AbstractApiTest {
             hidden.setRoom("shared");
             persist(hidden);
 
-            // Asserts the composition, not one filter: a facet added to the wrong builder would
-            // surface unapproved rows anonymously.
             String owner = "&owner=" + seller.getId();
             mvc.perform(get("/properties?pets=true" + owner))
                     .andExpect(status().isOk())
