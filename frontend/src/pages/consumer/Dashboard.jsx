@@ -16,7 +16,7 @@ import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
 import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
 import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
-import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP } from './dashboard/constants.js';
+import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP, buildDashboardGroups } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
 import { listManaged } from '../../services/managedService.js';
 import { listMyServiceRequestInvites } from '../../services/serviceRequestService.js';
@@ -31,7 +31,8 @@ import MobileNav from './dashboard/MobileNav.jsx';
 import DashboardSidebar from './dashboard/DashboardSidebar.jsx';
 import DashboardReviewModal from './dashboard/DashboardReviewModal.jsx';
 import { useDashboardData } from './dashboard/useDashboardData.js';
-import { buildDocGroups, buildActionItems, buildOwnerStats, buildSeekerStats } from './dashboard/dashboardData.js';
+import { attentionFromItems, buildActionItems, buildDocGroups, buildOwnerStats, buildSeekerStats, countUpcomingVisits } from './dashboard/dashboardData.js';
+import { DashboardOverviewSkeleton } from './dashboard/DashboardSkeleton.jsx';
 
 export default function Dashboard() {
   const { t: tr } = useTranslation();
@@ -44,12 +45,11 @@ export default function Dashboard() {
   const location = useLocation();
   const navigate = useNavigate();
   const { unread: chatUnread } = useConversationUnread();
-  const { verified } = useVerification();
+  /* Loaded into state because this is a request: the first paint has an empty array and the tabs appear when the
+     answer lands. */
   // Management tabs unlock on actual inventory, not on role, so a brand-new owner is not handed
   // empty "My Listings / Enquiries / Finances" dead-ends.
-
-  /* Loaded into state because this is a request: the first paint has an empty array and the tabs
-     appear when the answer lands. A failure falls back to empty rather than surfacing. */
+  const { verified } = useVerification();
   const [managedProps, setManagedProps] = useState([]);
   useEffect(() => {
     let live = true;
@@ -60,11 +60,9 @@ export default function Dashboard() {
   }, [user?.mobile]);
   const hasManaged = managedProps.length > 0;
   const ownsInventory = hasManaged;
+  /* Loaded above the tab logic because `listings` decides whether this user is an owner, and that gates which tabs
+     exist at all. */
 
-  /* Loaded above the tab logic because `listings` decides whether this user is an owner, and that
-     gates which tabs exist at all. It comes from `GET /me/listings` in both modes — a localStorage
-     probe only knows what this browser posted, so a real owner answered `false` and got the tenant
-     dashboard. */
   const {
     listings, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
@@ -76,11 +74,12 @@ export default function Dashboard() {
     contactReqsStatus, contactReqsError, retryContactReqs,
     photoReqsStatus, photoReqsError, retryPhotoReqs,
     flatmateReqsStatus, flatmateReqsError, retryFlatmateReqs,
+    appsStatus, appsError, retryApps,
+    isBusy, refreshData,
   } = useDashboardData({ user, toast });
+  /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy — but not for a pure
+     owner who rents nothing. */
   const isOwner = (listings || []).length > 0 || ownsInventory;
-  /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy —
-     but not for a pure owner who rents nothing. The tenancy comes from the server, so an owner who
-     also rents somewhere sees the tab on any device rather than only on the one that recorded it. */
   const [hasTenancy, setHasTenancy] = useState(false);
   useEffect(() => {
     let live = true;
@@ -88,11 +87,9 @@ export default function Dashboard() {
       .then((rows) => { if (live) setHasTenancy((rows || []).length > 0); })
       .catch(() => { if (live) setHasTenancy(false); });
     return () => { live = false; };
+  /* A pending co-fill invite (owner asked this user to add their tenant details) also belongs in "My Rental", so an
+     invited tenant always has a place to act. */
   }, [user?.mobile]);
-  /* A pending co-fill invite (owner asked this user to add their tenant details) also belongs in
-     "My Rental", so an invited tenant always has a place to act. Read from the server for the same
-     reason the tenancy above is: the invitation was created by somebody else, on their device, so
-     a local count is zero for exactly the people the tab exists for. */
   const [hasRentalInvite, setHasRentalInvite] = useState(false);
   useEffect(() => {
     let live = true;
@@ -104,14 +101,19 @@ export default function Dashboard() {
     return () => { live = false; };
   }, [user?.mobile]);
   const showRental = hasTenancy || !isOwner || hasRentalInvite;
+  const hasRentalGroup = hasTenancy || hasRentalInvite;
 
   const visibleTabs = useMemo(
     () => TABS.filter((t) => (!t.owner || isOwner) && (!t.tenant || showRental) && (!t.flag || flagEnabled(t.flag))),
     [isOwner, showRental, flagEnabled],
   );
-
+  const dashboardGroups = useMemo(
+    () => buildDashboardGroups({ visibleTabs, isOwner, showRental, hasRentalGroup }),
+    [visibleTabs, isOwner, showRental, hasRentalGroup],
+  );
   // Resolve the active tab from either the hash (#listings) or a ?tab= query
   // param, so deep-links from anywhere in the app land on the right tab.
+
   const tabFromLocation = () => {
     const h = location.hash.replace('#', '');
     const q = new URLSearchParams(location.search).get('tab') || '';
@@ -123,55 +125,43 @@ export default function Dashboard() {
     if (candidate && TAB_ALIAS[candidate]) return TAB_ALIAS[candidate];
     return { tab: candidate || 'overview' };
   };
-  const initialTarget = (() => {
-    const r = resolveTarget(tabFromLocation());
-    return visibleTabs.some((t) => t.tab === r.tab) ? r : { tab: 'overview' };
-  })();
-  const [tab, setTab] = useState(initialTarget.tab);
-  const [sub, setSub] = useState(initialTarget.sub);
+  const urlTarget = resolveTarget(tabFromLocation());
+  const urlDef = visibleTabs.find((t) => t.tab === urlTarget.tab);
+  const { tab, sub } = urlDef && !urlDef.link ? urlTarget : { tab: 'overview', sub: undefined };
 
   const REVIEW_STATUS = REVIEW_STATUS_MAP;
 
-  const go = (next) => {
+  const go = (next, { replace = false } = {}) => {
     const r = resolveTarget(next);
     const def = visibleTabs.find((t) => t.tab === r.tab);
     if (!def) return;
     // Link-out tabs (e.g. Messages) open a standalone page, not an inline panel.
     if (def.link) { navigate(def.link); return; }
-    const apply = () => { setTab(r.tab); setSub(r.sub); navigate('#' + next, { replace: true }); window.scrollTo(0, 0); };
+    const apply = () => { navigate('#' + next, { replace }); window.scrollTo(0, 0); };
     // Use View Transition API for smooth tab cross-fade (if supported)
     if (document.startViewTransition) document.startViewTransition(apply);
     else apply();
   };
-
   // Keep the active tab in sync with the URL (deep links + back/forward).
+
   useEffect(() => {
-    const r = resolveTarget(tabFromLocation());
-    const def = visibleTabs.find((t) => t.tab === r.tab);
     // A deep link to a link-out tab (#messages) redirects to its real page so we
     // never render a divergent inline version of it.
-    if (def?.link) { navigate(def.link, { replace: true }); return; }
-    if (def) { setTab(r.tab); setSub(r.sub); }
-    else { setTab('overview'); setSub(undefined); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.hash, location.search, isOwner, showRental, flagEnabled]);
+    if (urlDef?.link) navigate(urlDef.link, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- redirect only follows the active URL tab
+  }, [urlDef?.link]);
 
-  const pendingApps = apps.filter((a) => a.status === 'pending').length;
+  const reviewParam = new URLSearchParams(location.search).get('review');
+  useEffect(() => {
+    if (!reviewParam) return;
+    openReview(reviewParam);
+    const rest = new URLSearchParams(location.search);
+    rest.delete('review');
+    navigate({ search: rest.toString() ? `?${rest}` : '', hash: location.hash }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- review deep-link is consumed once
+  }, [reviewParam]);
 
-  // ---- Overview stats: every figure comes from the user's own stores, and an empty one says so
-  // rather than showing a made-up number. ----
-  const totalViews = useMemo(
-    () => listings.reduce((s, l) => s + (Number(l.views) || 0), 0),
-    [listings],
-  );
-  const pendingContacts = contactReqs.filter((r) => r.status === 'pending').length;
-  const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending').length;
-  // A real filter: it keeps a dealt-with request out of the badge, which would otherwise sit there
-  // forever and train owners to ignore it.
-  const pendingPhotoReqs = photoReqs.filter((r) => r.status === 'pending').length;
-  // Buyer document requests, grouped per buyer+property (one due-diligence request =
-  // one lead), counting only groups with at least one pending document.
-  const docGroups = useMemo(() => buildDocGroups(docReqs), [docReqs]);
+  const docGroups = useMemo(() => buildDocGroups(docReqs, listings), [docReqs, listings]);
   const pendingDocGroups = docGroups.filter((g) => g.pendingIds.length > 0);
   const savedCount = saved.count;
   const alertCount = savedSearches.count;
@@ -182,51 +172,51 @@ export default function Dashboard() {
   // call. Starts empty, the same shape as "no history yet", so nothing flashes before the read.
   const [recentSearches, setRecentSearches] = useState([]);
   useEffect(() => {
-    if (isOwner) { setRecentSearches([]); return undefined; }
     let alive = true;
     setRecentSearches([]);
     listRecentSearches()
       .then((rows) => { if (alive) setRecentSearches(rows); })
-      .catch(() => { /* the resume card just stays hidden */ });
+      .catch(() => undefined);
     return () => { alive = false; };
-  }, [isOwner, user?.mobile]);
+  }, [user?.mobile]);
   // Real profile-completion meter (name/email/city + Aadhaar verification).
   const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
-
   // ---- Action Center: what is waiting on this user. Computed per render (small arrays) so the
   // inline handlers below are never stale, and sorted stale-first. ----
+
   const scheduledVisits = useMemo(() => visits.filter((v) => v.status === 'scheduled'), [visits]);
   const actionItems = buildActionItems({
     isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
-    scheduledVisits,
-    decideContact, decideApp, go, decideDocReqs, decidePhotoReq, navigate,
+    scheduledVisits, flatmateReqs, userId: user?.id, openReview, isBusy,
+    decideContact, decideApp, go, decideDocReqs, decidePhotoReq, decideFlatmateReq, mutateVisit, navigate,
   });
   // Badge counts only items genuinely waiting on the owner, matching the Requests panel's
   // "Waiting on you"; an already-contactable enquiry needs no accept/decline decision.
-  const attentionCounts = {
-    leads: pendingContacts + pendingPhotoReqs + pendingFlatmateReqs + pendingDocGroups.length,
-    visits: scheduledVisits.length,
-    messages: chatUnread,
-  };
+  const attentionCounts = { ...attentionFromItems(actionItems), messages: chatUnread };
 
   // Total open leads, computed exactly as the Leads panel computes its own total, so the Overview
   // tile and the panel can never show two different numbers for the same inbox.
-  const leadCount = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length;
-  const ownerStats = buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go });
-  const seekerStats = buildSeekerStats({ savedCount, recent, alertCount, followCount, go });
+  const upcomingVisits = countUpcomingVisits(visits, user?.id);
+  const ownerStats = buildOwnerStats({ listings, items: actionItems, go });
+  const seekerStats = buildSeekerStats({ savedCount, alertCount, followCount, upcomingVisits, go });
+  const hasAnyCoreData = [
+    listings, visits, recent, recommended, alertMatches, contactReqs, photoReqs, flatmateReqs, docReqs, apps,
+  ].some((rows) => (rows || []).length > 0);
+  const personaPending = dataStatus === 'loading' && !hasAnyCoreData;
+  /* Panel components are imported so their identity is stable across Dashboard re-renders: a state change here would
+     otherwise remount the active panel and wipe its internal state. */
 
-  /* Panel components are imported so their identity is stable across Dashboard re-renders: a state
-     change here would otherwise remount the active panel and wipe its internal state. */
   const renderPanel = () => {
+    if (tab === 'overview' && personaPending) return <DashboardOverviewSkeleton />;
     switch (tab) {
       case 'properties':
-        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} />;
+        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} onChanged={refreshData} />;
       case 'rental':
         return <MyRentalPanel user={user} toast={toast} />;
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} decidePhotoReq={decidePhotoReq} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} photoReqsFailed={photoReqsStatus === 'error'} photoReqsError={photoReqsError} onRetryPhotoReqs={retryPhotoReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} flatmateReqsFailed={flatmateReqsStatus === 'error'} flatmateReqsError={flatmateReqsError} onRetryFlatmateReqs={retryFlatmateReqs} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} decidePhotoReq={decidePhotoReq} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} apps={apps} decideApp={decideApp} openReview={openReview} reviewsByProp={reviewsByProp} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} photoReqsFailed={photoReqsStatus === 'error'} photoReqsError={photoReqsError} onRetryPhotoReqs={retryPhotoReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} flatmateReqsFailed={flatmateReqsStatus === 'error'} flatmateReqsError={flatmateReqsError} onRetryFlatmateReqs={retryFlatmateReqs} appsFailed={appsStatus === 'error'} appsError={appsError} onRetryApps={retryApps} isBusy={isBusy} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':
@@ -238,7 +228,7 @@ export default function Dashboard() {
       case 'profile':
         return <ProfileTab user={user} update={update} toast={toast} isOwner={isOwner} />;
       default:
-        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
+        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
     }
   };
 
@@ -249,37 +239,32 @@ export default function Dashboard() {
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Hi, {firstName(user)} <span className="inline-block">👋</span></h1>
           <p className="text-gray-400 text-sm mt-1">Here's your Draazy activity.</p>
         </div>
+        {/* Mobile section switcher — one row that opens a full sheet of all sections, so nothing (and no attention
+           badge) is hidden behind a horizontal scroll. */}
 
-        {/* Mobile section switcher — one row that opens a full sheet of all
-            sections, so nothing (and no attention badge) is hidden behind a
-            horizontal scroll. Desktop uses the sidebar below instead. */}
         <MobileNav
-          tabs={visibleTabs}
+          groups={dashboardGroups}
           activeTab={tab}
           onSelect={go}
           attentionCounts={attentionCounts}
-          user={user}
-          onLogout={logout}
+          loading={personaPending}
           labelFor={(t) => tr('dashboard.tabs.' + t.tab, { defaultValue: t.label })}
         />
 
         <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-6">
           {/* Sidebar */}
           <DashboardSidebar
-            tabs={visibleTabs}
+            groups={dashboardGroups}
             activeTab={tab}
             onSelect={go}
             attentionCounts={attentionCounts}
             user={user}
             onLogout={logout}
+            loading={personaPending}
           />
-
           {/* Content */}
+
           <section>
-            {/* A failed core read is announced above the panels rather than left to be inferred
-                from them (D166). It matters more here than anywhere else: `isOwner` is derived
-                from `listings`, so an owner whose read failed is silently handed the *tenant*
-                dashboard — a wrong product, not just a thin one. */}
             {dataStatus === 'error' && (
               <LoadError message={tr('dash.dashboardLoadError')} error={dataError} onRetry={retryData} className="glass-card rounded-2xl p-5 mb-5" />
             )}
@@ -301,4 +286,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

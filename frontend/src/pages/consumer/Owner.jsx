@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
+import { CARD_SIZES } from '../../lib/imgSrcSet.js';
 import Loading from '../../components/ui/Loading.jsx';
 import { ownerProfile, ownerListings } from '../../services/propertyService.js';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
@@ -306,7 +307,7 @@ export default function Owner() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {listings.map((p) => (
                       <Link key={p.id} to={`/property/${p.id}`} className="prop-row rounded-xl overflow-hidden block group">
-                        <div className="h-32 overflow-hidden"><PropertyImage src={p.image} className="w-full h-full object-cover" alt="" /></div>
+                        <div className="h-32 overflow-hidden"><PropertyImage src={p.image} sizes={CARD_SIZES} className="w-full h-full object-cover" alt="" /></div>
                         <div className="p-3">
                           <p className="text-white font-bold text-sm">{p.deal === 'rent' ? '₹' + (p.price || 0).toLocaleString('en-IN') + t('owner.perMonth') : fmtINR(p.price)}</p>
                           <p className="text-gray-400 text-xs group-hover:text-teal-400 transition-colors">{p.bhkNum ? p.bhkNum + ' BHK ' : ''}{p.type}</p>

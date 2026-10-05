@@ -1,19 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import { avatarFor, timeAgo } from '../../../lib/format.js';
-import { StatusBadge, CallBtn, WhatsAppBtn } from './components.jsx';
-
-/* Lead detail sheet — progressive disclosure for a single request. Reuses the
-   shared Modal (focus trap, Escape, scroll lock) like ListingActionSheet, so it
-   stays one design language. The compact list row is the glance; this sheet is
-   the depth: full context, a private note, a follow-up date, and every action
-   (Approve/Decline, Call, WhatsApp, or the type's primary next step) in one
-   thumb-friendly place.
-
-   `lead` is the normalized descriptor built in EnquiriesPanel; `annotation` is the
-   saved { note, followUpAt }; `onSaveAnnotation(patch)` persists edits. */
+import { CallBtn, WhatsAppBtn } from './components.jsx';
+/* Lead detail sheet — progressive disclosure for a single request. */
 
 const toDateInput = (ts) => {
   if (!ts) return '';
@@ -22,27 +13,74 @@ const toDateInput = (ts) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation }) {
+export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation, busy = false }) {
   const [note, setNote] = useState(annotation?.note || '');
   const [followUp, setFollowUp] = useState(toDateInput(annotation?.followUpAt));
-  if (!lead) return null;
+  const [running, setRunning] = useState(false);
+  const lastSavedNote = useRef(annotation?.note || '');
+  const noteRef = useRef(note);
+  const saveRef = useRef(onSaveAnnotation);
+  noteRef.current = note;
+  saveRef.current = onSaveAnnotation;
 
-  const saveNote = () => {
-    const trimmed = note.trim();
-    if ((annotation?.note || '') !== trimmed) onSaveAnnotation({ note: trimmed });
+  const flushNote = async () => {
+    const trimmed = noteRef.current.trim();
+    if (lastSavedNote.current === trimmed) return true;
+    await saveRef.current({ note: trimmed });
+    lastSavedNote.current = trimmed;
+    return true;
   };
   const saveFollowUp = (v) => {
     setFollowUp(v);
     // Anchor at local noon so the stored timestamp never drifts to the day before.
-    onSaveAnnotation({ followUpAt: v ? new Date(v + 'T12:00').getTime() : null });
+    saveRef.current({ followUpAt: v ? new Date(v + 'T12:00').getTime() : null });
   };
 
-  const run = (fn) => { fn?.(); onClose(); };
+  useEffect(() => () => {
+    const trimmed = noteRef.current.trim();
+    if (lastSavedNote.current !== trimmed) void saveRef.current({ note: trimmed });
+  }, []);
+
+  if (!lead) return null;
+
+  const close = async () => {
+    await flushNote();
+    onClose();
+  };
+
+  const run = async (fn) => {
+    if (!fn || running || busy) return;
+    setRunning(true);
+    try {
+      const ok = await fn();
+      if (ok === false) {
+        setRunning(false);
+        return;
+      }
+      await flushNote();
+      setRunning(false);
+      onClose();
+      return;
+    } catch {
+      setRunning(false);
+      return;
+    }
+  };
   const pending = lead.canApprove && lead.status === 'pending';
+  const actionBusy = running || busy;
+  const statusLabel = {
+    pending: 'Waiting on you',
+    approved: 'Accepted',
+    accepted: 'Accepted',
+    resolved: 'Accepted',
+    granted: 'Accepted',
+    declined: 'Declined',
+    expired: 'Expired',
+  }[String(lead.status || '').toLowerCase()] || 'Declined';
 
   return (
-    <Modal open onClose={onClose} title="Lead details" size="sm">
-      <div className="space-y-5">
+    <Modal open onClose={close} title="Lead details" size="sm">
+      <div className="space-y-5 pb-[var(--dz-safe-b)]">
         <div className="flex items-start gap-3">
           <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-teal to-emerald-500 text-sm font-bold text-white ring-1 ring-white/10">{avatarFor(lead.name)}</div>
           <div className="min-w-0 flex-1">
@@ -51,7 +89,7 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation 
               <Icon name={lead.typeIcon} className="h-3.5 w-3.5 text-brand-teal" /> {lead.typeLabel}
             </p>
           </div>
-          {lead.status ? <StatusBadge status={lead.status} /> : null}
+          {lead.status ? <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-gray-200">{statusLabel}</span> : null}
         </div>
 
         <div className="space-y-2 rounded-xl bg-white/[0.03] p-3.5 text-sm">
@@ -77,7 +115,7 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation 
             id="lead-note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            onBlur={saveNote}
+            onBlur={() => { void flushNote(); }}
             rows={2}
             placeholder="Add a private note about this lead…"
             className="field w-full resize-none rounded-xl px-3.5 py-2.5 text-sm"
@@ -98,22 +136,21 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation 
         </div>
 
         <div className="space-y-2 border-t border-white/10 pt-4">
+          {/* One-sided leads collapse to one full-width button instead of wiring Decline to undefined. */}
           {pending ? (
-            /* One-sided leads exist: a photo request can only be marked done, so the grid collapses
-               to a single full-width button rather than rendering a Decline wired to `undefined`. */
             <div className={lead.decline ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
-              <button onClick={() => run(lead.approve)} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-brand-teal/20 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/30">
+              <button disabled={actionBusy} onClick={() => { void run(lead.approve); }} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-brand-teal/20 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/30 disabled:opacity-50">
                 <Icon name="check" className="h-4 w-4" /> {lead.approveLabel || 'Approve'}
               </button>
               {lead.decline ? (
-                <button onClick={() => run(lead.decline)} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-white/5 text-sm font-semibold text-gray-300 transition hover:bg-white/10">
+                <button disabled={actionBusy} onClick={() => { void run(lead.decline); }} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-white/5 text-sm font-semibold text-gray-300 transition hover:bg-white/10 disabled:opacity-50">
                   <Icon name="x" className="h-4 w-4" /> {lead.declineLabel || 'Decline'}
                 </button>
               ) : null}
             </div>
           ) : null}
           {lead.primaryAction ? (
-            <Link to={lead.primaryAction.to} onClick={onClose} className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-brand-teal/20 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/30">
+            <Link to={lead.primaryAction.to} onClick={() => { void close(); }} className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-brand-teal/20 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/30">
               <Icon name={lead.primaryAction.icon || 'arrow-right'} className="h-4 w-4" /> {lead.primaryAction.label}
             </Link>
           ) : null}

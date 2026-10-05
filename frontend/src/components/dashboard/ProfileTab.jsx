@@ -1,9 +1,8 @@
 import { useState, useId, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import Switch from '../ui/Switch.jsx';
-import Select from '../ui/Select.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import Modal from '../ui/Modal.jsx';
 import VerifyIdentityRedirect from '../auth/VerifyIdentityRedirect.jsx';
@@ -13,10 +12,15 @@ import { initial, roleLabel, firstName } from '../../lib/auth.js';
 import {
   getAppPrefs, setAppPrefs,
 } from '../../lib/localPrefs.js';
-import { getNotificationPreferences, updateNotificationPreferences, NOTIFICATION_PREFERENCE_DEFAULTS } from '../../services/notificationService.js';
+import {
+  getNotificationPreferences,
+  registerPushSubscription,
+  unregisterPushSubscription,
+  updateNotificationPreferences,
+  NOTIFICATION_PREFERENCE_DEFAULTS,
+} from '../../services/notificationService.js';
 import { exportMyData, requestErasure, myErasureRequests } from '../../services/authService.js';
 import { myTenantProfile } from '../../services/rentService.js';
-import { helpPath, splitLangPrefix } from '../../lib/helpUrl.js';
 
 const Card = ({ children, className = '' }) => <div className={'glass-card rounded-2xl ' + className}>{children}</div>;
 const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub }) => (
@@ -24,9 +28,9 @@ const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub }) => (
     <div><h2 className="text-lg font-bold text-white flex items-center gap-2">{icon ? <Icon name={icon} className={'w-5 h-5 ' + iconCls} /> : null} {title}</h2>{sub ? <p className="text-gray-500 text-xs mt-0.5">{sub}</p> : null}</div>
   </div>
 );
-
 // Collapses on mobile (tap the header) but stays open on desktop, so phones get a
 // scannable accordion without changing the web view.
+
 const CollapsibleCard = ({ icon, iconCls = 'text-teal-400', title, sub, defaultOpen = false, children }) => {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
@@ -51,16 +55,16 @@ const CollapsibleCard = ({ icon, iconCls = 'text-teal-400', title, sub, defaultO
     </Card>
   );
 };
-
 // One preference row: label + description on the left, control on the right.
+
 const PrefRow = ({ title, desc, children }) => (
   <div className="flex items-start justify-between gap-4 py-2">
     <div><p className="text-sm text-white font-medium">{title}</p>{desc ? <p className="text-xs text-gray-500 mt-0.5">{desc}</p> : null}</div>
     <div className="flex-shrink-0 pt-0.5">{children}</div>
   </div>
 );
-
 // Trust chips reused in the identity header. Green = confirmed, amber = pending.
+
 const VerifiedChip = ({ label }) => (
   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/12 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
     <Icon name="badge-check" className="w-3 h-3" /> {label}
@@ -83,26 +87,34 @@ const PendingChip = ({ label, title, onClick }) => {
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VAPID_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
-const LANGUAGES = [
-  { value: 'en', label: 'English' },
-  { value: 'mr', label: 'मराठी (Marathi)' },
-  { value: 'hi', label: 'हिंदी (Hindi)' },
-];
+function vapidBytes(key) {
+  const padded = `${key}${'='.repeat((4 - (key.length % 4)) % 4)}`;
+  const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
+}
 
 export default function ProfileTab({ user, update, toast, isOwner }) {
   const { logout } = useAuth();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  const location = useLocation();
+  /* Seeded from the published defaults — the same shape the server returns for a user who has never saved — not from
+     a local copy, which would flash a stale value before the real one. */
   const [form, setForm] = useState({ name: user?.name || '', mobile: user?.mobile || '', email: user?.email || '', city: user?.city || 'Pune' });
-  /* Seeded from the published defaults — the same shape the server returns for a user who has
-     never saved — not from a local copy, which would flash a stale value before the real one. */
   const [prefs, setPrefs] = useState(NOTIFICATION_PREFERENCE_DEFAULTS);
   const [app, setApp] = useState(() => getAppPrefs());
-  /* Not seeded: the server sends these two non-nullable on every `/auth/me`, so there is always a
-     real answer and never a gap to paper over. */
-  const owner = { hideNumber: !!user?.hideNumber, verifiedContactOnly: !!user?.verifiedContactOnly };
+  /* Not seeded: the server sends these two non-nullable on every `/auth/me`, so there is always a real answer and
+     never a gap to paper over. */
+  const owner = {
+    verifiedContactOnly: !!user?.verifiedContactOnly,
+    hideNumber: !!user?.hideNumber,
+    shareActivityStatus: user?.shareActivityStatus !== false,
+    shareReadReceipts: user?.shareReadReceipts !== false,
+  };
+  const pushAvailable = Boolean(VAPID_KEY) && typeof window !== 'undefined' && 'PushManager' in window && 'Notification' in window && 'serviceWorker' in navigator;
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [delText, setDelText] = useState('');
   // An erasure request already in flight. Replaces the form so a user who has asked is told
@@ -111,9 +123,9 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const [erasing, setErasing] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
   const { verified: identityVerified } = useVerification();
+  const nameLocked = Boolean(user?.verified || identityVerified);
+  /* Preferences are account-level, so the panel shows what the platform will honour on whatever device is asking. */
 
-  /* Preferences are account-level, so the panel shows what the platform will honour on whatever
-     device is asking. A failed read is silent — the defaults on screen are already that answer. */
   useEffect(() => {
     let alive = true;
     getNotificationPreferences()
@@ -122,10 +134,22 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     return () => { alive = false; };
   }, []);
 
-  const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
+  useEffect(() => {
+    if (!pushAvailable) return undefined;
+    let alive = true;
+    navigator.serviceWorker.getRegistration('/sw.js')
+      .then((reg) => reg?.pushManager?.getSubscription())
+      .then((sub) => {
+        if (sub) registerPushSubscription(sub.toJSON()).catch(() => {});
+        if (alive) setPushEnabled(!!sub);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [pushAvailable]);
 
-  /* The score is the server's — the person it describes cannot be the one who computes it. Until it
-     arrives the meter shows a dash, because "not known yet" and "you scored nothing" differ. */
+  const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
+  /* The score is the server's — the person it describes cannot be the one who computes it. */
+
   const [trust, setTrust] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -139,49 +163,32 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       .catch(() => {});
     return () => { alive = false; };
   }, [user]);
+  // Mobile is the account key; editing it inline would orphan stored data.
+  // Help URLs carry language, so the prefix must change before HelpLangRoute reads it.
 
-  // App language is a device-level i18n pref (persisted as `dzLang`). Resolve to
-  // the active resource language so the Select reflects what's actually applied.
-  const lang = i18n.resolvedLanguage || i18n.language || 'en';
-  const changeLang = (v) => {
-    i18n.changeLanguage(v);
-    /* `i18n.changeLanguage` switches this device's interface (`dzLang`); `language` on the
-       preferences document is what the platform writes to this user in. Fire-and-forget. */
-    changePrefs({ language: v }, false);
-    // Help pages carry the language in the URL (lib/helpUrl.js), so the prefix has to be
-    // rewritten here or HelpLangRoute reads the stale one and switches the language back.
-    const { lang: urlLang, rest } = splitLangPrefix(location.pathname);
-    if (rest.startsWith('/help') && urlLang !== v) {
-      navigate(helpPath(rest, v) + location.search, { replace: true });
-    }
-    toast('Language updated', 'success');
-  };
-
-  // Mobile is the account's primary key — every stored key is suffixed with it — so editing it
-  // inline would orphan that data. Read-only, and Save omits it.
   const save = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    /* Matches `UserUpdate`'s `@Size(min = 2, max = 80)`: without it the server's refusal surfaces
-       as the generic catch below, with no mention of the field at fault. */
-    if (name.length < 2 || name.length > 80) { toast('Please enter your name (2 to 80 characters)', 'error'); return; }
+    /* Matches `UserUpdate`'s `@Size(min = 2, max = 80)`: without it the server's refusal surfaces as the generic
+       catch below, with no mention of the field at fault. */
+    if (!nameLocked && (name.length < 2 || name.length > 80)) { toast('Please enter your name (2 to 80 characters)', 'error'); return; }
     if (email && !EMAIL_RE.test(email)) { toast('Enter a valid email address', 'error'); return; }
     try {
-      await update({ name, email, city: form.city });
+      await update({ ...(nameLocked ? {} : { name }), email, city: form.city });
       toast('Profile saved', 'success');
     } catch (err) {
-      toast(err?.message || 'Could not save your profile. Please try again.', 'error');
+      toast(err?.code === 'NAME_LOCKED_WHILE_VERIFIED' ? 'Name is locked while verified.' : err?.message || 'Could not save your profile. Please try again.', 'error');
     }
   };
-
   // Only enable Save once an editable field actually changed.
+
   const dirty =
-    form.name.trim() !== (user?.name || '').trim() ||
+    (!nameLocked && form.name.trim() !== (user?.name || '').trim()) ||
     form.email.trim() !== (user?.email || '').trim() ||
     form.city !== (user?.city || 'Pune');
+  /* Optimistic, then reconciled from the write's response; a failure rolls the control back rather than leaving a
+     switch showing a state the server never accepted. */
 
-  /* Optimistic, then reconciled from the write's response; a failure rolls the control back rather
-     than leaving a switch showing a state the server never accepted. */
   const changePrefs = async (patch, announce = true) => {
     const before = prefs;
     setPrefs((p) => ({ ...p, ...patch, quietHours: { ...p.quietHours, ...(patch.quietHours || {}) } }));
@@ -197,9 +204,9 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const changeQuiet = (patch, announce = true) => changePrefs({ quietHours: { ...prefs.quietHours, ...patch } }, announce);
 
   const changeApp = (patch) => { setApp(setAppPrefs(patch)); };
+  /* Saved on the account, not the device: the gate that enforces this runs on the server, where no browser is
+     present. */
 
-  /* Saved on the account, not the device: the gate that enforces this runs on the server, where no
-     browser is present. See docs/flows/consumer/dashboard-owner-hub.md § Retention loop. */
   const changeOwner = async (patch) => {
     try {
       await update(patch);
@@ -209,8 +216,38 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     }
   };
 
-  /* The right of access, answered by the system of record: the server's document is downloaded
-     verbatim, exclusions and all, so a subject is told what was left out. */
+  /* The right of access, answered by the system of record: the server's document is downloaded verbatim, exclusions
+     and all, so a subject is told what was left out. */
+  const changePush = async (enabled) => {
+    if (!pushAvailable || pushBusy) return;
+    setPushBusy(true);
+    try {
+      if (enabled) {
+        const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+        if (permission !== 'granted') throw new Error('Notifications are blocked for this browser.');
+        // Production's Workbox /sw.js imports push-sw.js; dev has no Workbox worker, so register the push one directly.
+        const reg = await navigator.serviceWorker.register(import.meta.env.DEV ? '/push-sw.js' : '/sw.js');
+        const sub = await reg.pushManager.getSubscription()
+          || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes(VAPID_KEY) });
+        await registerPushSubscription(sub.toJSON());
+        setPushEnabled(true);
+        toast('Message alerts enabled on this device', 'success');
+      } else {
+        const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+        const sub = await reg?.pushManager?.getSubscription();
+        const endpoint = sub?.endpoint;
+        if (sub) await sub.unsubscribe();
+        if (endpoint) await unregisterPushSubscription(endpoint);
+        setPushEnabled(false);
+        toast('Message alerts disabled on this device', 'success');
+      }
+    } catch (err) {
+      toast(err?.message || 'Could not update message alerts on this device.', 'error');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   const [exporting, setExporting] = useState(false);
   const downloadData = async () => {
     if (exporting) return;
@@ -272,7 +309,11 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className="text-sm"><span className="mb-1.5 block text-gray-400">Full name</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fld} /></label>
+          <label className="text-sm">
+            <span className="mb-1.5 block text-gray-400">Full name</span>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={nameLocked} className={fld + (nameLocked ? ' opacity-60 cursor-not-allowed' : '')} />
+            {nameLocked ? <p className="mt-1 text-[11px] text-amber-300">Locked while verified</p> : null}
+          </label>
           <div className="text-sm">
             <span className="mb-1.5 block text-gray-400">Mobile</span>
             <div className="flex items-center justify-between gap-2 px-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl">
@@ -296,7 +337,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           </div>
           {identityVerified
             ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 flex-shrink-0"><Icon name="badge-check" className="w-4 h-4" /> Verified</span>
-            : <button onClick={() => setIdentityOpen(true)} className="dz-control dz-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
+            : <button onClick={() => setIdentityOpen(true)} className="dz-control dz-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Verify identity</button>}
         </div>
       </Card>
 
@@ -330,17 +371,22 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           ))}
         </div>
         <div className="mt-3 border-t border-white/5 pt-3 space-y-3">
+          {pushAvailable ? (
+            <PrefRow title="Message alerts on this device" desc="Shows a generic Draazy alert without names or message text.">
+              <Switch checked={pushEnabled} disabled={pushBusy} onChange={changePush} label="Message alerts on this device" />
+            </PrefRow>
+          ) : null}
           <PrefRow title="Quiet hours" desc="Pause non-urgent match & price alerts overnight.">
             <Switch checked={prefs.quietHours.enabled} onChange={(v) => changeQuiet({ enabled: v })} label="Quiet hours" />
           </PrefRow>
           {prefs.quietHours.enabled && (
             <div className="flex items-center gap-3 pl-0.5">
-              <label className="text-xs text-gray-400">From
+              <div className="text-xs text-gray-400">From
                 <TimeField format="24h" value={prefs.quietHours.start} onChange={(v) => changeQuiet({ start: v }, false)} className={fld + ' mt-1'} ariaLabel="Quiet hours start" />
-              </label>
-              <label className="text-xs text-gray-400">To
+              </div>
+              <div className="text-xs text-gray-400">To
                 <TimeField format="24h" value={prefs.quietHours.end} onChange={(v) => changeQuiet({ end: v }, false)} className={fld + ' mt-1'} ariaLabel="Quiet hours end" />
-              </label>
+              </div>
             </div>
           )}
         </div>
@@ -348,34 +394,39 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
       {isOwner && (
         <CollapsibleCard icon="phone-off" iconCls="text-sky-400" title="Owner contact preferences" sub="Choose who can reach you and how buyers connect after you approve.">
-          <PrefRow title="Accept verified contacts only" desc="Only buyers with a Verified badge can request your number or start a chat. Others are prompted to get verified first. Off by default — verification is a badge, not a wall.">
+          <PrefRow title="Accept verified contacts only" desc="Only verified users can ask to contact you or chat.">
             <Switch checked={!!owner.verifiedContactOnly} onChange={(v) => changeOwner({ verifiedContactOnly: v })} label="Accept verified contacts only" />
           </PrefRow>
-          <div className="mt-2 border-t border-white/5 pt-2">
-            {/* Copy deliberately does not promise masking — the preference is stored but nothing
-                on the server reads it yet. See dashboard-owner-hub.md § Retention loop. */}
-            <PrefRow title="Keep my number private" desc="Records that you would rather not share your number directly. We are still rolling out the masking that enforces this, so for now treat it as a preference on your account rather than a guarantee.">
-              <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Keep my number private" />
-            </PrefRow>
+            {/* Copy deliberately does not promise masking — the preference is stored but nothing on the server reads
+               it yet. */}
+          <PrefRow title="Hide my number from approved buyers" desc="Approved buyers can chat with you, but won't see your phone number.">
+            <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Hide my number from approved buyers" />
+          </PrefRow>
+          <div className="mt-2 border-t border-white/5 pt-3">
+            <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <Icon name="shield-check" className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-300" />
+              <div>
+                <p className="text-sm font-medium text-white">{owner.hideNumber ? 'Approved buyers stay in chat.' : 'Approved buyers can call you.'}</p>
+                <p className="mt-0.5 text-xs text-gray-500">You can change this any time.</p>
+              </div>
+            </div>
           </div>
         </CollapsibleCard>
       )}
 
-      <CollapsibleCard icon="globe" iconCls="text-violet-400" title="Language & Appearance" sub="Language and how the interface feels.">
-        <div className="pb-1">
-          <p className="text-sm text-white font-medium">{t('settings.languageTitle')}</p>
-          <p className="text-xs text-gray-500 mt-0.5 mb-2">{t('settings.languageDesc')}</p>
-          <Select value={lang} onChange={changeLang} options={LANGUAGES} ariaLabel={t('settings.languageTitle')} className="max-w-xs" />
-          <p className="text-xs text-gray-500 mt-2">
-            {t('settings.preview')}: <span className="text-gray-300">{t('notifications.title')} · {t('notifications.today')} · {t('notifications.time.justNow')}</span>{' '}
-            <Link to="/notifications" className="text-teal-400 hover:text-teal-300">{t('settings.seeIt')}</Link>
-          </p>
-        </div>
-        <div className="mt-3 border-t border-white/5 pt-2">
-          <PrefRow title="Reduce motion" desc="Minimise animations and transitions across the app.">
-            <Switch checked={!!app.reduceMotion} onChange={(v) => changeApp({ reduceMotion: v })} label="Reduce motion" />
-          </PrefRow>
-        </div>
+      <CollapsibleCard icon="message-square" iconCls="text-teal-400" title="Chat privacy" sub="Control what messaging shares with other people.">
+        <PrefRow title="Show when I'm online" desc="If off, you won't see others' either.">
+          <Switch checked={owner.shareActivityStatus} onChange={(v) => changeOwner({ shareActivityStatus: v })} label="Show when I'm online" />
+        </PrefRow>
+        <PrefRow title="Read receipts" desc="If off, you won't see others' either.">
+          <Switch checked={owner.shareReadReceipts} onChange={(v) => changeOwner({ shareReadReceipts: v })} label="Read receipts" />
+        </PrefRow>
+      </CollapsibleCard>
+
+      <CollapsibleCard icon="palette" iconCls="text-violet-400" title="Appearance" sub="How the interface feels.">
+        <PrefRow title="Reduce motion" desc="Minimise animations and transitions across the app.">
+          <Switch checked={!!app.reduceMotion} onChange={(v) => changeApp({ reduceMotion: v })} label="Reduce motion" />
+        </PrefRow>
       </CollapsibleCard>
 
       <CollapsibleCard icon="shield" iconCls="text-teal-400" title="Privacy & Account" sub="Manage your data and this account.">

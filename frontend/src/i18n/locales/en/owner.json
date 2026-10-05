@@ -4,7 +4,7 @@
     "notFoundBody": "This profile may have been removed or the link is incorrect.",
     "browseListings": "Browse listings",
 
-    "verifiedOwner": "Verified Owner",
+    "verifiedOwner": "Verified owner",
     "zeroBrokerage": "Zero Brokerage",
     "roleLine": "Property Owner · Direct dealing, no middlemen",
     "reviewCount_one": "({{count}} review)",
@@ -23,7 +23,7 @@
     "aboutTitle": "About the Owner",
     "aboutBody": "{{name}} is a verified property owner listing directly on Draazy. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
     "aboutBodyUnverified": "{{name}} lists directly on Draazy. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
-    "badgeVerifiedOwner": "Verified Owner",
+    "badgeVerifiedOwner": "Verified owner",
     "badgeNumberProtected": "Number Protected",
 
     "listingsTitle": "Properties by this Owner",
@@ -67,6 +67,57 @@
     "reportTitle": "Report this owner",
     "reportSubtitle": "Our team reviews every report and keeps it confidential.",
     "reportSuccess": "Thanks for flagging this. Our team will review this owner.",
+
+    "listingStatus": {
+      "badge": "Verified property",
+      "shareCopied": "Listing link copied",
+      "status": {
+        "pending": "Under review",
+        "needsInfo": "Needs info",
+        "confirm": "Confirm your listing",
+        "live": "Live",
+        "notApproved": "Not approved",
+        "underReview": "Under review",
+        "paused": "Paused",
+        "sold": "Sold",
+        "rented": "Rented",
+        "archived": "Archived",
+        "underOffer": "Under offer",
+        "private": "Private"
+      },
+      "line": {
+        "pending": "Our team usually reviews listings within 24 hours.",
+        "confirm": "Draazy posted this for you. Check the details — it goes live only after you confirm.",
+        "underReview": "This listing is off search while Draazy reviews it.",
+        "live": "Buyers can now find and contact you.",
+        "paused": "This listing is paused.",
+        "sold": "This listing is marked sold.",
+        "rented": "This listing is marked rented.",
+        "archived": "This listing is archived.",
+        "underOffer": "This listing is under offer.",
+        "private": "This listing is private."
+      },
+      "actions": {
+        "getBadge": "Get Verified property badge",
+        "view": "View listing",
+        "fixNow": "Fix now",
+        "share": "Share listing",
+        "contactSupport": "Contact support",
+        "supportMessages": "Messages from Draazy Support",
+        "confirm": "Yes, this is my property",
+        "reportWrong": "Something's wrong"
+      },
+      "reasons": {
+        "photos_not_real": "Photos do not look real for this listing.",
+        "duplicate": "This looks like a duplicate listing.",
+        "broker": "This appears to be a broker listing.",
+        "wrong_details": "Some listing details look incorrect.",
+        "locality_unclear": "The locality needs to be clearer.",
+        "document_unreadable": "The ownership document is unreadable.",
+        "name_mismatch": "The owner name does not match the document.",
+        "other": "Our reviewer needs one more detail."
+      }
+    },
 
     "waIntro": "Hi {{name}}, I saw your profile on Draazy and I'm interested in your listings. Are they still available?",
     "waFallbackName": "there"

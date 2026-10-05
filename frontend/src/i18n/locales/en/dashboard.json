@@ -1,7 +1,23 @@
 {
   "dash": {
+    "badge": {
+      "title": "Verified property badge",
+      "notRequested": "Not requested",
+      "underReview": "Under review",
+      "verified": "Verified",
+      "declined": "Not granted",
+      "lineNone": "Upload one of these papers, then ask us to check it.",
+      "lineRequested": "We're checking your papers. You'll get a notification when it's done.",
+      "lineDeclined": "Not granted: {{reason}}. Upload the right paper and ask again.",
+      "lineVerified": "Buyers see the Verified badge on this listing.",
+      "upload": "Upload",
+      "request": "Request Verified badge",
+      "requesting": "Sending…",
+      "requestedToast": "Badge request sent. We'll notify you once it's checked.",
+      "requestFailed": "Could not send the badge request"
+    },
     "vaultTitle": "Document Vault",
-    "vaultSub": "Stored privately on your device — you choose who ever sees these.",
+    "vaultSub": "Private. Only our verification team and people you approve can see them.",
     "ctxOwner": "Property docs",
     "ctxTenancy": "My Tenancy",
     "ctxPersonal": "Personal",
@@ -109,6 +125,7 @@
     "waVisitor": "WhatsApp {{name}}",
     "visitorFallback": "visitor",
     "confirm": "Confirm",
+    "awaitingOwner": "Awaiting owner",
     "markVisited": "Mark visited",
     "reschedule": "Reschedule",
     "cancel": "Cancel",
@@ -315,7 +332,6 @@
     "comingSoon": "Coming soon",
     "formSub": "Only the address, the rent and the start date are needed.",
     "formAddress": "Address of the home you rent",
-    "formLandlord": "Landlord’s name",
     "formRent": "Monthly rent (₹)",
     "formDeposit": "Deposit paid (₹)",
     "formStart": "Lease start",
@@ -330,5 +346,23 @@
     "retry": "Try again",
     "passportSoonSub": "A portable record of rent you have paid — coming soon.",
     "passportSoonBody": "The Rent Passport is a document you hand to a future landlord, so it can only be built from rent Draazy has actually seen move. Paying rent through Draazy is coming; until then the figures above are your own record, not a credential."
+  },
+  "listingLifecycle": {
+    "pause": "Pause",
+    "resume": "Resume",
+    "pauseConfirm": "Pause “{{title}}”? Buyers will stop seeing it in search, but it will still use your listing slot.",
+    "pauseToast": "“{{title}}” paused",
+    "resumeToast": "“{{title}}” is live again",
+    "pauseError": "Could not pause this listing",
+    "resumeError": "Could not resume this listing",
+    "quotaUsed": "{{used}} of {{allowance}} free listing used",
+    "quotaAvailable": "You can post {{allowance}} free listing",
+    "reviewSlaShort": "Review within 24 h",
+    "reviewDelayedShort": "Taking longer",
+    "reviewSla": "Under review — we review new listings within {{hours}} hours",
+    "reviewDelayed": "Taking longer than usual; we’re on it",
+    "submittedAgo": "Submitted {{hours}} h ago",
+    "editResubmit": "Edit & resubmit",
+    "moderatorReason": "Moderator reason: {{reason}}"
   }
 }

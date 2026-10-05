@@ -17,8 +17,7 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
           ? 'bg-rose-500/15 text-rose-300'
           : 'bg-white/[0.06] text-gray-400')
     : '';
-  // Compact layout: icon + number share one row (was stacked), so each tile is
-  // markedly shorter — four fit with far less scroll on a phone.
+  /* Icon and number share one row so four tiles fit with less phone scroll. */
   const body = (
     <>
       <div className="flex items-center gap-2.5">
@@ -36,8 +35,7 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
       ) : null}
     </>
   );
-  // When a target is provided, the whole tile becomes a keyboard-focusable button that
-  // jumps to the tab behind the number — turning a passive stat into navigation.
+  /* With a target, the tile becomes a keyboard-focusable button into that tab. */
   if (onClick) {
     return (
       <button
@@ -52,14 +50,14 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
   }
   return <Card className="p-3.5 sm:p-4">{body}</Card>;
 }
+/* Horizontal sub-navigation used inside consolidated tabs (Activity, My Properties) to switch between grouped
+   sub-sections without adding more top-level tabs. */
 
-/* Horizontal sub-navigation used inside consolidated tabs (Activity, My Properties)
-   to switch between grouped sub-sections without adding more top-level tabs. */
 export function SubNav({ items, active, onChange, variant = 'pill' }) {
   if (!items || items.length < 2) return null;
-
   // Underline variant reuses the app-wide `.dz-detail-tab` style so every tab strip reads as one
   // standard.
+
   if (variant === 'underline') {
     return (
       <HScroll role="tablist" fadeColor="var(--brand-bg, #0e0c1a)" wrapClassName="mb-5" className="flex gap-1 sm:gap-2 border-b border-white/10">
@@ -113,9 +111,8 @@ export const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub, actio
     {action ? <div className="w-full sm:w-auto sm:flex-shrink-0">{action}</div> : null}
   </div>
 );
+/* Tints for the request-row leading chip. */
 
-/* Tints for the request-row leading chip. Kept to the brand-teal family plus a few
-   restrained semantic accents so every Requests sub-tab reads as one system. */
 const CHIP_TINTS = {
   teal: 'bg-brand-teal/15 text-brand-teal',
   amber: 'bg-amber-400/15 text-amber-300',
@@ -123,22 +120,21 @@ const CHIP_TINTS = {
   violet: 'bg-violet-400/15 text-violet-300',
   emerald: 'bg-emerald-400/15 text-emerald-300',
 };
+/* Borderless "quiet list" wrapper for request/lead rows: the outer Card is the only frame; inside, rows are separated
+   by a single hairline divider, not a full box. */
 
-/* Borderless "quiet list" wrapper for request/lead rows: the outer Card is the only frame; inside,
-   rows are separated by a single hairline divider, not a full box. */
 export const RequestList = ({ children }) => (
   <div className="-mx-3 divide-y divide-white/[0.05]">{children}</div>
 );
+/* Per-row urgency pill tints. */
 
-/* Per-row urgency pill tints. `hot` = SLA breached (needs a reply now), `warm` =
-   ageing, so the most-at-risk lead is instantly recognizable in a scan. */
 const URGENCY_TINTS = {
   hot: 'bg-rose-500/15 text-rose-300',
   warm: 'bg-amber-400/15 text-amber-300',
 };
+/* The identity block is `basis-full` on phones so the actions passed via `children` wrap onto their own
+   thumb-friendly row rather than squeezing the name; from `sm` up they sit inline. */
 
-/* The identity block is `basis-full` on phones so the actions passed via `children` wrap onto their
-   own thumb-friendly row rather than squeezing the name; from `sm` up they sit inline. */
 export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, time, urgency, attention = false, onOpen, children }) {
   const chip = CHIP_TINTS[tint] || CHIP_TINTS.teal;
   const urgent = urgency?.level === 'hot';
@@ -194,11 +190,8 @@ export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, ti
     </div>
   );
 }
+/* Shared quick-action chips for a lead's contact number. */
 
-/* Shared quick-action chips for a lead's contact number. Icon-only (h-11 w-11)
-   in dense list rows; pass `label` for the full-width buttons in the detail sheet.
-   Both meet the 44px touch-target minimum. Numbers are reduced to digits so a
-   malformed value can't break out of the tel:/wa.me URL. */
 const dialDigits = (m) => String(m == null ? '' : m).replace(/\D/g, '');
 export function CallBtn({ mobile, name, label }) {
   const digits = dialDigits(mobile);
@@ -220,8 +213,8 @@ export function WhatsAppBtn({ mobile, name, label }) {
     </a>
   );
 }
-
 /* Small amber chip flagging a lead the owner scheduled a follow-up for. */
+
 export function FollowUpChip({ ts }) {
   if (!ts) return null;
   const label = new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
@@ -231,9 +224,8 @@ export function FollowUpChip({ ts }) {
     </span>
   );
 }
+/* Consistent empty state for a Requests sub-tab — an invitation, not a dead end. */
 
-/* Consistent empty state for a Requests sub-tab — an invitation, not a dead end.
-   An optional `cta` ({ to, label }) turns the empty inbox into a next action. */
 export const RequestEmpty = ({ icon = 'inbox', text, cta }) => (
   <div className="flex flex-col items-center gap-3 py-10 text-center">
     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.04]">
@@ -249,11 +241,12 @@ export const RequestEmpty = ({ icon = 'inbox', text, cta }) => (
 );
 
 export const StatusBadge = ({ status }) => {
+  const statusKey = String(status || '').toLowerCase();
   const map = {
     approved: 'bg-emerald-500/15 text-emerald-300',
     pending: 'bg-amber-500/15 text-amber-300',
-    'Under Review': 'bg-amber-500/15 text-amber-300',
-    rejected: 'bg-rose-500/15 text-rose-300',
+    'under review': 'bg-amber-500/15 text-amber-300',
+    rejected: 'bg-white/5 text-gray-300',
     scheduled: 'bg-indigo-500/15 text-indigo-300',
     closed: 'bg-emerald-500/15 text-emerald-300',
     responded: 'bg-indigo-500/15 text-indigo-300',
@@ -265,12 +258,13 @@ export const StatusBadge = ({ status }) => {
     declined: 'bg-rose-500/15 text-rose-300',
   };
   const displayLabel = {
-    pending: 'Under Review',
-    'Under Review': 'Under Review',
+    pending: 'Pending',
+    'under review': 'Pending',
+    rejected: 'Not approved',
   };
-  const label = displayLabel[status] || String(status || '').replace('_', ' ');
+  const label = displayLabel[statusKey] || String(status || '').replace('_', ' ');
   return (
-    <span className={'text-[11px] px-2 py-0.5 rounded-full font-semibold capitalize ' + (map[status] || 'bg-white/10 text-gray-300')}>
+    <span className={'text-[11px] px-2 py-0.5 rounded-full font-semibold capitalize ' + (map[statusKey] || 'bg-white/10 text-gray-300')}>
       {label}
     </span>
   );
