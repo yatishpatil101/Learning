@@ -57,9 +57,8 @@ spec:
           resources:
             limits:
               cpu: '1'
-              # 1Gi, not 512Mi: -XX:MaxRAMPercentage=75 leaves only 128Mi of non-heap at 512Mi and
-              # the container is OOM-killed during startup, after the health check begins waiting.
-              memory: 1Gi
+              # 2Gi leaves room for heap, metaspace and class definitions across 105 entities.
+              memory: 2Gi
 
           env:
             # `sandbox` alone — a standalone profile that adds the demo seed, overriding the
@@ -203,14 +202,13 @@ spec:
                   key: latest
 
           # HTTP, not TCP: a TCP probe passes the moment Tomcat binds, before the context is ready.
-          # 30 × 5s of grace covers a cold JVM that also has a slow Flyway migration to apply.
           startupProbe:
             httpGet:
               path: /api/actuator/health/readiness
             initialDelaySeconds: 10
             timeoutSeconds: 5
             periodSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 60
 
           # The `liveness` group deliberately excludes the database indicator — restarting the
           # container is no part of the remedy for Supabase being down.
