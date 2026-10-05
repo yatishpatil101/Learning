@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
+import { Chips, QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import Switch from '../../components/ui/Switch.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import AdminFlagsPanel from './settings/AdminFlagsPanel.jsx';
@@ -300,14 +301,9 @@ export default function AdminSettings() {
     <div>
       <PageHeader title="Settings" subtitle="Site details, the fee schedule and feature flags." />
 
-      <div className="mb-5 flex gap-1 overflow-x-auto no-scrollbar rounded-xl border border-white/10 bg-white/5 p-1 sm:overflow-visible">
-        {TABS.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={classNames('flex-none whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition sm:flex-1', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <QueueTabs tabs={TABS.map(([key, label]) => ({ key, label, count: null }))} active={tab} onChange={setTab} label="Settings sections" idPrefix="settings" />
 
+      <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
       {/* General */}
       {tab === 'general' && (
         <div className="max-w-2xl space-y-5">
@@ -429,20 +425,13 @@ export default function AdminSettings() {
       {/* Feature Flags — contains sub-tabs for Application and Admin Modules */}
       {tab === 'flags' && (
         <div>
-          {/* Sub-tab bar */}
-          <div className="mb-4 flex gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1 w-max">
-            <button
-              onClick={() => setFlagSubTab('application')}
-              className={classNames('rounded-md px-3.5 py-1.5 text-sm font-medium transition', flagSubTab === 'application' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200')}
-            >
-              Application
-            </button>
-            <button
-              onClick={() => setFlagSubTab('admin')}
-              className={classNames('rounded-md px-3.5 py-1.5 text-sm font-medium transition', flagSubTab === 'admin' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200')}
-            >
-              Admin Modules
-            </button>
+          <div className="mb-4">
+            <Chips
+              label="Flag group"
+              options={[{ value: 'application', label: 'Application' }, { value: 'admin', label: 'Admin Modules' }]}
+              value={flagSubTab}
+              onChange={setFlagSubTab}
+            />
           </div>
 
           {/* Application flags — grouped two-column layout */}
@@ -477,6 +466,7 @@ export default function AdminSettings() {
           )}
         </div>
       )}
+      </div>
 
       {/* Confirmation dialog for flag changes */}
       <ConfirmDialog

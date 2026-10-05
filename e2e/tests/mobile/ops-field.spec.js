@@ -39,13 +39,13 @@ async function openDesk(page, login) {
   await login.asStaff(TYPE);
   await page.goto(`/ops/drafting-desk?type=${TYPE}`);
   await expect(page).toHaveURL(/\/admin\/valuation/);
-  await expect(page.getByRole('heading', { name: 'Property Valuation' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Property Valuation', level: 1 })).toBeVisible();
   // In live mode the screen must render the queue, not the offline panel.
   await expect(page.getByText(/needs the live API/i)).toHaveCount(0);
 }
 
-/** Our row as it appears on a phone: the queue's card renderer, matched on its own text. */
-const ourCard = (page) => page.locator('button.dz-card').filter({ hasText: OUR_FLAT }).first();
+/** Our row as it appears on a phone: the queue's row card, matched on its own text. */
+const ourCard = (page) => page.getByTestId('queue-row').filter({ hasText: OUR_FLAT }).first();
 
 test.describe('Drafting desk in the field', () => {
   test.beforeEach(async () => { await seedRequest(); });
@@ -54,16 +54,13 @@ test.describe('Drafting desk in the field', () => {
     test.slow();
     await openDesk(page, login);
 
-    await test.step('the queue falls back to stacked cards instead of a cut-off table', async () => {
-      // Table.jsx renders the mobileCard branch below `sm` and hides the grid; a
-      // queue with no card renderer would be a horizontally-clipped table here.
+    await test.step('the queue renders stacked row cards instead of a cut-off table', async () => {
       await expect(ourCard(page)).toBeVisible();
       await expect(page.getByRole('table')).toBeHidden();
     });
 
     await test.step('a queue card is a real touch target, not a dense table row', async () => {
-      /* The card *is* the control — the desk has no separate "Open" button on a phone. It carries
-         three lines of content, so this fails only if someone turns the card back into a row. */
+      /* The card carries three lines of content, so this fails only if someone turns it back into a dense row. */
       const box = await ourCard(page).boundingBox();
       expect(box, 'the card is laid out').not.toBeNull();
       expect(box.height, 'card height').toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
@@ -72,7 +69,7 @@ test.describe('Drafting desk in the field', () => {
     await test.step('every control in the open record clears the touch minimum', async () => {
       /* The read-only checklist has no named controls, so this sweeps whatever the sheet renders and
          refuses to report a pass on an empty sweep — otherwise it passes loudest when nothing opened. */
-      await ourCard(page).click();
+      await ourCard(page).getByRole('button', { name: 'Open', exact: true }).click();
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();

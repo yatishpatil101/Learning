@@ -4,7 +4,7 @@ import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { listLocalities } from '../../services/localityService.js';
 import { listCityWaitlist } from '../../services/cityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Tabs from '../../components/ui/Tabs.jsx';
+import { QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
 import {
   localityPricing,
@@ -174,29 +174,21 @@ export default function AdminAnalytics() {
     optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
   ].filter(Boolean);
 
-  /*
-   * Resolved against the tabs that exist, not taken from the URL as read.
-   *
-   * `searchParams.get('tab') || 'traffic'` handles a missing parameter and nothing else: any other
-   * value selects a tab that is not in the list, and `Tabs` renders the strip with nothing under
-   * it. Retired tabs keep real addresses in bookmarks and pasted links, and a heading above an
-   * empty page reads as an outage rather than as a removal.
-   *
-   * The same hole swallows a tab an operator has switched off in Settings: the flags filter the
-   * list, so deep-linking a disabled tab produces the identical blank. Falling back to the first
-   * tab that survived both filters is the only answer that cannot render nothing.
-   */
+  /* Resolve against existing tabs, not the raw URL: an unknown or switched-off tab would render an empty page. */
   const activeTab = tabs.some((t) => t.key === requestedTab) ? requestedTab : tabs[0]?.key;
 
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Traffic, engagement & geographic insights" />
-      <div className="mt-6">
-        <Tabs
-          active={activeTab}
-          onChange={(key) => setSearchParams({ tab: key }, { replace: true })}
-          items={tabs}
-        />
+      <QueueTabs
+        tabs={tabs.map(({ key, label }) => ({ key, label, count: null }))}
+        active={activeTab}
+        onChange={(key) => setSearchParams({ tab: key }, { replace: true })}
+        label="Analytics reports"
+        idPrefix="analytics"
+      />
+      <div id="analytics-panel" role="tabpanel" aria-labelledby={`analytics-tab-${activeTab}`}>
+        {tabs.find((t) => t.key === activeTab)?.content}
       </div>
     </div>
   );

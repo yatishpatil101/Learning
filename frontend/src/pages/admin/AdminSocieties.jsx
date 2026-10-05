@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Building2, ShieldCheck, Home, BadgeCheck, Check, GitMerge, Sparkles, Flag } from 'lucide-react';
-import { fmtNum, classNames } from '../../lib/format.js';
+import { BadgeCheck, Check, GitMerge, Sparkles } from 'lucide-react';
+import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import { useSocietySearch } from '../../lib/useSocietySearch.js';
@@ -14,7 +14,7 @@ import {
 } from '../../services/societyService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import HScroll from '../../components/ui/HScroll.jsx';
+import { QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import useScrollLock from '../../hooks/useScrollLock.js';
 import { titleCase, fmtDate, Chip, DUPES_FAILED } from './societies/helpers.jsx';
 import ClaimsTab from './societies/ClaimsTab.jsx';
@@ -27,6 +27,14 @@ import ModerationTab from './societies/ModerationTab.jsx';
    use 25 because they inherited it from the flatmate boards; this one has no such history, so it
    takes the server's number and asking for a page becomes a request with nothing to disagree about. */
 const DIR_PAGE_SIZE = 20;
+
+const NOTES = {
+  claims: 'RWA / committee requests to manage a society. Approving flips the public hub to “Managed on Draazy”. Tab count = pending claims.',
+  residents: 'Residents proving they live in a society. Verifying grants a Resident badge on their reviews & answers.',
+  candidates: 'Auto-minted societies (from listings & searcher demand). Verify the real ones; merge duplicates into the canonical society — listings & followers redirect.',
+  moderation: 'Resident-proposed WhatsApp group links (shared with verified residents only, never the public) and society pin corrections (anti-scam gate).',
+  directory: 'Every society. Edits are stored as an overlay on the catalogue.',
+};
 
 /**
  * A `details` proposal, dressed as the shape the candidates tab and the review dialog render.
@@ -464,16 +472,13 @@ export default function AdminSocieties() {
     toast('Society details saved', 'success');
   };
 
-  const KPIS = [
-    /* `dir.total`, not `dir.items.length` — the page is twenty rows and the tile means "how many
-       societies exist". Reading the array shows 20 with no compile error and no failing assertion
-       beyond the one spec that pins it above 300. It follows the search box: with a filter applied
-       the tile is the size of the filtered set, which is the number the operator is looking at. */
-    { label: 'Societies', value: dir.status === 'ready' ? fmtNum(dir.total) : '—', icon: Building2, tab: 'directory' },
-    { label: 'Pending claims', value: fmtNum(pendingClaims), icon: ShieldCheck, tab: 'claims' },
-    { label: 'Pending residents', value: fmtNum(pendingRes), icon: Home, tab: 'residents' },
-    { label: 'Candidates', value: fmtNum(candidates.length), icon: Sparkles, tab: 'candidates' },
-    { label: 'Pending moderation', value: fmtNum(waPending.length + locFixes.length), icon: Flag, tab: 'moderation' },
+  const tabs = [
+    { key: 'claims', label: 'Claims', count: pendingClaims },
+    { key: 'residents', label: 'Residents', count: pendingRes },
+    { key: 'candidates', label: 'Candidates', count: candidates.length },
+    { key: 'moderation', label: 'Moderation', count: waPending.length + locFixes.length },
+    /* `dir.total`, not `items.length`: the page holds twenty rows but the count means all matching societies. */
+    { key: 'directory', label: 'Directory', count: dir.status === 'ready' ? dir.total : null },
   ];
 
   const inp = 'w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-teal-400/50';
@@ -486,42 +491,19 @@ export default function AdminSocieties() {
         <div role="alert" className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
           The {queueErrors.join(' and ')} {queueErrors.length > 1 ? 'queues' : 'queue'} could not be
           loaded, so {queueErrors.length > 1 ? 'those tabs are' : 'that tab is'} showing nothing
-          rather than nothing to do. The counts above are wrong for the same reason.{' '}
+          rather than nothing to do. The tab counts are wrong for the same reason.{' '}
           <button onClick={() => setBump((n) => n + 1)} className="underline underline-offset-2">Retry</button>
         </div>
       ) : null}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {KPIS.map((k) => (
-          <div key={k.label} onClick={() => setTab(k.tab)} className="dz-card p-4 cursor-pointer hover:bg-white/5">
-            <div className="flex items-start justify-between">
-              <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><k.icon className="h-4 w-4" /></span>
-            </div>
-          </div>
-        ))}
-      </div>
+      <QueueTabs label="Society queues" active={tab} onChange={setTab} tabs={tabs} />
 
-      <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-4" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['claims', 'Claims'], ['residents', 'Resident Verifications'], ['candidates', 'Candidates'], ['directory', 'Directory'], ['moderation', 'Moderation']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            {label}
-          </button>
-        ))}
-      </HScroll>
-
-      <p className="mb-2 text-xs text-gray-400">
-        {tab === 'claims' ? 'RWA / committee requests to manage a society. Approving flips the public hub to “Managed on Draazy”.'
-          : tab === 'residents' ? 'Residents proving they live in a society. Verifying grants a Resident badge on their reviews & answers.'
-            : tab === 'candidates' ? 'Auto-minted community societies (from listings & searcher demand) awaiting review. Verify the real ones; merge duplicates into a canonical society — listings & followers redirect automatically.'
-              : tab === 'moderation' ? 'Community moderation queue. Approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
-                : 'All societies with admin overlay. Edits are stored as an overlay on the static catalogue.'}
-      </p>
-      {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} deciding={deciding} viewCertificate={viewCertificate} opening={opening} /> : null}
-      {tab === 'residents' ? <ResidentsTab residents={residents} decideResident={decideResident} deciding={deciding} /> : null}
-      {tab === 'candidates' ? <CandidatesTab candidates={candidateRows} merges={merges} suggestions={suggestions} suggMap={suggMap} setMerge={setMerge} setReview={setReview} verifyCand={verifyCand} openMerge={openMerge} undoMerge={undoMerge} deciding={deciding} /> : null}
+      {tab === 'claims' ? <ClaimsTab note={NOTES.claims} claims={claims} decideClaim={decideClaim} deciding={deciding} viewCertificate={viewCertificate} opening={opening} /> : null}
+      {tab === 'residents' ? <ResidentsTab note={NOTES.residents} residents={residents} decideResident={decideResident} deciding={deciding} /> : null}
+      {tab === 'candidates' ? <CandidatesTab note={NOTES.candidates} candidates={candidateRows} merges={merges} suggestions={suggestions} suggMap={suggMap} setMerge={setMerge} setReview={setReview} verifyCand={verifyCand} openMerge={openMerge} undoMerge={undoMerge} deciding={deciding} /> : null}
       {tab === 'directory' ? (
         <DirectoryTab
+          note={NOTES.directory}
           state={dir}
           query={dirQuery}
           onQuery={setDirQuery}
@@ -531,7 +513,7 @@ export default function AdminSocieties() {
           openEdit={openEdit}
         />
       ) : null}
-      {tab === 'moderation' ? <ModerationTab waPending={waPending} locFixes={locFixes} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
+      {tab === 'moderation' ? <ModerationTab note={NOTES.moderation} waPending={waPending} locFixes={locFixes} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
 
       {edit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>

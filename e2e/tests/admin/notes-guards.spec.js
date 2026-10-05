@@ -123,7 +123,7 @@ test('the Add note button refuses whitespace, and takes real text', async ({ pag
   await login.asAdmin();
   await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
-  await page.locator('table').locator('[title="View activity"]').first().click();
+  await page.getByTestId('queue-row').locator('[title="View activity"]').first().click();
 
   const notes = page.getByTestId('user-notes');
   const add = notes.getByRole('button', { name: 'Add note' });

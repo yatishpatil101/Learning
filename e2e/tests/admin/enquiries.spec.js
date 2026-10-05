@@ -13,7 +13,7 @@ async function openBoard(page, tab) {
   await page.goto(tab ? `/admin/enquiries?tab=${tab}` : '/admin/enquiries');
   await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toBeVisible();
   // The row landing is the signal that the list call answered; the heading renders before it.
-  await expect(page.locator('table tbody tr').first()).toBeVisible();
+  await expect(page.getByTestId('queue-row').first()).toBeVisible();
 }
 
 test('every tab masks its own contact column, and the board lists the seeded enquiries', async ({ page, login, consoleErrors }) => {
@@ -21,7 +21,7 @@ test('every tab masks its own contact column, and the board lists the seeded enq
   await openBoard(page);
 
   // Asserting the number rather than "more than zero" fails a board that silently returned an empty page.
-  await expect(page.getByRole('button', { name: /^Enquiries \(8\)/ })).toBeVisible();
+  await expect(page.getByTestId('tab-count-enquiries')).toHaveText('8');
 
   /* Three tabs, three different records behind them — requester, visitor, counterparty. A masking fix written
      against `users.mobile` would pass the enquiries tab and leak on the deals one. */
@@ -30,14 +30,13 @@ test('every tab masks its own contact column, and the board lists the seeded enq
 
     /* The vacuity guard: `toHaveCount(0)` on a raw number is also satisfied by a table that rendered nothing,
        which is what a broken list call produces. The tab label carries the server's own row count. */
-    const label = await page.getByRole('button', { name: new RegExp(`^${tab[0].toUpperCase()}${tab.slice(1)} \\(\\d+\\)`) }).innerText();
-    const rows = Number(label.match(/\((\d+)\)/)[1]);
+    const rows = Number(await page.getByTestId(`tab-count-${tab}`).innerText());
 
     if (rows > 0) {
       /* Where the number reaches a human differs by tab. The deals table has no contact column at all, so a
          sweep over it is vacuous — that number is rendered in the row's own detail modal. */
       if (tab === 'deals') {
-        await page.locator('table tbody tr').first().locator('[title="View"]').click();
+        await page.getByTestId('queue-row').first().locator('[title="View"]').click();
         const detail = page.getByRole('dialog', { name: /^Deal · / });
         await expect(detail).toBeVisible();
         await expect(detail.getByText(MASKED),
@@ -86,7 +85,7 @@ test('revealing a contact unmasks that one row and records who asked', async ({ 
 
 /* The tile counted two words out of the *browser store's* vocabulary, which the live server never emits, so
  * it rendered `0` — and nobody double-checks a zero. Hence the non-zero assertion before the comparison. */
-test('the awaiting-owner tile counts what the server calls pending', async ({ page, login }) => {
+test('the awaiting-owner chip counts what the server calls pending', async ({ page, login }) => {
   const headers = await authHeaders(ACTORS.admin);
   const res = await fetch(`${API}/admin/enquiries?status=pending&size=200`, { headers });
   expect(res.status, 'GET /admin/enquiries?status=pending').toBe(200);
@@ -100,9 +99,7 @@ test('the awaiting-owner tile counts what the server calls pending', async ({ pa
   await login.asAdmin();
   await openBoard(page);
 
-  const tile = page.locator('.dz-card').filter({ hasText: 'Awaiting owner' }).first();
-  await expect(tile).toBeVisible();
-  await expect(tile.locator('.text-2xl')).toHaveText(String(pending));
+  await expect(page.getByRole('group', { name: 'Status' }).getByRole('button', { name: `Awaiting owner ${pending}`, exact: true })).toBeVisible();
 });
 
 /* The one note call site that addresses a listing by **uuid**; every other passes the slug, so a note filed
@@ -145,7 +142,7 @@ test('a lead marked responded is on the case file the moderator opens', async ({
 
   /* Scoped to the row read out of the API rather than `.first()`, so the note found afterwards is the one this
      click produced. The count guard rules out two leads from the same person on the same listing. */
-  const row = page.locator('table tbody tr').filter({ hasText: lead.requesterName });
+  const row = page.getByTestId('queue-row').filter({ hasText: lead.requesterName });
   await expect(row).toHaveCount(1);
   await row.getByRole('button', { name: 'Responded' }).click();
   await expect(page.getByRole('alert')).toContainText('Note added to the listing');

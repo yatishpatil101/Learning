@@ -6,7 +6,7 @@ import { classNames, fmtNum } from '../../../lib/format.js';
 import Badge from '../../../components/ui/Badge.jsx';
 import Loading from '../../../components/ui/Loading.jsx';
 import {
-  CHIP, CHIP_TONE, Chips, ClearFilters, PageNav, QueuePanel, RowCard, RowList, SearchBox, useClientPaging,
+  BTN, CHIP, CHIP_TONE, Chips, ClearFilters, PageNav, QueuePanel, RowCard, RowList, SearchBox, useClientPaging,
 } from '../../../components/admin/WorkQueue.jsx';
 
 /* Reviews are taken down through `PATCH /reviews/{id}/status`, not the report queue; `rejected` both hides the text and drops it from the rating aggregate. */
@@ -89,8 +89,8 @@ export default function ReviewsTab() {
             chips={r.text ? <p className="text-sm text-gray-300">{r.text}</p> : null}
             primary={(
               <>
-                {r.status !== 'published' ? <button type="button" onClick={() => decide(r, 'published')} className="dz-btn dz-btn-primary dz-btn-sm">Approve</button> : null}
-                {r.status !== 'rejected' ? <button type="button" onClick={() => decide(r, 'rejected')} className="dz-btn dz-btn-ghost dz-btn-sm border-rose-400/30 text-rose-300 hover:bg-rose-500/10">Reject</button> : null}
+                {r.status !== 'published' ? <button type="button" onClick={() => decide(r, 'published')} className={BTN.primary}>Approve</button> : null}
+                {r.status !== 'rejected' ? <button type="button" onClick={() => decide(r, 'rejected')} className={BTN.danger}>Reject</button> : null}
               </>
             )}
           />

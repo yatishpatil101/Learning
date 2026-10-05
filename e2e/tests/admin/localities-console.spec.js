@@ -44,12 +44,10 @@ async function discard(id) {
     { status: 'rejected', reasonCode: 'other', reason: 'Zztest cleanup — synthetic queue fixture' });
 }
 
-// These specs run on desktop, so they scope to the table.
+// Queue rows are cards; the Directory stays a table (these specs run on desktop).
+const row = (page, name) => page.getByTestId('queue-row').filter({ hasText: name });
 const table = (page) => page.getByRole('table');
-const row = (page, name) => table(page).locator('tr').filter({ hasText: name });
-
-// KPI tiles and empty state share `.dz-card`, so copy alone is not a stable locator.
-const kpi = (page, label) => page.locator('.dz-card', { hasText: label }).first();
+const dirRow = (page, name) => table(page).locator('tr').filter({ hasText: name });
 
 // Open the console and wait for the queue response, rather than for the page to settle.
 async function openConsole(page, tab = 'pending') {
@@ -73,7 +71,7 @@ test.describe('LIVE: the localities console', () => {
       await expect(page.getByRole('heading', { name: 'Localities' })).toBeVisible();
       await expect(row(page, 'Zztest console subject')).toContainText(UNPLACEABLE);
       // Not `toContainText('1')`.
-      await expect(kpi(page, 'Awaiting a locality')).toContainText(/\d/);
+      await expect(page.getByTestId('tab-count-pending')).toHaveText(/^\d/);
       expect(consoleErrors).toEqual([]);
 
       // Deliberately NOT also asserting the row is gone.
@@ -136,7 +134,7 @@ test.describe('LIVE: the localities console', () => {
     await discard(id);
   });
 
-  test("the Directory tab lists the server's areas, and the KPI tiles double as tab shortcuts", async ({ page, login }) => {
+  test("the Directory tab lists the server's areas, and the tabs switch between the two views", async ({ page, login }) => {
     await login.asAdmin();
     await test.step('the Directory tab lists the areas listings can be filed under', async () => {
       await openConsole(page, 'directory');
@@ -153,12 +151,12 @@ test.describe('LIVE: the localities console', () => {
 
       // And the status column is the server's `active` bit rather than a decoration.
       const first = catalogue[0];
-      await expect(row(page, first.name).first()).toContainText(first.active === false ? 'Retired' : 'Live');
+      await expect(dirRow(page, first.name).first()).toContainText(first.active === false ? 'Retired' : 'Live');
     });
-    await test.step('KPI tiles double as tab shortcuts', async () => {
+    await test.step('the Directory tab is one click from the queue', async () => {
       await openConsole(page);
 
-      await kpi(page, 'Localities').click();
+      await page.getByRole('tab', { name: /^Directory/ }).click();
       await expect(page).toHaveURL(/tab=directory/);
     });
   });
@@ -171,14 +169,14 @@ test.describe('LIVE: the localities console', () => {
 
     await openConsole(page);
     if (baseline.length === 0) {
-      await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
+      await expect(page.getByText(/Nothing awaiting a locality/i)).toBeVisible();
     }
 
     // Now put a row in the queue. The sentence has to go, or its presence above was worth nothing.
     const id = await unfiledListing('Zztest empty state cycle');
     await openConsole(page);
     await expect(row(page, 'Zztest empty state cycle')).toBeVisible();
-    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toHaveCount(0);
+    await expect(page.getByText(/Nothing awaiting a locality/i)).toHaveCount(0);
 
     // File it the way a curator would, then confirm the server agrees the queue is empty again
     // before asking the screen — the response is the source of truth, the screen is the claim.
@@ -189,7 +187,7 @@ test.describe('LIVE: the localities console', () => {
 
     await openConsole(page);
     if (baseline.length === 0) {
-      await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
+      await expect(page.getByText(/Nothing awaiting a locality/i)).toBeVisible();
     } else {
       await expect(row(page, 'Zztest empty state cycle')).toHaveCount(0);
     }

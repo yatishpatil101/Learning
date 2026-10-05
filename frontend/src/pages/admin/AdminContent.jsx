@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Archive, Edit2, Megaphone, Plus, RotateCcw } from 'lucide-react';
 import { listContent, createContent, updateContent, archiveContent, restoreContent } from '../../services/adminContentService.js';
-import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Switch from '../../components/ui/Switch.jsx';
-import HScroll from '../../components/ui/HScroll.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
+import { QueueTabs } from '../../components/admin/WorkQueue.jsx';
 
 const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements']];
 
@@ -144,14 +143,15 @@ export default function AdminContent() {
     <div>
       <PageHeader title="Content" subtitle="Manage banners, FAQs and announcements." />
 
-      <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-5" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {visibleTabs.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            {label}
-          </button>
-        ))}
-      </HScroll>
+      <QueueTabs
+        tabs={visibleTabs.map(([key, label]) => ({ key, label, count: loaded ? { banners: activeBanners, faqs: activeFaqs, announcements: activeAnns }[key].length : null }))}
+        active={tab}
+        onChange={setTab}
+        label="Content types"
+        idPrefix="content"
+      />
 
+      <div id="content-panel" role="tabpanel" aria-labelledby={`content-tab-${tab}`}>
       {tab === 'banners' ? (
         <div>
           <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Promotional banners shown on the homepage hero. ({activeBanners.length} active, {archivedBanners.length} archived)</p><button onClick={() => openAdd('banner', BLANK_BANNER)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add banner</button></div>
@@ -253,6 +253,7 @@ export default function AdminContent() {
           ) : null}
         </div>
       ) : null}
+      </div>
 
       {editModal ? (
         <Modal open={true} onClose={closeMod} title={`${editModal.isNew ? 'Add' : 'Edit'} ${editModal.kind}`} size="md"

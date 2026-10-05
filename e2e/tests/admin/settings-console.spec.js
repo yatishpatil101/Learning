@@ -50,11 +50,11 @@ test('admin opens the settings desk and the general form is filled from the serv
 
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 
-  await expect(page.getByRole('button', { name: 'General', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Fees', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Maps', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Feature flags', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Audit log', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'General', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Fees', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Maps', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Feature flags', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Audit log', exact: true })).toHaveCount(0);
 
   await expect(page.getByRole('button', { name: 'Save details' })).toBeVisible();
 

@@ -27,14 +27,11 @@ async function seedTicket({ team = 'loans', priority = 'high', detail } = {}) {
 }
 
 /** The row this file created, located by the customer's name rather than by a generated id. */
-const ourRow = (page) => page.getByRole('row').filter({ hasText: CUSTOMER.name }).first();
+const ourRow = (page) => page.getByTestId('queue-row').filter({ hasText: CUSTOMER.name }).first();
 
 /** The status badge in that row. `exact` is load-bearing: each row also has an **Open** action button, so a
  * substring match hits two elements; the badge text is the server's lowercase word, capitalised only in CSS. */
 const statusOf = (page, status) => ourRow(page).getByText(status, { exact: true });
-
-/** A count tile reads "<label><n>"; the label alone is the stable part. */
-const tile = (page, label) => page.locator('.dz-card').filter({ hasText: new RegExp(`^${label}\\d`) });
 
 const openDrawerFor = async (page) => {
   await ourRow(page).getByRole('button', { name: 'Open', exact: true }).click();
@@ -67,21 +64,15 @@ test.describe('Ops → ticket board (live)', () => {
     await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
   });
 
-  test('the status tiles use the server’s five words, not the mock’s three', async ({ page, login }) => {
+  test('the status tabs use the server’s five words, not the mock’s three', async ({ page, login }) => {
     await openBoard(page, login);
 
-    /* `new` and `Done` were mock inventions. Asserting their *absence* is the point: a tile that
-       filters on a status the server will never return is a permanently empty tab, and the way
-       that shows up in life is a desk concluding there is no work. */
-    await expect(tile(page, 'Open requests')).toHaveText(/[1-9]\d*$/);
-    await expect(tile(page, 'In Progress requests')).toBeVisible();
-    await expect(tile(page, 'Resolved requests')).toBeVisible();
-    await expect(page.getByText(/^(New|Done) requests$/)).toHaveCount(0);
-
-    // The status filter and the drawer offer all five, including the two the mock could not say at all.
-    await page.getByLabel('Filter by status').click();
-    await expect(page.getByRole('option')).toHaveText(['All statuses', 'Open', 'In Progress', 'Waiting', 'Resolved', 'Closed']);
-    await page.keyboard.press('Escape');
+    /* Asserting `new` and `Done` are absent: a tab filtering on a status the server never returns is permanently empty and reads as no work. */
+    const tabs = page.getByRole('tablist', { name: 'Ticket statuses' }).getByRole('tab');
+    await expect(tabs).toHaveText([/^Open/, /^In progress/, /^Waiting/, /^Resolved/, /^Closed/, /^All/]);
+    await expect(page.getByRole('tab', { name: /^Open/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('tab-count-open')).toHaveText(/^[1-9][\d,]*$/);
+    await expect(page.getByRole('tab', { name: /^(New|Done)/ })).toHaveCount(0);
 
     const drawer = await openDrawerFor(page);
     await expect(drawer.getByLabel('Status', { exact: true })).toHaveText(/open/i);
@@ -147,6 +138,8 @@ test.describe('Ops → ticket board (live)', () => {
     await openBoard(page, login);
 
     await expect(ourRow(page)).toBeVisible();
-    await expect(page.getByRole('row').filter({ hasText: 'A question about the clause.' })).toHaveCount(0);
+    await page.getByRole('tab', { name: /^All/ }).click();
+    await expect(ourRow(page)).toBeVisible();
+    await expect(page.getByTestId('queue-row').filter({ hasText: 'A question about the clause.' })).toHaveCount(0);
   });
 });

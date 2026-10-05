@@ -1,14 +1,5 @@
-/* Team & Access, against the live API.
- *
- * Replaces the Team-page half of `rbac.spec.js`. What the page does changed shape under it: the tab
- * that built named custom-role bundles is gone (V61
- * deleted the settings key it wrote to, so it granted nothing), and in its place each account
- * carries a permission document read from `GET /users/{id}/permissions` and written back whole.
- *
- * The seeded member names the mock specs asserted on (`Rohan Kulkarni`, `Sneha Patil`) do not exist
- * in the live database, so the rows are found by role rather than by name — which is the better
- * assertion anyway: the subject is that back-office accounts are listed, not who they are.
- */
+/* Team & Access against the live API. Rows are found by role, not name: the seeded names the mock used don't exist
+   live, and the subject is that back-office accounts are listed. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 
@@ -17,17 +8,11 @@ async function openTeam(page) {
   await expect(page.getByRole('heading', { name: 'Team & Access' })).toBeVisible();
 }
 
-/**
- * Find a member's row, following pagination.
- *
- * Sixteen back-office accounts over a page size of twelve, and the directory's order is not one
- * this spec may assume: it is four `GET /users` reads stitched together, and the server does not
- * promise a total order within a role. A named person can therefore sit on either page from run to
- * run, which is exactly the kind of thing that reads as flakiness and is really an assumption.
- * Walking the pages costs one click and removes the guess.
- */
+/** Finds a member's row across pages: 16+ accounts exceed the page size of 20 and the server promises no total order within a role,
+ * so a person can land on either page between runs. */
 async function memberRow(page, name) {
-  const row = page.getByRole('row', { name: new RegExp(name) });
+  await expect(page.getByTestId('queue-row').first()).toBeVisible();
+  const row = page.getByTestId('queue-row').filter({ hasText: new RegExp(name) });
   if ((await row.count()) === 0) {
     await page.getByRole('button', { name: 'Next page' }).click();
   }
@@ -39,9 +24,6 @@ test('the directory lists back-office accounts with their role and status', asyn
   await login.asAdmin();
   await openTeam(page);
 
-  /* Scoped to a table row. `Table` renders the `sm:hidden` stacked card for every row *before* the
-     `hidden sm:block` table, so each member is in the DOM twice and a bare text match resolves to
-     the mobile duplicate — which is permanently hidden at this viewport. */
   const admin = await memberRow(page, 'Admin');
   await expect(admin).toBeVisible();
   await expect(admin.getByText('active', { exact: true })).toBeVisible();
@@ -116,10 +98,8 @@ test('a member record shows the function checklist the server publishes', async 
   await (await memberRow(page, 'Isha Mehta')).getByRole('button', { name: 'Edit' }).click();
   await expect(page.getByRole('heading', { name: 'Edit member' })).toBeVisible();
 
-  /* The functions are rendered from the server's function catalogue, so this asserts the round trip
-     rather than a hard-coded list — the console no longer holds one. An unscoped staff account is
-     shown its baseline functions ticked, and administrator-only capabilities are absent because no
-     function a `staff` document can hold grants them. */
+  /* Functions render from the server's catalogue, so assert the round trip, not a hard-coded list; no function a
+     `staff` document can hold grants administrator-only capabilities. */
   await expect(page.getByRole('checkbox', { name: 'Rent Agreement' })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: 'Reports' })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: /Settings|Finance|Audit/ })).toHaveCount(0);
@@ -129,15 +109,8 @@ test('a member record shows the function checklist the server publishes', async 
 });
 
 test('unticking a function and saving writes the document, and re-ticking puts it back', async ({ page, login, consoleErrors }) => {
-  /* The write half of the feature, driven through the UI the way an administrator drives it. The
-     old mock spec could not make this assertion: it edited a store the browser also read, so it
-     proved only that the console agreed with itself.
-
-     It ends where it started on purpose. `PUT` has no inverse — there is no route that deletes a
-     permission document, by design, since an access-control record that can vanish is one nobody
-     can audit — so "restore" means writing the role's full baseline back. That leaves a stored row
-     whose effective set is identical to an unscoped account's, which is exactly what the live
-     fixture's own teardown produces and what every other spec signing in as this staffer needs. */
+  /* `PUT` has no inverse (permission documents can't be deleted, so the access record stays auditable), so
+     "restore" writes the role's full baseline back, as the live fixture's teardown does. */
   await login.asAdmin();
   await openTeam(page);
 

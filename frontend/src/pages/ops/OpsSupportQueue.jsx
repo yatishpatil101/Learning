@@ -1,68 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, Send } from 'lucide-react';
+import { MessageSquare, RefreshCw, Send } from 'lucide-react';
 import { getTicket, listSupportQueue, markTicketRead, replyToTicket } from '../../services/supportService.js';
-import { classNames, fmtNum } from '../../lib/format.js';
+import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
+import {
+  BTN, CHIP, CHIP_TONE, PageNav, QueuePanel, QueueTabs, RowCard, RowList,
+} from '../../components/admin/WorkQueue.jsx';
 import { fmtAgo } from './service-queue/helpers.js';
 
-/**
- * The platform-wide support queue (D51).
- *
- * `GET /admin/support-tickets`, which had a server, a partial index and a test suite and no screen.
- *
- * **Not `AdminSupport.jsx`, and not a widening of the customer's own list.** That page is the ops
- * board over `services.ticket.Ticket` — a different resource, on a different provider, about
- * service jobs rather than support conversations. This one reads the support domain, and it is a
- * separate operation from `listTickets` because the two answers have deliberately different shapes:
- * a customer's own history is a short bare array with every message inline, and the platform's
- * whole support traffic in that shape is a PII export by another name.
- *
- * **Why it lives under `/ops` rather than `/admin`.** The endpoint is `x-roles: [staff, admin]` —
- * staff have always been able to read and answer any ticket at `GET /support/tickets/{id}`, so
- * withholding only the index would leave them able to act on tickets they cannot find. The
- * `/admin/*` route group is guarded to `admin` and `manager`: putting the screen there would lock
- * out exactly the audience the server admits, and hand it to managers the server refuses. `/ops` is
- * guarded to `staff` and `admin`, which is the endpoint's audience spelled the same way.
- *
- * ## What a queue screen owes that a table does not
- *
- * **Paging is real.** The envelope's `totalElements` is the whole queue, and the pager moves the
- * server's window rather than slicing rows already in hand — so "412 waiting" is true on page 1 of
- * 21 rather than a description of the twenty rows on screen. Nothing here is computed across rows
- * for exactly that reason; the one filter that matters is applied server-side against V53's partial
- * index.
- *
- * **Awaiting reply is the default view, because that is the working queue.** `awaitingReply` and
- * `unread` are two booleans about two different people and they are not opposites: the first is a
- * customer message nobody on the desk has read, the second is a staff reply the customer has not
- * opened. A queue that showed one number would have the desk chasing people it had already
- * answered.
- *
- * **An empty queue and a failed read say different things.** A `.catch(() => [])` here renders
- * "nothing is waiting" over a broken request, which is the one sentence that ends a shift early.
- *
- * ## Fields, and the one that is missing on purpose
- *
- * `AdminSupportTicket` carries no mobile. That is the contract's decision and this screen keeps it:
- * the ticket detail reveals contact details to the same callers anyway, and a list is the shape
- * that gets exported. `raiser` is a display name and may be null — an account since removed has
- * nobody to name — so the mapper supplies the fallback rather than the cell rendering blank.
- */
+/** The platform-wide support queue (`GET /admin/support-tickets`); under `/ops` because `/admin/*` locks out staff.
+ * Paging and counts are server-side, and the list carries no mobile by contract. */
 
 const TABS = [
   { key: 'awaiting', label: 'Awaiting reply', awaitingReply: true },
   { key: 'answered', label: 'Answered', awaitingReply: false },
   { key: 'all', label: 'All', awaitingReply: undefined },
 ];
+const NOTES = {
+  awaiting: 'Customer messages nobody on the desk has read yet. Opening a ticket marks it read.',
+  answered: 'Tickets the desk has read. "Unopened" means the customer has not seen our reply yet.',
+  all: 'Every support conversation on the platform, newest first.',
+};
 
-/* 25, matching the flatmate ops boards. The server's `@PageableDefault` is 20 and either is fine,
-   but two desks in the same shell paging at different sizes reads as an accident rather than a
-   choice, and an operator moving between them has no way to tell which it is. */
+// Matches the flatmate ops boards, so desks in the same shell page alike.
 const PAGE_SIZE = 25;
 
 const CATEGORY_LABELS = {
@@ -77,18 +41,17 @@ const CATEGORY_LABELS = {
   other: 'Something else',
 };
 const catLabel = (k) => CATEGORY_LABELS[k] || 'Something else';
-
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
+const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 export default function OpsSupportQueue() {
   const { toast } = useToast();
   const [tab, setTab] = useState('awaiting');
   const [page, setPage] = useState(0);
   const [state, setState] = useState({ status: 'loading', items: [], total: 0, error: null });
+  const [counts, setCounts] = useState({});
   const [nonce, setNonce] = useState(0);
 
-  // The open ticket's full thread. Fetched on demand at `GET /support/tickets/{id}` because the
-  // queue row deliberately carries none — see the schema note about unbounded list responses.
   const [detail, setDetail] = useState(null);
   const [detailStatus, setDetailStatus] = useState('idle');
   const [reply, setReply] = useState('');
@@ -100,17 +63,26 @@ export default function OpsSupportQueue() {
     setState((s) => ({ ...s, status: 'loading', error: null }));
     listSupportQueue({ awaitingReply, page, size: PAGE_SIZE })
       .then((res) => {
-        if (live) setState({ status: 'ready', items: res.items, total: res.total, error: null });
+        if (!live) return;
+        setState({ status: 'ready', items: res.items, total: res.total, error: null });
+        setCounts((c) => ({ ...c, [tab]: res.total }));
       })
       .catch((err) => {
-        // Never an empty list. "Nothing is waiting" and "we could not read the queue" are different
-        // sentences and only one of them is true.
+        // Never an empty list: "nothing is waiting" over a failed read ends a shift early.
         if (live) setState({ status: 'error', items: [], total: 0, error: err });
       });
     return () => { live = false; };
   }, [tab, page]);
 
   useEffect(load, [load, nonce]);
+
+  // One-row reads so every tab shows its total, not just the open one.
+  useEffect(() => {
+    let live = true;
+    Promise.all(TABS.map((t) => listSupportQueue({ awaitingReply: t.awaitingReply, page: 0, size: 1 }).then((r) => r.total, () => null)))
+      .then((totals) => { if (live) setCounts(Object.fromEntries(TABS.map((t, i) => [t.key, totals[i]]))); });
+    return () => { live = false; };
+  }, [nonce]);
 
   const switchTab = (key) => { setTab(key); setPage(0); };
 
@@ -123,12 +95,11 @@ export default function OpsSupportQueue() {
       if (!full) { setDetailStatus('error'); return; }
       setDetail(full);
       setDetailStatus('ready');
-      // Clears the desk's side of the two-sided read model and nothing else (D50) — the customer's
-      // "support replied" flag is theirs to clear. The row stops being in the working queue, so
-      // reflect that locally instead of re-reading the whole page.
+      // Clears only the desk's side of the read model; the customer's flag is theirs to clear.
       if (row.awaitingReply) {
         await markTicketRead(row.id);
         setState((s) => ({ ...s, items: s.items.map((r) => (r.id === row.id ? { ...r, awaitingReply: false } : r)) }));
+        setCounts((c) => ({ ...c, awaiting: c.awaiting > 0 ? c.awaiting - 1 : c.awaiting, answered: c.answered != null ? c.answered + 1 : c.answered }));
       }
     } catch {
       setDetailStatus('error');
@@ -140,10 +111,8 @@ export default function OpsSupportQueue() {
     if (!text || sending.current || !detail) return;
     sending.current = true;
     try {
+      // The server's own message, not an optimistic echo: id, author and time are its to decide.
       const msg = await replyToTicket(detail.id, text);
-      // Append the server's own message rather than an optimistic echo: the id, the author name and
-      // the timestamp are all its to decide, and a bubble that disagrees with the next read is a
-      // bug the desk reports as "my reply vanished".
       if (msg) setDetail((d) => ({ ...d, messages: [...(d.messages || []), msg] }));
       setReply('');
       toast('Reply sent', 'success');
@@ -154,132 +123,74 @@ export default function OpsSupportQueue() {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
-  const from = state.total === 0 ? 0 : page * PAGE_SIZE + 1;
-  const to = Math.min((page + 1) * PAGE_SIZE, state.total);
+  const paging = { page: page + 1, pageCount: Math.max(1, Math.ceil(state.total / PAGE_SIZE)), total: state.total, size: PAGE_SIZE, onPage: (p) => setPage(p - 1) };
+  const tabs = TABS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] ?? null }));
 
-  const columns = [
-    {
-      key: 'subject',
-      header: 'Ticket',
-      render: (t) => (
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{t.subject || '(no subject)'}</div>
-          <div className="text-xs text-gray-400">{t.id} · {catLabel(t.category)}</div>
-        </div>
-      ),
-    },
-    { key: 'raiser', header: 'Raised by', render: (t) => t.raiser || <span className="text-gray-500">Account removed</span> },
-    { key: 'status', header: 'Status', render: (t) => <Badge status={t.status} /> },
-    {
-      key: 'waiting',
-      header: 'Waiting on',
-      render: (t) => (t.awaitingReply
-        ? <span className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">Us</span>
-        : t.unread
-          ? <span className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-400">Them — unopened</span>
-          : <span className="text-gray-500">—</span>),
-    },
-    { key: 'createdAt', header: 'Opened', render: (t) => <span title={fmtDate(t.createdAt)}>{fmtAgo(t.createdAt) || '—'}</span> },
-  ];
-
-  /* Support is worked from a phone as often as a desk, so the table gets the stacked-card fallback
-     below `sm` that every other ops queue has (see Table.jsx). */
-  const card = (t) => (
-    <button type="button" onClick={() => open(t)} className="dz-card block w-full p-3.5 text-left">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{t.subject || '(no subject)'}</div>
-          <div className="mt-0.5 text-xs text-gray-400">{t.id} · {catLabel(t.category)}</div>
-        </div>
-        <div className="shrink-0"><Badge status={t.status} /></div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-        <span>{t.raiser || 'Account removed'}</span>
-        <span className="text-gray-600">·</span>
-        <span>{fmtAgo(t.createdAt)}</span>
-        {t.awaitingReply ? (<><span className="text-gray-600">·</span><span className="text-amber-300">Waiting on us</span></>) : null}
-      </div>
-    </button>
-  );
+  const waiting = (t) => {
+    if (t.awaitingReply) return <span className={classNames(CHIP, CHIP_TONE.amber)}>Waiting on us</span>;
+    if (t.unread) return <span className={classNames(CHIP, CHIP_TONE.neutral)}>Unopened by customer</span>;
+    return null;
+  };
 
   return (
     <div>
-      <PageHeader
-        title="Support queue"
-        subtitle="Every support conversation on the platform, newest first."
-        actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost">
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </button>
-        }
-      />
+      <PageHeader title="Support queue" subtitle="Every support conversation on the platform, newest first." />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {TABS.map((x) => (
-          <button
-            key={x.key}
-            type="button"
-            onClick={() => switchTab(x.key)}
-            className={classNames(
-              'rounded-xl border px-3 py-1.5 text-sm',
-              tab === x.key ? 'border-teal-400/40 bg-teal-500/10 text-teal-200' : 'border-white/10 text-gray-400 hover:bg-white/5',
-            )}
-          >
-            {x.label}
-          </button>
-        ))}
-        {state.status === 'ready' ? (
-          <span className="ml-auto text-xs text-gray-400">
-            {state.total ? `Showing ${fmtNum(from)}–${fmtNum(to)} of ${fmtNum(state.total)}` : 'Nothing in this view'}
-          </span>
+      <QueueTabs label="Support queue views" active={tab} onChange={switchTab} tabs={tabs} />
+
+      <QueuePanel
+        active={tab}
+        note={NOTES[tab]}
+        toolbar={(
+          <>
+            <button type="button" onClick={() => setNonce((n) => n + 1)} className={BTN.ghost}>
+              <RefreshCw className="h-3.5 w-3.5" />Refresh
+            </button>
+            {state.status === 'ready' ? <div className="ml-auto"><PageNav {...paging} /></div> : null}
+          </>
+        )}
+        footer={state.status === 'ready' && paging.pageCount > 1 ? <PageNav {...paging} /> : null}
+      >
+        {state.status === 'loading' ? <Loading label="Loading the support queue…" /> : null}
+
+        {state.status === 'error' ? (
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-sm text-gray-300">
+              We could not read the support queue. This is not an empty queue — nothing was loaded.
+            </p>
+            <button type="button" onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
+              <RefreshCw className="h-4 w-4" /> Try again
+            </button>
+          </div>
         ) : null}
-      </div>
 
-      {state.status === 'loading' ? <Loading label="Loading the support queue…" /> : null}
-
-      {state.status === 'error' ? (
-        <div className="dz-card flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-gray-300">
-            We could not read the support queue. This is not an empty queue — nothing was loaded.
-          </p>
-          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
-            <RefreshCw className="h-4 w-4" /> Try again
-          </button>
-        </div>
-      ) : null}
-
-      {state.status === 'ready' ? (
-        <>
-          <Table
-            columns={columns}
-            rows={state.items}
-            onRowClick={open}
-            label="tickets"
-            empty={tab === 'awaiting' ? 'Nothing is waiting on us. Every customer message has been read.' : 'No tickets in this view.'}
-            mobileCard={card}
-          />
-          {totalPages > 1 ? (
-            <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-              <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="dz-btn dz-btn-ghost disabled:opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" /> Previous
-              </button>
-              <span className="text-gray-400">Page {page + 1} of {totalPages}</span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="dz-btn dz-btn-ghost disabled:opacity-40"
-              >
-                Next <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : null}
+        {state.status === 'ready' ? (
+          <RowList isEmpty={!state.items.length} empty={tab === 'awaiting' ? 'Nothing is waiting on us. Every customer message has been read.' : 'No tickets in this view.'}>
+            {state.items.map((t) => (
+              <RowCard
+                key={t.id}
+                id={t.id}
+                title={t.subject || '(no subject)'}
+                badges={<><Badge status={t.status} />{waiting(t)}</>}
+                meta={(
+                  <>
+                    <span>{t.raiser || 'Account removed'}</span>
+                    <Dot />
+                    <span>{catLabel(t.category)}</span>
+                    <Dot />
+                    <span title={fmtDate(t.createdAt)}>Opened {fmtAgo(t.createdAt) || '—'}</span>
+                  </>
+                )}
+                primary={(
+                  <button type="button" onClick={() => open(t)} className={t.awaitingReply ? BTN.primary : BTN.ghost}>
+                    <MessageSquare className="h-3.5 w-3.5" />{t.awaitingReply ? 'Reply' : 'View thread'}
+                  </button>
+                )}
+              />
+            ))}
+          </RowList>
+        ) : null}
+      </QueuePanel>
 
       <Modal
         open={!!detail}
@@ -335,7 +246,7 @@ export default function OpsSupportQueue() {
                     aria-label="Reply to the customer"
                     className="dz-input flex-1"
                   />
-                  <button onClick={send} disabled={!reply.trim()} className="dz-btn dz-btn-primary disabled:opacity-40">
+                  <button type="button" onClick={send} disabled={!reply.trim()} className="dz-btn dz-btn-primary disabled:opacity-40">
                     <Send className="h-4 w-4" /> Send
                   </button>
                 </div>

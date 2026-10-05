@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Hand, RefreshCw, Search } from 'lucide-react';
+import { Hand, RefreshCw } from 'lucide-react';
 import {
-  addServiceRequestMessage, cancelServiceRequestAsOps, listServiceRequestQueue,
+  addServiceRequestMessage, cancelServiceRequestAsOps, getServiceRequestQueueSummary,
   readServiceRequestChecklist, shareServiceRequestDraft,
   takeServiceRequest, uploadServiceRequestFinalDoc, checkServiceRequestDraft,
 } from '../../services/serviceRequestService.js';
-import { fmtINR, fmtNum } from '../../lib/format.js';
+import { classNames, fmtINR } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { DESK_BY_VALUE } from '../../lib/adminModules.js';
+import { useTabParam } from '../../lib/useTabParam.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
-import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import InternalNote, { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
+import {
+  BTN, CHIP, CHIP_TONE, Cell, FactRow, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox,
+} from '../../components/admin/WorkQueue.jsx';
+import AdminServices from '../admin/AdminServices.jsx';
+import useDeskTickets from '../admin/useDeskTickets.js';
 import AgeTone from './service-queue/AgeTone.jsx';
 import CancelDialog from './service-queue/CancelDialog.jsx';
 import MessageThread from './service-queue/MessageThread.jsx';
@@ -23,23 +27,12 @@ import ServiceDocuments from './service-queue/ServiceDocuments.jsx';
 import StaffWorkflowActions from './service-queue/StaffWorkflowActions.jsx';
 import DraftSecondCheck from './service-queue/DraftSecondCheck.jsx';
 import PartyIdentities from './service-queue/PartyIdentities.jsx';
+import { OverdueToggle, stageTabs, useQueue } from './service-queue/deskQueue.jsx';
 import { fmtAgo } from './service-queue/helpers.js';
 
 const PAGE_SIZE = 20;
-const SEARCH_DEBOUNCE_MS = 300;
-
-/** Full server transition vocabulary; missing states make filtered desks look falsely idle. */
-const STATUS_OPTS = [
-  { value: '', label: 'All statuses' },
-  { value: 'new', label: 'New' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'in-progress', label: 'In progress' },
-  { value: 'draft-shared', label: 'Draft shared' },
-  { value: 'changes-requested', label: 'Changes requested' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
+const TABS = stageTabs('request');
+const TAB_KEYS = TABS.map((t) => t.key);
 
 /** Allow-list details so free-form `_state` snapshots cannot leak mobile or identity fields. */
 const DETAIL_FIELDS = [
@@ -77,23 +70,42 @@ function detailRows(details) {
     .map(([key, label, fmt]) => [label, fmt === 'inr' ? fmtINR(d[key]) : String(d[key])]);
 }
 
-/** The one-line summary the queue row shows. Same allow-list, first hit wins. */
-const summaryOf = (r) => {
-  const rows = detailRows(r.details);
-  return rows.length ? rows[0][1] : '—';
-};
+const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 /** One service desk's queue (legal, interior, packers, valuation). Rent agreements have their own
  *  case view in `rent-agreement/`; home loans are tickets on `AdminServices`. */
 export default function OpsDraftingDesk({ desk }) {
   const { toast } = useToast();
-  const [status, setStatus] = useState('');
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [unassigned, setUnassigned] = useState(false);
-  const [page, setPage] = useState(0);
-  const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0 }));
-  const [nonce, setNonce] = useState(0);
+  const [tab, setTab] = useTabParam(TAB_KEYS, 'pickup');
+  const tickets = useDeskTickets(desk);
+  const [q, setQ] = useState('');
+  const [overdue, setOverdue] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageTab, setPageTab] = useState(tab);
+  if (pageTab !== tab) {
+    setPageTab(tab);
+    setPage(1);
+  }
+
+  // `null` on failure, so a tab count is omitted rather than reading "0".
+  const [summary, setSummary] = useState(null);
+  const summarySeq = useRef(0);
+  const loadSummary = useCallback(() => {
+    const seq = ++summarySeq.current;
+    const settle = (value) => { if (seq === summarySeq.current) setSummary(value); };
+    getServiceRequestQueueSummary(desk).then(settle, () => settle(null));
+  }, [desk]);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+  const [reloadToken, setReloadToken] = useState(0);
+  const reload = () => { loadSummary(); setReloadToken((n) => n + 1); };
+
+  const active = TABS.find((t) => t.key === tab);
+  const queue = useQueue({
+    type: desk, ...active.query, overdue: overdue || undefined, q: q.trim() || undefined, page: page - 1, size: PAGE_SIZE,
+  }, reloadToken);
+  const rows = queue.page?.items || [];
+  const total = queue.page?.total ?? 0;
+  const paging = { page, pageCount: Math.ceil(total / PAGE_SIZE), total, size: PAGE_SIZE, onPage: setPage, stale: queue.stale };
 
   const [detail, setDetail] = useState(null);
   const [checklist, setChecklist] = useState(null);
@@ -101,30 +113,6 @@ export default function OpsDraftingDesk({ desk }) {
   const [internalNote, setInternalNote] = useState('');
   const [cancelTarget, setCancelTarget] = useState(null);
   const busy = useRef(false);
-
-  const load = useCallback(() => {
-    let live = true;
-    setState((s) => ({ ...s, status: 'loading' }));
-    listServiceRequestQueue({
-      type: desk,
-      status: status || undefined,
-      unassigned,
-      q: query || undefined,
-      page,
-      size: PAGE_SIZE,
-    })
-      .then((res) => { if (live) setState({ status: 'ready', items: res.items, total: res.total }); })
-      // Never `[]`: an unread queue that renders as an empty one is how a desk goes home early.
-      .catch(() => { if (live) setState({ status: 'error', items: [], total: 0 }); });
-    return () => { live = false; };
-  }, [desk, status, unassigned, query, page]);
-
-  useEffect(load, [load, nonce]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => { setQuery(search.trim()); setPage(0); }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   const detailId = detail?.id || null;
   useEffect(() => {
@@ -150,10 +138,11 @@ export default function OpsDraftingDesk({ desk }) {
     setDetail(row);
   };
 
+  // The open request is held as an object, so a change that moves it to another tab leaves the modal put.
   const applyUpdate = (updated) => {
     if (!updated) return;
     setDetail((d) => (d?.id === updated.id ? updated : d));
-    setState((s) => ({ ...s, items: s.items.map((r) => (r.id === updated.id ? updated : r)) }));
+    reload();
   };
 
   const fileInternalNote = async (action) => {
@@ -238,44 +227,7 @@ export default function OpsDraftingDesk({ desk }) {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
-  const from = state.total === 0 ? 0 : page * PAGE_SIZE + 1;
-  const to = Math.min((page + 1) * PAGE_SIZE, state.total);
-
-  const columns = [
-    {
-      key: 'id',
-      header: 'Request',
-      render: (r) => (
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{r.service}</div>
-          <div className="text-xs text-gray-400">{r.id}</div>
-        </div>
-      ),
-    },
-    { key: 'summary', header: 'Summary', render: (r) => <span className="text-gray-300">{summaryOf(r)}</span> },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
-    { key: 'assignedTo', header: 'Held by', render: (r) => r.assignedTo || <span className="text-gray-500">Nobody</span> },
-    { key: 'amount', header: 'Charged', render: (r) => (r.amount ? fmtINR(r.amount) : <span className="text-gray-500">Free desk</span>) },
-    { key: 'createdAt', header: 'Opened', render: (r) => <AgeTone request={r} /> },
-  ];
-
-  const card = (r) => (
-    <button type="button" onClick={() => openDetail(r)} className="dz-card block w-full p-3.5 text-left">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{r.service}</div>
-          <div className="mt-0.5 truncate text-xs text-gray-400">{r.id} · {summaryOf(r)}</div>
-        </div>
-        <div className="shrink-0"><Badge status={r.status} /></div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-        <span>{r.assignedTo || 'Nobody'}</span>
-        <span className="text-gray-600">·</span>
-        <AgeTone request={r} />
-      </div>
-    </button>
-  );
+  const holder = (r) => (r.assignedToMe ? 'You' : r.assignedTo || 'Nobody');
 
   return (
     <div>
@@ -283,71 +235,71 @@ export default function OpsDraftingDesk({ desk }) {
         title={DESK_BY_VALUE[desk]?.label || 'Service requests'}
         subtitle="Live requests for this desk."
         actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost">
+          <button type="button" onClick={reload} className="dz-btn dz-btn-ghost">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
       />
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Select value={status} onChange={(v) => { setStatus(v); setPage(0); }} options={STATUS_OPTS} className="sm:w-48" ariaLabel="Filter by status" />
-        <label className="relative min-w-0 sm:w-64">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" aria-hidden="true" />
-          <span className="sr-only">Search requester name, mobile, or request id</span>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm"
-            placeholder="Name, mobile or request id"
-          />
-        </label>
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 px-2 text-sm text-gray-300">
-          <input type="checkbox" checked={unassigned} onChange={(event) => { setUnassigned(event.target.checked); setPage(0); }} />
-          Unassigned only
-        </label>
-        {state.status === 'ready' ? (
-          <span className="text-xs text-gray-400 sm:ml-auto">
-            {state.total ? `Showing ${fmtNum(from)}–${fmtNum(to)} of ${fmtNum(state.total)}` : 'Nothing in this view'}
-          </span>
-        ) : null}
-      </div>
+      <QueueTabs
+        label="Request queues"
+        active={tickets?.on ? 'tickets' : tab}
+        onChange={(key) => (key === 'tickets' ? tickets.show() : setTab(key))}
+        tabs={[
+          ...TABS.map((t) => ({ key: t.key, label: t.label, count: summary ? t.count(summary) : null })),
+          ...(tickets ? [tickets.tab] : []),
+        ]}
+      />
 
-      {state.status === 'loading' ? <Loading label="Loading the request queue…" /> : null}
-
-      {state.status === 'error' ? (
-        <div className="dz-card flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm text-gray-300">
-            We could not read the request queue. This is not an empty queue — nothing was loaded.
-          </p>
-          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
-            <RefreshCw className="h-4 w-4" /> Try again
-          </button>
-        </div>
-      ) : null}
-
-      {state.status === 'ready' ? (
-        <>
-          <Table
-            columns={columns}
-            rows={state.items}
-            onRowClick={openDetail}
-            label="requests"
-            empty="No service requests match these filters."
-            mobileCard={card}
-          />
-          {totalPages > 1 ? (
-            <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="dz-btn dz-btn-ghost disabled:opacity-40">
-                <ChevronLeft className="h-4 w-4" /> Previous
-              </button>
-              <span className="text-gray-400">Page {page + 1} of {totalPages}</span>
-              <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="dz-btn dz-btn-ghost disabled:opacity-40">
-                Next <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : null}
+      {tickets?.on ? <AdminServices desk={desk} embedded /> : (
+        <QueuePanel
+          active={tab}
+          toolbar={(
+            <>
+              <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Name, mobile or request id" label="Search name, mobile or request id" className="w-full sm:w-72" />
+              <OverdueToggle on={overdue} count={summary?.overdue} onToggle={() => { setOverdue((v) => !v); setPage(1); }} />
+              <div className="ml-auto"><PageNav {...paging} /></div>
+            </>
+          )}
+          footer={paging.pageCount > 1 ? <PageNav {...paging} /> : null}
+        >
+          <div aria-busy={queue.stale || undefined} className={queue.stale ? 'pointer-events-none select-none opacity-50' : undefined}>
+            {queue.failed && !queue.stale ? (
+              <div className="flex flex-col items-center gap-3 p-8 text-center">
+                <p className="text-sm text-gray-300">
+                  We could not read the request queue. This is not an empty queue — nothing was loaded.
+                </p>
+                <button type="button" onClick={reload} className="dz-btn dz-btn-primary">
+                  <RefreshCw className="h-4 w-4" /> Try again
+                </button>
+              </div>
+            ) : queue.page == null ? <Loading label="Loading the request queue…" /> : (
+              <RowList isEmpty={!rows.length} empty={q.trim() || overdue ? 'No requests match these filters.' : active.empty}>
+                {rows.map((r) => (
+                  <RowCard
+                    key={r.id}
+                    id={r.id}
+                    title={r.service}
+                    badges={<><Badge status={r.status} />{r.assignedToMe ? <span className={classNames(CHIP, CHIP_TONE.teal)}>Yours</span> : null}</>}
+                    meta={<><span>{detailRows(r.details)[0]?.[1] || '—'}</span><Dot /><AgeTone request={r} /></>}
+                    facts={(
+                      <FactRow label="Held by">
+                        <Cell className={r.assignedTo ? undefined : 'text-gray-500'}>{holder(r)}</Cell>
+                        <Cell>{r.amount ? `${fmtINR(r.amount)} charged` : 'Free desk'}</Cell>
+                      </FactRow>
+                    )}
+                    primary={(
+                      <button type="button" onClick={() => openDetail(r)} className={r.assignedTo && !r.assignedToMe ? BTN.ghost : BTN.primary}>
+                        Open
+                      </button>
+                    )}
+                  />
+                ))}
+              </RowList>
+            )}
+          </div>
+        </QueuePanel>
+      )}
 
       <Modal open={!!detail} onClose={closeDetail} title={detail ? `${detail.service} · ${detail.id}` : ''} size="lg">
         {detail ? (

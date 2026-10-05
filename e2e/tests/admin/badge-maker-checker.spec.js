@@ -19,12 +19,18 @@ async function createConsumer(request, name) {
 async function openUsers(page) {
   await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
-  await expect(page.locator('table tbody tr').first()).toBeVisible();
+  await expect(page.getByTestId('queue-row').first()).toBeVisible();
+}
+
+async function openBadgeApprovals(page) {
+  await openUsers(page);
+  await page.getByRole('tab', { name: /^Badge approvals/ }).click();
 }
 
 async function findUser(page, name) {
+  await page.getByRole('tab', { name: /^All users/ }).click();
   await page.getByPlaceholder('Search name, mobile, email…').fill(name);
-  const row = page.locator('table').getByRole('row', { name: new RegExp(name) }).first();
+  const row = page.getByTestId('queue-row').filter({ hasText: name }).first();
   await expect(row).toBeVisible();
   return row;
 }
@@ -36,6 +42,7 @@ async function requestBadge(page, name, reason) {
   await page.getByRole('button', { name: 'Confirm' }).click();
   await expect(page.getByText('Sent for approval by another admin')).toBeVisible();
   await expect(row.getByTestId('admin-user-pending-badge-pill')).toBeVisible();
+  await page.getByRole('tab', { name: /^Badge approvals/ }).click();
 }
 
 async function signInSecondAdmin(page) {
@@ -58,7 +65,7 @@ test('admin A requests a badge and admin B approves it', async ({ page, login, r
   await expect(ownRequest.getByRole('button', { name: 'Approve' })).toHaveCount(0);
 
   await signInSecondAdmin(page);
-  await openUsers(page);
+  await openBadgeApprovals(page);
   const approval = page.getByTestId('admin-badge-grant-row').filter({ hasText: target.name });
   await approval.getByRole('button', { name: 'Approve' }).click();
   await page.getByRole('dialog', { name: 'Approve badge request' }).getByRole('button', { name: 'Approve', exact: true }).click();
@@ -75,7 +82,7 @@ test('badge rejection requires a reason', async ({ page, login, request }) => {
   await requestBadge(page, target.name, 'Profile checked during support escalation.');
 
   await signInSecondAdmin(page);
-  await openUsers(page);
+  await openBadgeApprovals(page);
   const approval = page.getByTestId('admin-badge-grant-row').filter({ hasText: target.name });
   await approval.getByRole('button', { name: 'Reject' }).click();
   const dialog = page.getByRole('dialog', { name: 'Reject badge request' });

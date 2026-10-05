@@ -1,4 +1,5 @@
-/** Run-stamped tickets: the board is shared and append-only, so no locator depends on position or total. */
+/** `/admin/home-loans` gaps that `admin-services.spec.js` leaves, against the live API: tab counts, queue narrowing, export, resolve, park, load failure, API-refused writes.
+ * Every ticket is raised by the spec with a run-stamped subject because the board is shared and append-only. */
 import fs from 'node:fs';
 import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
@@ -40,10 +41,12 @@ const openDesk = async (page, login, path = '/admin/home-loans') => {
   await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
 };
 
-const kpi = (page, label) => page.getByText(label, { exact: true }).locator('xpath=following-sibling::div[1]');
-const rowOf = (page, text) => page.getByRole('row').filter({ hasText: text });
+const tab = (page, name) => page.getByRole('tab', { name: new RegExp(`^${name}`) });
+const tabCount = (page, key) => page.getByTestId(`tab-count-${key}`);
+const priority = (page, name) => page.getByRole('group', { name: 'Priority' }).getByRole('button', { name, exact: true }).click();
+const rowOf = (page, text) => page.getByTestId('queue-row').filter({ hasText: text });
 
-test('the tiles tally the board the API serves, and each filter and the CSV narrow to the ticket they name', async ({ page, request, login }) => {
+test('the tab counts tally the board the API serves, and each filter and the CSV narrow to the ticket they name', async ({ page, request, login }) => {
   test.slow();
   const tag = run();
   const urgent = `${tag} urgent`;
@@ -59,23 +62,24 @@ test('the tiles tally the board the API serves, and each filter and the CSV narr
   expect(count('open'), 'the three raised tickets leave the board with open work on it').toBeGreaterThan(0);
 
   await openDesk(page, login);
-  await expect(kpi(page, 'Open requests')).toHaveText(String(count('open')));
-  await expect(kpi(page, 'In Progress requests')).toHaveText(String(count('in-progress')));
-  await expect(kpi(page, 'Resolved requests')).toHaveText(String(count('resolved')));
-  await expect(kpi(page, 'Total requests')).toHaveText(String(board.length));
+  for (const key of ['open', 'in-progress', 'waiting', 'resolved', 'closed']) {
+    await expect(tabCount(page, key)).toHaveText(String(count(key)));
+  }
+  await expect(tabCount(page, 'all')).toHaveText(String(board.length));
 
+  await tab(page, 'All').click();
   await page.getByPlaceholder('Search id, customer, detail…').fill(tag);
   await expect(rowOf(page, tag)).toHaveCount(3);
-  await expect(page.getByText(new RegExp(`^3 of ${board.length} requests$`))).toBeVisible();
+  await expect(page.getByTestId('queue-range').first()).toHaveText('1–3 of 3');
 
-  await pick(page, 'Filter by status', 'Waiting');
+  await tab(page, 'Waiting').click();
   await expect(rowOf(page, tag)).toHaveCount(1);
   await expect(rowOf(page, parked)).toHaveCount(1);
   await expect(rowOf(page, parked).getByRole('button', { name: 'Start' }), 'a waiting ticket is not offered Start').toHaveCount(0);
   await expect(rowOf(page, parked).getByRole('button', { name: 'Resolve' })).toHaveCount(0);
-  await pick(page, 'Filter by status', 'All statuses');
+  await tab(page, 'All').click();
 
-  await pick(page, 'Filter by priority', 'Urgent');
+  await priority(page, 'Urgent');
   await expect(rowOf(page, tag)).toHaveCount(1);
   await expect(rowOf(page, urgent)).toBeVisible();
   await expect(rowOf(page, urgent).getByText('urgent', { exact: true })).toBeVisible();
@@ -87,35 +91,40 @@ test('the tiles tally the board the API serves, and each filter and the CSV narr
   expect(csv, 'the export is the filtered view').toContain(urgent);
   expect(csv).not.toContain(low);
   expect(csv).not.toContain(parked);
-  await pick(page, 'Filter by priority', 'All priorities');
+  await priority(page, 'All');
 
   await page.getByPlaceholder('Search id, customer, detail…').fill(`${tag} no such ticket`);
-  await expect(page.getByRole('cell', { name: 'No requests match' })).toBeVisible();
+  await expect(page.getByText('No requests match', { exact: true })).toBeVisible();
 });
 
-test('Resolve on the row closes an in-progress ticket on the server and moves the tiles with it', async ({ page, request, login }) => {
+test('Resolve on the row closes an in-progress ticket on the server and moves the tab counts with it', async ({ page, request, login }) => {
   const subject = run();
   const id = await raise(request, subject);
   await adminPatch(request, id, { status: 'in-progress' });
 
   await openDesk(page, login);
+  await tab(page, 'In progress').click();
   await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
   const row = rowOf(page, subject);
   await expect(row).toHaveCount(1);
   await expect(row.getByRole('button', { name: 'Start' })).toHaveCount(0);
   await expect(row.getByText(/today|\d+d open/)).toBeVisible();
 
-  const inProgress = Number(await kpi(page, 'In Progress requests').innerText());
-  const resolved = Number(await kpi(page, 'Resolved requests').innerText());
+  const inProgress = Number(await tabCount(page, 'in-progress').innerText());
+  const resolved = Number(await tabCount(page, 'resolved').innerText());
 
   await row.getByRole('button', { name: 'Resolve' }).click();
   await expect(page.getByRole('alert')).toContainText('Request resolved');
 
   expect((await serverTicket(request, id)).status).toBe('resolved');
+  await expect(row, 'a resolved ticket leaves the In progress tab').toHaveCount(0);
+  await expect(tabCount(page, 'in-progress')).toHaveText(String(inProgress - 1));
+  await expect(tabCount(page, 'resolved')).toHaveText(String(resolved + 1));
+
+  await tab(page, 'Resolved').click();
+  await expect(row).toHaveCount(1);
   await expect(row.getByRole('button', { name: 'Resolve' })).toHaveCount(0);
   await expect(row.getByText(/today|\d+d open/), 'a resolved ticket carries no age chip').toHaveCount(0);
-  await expect(kpi(page, 'In Progress requests')).toHaveText(String(inProgress - 1));
-  await expect(kpi(page, 'Resolved requests')).toHaveText(String(resolved + 1));
 });
 
 test('a deep link opens the ticket, and Save parks it on Waiting with a note without assigning it', async ({ page, request, login }) => {
@@ -145,6 +154,7 @@ test('a deep link opens the ticket, and Save parks it on Waiting with a note wit
   expect(after.assignee, 'leaving Assign to unchanged does not assign').toBeFalsy();
   expect(after.notes.map((n) => n.text)).toEqual([note]);
 
+  await tab(page, 'Waiting').click();
   await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
   const row = rowOf(page, subject);
   await expect(row.getByText('waiting', { exact: true })).toBeVisible();
@@ -166,7 +176,7 @@ test('a board that cannot be read says so instead of showing an empty one', asyn
 
   await expect(page.getByRole('heading', { name: 'Home Loans', exact: true })).toBeVisible();
   await expect(page.getByText('The ticket board is unavailable.')).toBeVisible();
-  await expect(page.getByText('Total requests', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: 'Ticket statuses' })).toHaveCount(0);
   await expect(page.getByText('No requests match')).toHaveCount(0);
   await expect(page.getByRole('table')).toHaveCount(0);
 });

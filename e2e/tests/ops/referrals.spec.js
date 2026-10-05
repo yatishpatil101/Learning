@@ -1,14 +1,9 @@
-/**
- * Each test redeems its own referral through the public path with its own referrer and referee, so
- * per-referee uniqueness and the velocity signal cannot make results depend on run order.
- */
+/** Each test redeems its own referral with its own referrer and referee, so no run-order coupling. */
 import { ACTORS, expect, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
-/**
- * One referrer and one referee per test. Referees are chosen for their identity badge, because that
- * is what `ReferralService.approve` gates on since wave 2c.
- */
+/** One referrer and one referee per test; referees are chosen for their identity badge, which
+ * `ReferralService.approve` gates on. */
 const PAIRS = {
   masked: {
     referrer: { mobile: '9108512606', name: 'Tanvi Mehta' },
@@ -69,12 +64,9 @@ async function decide(id, verb, accessToken) {
   return fetch(`${API}/referrals/${id}/${verb}`, { method: 'POST', headers: auth(accessToken) });
 }
 
-const rowFor = (page, name) => page.getByRole('row').filter({ hasText: name }).first();
+const rowFor = (page, name) => page.getByTestId('queue-row').filter({ hasText: name }).first();
 
-/**
- * `Badge` is a translation layer, not a passthrough, so the mapping is stated once here and the
- * wire vocabulary is checked against the endpoint in `ReferralEndpointsTest`.
- */
+/** `Badge` translates rather than passes through; the wire vocabulary is checked in `ReferralEndpointsTest`. */
 const LABEL = {
   pending: 'Under Review',
   rewarded: 'rewarded',
@@ -85,11 +77,8 @@ const LABEL = {
 /** Exact, so a status word cannot collide with a button carrying the same letters. */
 const statusOf = (page, name, status) => rowFor(page, name).getByText(LABEL[status], { exact: true });
 
-/**
- * The desk opens on Pending and a decision takes the referral out of that tab, so every assertion
- * about a decision's result has to follow the row to where it went.
- */
-const openTab = (page, label) => page.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+/** The desk opens on Pending and a decision moves the referral out of that tab; follow the row. */
+const openTab = (page, label) => page.getByRole('tab', { name: new RegExp(`^${label}`) }).click();
 
 async function openDesk(page, login) {
   await login.asStaff('rental');
@@ -132,9 +121,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await openTab(page, 'Rewarded');
     await expect(statusOf(page, referee.name, 'rewarded')).toBeVisible();
 
-    /* The only assertions proving the approval reached the referrer rather than just recolouring a
-       chip — and the second pair proves it reached the entitlement, which is the thing a referrer
-       can actually spend, not the summary. */
+    /* Proves the approval reached the referrer and, via the second pair, the spendable entitlement. */
     const { accessToken } = await apiLogin(referrer.mobile);
     const summary = await fetch(`${API}/me/referrals`, { headers: auth(accessToken) }).then((r) => r.json());
     expect(summary.converted).toBe(1);
@@ -155,9 +142,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await expect(row).toContainText('Blocked');
     await expect(row.getByRole('button', { name: 'Approve' })).toHaveCount(0);
 
-    /* Until wave 2c this button *was* the rule: the endpoint released the money to anyone who
-       called it directly, under a banner calling the check mandatory. Going round the UI is the
-       only way to prove that is no longer true. */
+    /* Calling the endpoint directly bypasses the UI check, the only way to prove the server enforces it. */
     const { row: dto, accessToken } = await readAsStaff(referee.name);
     const refused = await decide(dto.id, 'approve', accessToken);
     expect(refused.status).toBe(409);
@@ -181,9 +166,8 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await openTab(page, 'Rewarded');
     await rowFor(page, referee.name).getByRole('button', { name: 'Clawback' }).click();
 
-    /* The mock wrote `rejected` for both, losing the one distinction a fraud desk needs: a reward
-       that was never paid, versus one that was paid and recovered. S52 separated them. */
-    await openTab(page, 'All');
+    /* Rejected-unpaid and rejected-after-payout (recovered) are distinct outcomes a fraud desk needs. */
+    await openTab(page, 'Refused');
     await expect(statusOf(page, referee.name, 'clawed-back')).toBeVisible();
     await expect(statusOf(page, referee.name, 'rejected')).toHaveCount(0);
   });
@@ -196,7 +180,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     // Medium: referrer and referee correlate on network, which raises the band without refusing.
     await expect(rowFor(page, referee.name)).toContainText('medium');
 
-    await page.getByRole('button', { name: /^High risk/ }).click();
+    await openTab(page, 'High risk');
     await expect(rowFor(page, referee.name)).toHaveCount(0);
 
     await openTab(page, 'Pending');
@@ -204,7 +188,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
 
     /* There is no `flagged` status on the server, so a tab filtering on one would have sat
        permanently empty - a fraud desk being told there is nothing suspicious. */
-    await expect(page.getByRole('button', { name: /^Flagged/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^Flagged/ })).toHaveCount(0);
   });
 
   // A redirect is the weakest refusal; the API refusing a buyer's token is what the money rests on.

@@ -30,10 +30,19 @@ const KPIS = [
   'ARPPU',
 ];
 
+// The transaction drawer's field labels.
 const COLUMNS = ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'];
 
-// The ledger's empty copy, from `AdminFinance.jsx` (`<Table empty="…">`).
+// The ledger's empty copy, from `AdminFinance.jsx` (`<RowList empty="…">`).
 const EMPTY_TX = 'No transactions match.';
+
+const txRows = (page) => page.getByTestId('queue-row');
+
+async function gotoLedger(page) {
+  await page.goto('/admin/finance?tab=transactions');
+  await expect(page.getByRole('tab', { name: /^Transactions/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(txRows(page).first()).toBeVisible();
+}
 
 async function pickSelectOption(page, ariaLabel, optionText) {
   await page.locator(`[aria-label="${ariaLabel}"]`).click();
@@ -43,8 +52,8 @@ async function pickSelectOption(page, ariaLabel, optionText) {
   await expect(page.locator('.dz-dropdown__option')).toHaveCount(0);
 }
 
-async function columnValues(page, nth) {
-  return (await page.locator(`tbody tr td:nth-child(${nth})`).allTextContents()).map((t) => t.trim());
+async function parties(page) {
+  return (await txRows(page).locator('h3').allTextContents()).map((t) => t.trim());
 }
 
 test.describe('admin finance API', () => {
@@ -146,16 +155,14 @@ test.describe('finance console UI behaviour', () => {
       // This sentence would imply an unused payout path rather than no payout path.
       await expect(panel).not.toContainText(/payout/i);
     });
-    await test.step('ledger renders rows with the expected columns', async () => {
+    await test.step('the ledger sits on its own tab, one row card per transaction', async () => {
       await gotoFinance(page);
-      await expect(page.getByText('Recent transactions')).toBeVisible();
-      for (const header of COLUMNS) {
-        await expect(page.getByRole('columnheader', { name: header })).toBeVisible();
-      }
-      const rows = page.locator('tbody tr');
-      await expect(rows.first()).toBeVisible();
-      expect(await rows.count()).toBeGreaterThan(0);
-      await expect(page.locator('tbody .rounded-full').first()).toBeVisible();
+      await page.getByRole('tab', { name: /^Transactions/ }).click();
+      await expect(page).toHaveURL(/tab=transactions/);
+      const first = txRows(page).first();
+      await expect(first).toBeVisible();
+      await expect(first.getByText('Platform take')).toBeVisible();
+      await expect(first.locator('.rounded-full').first()).toBeVisible();
     });
     await test.step('the ledger on screen is the ledger from the API', async () => {
       const headers = await authHeaders(ACTORS.admin, { request });
@@ -164,39 +171,31 @@ test.describe('finance console UI behaviour', () => {
         .then((r) => r.json());
       expect(ledger.content.length, 'the floor').toBeGreaterThan(0);
 
-      await gotoFinance(page);
-      await expect(page.getByText('Recent transactions')).toBeVisible();
+      await gotoLedger(page);
 
       const first = ledger.content[0];
-      const table = page.getByRole('table');
-      await expect(table).toBeVisible();
       // The newest row the API returned is the first row the table draws — the ordering is the
       // server's, and a console that re-sorted locally would quietly disagree with its own pager.
-      await expect(table.locator('tbody tr').first()).toContainText(first.party);
+      await expect(txRows(page).first()).toContainText(first.party);
     });
     await test.step('the ledger offers only the settlement vocabulary a row can hold', async () => {
-      await gotoFinance(page);
-      await expect(page.locator('tbody tr').first()).toBeVisible();
+      await gotoLedger(page);
 
-      await page.locator('[aria-label="Filter by status"]').click();
-      const options = page.locator('.dz-dropdown__option');
-      await expect(options.first()).toBeVisible();
-      const labels = (await options.allTextContents()).map((s) => s.trim());
+      const labels = (await page.getByRole('group', { name: 'Status' }).getByRole('button').allTextContents()).map((s) => s.trim());
 
       // Do not advertise transaction states the platform cannot produce.
-      expect(labels).toEqual(['All statuses', 'Paid', 'Pending', 'Failed']);
+      expect(labels).toEqual(['All', 'Paid', 'Pending', 'Failed']);
     });
     await test.step('searching by party keeps only matching rows', async () => {
-      await gotoFinance(page);
-      await expect(page.locator('tbody tr').first()).toBeVisible();
-      const before = await columnValues(page, 3);
+      await gotoLedger(page);
+      const before = await parties(page);
       const term = before[0].split(' ')[0];
       expect(term.length).toBeGreaterThan(0);
 
       await page.getByPlaceholder('Search party…').fill(term);
 
       await expect(page.getByText(EMPTY_TX)).toHaveCount(0);
-      const after = await columnValues(page, 3);
+      const after = await parties(page);
       expect(after.length).toBeGreaterThan(0);
       expect(after.length).toBeLessThanOrEqual(before.length);
       for (const party of after) {
@@ -204,35 +203,16 @@ test.describe('finance console UI behaviour', () => {
       }
     });
     await test.step('an unmatchable search shows the empty state', async () => {
-      await gotoFinance(page);
-      await expect(page.locator('tbody tr').first()).toBeVisible();
+      await gotoLedger(page);
       await page.getByPlaceholder('Search party…').fill('zzzz-no-such-party-zzzz');
 
-      const table = page.getByRole('table');
-      await expect(table.getByText(EMPTY_TX)).toBeVisible();
-      await expect(table.locator('tbody tr td:nth-child(2)')).toHaveCount(0);
-    });
-    await test.step('filtering by type keeps only rows of that type', async () => {
-      await gotoFinance(page);
-      await expect(page.locator('tbody tr').first()).toBeVisible();
-      const before = await columnValues(page, 4);
-      const type = before.find(Boolean);
-      expect(type).toBeTruthy();
-
-      await pickSelectOption(page, 'Filter by type', type);
-
-      const after = await columnValues(page, 4);
-      expect(after.length).toBeGreaterThan(0);
-      expect(after.length).toBeLessThanOrEqual(before.length);
-      for (const value of after) {
-        expect(value.toLowerCase()).toContain(type.toLowerCase());
-      }
+      await expect(page.getByText(EMPTY_TX)).toBeVisible();
+      await expect(txRows(page)).toHaveCount(0);
     });
     await test.step('the ledger filters are sent to the server', async () => {
-      await gotoFinance(page);
-      await expect(page.locator('tbody tr').first()).toBeVisible();
+      await gotoLedger(page);
       const filtered = page.waitForRequest((r) => /\/admin\/finance\/transactions\?.*status=failed/.test(r.url()));
-      await pickSelectOption(page, 'Filter by status', 'Failed');
+      await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Failed' }).click();
       await filtered;
     });
     await test.step('finance header exports a revenue CSV', async () => {
@@ -243,13 +223,9 @@ test.describe('finance console UI behaviour', () => {
       expect((await download).suggestedFilename()).toMatch(/\.csv$/i);
     });
     await test.step('the ledger exports a CSV', async () => {
-      await gotoFinance(page);
-      await expect(page.getByText('Recent transactions')).toBeVisible();
+      await gotoLedger(page);
       const download = page.waitForEvent('download');
-      await page.evaluate(() => {
-        const buttons = [...document.querySelectorAll('button')].filter((b) => /CSV/i.test(b.textContent));
-        buttons[buttons.length - 1]?.click();
-      });
+      await page.getByRole('button', { name: 'Export CSV' }).click();
       expect((await download).suggestedFilename()).toMatch(/\.csv$/i);
     });
     await test.step('revenue charts render and the window selector redraws them cleanly', async () => {
@@ -268,12 +244,8 @@ test.describe('finance console UI behaviour', () => {
       expect(errors).toHaveLength(0);
     });
     await test.step('opening a transaction shows every field and closes on Escape', async () => {
-      await gotoFinance(page);
-      await expect(page.getByText('Recent transactions')).toBeVisible();
-      const rows = page.locator('tbody tr button');
-      expect(await rows.count()).toBeGreaterThan(0);
-
-      await page.evaluate(() => { document.querySelector('tbody tr button')?.click(); });
+      await gotoLedger(page);
+      await txRows(page).first().getByRole('button', { name: /^Open transaction/ }).click();
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
@@ -286,8 +258,7 @@ test.describe('finance console UI behaviour', () => {
       await expect(dialog).toHaveCount(0);
     });
     await test.step('a ledger longer than one page says so on screen', async () => {
-      await gotoFinance(page);
-      await expect(page.getByRole('table')).toBeVisible();
+      await gotoLedger(page);
       await expect(page.getByTestId('ledger-window')).toHaveCount(0);
 
       // Loud half: the same rows, reported as the first few of many.
@@ -299,7 +270,7 @@ test.describe('finance console UI behaviour', () => {
           json: { ...body, totalElements: (body.content?.length ?? 0) + 250 },
         });
       });
-      await page.goto('/admin/finance');
+      await page.goto('/admin/finance?tab=transactions');
       await expect(page.getByTestId('ledger-window')).toContainText(/of \d+ matching transactions/);
     });
   });

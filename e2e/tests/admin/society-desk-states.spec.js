@@ -15,9 +15,9 @@ import { mintSociety } from '../../helpers/liveSociety.js';
 const CLAIMS_LIST = /\/api\/admin\/society-claims(\?|$)/;
 const claimUrl = (id) => new RegExp(`/api/admin/society-claims/${id}$`);
 
-const rows = (page) => page.locator('table tbody tr');
+const rows = (page) => page.getByTestId('queue-row');
 const rowFor = (page, name) => rows(page).filter({ hasText: name });
-const kpi = (page, label) => page.getByText(label, { exact: true }).locator('xpath=following-sibling::div[1]');
+const claimsCount = (page) => page.getByTestId('tab-count-claims');
 
 const admin = async () => authHeaders('9000000000');
 
@@ -55,7 +55,7 @@ async function claimStatus(request, id) {
 const decide = async (request, id, status) =>
   request.patch(`${API}/admin/society-claims/${id}`, { headers: await admin(), data: { status } });
 
-test('a claims queue that fails says so beside a tile still reading 0, and Retry really re-reads it', async ({ page, request, login }) => {
+test('a claims queue that fails says so beside a count still reading 0, and Retry really re-reads it', async ({ page, request, login }) => {
   const filed = await fileClaim(request, 'Failing queue');
 
   await login.asAdmin();
@@ -67,7 +67,7 @@ test('a claims queue that fails says so beside a tile still reading 0, and Retry
 
   const banner = page.getByRole('alert').filter({ hasText: /claims queue could not be\s+loaded/ });
   await expect(banner).toBeVisible();
-  await expect(kpi(page, 'Pending claims'), 'the tile is the zero the banner exists to label').toHaveText('0');
+  await expect(claimsCount(page), 'the count is the zero the banner exists to label').toHaveText('0');
   await expect(rowFor(page, filed.name)).toHaveCount(0);
 
   await page.unroute(CLAIMS_LIST);
@@ -77,7 +77,7 @@ test('a claims queue that fails says so beside a tile still reading 0, and Retry
 
   await expect(banner).toHaveCount(0);
   await expect(rowFor(page, filed.name)).toHaveCount(1);
-  await expect(kpi(page, 'Pending claims')).toHaveText(/^[1-9]\d*$/);
+  await expect(claimsCount(page)).toHaveText(/^[1-9]\d*$/);
 });
 
 test('both buttons on a row disable while its own PATCH is in flight, and a second click sends no second decision', async ({ page, request, login }) => {

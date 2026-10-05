@@ -13,6 +13,11 @@ export const CHIP_TONE = {
   violet: 'border-violet-400/40 bg-violet-500/15 text-violet-200',
   green: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200',
 };
+export const BTN = {
+  primary: 'dz-btn dz-btn-primary dz-btn-sm',
+  ghost: 'dz-btn dz-btn-ghost dz-btn-sm',
+  danger: 'dz-btn dz-btn-ghost dz-btn-sm border-rose-400/30 text-rose-300 hover:bg-rose-500/10',
+};
 const ICON_BTN = 'grid h-8 w-8 cursor-pointer place-items-center rounded-lg border border-white/10 text-gray-400 transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-40';
 const GROUP = 'mt-2.5 border-t border-white/[0.06] pt-2.5';
 const DASH = '\u2014';
@@ -163,11 +168,13 @@ export function RowCard({ title, lead, badges, meta, facts, chips, primary, figu
             {facts ? <dl className={classNames(GROUP, 'space-y-1.5')}>{facts}</dl> : null}
             {chips ? <div className={classNames(GROUP, 'flex flex-wrap items-center gap-1.5')}>{chips}</div> : null}
           </div>
+          {primary || figure || icons ? (
           <div className="flex w-[212px] shrink-0 flex-col items-end border-l border-white/[0.07] pl-[18px] text-right max-md:w-full max-md:items-start max-md:border-l-0 max-md:border-t max-md:pl-0 max-md:pt-3 max-md:text-left">
-            <div className="flex min-h-9 flex-wrap items-start justify-end gap-1.5 max-md:justify-start">{primary}</div>
+            {primary ? <div className="flex min-h-9 flex-wrap items-start justify-end gap-1.5 max-md:justify-start">{primary}</div> : null}
             {figure ? <div className="mt-3">{figure}</div> : null}
-            {icons ? <div className="mt-auto flex flex-wrap items-center justify-end gap-1.5 pt-3 max-md:justify-start">{icons}</div> : null}
+            {icons ? <div className={classNames('mt-auto flex flex-wrap items-center justify-end gap-1.5 max-md:justify-start', (primary || figure) && 'pt-3')}>{icons}</div> : null}
           </div>
+          ) : null}
         </div>
       </div>
     </li>

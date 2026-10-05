@@ -121,14 +121,16 @@ async function openDesk(page) {
   await signIn(page, STAFFER.mobile, { screen: 'staff' });
 
   await page.goto('/admin/valuation');
-  await expect(page.getByRole('heading', { name: 'Property Valuation' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Property Valuation', level: 1 })).toBeVisible();
   // The gate this screen now has: in live mode it must render the queue, not the offline panel.
   await expect(page.getByText(/needs the live API/i)).toHaveCount(0);
 }
 
 // The row for the matter this spec created — matched on its own property string, not on position.
-const ourRow = (page) => page.getByRole('row').filter({ hasText: 'Live spec flat' }).first();
-const rowFor = (page, property) => page.getByRole('row').filter({ hasText: property }).first();
+const ourRow = (page) => page.getByTestId('queue-row').filter({ hasText: 'Live spec flat' }).first();
+const rowFor = (page, property) => page.getByTestId('queue-row').filter({ hasText: property }).first();
+const openRow = (row) => row.getByRole('button', { name: 'Open', exact: true }).click();
+const showTab = (page, name) => page.getByRole('tab', { name: new RegExp(`^${name}`) }).click();
 
 test.describe('Ops → Drafting desk (live)', () => {
   test.beforeEach(async () => { await seedRequest(); });
@@ -139,9 +141,12 @@ test.describe('Ops → Drafting desk (live)', () => {
     await test.step('the desk lists the server queue with its filters', async () => {
 
       await expect(page.getByLabel('Filter by desk')).toHaveCount(0);
-      await expect(page.getByLabel('Filter by status')).toBeVisible();
+      await expect(page.getByRole('tab', { name: /^To pick up/ })).toHaveAttribute('aria-selected', 'true');
+      for (const name of ['My requests', 'In progress', 'With customer', 'Closed']) {
+        await expect(page.getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible();
+      }
       await expect(page.getByPlaceholder('Name, mobile or request id')).toBeVisible();
-      await expect(page.getByLabel('Unassigned only')).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Overdue/ })).toBeVisible();
       await expect(ourRow(page)).toBeVisible();
     });
     await test.step('a fresh request has the opened-age cue', async () => {
@@ -150,18 +155,17 @@ test.describe('Ops → Drafting desk (live)', () => {
     await test.step('the queue itself never carries an identity number or a mobile', async () => {
       await expect(ourRow(page)).toBeVisible();
 
-      const table = await page.getByRole('table').innerText();
+      const table = await page.getByRole('tabpanel').innerText();
       const tableWithoutUuids = table.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '');
       expect(tableWithoutUuids).not.toMatch(/\b[A-Z]{5}\d{4}[A-Z]\b/);
       expect(tableWithoutUuids).not.toMatch(/\b\d{4}\s?\d{4}\s?\d{4}\b/);
       expect(tableWithoutUuids).not.toMatch(MOBILE);
     });
-    await test.step('a desk can search its queue and isolate work nobody has taken', async () => {
+    await test.step('a desk can search its queue', async () => {
       await page.getByPlaceholder('Name, mobile or request id').fill('Live Desk Owner');
       await expect(ourRow(page)).toBeVisible();
-
-      await page.getByLabel('Unassigned only').check();
-      await expect(ourRow(page)).toBeVisible();
+      await page.getByPlaceholder('Name, mobile or request id').fill('no such request zz');
+      await expect(page.getByText('No requests match these filters.')).toBeVisible();
     });
   });
 
@@ -176,7 +180,8 @@ test.describe('Ops → Drafting desk (live)', () => {
     expect(taken.status, await taken.text()).toBe(200);
 
     await openDesk(page);
-    await rowFor(page, request.property).click();
+    await showTab(page, 'In progress');
+    await openRow(rowFor(page, request.property));
     await page.getByRole('dialog').getByRole('button', { name: 'Take this request' }).click();
 
     await expect(page.getByRole('alert')).toContainText('Meera Iyer is already working this request');
@@ -211,7 +216,7 @@ test.describe('Ops → Drafting desk (live)', () => {
     const note = 'Draft checked against the submitted ownership proof.';
 
     await openDesk(page);
-    await rowFor(page, request.property).click();
+    await openRow(rowFor(page, request.property));
     let dialog = page.getByRole('dialog');
     await dialog.getByRole('button', { name: 'Take this request' }).click();
     await expect(page.getByRole('alert')).toContainText('This request is now yours');
@@ -237,8 +242,9 @@ test.describe('Ops → Drafting desk (live)', () => {
     expect(approval.status).toBe('approved');
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Property Valuation' })).toBeVisible();
-    await rowFor(page, request.property).click();
+    await expect(page.getByRole('heading', { name: 'Property Valuation', level: 1 })).toBeVisible();
+    await showTab(page, 'My requests');
+    await openRow(rowFor(page, request.property));
     dialog = page.getByRole('dialog');
     await dialog.getByRole('button', { name: '1 previous note' }).click();
     await expect(dialog.getByText(note)).toBeVisible();
@@ -255,7 +261,7 @@ test.describe('Ops → Drafting desk (live)', () => {
     const request = await seedRequest();
     const reason = 'The valuation address could not be verified.';
     await openDesk(page);
-    await rowFor(page, request.property).click();
+    await openRow(rowFor(page, request.property));
 
     const dialog = page.getByRole('dialog').first();
     await dialog.getByLabel('Reply to customer').fill('Please call the desk before 5pm.');
@@ -281,9 +287,11 @@ test.describe('Ops → Drafting desk (live)', () => {
 
   test("a matter's drawer: named fields, paperwork, the refused reveal, taking and revealing, and a disclosure that dies with the drawer", async ({ page }) => {
     test.slow();
+    const request = await seedRequest();
+    const ours = () => rowFor(page, request.property);
     await openDesk(page);
     await test.step('the request summary shows named fields only, never the raw details object', async () => {
-      await ourRow(page).click();
+      await openRow(ours());
 
       const dialog = page.getByRole('dialog');
       // Match the whole `dt` so headings cannot satisfy detail-row labels.
@@ -298,7 +306,7 @@ test.describe('Ops → Drafting desk (live)', () => {
     });
     await test.step('a matter names the paperwork it is waiting for', async () => {
       // Only read-side document review returns; the server folds it from vault documents.
-      await ourRow(page).click();
+      await openRow(ours());
 
       const drawer = page.getByRole('dialog');
       // Seeded over HTTP with no uploads, so every item is outstanding — and the count is the
@@ -321,7 +329,7 @@ test.describe('Ops → Drafting desk (live)', () => {
       await expect(page.getByRole('dialog')).toHaveCount(0);
     });
     await test.step("an unassigned request refuses the reveal, in the server's own words", async () => {
-      await ourRow(page).click();
+      await openRow(ours());
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
@@ -337,7 +345,7 @@ test.describe('Ops → Drafting desk (live)', () => {
       await expect(page.getByRole('dialog')).toHaveCount(0);
     });
     await test.step('taking the request unlocks the reveal, and Hide puts it away again', async () => {
-      await ourRow(page).click();
+      await openRow(ours());
 
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Take this request' }).click();
@@ -361,19 +369,20 @@ test.describe('Ops → Drafting desk (live)', () => {
     });
     await test.step('a disclosure does not survive closing the matter, and never reaches the URL', async () => {
       // The request was taken in the step above, so Reveal is open to this operator.
-      await ourRow(page).click();
+      await showTab(page, 'My requests');
+      await openRow(ours());
 
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Reveal' }).click();
       await expect(panRow(dialog).first()).toBeVisible();
 
       // The open request's id is not a route param, so nothing identifying is in history.
-      await expect(page).toHaveURL(/\/staff\/valuation$/);
+      await expect(page).toHaveURL(/\/staff\/valuation\?tab=mine$/);
 
       await page.keyboard.press('Escape');
       await expect(dialog).toHaveCount(0);
 
-      await ourRow(page).click();
+      await openRow(ours());
       await expect(page.getByRole('dialog')).toBeVisible();
       await expect(panRow(page.getByRole('dialog'))).toHaveCount(0);
       await expect(page.getByRole('dialog').getByRole('button', { name: 'Reveal' })).toBeVisible();
@@ -420,7 +429,7 @@ test.describe('Ops → Drafting desk (live)', () => {
 
     await login.asStaff('rental');
     await page.goto('/admin/rent-agreement?tab=pickup');
-    await expect(page.getByRole('heading', { name: 'Rent Agreement' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Rent Agreement', level: 1 })).toBeVisible();
     await expect(page.getByTestId('ra-count-pickup')).toBeVisible();
     await expect(page.getByTestId('ra-count-mine')).toBeVisible();
 
@@ -464,7 +473,7 @@ test.describe('Ops → Drafting desk (live)', () => {
 
       await legalPage.goto('/ops/drafting-desk?type=legal');
       await expect(legalPage).toHaveURL(/\/staff\/legal$/);
-      await expect(legalPage.getByRole('heading', { name: 'Property & Legal' })).toBeVisible();
+      await expect(legalPage.getByRole('heading', { name: 'Property & Legal', level: 1 })).toBeVisible();
       await expect(legalPage.getByLabel('Filter by desk')).toHaveCount(0);
 
       await legalPage.goto('/ops/drafting-desk');
@@ -477,13 +486,13 @@ test.describe('Ops → Drafting desk (live)', () => {
 
     await page.goto('/ops/drafting-desk?type=legal');
     await expect(page).toHaveURL(/\/admin\/legal$/);
-    await expect(page.getByRole('heading', { name: 'Property & Legal' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Property & Legal', level: 1 })).toBeVisible();
 
     await page.goto('/ops/drafting-desk');
     await expect(page).toHaveURL(/\/admin$/);
 
     await page.goto('/ops/rent-agreement');
     await expect(page).toHaveURL(/\/admin\/rent-agreement$/);
-    await expect(page.getByRole('heading', { name: 'Rent Agreement' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Rent Agreement', level: 1 })).toBeVisible();
   });
 });

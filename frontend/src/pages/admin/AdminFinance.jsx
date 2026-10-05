@@ -2,29 +2,40 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Download, IndianRupee, Eye, Receipt, RefreshCw, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { getFinanceOverview, getFinanceSeries, listFinanceTransactions } from '../../services/financeService.js';
-import { fmtINR, fmtNum } from '../../lib/format.js';
+import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
+import { useTabParam } from '../../lib/useTabParam.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { BarChart, LineChart, DoughnutChart, PALETTE } from '../../components/charts/index.jsx';
+import {
+  BTN, Chips, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+} from '../../components/admin/WorkQueue.jsx';
 
 /** The widest window the console offers, and therefore what it fetches once and slices locally. */
 const MAX_MONTHS = 24;
 
-/** Search and dropdown filters are server-side; CSV export walks every page, not just the table window. */
+/** Search and the status filter are server-side; CSV export walks every page, not just the window. */
 const LEDGER_PAGE_SIZE = 100;
+const TX_PER_PAGE = 20;
 
 /** Must match `AdminFinanceService.LEDGER_KINDS`: an unknown kind is a 400, not an empty page. */
 const KIND_LABELS = {
   subscription: 'Subscription',
 };
 
-const TX_TYPES = Object.keys(KIND_LABELS);
+const TX_STATUSES = [
+  { value: '', label: 'All' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'failed', label: 'Failed' },
+];
+
+const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 async function fetchWholeLedger(filters) {
   const rows = [];
@@ -84,9 +95,9 @@ export default function AdminFinance() {
   const [range, setRange] = useState(12);
   const [txQ, setTxQ] = useState('');
   const [txTerm, setTxTerm] = useState('');
-  const [txType, setTxType] = useState('');
   const [txStatus, setTxStatus] = useState('');
   const [detail, setDetail] = useState(null);
+  const [tab, setTab] = useTabParam(['overview', 'transactions'], 'overview');
 
   useEffect(() => {
     let alive = true;
@@ -106,8 +117,8 @@ export default function AdminFinance() {
   }, [txQ]);
 
   const txFilters = useMemo(
-    () => ({ kind: txType, status: txStatus, q: txTerm }),
-    [txType, txStatus, txTerm],
+    () => ({ status: txStatus, q: txTerm }),
+    [txStatus, txTerm],
   );
 
   useEffect(() => {
@@ -122,6 +133,7 @@ export default function AdminFinance() {
 
   const txRows = ledger?.items || [];
   const txTotal = ledger?.total || 0;
+  const { items: pageTx, paging } = useClientPaging(txRows, TX_PER_PAGE, `${txStatus}|${txTerm}`);
 
   if (!finance) return <Loading />;
 
@@ -178,34 +190,24 @@ export default function AdminFinance() {
   };
 
   /* "Platform take" names the platform's cut, not necessarily the gross amount that changed hands. */
-  const txCols = [
-    { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-gray-400">{r.id}</span> },
-    { key: 'date', header: 'Date', render: (r) => <span className="text-xs text-gray-400">{r.date}</span> },
-    { key: 'party', header: 'Party', render: (r) => <span>{r.party}</span> },
-    { key: 'kind', header: 'Type', render: (r) => <span className="text-xs">{KIND_LABELS[r.kind] || r.kind}</span> },
-    { key: 'amount', header: 'Platform take', className: 'font-semibold', render: (r) => <span className={r.amount < 0 ? 'text-red-400' : ''}>{fmtINR(r.amount)}</span> },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
-    { key: 'actions', header: '', render: (r) => <button onClick={() => setDetail(r)} aria-label={`Open transaction ${r.id}`} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Eye className="h-3.5 w-3.5" /></button> },
-  ];
-
-  const txCard = (r) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{r.party}</div>
-          <div className="mt-0.5 font-mono text-xs text-gray-500">{r.id} · {r.date}</div>
+  const txRow = (r) => (
+    <RowCard
+      key={r.id}
+      id={r.id}
+      title={r.party}
+      badges={<Badge status={r.status} />}
+      meta={<><span className="font-mono">{r.id}</span><Dot /><span>{r.date}</span><Dot /><span>{KIND_LABELS[r.kind] || r.kind}</span></>}
+      figure={(
+        <div className="text-right max-md:text-left">
+          <div className={classNames('text-lg font-bold tabular-nums', r.amount < 0 && 'text-red-400')}>{fmtINR(r.amount)}</div>
+          <div className="text-[11px] text-gray-500">Platform take</div>
         </div>
-        <div className="shrink-0 text-right">
-          <div className={`font-semibold ${r.amount < 0 ? 'text-red-400' : ''}`}>{fmtINR(r.amount)}</div>
-          <div className="mt-1"><Badge status={r.status} /></div>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
-        <span className="text-xs text-gray-400">{KIND_LABELS[r.kind] || r.kind}</span>
-        <button onClick={() => setDetail(r)} className="dz-btn dz-btn-ghost py-1 text-xs"><Eye className="h-3.5 w-3.5" />Details</button>
-      </div>
-    </div>
+      )}
+      icons={<IconAction label={`Open transaction ${r.id}`} icon={Eye} onClick={() => setDetail(r)} />}
+    />
   );
+  const showLedger = optionEnabled('finance.transactions');
+  const ledgerTruncated = txTotal > txRows.length;
 
   return (
     <div>
@@ -213,6 +215,17 @@ export default function AdminFinance() {
         <button onClick={doRevenueExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
       } />
 
+      {showLedger ? (
+        <QueueTabs
+          tabs={[{ key: 'overview', label: 'Overview', count: null }, { key: 'transactions', label: 'Transactions', count: ledger ? txTotal : null }]}
+          active={tab}
+          onChange={setTab}
+          label="Finance views"
+          idPrefix="finance"
+        />
+      ) : null}
+
+      {tab === 'overview' || !showLedger ? (<div {...(showLedger ? { id: 'finance-panel', role: 'tabpanel', 'aria-labelledby': 'finance-tab-overview' } : {})}>
       {disclosures.length > 0 && (
         <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-testid="finance-disclosures">
           {/* h3 to match the other panels on this page — the banner is their sibling, not their
@@ -341,46 +354,31 @@ export default function AdminFinance() {
           </div>
         </div>
       )}
-
-      {optionEnabled('finance.transactions') && (
-        <div className="dz-card p-4">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <h3 className="font-bold">Recent transactions</h3>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party…" aria-label="Search party" className="dz-input py-1 text-xs sm:w-48" />
-              <Select
-                size="sm"
-                value={txType}
-                onChange={setTxType}
-                ariaLabel="Filter by type"
-                className="[--dd-sm-w:200px]"
-                options={[{ value: '', label: 'All types' }, ...TX_TYPES.map((k) => ({ value: k, label: KIND_LABELS[k] }))]}
-              />
+      </div>) : (
+        <QueuePanel
+          idPrefix="finance"
+          active={tab}
+          note={ledgerTruncated
+            ? `Showing the newest ${fmtNum(txRows.length)} of ${fmtNum(txTotal)} matching transactions. The CSV has all of them.`
+            : 'Platform take per payment, newest first. The CSV has every matching row.'}
+          noteTestId={ledgerTruncated ? 'ledger-window' : undefined}
+          toolbar={(
+            <>
+              <SearchBox value={txQ} onChange={setTxQ} placeholder="Search party…" label="Search party" />
               {/* Exactly AdminFinanceService.LEDGER_STATUSES: there is no
                   refund path and the server answers 400 for `refunded`. */}
-              <Select
-                size="sm"
-                value={txStatus}
-                onChange={setTxStatus}
-                ariaLabel="Filter by status"
-                className="[--dd-sm-w:128px]"
-                options={[
-                  { value: '', label: 'All statuses' },
-                  { value: 'paid', label: 'Paid' },
-                  { value: 'pending', label: 'Pending' },
-                  { value: 'failed', label: 'Failed' },
-                ]}
-              />
-              <button onClick={doTxExport} className="dz-btn dz-btn-ghost py-1 text-xs"><Download className="h-3.5 w-3.5" />CSV</button>
-            </div>
-          </div>
-          {txTotal > txRows.length ? (
-            <p className="mb-2 text-xs text-gray-400" data-testid="ledger-window">
-              Showing the newest {fmtNum(txRows.length)} of {fmtNum(txTotal)} matching transactions. The CSV has all of them.
-            </p>
-          ) : null}
-          <Table columns={txCols} rows={txRows} pageSize={15} label="transactions" empty="No transactions match." mobileCard={txCard} />
-        </div>
+              <Chips label="Status" options={TX_STATUSES} value={txStatus} onChange={setTxStatus} />
+              <div className="ml-auto flex items-center gap-2">
+                <button type="button" onClick={doTxExport} className={BTN.ghost}><Download className="h-3.5 w-3.5" />Export CSV</button>
+                <PageNav {...paging} />
+              </div>
+            </>
+          )}
+        >
+          <RowList isEmpty={!txRows.length} empty="No transactions match.">
+            {pageTx.map(txRow)}
+          </RowList>
+        </QueuePanel>
       )}
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Transaction · ${detail.id}` : ''} size="md">

@@ -154,7 +154,7 @@ test('the admin settings console lists every flag group, flags the maintenance s
   await page.goto('/admin/settings');
   await expect(page.getByText('Site details, the fee schedule')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Feature flags' }).click();
+  await page.getByRole('tab', { name: 'Feature flags' }).click();
   await expect(page.getByText('Platform-wide feature toggles')).toBeVisible();
   await expect(page.getByText('Discovery & Search').first()).toBeVisible();
   await expect(page.getByText('Communication').first()).toBeVisible();

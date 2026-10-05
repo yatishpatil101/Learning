@@ -23,10 +23,10 @@ async function contentRows(request, type) {
 test('admin loads the Content desk with its three tabs and the banners view', async ({ page, login, consoleErrors }) => {
   await openContent(page, login);
 
-  await expect(page.getByRole('button', { name: 'Banners', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'FAQs', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Announcements', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reviews', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /^Banners\b/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^FAQs\b/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Announcements\b/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Reviews\b/ })).toHaveCount(0);
 
   await expect(page.getByText(/\d+ active, \d+ archived/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add banner' })).toBeVisible();

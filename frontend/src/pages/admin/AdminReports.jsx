@@ -17,7 +17,7 @@ import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import {
-  CHIP, CHIP_TONE, Cell, Chips, ClearFilters, DATE_CHIPS, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+  BTN, CHIP, CHIP_TONE, Cell, Chips, ClearFilters, DATE_CHIPS, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
 } from '../../components/admin/WorkQueue.jsx';
 import ReviewsTab from './reports/ReviewsTab.jsx';
 
@@ -88,7 +88,6 @@ const KIND_LABEL = {
   listing: 'Property', user: 'User', share: 'Flatmate post', contribution: 'Recommendation', reply: 'Reply', question: 'Question', answer: 'Answer', board: 'Noticeboard post',
 };
 
-const DANGER_BTN = 'dz-btn dz-btn-ghost dz-btn-sm border-rose-400/30 text-rose-300 hover:bg-rose-500/10';
 const PAGE_SIZE = 10;
 
 export default function AdminReports() {
@@ -235,14 +234,14 @@ export default function AdminReports() {
   const triageButtons = (r) => (canTriage(r) ? (
     <>
       {inTab(r, 'listings')
-        ? <button type="button" onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Take down</button>
+        ? <button type="button" onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Take down</button>
         : inTab(r, 'posts')
           /* `hide_content`, not `suspend_account`: a flatmate post is content, and suspending its author is a heavier decision. */
-          ? <button type="button" onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Take down</button>
+          ? <button type="button" onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Take down</button>
           : inTab(r, 'society')
             /* Upholding removes the post for everybody: a `personal` report is often a leaked mobile number. */
-            ? <button type="button" onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Remove</button>
-            : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={DANGER_BTN}><Ban className="h-3.5 w-3.5" />Suspend</button>}
+            ? <button type="button" onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Remove</button>
+            : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Suspend</button>}
       <button type="button" onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="dz-btn dz-btn-primary dz-btn-sm"><CheckCircle2 className="h-3.5 w-3.5" />Resolve</button>
       <button type="button" onClick={() => act(r.id, 'dismissed')} className="dz-btn dz-btn-ghost dz-btn-sm"><XCircle className="h-3.5 w-3.5" />Dismiss</button>
     </>

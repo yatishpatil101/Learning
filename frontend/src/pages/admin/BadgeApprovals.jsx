@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { approveBadgeGrant, rejectBadgeGrant } from '../../services/usersService.js';
-import { timeAgo } from '../../lib/format.js';
+import { classNames, timeAgo } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import { BTN, CHIP, CHIP_TONE, FactRow, RowCard, RowList } from '../../components/admin/WorkQueue.jsx';
 
 export default function BadgeApprovals({ requests, currentUser, onReload }) {
   const { toast } = useToast();
@@ -50,40 +51,34 @@ export default function BadgeApprovals({ requests, currentUser, onReload }) {
 
   return (
     <>
-      <section data-testid="admin-badge-approvals" className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-white">Badge approvals</h2>
-            <p className="mt-0.5 text-xs text-gray-500">Hand-granted badges need a second admin.</p>
-          </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-gray-300">{requests.length} pending</span>
-        </div>
-        <div className="mt-3 space-y-2">
-          {requests.map((request) => {
-            const showActions = canDecide(request);
-            return (
-              <div key={request.id} data-testid="admin-badge-grant-row" className="rounded-xl border border-white/10 bg-black/10 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white">{request.userName || request.userMobileMasked || request.userId}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">{request.userMobileMasked || '—'} · requested by {request.requestedByName || request.requestedBy || '—'} · {request.createdAt ? timeAgo(request.createdAt) : '—'}</p>
-                    <p className="mt-2 text-xs text-gray-300">{request.reason}</p>
-                  </div>
-                  {showActions ? (
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => openDecision(request, 'approve')} className="rounded-[10px] border border-emerald-400/30 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-200">Approve</button>
-                      <button type="button" onClick={() => openDecision(request, 'reject')} className="rounded-[10px] border border-rose-400/30 bg-rose-500/15 px-3 py-1.5 text-xs font-semibold text-rose-200">Reject</button>
-                    </div>
-                  ) : (
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-gray-400">Waiting for another admin</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {requests.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-gray-500">No badge requests pending.</div> : null}
-        </div>
-      </section>
+      <RowList isEmpty={!requests.length} empty="No badge requests pending.">
+        {requests.map((request) => (
+          <RowCard
+            key={request.id}
+            id={request.id}
+            testId="admin-badge-grant-row"
+            title={request.userName || request.userMobileMasked || request.userId}
+            meta={(
+              <>
+                <span>{request.userMobileMasked || '—'}</span>
+                <span className="text-gray-600" aria-hidden="true">·</span>
+                <span>requested by {request.requestedByName || request.requestedBy || '—'}</span>
+                <span className="text-gray-600" aria-hidden="true">·</span>
+                <span>{request.createdAt ? timeAgo(request.createdAt) : '—'}</span>
+              </>
+            )}
+            facts={<FactRow label="Reason"><span className="col-span-full">{request.reason}</span></FactRow>}
+            primary={canDecide(request) ? (
+              <>
+                <button type="button" onClick={() => openDecision(request, 'approve')} className={BTN.primary}>Approve</button>
+                <button type="button" onClick={() => openDecision(request, 'reject')} className={BTN.danger}>Reject</button>
+              </>
+            ) : (
+              <span className={classNames(CHIP, CHIP_TONE.neutral)}>Waiting for another admin</span>
+            )}
+          />
+        ))}
+      </RowList>
 
       <Modal
         open={!!decision}

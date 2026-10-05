@@ -60,24 +60,11 @@ async function openTab(page, tab) {
   await expect(page.getByRole('heading', { name: 'Societies', exact: true })).toBeVisible({ timeout: 20000 });
 }
 
-/**
- * Every row is in the DOM twice — `Table` renders an `sm:hidden` stacked card per row *before* the
- * `hidden sm:block` table. Unscoped locators match double and every count is wrong. Scope to the
- * table.
- */
-const rows = (page) => page.locator('table tbody tr');
+const rows = (page) => page.getByTestId('queue-row');
 
-/**
- * The row whose *Society* column is this name — not merely a row mentioning it.
- *
- * A plain name filter was enough until the candidates table grew a "Possible
- * duplicates" column, which puts other societies' names inside a row. A queue holding a typo pair
- * now has each row carrying the other's name, so a name filter matches two rows and every count
- * assertion below is off by exactly the thing the column exists to surface. Scoped to the first
- * cell, which is the society the row is *about*.
- */
+/** Scoped to the card title: a plain name filter also matches rows listing it under "Similar to". */
 const named = (page, name) =>
-  rows(page).filter({ has: page.locator('td:first-child').filter({ hasText: name }) });
+  rows(page).filter({ has: page.locator('h3').filter({ hasText: name }) });
 
 /** Mint a community society over the API and return its slug. */
 async function mintSociety(name, { mobile }) {
@@ -207,10 +194,7 @@ test('a second operator is told who verified a society rather than overwriting t
 });
 
 test('merging a duplicate takes it off the queue without deleting it, and undoes cleanly', async ({ page, login }) => {
-  /* The duplicate is minted here; the survivor is a catalogue society. That is no longer a
-     workaround — the picker searches `GET /societies?q=` and would find a society minted a second
-     ago just as well — but it is kept, because a catalogue name is what an operator merging a typo
-     into a real building actually types. */
+  /* The duplicate is minted here and the survivor is a catalogue society, as an operator merging a typo into a real building would. */
   const dupe = uniqueName('Mergetest Blue Ridge Tower');
   const dupeSlug = await mintSociety(dupe, { mobile: uniqueMobile() });
 
@@ -229,8 +213,7 @@ test('merging a duplicate takes it off the queue without deleting it, and undoes
   await expect(named(page, dupe)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Merged duplicates' })).toBeVisible();
 
-  /* Nothing was deleted. The duplicate's row is still there — the merge is a pointer, which is the
-     whole reason the undo below can exist at all. */
+  /* The duplicate's row survives the merge (it is a pointer), which is what makes the undo below possible. */
   const still = await fetch(`${API}/societies/${dupeSlug}`);
   expect(still.status).toBe(200);
 
@@ -245,9 +228,7 @@ test('merging a duplicate takes it off the queue without deleting it, and undoes
 
 test('the duplicate column finds a second copy the bundled catalogue never held, and says so when nothing resembles a society', async ({ page, login }) => {
   await test.step('the duplicate column finds a second copy the bundled catalogue never held', async () => {
-    /* A typo pair, which is the shape this queue actually produces. Neither name is a substring of
-       the other, so the row locators below cannot match each other's row — and both carry the same
-       run stamp, so a re-run does not inherit the last one's societies as extra matches. */
+    /* A typo pair: neither name is a substring of the other and both share the run stamp, so locators never match the wrong row or a previous run. */
     const stamp = String(Date.now()).slice(-7);
     const original = `Quollhaven Ridge ${stamp}`;
     const typo = `Quollhaven Rydge ${stamp}`;
@@ -259,10 +240,8 @@ test('the duplicate column finds a second copy the bundled catalogue never held,
 
     const row = named(page, typo);
     await expect(row).toHaveCount(1);
-    /* The hint is fetched now rather than computed in the same tick as the render, so the column has
-       three states and "Checking…" is one of them. Waiting for the chip is what distinguishes the
-       served answer from the old one; asserting `not.toContainText('No obvious match')` immediately
-       would pass against a column that had not started. */
+    /* The hint is fetched, so the column has a "Checking…" state; wait for the chip, since `not.toContainText('No obvious match')`
+       would pass immediately against a column that has not started. */
     await expect(row.getByText(original)).toBeVisible({ timeout: 20000 });
     await expect(row).not.toContainText('No obvious match');
 

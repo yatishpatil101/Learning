@@ -16,25 +16,30 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { hasPermission } from '../../lib/adminModules.js';
+import { useTabParam } from '../../lib/useTabParam.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
-import Select from '../../components/ui/Select.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import Modal from '../../components/ui/Modal.jsx';
+import {
+  BTN, CHIP, CHIP_TONE, Cell, Chips, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+} from '../../components/admin/WorkQueue.jsx';
 import BadgeApprovals from './BadgeApprovals.jsx';
 
-const ROLE_OPTS = [
-  { value: '', label: 'All customers' },
+const ROLE_CHIPS = [
+  { value: '', label: 'All' },
   { value: 'owner', label: 'Owners' },
   { value: 'buyer', label: 'Buyers' },
 ];
-const STATUS_OPTS = [
-  { value: '', label: 'All statuses' },
-  { value: 'active', label: 'Active' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'archived', label: 'Archived' },
+const STATUS_TABS = [
+  { key: 'all', label: 'All users', status: '', note: 'Every owner and buyer account, whatever its status.' },
+  { key: 'active', label: 'Active', status: 'active', note: 'Accounts that can sign in.' },
+  { key: 'suspended', label: 'Suspended', status: 'suspended', note: 'Signed out and refused sign-in until reactivated.' },
+  { key: 'archived', label: 'Archived', status: 'archived', note: 'Out of the directory. They can still sign in unless suspended.' },
 ];
+const BADGES_NOTE = 'Hand-granted Verified badges need a second admin to approve.';
+const PAGE_SIZE = 20;
+const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 /* `requiresReason` mirrors a server 422 and a database check constraint, so a Confirm button that
    stayed enabled would submit a request that could only fail. */
@@ -68,8 +73,10 @@ export default function AdminUsers() {
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
   const [pendingBadgeGrants, setPendingBadgeGrants] = useState([]);
+  const [tab, setTab] = useTabParam([...STATUS_TABS.map((t) => t.key), ...(canManageBadges ? ['badges'] : [])], 'all');
+  const status = STATUS_TABS.find((t) => t.key === tab)?.status ?? '';
+  const [counts, setCounts] = useState({});
   const [role, setRole] = useState('');
-  const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [actionModal, setActionModal] = useState(null); // { user, action, copy }
   const [actionError, setActionError] = useState('');
@@ -91,20 +98,22 @@ export default function AdminUsers() {
     return () => { alive.current = false; };
   }, []);
 
-  /* One request per filter change rather than one fetch filtered in the browser: the status filter
-     only exists server-side, and a client-side filter can only count what it was given. */
+  /* One request per filter change: the status filter is server-side only, so a client filter would undercount. */
   const load = useCallback(async () => {
-    const [page, grants] = await Promise.all([
+    const [page, grants, tallies] = await Promise.all([
       listUsers({ role, customers: true, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE }),
       canManageBadges ? listBadgeGrants({ status: 'pending', size: 50 }).catch((err) => {
         toast(err?.message || 'Could not load badge approvals', 'error');
         return { items: [] };
       }) : Promise.resolve({ items: [] }),
+      Promise.all(STATUS_TABS.map((t) => listUsers({ role, customers: true, status: t.status, q: q.trim(), page: 0, size: 1 })
+        .then((p) => p.total, () => null))),
     ]);
     if (!alive.current) return;
     setRows(page.items);
     setTotal(page.total);
     setPendingBadgeGrants(grants.items || []);
+    setCounts(Object.fromEntries(STATUS_TABS.map((t, i) => [t.key, tallies[i]])));
   }, [canManageBadges, role, status, q, toast]);
 
   // Debounced, because `q` changes on every keystroke and each change is a request.
@@ -225,111 +234,82 @@ export default function AdminUsers() {
       list.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
     );
 
-  const actionButtons = useCallback((u) => {
+  const { items: pageRows, paging } = useClientPaging(list, PAGE_SIZE, `${tab}|${role}|${q}`);
+
+  const actionButtons = (u) => {
     const pendingGrant = pendingGrantFor(u);
     const earnedBadge = u.verified && u.badgeSource === 'identity';
+    const suspended = u.status === 'suspended';
     const badgeTitle = pendingGrant ? 'Badge approval pending'
       : earnedBadge ? 'Earned through identity review — revoke it from the KYC review record'
         : u.verified ? 'Remove Verified badge' : 'Grant Verified badge';
     return (
-    <>
-      {isAdmin && optionEnabled('users.timeline') && (
-        <button onClick={() => openTimeline(u)} title="View activity" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-indigo-500/15 hover:text-indigo-300 hover:border-indigo-400/30">
-          <Eye className="h-4 w-4" />
-        </button>
-      )}
-      {canManageBadges ? (
-        <button
-          onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')}
-          disabled={!!pendingGrant || earnedBadge}
-          title={badgeTitle}
-          className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', pendingGrant ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}
-        >
-          <ShieldCheck className="h-4 w-4" />
-        </button>
-      ) : null}
-      {canModerate(u) ? (
-      <button onClick={() => openAction(u, u.status === 'suspended' ? 'reactivate' : 'suspend')} disabled={u.archived} title={u.archived ? 'Restore the account before changing its status' : u.status === 'suspended' ? 'Reactivate' : 'Suspend'} className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.status === 'suspended' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-red-400/30 bg-red-500/15 text-red-300')}>
-        {u.status === 'suspended' ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
-      </button>
-      ) : null}
-      {isAdmin ? (
-      <button onClick={() => openAction(u, u.flagged ? 'flagClear' : 'flagRaise')} title={u.flagged ? `Remove flag${u.flagReason ? ` \u2014 ${u.flagReason}` : ''}` : 'Flag for review'} className={classNames('rounded-lg border p-1.5', u.flagged ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
-        <Flag className="h-4 w-4" />
-      </button>
-      ) : null}
-      {!canModerate(u) ? null : u.archived ? (
-        <button onClick={() => openAction(u, 'restore')} title="Restore user" className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 p-1.5 text-emerald-300">
-          <RotateCcw className="h-4 w-4" />
-        </button>
-      ) : (
-        <button onClick={() => openAction(u, 'archive')} title="Archive user" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/15 hover:text-amber-300 hover:border-amber-400/30">
-          <Archive className="h-4 w-4" />
-        </button>
-      )}
-    </>
+      <>
+        {canManageBadges ? (
+          <IconAction label={badgeTitle} icon={ShieldCheck} disabled={!!pendingGrant || earnedBadge} onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')} />
+        ) : null}
+        {canManageBadges ? (
+          <IconAction
+            label={u.archived ? 'Restore the account before changing its status' : suspended ? 'Reactivate' : 'Suspend'}
+            icon={suspended ? CheckCircle2 : Ban}
+            disabled={u.archived}
+            onClick={() => openAction(u, suspended ? 'reactivate' : 'suspend')}
+          />
+        ) : null}
+        {isAdmin ? (
+          <IconAction label={u.flagged ? `Remove flag${u.flagReason ? ` \u2014 ${u.flagReason}` : ''}` : 'Flag for review'} icon={Flag} onClick={() => openAction(u, u.flagged ? 'flagClear' : 'flagRaise')} />
+        ) : null}
+        {!canManageBadges ? null : u.archived
+          ? <IconAction label="Restore user" icon={RotateCcw} onClick={() => openAction(u, 'restore')} />
+          : <IconAction label="Archive user" icon={Archive} onClick={() => openAction(u, 'archive')} />}
+      </>
     );
-  }, [canManageBadges, canModerate, isAdmin, openAction, openTimeline, optionEnabled, pendingGrantFor]);
+  };
 
-  const columns = useMemo(() => [
-    {
-      key: 'name',
-      header: 'User',
-      render: (u) => (
-        <div>
-          <div className="flex items-center gap-1.5 font-semibold">
-            {u.name || 'Unnamed'}
-            {u.verified ? <BadgeCheck className="h-4 w-4 text-brand-teal" /> : null}
-            {u.flagged ? <Flag className="h-3.5 w-3.5 text-amber-300" /> : null}
-            {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Badge pending</span> : null}
-          </div>
-          {/* Masked on purpose: the full number lives behind a route that logs the reveal, so the
-              directory does not offer it and cannot become a bulk export. */}
-          <div className="text-xs text-gray-400">{u.mobile}</div>
-        </div>
-      ),
-    },
-    { key: 'role', header: 'Role', render: (u) => <span className="capitalize">{u.role}</span> },
-    { key: 'city', header: 'City', render: (u) => u.city || '\u2014' },
-    { key: 'listings', header: 'Listings', render: (u) => fmtNum(u.listings || 0) },
-    { key: 'joinedAt', header: 'Joined', render: (u) => (u.joinedAt ? timeAgo(u.joinedAt) : '\u2014') },
-    { key: 'status', header: 'Status', render: (u) => <Badge status={u.status} /> },
-    {
-      key: 'actions',
-      header: '',
-      className: 'text-right whitespace-nowrap',
-      render: (u) => <div className="flex justify-end gap-1.5">{actionButtons(u)}</div>,
-    },
-  ], [actionButtons, pendingGrantFor]);
-
-  const userCard = (u) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-semibold">{u.name || 'Unnamed'}</span>
-            {u.verified ? <BadgeCheck className="h-4 w-4 shrink-0 text-brand-teal" /> : null}
-            {u.flagged ? <Flag className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : null}
-            {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Badge pending</span> : null}
-          </div>
-          <div className="mt-0.5 text-xs text-gray-400">{u.mobile}</div>
-        </div>
-        <div className="shrink-0"><Badge status={u.status} /></div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-        <span className="capitalize text-gray-300">{u.role}</span>
-        {u.city ? (<><span className="text-gray-600">·</span><span>{u.city}</span></>) : null}
-        <span className="text-gray-600">·</span>
-        <span>{fmtNum(u.listings || 0)} listings</span>
-        {u.joinedAt ? (<><span className="text-gray-600">·</span><span>Joined {timeAgo(u.joinedAt)}</span></>) : null}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-3">
-        {actionButtons(u)}
-      </div>
-    </div>
+  const userRow = (u) => (
+    <RowCard
+      key={u.id}
+      id={u.id}
+      lead={<span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-indigo-500/15 text-xs font-bold text-indigo-300">{avatarFor(u.name || '?')}</span>}
+      title={u.name || 'Unnamed'}
+      badges={
+        <>
+          <Badge status={u.status} />
+          {u.verified ? <span className={classNames(CHIP, CHIP_TONE.teal, 'gap-1')}><BadgeCheck className="h-3 w-3" />Verified</span> : null}
+          {u.flagged ? <span className={classNames(CHIP, CHIP_TONE.amber, 'gap-1')}><Flag className="h-3 w-3" />Flagged</span> : null}
+          {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className={classNames(CHIP, CHIP_TONE.amber)}>Badge pending</span> : null}
+        </>
+      }
+      /* Masked on purpose: the full number lives behind a route that logs the reveal, so the
+         directory does not offer it and cannot become a bulk export. */
+      meta={<><span>{u.mobile}</span><Dot /><span className="capitalize">{u.role}</span>{u.city ? <><Dot /><span>{u.city}</span></> : null}</>}
+      facts={
+        <>
+          <FactRow label="Activity">
+            <Cell>{`${fmtNum(u.listings || 0)} listings`}</Cell>
+            <Cell>{u.joinedAt ? `Joined ${timeAgo(u.joinedAt)}` : null}</Cell>
+          </FactRow>
+          {u.flagged && u.flagReason ? (
+            <FactRow label="Flag"><span className="col-span-full text-amber-200">{u.flagReason}</span></FactRow>
+          ) : null}
+        </>
+      }
+      primary={isAdmin && optionEnabled('users.timeline') ? (
+        <button type="button" onClick={() => openTimeline(u)} title="View activity" className={BTN.ghost}>
+          <Eye className="h-3.5 w-3.5" /> View activity
+        </button>
+      ) : null}
+      icons={actionButtons(u)}
+    />
   );
 
   if (rows === null) return <Loading />;
+
+  const tabs = [
+    ...STATUS_TABS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] ?? null })),
+    ...(canManageBadges ? [{ key: 'badges', label: 'Badge approvals', count: pendingBadgeGrants.length }] : []),
+  ];
+  const note = tab === 'badges' ? BADGES_NOTE : STATUS_TABS.find((t) => t.key === tab).note;
 
   return (
     <div>
@@ -338,26 +318,36 @@ export default function AdminUsers() {
         subtitle={truncated
           ? `Showing ${fmtNum(list.length)} of ${fmtNum(total)} matching accounts — narrow the filters to see the rest.`
           : `${fmtNum(total)} accounts — owners and buyers. Staff are under Team & Access.`}
-        actions={
-          optionEnabled('users.csvExport') && (
-            <button onClick={doExport} className="dz-btn dz-btn-ghost">
-              <Download className="h-4 w-4" /> Export CSV
-            </button>
-          )
-        }
       />
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, email…" className="dz-input sm:w-64" />
-        <Select value={role} onChange={setRole} options={ROLE_OPTS} className="sm:w-40" ariaLabel="Filter by role" />
-        <Select value={status} onChange={setStatus} options={STATUS_OPTS} className="sm:w-40" ariaLabel="Filter by status" />
-      </div>
-
-      {canManageBadges ? (
-        <BadgeApprovals requests={pendingBadgeGrants} currentUser={user} onReload={load} />
-      ) : null}
-
-      <Table columns={columns} rows={list} pageSize={10} label="users" empty="No users match these filters." mobileCard={userCard} />
+      <QueueTabs tabs={tabs} active={tab} onChange={setTab} label="User status" idPrefix="users" />
+      <QueuePanel
+        idPrefix="users"
+        active={tab}
+        note={note}
+        toolbar={tab === 'badges' ? null : (
+          <>
+            <SearchBox value={q} onChange={setQ} placeholder="Search name, mobile, email…" label="Search users" />
+            <Chips label="Role" options={ROLE_CHIPS} value={role} onChange={setRole} />
+            <div className="ml-auto flex items-center gap-2">
+              {optionEnabled('users.csvExport') ? (
+                <button type="button" onClick={doExport} className={BTN.ghost}>
+                  <Download className="h-3.5 w-3.5" /> Export CSV
+                </button>
+              ) : null}
+              <PageNav {...paging} />
+            </div>
+          </>
+        )}
+      >
+        {tab === 'badges' ? (
+          <BadgeApprovals requests={pendingBadgeGrants} currentUser={user} onReload={load} />
+        ) : (
+          <RowList isEmpty={!list.length} empty="No users match these filters.">
+            {pageRows.map(userRow)}
+          </RowList>
+        )}
+      </QueuePanel>
 
       <Modal
         open={!!actionModal}

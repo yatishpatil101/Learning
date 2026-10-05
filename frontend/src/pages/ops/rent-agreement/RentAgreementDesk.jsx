@@ -1,46 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock, RefreshCw } from 'lucide-react';
-import { getServiceRequestQueueSummary, listServiceRequestQueue } from '../../../services/serviceRequestService.js';
+import { RefreshCw } from 'lucide-react';
+import { getServiceRequestQueueSummary } from '../../../services/serviceRequestService.js';
 import PageHeader from '../../../components/ui/PageHeader.jsx';
 import Loading from '../../../components/ui/Loading.jsx';
-import { classNames, fmtINR, fmtNum } from '../../../lib/format.js';
+import { classNames, fmtINR } from '../../../lib/format.js';
 import { useTabParam } from '../../../lib/useTabParam.js';
 import { PageNav, QueueTabs, SearchBox } from '../../../components/admin/WorkQueue.jsx';
+import AdminServices from '../../admin/AdminServices.jsx';
+import useDeskTickets from '../../admin/useDeskTickets.js';
 import AgeTone from '../service-queue/AgeTone.jsx';
+import { OverdueToggle, stageTabs, useQueue } from '../service-queue/deskQueue.jsx';
 import RaCaseModal from './RaCaseModal.jsx';
 import { caseSummary, nextStep } from './stages.js';
 
 const PAGE_SIZE = 20;
-const DESK_TURN = 'assigned,in-progress,changes-requested,approved';
-const TABS = [
-  { key: 'pickup', label: 'To pick up', query: { status: 'new' }, count: (s) => s.toPickUp, empty: 'Nothing waiting to be picked up.' },
-  { key: 'mine', label: 'My cases', query: { mine: true, status: `${DESK_TURN},draft-shared` }, count: (s) => s.mine, empty: 'You hold no open cases.' },
-  { key: 'progress', label: 'In progress', query: { status: DESK_TURN }, count: (s) => s.inProgress, empty: 'No case is waiting on the desk.' },
-  { key: 'customer', label: 'With customer', query: { status: 'draft-shared' }, count: (s) => s.withCustomer, empty: 'No draft is out with a customer.' },
-  { key: 'closed', label: 'Closed', query: { status: 'completed,cancelled' }, count: (s) => s.closed, empty: 'No closed cases yet.' },
-];
+const TABS = stageTabs('case');
 const TAB_KEYS = TABS.map((t) => t.key);
 const GRID = 'lg:grid lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_minmax(0,0.7fr)] lg:items-center lg:gap-3';
 const NEXT_TONE = { desk: 'text-teal-200', customer: 'text-gray-400', colleague: 'text-amber-200', done: 'text-gray-500' };
 
-// `stale` keeps the last page on screen but inert until the newer query answers.
-function useQueue(query, reloadToken) {
-  const key = JSON.stringify(query);
-  const [state, setState] = useState({ page: null, failed: false, key: null });
-  const debounced = Boolean(query.q);
-  useEffect(() => {
-    let alive = true;
-    const run = () => listServiceRequestQueue(JSON.parse(key))
-      .then((res) => { if (alive) setState({ page: res, failed: false, key }); })
-      .catch(() => { if (alive) setState({ page: null, failed: true, key }); });
-    const t = setTimeout(run, debounced ? 300 : 0);
-    return () => { alive = false; clearTimeout(t); };
-  }, [key, reloadToken, debounced]);
-  return { ...state, stale: state.key != null && state.key !== key };
-}
-
 export default function RentAgreementDesk() {
   const [tab, setTab] = useTabParam(TAB_KEYS, 'pickup');
+  const tickets = useDeskTickets('rental');
   const [q, setQ] = useState('');
   const [overdue, setOverdue] = useState(false);
   const [page, setPage] = useState(1);
@@ -95,22 +76,19 @@ export default function RentAgreementDesk() {
         label="Rent agreement queues"
         idPrefix="ra"
         countTestId="ra-count"
-        active={tab}
-        onChange={setTab}
-        tabs={TABS.map((t) => ({ key: t.key, label: t.label, count: summary ? t.count(summary) : null }))}
+        active={tickets?.on ? 'tickets' : tab}
+        onChange={(key) => (key === 'tickets' ? tickets.show() : setTab(key))}
+        tabs={[
+          ...TABS.map((t) => ({ key: t.key, label: t.label, count: summary ? t.count(summary) : null })),
+          ...(tickets ? [tickets.tab] : []),
+        ]}
       />
 
+      {tickets?.on ? <AdminServices desk="rental" embedded idPrefix="ra" /> : (
       <section id="ra-panel" role="tabpanel" aria-labelledby={`ra-tab-${tab}`} className="dz-card overflow-hidden p-0">
         <div className="flex flex-wrap items-center gap-2 border-b border-white/10 p-3">
           <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Name, mobile or request id" label="Search name, mobile or request id" className="w-full sm:w-72" />
-          <button
-            type="button"
-            aria-pressed={overdue}
-            onClick={() => { setOverdue((v) => !v); setPage(1); }}
-            className={classNames('inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', overdue ? 'border-rose-400/40 bg-rose-500/15 text-rose-200' : 'border-white/10 text-gray-400 hover:text-white')}
-          >
-            <Clock className="h-3.5 w-3.5" aria-hidden="true" /> Overdue{summary ? ` ${fmtNum(summary.overdue)}` : ''}
-          </button>
+          <OverdueToggle on={overdue} count={summary?.overdue} onToggle={() => { setOverdue((v) => !v); setPage(1); }} />
           <div className="ml-auto"><PageNav {...paging} /></div>
         </div>
 
@@ -138,6 +116,7 @@ export default function RentAgreementDesk() {
         </div>
         {pageCount > 1 ? <div className="flex justify-end border-t border-white/10 p-3"><PageNav {...paging} /></div> : null}
       </section>
+      )}
 
       <RaCaseModal
         request={open}

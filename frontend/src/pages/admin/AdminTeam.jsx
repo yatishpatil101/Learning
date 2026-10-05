@@ -15,12 +15,16 @@ import {
 // row from the authenticated actor, which the browser cannot read back anyway.
 import { roleLabel } from '../../lib/auth.js';
 import { classNames } from '../../lib/format.js';
+import { useTabParam } from '../../lib/useTabParam.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import Table from '../../components/ui/Table.jsx';
+import Badge from '../../components/ui/Badge.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
+import {
+  BTN, CHIP, CHIP_TONE, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+} from '../../components/admin/WorkQueue.jsx';
 
 const STAFF_ROLE_OPTS = [
   { value: 'staff', label: 'Ops staff — service portal' },
@@ -30,11 +34,16 @@ const ADMIN_ROLE_OPTS = [
   { value: 'manager', label: 'Manager — admin console' },
 ];
 
-const ROLE_TONE = {
-  admin: 'bg-indigo-500/15 text-indigo-300 border-indigo-400/30',
-  manager: 'bg-teal-500/15 text-teal-300 border-teal-400/30',
-  staff: 'bg-sky-500/15 text-sky-300 border-sky-400/30',
-};
+const ROLE_TONE = { admin: CHIP_TONE.violet, manager: CHIP_TONE.teal, staff: CHIP_TONE.sky };
+
+const TEAM_TABS = [
+  { key: 'all', label: 'All members', match: () => true, note: 'Every back-office account. Suspend is the removal: there is no hard delete.' },
+  { key: 'staff', label: 'Ops staff', match: (m) => m.role === 'staff' && m.status === 'active', note: 'Staff open only the functions ticked on their record.' },
+  { key: 'managers', label: 'Managers', match: (m) => m.role !== 'staff' && m.status === 'active', note: 'Administrator and managers run the admin console.' },
+  { key: 'suspended', label: 'Suspended', match: (m) => m.status !== 'active', note: 'Signed out and refused sign-in until reactivated.' },
+];
+const PAGE_SIZE = 20;
+const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 const FUNCTION_GROUPS = ['Verification', 'Listings', 'Service desks', 'Support', 'Content'];
 const digits10 = (m) => String(m || '').replace(/\D/g, '').slice(-10);
@@ -46,16 +55,7 @@ const changedFrom = (before, after) => {
 };
 
 const RolePill = ({ role }) => (
-  <span className={classNames('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', ROLE_TONE[role] || 'bg-white/5 text-gray-300 border-white/10')}>
-    {roleLabel(role)}
-  </span>
-);
-
-const StatusPill = ({ status }) => (
-  <span className={classNames('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize',
-    status === 'active' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30' : 'bg-red-500/15 text-red-300 border-red-400/30')}>
-    {status}
-  </span>
+  <span className={classNames(CHIP, ROLE_TONE[role] || CHIP_TONE.neutral)}>{roleLabel(role)}</span>
 );
 
 function CheckGrid({ items, isOn, onToggle }) {
@@ -106,14 +106,11 @@ function FunctionChecklist({ functions, selected, onToggle }) {
 function FunctionChips({ names, labels, empty = 'Dashboard only' }) {
   if (!names?.length) return <span className="text-xs text-gray-500">{empty}</span>;
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {names.slice(0, 4).map((name) => (
-        <span key={name} className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-medium text-gray-200">
-          {labels.get(name) || name}
-        </span>
+    <span className="flex flex-wrap gap-1.5">
+      {names.map((name) => (
+        <span key={name} className={classNames(CHIP, CHIP_TONE.neutral)}>{labels.get(name) || name}</span>
       ))}
-      {names.length > 4 ? <span className="text-[11px] text-gray-500">+{names.length - 4}</span> : null}
-    </div>
+    </span>
   );
 }
 
@@ -123,14 +120,15 @@ export default function AdminTeam() {
   const { user: me } = useAuth();
   const [members, setMembers] = useState(null);
   const [signingIn, setSigningIn] = useState(null);
-  /* The atoms an administrator may hand out, in the server's own order. Loaded once: it is a
-     compile-time constant of the server, not a per-caller answer, and re-fetching it per modal
-     open would make opening a member's record two round trips instead of one. */
+  /* A compile-time constant of the server, not per-caller: load
+     once so opening a member's record is one round trip. */
   const [catalogue, setCatalogue] = useState([]);
   const [myFunctions, setMyFunctions] = useState([]);
   const [memberModal, setMemberModal] = useState(null); // form object or null
   const [inviteDialog, setInviteDialog] = useState(null);
   const [inviteCopied, setInviteCopied] = useState('');
+  const [tab, setTab] = useTabParam(TEAM_TABS.map((x) => x.key), 'all');
+  const [query, setQuery] = useState('');
   const isAdmin = me?.role === 'admin';
   const roleOptions = isAdmin ? ADMIN_ROLE_OPTS : STAFF_ROLE_OPTS;
   const functionLabels = useMemo(() => new Map(catalogue.map((fn) => [fn.name, fn.label])), [catalogue]);
@@ -303,70 +301,47 @@ export default function AdminTeam() {
     ? navigator.clipboard.writeText(inviteDialog.url)
       .then(() => setInviteCopied('Copied'), () => setInviteCopied('Copy failed — copy it manually'))
     : setInviteCopied('Copy failed — copy it manually'));
-  const signInButtons = (m, cls) => (m.id === me?.id || m.status !== 'active' || !canManageMember(m) ? null : (
+  const signInButtons = (m) => (m.id === me?.id || m.status !== 'active' ? null : (
     <>
-      <button onClick={() => signInAction(m, 'reset')} disabled={signingIn === m.id} title="Reset 2FA" aria-label={`Reset 2FA for ${m.name}`} className={cls + ' disabled:opacity-50'}><Smartphone className="h-4 w-4" /></button>
-      <button onClick={() => signInAction(m, 'invite')} disabled={signingIn === m.id} title="Reissue invite" aria-label={`Reissue invite for ${m.name}`} className={cls + ' disabled:opacity-50'}><KeyRound className="h-4 w-4" /></button>
+      <IconAction label={`Reset 2FA for ${m.name}`} icon={Smartphone} disabled={signingIn === m.id} onClick={() => signInAction(m, 'reset')} />
+      <IconAction label={`Reissue invite for ${m.name}`} icon={KeyRound} disabled={signingIn === m.id} onClick={() => signInAction(m, 'invite')} />
     </>
   ));
 
+  const all = members || [];
+  const needle = query.trim().toLowerCase();
+  const tabRows = (key) => all.filter(TEAM_TABS.find((x) => x.key === key).match);
+  const shown = tabRows(tab).filter((m) => !needle || [m.name, m.mobile, m.email].some((v) => String(v || '').toLowerCase().includes(needle)));
+  const { items: pageRows, paging } = useClientPaging(shown, PAGE_SIZE, `${tab}|${needle}`);
+
   if (!members) return <Loading />;
 
-  const memberColumns = [
-    { key: 'name', header: 'Member', render: (m) => (
-      <div>
-        <div className="font-semibold text-white">{m.name}</div>
-        {m.email ? <div className="text-xs text-gray-500">{m.email}</div> : null}
-      </div>
-    ) },
-    { key: 'mobile', header: 'Mobile', render: (m) => <span className="text-gray-300">+91 {m.mobile}</span> },
-    { key: 'role', header: 'Role', render: (m) => <RolePill role={m.role} /> },
-    { key: 'access', header: 'Functions', render: (m) => (m.role === 'staff'
-      ? <FunctionChips names={m.functions || []} labels={functionLabels} />
-      : <span className="text-gray-300">{accessSummary(m)}</span>) },
-    { key: 'status', header: 'Status', render: (m) => <StatusPill status={m.status} /> },
-    /* No Remove action. There is no `DELETE /users/{id}` in the contract — this platform is
-       soft-delete only, so Suspend *is* the removal (it archives the account). */
-    { key: 'actions', header: '', className: 'text-right', render: (m) => (
-      <div className="flex items-center justify-end gap-1.5">
-        {canManageMember(m) ? <button onClick={() => openEditMember(m)} title="Edit" className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition"><Pencil className="h-4 w-4" /></button> : null}
-        {signInButtons(m, 'rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition')}
-        {canManageMember(m) ? (
-          <button onClick={() => toggleMemberStatus(m)} title={m.status === 'active' ? 'Suspend' : 'Reactivate'} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition">
-            {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-          </button>
-        ) : null}
-      </div>
-    ) },
-  ];
-
-  /* Stacked-card fallback below `sm` (see Table.jsx). Edit / suspend are 44px here — at 28px in
-     the table they were the smallest targets on the page. */
-  const memberCard = (m) => (
-    <div className="dz-card p-3.5">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-white">{m.name}</div>
-          <div className="mt-0.5 text-xs text-gray-400">+91 {m.mobile}{m.email ? ` · ${m.email}` : ''}</div>
-        </div>
-        <div className="shrink-0"><StatusPill status={m.status} /></div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-        <RolePill role={m.role} />
-        {m.role === 'staff'
-          ? <FunctionChips names={m.functions || []} labels={functionLabels} />
-          : <span>{accessSummary(m)}</span>}
-      </div>
-      <div className="mt-3 flex items-center gap-2 border-t border-white/5 pt-3">
-        {canManageMember(m) ? <button onClick={() => openEditMember(m)} aria-label={`Edit ${m.name}`} className="tap-target rounded-lg text-gray-300"><Pencil className="h-4 w-4" /></button> : null}
-        {signInButtons(m, 'tap-target rounded-lg text-gray-300')}
-        {canManageMember(m) ? (
-          <button onClick={() => toggleMemberStatus(m)} aria-label={`${m.status === 'active' ? 'Suspend' : 'Reactivate'} ${m.name}`} className="tap-target rounded-lg text-gray-300">
-            {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-          </button>
-        ) : null}
-      </div>
-    </div>
+  const memberRow = (m) => (
+    <RowCard
+      key={m.id}
+      id={m.id}
+      title={m.name}
+      badges={<><RolePill role={m.role} /><Badge status={m.status} /></>}
+      meta={<><span>+91 {m.mobile}</span>{m.email ? <><Dot /><span className="truncate">{m.email}</span></> : null}</>}
+      facts={(
+        <FactRow label="Access">
+          <span className="col-span-full">
+            {m.role === 'staff' ? <FunctionChips names={m.functions || []} labels={functionLabels} /> : accessSummary(m)}
+          </span>
+        </FactRow>
+      )}
+      primary={canManageMember(m) ? (
+        <button type="button" onClick={() => openEditMember(m)} className={BTN.ghost}><Pencil className="h-3.5 w-3.5" /> Edit</button>
+      ) : null}
+      /* No Remove action. There is no `DELETE /users/{id}` in the contract — this platform is
+         soft-delete only, so Suspend *is* the removal (it archives the account). */
+      icons={canManageMember(m) ? (
+        <>
+          {signInButtons(m)}
+          <IconAction label={m.status === 'active' ? 'Suspend' : 'Reactivate'} icon={m.status === 'active' ? Ban : RotateCcw} onClick={() => toggleMemberStatus(m)} />
+        </>
+      ) : null}
+    />
   );
 
   return (
@@ -377,14 +352,22 @@ export default function AdminTeam() {
         actions={<button onClick={openNewMember} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" /> Add member</button>}
       />
 
-      <Table
-        columns={memberColumns}
-        rows={members}
-        empty="No team members yet — add your first internal account."
-        pageSize={12}
-        label="members"
-        mobileCard={memberCard}
-      />
+      <QueueTabs tabs={TEAM_TABS.map((x) => ({ key: x.key, label: x.label, count: tabRows(x.key).length }))} active={tab} onChange={setTab} label="Team members" idPrefix="team" />
+      <QueuePanel
+        idPrefix="team"
+        active={tab}
+        note={TEAM_TABS.find((x) => x.key === tab).note}
+        toolbar={(
+          <>
+            <SearchBox value={query} onChange={setQuery} placeholder="Name, mobile or email" label="Search members" />
+            <div className="ml-auto"><PageNav {...paging} /></div>
+          </>
+        )}
+      >
+        <RowList isEmpty={!shown.length} empty={all.length ? 'No members match.' : 'No team members yet — add your first internal account.'}>
+          {pageRows.map(memberRow)}
+        </RowList>
+      </QueuePanel>
 
       <Modal
         open={!!memberModal}

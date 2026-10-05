@@ -1,70 +1,87 @@
+import { useState } from 'react';
 import { MessageCircle, MapPin } from 'lucide-react';
-// A pure regex validator, not state — inlined because there is no endpoint to
-// ask "is this a real WhatsApp invite" and the single caller does not warrant
-// a separate module. Same regex as lib/store/societyMod.js.
-const isSafeWhatsappUrl = (u) => /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,32}$/.test(String(u || ''));
+import { classNames, fmtNum } from '../../../lib/format.js';
+import {
+  CHIP, CHIP_TONE, Chips, FactRow, PageNav, QueuePanel, RowCard, RowList, useClientPaging,
+} from '../../../components/admin/WorkQueue.jsx';
 import { titleCase, fmtDate, actBtn, TEAL, RED } from './helpers.jsx';
 
-/** Group links and pin corrections are `kind` filters on `/admin/society-proposals`, so rows share a shape. */
-export default function ModerationTab({ waPending, locFixes, decideWa, decideLoc, deciding }) {
-  // A decision is a round trip. Without this the buttons stay live and look ignored, so the
-  // operator clicks again — the write is already guarded, but the silence is what invites it.
-  const busy = (id) => Boolean(deciding && deciding.has(id));
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <div className="dz-card p-4">
-        <div className="mb-3 flex items-center gap-2"><MessageCircle className="h-4 w-4 text-emerald-300" /><h3 className="font-bold">Pending WhatsApp links <span className="text-gray-400 font-normal">({waPending.length})</span></h3></div>
-        {waPending.length === 0 ? (
-          <p className="text-sm text-gray-400">No links awaiting review. Residents propose group links from the society hub.</p>
-        ) : (
-          <ul className="space-y-3">
-            {waPending.map((w) => (
-              // Keyed by the proposal id, not by the slug: one society can have two links queued.
-              <li key={w.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <a href={`/society/${w.societySlug}`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand-teal hover:underline">{titleCase(w.societySlug)}</a>
-                  <span className="text-xs text-gray-500">{fmtDate(w.createdAt)}</span>
-                </div>
-                {isSafeWhatsappUrl(w.inviteUrl)
-                  ? <a href={w.inviteUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-emerald-300 hover:underline">{w.inviteUrl}</a>
-                  : <div className="block truncate text-xs text-red-300">⚠ Invalid link — reject: {w.inviteUrl}</div>}
-                <div className="mt-0.5 text-xs text-gray-500">Proposed by {w.authorName || 'Resident'}</div>
-                <div className="mt-2.5 flex gap-2">
-                  {actBtn('Approve', TEAL, () => decideWa(w, 'approve'), busy(w.id))}
-                  {actBtn('Reject', RED, () => decideWa(w, 'reject'), busy(w.id))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+// No endpoint answers "is this a real WhatsApp invite"; same regex as lib/store/societyMod.js.
+const isSafeWhatsappUrl = (u) => /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,32}$/.test(String(u || ''));
 
-      <div className="dz-card p-4">
-        <div className="mb-3 flex items-center gap-2"><MapPin className="h-4 w-4 text-teal-300" /><h3 className="font-bold">Location fixes <span className="text-gray-400 font-normal">({locFixes.length})</span></h3></div>
-        {locFixes.length === 0 ? (
-          <p className="text-sm text-gray-400">No proposed pins. Verified residents suggest corrected society locations from the hub.</p>
+/** Group links and pin corrections are `kind` filters on `/admin/society-proposals`, so rows share a shape. */
+export default function ModerationTab({ waPending, locFixes, decideWa, decideLoc, deciding, note }) {
+  const [kind, setKind] = useState('');
+  // A decision is a round trip; without this the buttons stay live and look ignored.
+  const busy = (id) => Boolean(deciding && deciding.has(id));
+
+  const all = [
+    ...waPending.map((w) => ({ ...w, kind: 'wa' })),
+    ...locFixes.map((l) => ({ ...l, kind: 'loc' })),
+  ];
+  const rows = kind ? all.filter((r) => r.kind === kind) : all;
+  const page = useClientPaging(rows, 10, kind);
+  const chips = [
+    { value: '', label: `All ${fmtNum(all.length)}` },
+    { value: 'wa', label: `WhatsApp links ${fmtNum(waPending.length)}` },
+    { value: 'loc', label: `Location fixes ${fmtNum(locFixes.length)}` },
+  ];
+
+  const societyLink = (r) => (
+    <a href={`/society/${r.societySlug}`} target="_blank" rel="noopener noreferrer" className="hover:text-brand-teal hover:underline">{titleCase(r.societySlug)}</a>
+  );
+
+  const card = (r) => {
+    const wa = r.kind === 'wa';
+    const decide = wa ? decideWa : decideLoc;
+    return (
+      <RowCard
+        key={r.id}
+        id={r.id}
+        title={societyLink(r)}
+        badges={wa
+          ? <span className={classNames(CHIP, CHIP_TONE.green, 'gap-0.5')}><MessageCircle className="h-2.5 w-2.5" aria-hidden="true" />WhatsApp link</span>
+          : <span className={classNames(CHIP, CHIP_TONE.teal, 'gap-0.5')}><MapPin className="h-2.5 w-2.5" aria-hidden="true" />Location fix</span>}
+        meta={<><span>Proposed by {r.authorName || 'Resident'}</span><span className="text-gray-600" aria-hidden="true">·</span><span>{fmtDate(r.createdAt)}</span></>}
+        facts={wa ? (
+          <FactRow label="Link">
+            <span className="col-span-2 truncate md:col-span-4">
+              {isSafeWhatsappUrl(r.inviteUrl)
+                ? <a href={r.inviteUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline">{r.inviteUrl}</a>
+                : <span className="text-red-300">⚠ Invalid link — reject: {r.inviteUrl}</span>}
+            </span>
+          </FactRow>
         ) : (
-          <ul className="space-y-3">
-            {locFixes.map((l) => (
-              <li key={l.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <a href={`/society/${l.societySlug}`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand-teal hover:underline">{titleCase(l.societySlug)}</a>
-                  <span className="text-xs text-gray-500">{fmtDate(l.createdAt)}</span>
-                </div>
-                {l.label ? <div className="text-xs text-gray-300 line-clamp-1 break-words">{l.label}</div> : null}
-                <div className="mt-0.5 text-xs text-gray-500">
-                  <a href={`https://www.google.com/maps/search/?api=1&query=${Number(l.lat)},${Number(l.lng)}`} target="_blank" rel="noopener noreferrer" className="text-brand-teal hover:underline">{Number(l.lat).toFixed(5)}, {Number(l.lng).toFixed(5)}</a>
-                </div>
-                <div className="mt-0.5 text-xs text-gray-500">Proposed by {l.authorName || 'Resident'}</div>
-                <div className="mt-2.5 flex gap-2">
-                  {actBtn('Approve', TEAL, () => decideLoc(l, 'approve'), busy(l.id))}
-                  {actBtn('Reject', RED, () => decideLoc(l, 'reject'), busy(l.id))}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <FactRow label="Pin">
+            <a href={`https://www.google.com/maps/search/?api=1&query=${Number(r.lat)},${Number(r.lng)}`} target="_blank" rel="noopener noreferrer" className="tabular-nums text-brand-teal hover:underline">{Number(r.lat).toFixed(5)}, {Number(r.lng).toFixed(5)}</a>
+            {r.label ? <span className="truncate md:col-span-3">{r.label}</span> : null}
+          </FactRow>
         )}
-      </div>
-    </div>
+        primary={(
+          <>
+            {actBtn('Approve', TEAL, () => decide(r, 'approve'), busy(r.id))}
+            {actBtn('Reject', RED, () => decide(r, 'reject'), busy(r.id))}
+          </>
+        )}
+      />
+    );
+  };
+
+  return (
+    <QueuePanel
+      active="moderation"
+      note={note}
+      toolbar={(
+        <>
+          <Chips label="Type" options={chips} value={kind} onChange={setKind} />
+          <div className="ml-auto"><PageNav {...page.paging} /></div>
+        </>
+      )}
+      footer={page.paging.pageCount > 1 ? <PageNav {...page.paging} /> : null}
+    >
+      <RowList isEmpty={!rows.length} empty="Nothing awaiting review. Residents propose group links and pin corrections from the society hub.">
+        {page.items.map(card)}
+      </RowList>
+    </QueuePanel>
   );
 }

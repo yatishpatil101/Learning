@@ -87,7 +87,6 @@ const AdminProperties = lazy(() => import('./pages/admin/AdminProperties.jsx'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics.jsx'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers.jsx'));
 const AdminServices = lazy(() => import('./pages/admin/AdminServices.jsx'));
-const DeskWithTickets = lazy(() => import('./pages/admin/DeskWithTickets.jsx'));
 const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries.jsx'));
 const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
@@ -181,12 +180,12 @@ const BACK_OFFICE_ROUTES = [{
     { path: 'properties', element: <ModuleRoute moduleKey="properties"><AdminProperties /></ModuleRoute> },
     { path: 'analytics', element: <ModuleRoute moduleKey="analytics"><FlagRoute flag="analytics"><AdminAnalytics /></FlagRoute></ModuleRoute> },
     { path: 'users', element: <ModuleRoute moduleKey="users"><AdminUsers /></ModuleRoute> },
-    { path: 'rent-agreement', element: <ModuleRoute moduleKey="desk:rental"><DeskWithTickets desk="rental"><RentAgreementDesk /></DeskWithTickets></ModuleRoute> },
+    { path: 'rent-agreement', element: <ModuleRoute moduleKey="desk:rental"><RentAgreementDesk /></ModuleRoute> },
     { path: 'home-loans', element: <ModuleRoute moduleKey="desk:loans"><AdminServices desk="loans" /></ModuleRoute> },
-    { path: 'legal', element: <ModuleRoute moduleKey="desk:legal"><DeskWithTickets desk="legal"><OpsDraftingDesk key="legal" desk="legal" /></DeskWithTickets></ModuleRoute> },
-    { path: 'interior', element: <ModuleRoute moduleKey="desk:interior"><DeskWithTickets desk="interior"><OpsDraftingDesk key="interior" desk="interior" /></DeskWithTickets></ModuleRoute> },
-    { path: 'packers', element: <ModuleRoute moduleKey="desk:packers"><DeskWithTickets desk="packers"><OpsDraftingDesk key="packers" desk="packers" /></DeskWithTickets></ModuleRoute> },
-    { path: 'valuation', element: <ModuleRoute moduleKey="desk:valuation"><DeskWithTickets desk="valuation"><OpsDraftingDesk key="valuation" desk="valuation" /></DeskWithTickets></ModuleRoute> },
+    { path: 'legal', element: <ModuleRoute moduleKey="desk:legal"><OpsDraftingDesk key="legal" desk="legal" /></ModuleRoute> },
+    { path: 'interior', element: <ModuleRoute moduleKey="desk:interior"><OpsDraftingDesk key="interior" desk="interior" /></ModuleRoute> },
+    { path: 'packers', element: <ModuleRoute moduleKey="desk:packers"><OpsDraftingDesk key="packers" desk="packers" /></ModuleRoute> },
+    { path: 'valuation', element: <ModuleRoute moduleKey="desk:valuation"><OpsDraftingDesk key="valuation" desk="valuation" /></ModuleRoute> },
     { path: 'drafting-desk', element: <DeskRedirect /> },
     { path: 'support', element: <ModuleRoute moduleKey="support"><OpsSupportQueue /></ModuleRoute> },
     { path: 'enquiries', element: <ModuleRoute moduleKey="enquiries"><AdminEnquiries /></ModuleRoute> },

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ExternalLink, Search, X } from 'lucide-react';
 import { listStaffActivity, getStaffActivitySummary } from '../../services/staffActivityService.js';
-import { classNames, fmtNum, timeAgo } from '../../lib/format.js';
+import { fmtNum, timeAgo } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
@@ -11,6 +11,7 @@ import Table from '../../components/ui/Table.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import DateRangePills from '../../components/ui/DateRangePills.jsx';
+import { Chips, QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import PerformanceTab from './staff-activity/PerformanceTab.jsx';
 import AuditTrail, { describe } from './staff-activity/AuditTrail.jsx';
 
@@ -223,23 +224,19 @@ export default function AdminStaffActivity() {
     <div>
       <PageHeader title="Team Activity" subtitle="Queue health, what each colleague handled, and every back-office action on the record" />
 
-      <div className="mb-5 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {TABS.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} aria-pressed={tab === id} className={classNames('flex-1 rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <QueueTabs tabs={TABS.map(([key, label]) => ({ key, label, count: null }))} active={tab} onChange={setTab} label="Team activity views" idPrefix="activity" />
 
+      <div id="activity-panel" role="tabpanel" aria-labelledby={`activity-tab-${tab}`}>
       {tab === 'performance' && <PerformanceTab />}
 
       {tab === 'log' && showDetails && (
-        <div className="mb-4 inline-flex gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
-          {[[false, 'Back-office'], [true, 'All actors']].map(([value, label]) => (
-            <button key={label} onClick={() => setAllActors(value)} aria-pressed={allActors === value} className={classNames('rounded-md px-3 py-1 text-xs font-medium transition', allActors === value ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white')}>
-              {label}
-            </button>
-          ))}
+        <div className="mb-4">
+          <Chips
+            label="Actors"
+            options={[{ value: 'office', label: 'Back-office' }, { value: 'all', label: 'All actors' }]}
+            value={allActors ? 'all' : 'office'}
+            onChange={(v) => setAllActors(v === 'all')}
+          />
         </div>
       )}
 
@@ -344,6 +341,7 @@ export default function AdminStaffActivity() {
       )}
       </>
       )}
+      </div>
     </div>
   );
 }

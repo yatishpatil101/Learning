@@ -1,6 +1,5 @@
-/* Staff and admin sign in with password + authenticator.
- * The probe account 9000000101 is seeded by db/seed-staff/R__zz_DML_dev_staff_credentials.sql and
- * is the only account this spec resets, so other specs' sessions are never revoked. */
+/* Staff and admin sign in with password + authenticator. Probe 9000000101
+   (db/seed-staff/R__zz_DML_dev_staff_credentials.sql) is the only account reset, so other sessions stay valid. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import {
   API, E2E_STAFF_CODE, STAFF_PASSWORD, authHeaders, staffEmail, uniqueMobile,
@@ -12,8 +11,8 @@ const post = (path, body, headers = { 'content-type': 'application/json' }) =>
   fetch(`${API}${path}`, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
 
 async function memberRow(page, name) {
-  await expect(page.getByText(/Showing \d+–\d+ of \d+ members/)).toBeVisible();
-  const row = page.getByRole('row', { name: new RegExp(name) });
+  await expect(page.getByTestId('queue-row').first()).toBeVisible();
+  const row = page.getByTestId('queue-row').filter({ hasText: new RegExp(name) });
   if ((await row.count()) === 0) await page.getByRole('button', { name: 'Next page' }).click();
   await expect(row.first()).toBeVisible();
   return row.first();

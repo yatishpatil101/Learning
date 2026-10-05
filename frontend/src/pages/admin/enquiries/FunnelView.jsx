@@ -1,16 +1,10 @@
-import { useState } from 'react';
 import { ArrowDown, TrendingUp } from 'lucide-react';
 import { fmtINR, fmtNum, classNames } from '../../../lib/format.js';
-import DateRangePills from '../../../components/ui/DateRangePills.jsx';
-import DealPills from '../../../components/ui/DealPills.jsx';
 
-function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
-  const [funnelDeal, setFunnelDeal] = useState('');
-
+function FunnelView({ enquiries, visits, deals, funnelTime, funnelDeal }) {
   const cutoff = funnelTime ? Date.now() - Number(funnelTime) * 86400000 : 0;
   const inRange = (dateStr) => !cutoff || new Date(dateStr).getTime() >= cutoff;
-  // Deals have a deal type; enquiries do not, so the pills narrow deals only. A contact request
-  // carries no `kind`, and matching on one would filter nothing while looking like it filtered.
+  // Only deals carry a deal type, so the filter narrows deals alone; enquiries have no `kind` to match.
   const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal;
 
   const enqCount = enquiries.filter((e) => inRange(e.at)).length;
@@ -23,10 +17,8 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
   const visitToDeal = visitCount > 0 ? Math.round((dealCount / visitCount) * 100) : 0;
   const enqToDeal = enqCount > 0 ? Math.round((dealCount / enqCount) * 100) : 0;
 
-  // Rows carry the locality the listing is filed under. The title split is a fallback only, for
-  // rows with no locality field at all: reading the locality out of the *title* works on titles
-  // shaped "2 BHK in Kothrud" and produces "Unknown" for everything else, which would make the
-  // table below a ranking of one bucket.
+  // The title split only parses '2 BHK in Kothrud' and yields
+  // 'Unknown' otherwise, so it is a fallback for rows with no locality.
   const localityOf = (r) => r.locality || (r.listing || '').split(' in ')[1] || 'Unknown';
   const localityMap = {};
   enquiries.filter((e) => inRange(e.at)).forEach((e) => {
@@ -55,13 +47,6 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
 
   return (
     <div className="space-y-6">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <DealPills value={funnelDeal} onChange={setFunnelDeal} />
-        <DateRangePills value={funnelTime} onChange={setFunnelTime} />
-        <span className="text-xs text-gray-500 ml-auto">Conversion funnel: Enquiry → Visit → Deal</span>
-      </div>
-
       {/* KPI cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">

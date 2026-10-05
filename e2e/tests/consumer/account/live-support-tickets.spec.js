@@ -1,36 +1,11 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
 
-/*
- * Consumer support against the live API — `/support` behind ProtectedRoute, `/contact` public.
- *
- * The desk's half of this domain is already live in `ops/live-support-queue.spec.js`. The
- * customer's half was not, which is the half where the two-sided read model (D50) is actually
- * raised: `unread` is "a staff reply the customer has not opened", `staff_unread` is "a customer
- * message nobody on the desk has read", and they are not opposites.
- *
- * Three things the retired mock spec could not do, and this one does:
- *
- *   1. **It asserted the ticket id by shape** — `/SUP-\d+/`, calling it "a server-style SUP-<seq>
- *      id". No such format exists on the server: `supportMapper.js` passes `id: t.id` straight
- *      through and the live id is a UUID. `SUP-` was minted by `providers/mock/supportProvider.js`
- *      and by nothing else, so the assertion described the mock and would have failed the moment it
- *      met the API it claimed to imitate. The id is now compared against the one the *server*
- *      returned, read outside the browser — the two must agree, and neither is pattern-matched.
- *   2. **Its empty-state test leaned on a seeded actor staying empty.** The seed gives Priya
- *      (`ACTORS.tenant`) one open ticket with two messages, so "no tickets yet" is a claim about
- *      whoever is signed in. It runs on a throwaway account, where the claim is structural.
- *   3. **Its create test mutated whoever it signed in as.** The live database resets once per run,
- *      not per file, so a ticket minted on a named actor outlives this file. Creation runs on a
- *      throwaway account too.
- *
- * Nothing in this file changes a seeded actor.
- */
+/* Consumer support against the live API (`/support` behind ProtectedRoute, `/contact` public); the ticket id is compared with the server's UUID, not pattern-matched.
+ * Empty-state and create tests run on throwaway accounts because the live DB resets per run, so seeded actors must not be mutated. */
 
-/**
- * The global cookie-consent banner is also `role="dialog"`, so it would both overlay the page and
- * collide with the ticket-thread lookup. Seeded before load, exactly as the retired spec did.
- */
+/** The cookie-consent banner is also `role="dialog"` and would overlay the page and collide with the ticket-thread lookup, so it is
+ * seeded before load. */
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -93,9 +68,7 @@ test.describe('Consumer support — live API', () => {
     await expect(page.getByRole('heading', { name: 'Your tickets' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Frequently asked questions' })).toBeVisible();
 
-    /* The premise is asserted rather than assumed. A seeded actor could acquire a ticket from any
-       other spec in the run; a throwaway account cannot, and saying so here means a failure names
-       the fixture instead of the empty state. */
+    /* Assert the premise: a throwaway account can't hold a ticket from another spec. */
     expect(await ticketsOf(mobile), 'a brand-new account starts with no tickets').toHaveLength(0);
 
     await expect(page.getByText('No tickets yet')).toBeVisible();
@@ -109,13 +82,7 @@ test.describe('Consumer support — live API', () => {
     await openSupport(page);
     await expect(page.getByText('No tickets yet')).toBeVisible();
 
-    /* The retired spec said "Buyer name + mobile are prefilled; only subject and message are
-       needed". That held for the mock's seeded user and does not hold for a real new account: the
-       mobile is prefilled and disabled - it is the account's own number, and support replies land
-       on it - but the NAME is empty and required (`Support.jsx:140`), so the first run of this test
-       submitted nothing and timed out waiting for a POST that validation had already refused.
-       Filling it is both the fix and the more honest flow, since a first-time writer genuinely has
-       to type it. */
+    /* Mobile is prefilled and disabled; the NAME is empty and required (`Support.jsx:140`). */
     const subject = 'Refund not received for booking';
     const message = 'I paid for a visit booking but the refund has not arrived yet.';
     await page.getByPlaceholder('e.g. Rahul Sharma').fill('E2E Support Writer');
@@ -131,10 +98,7 @@ test.describe('Consumer support — live API', () => {
        assertion below a statement about a row rather than about a form that cleared itself. */
     expect((await created).status(), 'the ticket create was refused').toBe(201);
 
-    /* The server is now the source of the expected id. `TicketList` and `TicketThreadModal` both
-       render `{t.id}` raw, so this is the two-components-must-agree case: fetch the value and
-       compare it, never assert its shape. The retired spec matched `/SUP-\d+/`, which is a format
-       only the mock has ever produced. */
+    /* Both ticket components render `{t.id}` raw, so fetch the expected id; never assert its shape. */
     const [ticket] = await ticketsOf(mobile);
     expect(ticket, 'the create did not reach the database').toBeTruthy();
     expect(ticket.subject).toBe(subject);
@@ -153,10 +117,8 @@ test.describe('Consumer support — live API', () => {
     await expect(page.getByText(ticket.id, { exact: true }).first()).toBeVisible();
   });
 
-  /* The copy is identical in the mock and on the server, so no text assertion proves where it came
-     from. Provenance is the wait on `GET /api/faqs`, armed before navigation because the fetch fires
-     from an effect during first paint; the API half is read without a browser so a UI regression and
-     a contract regression cannot be mistaken for each other. Order is deliberately not asserted. */
+  /* Copy is identical in mock and server, so provenance is the `GET /api/faqs` wait, armed before navigation as it
+     fires from an effect during first paint; the API half is read without a browser. */
   test('the FAQ list is a public read that needs no session, and the help page renders what the server returned', async ({ page, login }) => {
     await test.step('GET /api/faqs answers with no Authorization header', async () => {
       // No header at all, not a signed-out session: only that proves the route is genuinely public.

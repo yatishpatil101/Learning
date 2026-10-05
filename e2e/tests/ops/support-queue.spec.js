@@ -1,32 +1,8 @@
 import { expect, MOBILE, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
-/* Ops → Support queue, against the live API (D51).
-
-   `GET /admin/support-tickets` is the endpoint that had a server, a partial index (V53) and a test
-   suite and no caller until this screen was written. This spec is the mock version converted, and
-   the conversion is mostly a *strengthening* rather than a rewiring, because three of the things
-   the screen claims were unfalsifiable against `lib/data/support.js`:
-
-   - **The two-sided read model (D50/V53) is two columns, not one boolean.** `unread` is the
-     raiser's — "support replied and I have not looked" — and `staff_unread` is the desk's — "a
-     customer message nobody here has read". The mock had one store and one flag, so "opening a
-     ticket clears the desk's side and does not touch the customer's" was a sentence about code
-     that could only be checked by reading the code. Here it is checked by re-reading the ticket as
-     the customer afterwards.
-   - **`AdminSupportTicket` withholds the mobile.** On the mock the store simply had no mobile to
-     leak, so asserting one was absent proved nothing about the contract. Here the raiser exists in
-     `users` with a real ten-digit number that `GET /support/tickets/{id}` will happily show the
-     same caller — the queue omitting it is a decision, and this is where it is held.
-   - **Staff can read and answer a ticket that is not theirs.** The whole screen rests on it, and on
-     the mock every provider call went to the same unguarded store. Live, `readable()` is a filter
-     on `userId == caller || isOps(caller)`, and the reply lands with `authorRole = staff`.
-
-   Fixtures. The seeded database opens with exactly one support ticket — Priya Nair's missing rent
-   receipt, two messages, `staff_unread = true` — which is the working queue at baseline. Tests that
-   would consume it are ordered after the ones that need it, and the loop test raises its own ticket
-   through `POST /support/tickets` as the customer rather than reusing the seed, so it can assert on
-   text nobody else wrote. */
+/* Ops Support queue against the live API. Covers what the mock could not falsify: the two-sided read model
+   (`unread` is the raiser's, `staff_unread` the desk's), the withheld mobile, staff answering others' tickets. */
 
 /** Rahul Mehta — an ordinary buyer, and in this file the customer who writes in. */
 const CUSTOMER = '9700000001';
@@ -46,9 +22,7 @@ const auth = (token) => ({ 'content-type': 'application/json', authorization: `B
 
 const stamp = () => Date.now().toString(36).slice(-5);
 
-/* The global cookie-consent banner is also `role="dialog"`, and this screen's thread modal is
-   looked up by that role. Seeding consent keeps the two from colliding — same reason as the mock
-   spec, and unrelated to the API the page reads. */
+/* The cookie-consent banner is also `role="dialog"`; seeding consent avoids clashing with the thread modal. */
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -71,13 +45,8 @@ async function raiseTicket(subject, body) {
   return { id: ticket.id, subject, body };
 }
 
-/**
- * The customer's own view of their ticket — the other half of every two-sided assertion here.
- *
- * `who` matters: `readable()` admits the raiser or ops and nobody else, so reading Priya's ticket
- * as Rahul answers 404. Throwing on a non-200 keeps that from arriving as `undefined` in an
- * assertion three lines later, which reads like the flag was wrong rather than the caller.
- */
+/** The customer's own view of a ticket, for two-sided assertions. `readable()` admits only the raiser or ops, so
+ * throw on a non-200 rather than let `undefined` surface in a later assertion. */
 async function asCustomer(id, who = CUSTOMER) {
   const { accessToken } = await apiLogin(who);
   const res = await fetch(`${API}/support/tickets/${id}`, { headers: auth(accessToken) });
@@ -96,26 +65,23 @@ test.describe('Ops → Support queue (live)', () => {
 
     // The three server-backed views: ?awaitingReply=true | false | omitted. `undefined` is not
     // `false` — sending `false` for "no filter" would hide exactly the unanswered tickets.
-    await expect(page.getByRole('button', { name: 'Awaiting reply' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Answered' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /^Awaiting reply/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /^Answered/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /^All/ })).toBeVisible();
+    // Every tab carries its server total, not just the open one.
+    await expect(page.getByTestId('tab-count-awaiting')).toHaveText(/^[\d,]+$/);
+    await expect(page.getByTestId('tab-count-answered')).toHaveText(/^[\d,]+$/);
 
-    const row = page.getByRole('row').filter({ hasText: SEEDED.subject });
+    const row = page.getByTestId('queue-row').filter({ hasText: SEEDED.subject });
     await expect(row).toBeVisible();
     // The raiser is a display name, and "Us" is the desk's own side of the read model.
     await expect(row.getByText(SEEDED.raiser)).toBeVisible();
-    await expect(row.getByText('Us', { exact: true })).toBeVisible();
+    await expect(row.getByText('Waiting on us', { exact: true })).toBeVisible();
 
-    /* The withheld field. Priya has a real ten-digit mobile in `users`, and
-       `GET /support/tickets/{id}` shows it to this very caller — so its absence here is the
-       schema's decision rather than an accident of what the fixture happened to hold. A list is the
-       shape that gets exported, and this list is the whole platform's support traffic.
-
-       `MOBILE` is anchored for a reason — see `fixtures/live.js`. The queue is every ticket on the
-       platform, including ones other specs raised with a `Date.now()` stamp in the subject, and a
-       millisecond timestamp contains a ten-digit run that looks exactly like a mobile. */
-    const table = await page.getByRole('table').innerText();
-    expect(table).not.toMatch(MOBILE);
+    /* The mobile is withheld by the schema: Priya has one that GET /support/tickets/{id} shows this caller.
+       MOBILE is anchored (see fixtures/live.js) because Date.now() stamps look like mobiles. */
+    const queue = await page.getByRole('tabpanel').innerText();
+    expect(queue).not.toMatch(MOBILE);
 
     expect(consoleErrors).toEqual([]);
   });
@@ -126,25 +92,20 @@ test.describe('Ops → Support queue (live)', () => {
     await page.goto('/ops/support');
     await expect(page.getByRole('heading', { name: 'Support queue' })).toBeVisible();
 
-    /* Nothing has been answered yet, so `?awaitingReply=false` is genuinely empty. The distinction
-       being asserted is the one that ends a shift early: a `.catch(() => [])` would render "nothing
-       here" over a broken request, and the two sentences are not interchangeable. Scoped to the
-       table because `Table` prints the empty message twice — once per viewport variant. */
-    await page.getByRole('button', { name: 'Answered' }).click();
-    await expect(page.getByRole('table').getByText('No tickets in this view.')).toBeVisible();
+    /* `?awaitingReply=false` is genuinely empty here; this separates that from a `.catch(() => [])` hiding a broken request. */
+    await page.getByRole('tab', { name: /^Answered/ }).click();
+    await expect(page.getByText('No tickets in this view.')).toBeVisible();
     await expect(page.getByText('This is not an empty queue')).toHaveCount(0);
-    await expect(page.getByText('Nothing in this view')).toBeVisible();
+    await expect(page.getByTestId('queue-range').first()).toHaveText('0–0 of 0');
   });
 
   test('opening a ticket shows the thread and clears the desk’s side of the read model, not the customer’s', async ({ page, login }) => {
     await seedConsent(page);
     await login.asStaff('rental');
     await page.goto('/ops/support');
-    await page.getByRole('row').filter({ hasText: SEEDED.subject }).click();
+    await page.getByTestId('queue-row').filter({ hasText: SEEDED.subject }).getByRole('button', { name: 'Reply' }).click();
 
-    /* The row carries no thread — `AdminSupportTicket` omits it so a page of twenty tickets is not
-       an unbounded response — so the modal fetches `GET /support/tickets/{id}`. That this succeeds
-       at all is the staff read right: the ticket belongs to Priya, and `readable()` admits ops. */
+    /* The row omits the thread (`AdminSupportTicket` keeps pages bounded), so the modal fetches `GET /support/tickets/{id}`; success is the staff read right (`readable()` admits ops). */
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(SEEDED.customerLine)).toBeVisible();
@@ -153,19 +114,14 @@ test.describe('Ops → Support queue (live)', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
 
-    // Reading cleared `staff_unread`, so the ticket has left the working queue for real — not just
-    // in the row the page patched locally. Assert it through **Answered** first: the desk is
-    // already standing on the Awaiting tab, and clicking the tab you are on changes no state and
-    // therefore refetches nothing, so an emptiness checked there would only be re-reading the list
-    // the page already had. Coming back to Awaiting from another tab is a genuine second read.
-    await page.getByRole('button', { name: 'Answered' }).click();
-    await expect(page.getByRole('row').filter({ hasText: SEEDED.subject })).toBeVisible();
-    await page.getByRole('button', { name: 'Awaiting reply' }).click();
-    await expect(page.getByRole('row').filter({ hasText: SEEDED.subject })).toHaveCount(0);
+    // Reading cleared `staff_unread`; assert via **Answered** first, because clicking the tab you are on refetches
+    // nothing, while coming back to Awaiting from another tab is a genuine second read.
+    await page.getByRole('tab', { name: /^Answered/ }).click();
+    await expect(page.getByTestId('queue-row').filter({ hasText: SEEDED.subject })).toBeVisible();
+    await page.getByRole('tab', { name: /^Awaiting reply/ }).click();
+    await expect(page.getByTestId('queue-row').filter({ hasText: SEEDED.subject })).toHaveCount(0);
 
-    /* And the customer's side is untouched. This is the half the mock could not express: one store
-       and one flag meant "the desk read it" and "the customer read it" were the same bit, so a
-       desk clearing its own signal would silently have marked the customer's reply as seen. */
+    /* The customer's side is untouched: a desk clearing its own signal must not mark the customer's reply as seen. */
     const mine = await asCustomer('f1c70005-0000-4000-8000-000000000001', SEEDED_RAISER);
     expect(mine.unread).toBe(false);
     expect(mine.messages).toHaveLength(2);
@@ -181,7 +137,7 @@ test.describe('Ops → Support queue (live)', () => {
     await page.goto('/ops/support');
 
     // Straight into the working queue — a new ticket raises the desk's flag, opening message and all.
-    await page.getByRole('row').filter({ hasText: subject }).click();
+    await page.getByTestId('queue-row').filter({ hasText: subject }).getByRole('button', { name: 'Reply' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(body)).toBeVisible();
@@ -196,8 +152,8 @@ test.describe('Ops → Support queue (live)', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Answered' }).click();
-    await expect(page.getByRole('row').filter({ hasText: subject })).toBeVisible();
+    await page.getByRole('tab', { name: /^Answered/ }).click();
+    await expect(page.getByTestId('queue-row').filter({ hasText: subject })).toBeVisible();
 
     /* The customer's side, from the customer's own endpoint. The reply is attributed to staff and
        *their* unread flag is now raised — the direction the desk's own read never touches. */
@@ -219,6 +175,6 @@ test.describe('Ops → Support queue (live)', () => {
     // `RoleRoute roles=['staff','admin']` mirrors the endpoint's `x-roles` exactly — the screen
     // lives under /ops rather than /admin precisely so staff are not locked out of it.
     await expect(page.getByRole('heading', { name: 'Support queue' })).toBeVisible();
-    await expect(page.getByRole('row').filter({ hasText: subject })).toBeVisible();
+    await expect(page.getByTestId('queue-row').filter({ hasText: subject })).toBeVisible();
   });
 });

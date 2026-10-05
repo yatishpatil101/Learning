@@ -1,7 +1,5 @@
-/* Data states of /admin/finance that the live seed cannot reach. `refundsMeasured` and
- * `serviceOrdersCounted` are server properties (`draazy.finance.*`), not settings the API writes, and
- * the seed always carries an active subscription, so each state is staged by patching the finance
- * responses the console reads. The component is real; only the payload is chosen. */
+/* States of /admin/finance the live seed cannot reach (`draazy.finance.*` are server properties), so the finance
+   responses are patched; the component is real, only the payload is chosen. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, signIn } from '../../helpers/liveAuth.js';
 
@@ -47,12 +45,11 @@ const tile = (page, label) => page.locator('.dz-card').filter({ hasText: label }
 const flowRow = (page, label) => page.locator('div.border-b').filter({ has: page.getByText(label, { exact: true }) });
 
 async function statusOptions(page) {
-  await page.locator('[aria-label="Filter by status"]').click();
-  const options = page.locator('.dz-dropdown__option');
-  await expect(options.first()).toBeVisible();
-  const labels = (await options.allTextContents()).map((t) => t.trim());
-  await page.keyboard.press('Escape');
-  await expect(options).toHaveCount(0);
+  await page.getByRole('tab', { name: /^Transactions/ }).click();
+  const chips = page.getByRole('group', { name: 'Status' }).getByRole('button');
+  await expect(chips.first()).toBeVisible();
+  const labels = (await chips.allTextContents()).map((t) => t.trim());
+  await page.getByRole('tab', { name: 'Overview' }).click();
   return labels;
 }
 
@@ -63,7 +60,7 @@ async function expectInventedRowsGone(page) {
   await expect(page.getByText('Rent held for landlords')).toHaveCount(0);
   await expect(page.getByText('Owner plan', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Seeker plan', { exact: true })).toHaveCount(0);
-  expect(await statusOptions(page)).toEqual(['All statuses', 'Paid', 'Pending', 'Failed']);
+  expect(await statusOptions(page)).toEqual(['All', 'Paid', 'Pending', 'Failed']);
 }
 
 test.describe('finance console: empty subscription book', () => {
@@ -85,8 +82,10 @@ test.describe('finance console: empty subscription book', () => {
       await expect(tile(page, label), label).toHaveText('₹0');
     }
     await expect(page.getByText('Across the 0 who paid this month.')).toBeVisible();
-    await expect(page.getByRole('table').getByText('No transactions match.')).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/NaN|Infinity/);
+    await page.getByRole('tab', { name: /^Transactions/ }).click();
+    await expect(page.getByText('No transactions match.')).toBeVisible();
+    await page.getByRole('tab', { name: 'Overview' }).click();
 
     await expectInventedRowsGone(page);
 

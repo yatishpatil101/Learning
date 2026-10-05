@@ -14,7 +14,7 @@ async function twoDecisionsAbout(page, name) {
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
     await page.getByPlaceholder('Search name, mobile, email…').fill(name);
 
-    const row = page.locator('table').getByRole('row', { name: new RegExp(name) }).first();
+    const row = page.getByTestId('queue-row').filter({ hasText: name }).first();
     await expect(row).toBeVisible();
     await row.getByRole('button', { name: verb, exact: true }).click();
     await page.getByRole('button', { name: 'Confirm' }).click();

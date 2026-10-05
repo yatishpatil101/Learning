@@ -57,7 +57,7 @@ test.describe('admin service requests desk', () => {
     /* Narrow to this ticket by its stamped subject rather than by status. The search box reads
        `service`, which for a raised ticket is the subject. */
     await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
-    const row = page.getByRole('row').filter({ hasText: subject });
+    const row = page.getByTestId('queue-row').filter({ hasText: subject });
     await expect(row).toHaveCount(1);
 
     await row.getByRole('button', { name: 'Start' }).click();
@@ -87,7 +87,7 @@ test.describe('admin service requests desk', () => {
     await appReady(page);
 
     await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
-    const row = page.getByRole('row').filter({ hasText: subject });
+    const row = page.getByTestId('queue-row').filter({ hasText: subject });
     await expect(row).toHaveCount(1);
 
     await row.getByRole('button', { name: 'Open' }).click();
@@ -121,15 +121,13 @@ test.describe('admin service requests desk', () => {
     await page.goto('/admin/home-loans');
     await appReady(page);
 
-    await page.getByLabel('Filter by status', { exact: true }).click();
-
-    /* The five words `TicketStatuses` has, and none of the four the mock store invented. A filter
+    /* The five words `TicketStatuses` has, and none of the four the mock store invented. A tab
        offering "Done" would send `done` and be refused by a 400 the operator never sees. */
-    for (const label of ['Open', 'In Progress', 'Waiting', 'Resolved', 'Closed']) {
-      await expect(page.getByRole('option', { name: label, exact: true })).toBeVisible();
+    for (const label of ['Open', 'In progress', 'Waiting', 'Resolved', 'Closed']) {
+      await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) })).toBeVisible();
     }
-    for (const gone of ['New', 'Cancelled']) {
-      await expect(page.getByRole('option', { name: gone, exact: true })).toHaveCount(0);
+    for (const gone of ['New', 'Cancelled', 'Done']) {
+      await expect(page.getByRole('tab', { name: new RegExp(`^${gone}`) })).toHaveCount(0);
     }
   });
 
@@ -146,7 +144,7 @@ test.describe('admin service requests desk', () => {
     await appReady(page);
 
     await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
-    const row = page.getByRole('row').filter({ hasText: subject });
+    const row = page.getByTestId('queue-row').filter({ hasText: subject });
     await expect(row).toHaveCount(1);
 
     await expect(page.getByRole('columnheader', { name: 'Desk' })).toHaveCount(0);

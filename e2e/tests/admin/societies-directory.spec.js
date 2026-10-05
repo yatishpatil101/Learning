@@ -1,44 +1,4 @@
-/**
- * The **Directory tab** of the society desk — the catalogue an operator browses — against the live API.
- *
- * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend under the
- * `local,e2e` profiles and a seeded database. Run it explicitly:
- *
- *   cd e2e; npx playwright test tests/admin/live-societies-directory.spec.js --config=playwright.config.js
- *
- * ## Why this file exists, and what it replaced
- *
- * `admin/societies.spec.js` covered this screen in mock mode and has been **deleted**. Four of its
- * six tests already had live homes and two did not, so it was carried by a minority of itself:
- *
- * | its test | where the claim lives now |
- * | --- | --- |
- * | KPI tiles, tab bar, empty claims queue | the tiles and tabs are below; the "empty queue" half was false against a seeded database, and the real claims queue is `live-societies.spec.js` |
- * | Directory paging and search | below — this is the part nothing else covered |
- * | the edit overlay saves with a toast | `live-society-admin.spec.js` |
- * | the Moderation tab is empty | dropped: every assertion was an absence with no anchor, and `societies-queues.spec.js` covers moderation with rows in it |
- * | the two route guards | below, and against the API as well as the router |
- *
- * ## Why paging is worth a live spec rather than a mock one
- *
- * The catalogue is three hundred and fifty rows and the page is twenty, so "does Next fetch" is the
- * whole behaviour. A mock spec cannot tell the two implementations apart: `Table` has an internal
- * pager that slices rows already in the browser, and against a fixture that holds the whole
- * catalogue, a client-side slice and a server round trip render the same thing. The difference only
- * becomes visible when the browser does not have the rest — which is the live case, and the case an
- * operator is in.
- *
- * So the paging test below asserts the **request**, not just the rendered range, and the search test
- * looks for a society the first page provably does not contain. Client-side filtering over the
- * loaded twenty would find nothing, which is the failure this is shaped to catch.
- *
- * ## Nothing here seeds storage
- *
- * No `addInitScript`, no `localStorage.setItem`. Every number below is read from Postgres twice —
- * once by the browser and once by the test, over its own token — and compared.
- *
- * Fixtures: `docs/system/fixture-registry.md` → the `society` rows.
- */
+/** Asserts the paging request: a client-side slice of loaded rows renders the same range without fetching. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -66,8 +26,9 @@ async function openDirectory(page) {
 }
 
 const rows = (page) => page.locator('table tbody tr');
-/** The number inside a KPI tile, so `20` cannot be satisfied by a `20` elsewhere in the card. */
-const kpi = (page, label) => page.locator('.dz-card').filter({ hasText: label }).first().locator('.text-2xl');
+/** The Directory tab's count pill, so `20` cannot be satisfied by a `20` elsewhere on the page. */
+const dirCount = (page) => page.getByTestId('tab-count-directory');
+const range = (page) => page.getByTestId('queue-range').first();
 
 // ─── The desk itself ───
 
@@ -81,21 +42,15 @@ test('the desk counts the whole catalogue, not the page it is showing', async ({
   await login.asAdmin();
   await openDirectory(page);
 
-  /* The tile reads `dir.total` from the page envelope. Reading `dir.items.length` instead — the
-     obvious refactor, and one that raises no error anywhere — renders `20` on every catalogue of any
-     size, and an operator has no way to tell. Pinning it to the server's own count is the only
-     assertion that separates them, and it needs a server to have a count. */
-  await expect(kpi(page, 'Societies')).toHaveText(grouped(totalElements));
-  await expect(kpi(page, 'Societies')).not.toHaveText(String(PAGE_SIZE));
+  /* Read `dir.total` from the envelope: `dir.items.length` renders 20 for any catalogue size and raises no error. */
+  await expect(dirCount(page)).toHaveText(grouped(totalElements));
+  await expect(dirCount(page)).not.toHaveText(String(PAGE_SIZE));
   await expect(rows(page)).toHaveCount(PAGE_SIZE);
 
-  // All five tabs, by their labels in `AdminSocieties.jsx`.
-  for (const label of ['Claims', 'Resident Verifications', 'Candidates', 'Directory', 'Moderation']) {
-    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
-  }
-  // The other four KPI tiles. Values belong to the queues, and to the specs that own those queues.
-  for (const label of ['Pending claims', 'Pending residents', 'Candidates', 'Pending moderation']) {
-    await expect(page.locator('.dz-card').filter({ hasText: label }).first()).toBeVisible();
+  // All five tabs and their counts. Values belong to the queues, and to the specs that own those queues.
+  for (const [key, label] of [['claims', 'Claims'], ['residents', 'Residents'], ['candidates', 'Candidates'], ['moderation', 'Moderation'], ['directory', 'Directory']]) {
+    await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) })).toBeVisible();
+    await expect(page.getByTestId(`tab-count-${key}`)).toHaveText(/^\d[\d,]*$/);
   }
 
   /* The disclosure banner renders only when a queue failed to load. Its absence is what makes the
@@ -114,17 +69,17 @@ test('Next fetches the next page from the server instead of slicing one already 
   await login.asAdmin();
   await openDirectory(page);
 
-  await expect(page.getByText(`Showing 1–${PAGE_SIZE} of ${grouped(totalElements)} directory`)).toBeVisible();
+  await expect(range(page)).toHaveText(`1–${PAGE_SIZE} of ${grouped(totalElements)}`);
   const firstName = await rows(page).first().locator('td').first().innerText();
 
   /* Assert the request: `Table`'s own pager advances the range without asking the server. */
   const request = page.waitForResponse(
     (r) => /\/api\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('page') === '1',
   );
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next page' }).first().click();
   await request;
 
-  await expect(page.getByText(`Showing ${PAGE_SIZE + 1}–${PAGE_SIZE * 2} of ${grouped(totalElements)} directory`)).toBeVisible();
+  await expect(range(page)).toHaveText(`${PAGE_SIZE + 1}–${PAGE_SIZE * 2} of ${grouped(totalElements)}`);
   // The rows are the ones the server just sent, in its order, not a re-sorted local slice.
   await expect(rows(page).first().locator('td').first()).toContainText(second.content[0].name);
   await expect(rows(page).first().locator('td').first()).not.toHaveText(firstName);
@@ -147,14 +102,12 @@ test('the search finds a society the first page does not contain', async ({ page
   const request = page.waitForResponse(
     (r) => /\/api\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('q') === target.name,
   );
-  await page.getByRole('searchbox', { name: 'Search societies' }).fill(target.name);
+  await page.getByLabel('Search societies').fill(target.name);
   await request;
 
   await expect(rows(page).filter({ hasText: target.name })).toHaveCount(1);
-  /* The tile follows the filter: with a search applied it is the size of the filtered set, which is
-     the number the operator is actually looking at. A tile frozen at the catalogue total would be
-     the same shape of lie as one frozen at twenty. */
-  await expect(kpi(page, 'Societies')).not.toHaveText(grouped(firstPage.totalElements));
+  /* With a search applied the count is the filtered set's size, the number the operator is looking at. */
+  await expect(dirCount(page)).not.toHaveText(grouped(firstPage.totalElements));
 });
 
 test('the admin society route refuses a stranger and a buyer, though the catalogue is public', async () => {

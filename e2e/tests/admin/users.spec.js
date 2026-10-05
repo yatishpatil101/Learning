@@ -6,11 +6,11 @@ async function openUsers(page) {
   await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
   // The first row landing is the signal that GET /users has answered; the heading renders before it.
-  await expect(page.locator('table tbody tr').first()).toBeVisible();
+  await expect(page.getByTestId('queue-row').first()).toBeVisible();
 }
 
-// `Table` duplicates rows for mobile, so desktop assertions must scope to the table.
-const rowFor = (page, name) => page.locator('table').getByRole('row', { name: new RegExp(name) }).first();
+const rows = (page) => page.getByTestId('queue-row');
+const rowFor = (page, name) => rows(page).filter({ hasText: name }).first();
 
 // Search by `q` instead of paging through an order the server does not promise.
 async function findUser(page, name) {
@@ -34,11 +34,11 @@ test('the directory lists accounts with role, status and a masked mobile, filter
     const row = await findUser(page, 'Nikhil Sharma');
     // Directory mobiles stay masked; full numbers require audited detail reads.
     await expect(row.getByText(/^\d{2}XXXXX\d{3}$/)).toBeVisible();
-    await expect(row.getByRole('cell', { name: 'owner' })).toBeVisible();
+    await expect(row.getByText('owner', { exact: true })).toBeVisible();
 
     expect(consoleErrors).toHaveLength(0);
   });
-  await test.step('the status filter asks the server, and Suspended returns only suspended accounts', async () => {
+  await test.step('the status tabs ask the server, and Suspended returns only suspended accounts', async () => {
     const res = await fetch(`${API}/users?customers=true&status=suspended&size=1`, { headers: await authHeaders(ACTORS.admin) });
     expect(res.status).toBe(200);
     const suspended = (await res.json()).totalElements;
@@ -46,42 +46,45 @@ test('the directory lists accounts with role, status and a masked mobile, filter
 
     await openUsers(page);
 
-    // This custom Select is button/listbox based, not a native `<select>`.
-    await page.getByRole('button', { name: 'Filter by status' }).click();
-    await page.getByRole('option', { name: 'Suspended' }).click();
+    await expect(page.getByTestId('tab-count-suspended')).toHaveText(String(suspended));
+    await page.getByRole('tab', { name: /^Suspended/ }).click();
+    await expect(page).toHaveURL(/tab=suspended/);
 
     // Count proves server-side filtering, not filtering over one downloaded page.
     await expect(page.getByText(` accounts — owners and buyers.`, { exact: false })).toBeVisible();
+    await expect(page.getByTestId('queue-range')).toHaveText(new RegExp(`of ${suspended}$`));
 
-    // Poll count because the heading can update before table rows are replaced.
-    const rows = page.locator('table tbody tr');
-    await expect(rows).toHaveCount(suspended);
+    // Poll count because the heading can update before the rows are replaced.
+    const visible = Math.min(suspended, 20);
+    await expect(rows(page)).toHaveCount(visible);
     // Every visible row is suspended. `Badge` renders the server's own lowercase status verbatim.
-    await expect(page.locator('table').getByText('suspended', { exact: true })).toHaveCount(suspended);
+    await expect(rows(page).getByText('suspended', { exact: true })).toHaveCount(visible);
 
     expect(consoleErrors).toHaveLength(0);
   });
   await test.step('the role filter offers customers only, and no back-office account is listed', async () => {
     await openUsers(page);
 
-    await page.getByRole('button', { name: 'Filter by role' }).click();
-    for (const label of ['All customers', 'Owners', 'Buyers']) {
-      await expect(page.getByRole('option', { name: label, exact: true })).toBeVisible();
+    const roleChips = page.getByRole('group', { name: 'Role' });
+    for (const label of ['All', 'Owners', 'Buyers']) {
+      await expect(roleChips.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
-    for (const gone of ['Staff', 'Admin', 'All roles']) {
-      await expect(page.getByRole('option', { name: gone, exact: true })).toHaveCount(0);
+    for (const gone of ['Staff', 'Admin']) {
+      await expect(roleChips.getByRole('button', { name: gone, exact: true })).toHaveCount(0);
     }
-    await page.keyboard.press('Escape');
-
     for (const role of ['staff', 'admin', 'manager']) {
-      await expect(page.locator('table').getByRole('cell', { name: role, exact: true })).toHaveCount(0);
+      await expect(rows(page).getByText(role, { exact: true })).toHaveCount(0);
     }
+
+    await roleChips.getByRole('button', { name: 'Owners', exact: true }).click();
+    await expect(rows(page).first().getByText('owner', { exact: true })).toBeVisible();
+    await expect(rows(page).getByText('buyer', { exact: true })).toHaveCount(0);
   });
   await test.step('search narrows the directory', async () => {
     await openUsers(page);
 
     await findUser(page, 'Nikhil');
-    await expect(page.locator('table').getByRole('row', { name: /Gauri Mehta/ })).toHaveCount(0);
+    await expect(rows(page).filter({ hasText: 'Gauri Mehta' })).toHaveCount(0);
 
     expect(consoleErrors).toHaveLength(0);
   });
@@ -136,9 +139,8 @@ test('a review-granted badge cannot be withdrawn by hand; a hand-granted one can
   await openUsers(page);
 
   await page.getByPlaceholder('Search name, mobile, email…').fill(mobile);
-  const rows = page.locator('table tbody tr');
-  await expect(rows).toHaveCount(1);
-  const earned = rows.first().getByRole('button', { name: /Earned through identity review/ });
+  await expect(rows(page)).toHaveCount(1);
+  const earned = rows(page).first().getByRole('button', { name: /Earned through identity review/ });
   await expect(earned).toBeVisible();
   await expect(earned).toBeDisabled();
 
