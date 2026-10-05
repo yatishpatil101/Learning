@@ -3,25 +3,24 @@ package com.draazy.api.moderation.verification;
 import com.draazy.api.catalog.property.DealIntent;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.Month;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * The vocabulary of the ownership gate: which documents count, what each one proves, and how long
- * it proves it for. Rationale: docs/flows/admin/property-verification.md#ownership-evidence-vocabulary.
- */
+// Ownership gate vocabulary: which documents count, what they prove, and for how long.
 public final class OwnershipEvidenceTypes {
 
     private OwnershipEvidenceTypes() {
     }
 
-    /** The registry's own extract says this person holds the title. */
     public static final String TITLE_PROOF = "title_proof";
 
-    /** A current bill or receipt for this address is in the lister's name. */
     public static final String ADDRESS_PROOF = "address_proof";
 
     /** A conveyance record consistent with the claimed title. Supporting only. */
@@ -30,79 +29,88 @@ public final class OwnershipEvidenceTypes {
     /** The person listing it is that somebody. Supporting only. */
     public static final String OWNER_IDENTITY = "owner_identity";
 
+    public static final String AUTHORITY_PROOF = "authority_proof";
+
     /** The place physically exists and looks like the listing says it does. Supporting only. */
     public static final String SITE_PRESENCE = "site_presence";
 
-    /** Every kind the case file can hold, in the order ops collects them. */
     public static final List<String> KINDS =
-            List.of(TITLE_PROOF, ADDRESS_PROOF, TITLE_SUPPORT, OWNER_IDENTITY, SITE_PRESENCE);
+            List.of(TITLE_PROOF, ADDRESS_PROOF, TITLE_SUPPORT, OWNER_IDENTITY, AUTHORITY_PROOF, SITE_PRESENCE);
 
-    private static final List<String> REQUIRED_FOR_RENT = List.of(ADDRESS_PROOF);
-    private static final List<String> REQUIRED_FOR_SALE = List.of(TITLE_PROOF, ADDRESS_PROOF);
+    private static final List<Set<String>> REQUIRED_FOR_RENT = List.of(Set.of(ADDRESS_PROOF, TITLE_PROOF));
+    private static final List<Set<String>> REQUIRED_FOR_SALE = List.of(Set.of(TITLE_PROOF));
 
-    /**
-     * Which facts the badge needs for this deal; anything not listed is supporting evidence. Only a
-     * rent listing takes the shorter gate — any unrecognised intent falls to the safer sale gate.
-     */
+    // Unrecognised intent falls to the safer sale gate.
     public static List<String> requiredKinds(String deal) {
+        return requiredKindAlternatives(deal).stream()
+                .flatMap(Set::stream)
+                .distinct()
+                .toList();
+    }
+
+    public static List<Set<String>> requiredKindAlternatives(String deal) {
         return DealIntent.RENT.equals(deal) ? REQUIRED_FOR_RENT : REQUIRED_FOR_SALE;
+    }
+
+    public static String missingLabel(Set<String> alternatives) {
+        if (alternatives.equals(Set.of(ADDRESS_PROOF, TITLE_PROOF))) {
+            return "address_or_title_proof";
+        }
+        return alternatives.stream().findFirst().orElse("evidence");
     }
 
     public static final String INDEX_II = "index_ii";
     public static final String SALE_DEED = "sale_deed";
     public static final String TAX_RECEIPT = "tax_receipt";
     public static final String ELECTRICITY_BILL = "electricity_bill";
+    public static final String SATBARA_7_12 = "satbara_7_12";
+    public static final String EIGHT_A_EXTRACT = "eight_a_extract";
+    public static final String PROPERTY_CARD = "property_card";
+    public static final String SHARE_CERTIFICATE = "share_certificate";
+    public static final String POWER_OF_ATTORNEY = "power_of_attorney";
     public static final String AADHAAR = "aadhaar";
     public static final String PAN = "pan";
     public static final String SITE_PHOTOS = "site_photos";
 
-    /** A bill or receipt proves who was paying, and only for as long as that stays current. */
     private static final Duration RECURRING_PROOF_VALIDITY = Duration.ofDays(90);
 
-    /** Photographs age out slower than a bill but do age out. */
+    private static final Duration LAND_RECORD_VALIDITY = Duration.ofDays(90);
+
     private static final Duration SITE_PHOTO_VALIDITY = Duration.ofDays(180);
 
-    /**
-     * One document type, stated once. {@code validity} is null when the type never goes stale;
-     * {@code vaultCategory} is null for types the listing wizard does not offer.
-     */
+    // validity null means never stale; vaultCategory null means the wizard does not offer it.
     private record Type(String docType, String kind, Duration validity, String vaultCategory) {
     }
 
-    /**
-     * The single table the rest of this class is derived from, so a type cannot be known to one
-     * lookup and unknown to another.
-     */
+    // Single source of truth so a type cannot be known to one lookup and unknown to another.
     private static final List<Type> TYPES = List.of(
             new Type(INDEX_II, TITLE_PROOF, null, "Index II"),
+            new Type(SATBARA_7_12, TITLE_PROOF, LAND_RECORD_VALIDITY, "7/12 Extract"),
+            new Type(EIGHT_A_EXTRACT, TITLE_PROOF, LAND_RECORD_VALIDITY, "8A Extract"),
+            new Type(PROPERTY_CARD, TITLE_PROOF, LAND_RECORD_VALIDITY, "Property Card"),
+            new Type(SHARE_CERTIFICATE, TITLE_PROOF, null, "Share Certificate"),
             new Type(SALE_DEED, TITLE_SUPPORT, null, "Sale Deed"),
             new Type(TAX_RECEIPT, ADDRESS_PROOF, RECURRING_PROOF_VALIDITY, "Property Tax Receipt"),
             new Type(ELECTRICITY_BILL, ADDRESS_PROOF, RECURRING_PROOF_VALIDITY, "Electricity Bill"),
             new Type(AADHAAR, OWNER_IDENTITY, null, null),
             new Type(PAN, OWNER_IDENTITY, null, null),
+            new Type(POWER_OF_ATTORNEY, AUTHORITY_PROOF, null, "Power of Attorney"),
             new Type(SITE_PHOTOS, SITE_PRESENCE, SITE_PHOTO_VALIDITY, null));
 
     private static final Map<String, Type> BY_DOC_TYPE =
             TYPES.stream().collect(Collectors.toUnmodifiableMap(Type::docType, t -> t));
 
-    /** Lower-cased: {@code documents.category} is free text the client sends, and is matched
-     * case-insensitively elsewhere in the vault too. */
     private static final Map<String, String> BY_VAULT_CATEGORY = TYPES.stream()
             .filter(t -> t.vaultCategory() != null)
             .collect(Collectors.toUnmodifiableMap(
                     t -> t.vaultCategory().toLowerCase(Locale.ROOT), Type::docType));
 
-    /** Mirrors the {@code doc_type} CHECK constraint in V63. */
     public static final Set<String> DOC_TYPES = BY_DOC_TYPE.keySet();
 
     public static boolean isKnown(String docType) {
         return docType != null && DOC_TYPES.contains(docType);
     }
 
-    /**
-     * Does the document's own label say it is something other than what is being recorded? A
-     * contradiction, not an absence — an unrecognised label leaves the judgement with the reviewer.
-     */
     public static boolean contradicts(String docType, String vaultCategory) {
         if (vaultCategory == null || vaultCategory.isBlank()) {
             return false;
@@ -111,29 +119,37 @@ public final class OwnershipEvidenceTypes {
         return labelled != null && !labelled.equals(docType);
     }
 
-    /**
-     * Does this document have to say whose identity it is? Derived from the kind, not listed again,
-     * so a fourth identity document inherits the rule. Mirrors the CHECK in V66.
-     */
+    // Derived from kind so future identity documents inherit the subject-name rule.
     public static boolean namesASubject(String docType) {
-        return OWNER_IDENTITY.equals(kindOf(docType));
+        String kind = kindOf(docType);
+        return OWNER_IDENTITY.equals(kind) || AUTHORITY_PROOF.equals(kind);
     }
 
-    /**
-     * Which fact this document establishes. Callers validate at the boundary, so an unknown type
-     * reaching here is a bug rather than bad input.
-     */
+    // Unknown type here is a bug because callers validate at the boundary.
     public static String kindOf(String docType) {
         return type(docType).kind();
     }
 
-    /**
-     * When this document stops proving what it proves, measured from {@code issuedAt} and never from
-     * the review. Null for the registry and identity documents that do not go stale.
-     */
+    // Measured from issuedAt, never from review time; null means it does not go stale.
     public static Instant expiryOf(String docType, Instant issuedAt) {
+        if (TAX_RECEIPT.equals(docType)) {
+            return financialYearEnd(issuedAt);
+        }
         Duration validity = type(docType).validity();
         return validity == null ? null : issuedAt.plus(validity);
+    }
+
+    private static Instant financialYearEnd(Instant issuedAt) {
+        LocalDate issuedOn = issuedAt.atZone(com.draazy.api.common.PlatformTime.IST).toLocalDate();
+        int endYear = issuedOn.getMonthValue() >= Month.APRIL.getValue()
+                ? issuedOn.getYear() + 1
+                : issuedOn.getYear();
+        return ZonedDateTime.of(LocalDate.of(endYear, Month.MARCH, 31),
+                LocalTime.of(23, 59, 59), com.draazy.api.common.PlatformTime.IST).toInstant();
+    }
+
+    public static boolean isRetiredIdentityEvidence(String docType) {
+        return AADHAAR.equals(docType) || PAN.equals(docType);
     }
 
     private static Type type(String docType) {

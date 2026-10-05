@@ -1,43 +1,37 @@
 package com.draazy.api.catalog.property;
 
 import com.draazy.api.common.trust.OwnerBadgeSink;
+import com.draazy.api.common.trust.VerifiedBadgeCopy;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The catalogue's side of {@link OwnerBadgeSink}: identity says an owner earned their badge, and
- * this stamps it onto the listings they already hold.
- *
- * <p>Two lines of delegation, and worth its own file: it is the whole reason
- * {@code identity.verification} no longer imports {@code catalog}. The interface lives in the shared
- * kernel, the implementation lives with the table it writes, and the badge back-fill crosses the
- * boundary in the one direction the layering allows.
- *
- * <p>{@code Propagation.MANDATORY} on purpose. This is the second half of a two-write invariant —
- * the user's flag and their listings' denormalised copy must become true together — so being called
- * outside a transaction is a bug in the caller, not a case to handle. Failing loudly beats silently
- * committing half of it and leaving buyers looking at listings that call a verified owner
- * unverified.
- */
+/** Must run in the caller's transaction so user flag and listing copies flip together. */
 @Component
 class OwnerBadgePropagator implements OwnerBadgeSink {
 
     private final PropertyRepository properties;
+    private final List<VerifiedBadgeCopy> copies;
 
-    OwnerBadgePropagator(PropertyRepository properties) {
+    OwnerBadgePropagator(PropertyRepository properties, List<VerifiedBadgeCopy> copies) {
         this.properties = properties;
+        this.copies = copies;
     }
 
     @Override
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public int markOwnerVerified(UUID ownerId) {
-        return properties.markOwnerVerified(ownerId);
+        int listings = properties.markOwnerVerified(ownerId);
+        copies.forEach(c -> c.copyBadge(ownerId, true));
+        return listings;
     }
 
     @Override
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public int markOwnerUnverified(UUID ownerId) {
-        return properties.markOwnerUnverified(ownerId);
+        int listings = properties.markOwnerUnverified(ownerId);
+        copies.forEach(c -> c.copyBadge(ownerId, false));
+        return listings;
     }
 }

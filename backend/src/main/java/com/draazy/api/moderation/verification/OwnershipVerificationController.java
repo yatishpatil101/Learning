@@ -23,20 +23,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The ownership gate (contract tag {@code Moderation}) — how the <strong>Ownership Verified</strong>
- * badge is earned. Rationale: docs/flows/admin/property-verification.md#ownership-gate.
- */
+// Rationale: docs/flows/admin/property-verification.md#ownership-gate.
 @RestController
 public class OwnershipVerificationController {
 
-    /**
-     * Recording evidence, granting the badge and revoking it are all the supply console's write.
-     * The {@code GET} carries no atom: an owner is a participant, and an atom would refuse them.
-     */
-    private static final String PROPERTIES_WRITE =
+    // GET carries no atom because owners are participants and would be refused by one.
+    private static final String PROPERTIES_VERIFY =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
-                    + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
+                    + BackOfficePermissions.REQUIRE_PROPERTIES_VERIFY;
 
     private final OwnershipVerificationService service;
 
@@ -44,32 +38,23 @@ public class OwnershipVerificationController {
         this.service = service;
     }
 
-    /**
-     * {@code GET /properties/{id}/verification/ownership} (contract
-     * {@code getOwnershipVerification}).
-     */
+    // GET /properties/{id/verification/ownership} (contract getOwnershipVerification).
     @GetMapping(Routes.Moderation.VERIFICATION_OWNERSHIP)
     public OwnershipVerificationResponse get(@CurrentUser AuthPrincipal principal,
             @PathVariable String id) {
         return service.get(principal, id);
     }
 
-    /**
-     * {@code GET /properties/{id}/verification/ownership/documents} — the owner's uploads for this
-     * listing, with signed URLs, so the reviewer can open each one and cite it as evidence.
-     */
+    // Signed URLs let reviewers cite uploads as evidence without exposing them to owners.
     @GetMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_DOCUMENTS)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_VERIFY)
     public List<DocumentDto> listDocuments(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.listDocuments(principal, id);
     }
 
-    /**
-     * {@code POST /properties/{id}/verification/ownership/evidence} (contract
-     * {@code recordOwnershipEvidence}, {@code x-roles: [staff, admin]}) — 201.
-     */
+    // Staff/admin record what they sighted; the gate remains a separate judgement.
     @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_EVIDENCE)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_VERIFY)
     @ResponseStatus(HttpStatus.CREATED)
     public OwnershipVerificationResponse recordEvidence(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody EvidenceRequest body) {
@@ -77,32 +62,39 @@ public class OwnershipVerificationController {
                 body.issuedOn(), body.subjectName());
     }
 
-    /**
-     * {@code POST /properties/{id}/verification/ownership} (contract
-     * {@code verifyOwnership}, {@code x-roles: [staff, admin]}).
-     */
+    // POST /properties/{id/verification/ownership} (contract verifyOwnership, x-roles: [staff, admin]).
     @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_VERIFY)
     public OwnershipVerificationResponse verify(@CurrentUser AuthPrincipal principal,
             @PathVariable String id) {
         return service.verify(principal, id);
     }
 
-    /**
-     * {@code DELETE /properties/{id}/verification/ownership}. The reason travels as a query
-     * parameter because DELETE bodies are widely dropped; its length is capped in the service.
-     */
+    // Reason is a query parameter because DELETE bodies are widely dropped.
     @DeleteMapping(Routes.Moderation.VERIFICATION_OWNERSHIP)
-    @PreAuthorize(PROPERTIES_WRITE)
+    @PreAuthorize(PROPERTIES_VERIFY)
     public OwnershipVerificationResponse revoke(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @RequestParam String reason) {
         return service.revoke(principal, id, reason);
     }
 
-    /**
-     * Body of {@code recordOwnershipEvidence}. {@code issuedOn} is the document's own day, never
-     * defaulted; {@code subjectName} is conditionally required and enforced in the service.
-     */
+    @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_REQUEST)
+    public OwnershipVerificationResponse request(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id) {
+        return service.request(principal, id);
+    }
+
+    @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_DECLINE)
+    @PreAuthorize(PROPERTIES_VERIFY)
+    public OwnershipVerificationResponse decline(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody DeclineRequest body) {
+        return service.decline(principal, id, body.reason());
+    }
+
+    public record DeclineRequest(@NotBlank @Size(max = 300) String reason) {
+    }
+
+    // issuedOn is the document's own day; subjectName is conditionally required in service.
     public record EvidenceRequest(
             @NotBlank String docType,
             String documentId,

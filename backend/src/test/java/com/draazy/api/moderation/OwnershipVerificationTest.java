@@ -59,10 +59,19 @@ class OwnershipVerificationTest extends AbstractApiTest {
         User u = new User(mobile, role);
         u.setName("User " + mobile);
         u.setMobileVerified(true);
+
         // A staff account is keyed in the permission map by its desk, and one with no desk is refused
         // outright. Which desk is immaterial here — the seeded document grants all six the same set.
         if (Roles.Wire.STAFF.equals(role)) u.setTeam(Teams.RENTAL);
         User saved = users.saveAndFlush(u);
+        if (Roles.Wire.STAFF.equals(role)) {
+            jdbc.update("""
+                    INSERT INTO back_office_permissions (user_id, permissions)
+                    VALUES (?::uuid, ?::jsonb)
+                    ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                    """, saved.getId().toString(),
+                    "[\"kyc\",\"propertyVerification\",\"listingModeration\",\"support\",\"content\",\"reports\",\"desk:rental\"]");
+        }
         createdActors.add(saved.getId().toString());
         return saved;
     }
@@ -88,7 +97,9 @@ class OwnershipVerificationTest extends AbstractApiTest {
     // two doc types that require one — spelled out here rather than derived from the code under test.
     private String evidenceBody(String docType, Instant issuedAt) {
         return evidenceBody(docType, issuedAt,
-                "aadhaar".equals(docType) || "pan".equals(docType) ? "Ramesh Kulkarni" : null);
+                "aadhaar".equals(docType) || "pan".equals(docType) || "power_of_attorney".equals(docType)
+                        ? "Ramesh Kulkarni"
+                        : null);
     }
 
     private String evidenceBody(String docType, Instant issuedAt, String subjectName) {
@@ -97,13 +108,10 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 + "}";
     }
 
-    // The wire carries the day printed on the document, so fixtures reckon their instants in the
-    // zone the server reads them in.
     private static String istDay(Instant at) {
         return at.atZone(PlatformTime.IST).toLocalDate().toString();
     }
 
-    /** Where the server starts a validity window: IST midnight of the day the document names. */
     private static Instant istMidnight(Instant at) {
         return at.atZone(PlatformTime.IST).toLocalDate().atStartOfDay(PlatformTime.IST).toInstant();
     }
@@ -117,7 +125,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a sale earns the badge on title plus address proof, and the listing starts showing it")
+    @DisplayName("a sale earns the badge on title proof, and the listing starts showing it")
     void aCompleteEvidenceSetEarnsTheBadge() throws Exception {
         Property listing = listing(user("9820000601", Roles.Wire.OWNER), "buy");
         String staff = bearer(user("9820000602", Roles.Wire.STAFF));
@@ -128,17 +136,33 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.ownershipVerified").value(false));
 
         record(listing, staff, "index_ii", recent);
-        record(listing, staff, "electricity_bill", recent);
 
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(true))
                 .andExpect(jsonPath("$.missingKinds").isEmpty())
-                .andExpect(jsonPath("$.evidence.length()").value(2));
+                .andExpect(jsonPath("$.evidence.length()").value(1));
 
         mvc.perform(get("/properties/" + listing.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownershipVerified").value(true));
+    }
+
+    @Test
+    @DisplayName("a sale can use a current 7/12 extract as the title proof")
+    void aCurrentSatbaraCanCloseTheSaleTitleFact() throws Exception {
+        Property listing = listing(user("9820000691", Roles.Wire.OWNER), "buy");
+        String staff = bearer(user("9820000692", Roles.Wire.STAFF));
+        Instant recent = Instant.now().minus(5, ChronoUnit.DAYS);
+
+        record(listing, staff, "satbara_7_12", recent);
+
+        mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.missingKinds").isEmpty())
+                .andExpect(jsonPath("$.evidence[?(@.docType=='satbara_7_12')].kind")
+                        .value(org.hamcrest.Matchers.contains("title_proof")));
     }
 
     @Test
@@ -156,12 +180,27 @@ class OwnershipVerificationTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("a rental can also earn the badge on title proof alone")
+    void aRentalCanUseTitleProof() throws Exception {
+        Property listing = listing(user("9820000693", Roles.Wire.OWNER));
+        String staff = bearer(user("9820000694", Roles.Wire.STAFF));
+
+        record(listing, staff, "share_certificate", Instant.now().minus(5, ChronoUnit.DAYS));
+
+        mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.missingKinds").isEmpty())
+                .andExpect(jsonPath("$.evidence[?(@.docType=='share_certificate')].kind")
+                        .value(org.hamcrest.Matchers.contains("title_proof")));
+    }
+
+    @Test
     @DisplayName("a partial set is refused with the missing facts named, not a bare 400")
     void aPartialSetIsRefusedWithTheMissingFactsNamed() throws Exception {
         Property listing = listing(user("9820000603", Roles.Wire.OWNER), "buy");
         String staff = bearer(user("9820000604", Roles.Wire.STAFF));
 
-        // A bill proves the address, not the title — and a sale is bought on the title.
         record(listing, staff, "electricity_bill", Instant.now().minus(2, ChronoUnit.DAYS));
 
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
@@ -177,14 +216,13 @@ class OwnershipVerificationTest extends AbstractApiTest {
     // Index II is the IGR's own extract and can be read back from the registry; a sale deed is a
     // PDF, so it is stronger in law but not stronger as evidence a reviewer can independently check.
     @Test
-    @DisplayName("a sale deed plus a bill does not earn the badge — the sale rule names Index II")
+    @DisplayName("a sale deed plus a bill does not earn the badge — the sale rule needs title proof")
     void aSaleDeedDoesNotStandInForIndexII() throws Exception {
         Property listing = listing(user("9820000633", Roles.Wire.OWNER), "buy");
         String staff = bearer(user("9820000634", Roles.Wire.STAFF));
         Instant recent = Instant.now().minus(3, ChronoUnit.DAYS);
 
         record(listing, staff, "sale_deed", recent);
-        record(listing, staff, "electricity_bill", recent);
 
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isBadRequest())
@@ -192,7 +230,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
 
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.evidence.length()").value(2))
+                .andExpect(jsonPath("$.evidence.length()").value(1))
                 .andExpect(jsonPath("$.missingKinds[0]").value("title_proof"))
                 .andExpect(jsonPath("$.evidence[?(@.docType=='sale_deed')].kind")
                         .value(org.hamcrest.Matchers.contains("title_support")));
@@ -207,17 +245,16 @@ class OwnershipVerificationTest extends AbstractApiTest {
         Property listing = listing(user("9820000605", Roles.Wire.OWNER));
         String staff = bearer(user("9820000606", Roles.Wire.STAFF));
 
-        // Ninety-day window, issued a hundred days ago: recorded, and useless.
-        record(listing, staff, "tax_receipt", Instant.now().minus(100, ChronoUnit.DAYS));
+        record(listing, staff, "tax_receipt", Instant.now().minus(400, ChronoUnit.DAYS));
 
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("address_proof")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("address_or_title_proof")));
 
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence.length()").value(1))
-                .andExpect(jsonPath("$.missingKinds[0]").value("address_proof"));
+                .andExpect(jsonPath("$.missingKinds[0]").value("address_or_title_proof"));
     }
 
     @Test
@@ -236,8 +273,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(true))
-                .andExpect(jsonPath("$.verifiedUntil")
-                        .value(istMidnight(tenDaysAgo).plus(90, ChronoUnit.DAYS).toString()));
+                .andExpect(jsonPath("$.verifiedUntil").doesNotExist());
     }
 
     @Test
@@ -248,8 +284,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
         Instant nearlyStale = Instant.now().minus(80, ChronoUnit.DAYS);
         Instant fresh = Instant.now().minus(5, ChronoUnit.DAYS);
 
-        // Both bills are current; the older one has ten days left. If the gate took the earliest
-        // within a fact rather than the strongest, sending a fresh bill would not extend anything.
         record(listing, staff, "electricity_bill", nearlyStale);
         record(listing, staff, "electricity_bill", fresh);
 
@@ -267,12 +301,10 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 Instant.now().minus(1, ChronoUnit.DAYS));
         properties.saveAndFlush(listing);
 
-        // The stored verdict is untouched and still true...
         assertThat(jdbc.queryForObject(
                 "select ownership_verified from properties where id = ?", Boolean.class, listing.getId()))
                 .isTrue();
 
-        // ...and the buyer is nonetheless told the truth. A sweep would need to have run first.
         mvc.perform(get("/properties/" + listing.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownershipVerified").value(false));
@@ -299,6 +331,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
         Property listing = listing(user("9820000629", Roles.Wire.OWNER));
         String staff = bearer(user("9820000630", Roles.Wire.STAFF));
         String owner = bearer(users.findById(listing.getOwner().getId()).orElseThrow());
+        caseFile(listing, "pending", null);
 
         mvc.perform(get(ownership(listing) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
@@ -317,6 +350,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
         Property listing = listing(ownerUser);
         User staffUser = user("9820000646", Roles.Wire.STAFF);
         vaultFile(listing, "Electricity Bill", "msedcl.pdf");
+        caseFile(listing, "pending", null);
 
         mvc.perform(get(ownership(listing) + "/documents")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staffUser)))
@@ -336,6 +370,67 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 "select count(*) from audit_log where action = 'property.documents.read'"
                         + " and actor = ?", Integer.class, ownerUser.getId().toString()))
                 .isZero();
+    }
+
+    @Test
+    @DisplayName("staff can read ownership documents within 30 days of a decision, but not after")
+    void staffDocumentAccessExpiresThirtyDaysAfterDecision() throws Exception {
+        Property inside = listing(user("9820000711", Roles.Wire.OWNER));
+        Property outside = listing(user("9820000712", Roles.Wire.OWNER));
+        String staff = bearer(user("9820000713", Roles.Wire.STAFF));
+        caseFile(inside, "approved", Instant.now().minus(29, ChronoUnit.DAYS));
+        caseFile(outside, "approved", Instant.now().minus(31, ChronoUnit.DAYS));
+
+        mvc.perform(get(ownership(inside) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(ownership(outside) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("document_access_expired"));
+    }
+
+    @Test
+    @DisplayName("an archived pending listing closes staff document access after the archive window")
+    void archivedPendingListingExpiresStaffDocumentAccess() throws Exception {
+        Property listing = listing(user("9820000715", Roles.Wire.OWNER));
+        String staff = bearer(user("9820000716", Roles.Wire.STAFF));
+        caseFile(listing, "pending", null);
+        archiveListingAt(listing, Instant.now().minus(31, ChronoUnit.DAYS), "Owner archived");
+
+        mvc.perform(get(ownership(listing) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("document_access_expired"));
+    }
+
+    @Test
+    @DisplayName("auto-archived needs-info cases close staff document access after 30 days")
+    void autoArchivedNeedsInfoListingExpiresStaffDocumentAccess() throws Exception {
+        Property listing = listing(user("9820000717", Roles.Wire.OWNER));
+        String staff = bearer(user("9820000718", Roles.Wire.STAFF));
+        Instant archivedAt = Instant.now().minus(31, ChronoUnit.DAYS);
+        caseFile(listing, "needs_info", Instant.now().minus(45, ChronoUnit.DAYS));
+        archiveListingAt(listing, archivedAt, "needs_info_timeout");
+        jdbc.update("update property_reviews set needs_info_timeout_archived_at = ? where property_id = ?",
+                java.sql.Timestamp.from(archivedAt), listing.getId());
+
+        mvc.perform(get(ownership(listing) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("document_access_expired"));
+    }
+
+    @Test
+    @DisplayName("the staff window does not change the owner's own vault access")
+    void ownerVaultAccessIsUnchangedAfterTheStaffWindowExpires() throws Exception {
+        User ownerUser = user("9820000714", Roles.Wire.OWNER);
+        Property listing = listing(ownerUser);
+        String owner = bearer(ownerUser);
+        caseFile(listing, "rejected", Instant.now().minus(31, ChronoUnit.DAYS));
+        vaultFile(listing, "Electricity Bill", "msedcl.pdf");
+
+        mvc.perform(get(Routes.MeDocuments.FOR_PROPERTY, listing.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
     }
 
     @Test
@@ -370,8 +465,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
     @Test
     @DisplayName("a staff member cannot verify their own listing — the role is not the whole check")
     void staffCannotVerifyTheirOwnListing() throws Exception {
-        // Roles are additive: this person works the ops desk and also lets out a flat. @PreAuthorize
-        // lets them through, and the maker/checker rule has to stop them.
+
         User staffWhoIsAlsoALandlord = user("9820000617", Roles.Wire.STAFF);
         Property ownListing = listing(staffWhoIsAlsoALandlord);
         String token = bearer(staffWhoIsAlsoALandlord);
@@ -385,13 +479,11 @@ class OwnershipVerificationTest extends AbstractApiTest {
         mvc.perform(post(ownership(ownListing)).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isForbidden());
 
-        // Well-formed withdrawal so the refusal is the maker/checker rule and not a missing param.
         mvc.perform(delete(ownership(ownListing))
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .param("reason", "changed my mind"))
                 .andExpect(status().isForbidden());
 
-        // Somebody else's listing is still their job.
         Property otherListing = listing(user("9820000618", Roles.Wire.OWNER));
         record(otherListing, token, "index_ii", Instant.now().minus(1, ChronoUnit.DAYS));
     }
@@ -405,12 +497,10 @@ class OwnershipVerificationTest extends AbstractApiTest {
 
         record(listing, staff, "index_ii", recent);
         record(listing, staff, "electricity_bill", recent);
-        record(listing, staff, "aadhaar", recent);
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(true));
 
-        // The deed turns out to be for the flat next door.
         mvc.perform(delete(ownership(listing))
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .param("reason", "index II is for a different flat"))
@@ -418,8 +508,8 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.verified").value(false))
                 .andExpect(jsonPath("$.verifiedAt").doesNotExist())
                 .andExpect(jsonPath("$.verifiedUntil").doesNotExist())
-                // The record of what was accepted is what an investigation reads. It stays.
-                .andExpect(jsonPath("$.evidence.length()").value(3));
+
+                .andExpect(jsonPath("$.evidence.length()").value(2));
 
         mvc.perform(get("/properties/" + listing.getId()))
                 .andExpect(jsonPath("$.ownershipVerified").value(false));
@@ -454,15 +544,14 @@ class OwnershipVerificationTest extends AbstractApiTest {
         String staff = bearer(user("9820000624", Roles.Wire.STAFF));
         String owner = bearer(users.findById(listing.getOwner().getId()).orElseThrow());
 
-        record(listing, staff, "aadhaar", Instant.now().minus(3, ChronoUnit.DAYS));
+        legacyEvidence(listing, "aadhaar", Instant.now().minus(3, ChronoUnit.DAYS), "Legacy Owner");
 
         // Ops see the whole file — it is their case.
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence[0].docType").value("aadhaar"));
 
-        // The owner sees enough to act on and nothing more. On an agent-posted listing this account
-        // is not necessarily whoever's Aadhaar was sighted, and which ID is personal data itself.
+        // The owner sees enough to act on and nothing more.
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, owner))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence[0].kind").value("owner_identity"))
@@ -473,18 +562,19 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.missingKinds.length()").value(1));
     }
 
-    // Counterweight: reviews() must separate "on staff" from "reviews properties" so packers, loans
-    // and interiors desks — still staff, still passing the role guard — see the redacted owner view.
     @Test
-    @DisplayName("a staff account without properties:write reads the redacted case file, not the reviewer's")
+    @DisplayName("a staff account without property verification reads the redacted case file, not the reviewer's")
     void aDeskThatDoesNotReviewPropertiesIsWithheldTheDocumentType() throws Exception {
         Property listing = listing(user("9820000679", Roles.Wire.OWNER));
         User reviewer = user("9820000680", Roles.Wire.STAFF);
-        record(listing, bearer(reviewer), "aadhaar", Instant.now().minus(3, ChronoUnit.DAYS));
+        legacyEvidence(listing, "aadhaar", Instant.now().minus(3, ChronoUnit.DAYS), "Legacy Owner");
 
         User ticketDesk = user("9820000681", Roles.Wire.STAFF);
-        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) VALUES (?::uuid, ?::jsonb)",
-                ticketDesk.getId().toString(), "[\"dashboard:read\",\"tickets:read\",\"tickets:write\"]");
+        jdbc.update("""
+                INSERT INTO back_office_permissions (user_id, permissions)
+                VALUES (?::uuid, ?::jsonb)
+                ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
+                """, ticketDesk.getId().toString(), "[\"support\"]");
 
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, bearer(ticketDesk)))
                 .andExpect(status().isOk())
@@ -494,11 +584,9 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.evidence[0].subjectName").doesNotExist());
     }
 
-    // An owner_identity row that records that a government ID was sighted without recording whose
-    // is not evidence — there is nothing for a later dispute to check it against.
     @Test
-    @DisplayName("an identity document must say whose it is; the rest need not")
-    void anIdentityDocumentMustNameItsSubject() throws Exception {
+    @DisplayName("legacy identity documents are no longer accepted as listing evidence")
+    void legacyIdentityDocumentsAreRefusedAndAuthorityMustNameItsSubject() throws Exception {
         Property listing = listing(user("9820000625", Roles.Wire.OWNER));
         String staff = bearer(user("9820000626", Roles.Wire.STAFF));
         Instant recent = Instant.now().minus(3, ChronoUnit.DAYS);
@@ -507,36 +595,44 @@ class OwnershipVerificationTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(evidenceBody("aadhaar", recent, null)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.message")
-                        .value(org.hamcrest.Matchers.containsString("subjectName")));
+                        .value("Identity comes from the account's identity verification"));
 
-        // Blank is the same refusal as absent — a space is not a name.
         mvc.perform(post(ownership(listing) + "/evidence")
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(evidenceBody("pan", recent, "   ")))
-                .andExpect(status().isBadRequest());
-
-        // Nothing was recorded by either attempt.
-        mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
-                .andExpect(jsonPath("$.evidence.length()").value(0));
-
-        // A deed names a person too, but the deed itself answers who, so the name is optional
-        // there. Dated a day earlier so the case file's newest-first order is decided rather than incidental.
-        record(listing, staff, "index_ii", recent.minus(1, ChronoUnit.DAYS));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message")
+                        .value("Identity comes from the account's identity verification"));
 
         mvc.perform(post(ownership(listing) + "/evidence")
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(evidenceBody("aadhaar", recent, "  Sunita Deshpande ")))
+                        .content(evidenceBody("power_of_attorney", recent, null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("subjectName")));
+
+        mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(jsonPath("$.evidence.length()").value(0));
+
+        record(listing, staff, "index_ii", recent.minus(2, ChronoUnit.DAYS));
+
+        mvc.perform(post(ownership(listing) + "/evidence")
+                        .header(HttpHeaders.AUTHORIZATION, staff)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(evidenceBody("power_of_attorney", recent.minus(1, ChronoUnit.DAYS),
+                                "  Savita Joshi ")))
                 .andExpect(status().isCreated());
 
         mvc.perform(get(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence.length()").value(2))
-                .andExpect(jsonPath("$.evidence[0].docType").value("aadhaar"))
-                .andExpect(jsonPath("$.evidence[0].subjectName").value("Sunita Deshpande"))
+                .andExpect(jsonPath("$.evidence[0].docType").value("power_of_attorney"))
+                .andExpect(jsonPath("$.evidence[0].kind").value("authority_proof"))
+                .andExpect(jsonPath("$.evidence[0].subjectName").value("Savita Joshi"))
                 .andExpect(jsonPath("$.evidence[1].docType").value("index_ii"))
                 .andExpect(jsonPath("$.evidence[1].subjectName").doesNotExist());
     }
@@ -587,8 +683,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
         Instant filed = Instant.now().minus(700, ChronoUnit.DAYS);
         jdbc.update("update documents set uploaded_at = ? where id = ?",
                 java.sql.Timestamp.from(filed), bill.getId());
-        // The row was written through this persistence context; without evicting it the service
-        // would read the cached instance and miss the backdated upload.
+
         entities.clear();
 
         mvc.perform(post(ownership(listing) + "/evidence")
@@ -599,7 +694,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.message")
                         .value(org.hamcrest.Matchers.containsString("post-date the upload")));
 
-        // The same file read honestly — issued before it was filed — is still perfectly good evidence.
         mvc.perform(post(ownership(listing) + "/evidence")
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -607,8 +701,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
     }
 
-    // Owner's own file label is a second statement about the contents; disagreement is the cheapest
-    // signal the wrong vault row was clicked. Asserted both ways so unrecognised labels stay accepted.
+    // Asserted both ways so unrecognised labels stay accepted.
     @Test
     @DisplayName("a document filed as a bill cannot be cited as the registry's own extract")
     void aCitationCannotContradictTheDocumentsOwnLabel() throws Exception {
@@ -638,15 +731,12 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.message")
                         .value(org.hamcrest.Matchers.containsString("title_proof")));
 
-        // The same file, read honestly, is still perfectly good address proof.
         mvc.perform(post(ownership(listing) + "/evidence")
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(citedEvidenceBody("electricity_bill", issued, bill)))
                 .andExpect(status().isCreated());
 
-        // A label naming no evidence type says nothing either way, and the reviewer has opened the
-        // file — a scanned Index II filed under the society's NOC is theirs to accept.
         mvc.perform(post(ownership(listing) + "/evidence")
                         .header(HttpHeaders.AUTHORIZATION, staff)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -654,8 +744,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
     }
 
-    // Keying the write on whether the badge was still live would leave the grant date standing and
-    // log nothing — the case an investigation most needs is exactly the discovery after expiry.
     @Test
     @DisplayName("a lapsed badge can still be withdrawn, and the withdrawal is recorded")
     void aLapsedBadgeCanStillBeWithdrawn() throws Exception {
@@ -682,7 +770,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .isEqualTo(1);
     }
 
-    /** A free-text reason travels in the URL, and URLs end up in logs that audit_log's rules do not reach. */
     @Test
     @DisplayName("a withdrawal reason is length-capped")
     void aWithdrawalReasonIsCapped() throws Exception {
@@ -695,8 +782,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ownershipVerifiedAt is handed to the announcer and held against billing's referral credit; a
-    // quarterly renewal that moved it would leave the two sides naming different moments.
     @Test
     @DisplayName("renewing a live badge extends the expiry but keeps the original grant date")
     void aRenewalKeepsTheOriginalGrantDate() throws Exception {
@@ -710,7 +795,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
         String grantedAt = com.jayway.jsonpath.JsonPath.read(first, "$.verifiedAt");
         String firstUntil = com.jayway.jsonpath.JsonPath.read(first, "$.verifiedUntil");
 
-        // A fresh bill arrives before the old one lapses.
         record(listing, staff, "electricity_bill", Instant.now().minus(1, ChronoUnit.DAYS));
         mvc.perform(post(ownership(listing)).header(HttpHeaders.AUTHORIZATION, staff))
                 .andExpect(status().isOk())
@@ -719,8 +803,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                         .value(org.hamcrest.Matchers.not(firstUntil)));
     }
 
-    // The reviewer picks from /documents, which hides service-request uploads; a citable-but-not-
-    // listable id is one the two halves of the feature disagree about.
     @Test
     @DisplayName("evidence cannot cite a document the reviewer was never shown")
     void evidenceCannotCiteAServiceRequestDocument() throws Exception {
@@ -742,6 +824,14 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
+    private void legacyEvidence(Property listing, String docType, Instant issuedAt, String subjectName) {
+        jdbc.update("insert into property_ownership_evidence "
+                + "(id, created_at, updated_at, property_id, doc_type, issued_at, expires_at, recorded_by, subject_name) "
+                + "values (?::uuid, now(), now(), ?::uuid, ?, ?, null, ?::uuid, ?)",
+                java.util.UUID.randomUUID().toString(), listing.getId().toString(), docType,
+                java.sql.Timestamp.from(istMidnight(issuedAt)), listing.getOwner().getId().toString(), subjectName);
+    }
+
     private String citedEvidenceBody(String docType, Instant issuedAt, Document cited) {
         return "{\"docType\":\"" + docType + "\",\"issuedOn\":\"" + istDay(issuedAt) + "\","
                 + "\"documentId\":\"" + cited.getId() + "\"}";
@@ -755,6 +845,17 @@ class OwnershipVerificationTest extends AbstractApiTest {
 
     // ownership_evidence.document_id is ON DELETE SET NULL, so if the cited file were deletable the
     // badge could stand while pointing at nothing; the whole arc is the point, refuse-only would look identical to the owner losing their vault.
+    private void caseFile(Property listing, String status, Instant decidedAt) {
+        jdbc.update("insert into property_reviews (property_id, status, decided_at, last_message_at)"
+                + " values (?, ?, ?, now())",
+                listing.getId(), status, decidedAt == null ? null : java.sql.Timestamp.from(decidedAt));
+    }
+
+    private void archiveListingAt(Property listing, Instant archivedAt, String reason) {
+        jdbc.update("update properties set archived = true, archived_at = ?, archive_reason = ? where id = ?",
+                java.sql.Timestamp.from(archivedAt), reason, listing.getId());
+    }
+
     @Test
     @DisplayName("a file behind a live badge survives its owner, until the badge does not")
     void theArtefactBehindALiveBadgeCannotBeDeleted() throws Exception {
@@ -786,8 +887,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
                         .value(org.hamcrest.Matchers.containsString("Ownership")));
-        // Refused, not merely reported as refused: a 409 written after the delete would read the
-        // same on the wire and leave the badge pointing at nothing.
+
         assertThat(documents.findById(bill.getId())).isPresent();
 
         mvc.perform(delete(ownership(listing))
@@ -796,8 +896,6 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(false));
 
-        // The claim has stopped, so the file is the owner's again — and its going is now on the
-        // record, which is what an investigation into the withdrawn verdict would come looking for.
         mvc.perform(delete(Routes.MeDocuments.BY_ID, prop, bill.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, owner))
                 .andExpect(status().isNoContent());
@@ -806,7 +904,7 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 "select count(*) from audit_log where action = 'property.document.evidence.deleted'"
                         + " and entity_id = ?", Integer.class, bill.getId().toString()))
                 .isEqualTo(1);
-        // The spare was never evidence, so deleting it must not have written one.
+
         assertThat(jdbc.queryForObject(
                 "select count(*) from audit_log where action = 'property.document.evidence.deleted'"
                         + " and entity_id = ?", Integer.class, spare.getId().toString()))

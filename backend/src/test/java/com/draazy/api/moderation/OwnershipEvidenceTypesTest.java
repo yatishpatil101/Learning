@@ -4,11 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.draazy.api.moderation.verification.OwnershipEvidenceTypes;
+import com.draazy.api.common.PlatformTime;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.Month;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Expiry is measured from the document's ISSUE date, not the review date — the two readings only
  *  disagree on an old document, which is why the fixture is a 2019 one. */
@@ -17,32 +26,47 @@ class OwnershipEvidenceTypesTest {
 
     private static final Instant LONG_AGO = Instant.parse("2019-04-01T00:00:00Z");
 
-    @Test
-    @DisplayName("a recurring proof expires 90 days after it was ISSUED, not after it was reviewed")
-    void recurringProofExpiresFromTheIssueDate() {
-        Instant expiry = OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.TAX_RECEIPT, LONG_AGO);
+    @ParameterizedTest(name = "{0} expires {1} days after it was ISSUED")
+    @MethodSource("windowedDocuments")
+    @DisplayName("a dated document expires a fixed window after it was ISSUED, not after it was reviewed")
+    void windowedDocumentsExpireFromTheIssueDate(String docType, int days) {
+        Instant expiry = OwnershipEvidenceTypes.expiryOf(docType, LONG_AGO);
 
-        assertThat(expiry).isEqualTo(LONG_AGO.plus(90, ChronoUnit.DAYS));
+        assertThat(expiry).isEqualTo(LONG_AGO.plus(days, ChronoUnit.DAYS));
         assertThat(expiry)
-                .as("a 2019 receipt reviewed today must already be expired — deriving the window "
-                        + "from the review date is the whole failure this gate exists to stop")
+                .as("a 2019 %s reviewed today must already be expired — deriving the window "
+                        + "from the review date is the whole failure this gate exists to stop", docType)
                 .isBefore(Instant.now());
     }
 
-    @Test
-    @DisplayName("site photos get the longer 180-day window — a building ages slower than a bill")
-    void sitePhotosGetTheLongerWindow() {
-        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.SITE_PHOTOS, LONG_AGO))
-                .isEqualTo(LONG_AGO.plus(180, ChronoUnit.DAYS));
+    // Land records can be mutated and a bill goes stale; a building ages slower, hence 180 days.
+    static Stream<Arguments> windowedDocuments() {
+        return Stream.of(
+                Arguments.of(OwnershipEvidenceTypes.ELECTRICITY_BILL, 90),
+                Arguments.of(OwnershipEvidenceTypes.SATBARA_7_12, 90),
+                Arguments.of(OwnershipEvidenceTypes.EIGHT_A_EXTRACT, 90),
+                Arguments.of(OwnershipEvidenceTypes.PROPERTY_CARD, 90),
+                Arguments.of(OwnershipEvidenceTypes.SITE_PHOTOS, 180));
     }
 
     @Test
-    @DisplayName("registry and identity documents never expire — the fact they record does not change")
-    void registryAndIdentityDocumentsDoNotExpire() {
-        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.INDEX_II, LONG_AGO)).isNull();
-        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.SALE_DEED, LONG_AGO)).isNull();
-        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.AADHAAR, LONG_AGO)).isNull();
-        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.PAN, LONG_AGO)).isNull();
+    @DisplayName("a property tax receipt lasts until the financial year end that contains its issue date")
+    void taxReceiptExpiresAtFinancialYearEnd() {
+        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.TAX_RECEIPT,
+                LocalDate.of(2026, Month.FEBRUARY, 10).atStartOfDay(PlatformTime.IST).toInstant()))
+                .isEqualTo(ZonedDateTime.of(LocalDate.of(2026, Month.MARCH, 31),
+                        LocalTime.of(23, 59, 59), PlatformTime.IST).toInstant());
+        assertThat(OwnershipEvidenceTypes.expiryOf(OwnershipEvidenceTypes.TAX_RECEIPT,
+                LocalDate.of(2026, Month.APRIL, 1).atStartOfDay(PlatformTime.IST).toInstant()))
+                .isEqualTo(ZonedDateTime.of(LocalDate.of(2027, Month.MARCH, 31),
+                        LocalTime.of(23, 59, 59), PlatformTime.IST).toInstant());
+    }
+
+    @ParameterizedTest(name = "{0} never expires")
+    @ValueSource(strings = {"index_ii", "sale_deed", "aadhaar", "pan", "power_of_attorney"})
+    @DisplayName("registry, identity and authority documents never expire — the fact they record does not change")
+    void registryIdentityAndAuthorityDocumentsDoNotExpire(String docType) {
+        assertThat(OwnershipEvidenceTypes.expiryOf(docType, LONG_AGO)).isNull();
     }
 
     @Test
@@ -54,6 +78,14 @@ class OwnershipEvidenceTypesTest {
 
         assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.INDEX_II))
                 .isEqualTo(OwnershipEvidenceTypes.TITLE_PROOF);
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.SATBARA_7_12))
+                .isEqualTo(OwnershipEvidenceTypes.TITLE_PROOF);
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.EIGHT_A_EXTRACT))
+                .isEqualTo(OwnershipEvidenceTypes.TITLE_PROOF);
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.PROPERTY_CARD))
+                .isEqualTo(OwnershipEvidenceTypes.TITLE_PROOF);
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.SHARE_CERTIFICATE))
+                .isEqualTo(OwnershipEvidenceTypes.TITLE_PROOF);
         assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.SALE_DEED))
                 .as("a deed is a PDF a reviewer cannot check against anything; Index II is the "
                         + "registry's own extract and can be read back from it")
@@ -64,54 +96,50 @@ class OwnershipEvidenceTypesTest {
                 .isEqualTo(OwnershipEvidenceTypes.ADDRESS_PROOF);
         assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.AADHAAR))
                 .isEqualTo(OwnershipEvidenceTypes.OWNER_IDENTITY);
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.POWER_OF_ATTORNEY))
+                .isEqualTo(OwnershipEvidenceTypes.AUTHORITY_PROOF);
         assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.SITE_PHOTOS))
                 .isEqualTo(OwnershipEvidenceTypes.SITE_PRESENCE);
     }
 
     @Test
-    @DisplayName("a rental needs only address proof; a sale needs the registry extract as well")
+    @DisplayName("a rental needs address or title proof; a sale needs title proof")
     void requiredKindsFollowTheDeal() {
         assertThat(OwnershipEvidenceTypes.requiredKinds("rent"))
-                .containsExactly(OwnershipEvidenceTypes.ADDRESS_PROOF);
+                .containsExactlyInAnyOrder(OwnershipEvidenceTypes.ADDRESS_PROOF, OwnershipEvidenceTypes.TITLE_PROOF);
         assertThat(OwnershipEvidenceTypes.requiredKinds("buy"))
-                .containsExactly(OwnershipEvidenceTypes.TITLE_PROOF, OwnershipEvidenceTypes.ADDRESS_PROOF);
+                .containsExactly(OwnershipEvidenceTypes.TITLE_PROOF);
         assertThat(OwnershipEvidenceTypes.requiredKinds("buy"))
                 .as("identity, site photos and the deed are supporting evidence, never a gate")
                 .doesNotContain(OwnershipEvidenceTypes.OWNER_IDENTITY, OwnershipEvidenceTypes.SITE_PRESENCE,
-                        OwnershipEvidenceTypes.TITLE_SUPPORT);
+                        OwnershipEvidenceTypes.TITLE_SUPPORT, OwnershipEvidenceTypes.AUTHORITY_PROOF);
     }
 
-    /** Asks the question the gate asks, so a later edit that re-admitted the deed by adding
-     *  {@code TITLE_SUPPORT} to the sale's required kinds fails here. */
     @Test
-    @DisplayName("a sale deed plus a bill leaves the title fact unmet \u2014 only Index II closes it")
-    void aSaleDeedCannotStandInForIndexII() {
-        List<String> deedAndBillCover = List.of(
-                OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.SALE_DEED),
-                OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.ELECTRICITY_BILL));
-        assertThat(deedAndBillCover.containsAll(OwnershipEvidenceTypes.requiredKinds("buy")))
-                .as("a deed and a bill cover %s and %s, which must not be the whole required set",
-                        OwnershipEvidenceTypes.TITLE_SUPPORT, OwnershipEvidenceTypes.ADDRESS_PROOF)
-                .isFalse();
+    @DisplayName("power of attorney is supporting authority evidence and never part of a badge gate")
+    void powerOfAttorneyIsSupportingAuthorityEvidence() {
+        assertThat(OwnershipEvidenceTypes.kindOf(OwnershipEvidenceTypes.POWER_OF_ATTORNEY))
+                .isEqualTo(OwnershipEvidenceTypes.AUTHORITY_PROOF);
+        assertThat(OwnershipEvidenceTypes.namesASubject(OwnershipEvidenceTypes.POWER_OF_ATTORNEY)).isTrue();
+        assertThat(OwnershipEvidenceTypes.requiredKinds("rent"))
+                .doesNotContain(OwnershipEvidenceTypes.AUTHORITY_PROOF);
+        assertThat(OwnershipEvidenceTypes.requiredKinds("buy"))
+                .doesNotContain(OwnershipEvidenceTypes.AUTHORITY_PROOF);
     }
 
-    /** A permissive default would not announce itself: add a third intent and every sale-class
-     *  listing becomes grantable on one electricity bill. */
     @Test
     @DisplayName("only rent takes the shorter gate \u2014 an unrecognised deal takes the sale gate")
     void anUnrecognisedDealTakesTheStricterGate() {
         assertThat(OwnershipEvidenceTypes.requiredKinds("rent"))
-                .containsExactly(OwnershipEvidenceTypes.ADDRESS_PROOF);
+                .containsExactlyInAnyOrder(OwnershipEvidenceTypes.ADDRESS_PROOF, OwnershipEvidenceTypes.TITLE_PROOF);
 
         for (String deal : new String[] {null, "", "lease", "resale", "pg", "BUY"}) {
             assertThat(OwnershipEvidenceTypes.requiredKinds(deal))
                     .as("%s is not the rent intent, so it must need the registry's own extract", deal)
-                    .contains(OwnershipEvidenceTypes.TITLE_PROOF);
+                    .containsExactly(OwnershipEvidenceTypes.TITLE_PROOF);
         }
     }
 
-    /** For the type added later: one reachable by {@code DOC_TYPES} with no validity in the table
-     *  throws here rather than on the ops desk's next read of a case file. */
     @Test
     @DisplayName("every document type has a decided validity — no type falls off the table")
     void everyDocumentTypeHasADecidedValidity() {
@@ -134,15 +162,15 @@ class OwnershipEvidenceTypesTest {
     /** Asserted over the whole vocabulary rather than by asking about today's two types: restating
      *  the implementation's own condition would agree with it however wrong it became. */
     @Test
-    @DisplayName("exactly the identity documents have to name whose identity they are")
-    void onlyIdentityDocumentsMustNameTheirSubject() {
+    @DisplayName("identity and authority documents have to name their subject")
+    void identityAndAuthorityDocumentsMustNameTheirSubject() {
         assertThat(OwnershipEvidenceTypes.DOC_TYPES.stream()
                 .filter(OwnershipEvidenceTypes::namesASubject)
                 .toList())
-                .as("a title deed or a photograph does not assert whose it is; a government ID's "
-                        + "whole purpose is to, and a row that records one without a name cannot be "
-                        + "contradicted by anything")
-                .containsExactlyInAnyOrder(OwnershipEvidenceTypes.AADHAAR, OwnershipEvidenceTypes.PAN);
+                .as("a title deed or a photograph does not assert whose it is; identity and authority "
+                        + "papers must say whose identity or authority was checked")
+                .containsExactlyInAnyOrder(OwnershipEvidenceTypes.AADHAAR, OwnershipEvidenceTypes.PAN,
+                        OwnershipEvidenceTypes.POWER_OF_ATTORNEY);
     }
 
     /** The entry that matters is the one closing {@code title_proof} on a sale: everything else the
@@ -166,16 +194,26 @@ class OwnershipEvidenceTypesTest {
                 .as("category is free text the client sends and is matched case-insensitively "
                         + "everywhere else in the vault")
                 .isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.SATBARA_7_12, "7/12 Extract"))
+                .isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.EIGHT_A_EXTRACT, "8A Extract"))
+                .isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.PROPERTY_CARD, "Property Card"))
+                .isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.POWER_OF_ATTORNEY,
+                "Power of Attorney")).isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.SHARE_CERTIFICATE,
+                "Share Certificate")).isFalse();
+        assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.PROPERTY_CARD, "7/12 Extract"))
+                .isTrue();
         assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.ELECTRICITY_BILL, "  Electricity Bill "))
                 .isFalse();
     }
 
-    /** Why this is a contradiction check and not an allowlist: most of the wizard's vocabulary names
-     *  no evidence type, and refusing on an unrecognised label would take the gate offline. */
     @Test
     @DisplayName("a label naming no evidence type leaves the decision with the reviewer")
     void anUnrecognisedLabelIsNotAContradiction() {
-        for (String label : new String[] {null, "", "   ", "Society NOC", "Share Certificate",
+        for (String label : new String[] {null, "", "   ", "Society NOC",
                 "Occupancy Certificate", "Approved Plan Copy"}) {
             assertThat(OwnershipEvidenceTypes.contradicts(OwnershipEvidenceTypes.INDEX_II, label))
                     .as("%s says nothing about what the file is, and the reviewer has opened it", label)

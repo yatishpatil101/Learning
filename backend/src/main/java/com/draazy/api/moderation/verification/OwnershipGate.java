@@ -5,63 +5,61 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The read half of the ownership badge: which required facts are unproven, when the set stops
- * holding, and what may be shown to whom. A pure function, so a lapse needs no sweep job.
- */
+// Pure function so a lapsed badge needs no sweep job.
 final class OwnershipGate {
 
     private OwnershipGate() {
     }
 
-    /**
-     * The gate, evaluated against a moment: which of the deal's required facts have no current
-     * document, and when the whole set first stops holding ({@code until} null if never).
-     */
+    // until is null when the whole set never expires.
     record State(List<String> missing, Instant until) {
     }
 
-    /**
-     * Per fact the <em>strongest</em> current document wins, so a newer bill extends the badge.
-     * Across facts the <em>earliest</em> expiry wins — the badge is only as good as its weakest leg.
-     */
+    // Strongest current document wins per fact; earliest expiry wins across facts.
     static State evaluate(Property property, List<OwnershipEvidence> rows, Instant now) {
         List<String> missing = new ArrayList<>();
         Instant until = null;
-        for (String kind : OwnershipEvidenceTypes.requiredKinds(property.getDeal())) {
-            boolean satisfied = false;
-            Instant strongest = null;
-            for (OwnershipEvidence row : rows) {
-                if (!kind.equals(row.kind()) || !row.isCurrentAt(now)) {
-                    continue;
-                }
-                // A pre-V66 identity row can carry no subject_name; it says a document was seen
-                // without saying whose, so it cannot satisfy its fact.
-                if (OwnershipEvidenceTypes.namesASubject(row.getDocType()) && row.getSubjectName() == null) {
-                    continue;
-                }
-                satisfied = true;
-                if (row.getExpiresAt() == null) {
-                    strongest = null;
-                    break;
-                }
-                if (strongest == null || row.getExpiresAt().isAfter(strongest)) {
-                    strongest = row.getExpiresAt();
-                }
-            }
-            if (!satisfied) {
-                missing.add(kind);
-            } else if (strongest != null && (until == null || strongest.isBefore(until))) {
-                until = strongest;
+        for (var alternatives : OwnershipEvidenceTypes.requiredKindAlternatives(property.getDeal())) {
+            Alternative best = bestCurrent(rows, alternatives, now);
+            if (!best.satisfied()) {
+                missing.add(OwnershipEvidenceTypes.missingLabel(alternatives));
+            } else if (best.expiresAt() != null && (until == null || best.expiresAt().isBefore(until))) {
+                until = best.expiresAt();
             }
         }
         return new State(List.copyOf(missing), until);
     }
 
-    /**
-     * An owner sees which fact is missing and whether each document is current; doc type, vault id
-     * and subject name are staff-only, being third-party personal data under the DPDP Act.
-     */
+    private record Alternative(boolean satisfied, Instant expiresAt) {
+    }
+
+    private static Alternative bestCurrent(List<OwnershipEvidence> rows, java.util.Set<String> alternatives,
+            Instant now) {
+        Instant strongest = null;
+        boolean satisfied = false;
+        for (OwnershipEvidence row : rows) {
+            if (!alternatives.contains(row.kind()) || !satisfies(row, row.kind(), now)) {
+                continue;
+            }
+            satisfied = true;
+            if (row.getExpiresAt() == null) {
+                return new Alternative(true, null);
+            }
+            if (strongest == null || row.getExpiresAt().isAfter(strongest)) {
+                strongest = row.getExpiresAt();
+            }
+        }
+        return new Alternative(satisfied, strongest);
+    }
+
+    private static boolean satisfies(OwnershipEvidence row, String kind, Instant now) {
+        if (!kind.equals(row.kind()) || !row.isCurrentAt(now)) {
+            return false;
+        }
+        return !OwnershipEvidenceTypes.namesASubject(row.getDocType()) || row.getSubjectName() != null;
+    }
+
+    // Owners see facts and currency only; doc ids and subject names are staff-only DPDP data.
     static OwnershipVerificationResponse toResponse(Property property,
             List<OwnershipEvidence> rows, Instant now, boolean staffView) {
         List<OwnershipVerificationResponse.Evidence> wire = rows.stream()
@@ -81,6 +79,9 @@ final class OwnershipGate {
                 property.getOwnershipVerifiedAt(),
                 property.getOwnershipVerifiedUntil(),
                 evaluate(property, rows, now).missing(),
-                wire);
+                wire,
+                property.getOwnershipRequestedAt(),
+                property.getOwnershipDeclinedAt(),
+                property.getOwnershipDeclinedReason());
     }
 }

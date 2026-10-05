@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { test, expect, ACTORS } from '../fixtures/live.js';
 import { API, authHeaders, seedConsent, uniqueMobile } from '../helpers/liveAuth.js';
+import { approveListing, rejectListing } from '../helpers/moderation.js';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { PDFDocument } = requireFrontend('pdf-lib');
@@ -14,8 +15,9 @@ test.afterEach(async ({ request }) => {
   if (!created.length) return;
   const headers = await authHeaders(ACTORS.admin);
   for (const id of created) {
-    const response = await request.patch(`${API}/properties/${id}/status`, {
-      headers, data: { status: 'rejected', reason: 'Synthetic ownership-review fixture cleanup' },
+    const response = await rejectListing(request, id, headers, {
+      reasonCode: 'other',
+      reason: 'Synthetic ownership-review fixture cleanup',
     });
     expect(response.status()).toBe(200);
   }
@@ -31,7 +33,7 @@ async function seedListing(request, deal = 'rent') {
   });
   expect(photo.status()).toBe(201);
   const { url } = await photo.json();
-  const title = `Ownership review ${deal} ${mobile}`;
+  const title = `Ownership review ${deal} ${Date.now().toString(36)}-${mobile.slice(-4)}`;
   const response = await request.post(`${API}/me/listings`, {
     headers, data: {
       title, deal, propertyType: 'Flat', bhk: 2, bathrooms: 2, price: deal === 'rent' ? 31000 : 9500000,
@@ -43,6 +45,10 @@ async function seedListing(request, deal = 'rent') {
   const listing = await response.json();
   created = [...created, listing.id];
   return { id: listing.id, title, headers, meter: `00${mobile}` };
+}
+
+async function publishListing(request, id, headers, reason) {
+  return approveListing(request, id, headers, { reason });
 }
 
 async function uploadDocument(request, listing, category, fileName) {
@@ -60,11 +66,12 @@ async function uploadDocument(request, listing, category, fileName) {
 
 async function openCase(page, listing) {
   await page.goto('/admin/properties?tab=verify');
-  await page.getByPlaceholder(/Search title, owner, locality/).fill(listing.title);
+  await page.getByPlaceholder('Title, owner, mobile or ID').fill(listing.title);
   const review = page.getByRole('button', { name: 'Review', exact: true });
   await expect(review).toHaveCount(1, { timeout: 20000 });
   await review.click();
   await expect(page.getByRole('dialog', { name: 'Verify property' })).toBeVisible();
+  await page.getByTestId('review-section-badge').click();
   return panelOf(page);
 }
 
@@ -111,9 +118,10 @@ test('rent: retry vault read, record a real bill, explicitly grant the public ba
   await page.unroute(`**/api${ownershipPath(listing.id)}/documents`);
   await panel.getByRole('button', { name: 'Retry ownership evidence' }).click();
   await expect(panel.getByText('No evidence recorded.', { exact: true })).toBeVisible();
-  await expect(panel).toContainText('address_proof');
+  await expect(panel).toContainText('Address or title proof');
   await expect(panel).not.toContainText('title_proof');
-  await expect(panel).toContainText(listing.meter);
+  await expect(panel).toContainText(`•••• ${listing.meter.slice(-4)}`);
+  await expect(panel).not.toContainText(listing.meter);
   await expect(panel).toContainText('not a legal title guarantee');
   const grant = panel.getByRole('button', { name: 'Grant ownership verification', exact: true });
   await expect(grant).toBeDisabled();
@@ -135,9 +143,7 @@ test('rent: retry vault read, record a real bill, explicitly grant the public ba
   expect(grantResponse.status()).toBe(200);
   expect(await grantResponse.json()).toMatchObject({ verified: true });
   await expect(panel.getByText('Ownership verified', { exact: true })).toBeVisible();
-  const published = await request.patch(`${API}/properties/${listing.id}/status`, {
-    headers: adminHeaders, data: { status: 'approved', reason: 'Ownership review fixture publication' },
-  });
+  const published = await publishListing(request, listing.id, adminHeaders, 'Ownership review fixture publication');
   expect(published.status()).toBe(200);
 
   const guestContext = await browser.newContext({ baseURL: new URL(page.url()).origin });
@@ -146,7 +152,7 @@ test('rent: retry vault read, record a real bill, explicitly grant the public ba
     await seedConsent(guest);
     await guest.goto(`/property/${listing.id}`);
     await expect(guest.getByRole('heading', { level: 1 })).toBeVisible();
-    const badge = guest.locator('.tag-strip').getByText('Ownership Verified', { exact: true });
+    const badge = guest.locator('.tag-strip').getByText('Verified property', { exact: true });
     await expect(badge).toBeVisible();
     await expect(panelOf(guest)).toHaveCount(0);
     await expect(guest.getByText(bill.fileName, { exact: true })).toHaveCount(0);
@@ -181,22 +187,22 @@ test('rent: retry vault read, record a real bill, explicitly grant the public ba
   }
 });
 
-test('sale: a bill and supporting sale deed cannot replace Index II', async ({ page, request, login }) => {
+test('sale: a bill and supporting sale deed cannot replace title proof, but 7/12 can', async ({ page, request, login }) => {
   const listing = await seedListing(request, 'buy');
   const bill = await uploadDocument(request, listing, 'Electricity Bill', 'sale-msedcl.pdf');
   const deed = await uploadDocument(request, listing, 'Sale Deed', 'supporting-deed.pdf');
-  const index = await uploadDocument(request, listing, 'Index II', 'registered-index-ii.pdf');
+  const satbara = await uploadDocument(request, listing, '7/12 Extract', 'mahabhumi-7-12.pdf');
   await login.asAdmin();
   const panel = await openCase(page, listing);
   await expect(panel.getByText('No evidence recorded.', { exact: true })).toBeVisible();
-  await expect(panel).toContainText('title_proof');
-  await expect(panel).toContainText('address_proof');
+  await expect(panel).toContainText('Title proof');
+  await expect(panel).not.toContainText('address_or_title_proof');
   expect((await recordDocument(page, listing, bill, 'Electricity bill')).missingKinds).toEqual(['title_proof']);
   const supporting = await recordDocument(page, listing, deed, 'Sale deed (supporting only)');
   expect(supporting).toMatchObject({ verified: false, missingKinds: ['title_proof'] });
   const grant = panel.getByRole('button', { name: 'Grant ownership verification', exact: true });
   await expect(grant).toBeDisabled();
-  const complete = await recordDocument(page, listing, index, 'Index II');
+  const complete = await recordDocument(page, listing, satbara, '7/12 extract (Satbara)');
   expect(complete).toMatchObject({ verified: false, missingKinds: [] });
   await expect(grant).toBeEnabled();
   const granted = ownershipResponse(page, listing, 'POST');
@@ -216,12 +222,10 @@ test('a verified rental changed to a sale needs a fresh badge decision but can s
   await panel.getByRole('button', { name: 'Grant ownership verification', exact: true }).click();
   expect((await granted).status()).toBe(200);
   const headers = await authHeaders(ACTORS.admin);
-  const publish = () => request.patch(`${API}/properties/${listing.id}/status`, {
-    headers, data: { status: 'approved', reason: 'Evidence recheck fixture publication' },
-  });
+  const publish = () => publishListing(request, listing.id, headers, 'Evidence recheck fixture publication');
   expect((await publish()).status()).toBe(200);
   const changed = await request.patch(`${API}/me/listings/${listing.id}`, {
-    headers: listing.headers, data: { deal: 'buy' },
+    headers: listing.headers, data: { deal: 'buy', price: 8500000 },
   });
   expect(changed.status()).toBe(200);
   expect(await changed.json()).toMatchObject({ ownershipVerified: false });
@@ -233,4 +237,3 @@ test('a verified rental changed to a sale needs a fresh badge decision but can s
   expect(regrant.status()).toBe(400);
   expect((await regrant.json()).message).toContain('title_proof');
 });
-

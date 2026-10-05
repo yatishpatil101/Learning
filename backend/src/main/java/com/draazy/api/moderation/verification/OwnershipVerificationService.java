@@ -2,11 +2,15 @@ package com.draazy.api.moderation.verification;
 
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.PlatformTime;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
+import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.error.ValidationException;
+import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.trust.VerificationAnnouncer;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.documents.vault.Document;
@@ -20,19 +24,20 @@ import com.draazy.api.security.Roles;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The ownership gate: how the <strong>Ownership Verified</strong> badge is earned, and how it
- * lapses. Rationale: docs/flows/admin/property-verification.md#ownership-gate.
- */
+// Rationale: docs/flows/admin/property-verification.md#ownership-gate.
 @Service
 public class OwnershipVerificationService {
 
     /** Long enough for an ops note naming the flat and the defect, short enough not to fill a log. */
     private static final int MAX_REASON_LENGTH = 300;
+
+    private static final Set<String> BADGE_STATUSES =
+            Set.of(PropertyStatus.PENDING, PropertyStatus.APPROVED, PropertyStatus.PAUSED);
 
     private final OwnershipEvidenceRepository evidence;
     private final PropertyRepository properties;
@@ -41,10 +46,13 @@ public class OwnershipVerificationService {
     private final AuditService audit;
     private final VerificationAnnouncer announcer;
     private final AccountPermissions permissions;
+    private final OwnershipDocumentAccess documentAccess;
+    private final Notifier notifier;
 
     public OwnershipVerificationService(OwnershipEvidenceRepository evidence,
             PropertyRepository properties, DocumentRepository documents, DocumentMapper documentMapper,
-            AuditService audit, VerificationAnnouncer announcer, AccountPermissions permissions) {
+            AuditService audit, VerificationAnnouncer announcer, AccountPermissions permissions,
+            OwnershipDocumentAccess documentAccess, Notifier notifier) {
         this.evidence = evidence;
         this.properties = properties;
         this.documents = documents;
@@ -52,12 +60,11 @@ public class OwnershipVerificationService {
         this.audit = audit;
         this.announcer = announcer;
         this.permissions = permissions;
+        this.documentAccess = documentAccess;
+        this.notifier = notifier;
     }
 
-    /**
-     * {@code GET /properties/{id}/verification/ownership} — the case file. Participant-or-staff, so
-     * an owner can see which fact their listing is still waiting on.
-     */
+    // Participant-or-staff so owners can see which fact is still missing.
     @Transactional(readOnly = true)
     public OwnershipVerificationResponse get(AuthPrincipal actor, String propertyId) {
         Property property = participantProperty(actor, propertyId);
@@ -66,16 +73,19 @@ public class OwnershipVerificationService {
                 Instant.now(), reviews(actor));
     }
 
-    /**
-     * {@code GET /properties/{id}/verification/ownership/documents} — the owner's vault as the
-     * reviewer sees it. Reviewer-only and audited: it mints signed URLs to Aadhaar and PAN scans.
-     */
+    // Reviewer-only and audited because it mints signed URLs to identity scans.
     @Transactional(readOnly = true)
     public List<DocumentDto> listDocuments(AuthPrincipal actor, String propertyId) {
         if (!reviews(actor)) {
             throw new ForbiddenException("Only property reviewers may read a listing's documents");
         }
         Property property = load(propertyId);
+
+        boolean badgeAsked = property.isOwnershipRequested() && !property.isArchived();
+        if (!badgeAsked && !documentAccess.mayRead(property.getId(), Instant.now())) {
+            throw new ForbiddenException("document_access_expired",
+                    "Document access for this verification case has expired");
+        }
         List<Document> rows = documents
                 .findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(property.getId());
         audit.record(actor, "property.documents.read", "property", propertyId,
@@ -83,10 +93,7 @@ public class OwnershipVerificationService {
         return documentMapper.toDtos(rows);
     }
 
-    /**
-     * {@code POST /properties/{id}/verification/ownership/evidence} — staff/admin record one sighted
-     * document. Recording never grants the badge; the gate is a separate judgement.
-     */
+    // Recording never grants the badge; the gate is a separate judgement.
     @Transactional
     public OwnershipVerificationResponse recordEvidence(AuthPrincipal actor, String propertyId,
             String docType, String documentId, LocalDate issuedOn, String subjectName) {
@@ -94,6 +101,9 @@ public class OwnershipVerificationService {
         Instant now = Instant.now();
         if (!OwnershipEvidenceTypes.isKnown(docType)) {
             throw new BadRequestException("docType must be one of " + OwnershipEvidenceTypes.DOC_TYPES);
+        }
+        if (OwnershipEvidenceTypes.isRetiredIdentityEvidence(docType)) {
+            throw new ValidationException("Identity comes from the account's identity verification");
         }
         if (issuedOn == null) {
             throw new BadRequestException("issuedOn is required");
@@ -104,19 +114,18 @@ public class OwnershipVerificationService {
         String subject = subjectName == null || subjectName.isBlank() ? null : subjectName.strip();
         if (subject == null && OwnershipEvidenceTypes.namesASubject(docType)) {
             throw new BadRequestException(
-                    "subjectName is required for " + docType + ": an identity document is evidence "
-                            + "of whose identity it is, and a row that does not say cannot be checked");
+                    "subjectName is required for " + docType + ": the row must name the person the document proves");
         }
         Document cited = vaultDocument(property, documentId);
-        // A file cannot have been issued after it was filed; without this an old bill is re-cited
-        // each quarter with today's date, renewing the expiry window off one unchanged artefact.
+
         if (cited != null && issuedOn.isAfter(
                 cited.getUploadedAt().atZone(PlatformTime.IST).toLocalDate())) {
             throw new BadRequestException(
                     "issuedOn cannot post-date the upload: a document cannot be issued after it was filed");
         }
-        // The dropdown alone must not decide what a file is: a bill filed as "Electricity Bill" and
-        // recorded as `index_ii` would close the title leg of a sale badge. See contradicts().
+
+        // The dropdown alone must not decide what a file is: a bill filed as "Electricity Bill" and recorded as
+        // `index_ii` would close the title leg of a sale badge. See contradicts().
         if (cited != null && OwnershipEvidenceTypes.contradicts(docType, cited.getCategory())) {
             throw new BadRequestException("documentId is filed as \"" + cited.getCategory()
                     + "\", which is not a " + docType + ": re-file the document or cite another");
@@ -124,6 +133,7 @@ public class OwnershipVerificationService {
 
         OwnershipEvidence saved = evidence.saveAndFlush(new OwnershipEvidence(property.getId(),
                 docType, cited == null ? null : cited.getId(), issuedOn, actor.userId(), subject));
+
         // Row id and vault reference, so an investigation can reach the artefact after a vault
         // delete nulls `document_id`. `subjectName` is excluded: the audit log holds no names.
         audit.record(actor, "property.ownership.evidence", "property", propertyId,
@@ -134,10 +144,7 @@ public class OwnershipVerificationService {
                 evidence.findByPropertyIdOrderByIssuedAtDesc(property.getId()), now, true);
     }
 
-    /**
-     * {@code POST /properties/{id}/verification/ownership} — staff/admin grant the badge. Names the
-     * missing facts on rejection, and announces only on a transition into the verified state.
-     */
+    // Announces only on transition into verified state.
     @Transactional
     public OwnershipVerificationResponse verify(AuthPrincipal actor, String propertyId) {
         Property property = otherPersonsProperty(actor, propertyId);
@@ -161,22 +168,11 @@ public class OwnershipVerificationService {
         return OwnershipGate.toResponse(property, rows, now, true);
     }
 
-    /**
-     * {@code DELETE /properties/{id}/verification/ownership} — staff/admin withdraw the badge, for
-     * evidence that turns out to be forged. Evidence rows survive: they are the investigation.
-     */
+    // Evidence rows survive revocation because they are the investigation.
     @Transactional
     public OwnershipVerificationResponse revoke(AuthPrincipal actor, String propertyId, String reason) {
-        // Before the row lock: a malformed request should not queue behind a concurrent decision
-        // only to be rejected on a field it could have been rejected on immediately.
-        if (reason == null || reason.isBlank()) {
-            throw new BadRequestException("reason is required");
-        }
-        // A query string is copied into proxy and access logs, which have none of `audit_log`'s
-        // handling; the reason belongs in the audit entry.
-        if (reason.length() > MAX_REASON_LENGTH) {
-            throw new BadRequestException("reason must be at most " + MAX_REASON_LENGTH + " characters");
-        }
+
+        requireReason(reason);
         Property property = otherPersonsProperty(actor, propertyId);
         Instant now = Instant.now();
         if (property.getOwnershipVerifiedAt() != null) {
@@ -188,10 +184,65 @@ public class OwnershipVerificationService {
                 evidence.findByPropertyIdOrderByIssuedAtDesc(property.getId()), now, true);
     }
 
-    /**
-     * Resolve the optional vault reference here rather than at the foreign key: an id belonging to a
-     * <em>different</em> listing would otherwise let one flat's evidence cite another's title deed.
-     */
+    @Transactional
+    public OwnershipVerificationResponse request(AuthPrincipal actor, String propertyId) {
+        Property property = Ids.parseUuid(propertyId)
+                .flatMap(properties::findForVerificationDecision)
+                .filter(p -> actor.userId().equals(p.getOwner().getId()))
+                .orElseThrow(() -> NotFoundException.of("Property"));
+        Instant now = Instant.now();
+        if (property.isOwnershipVerifiedAt(now)) {
+            throw new ConflictException("already_verified", "This listing already has the Verified badge");
+        }
+        if (property.isArchived() || !BADGE_STATUSES.contains(property.getStatus())) {
+            throw new ConflictException("listing_not_open", "Only a live or under-review listing can ask for the badge");
+        }
+        if (documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(property.getId()).isEmpty()) {
+            throw new ConflictException("documents_missing", "Upload the ownership documents first");
+        }
+        if (!property.isOwnershipRequested()) {
+            property.requestOwnershipReview(now);
+            audit.record(actor, "property.ownership.requested", "property", propertyId);
+        }
+        return OwnershipGate.toResponse(property,
+                evidence.findByPropertyIdOrderByIssuedAtDesc(property.getId()), now, false);
+    }
+
+    @Transactional
+    public OwnershipVerificationResponse decline(AuthPrincipal actor, String propertyId, String reason) {
+        requireReason(reason);
+        Property property = otherPersonsProperty(actor, propertyId);
+        if (!property.isOwnershipRequested()) {
+            throw new ConflictException("no_open_request", "This listing has no open badge request");
+        }
+        Instant now = Instant.now();
+        String why = reason.strip();
+        property.declineOwnershipReview(why, now);
+        audit.record(actor, "property.ownership.declined", "property", propertyId,
+                "reason", why, "owner", String.valueOf(property.getOwner().getId()));
+        notifier.notify(property.getOwner().getId(), "listing.badge_declined",
+                "Verified badge not granted yet", why,
+                "/dashboard?tab=documents&prop=" + property.getId());
+        return OwnershipGate.toResponse(property,
+                evidence.findByPropertyIdOrderByIssuedAtDesc(property.getId()), now, true);
+    }
+
+    private static void requireReason(String reason) {
+
+        // Before the row lock: a malformed request should not queue behind a concurrent decision
+        // only to be rejected on a field it could have been rejected on immediately.
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestException("reason is required");
+        }
+
+        // A query string is copied into proxy and access logs, which have none of `audit_log`'s
+        // handling; the reason belongs in the audit entry.
+        if (reason.length() > MAX_REASON_LENGTH) {
+            throw new BadRequestException("reason must be at most " + MAX_REASON_LENGTH + " characters");
+        }
+    }
+
+    // Resolve here so one flat's evidence cannot cite another listing's deed.
     private Document vaultDocument(Property property, String documentId) {
         if (documentId == null || documentId.isBlank()) {
             return null;
@@ -207,18 +258,14 @@ public class OwnershipVerificationService {
     }
 
     private static boolean isStaff(AuthPrincipal actor) {
-        return Roles.Wire.STAFF.equals(actor.role()) || Roles.Wire.ADMIN.equals(actor.role());
+        return Roles.isBackOffice(actor.role());
     }
 
-    /**
-     * Whether this caller reviews properties, not merely holds a staff role. Read from
-     * {@link AccountPermissions} (per account), never {@code PermissionMap} (per desk).
-     */
+    // Account grant, not staff role alone, controls access to staff-only material.
     private boolean reviews(AuthPrincipal actor) {
-        return isStaff(actor) && permissions.granted(actor, BackOfficePermissions.PROPERTIES_WRITE);
+        return isStaff(actor) && permissions.granted(actor, BackOfficePermissions.PROPERTIES_VERIFY);
     }
 
-    /** Load the listing and assert the caller is the owner or staff, else 404. */
     private Property participantProperty(AuthPrincipal actor, String propertyId) {
         Property property = load(propertyId);
         if (!isStaff(actor) && !actor.userId().equals(property.getOwner().getId())) {
@@ -227,10 +274,6 @@ public class OwnershipVerificationService {
         return property;
     }
 
-    /**
-     * Load the listing for a write, under a row lock, and refuse its owner. The lock stops two
-     * concurrent grants announcing twice and serialises evidence writes against a decision.
-     */
     private Property otherPersonsProperty(AuthPrincipal actor, String propertyId) {
         Property property = Ids.parseUuid(propertyId)
                 .flatMap(properties::findForVerificationDecision)
