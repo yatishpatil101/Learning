@@ -1,37 +1,4 @@
-/* Route ↔ locale-namespace gate (D129).
- *
- * English used to be bundled whole: `i18n/index.js` merged all twenty
- * `locales/en/*.json` into one eager `translation` bundle, so every visitor
- * downloaded `services.json` (61 KB) to look at a property page. The fix is to
- * keep only the shell namespaces eager and let each route pull its own inside
- * the `lazy()` boundary that already covers it — see `i18n/lazyPage.js`.
- *
- * That fix has one failure mode and it is silent: a route that forgets to
- * declare a namespace it uses renders the raw key (`property.title`) instead of
- * the string. Nothing throws, no test necessarily looks at that exact label, and
- * it only shows up in the language nobody on the team reads. So the declaration
- * is not trusted — it is checked here, from the import graph, and the build
- * fails when a route needs a namespace it did not ask for.
- *
- * How it works:
- *   1. Key prefix → namespace is derived from the locale files themselves
- *      (`property.json` owns the `property.*` prefix), never hand-maintained.
- *   2. Every `lazyPage(() => import('...'), 'ns')` in App.jsx is resolved and its
- *      transitive local import closure walked, collecting every `'prefix.key'`
- *      string literal it can reach.
- *   3. Required − (declared ∪ eager) must be empty.
- *   4. Synchronously imported shell modules (Home, the layouts, the guards, the
- *      Suspense skeletons) render outside any route boundary, so whatever *they*
- *      reach must be in the eager set. Checked too — that is what pins the eager
- *      list to something other than taste.
- *   5. The eager list in `namespaces.js` and the static imports in
- *      `i18n/index.js` must be the same list, or one of them is a lie.
- *
- * Over-declaring is reported as a hint, not an error: the walk follows static
- * imports only, so a namespace reached through a runtime-built key would look
- * unused here. Deleting one on this script's word alone is how you ship the bug
- * it exists to prevent.
- */
+/* Missing route namespaces render raw keys without throwing, so this catches silent i18n drift. */
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -43,12 +10,6 @@ const APP = join(SRC, 'App.jsx');
 const { EAGER_NAMESPACES } = await import(pathToFileURL(join(SRC, 'i18n', 'namespaces.js')).href);
 const EAGER = new Set(EAGER_NAMESPACES);
 
-/* ── 1. key path → namespace, read off the locale files ──
- *
- * Full dotted paths, not top-level prefixes. A literal only counts as a
- * translation key if the locale data actually has it, which is what keeps
- * `dash.smartAlerts` (an admin *flag* name in AdminTopbarTools, not a string)
- * from dragging a 16 KB namespace onto the app shell. */
 const keyToNs = new Map();
 for (const file of readdirSync(LOCALES_EN).filter((f) => f.endsWith('.json'))) {
   const ns = file.replace(/\.json$/, '');
@@ -63,9 +24,8 @@ for (const file of readdirSync(LOCALES_EN).filter((f) => f.endsWith('.json'))) {
 }
 const allKeys = [...keyToNs.keys()];
 
-/* Two eager files must not share a top-level prefix: the eager merge is a shallow
-   Object.assign, so one would silently erase the other. Lazy namespaces go in
-   through addResourceBundle with deep merge, so they may overlap safely. */
+/** Two eager files must not share a top-level prefix: the eager merge is a shallow Object.assign, so one would
+ * silently erase the other. */
 const eagerPrefixOwner = new Map();
 for (const [key, ns] of keyToNs) {
   if (!EAGER.has(ns)) continue;
@@ -121,21 +81,7 @@ function factsFor(file) {
   let source;
   try { source = readFileSync(file, 'utf8'); } catch { return facts; }
 
-  /*
-   * Comments are stripped before the literals are read, exactly as
-   * `check-route-patterns.mjs` does and for the same reason: a comment must not be able to change
-   * what this script believes the code says.
-   *
-   * KEY_LITERAL matches any backtick- or quote-wrapped dotted identifier, and this codebase
-   * explains itself in prose that names code. A doc comment reading "measured from the earliest
-   * `property.status` audit row" was read as a live reference to the `property` namespace, so the
-   * Analytics console — which has no property strings anywhere in it — was reported as needing one.
-   * Worse, it failed on a *sentence*, meaning the way to make the build green was to reword an
-   * accurate comment. A guard that can be satisfied by editing prose is measuring the prose.
-   *
-   * This only ever removes false positives. A namespace mentioned solely inside a comment is not
-   * loaded at runtime and never needed declaring.
-   */
+  /** Strip comments before scanning: comment text must not spoof route code. */
   source = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
   for (const [, literal] of source.matchAll(KEY_LITERAL)) {
