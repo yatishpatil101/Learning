@@ -34,6 +34,9 @@
 
 ## What a green suite does not prove
 
+- **A green build does not prove a new prop is passed.** `ReviewScreen` gained required `claims`, the
+  JSX call site never got it, and Vite built clean; the review step crashed on `claims.number`. When
+  adding a prop, grep every `<Component` call site, and drive the screen once when e2e is blocked.
 - **Freshness is not publication status.** A recent timestamp must not earn an unapproved listing an Active/Availability badge or a reactivation action; gate freshness UI on approval.
 - **Fitting options on one row does not mean using the row well.** For a fixed three-choice mobile
   group, share the remaining width between tiles and assert the last tile reaches the right edge.
@@ -78,6 +81,11 @@
   the alternative is investigating a bug that was fixed further down the same file.
 
 ## Assertions that assert nothing
+
+- **`toBeVisible()` passes on an `opacity: 0` card, and the e2e runs with reduced motion — which
+  forces `.reveal` to opacity 1.** A new page reusing `.reveal` cards without `useScrollReveal`
+  shipped blank to users and green in CI. Assert the `visible` class the hook adds, and prove the
+  assertion by deleting the hook call (not just the ref — a null ref falls back to `document`).
 
 - **Assert the absence of the wrong value, not just the presence of the right one.** A negative
   assertion found the fourth and fifth copies of a bad string, one of them in markup the desktop
@@ -678,6 +686,10 @@
 
 ## Architecture and product judgement
 
+- **Draazy is owner-only: no brokers, no builders, anywhere.** Never offer, label, filter or store a
+  poster type other than owner, and never propose agent/builder roles or agent RERA numbers. Anti-broker
+  guardrails (detecting and refusing brokers) stay; they are the product.
+
 - **Two routes to the same verdict is fine; two routes that leave the same record saying different
   things is not.** A listing could be approved from the verification desk (checklist gated) or from
   the moderation queue (never opens the case file, so bulk approve works at all). Both are
@@ -845,6 +857,8 @@ advertise that a field is being withheld."*
 **Frontend comments:** when you delete something, leave a comment saying what stood there and why it
 went. When deleting N repetitive calls, write **one** consolidated block comment at the first site
 and name the honest cost.
+For hygiene passes, never bulk-strip comments: keep compliant 1–2 line WHY comments verbatim, and
+condense longer rationale blocks to the 1–2 lines that carry the reason.
 
 **Migrations:** a long `--` header giving why the object exists, why nullable, why no backfill, why
 this index, why no FK. `V86`–`V88` are the models.
@@ -876,3 +890,25 @@ commit hash, and a `### Deliberately not done`.
 it and correct it in place.** Do not silently delete it — the correction is the useful artefact. This
 applies to documents written minutes earlier in the same session. Conversely, when an existing
 Javadoc turns out to be *right*, quote it.
+
+**Commit around the other session's staged index, never through it.** It keeps files staged (`A`)
+in the shared index, so a plain `git commit` would sweep them in. Build the commit in a private
+index: `$env:GIT_INDEX_FILE=<temp>; git read-tree HEAD; git add -- <our paths>`, take shared files'
+hunks with `git apply --cached <partial.patch>`, commit, drop the variable, then
+`git reset -q -- <our paths>` on the real index. Amend the same way (`read-tree HEAD` first).
+**Don't bolt a second search entry onto a results page.** The user removed the mobile /listings `Change locality or society` combobox and its Popular/Recent chips (c89da3a5), the Near-a-Place metro chips (c89da3a5) and the budget/rent preset chips (26b71b39): the search input and slider already own those choices. Ask before adding a duplicate entry point to an existing flow.
+
+- **Never change a sticky bar's position on input focus (2026-09-26).** The tap that blurs the input re-sticks the bar under the finger and the tap is lost; a mobile Parking pill silently stopped registering. Found only because `seam-write` asserts the stored value, not the rendered pill.
+
+- **A running backend must not share a build dir with CLI builds (2026-09-27).** `run-local.ps1` ran `spring-boot:run` from `target-cli\classes`; a CLI `mvnw test` recompiled that dir under the live JVM and every `POST /me/photos` on :9090 returned 500 until restart. `run-local.ps1` now builds into `target-local`, like the lane scripts. Symptom: works on a shard, 500s locally with no code change.
+
+- **Keep real-world Indian listing options even when they break a clean taxonomy (2026-09-28).** Power of Attorney had been retired from the listing Ownership dropdown for not being a tenure type. The user restored it: owners do list through a POA holder, and MagicBricks and 99acres offer it in the same list. Ask before removing a domain option that owners actually pick.
+
+- **One thing, one picker (2026-09-28).** Splitting amenities into society and in-flat groups duplicated the step-1 furniture picker: AC, geyser and wardrobe were answerable in two places. The user had them merged. Before adding a group of options, grep the wizard for an existing control that already asks about the same objects.
+
+- **An approve endpoint must apply what it approves (2026-09-29).** Accepting a flatmate group request only flipped the request's status; the member was never added and the seat never taken, so the owner's group still read `1 seat left`. Only the open-policy auto-join applied the effect. When a decision has a consequence, test the consequence (member count, seats), not just the status, and refuse a second decision (409).
+
+- **Files containing JSX must use `.jsx` (2026-09-30).** Vite build parses JSX by extension; ESLint can miss JSX in `.js` files. If a new helper returns JSX, name it `.jsx` and keep imports on that extension before declaring a slice green.
+
+- **An approved number request reveals the owner's number to that buyer (2026-10-03).** The audit called the Messages reveal a D5 leak (`mobileFor` showed the owner's digits to an approved buyer) and proposed masking it. The user reversed D5 instead: once an owner approves a buyer's number request, that buyer sees the real number on the listing and in chat, unless the owner set `hide_number`. Before calling a reveal a leak, ask which way the product rule should go - the docs can be the stale side.
+- **Comment hygiene is hand work, not a script (2026-10-04).** Twelve agents rewrote files with Python/PowerShell pipelines and regex block detectors: `?` and `—`/`₹` vanished from strings, regex spaces dropped, comments were truncated mid-sentence, catch bodies emptied, and a `//` comment holding `tests/mobile/**` read as an open `/*` deleted half of `playwright.config.js`. Edit comments with the edit tool, keep compliant 1–2 line WHY comments verbatim, condense longer ones instead of deleting, and diff comment-free code against HEAD before calling a pass done.

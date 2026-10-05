@@ -1,6 +1,6 @@
 ---
 name: real-estate-expert
-description: Domain expert for building React real-estate web apps (property listings, search/filter, map integration, listing detail pages, lead capture, and India-first real-estate flows like NoBroker/MagicBricks/PuneNest) with deep India-market knowledge across property types (flats, commercial, farmland, plots), online search behavior on Indian platforms, real-estate legal processes, and brokerage practices. Use when implementing or reviewing real-estate features — property cards, search & filters, map popups, listing wizards, BHK/rent/commercial/PG/flatmate flows, contact gates, alerts, and admin/ops portals. Covers data modeling for listings, SEO for property pages, and conversion-focused UX.
+description: Domain expert for building React real-estate web apps (property listings, search/filter, map integration, listing detail pages, lead capture, and India-first real-estate flows like NoBroker/MagicBricks/PuneNest) with deep India-market knowledge across property types (flats, commercial, farmland, plots), online search behavior on Indian platforms, real-estate legal processes, and brokerage practices. Use when implementing or reviewing real-estate features — property cards, search & filters, map popups, listing wizards, BHK/rent/commercial/flatmate flows, contact gates, alerts, and admin/ops portals. Covers data modeling for listings, SEO for property pages, and conversion-focused UX.
 ---
 
 # Real Estate Expert
@@ -12,7 +12,7 @@ alongside `punenest-frontend`, `ui-ux-pro-max`, `frontend-design`, and
 ## When to use
 
 - Building or editing property listings, search, filters, map views, or listing detail pages.
-- Implementing listing wizards (list-property flows), BHK/rent/commercial/PG/flatmate variants.
+- Implementing listing wizards (list-property flows), BHK/rent/commercial/flatmate variants.
 - Contact/Aadhaar gates, lead capture, saved searches, and property alerts.
 - Admin / ops back-office features (properties, users, finance, reports, analytics).
 - Data modeling for listings, seed data, and SEO for property pages.
@@ -59,7 +59,7 @@ Real-estate listings share a consistent shape. Prefer one normalized listing mod
 `listingType` discriminator rather than divergent per-type objects:
 
 - **Identity**: `id`, `slug`, `title`, `createdAt`, `updatedAt`, `status` (draft/active/expired/sold).
-- **Type**: `listingType` (`buy` | `rent` | `commercial` | `pg` | `flatmate`), `propertyType` (apartment, villa, plot, office, shop...).
+- **Type**: `listingType` (`buy` | `rent` | `commercial` | `flatmate`; PG/hostel is deliberately not a listing type), `propertyType` (apartment, villa, plot, office, shop...).
 - **Location**: `city`, `locality`, `address`, `lat`, `lng`, `pincode` — always keep lat/lng for map popups.
 - **Specs**: `bhk`, `area`, `areaUnit`, `furnishing`, `floor`, `totalFloors`, `facing`, `possession`.
 - **Pricing**: `price`, `priceUnit`, `deposit`, `maintenance`, `negotiable`, `reraId` (validate when present).
@@ -69,7 +69,7 @@ Real-estate listings share a consistent shape. Prefer one normalized listing mod
 ## Feature patterns
 
 ### Search & filters
-- Make filters **type-aware**: rent shows deposit/furnishing; commercial shows carpet/built-up; PG shows sharing; flatmate shows preferences.
+- Make filters **type-aware**: rent shows deposit/furnishing; commercial shows carpet/built-up; flatmate shows preferences.
 - Derive filter options from data, never hardcode. Keep filter state in the URL for shareable/back-button-safe searches.
 - Debounce text search; keep map + list in sync from a single source of truth.
 

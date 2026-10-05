@@ -3,7 +3,7 @@
 > **Read this file first and nothing else.** It is the whole orientation a new session needs. Hard
 > cap: 60 lines. It holds *state*, never narrative — every line is either a standing rule, a pointer,
 > or a number with the date it was taken. Rewrite it at the end of a session; do not append to it.
-> Last written: **2026-09-22** against `e714d3d7`.
+> Last written: **2026-10-05** against `c89da3a5` (e2e sweep handoff).
 
 ## Lane
 
@@ -11,32 +11,41 @@
 |---|---|
 | Branch | `feature/backend-integration` — the mock-retirement lane |
 | Commit policy | Commit at each green milestone. **Never push. The user pushes manually.** |
-| Working tree | Dirty by design on this lane; 348 entries at last write, shared with a second session |
+| Working tree | Dirty by design; 1,917 entries on 2026-10-05, shared with other sessions/agent slices |
 
 ## The queue
 
-Ledger item **20 (finance console)**, then **36 (analytics tabs)**. Item 36 has a trap: `AdminAnalytics.jsx:35`
-calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on it, so deleting the mock
-hangs the page including its one working tab. Full damage order in [tasks/todo.md](todo.md) `## Next up`.
+`tasks/todo.md` `## Next up`: ledger queue empty; next listed slice is **Flatmate room edit** (existing
+room has backend PATCH but no UI edit; My Listings hard-codes flatmate group/post status as approved).
+**Back-office functions Parts A–F (2026-10-05): implemented + security/React review fixes, UNCOMMITTED.**
+Staff hold functions (V90 converts stored atoms, never widens; no doc = dashboard only); admin never
+narrowed; shared `/admin` shell filtered by atom; manager Team Performance page. Backend targeted
+green, full 3105/0 before review fixes; build/lint/route checks green; e2e not run (user runs it,
+incl. `e2e/tests/admin/back-office-functions.spec.js`). Follow-ups: `tasks/todo.md` `## In flight`.
+Dev/e2e staff creds live in `db/seed-staff` (local + e2e only): `<mobile>@staff.draazy.test` /
+`Draazy-dev-pass1`, authenticator secret `JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP`; admin is `9000000000`,
+manager is `9000000001`. Several other slices in `## In flight` are also green and UNCOMMITTED, incl. the
+**e2e redundancy sweep** (2026-10-05: executions 2,541 → 1,436; its pre-existing-failure list is there).
 
 ## Open work — pointers, not restatements
 
 | What | Where | Size |
 |---|---|---|
-| 18 open checkboxes across 5 slices | [tasks/todo.md](todo.md) `## In flight` | 650 lines total |
-| 14 red gates, each diagnosed pre-existing or not-mine | [tasks/todo.md](todo.md) `## In flight` | — |
-| Unnumbered open items | [tasks/todo.md](todo.md) `## Needs attention` | — |
-| Numbered decisions and the damage-ordered queue | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) | 245 lines |
-| Durable rules and house style | [tasks/lessons.md](lessons.md) | 873 lines — grep, do not read whole |
-| Backend tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) | 136 lines |
+| Open slices, red gates diagnosed not-mine | [tasks/todo.md](todo.md) `## In flight`; loose items `## Needs attention` | 848 lines on 2026-10-05 — grep |
+| Numbered decisions (all closed) | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) | 94 lines on 2026-10-04 |
+| Durable rules and house style | [tasks/lessons.md](lessons.md) | 863 lines on 2026-10-04 — grep, do not read whole |
+| Backend tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) | 112 lines on 2026-10-04 |
 
 ## Standing constraints
 
 - **A second Copilot session shares this repo and its databases.** Never `mvnw clean`, never `DROP DATABASE`.
+- **It also keeps files staged in the shared index** — commit through a private `GIT_INDEX_FILE` (recipe in lessons.md, last entry).
 - **Never edit `frontend/src/**` while an e2e run is in flight** — Vite HMR poisons the run.
-- **Restart a lane JVM before blaming a spec** — it serves the code it was built from, and a stale one fails as assertion errors that read as product defects. `backend/run-lane-flatmates.ps1`.
+- **Restart a lane JVM before blaming a spec** — it serves the code it was built from, and a stale one fails as assertion errors that read as product defects. Search lane: `backend/run-lane-search.ps1` (:8097) + `e2e/run-live-search.ps1` (:5192, resets `draazy_e2e_sr2`).
 - **Playwright spec filters are regexes matched against Windows paths**: pass bare fragments (`my-listings`), never `a/b/c`, and never comma-joined — both match nothing and report "No tests found".
-- `PUNENEST_DEV_MACHINE` must be set for the `dev` profile to start.
+- `DRAAZY_DEV_MACHINE` must be set for the `dev` profile to start.
+- **e2e: `e2e\run-fast.ps1` after each fix** (related specs only; `-Failed` reruns last reds), **`e2e\run-fast.ps1 -Full` before a commit** (4 isolated shards, fails on any red or missing test). See e2e/README.md "Fast runs".
+- **A new table needs seed rows or a WAIVED entry** in `e2e/scripts/check-seed-coverage.mjs`, and any new seed file must also be listed in `e2e/global-setup.live.js` `SEEDS` — else every shard dies in global setup and all tests report MISSING.
 - `tasks/HANDOFF.md` was deleted 2026-08-20 and **must not be recreated**.
 - Cashfree sandbox-verify has no possible e2e coverage — do not chase it.
 
@@ -44,17 +53,8 @@ hangs the page including its one working tab. Full damage order in [tasks/todo.m
 
 | Fact | Value | Taken |
 |---|---|---|
-| Next free Flyway slot | **V36** (max `V35`; the home-type CHECK took V35, the concurrent OTP session V32–V34) | 2026-09-22 |
-| Tech-debt register | 36 live `D` ids, highest **D218** | 2026-09-19 |
-| e2e spec files | 325 under `e2e/tests`, 269 cited in COVERAGE.md, citations gate green | 2026-09-22 |
-| Flatmate + agreement backend tests | 269 green (`-Dtest=Flatmate*Test,AgreementsAndKycTest,SpecSchemaParityTest`) | 2026-09-22 |
-| `wizard-actions.spec.js` (mobile + mobile-small) | 18 green after the draft key moved to `:v2` | 2026-09-22 |
-| Standing e2e red | 1: `interactions-board.spec.js` budget-low sort — pre-existing, needs a product call, see `todo.md` § Needs attention | 2026-09-22 |
-| Backend suite (full) | 1,483 green | **2026-08-13 — stale, re-derive** |
-| Full e2e sweep | 1,708 tests / 1,694 passed / 9 flaky / 38.6 min | **2026-08-13 — stale, re-derive** |
-| `npm run check:size` | 437.6 KB of 497 KB | **2026-08-13 — stale, re-derive** |
-
-## Before you start work
-
-Read [AGENTS.md](../AGENTS.md) for routing, comment policy and the post-change verification order.
-Query the knowledge graph before searching: `.\scripts\graphify.ps1 query "<symptom>" --budget 700`.
+| Next free Flyway slot | **V91** (V90 used by back-office functions) | 2026-10-05 |
+| Tech-debt register | 56 `D` references in `docs/system/tech-debt.md`, highest **D264** | 2026-10-04 |
+| e2e spec files | 356 under `e2e` (1,391 live + 45 no-backend tests) | 2026-10-05 |
+| Backend suite (full) | 3,087 run, 0 real failures (DB "too many clients" errors, green on rerun) | 2026-10-03 — stale, re-run before commit |
+| Full e2e sweep | 1,435 tests / 49 failed → 42 on `-Failed` rerun, all pre-existing (dirty shared tree) | 2026-10-05 |

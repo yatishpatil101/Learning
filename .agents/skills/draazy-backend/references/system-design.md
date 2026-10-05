@@ -83,7 +83,7 @@ each keeping shapes byte-compatible with the contract. Recommended order (value-
    workflows, rent agreements. Assign to staff teams.
 7. **Admin & analytics** — KPIs, moderation reports, platform fees, settings, audit log.
 8. **Content/CMS & the long tail** — announcements, saved
-   properties/searches, plans/boosts, referrals, reviews, localities, share-a-flat, cities/waitlist,
+   properties/searches, plans/subscriptions, referrals, reviews, localities, share-a-flat, cities/waitlist,
    society leads.
 
 ### Per-slice checklist
@@ -104,8 +104,7 @@ For each slice:
 Goal: prove the swap. Component code must not change.
 
 - Point the frontend `http` provider base URL at the running API (`http://localhost:8081/api` if 8080
-  is occupied) and add the domain to `VITE_API_DOMAINS` in `src/services/config.js` (`VITE_API_MODE=http`
-  is a legacy alias for "all domains").
+  is occupied). Every domain resolves to `providers/http/{domain}Provider.js`; there is no switch.
 - Walk the key flows (search, listing detail + contact gate, owner dashboard, admin moderation) and
   reconcile any shape drift against the contract — fix the backend to match, not the frontend.
 - Add a thin set of Playwright checks (reuse the repo `tests/*.spec.js` harness) against the live API

@@ -18,10 +18,9 @@ user-invocable: true
 # PuneNest backend
 
 PuneNest is a Pune-first real-estate marketplace. The **React frontend is complete** and already
-talks to a service-abstraction layer (`src/services/*Service.js`) that resolves either to a
-`localStorage` mock (`src/services/providers/mock/`) or to a live REST API
-(`src/services/providers/http/`), chosen **per domain** via `VITE_API_DOMAINS` + `isHttpDomain()` in
-`src/services/config.js` (`VITE_API_MODE=http` is a legacy alias for "all domains").
+talks to a service-abstraction layer (`src/services/*Service.js`) that resolves every domain to the
+live REST API (`src/services/providers/http/{domain}Provider.js`, globbed by `src/services/config.js`).
+There is no mock provider and no per-domain switch.
 
 **Your job on the backend is to implement the server side of that `http` provider** as a
 Spring Boot 4 + PostgreSQL application whose request/response shapes match the OpenAPI spec
@@ -114,7 +113,7 @@ The immediate goal is a **strong foundation before coding**. Work through the ph
    config profiles (dev-mock / prod), and the provider seams.
 3. **Vertical slices by priority** — auth+users -> properties+search -> contacts/gate -> deals/offers/
    visits -> finance/rent -> services/tickets -> admin/analytics -> content/CMS.
-4. **Wire the frontend** — add the domain to `VITE_API_DOMAINS` and reconcile any shape drift against the spec.
+4. **Wire the frontend** — add `providers/http/{domain}Provider.js` and reconcile any shape drift against the spec.
 
 ## Working procedure
 

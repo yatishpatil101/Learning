@@ -28,7 +28,7 @@ to turn a request into a clear, prioritized, measurable plan. Pair with `real-es
 
 ## Real-estate personas
 
-- **Seeker** (buy/rent/PG/flatmate): searches, filters, shortlists, contacts. Cares about relevance, trust, speed.
+- **Seeker** (buy/rent/flatmate): searches, filters, shortlists, contacts. Cares about relevance, trust, speed.
 - **Lister** (owner/agent): posts and manages listings. Cares about easy posting, reach, and quality leads.
 - **Ops/Admin**: moderates listings, manages users/finance/reports. Cares about control, fraud prevention, and freshness.
 

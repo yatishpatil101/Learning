@@ -16,10 +16,13 @@ Default: **read no skill file** — answering, explaining, and mechanical edits 
 | New UI surface or visual redesign | `ui-ux-pro-max`, then `frontend-design` |
 | Render/data/bundle performance | `react-performance` |
 | A skill named by the user | that skill |
+| Writing new code beyond a one-line fix (doesn't count toward the two-skill cap) | `ponytail` |
 
 Conflicts: `draazy-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope, `mobile-native` on touch/viewport behaviour (`ui-ux-pro-max` still owns layout, density and colour). Every skill named above is versioned in **`.agents/skills/`** in this repo — edit it there, never a personal copy in `~/.copilot` or `~/.claude`. Named but not in `.agents/skills/` → report it rather than guessing.
 
-**Simplicity rule.** Prefer no change > existing code > stdlib/native > one-line addition > new dependency > new abstraction; ship the shortest diff that fully solves it. Read `ponytail` only when named or asked for an over-engineering audit.
+**Simplicity rule — applies while writing, not just in review.** Prefer no change > existing code > stdlib/native > one-line addition > new dependency > new abstraction; ship the shortest diff that fully solves it. Before writing code, ask whether it needs to exist (YAGNI): no speculative abstractions, config, or flexibility for hypothetical needs. When writing new code beyond a one-line fix, read `ponytail` before you start. Read `ponytail-review` for an over-engineering audit ("what can we delete").
+
+**Mobile-first UI.** Design for the phone viewport first, then scale up. Keep tiles, forms and screens clutter-free — critical info (price, BHK, locality, primary CTA) first, secondary detail behind a tap. Keep on-screen notes, hints and help text to a minimum — one short line, to the point.
 
 ### Check-ins
 On conflict, rules rank: safety/correctness > task-type routing > planning/check-in > elegance > lessons capture.
@@ -39,6 +42,7 @@ On conflict, rules rank: safety/correctness > task-type routing > planning/check
 - **Planning** — plan mode for features/architectural changes with real tradeoffs. If it goes sideways, STOP and re-plan; if a full re-plan also fails, report the specific obstacle. Bug fixes: just fix it from the logs/errors/failing tests.
 - **Elegance** — any change touching more than one function or adding an abstraction: ask whether something simpler works. Skip for mechanical edits.
 - **Subagents** — only when >150 new lines, >3 files, or independent parallel workstreams AND no single targeted fix solves it. One responsibility each; on failure, stop and report — never apply partial output, record it in `tasks/todo.md` as PARTIAL.
+- **Subagent model** — planning, architecture and review/verification → `claude-opus-5.5`; execution (writing code, builds, tests, exploration) → `claude-sonnet-5.5`. Custom agents pin this in `~/.copilot/agents/*.agent.md` frontmatter; for built-ins pass `model`: `rubber-duck`/`code-review` → opus, `general-purpose`/`task`/`explore` → sonnet.
 - **Lessons** — record every user correction in `tasks/lessons.md`. It is 873 lines, so grep it for the symptom rather than reading it whole; `tasks/NOW.md` carries the pointer. This file beats a conflicting lesson: quote both, then follow this file.
 - **Tasks** — plan to `tasks/todo.md` as checkable items, tick them as you go. Create either file with a header if missing. A finished slice gets **one index line** there, never a narrative — git is the archive.
 - **Principles** — simplest change that fully solves it · fix root causes, no temporary hacks · touch only what's necessary.
@@ -92,7 +96,8 @@ Prefer `grep_search` over `semantic_search` when you know the identifier; over ~
 **user-data change** = code that reads/writes/transmits/displays PII, credentials, session tokens, contact-gate logic, or per-user data.
 
 1. **Review** — `react-reviewer` (`.jsx`) → `code-reviewer` (general) → `security-reviewer` (auth or user-data only). Agent unavailable → review manually and mark PENDING AGENT REVIEW in `tasks/todo.md`.
-2. **Simplify** — confirm File-Touch Hygiene ran on every file in the diff, then `code-simplifier`, STRICT no-behavior-change. Unavailable → note the skip.
-3. **Playwright** — run the relevant `e2e/*.spec.js` (full suite if cross-cutting); not complete until green, and fix root causes, not tests. A failure not already in `tasks/todo.md` → flag as potentially pre-existing before proceeding; record confirmed ones there and don't count them against the task.
+2. **Simplify** — confirm File-Touch Hygiene ran on every file in the diff, then `ponytail-review` on diffs touching more than one function, then `code-simplifier`, STRICT no-behavior-change. Unavailable → note the skip.
+3. **Playwright** — per fix, run `e2e\run-fast.ps1` (the specs its changes reach; `-Files <paths>` when the tree holds another session's work, `-Failed` to rerun failures). Before a commit, run `e2e\run-fast.ps1 -Full`, which runs the whole suite in parallel across isolated shards. Not complete until green, and fix root causes, not tests. A failure not already in `tasks/todo.md` → flag as potentially pre-existing before proceeding; record confirmed ones there and don't count them against the task.
 4. **Specs** — every completed feature or behaviour change ships a new or updated `e2e/*.spec.js` plus an `e2e/COVERAGE.md` entry. No coverage → document the gap in `tasks/todo.md` and mark PENDING VERIFICATION.
 5. **Re-index the graph** — file added, renamed, or deleted under `backend/`, `frontend/src` or the migrations → `.\scripts\graphify.ps1 update`. Skip if only contents changed.
+6. **Clean up** — last step, once the task is verified. Remove everything **this task created** and list it in the final summary: extra build dirs (`backend\target-<name>`), scratch databases (`DROP DATABASE IF EXISTS draazy_test_<name> WITH (FORCE)`, same for `draazy_e2e_<name>`), logs and console captures (`$env:TEMP\draazy-*.log`, `backend\*.txt`, `e2e\*.txt`, `*.log`), `tmp-*.spec.js`, scratch files, and any server/JVM you started (`Stop-Process -Id`). Other sessions share this machine: never touch what you didn't create or what is still in use (live connections in `pg_stat_activity`, a running process holding the dir). Always keep `backend\target` (owned by the VS Code Java language server), `target-cli`, `target-shard`, `e2e\.shards`, and the long-lived databases `draazy`, `draazy_test`, `draazy_e2e`, `draazy_e2e_sh1`–`sh8`.

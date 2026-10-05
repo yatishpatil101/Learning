@@ -31,7 +31,7 @@ Why it exists: the homepage uses custom button menus, but other pages used raw O
   - Hides the native select, builds a `.pn-dropdown` mirroring its options (supports `<optgroup>`).
   - Syncs selection back to the native select and dispatches a native `change` event, so existing JS
     listeners keep working unchanged.
-  - Auto-searchable when the select has `data-search` or ≥ 8 options.
+  - Auto-searchable from 16 options (`SEARCH_MIN_OPTIONS` in `components/ui/dropdownSearch.js`, shared by `Select`/`MultiSelect`); `searchable` or `asyncSearch` overrides it.
   - A `MutationObserver` rebuilds the menu when options are populated by JS.
   - Width is `auto` unless the select has the `w-full` class.
   - Currently enhanced: listings sort, list-property locality (searchable), property-valuation `#vLocality`
