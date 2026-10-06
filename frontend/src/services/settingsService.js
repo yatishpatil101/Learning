@@ -7,16 +7,13 @@ export const getSettings = async () => (await provider()).getSettings();
 
 export const updateSettings = async (patch) => (await provider()).updateSettings(patch);
 
-/** The console's navigation gate is `GET /admin/permission-catalogue` plus the atoms the server returns on
- * `/auth/me`. */
+/** The console's navigation gate is the atoms the server returns on `/auth/me`. */
 export const getAppFlags = async () => (await provider()).getAppFlags();
 
-/** It is not part of `getAppFlags()` because that endpoint's contract is map-of-boolean and drops everything else, so
- * it cannot carry a price list without disagreeing with its own schema. */
+/** Not part of `getAppFlags()`: the `flags` section is map-of-boolean, so it cannot carry a price list. */
 export const getMovePack = async () => (await provider()).getMovePack();
 
-/** **A fourth public route.** Live this reads `GET /geo`, for the reason the flags and the Move-in Pack each read
- * their own: the block gates what a *logged-out visitor* sees. */
+/** The `geo` section of `GET /bootstrap`: the block gates what a *logged-out visitor* sees. */
 export const getGeo = async () => (await provider()).getGeo();
 
 /** What a healthy install charges, and the answer when the server cannot be reached. */
@@ -29,7 +26,7 @@ export const PRICING_DEFAULTS = Object.freeze({
   gstPercent: 18,
 });
 
-/** **A fifth public route.** This reads `GET /pricing`, for the reason each of the others reads its own. */
+/** The `pricing` section of `GET /bootstrap`. */
 export const getPricing = async () => (await provider()).getPricing();
 
 export const getListingPolicy = async () => (await provider()).getListingPolicy();

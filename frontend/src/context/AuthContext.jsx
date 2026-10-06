@@ -4,6 +4,7 @@ import * as authService from '../services/authService.js';
 import { clearConversationDeviceState } from '../services/conversationService.js';
 import { unregisterPushSubscription } from '../services/notificationService.js';
 import { ApiError, NetworkError, restoreSession } from '../services/http.js';
+import { primeMeBootstrap } from '../services/meBootstrapService.js';
 
 const AuthContext = createContext(null);
 
@@ -71,12 +72,14 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (data) => {
     sessionGen.current += 1;
     const who = await authService.login(data);
+    primeMeBootstrap();
     setUser(who);
     return who;
   }, []);
   const register = useCallback(async (data) => {
     sessionGen.current += 1;
     const { user: who, wasNew } = await authService.register(data);
+    primeMeBootstrap();
     setUser(who);
     return wasNew;
   }, []);
@@ -85,12 +88,14 @@ export function AuthProvider({ children }) {
   const staffVerify = useCallback(async (data) => {
     sessionGen.current += 1;
     const who = await authService.staffVerify(data);
+    primeMeBootstrap();
     setUser(who);
     return who;
   }, []);
   const staffConfirm = useCallback(async (data) => {
     sessionGen.current += 1;
     const result = await authService.staffConfirm(data);
+    primeMeBootstrap();
     setUser(result.user);
     return result;
   }, []);

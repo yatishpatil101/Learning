@@ -1,29 +1,5 @@
-/**
- * `Review` (wire) → the review view model the pages render.
- *
- * The two vocabularies are close but not identical, and the differences are all in the same
- * direction: the wire names the thing precisely, the UI names it whatever the first component
- * needed.
- *
- *   author    → user   the display name. Not an id: a review is a public document and the reader
- *                      needs a human to attribute it to, so nothing else about the author is on the
- *                      wire — in particular no mobile, which is why this never touches the gate.
- *   body      → text
- *   createdAt → at     ISO instant → `YYYY-MM-DD`. The card renders `{r.at}` raw, so the formatting
- *                      happens here rather than in the card.
- *
- * `rating`, `categories`, `recommend` and `context` are already the same word on both sides.
- *
- * ## `context` is passed through untouched, and may be null
- *
- * It is the server-derived "Verified resident" (`tenant`) / "Visited" (`visit`) badge, and the
- * page's filter chips already use exactly those two tokens, so there is nothing to translate.
- *
- * It is **null** on society, locality and owner reviews — there is no visit or tenancy to evidence
- * for a locality — and it can be null on a property review too. Null is normalised to null rather
- * than to a default, because the one thing that must not happen is a missing badge rendering as a
- * present one.
- */
+/** `context` stays null when absent so a missing badge never renders as a present one;
+ * `at` is formatted to `YYYY-MM-DD` here because the card renders it raw. */
 
 /** ISO instant → the `YYYY-MM-DD` the card prints. Empty string for a missing date. */
 function displayDate(iso) {
@@ -32,18 +8,8 @@ function displayDate(iso) {
   return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10);
 }
 
-/**
- * The product's order for the per-aspect rows, which is *not* the order the server emits.
- * See `toSummaryViewModel`. Anything outside the target's set is dropped: it matches the server's
- * closed key vocabulary, so a key the API would reject cannot reach the page from any other source.
- *
- * **Two vocabularies, and picking the wrong one renders an empty grid rather than an error.** A
- * society is rated on Safety/Maintenance/Management/Amenities/Connectivity; a listing, a locality
- * and an owner on locality/condition/value/owner/accuracy. This mirrors `ReviewCategories.forTarget`
- * on the server — a second copy of one list, because the alternative is the client importing a
- * server enum or the seam learning the review domain. They are keys, not labels: renaming one
- * orphans every rating already stored under the old id.
- */
+/** Product row order, not the server's. Keys mirror `ReviewCategories.forTarget`; the wrong vocabulary renders
+ * an empty grid, and they are ids since renaming one orphans stored ratings. */
 const PROPERTY_CATEGORY_ORDER = ['locality', 'condition', 'value', 'owner', 'accuracy'];
 const SOCIETY_CATEGORY_ORDER = ['Safety', 'Maintenance', 'Management', 'Amenities', 'Connectivity'];
 const categoryOrderFor = (entityType) =>
@@ -68,19 +34,7 @@ export function toViewModel(r) {
   };
 }
 
-/**
- * A bare `Review[]` → the same `{ items, total, page, size }` the paged route yields.
- *
- * `GET /properties/{propId}/reviews` is unpaged by design and answers with an array, not an
- * envelope. Reporting it as one whole page keeps `reviewService`'s single documented return shape
- * true for both routes, so no caller has to know which of the two it asked.
- */
-export function toViewModelListPage(rows) {
-  const items = (Array.isArray(rows) ? rows : []).map(toViewModel).filter(Boolean);
-  return { items, total: items.length, page: 0, size: items.length };
-}
-
-/** A `PageResponse<Review>` → the `{ items, total, page, size }` both providers return. */
+/** A `PageResponse<Review>` (or the property list, which is one whole page) → `{ items, total, page, size }`. */
 export function toViewModelPage(res, fallback = {}) {
   const rows = Array.isArray(res?.content) ? res.content : [];
   return {
@@ -91,46 +45,13 @@ export function toViewModelPage(res, fallback = {}) {
   };
 }
 
-/**
- * `ReviewSummary` (wire) → the aggregate the property page's rating block renders.
- *
- * All four numbers come from SQL rather than from reducing the review array in the browser, which
- * is what lets `listReviews` be paged at all: a client-side reduction is correct only for as long
- * as the array stays whole. The shape — `count`, `avg`, `dist`, `catAvg` — is the page's own.
- *
- * Two renames worth stating, because both have a wrong answer that renders without complaining:
- *
- *   distribution → dist   `{"1":n … "5":n}`, string keys, becomes a 0-based five-slot array,
- *                         because the bars are drawn `[5,4,3,2,1].map(s => dist[s - 1])`. All five
- *                         keys are always present on the wire, but they are defaulted anyway: an
- *                         absent bar and a zero-height bar are different pictures and only one is
- *                         true, and a contract note is not an enforcement.
- *   avgRating    → avg    passed through **null**, never coerced to 0. A star strip showing 0.0
- *                         states something false about a listing nobody has reviewed yet, and
- *                         `|| 0` here is exactly how that gets shipped. The page reads it only
- *                         inside its `count > 0` branch, which is what makes null safe.
- *
- * `categoryAverages` is sparse by contract — an aspect nobody rated is absent rather than 0,
- * because averaging it over everyone would understate it — so it is copied key by key rather than
- * expanded to a fixed set.
- *
- * `entityType` selects which vocabulary those keys are drawn from and defaults to the property one,
- * which is what every caller but the society hub wants. Passing nothing for a society is not a
- * degraded rendering but an empty one: none of the five society keys survives the property
- * allowlist, so `catAvg` comes back `{}` and the aspect grid draws nothing at all, on every society.
- *
- * There is no `recommend` field here and that is not an omission: "% would recommend" has no server
- * aggregate, and the page still derives it from the list. See `ReviewsSection.jsx`.
- */
+/** Aggregates come from SQL so `listReviews` can be paged. `avg` stays null (0.0 stars lies for unreviewed);
+ * `entityType` picks the key vocabulary, or a society's `catAvg` comes back empty. */
 export function toSummaryViewModel(s, entityType) {
   const dist = ['1', '2', '3', '4', '5'].map((star) => Number(s?.distribution?.[star]) || 0);
   const catAvg = {};
-  /* Iterate a fixed order rather than the wire's. The page renders these rows with
-     `Object.keys(catAvg).map`, so insertion order *is* row order — and the server's aggregate ends
-     `order by c.key`, which is alphabetical (Accuracy, Condition, Locality, Owner, Value) and not
-     the order the product reads them in. Ordering here, rather than at either edge, keeps row order
-     under this module's control; only present keys are copied, so the sparseness the server is
-     careful about survives. */
+  /* Fixed order: the page renders Object.keys(catAvg), and the server's alphabetical order isn't the product's;
+     only present keys are copied so sparseness survives. */
   categoryOrderFor(entityType).forEach((k) => {
     const n = Number(s?.categoryAverages?.[k]);
     // Guarded because these are BigDecimals on the server: JSON gives us a number, but a
@@ -138,35 +59,15 @@ export function toSummaryViewModel(s, entityType) {
     if (Number.isFinite(n)) catAvg[k] = n;
   });
   const avg = s?.avgRating == null ? null : Number(s.avgRating);
-  /* `count` and `avg` are read off the payload independently, so the server's invariant that they
-     move together is not enforced by anything on this side. The page draws stars inside a
-     `count > 0` branch and dereferences `avg` there twice; a response carrying a count with no
-     usable average — a serialiser change, a proxy stripping a field — would render `NaN` or throw
-     mid-render and take the section down. Collapsing to "no reviews" is the honest reading: we
-     have no average to show. */
+  /* count and avg aren't enforced together here; a count without a usable avg would render NaN or throw
+     mid-render, so collapse to "no reviews". */
   const rawCount = Number(s?.reviewCount) || 0;
   const count = rawCount > 0 && !Number.isFinite(avg) ? 0 : rawCount;
   return { count, avg: count === 0 ? null : avg, dist, catAvg };
 }
 
-/**
- * One wire `Review` from the **moderation queue** → the row the admin Content console renders.
- *
- * A second method rather than a flag on {@link toViewModel}, mirroring `ReviewMapper` on the
- * server, which populates `status` through `toModerationResponse` and nowhere else. The reason is
- * the same on both sides: `status` is a constant (`published`) on every public read, because every
- * public read filters on it — a shared mapper that carried it would hand the consumer surfaces a
- * field that can never vary and invite a branch on it.
- *
- * `target` is composed here rather than sent. The wire carries `targetType` and `targetId`
- * separately, which is the right shape for a machine and the wrong one for a moderator scanning a
- * table: they need to know *what* is being reviewed before they can judge whether the review is
- * fair. The column reads `"Locality: Wakad"`.
- *
- * `targetId` is a slug for localities and societies and a UUID for properties and owners. The UUID
- * is not useful to a human and not truncated either — a moderator who cannot tell two rows apart
- * cannot moderate them, and half an id identifies nothing.
- */
+/** Separate from toViewModel because `status` varies only in the moderation queue; `target` is composed
+ * ("Locality: Wakad") so a moderator sees what is reviewed, and UUIDs stay untruncated. */
 export function toModerationViewModel(r) {
   const base = toViewModel(r);
   if (!base) return null;
@@ -174,9 +75,7 @@ export function toModerationViewModel(r) {
   const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
   return {
     ...base,
-    // `pending` is the intake state, not a decision, and the server leaves it as-is rather than
-    // treating it as a verdict. Defaulted here too, because the Badge has to render something and
-    // an empty chip reads as "approved" to anyone skimming.
+    // `pending` is the intake state; defaulted so the Badge never renders an empty chip that reads as "approved".
     status: r.status || 'pending',
     target: label && r.targetId ? `${label}: ${r.targetId}` : label || null,
   };
@@ -193,17 +92,8 @@ export function toModerationViewModelPage(res, fallback = {}) {
   };
 }
 
-/**
- * The page's review object → `ReviewCreate`.
- *
- * Note what is *not* here: `context`, `targetType` and `targetId`. The badge is derived server-side
- * and the contract marks it `readOnly`; the target comes from the path. A body that could name its
- * own target would let a caller review property B through property A's endpoint and skip the
- * eligibility check the path drives.
- *
- * `categories` keys are validated server-side against a closed set, so an unknown key is a 400
- * rather than a silently dropped field — sending the map as-is is safe and the error is legible.
- */
+/** `context`, `targetType` and `targetId` are omitted: the badge is server-derived and the target comes from
+ * the path, so a body can't review property B through property A's endpoint. */
 export function toReviewCreate(review) {
   const out = { rating: Number(review?.rating) || 0 };
   const text = String(review?.text || '').trim();

@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
-import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.trust.RegisteredTenancyLookup;
 import com.draazy.api.identity.user.User;
@@ -51,15 +50,13 @@ class FlatmateTrustReconcilerTest {
     @Mock
     private Notifier notifier;
 
-    @Mock
-    private AuditService audit;
 
     private FlatmateTrustReconciler reconciler;
 
     @BeforeEach
     void setUp() {
         reconciler = new FlatmateTrustReconciler(reviews, rooms, groups, properties,
-                agreements, users, badges, notifier, audit);
+                agreements, users, badges, notifier);
     }
 
     @Test
@@ -119,7 +116,7 @@ class FlatmateTrustReconcilerTest {
 
         assertThat(approved).isZero();
         assertThat(review.getStatus()).isNotEqualTo(FlatmateVocabulary.STATUS_APPROVED);
-        verifyNoInteractions(agreements, badges, notifier, audit);
+        verifyNoInteractions(agreements, badges, notifier);
     }
 
     // Both halves name the same building, which is strictly stronger than the locality fallback:
@@ -157,7 +154,7 @@ class FlatmateTrustReconcilerTest {
 
         assertThat(reconciler.reconcileDraazyAgreements()).isZero();
         assertThat(review.getStatus()).isNotEqualTo(FlatmateVocabulary.STATUS_APPROVED);
-        verifyNoInteractions(agreements, badges, notifier, audit);
+        verifyNoInteractions(agreements, badges, notifier);
     }
 
     @Test

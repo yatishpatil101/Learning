@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import '../../../../styles/routes/flatmates.css';
 import { myFlatmatePosts } from '../../../../services/flatmateService.js';
+import { MAX_PAGE_SIZE } from '../../../../services/apiLimits.js';
 import { useFlatmateSupply } from '../../flatmates/useFlatmateSupply.jsx';
 import { useGroupPickers } from '../../flatmates/useGroupPickers.js';
 import SupplyModals from '../../flatmates/SupplyModals.jsx';
@@ -20,7 +21,7 @@ export function useFlatmateEditing({ user, toast, refresh }) {
     setInterests: noop, ownsGroup: ownsNothing, myPost, myPostsStatus: 'ready',
     onGroupEdited: noop,
   });
-  const pickers = useGroupPickers(user, supply.groupOpen, { onlyWhileOpen: true });
+  const pickers = useGroupPickers(user, supply.groupOpen);
 
   useEffect(() => {
     if (!pendingPostId || myPost?.id !== pendingPostId) return;
@@ -30,7 +31,7 @@ export function useFlatmateEditing({ user, toast, refresh }) {
 
   const editPost = async (id) => {
     try {
-      const page = await myFlatmatePosts({ size: 200 });
+      const page = await myFlatmatePosts({ size: MAX_PAGE_SIZE });
       const post = page.items.find((p) => String(p.id) === String(id));
       if (!post) { toast(t('common.somethingWentWrong'), 'error'); return; }
       setMyPost(post);

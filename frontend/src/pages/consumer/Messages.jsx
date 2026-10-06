@@ -77,11 +77,13 @@ export default function Messages() {
         const old = cur.find((c) => c.id === next.id);
         return old ? { ...old, ...next, messages: next.messages?.length ? mergeMessages(next.messages, old.messages) : old.messages } : next;
       }));
+      const firstLoad = !loadedRef.current;
       loadedRef.current = true;
       setError(null);
       setOffline(false);
       flushQueueRef.current();
-      refreshChatBadge();
+      // The badge was read at sign-in and the stream keeps it current; only a re-read can find it stale.
+      if (!firstLoad) refreshChatBadge();
       return list;
     } catch (err) {
       if (!quiet || !loadedRef.current) setError(err);

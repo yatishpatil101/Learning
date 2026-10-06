@@ -3,53 +3,35 @@ import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 
 /* Everything upstream of Pay. The catalogue's paid-plan prices are the admin fee schedule's, so the
-   page quotes the same figure whether the catalogue or its `/pricing` fallback rendered it. */
+   page quotes the same figure whether the catalogue or its `pricing` fallback rendered it. */
 
 /** What Owner Plus costs, in both tables. Formatted as the page formats it (`en-IN` grouping). */
 const OWNER_PLUS = '₹999';
 /** Owner Pro's price. Note it is Owner Plus's *old*, drifted catalogue figure — see `SENTINEL` below. */
 const OWNER_PRO = '₹2,499';
 
-/**
- * A price in neither table, served by intercepting the catalogue.
- *
- * The catalogue and the fee schedule now quote the same numbers, so an assertion on a price alone
- * passes whichever table was read — the fallback could silently become the only live path and
- * every price assertion here would stay green.
- *
- * Substituting a sentinel restores the distinction without depending on the two tables differing,
- * so it survives the next price change too. It must not collide with any real price on the page —
- * ₹999 and ₹2,499 are owner plans, ₹199 is Seeker Plus, ₹4,999 is Packers & Movers.
- */
+/** A price in neither table, via intercepting the catalogue: catalogue and fee schedule quote the same numbers, so
+ * only a sentinel shows which was read. It must not collide with any real price on the page. */
 const SENTINEL = 111777;
 const SENTINEL_TEXT = '₹1,11,777';
 
-/**
- * Serve the plan catalogue with `name`'s price replaced, leaving every other field untouched.
- *
- * Keyed on the server's `name` rather than the app's `slug` because the slug does not exist on the
- * wire — `planMapper` derives it from the name — so this intercepts the response the mapper is
- * about to read, which is the point at which a card that ignored the catalogue would diverge.
- *
- * Returns an assertion the caller must run at the end of the test: see the comment on it below.
- */
+/** Serves the catalogue with `name`'s price replaced; keyed on `name` because the slug is derived by `planMapper`
+ * and is not on the wire. The caller must run the returned assertion. */
 async function catalogueQuoting(page, name, price) {
   let substituted = false;
-  await page.route('**/api/plans', async (route) => {
+  await page.route('**/api/bootstrap', async (route) => {
     const res = await route.fetch();
-    const rows = await res.json();
-    if (!rows.some((r) => r.name === name)) {
+    const doc = await res.json();
+    if (!doc.plans.some((r) => r.name === name)) {
       throw new Error(`the catalogue carries no plan named "${name}", so nothing was substituted`);
     }
     substituted = true;
     await route.fulfill({
       response: res,
-      json: rows.map((r) => (r.name === name ? { ...r, price } : r)),
+      json: { ...doc, plans: doc.plans.map((r) => (r.name === name ? { ...r, price } : r)) },
     });
   });
-  /* Every caller must assert this. A glob that stops matching — a query string appended, the path
-     versioned — silently serves the real catalogue, and the price poll below then fails as "the
-     card never showed the catalogue price", which blames the application for a broken fixture. */
+  /* Every caller must assert this: a glob that stops matching silently serves the real catalogue. */
   return () => expect(substituted, `the ${name} price was never substituted — check the route glob`).toBe(true);
 }
 
@@ -68,8 +50,7 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   test('the catalogue and the fee schedule quote the same owner prices', async () => {
     /* `AdminFeesPriceEverySurfaceTest` pins this in the backend suite; repeated here against the
        database the rest of this file talks to. */
-    const plans = await (await fetch(`${API}/plans`)).json();
-    const pricing = await (await fetch(`${API}/pricing`)).json();
+    const { plans, pricing } = await (await fetch(`${API}/bootstrap`)).json();
 
     const priceOf = (name) => {
       const plan = plans.find((p) => p.name === name);
@@ -89,9 +70,7 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   test('/plans is public and quotes the catalogue price on the cards and in the FAQ, and /checkout sends a signed-out visitor to sign-in', async ({ page }) => {
     await page.context().clearCookies();
     await seedConsent(page);
-    /* The catalogue is made to say something the fee schedule does not, so "the card shows this"
-       identifies *which* table was read. Quoting the seeded price would not: the two agree, so the
-       fallback renders the same figure and a card that never heard from the catalogue would pass. */
+    /* The catalogue differs from the fee schedule, so the card's price identifies which table was read. */
     const substituted = await catalogueQuoting(page, 'Owner Plus', SENTINEL);
     await page.goto('/plans');
 
@@ -108,9 +87,7 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
       async () => page.getByText(SENTINEL_TEXT, { exact: false }).count(),
       { timeout: 20000, message: 'the Owner Plus card never showed the catalogue price' },
     ).toBeGreaterThan(0);
-    // ₹999 is the fee-schedule number for this same plan. Seeing it while the catalogue says
-    // otherwise means the catalogue read was skipped and the customer is being quoted something
-    // they will not be billed.
+    // ?999 is the fee-schedule price: seeing it means the catalogue read was skipped.
     await expect(page.getByText(OWNER_PLUS, { exact: false })).toHaveCount(0);
     // The untouched rows still come through the same read, so this is not an interceptor that
     // replaced the catalogue with one plan.
@@ -169,10 +146,7 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
     await expect(page.getByRole('heading', { name: 'Owner', exact: true })).toBeVisible();
     await expect(page.getByText('Order summary')).toBeVisible();
 
-    // The two pages resolve the catalogue independently, so agreeing is a real claim: a customer
-    // shown one price on the card and charged another at the button is what both reads prevent.
-    // The substituted price is what makes it a claim about the *catalogue* rather than about any
-    // number being rendered — the fallback would otherwise quote the same ₹999 and pass.
+    // Both pages resolve the catalogue independently; the substituted price makes agreement a catalogue claim.
     const payButton = page.getByRole('button', { name: /^Pay ₹/ });
     await expect.poll(
       async () => (await payButton.first().textContent())?.trim() ?? '',

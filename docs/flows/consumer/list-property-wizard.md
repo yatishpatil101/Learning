@@ -169,7 +169,7 @@ advance on any error (scrolling to the first error via `scrollToError`).
 - **Photos:** one is the floor; under three, a hint says "Add at least 3 photos — listings with 3+
   photos are approved faster."
 - **Up to the configured photo limit**: default 10, set by an admin in Settings → General (3–20), stored
-  as `settings.listings.maxPhotos` and published on the public `GET /listing-policy`
+  as `settings.listings.maxPhotos` and published on the public `GET /bootstrap` (`listingPolicy`)
   (`usePhotoLimit` in `lib/uploads`). The server enforces the same number on listing create, owner
   PATCH, moderator PATCH and flatmate room create/edit, for every property type. It is strict: a
   listing stored with more photos must trim before an edit that sends `images`. One picker accepts HEIF/HEIC, JPEG/JPG and PNG; it carries no

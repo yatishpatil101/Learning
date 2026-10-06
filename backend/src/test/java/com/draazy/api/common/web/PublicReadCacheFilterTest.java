@@ -29,8 +29,8 @@ class PublicReadCacheFilterTest {
 
     @Test
     void aRepeatAnonymousReadIsAnsweredFromMemoryWithAPublicCountdown() throws Exception {
-        var first = send(get("/flags"));
-        var second = send(get("/flags"));
+        var first = send(get("/bootstrap"));
+        var second = send(get("/bootstrap"));
 
         assertThat(calls).hasValue(1);
         assertThat(second.getContentAsString()).isEqualTo("{\"n\":1}").isEqualTo(first.getContentAsString());
@@ -41,21 +41,21 @@ class PublicReadCacheFilterTest {
 
     @Test
     void aSignedInReadBypassesTheEntryAndRefreshesItForEveryoneElse() throws Exception {
-        send(get("/cities"));
+        send(get("/localities"));
 
-        var fresh = get("/cities");
+        var fresh = get("/localities");
         fresh.addHeader("Cache-Control", "max-age=0");
         assertThat(send(fresh).getContentAsString()).isEqualTo("{\"n\":2}");
 
-        assertThat(send(get("/cities")).getContentAsString()).isEqualTo("{\"n\":2}");
+        assertThat(send(get("/localities")).getContentAsString()).isEqualTo("{\"n\":2}");
         assertThat(calls).hasValue(2);
     }
 
     @Test
     void aMatchingETagIsAnsweredNotModifiedWithNoBody() throws Exception {
-        String etag = send(get("/pricing")).getHeader("ETag");
+        String etag = send(get("/faqs")).getHeader("ETag");
 
-        var conditional = get("/pricing");
+        var conditional = get("/faqs");
         conditional.addHeader("If-None-Match", etag);
         var response = send(conditional);
 
@@ -67,9 +67,9 @@ class PublicReadCacheFilterTest {
     @Test
     void aFailureIsPassedThroughAndNeverRemembered() throws Exception {
         status = 503;
-        var failed = send(get("/geo"));
+        var failed = send(get("/bootstrap"));
         status = 200;
-        var recovered = send(get("/geo"));
+        var recovered = send(get("/bootstrap"));
 
         assertThat(failed.getStatus()).isEqualTo(503);
         assertThat(failed.getContentAsString()).isEqualTo("{\"n\":1}");
@@ -79,10 +79,10 @@ class PublicReadCacheFilterTest {
 
     @Test
     void theQueryStringIsPartOfTheKey() throws Exception {
-        var baner = get("/properties/trust-stats");
-        baner.setQueryString("locality=baner");
-        var wakad = get("/properties/trust-stats");
-        wakad.setQueryString("locality=wakad");
+        var baner = get("/bootstrap");
+        baner.setQueryString("v=baner");
+        var wakad = get("/bootstrap");
+        wakad.setQueryString("v=wakad");
 
         send(baner);
         assertThat(send(wakad).getContentAsString()).isEqualTo("{\"n\":2}");
@@ -100,27 +100,45 @@ class PublicReadCacheFilterTest {
     @Test
     void theOldestEntryIsDroppedOnceTheBoundIsReached() throws Exception {
         for (int i = 0; i <= PublicReadCacheFilter.MAX_ENTRIES; i++) {
-            var request = get("/properties/trust-stats");
-            request.setQueryString("locality=l" + i);
+            var request = get("/bootstrap");
+            request.setQueryString("v=l" + i);
             send(request);
         }
-        var oldest = get("/properties/trust-stats");
-        oldest.setQueryString("locality=l0");
+        var oldest = get("/bootstrap");
+        oldest.setQueryString("v=l0");
         send(oldest);
 
         assertThat(calls).hasValue(PublicReadCacheFilter.MAX_ENTRIES + 2);
     }
 
     @Test
+    void aSuccessfulAdminWriteEvictsEveryEntry() throws Exception {
+        send(get("/bootstrap"));
+        send(new MockHttpServletRequest("PUT", "/admin/settings"));
+
+        assertThat(send(get("/bootstrap")).getContentAsString()).isEqualTo("{\"n\":3}");
+    }
+
+    @Test
+    void aRejectedAdminWriteEvictsNothing() throws Exception {
+        send(get("/bootstrap"));
+        status = 422;
+        send(new MockHttpServletRequest("PUT", "/admin/settings"));
+        status = 200;
+
+        assertThat(send(get("/bootstrap")).getContentAsString()).isEqualTo("{\"n\":1}");
+    }
+
+    @Test
     void onlyAnonymousStyleGetsOnTheListUnderTheContextPathAreCached() {
-        var underApi = new MockHttpServletRequest("GET", "/api/flags");
+        var underApi = new MockHttpServletRequest("GET", "/api/bootstrap");
         underApi.setContextPath("/api");
 
         assertThat(filter.caches(underApi)).isTrue();
-        assertThat(filter.caches(new MockHttpServletRequest("POST", "/flags"))).isFalse();
+        assertThat(filter.caches(new MockHttpServletRequest("POST", "/bootstrap"))).isFalse();
         assertThat(filter.caches(get("/properties"))).isFalse();
         assertThat(filter.caches(get("/me/listings"))).isFalse();
-        assertThat(new PublicReadCacheFilter(Duration.ZERO).caches(get("/flags"))).isFalse();
+        assertThat(new PublicReadCacheFilter(Duration.ZERO).caches(get("/bootstrap"))).isFalse();
     }
 
     private static MockHttpServletRequest get(String path) {

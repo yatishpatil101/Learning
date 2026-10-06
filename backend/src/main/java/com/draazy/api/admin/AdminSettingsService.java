@@ -6,6 +6,7 @@ import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.common.settings.PlatformSettings;
 import com.draazy.api.common.settings.Setting;
 import com.draazy.api.common.settings.SettingRepository;
+import com.draazy.api.common.settings.SettingsCache;
 import com.draazy.api.security.AuthPrincipal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -39,12 +40,14 @@ public class AdminSettingsService {
     private static final Set<String> UNSUPPORTED_KEYS = Set.of("customRoles");
 
     private final SettingRepository settings;
+    private final SettingsCache cache;
     private final ObjectMapper objectMapper;
     private final AuditService audit;
 
-    public AdminSettingsService(SettingRepository settings, ObjectMapper objectMapper,
-            AuditService audit) {
+    public AdminSettingsService(SettingRepository settings, SettingsCache cache,
+            ObjectMapper objectMapper, AuditService audit) {
         this.settings = settings;
+        this.cache = cache;
         this.objectMapper = objectMapper;
         this.audit = audit;
     }
@@ -100,6 +103,7 @@ public class AdminSettingsService {
             settings.save(row);
             touched.add(key);
         }
+        cache.evictAfterCommit();
         audit.record(caller, "settings.update", "settings", "platform",
                 "keys", String.join(",", touched));
         return current();
@@ -168,7 +172,7 @@ public class AdminSettingsService {
             if (entry.getValue() instanceof Map<?, ?> city && city.containsKey("live")) {
                 throw new ValidationException("'geo.cities." + entry.getKey() + ".live' is no longer "
                         + "stored here: city launch state is a column on the city roster. Use PATCH "
-                        + "/admin/cities/{slug} instead, and read it back from GET /cities. Nothing "
+                        + "/admin/cities/{slug} instead, and read it back from GET /bootstrap (cities). Nothing "
                         + "was saved.");
             }
         }

@@ -12,10 +12,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The tab-aware mixed feed, keyed on seeker intent rather than our storage model. Why the database
- * sorts, counts and pages it rather than an in-memory merge: docs/flows/consumer/flatmates.md §5.
- */
+/** Keyed on seeker intent; the database sorts, counts and pages instead of an in-memory merge.
+ * See docs/flows/consumer/flatmates.md §5. */
 @Service
 public class FlatmateFeedService {
 
@@ -43,11 +41,8 @@ public class FlatmateFeedService {
         this.reviewStatuses = reviewStatuses;
     }
 
-    /**
-     * A page of the board plus {@code verifiedTotal} across every match — once the server pages,
-     * the browser cannot see enough rows to compute it.
-     */
-    public record FeedResult(Page<Object> page, long verifiedTotal) {
+    /** {@code verifiedTotal} is across every match, as the browser cannot see enough rows once the server pages; the other tab's total saves a request. */
+    public record FeedResult(Page<Object> page, long verifiedTotal, long otherTabTotal) {
     }
 
     /** {@code GET /flatmates/feed} — public. One feed per tab, sorted newest first. */
@@ -56,13 +51,11 @@ public class FlatmateFeedService {
         FlatmateSearchQueries.Result result = search.search(facets, pageable);
         List<Object> window = load(result.refs());
         return new FeedResult(
-                new PageImpl<>(render(window), pageable, result.total()), result.verifiedTotal());
+                new PageImpl<>(render(window), pageable, result.total()), result.verifiedTotal(),
+                search.total(facets.otherTab()));
     }
 
-    /**
-     * Turn the union's {@code (kind, id)} window back into entities. One read per supply type, with
-     * the sort re-imposed from the refs: {@code findAllById} makes no promise about order.
-     */
+    /** One read per supply type, with the sort re-imposed from the refs as {@code findAllById} makes no promise about order. */
     private List<Object> load(List<FlatmateSearchQueries.Ref> refs) {
         Map<UUID, FlatmateRoom> roomsById = index(rooms.findAllById(idsOf(refs, "room")),
                 FlatmateRoom::getId);
@@ -92,10 +85,7 @@ public class FlatmateFeedService {
         return rows.stream().collect(Collectors.toMap(key, row -> row));
     }
 
-    /**
-     * Map the merged window to wire DTOs. Host names and room-card joins are batched across the
-     * window; hardcoding occupancy would price a full flat differently on two feeds from one row.
-     */
+    /** Host names and room-card joins are batched per window; hardcoding occupancy would misprice a full flat. */
     private List<Object> render(List<Object> window) {
         List<UUID> hostIds = window.stream()
                 .map(FlatmateFeedService::hostIdOf)

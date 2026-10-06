@@ -33,7 +33,7 @@ class OwnerProfileTest extends AbstractApiTest {
     /** A slug no seed uses, so each test owns its slice of the catalogue outright. */
     private static final String SLUG = "owner-profile-fixture";
 
-    /** Same reason as the trust-stats fixture: {@code locality_slug} is a foreign key. */
+    /** Same reason as the TrustStatsTest fixture: {@code locality_slug} is a foreign key. */
     @BeforeEach
     void createFixtureLocality() {
         jdbc.update("insert into localities (slug, name, city) values (?, ?, 'Pune')"
@@ -73,10 +73,7 @@ class OwnerProfileTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.*", org.hamcrest.Matchers.hasSize(7)));
     }
 
-    /**
-     * Named individually so a swap of one absent field for another still fails; {@code lastActive}
-     * would turn a public profile into a presence indicator for a private individual.
-     */
+    /** Fields named individually so a swap fails; {@code lastActive} would expose a private person's presence. */
     @Test
     void theCardCarriesNothingOperationalAboutTheAccount() throws Exception {
         User u = owner("9811000002");
@@ -105,10 +102,7 @@ class OwnerProfileTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.mobile").value(org.hamcrest.Matchers.not("9811000003")));
     }
 
-    /**
-     * Read in IST so the year agrees with the confirmation email. JDBC-written because
-     * {@code joined_at} is not updatable; {@code em.clear()} forces a database read, not a cache hit.
-     */
+    /** Read in IST to match the confirmation email; JDBC-written as {@code joined_at} isn't updatable. */
     @Test
     void memberSinceIsTheYearReadInIndianTime() throws Exception {
         User u = owner("9811000004");
@@ -150,10 +144,7 @@ class OwnerProfileTest extends AbstractApiTest {
 
     // ---------------- what is not reachable ----------------
 
-    /**
-     * All three collapse to 404: 400 on malformed would be an enumeration oracle, and any other
-     * status on the archived owner would keep a soft-deleted person reachable at a stable URL.
-     */
+    /** All collapse to 404: 400 would be an enumeration oracle, and an archived owner must not stay reachable. */
     @Test
     void unknownMalformedAndArchivedOwnersAreAllTheSameNotFound() throws Exception {
         mvc.perform(get("/owners/" + UUID.randomUUID())).andExpect(status().isNotFound());
@@ -189,10 +180,7 @@ class OwnerProfileTest extends AbstractApiTest {
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("Theirs and live"))));
     }
 
-    /**
-     * A facet on the shared search keeps the pending/archived rules in one place. Asked for by
-     * title because "count is 1" would also pass against the wrong single row.
-     */
+    /** Asked for by title, since "count is 1" would also pass against the wrong single row. */
     @Test
     void askingForOneOwnersStockStillHidesWhatIsNotPublic() throws Exception {
         User u = owner("9811000010");

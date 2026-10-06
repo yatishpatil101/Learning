@@ -1,5 +1,5 @@
 /* Offer books are token-scoped; accepting an owner id would imply enumeration is allowed. */
-import { del, get, post, unwrapFullPage } from '../../http.js';
+import { PAGE_LOAD_TTL, del, get, post, unwrapFullPage } from '../../http.js';
 // Leaf module, no imports of its own — see its header. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
@@ -22,7 +22,7 @@ const paged = () => ({ size: MAX_PAGE_SIZE });
 /** `GET /me/deals` — every deal on the caller's own listings. Paged. */
 export async function myDeals() {
   if (!signedIn()) return [];
-  return unwrapFullPage(await get('/me/deals', paged()), 'deal').map(toDealViewModel);
+  return unwrapFullPage(await get('/me/deals', paged(), { ttl: PAGE_LOAD_TTL }), 'deal').map(toDealViewModel);
 }
 
 /** Missing deal rows synthesize `active`, so successful responses are always documents. */

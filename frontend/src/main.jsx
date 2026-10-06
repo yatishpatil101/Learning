@@ -19,6 +19,8 @@ import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
 import { initProductAnalytics } from './lib/productAnalytics.js';
 import { loadGeoPolicy } from './lib/geoConfig.js';
+import { readAccessToken } from './lib/auth.js';
+import { primeMeBootstrap } from './services/meBootstrapService.js';
 import './i18n';
 // Ahead of index.css so @font-face lands before anything sets font-family. A JS import because
 // postcss.config.js loads only tailwind + autoprefixer, so the JS graph is the reliable bundler.
@@ -67,17 +69,17 @@ const app = (
               <PlanProvider>
               {/* One verification request feeds badges across profile, dashboard and contact flows. */}
               <VerificationProvider>
-              {/* Same reasoning: the inbox is caller-scoped, so the unread count loads on sign-in
-                  and zeroes on sign-out rather than reading an anonymous store. */}
-              <NotificationProvider>
-                <ConversationProvider>
+              {/* The inbox is caller-scoped, so unread counts load on sign-in and zero on sign-out.
+                  Conversations sit outside: the bell's count rides the chat stream they open. */}
+              <ConversationProvider>
+                <NotificationProvider>
                   <CompareProvider>
                     <ToastProvider>
                       {withMaps(<App />)}
                     </ToastProvider>
                   </CompareProvider>
-                </ConversationProvider>
-              </NotificationProvider>
+                </NotificationProvider>
+              </ConversationProvider>
               </VerificationProvider>
               </PlanProvider>
               </FollowProvider>
@@ -95,4 +97,5 @@ const app = (
 document.documentElement.dataset.dzBoot = 'ready';
 loadGeoPolicy();
 window.addEventListener('draazy-settings-change', loadGeoPolicy);
+if (readAccessToken()) primeMeBootstrap();
 createRoot(document.getElementById('root')).render(app);

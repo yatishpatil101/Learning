@@ -45,12 +45,10 @@ public class ListingCounts {
         return properties.countByOwnerIdAndStatusAndArchivedFalse(ownerId, PropertyStatus.APPROVED);
     }
 
-    /** Blank or unknown slug is not an error because the headline can ask for all localities. */
+    /** Whole-catalogue headline: three counts in one statement. */
     @Transactional(readOnly = true)
-    public TrustStatsResponse trustStats(String localitySlug) {
-        boolean all = localitySlug == null || localitySlug.isBlank();
-        TrustTally tally = properties.tallyTrust(
-                PropertyStatus.APPROVED, Instant.now(), all, all ? null : localitySlug);
+    public TrustStatsResponse trustStats() {
+        TrustTally tally = properties.tallyTrust(PropertyStatus.APPROVED, Instant.now());
         return new TrustStatsResponse(
                 tally.verifiedListings(), tally.totalListings(), tally.verifiedOwners());
     }

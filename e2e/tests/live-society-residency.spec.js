@@ -119,15 +119,15 @@ test.describe('live: society residency and claims', () => {
     expect(detail.claimStatus).toBe('claimed');
 
     // And the queue moves too, including the request ops had not got to yet.
-    const mine = await (await request.get(`${API}/societies/${slug}/membership`, {
+    const mine = (await (await request.get(`${API}/societies/${slug}/hub`, {
       headers: await authHeaders(resident),
-    })).json();
+    })).json()).membership;
     expect(mine.resident.assignedTo).toBe('committee');
     expect(mine.admin).toBe(false);
 
-    const theirs = await (await request.get(`${API}/societies/${slug}/membership`, {
+    const theirs = (await (await request.get(`${API}/societies/${slug}/hub`, {
       headers: await authHeaders(committee),
-    })).json();
+    })).json()).membership;
     expect(theirs.admin).toBe(true);
 
     // The committee can now do the reviewing, and a neighbour still cannot read the queue —
@@ -146,7 +146,7 @@ test.describe('live: society residency and claims', () => {
     const verified = await decide(request, committee, slug, waiting.id, 'verified');
     expect(verified.status(), await verified.text()).toBe(200);
 
-    const count = await (await request.get(`${API}/societies/${slug}/membership`)).json();
+    const count = (await (await request.get(`${API}/societies/${slug}/hub`)).json()).membership;
     expect(count.verifiedResidents).toBe(1);
   });
 
@@ -155,7 +155,7 @@ test.describe('live: society residency and claims', () => {
     // hub work will read. A fixture nothing asserts on is a fixture that rots — and the whole
     // point of seeding these two societies is that a hub spec can arrive at a verified resident
     // and a sitting committee without creating either.
-    const claimed = await (await request.get(`${API}/societies/blue-ridge-towers-hinjawadi/membership`)).json();
+    const claimed = (await (await request.get(`${API}/societies/blue-ridge-towers-hinjawadi/hub`)).json()).membership;
     expect(claimed.claim.status).toBe('approved');
     expect(claimed.verifiedResidents).toBe(1);
 
@@ -171,7 +171,7 @@ test.describe('live: society residency and claims', () => {
 
     // The other society's claim is still waiting, so its residents wait with ops. Without this row
     // "assigned_to is always committee" would pass every assertion the fixture can make.
-    const pending = await (await request.get(`${API}/societies/kumar-palaash-hinjawadi/membership`)).json();
+    const pending = (await (await request.get(`${API}/societies/kumar-palaash-hinjawadi/hub`)).json()).membership;
     expect(pending.claim.status).toBe('pending');
     const ops = await request.get(
       `${API}/societies/kumar-palaash-hinjawadi/residents?status=pending`,

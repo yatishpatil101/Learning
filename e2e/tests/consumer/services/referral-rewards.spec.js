@@ -169,11 +169,11 @@ test.describe('referralRewards is a server document', () => {
     const row = page.getByRole('switch', { name: 'Toggle Referral rewards' });
     await expect(row).toHaveAttribute('aria-checked', 'true');
 
-    /* Confirmation-gated: the switch alone must not commit. Read back through the public `GET /flags`
+    /* Confirmation-gated: the switch alone must not commit. Read back through the public `GET /bootstrap` (`flags`)
        so an optimistic toggle that never reached the server cannot satisfy it. */
     await row.click();
     await expect(page.getByText('Disable Referral Rewards?')).toBeVisible();
-    const midFlight = await (await fetch(`${API}/flags`)).json();
+    const midFlight = (await (await fetch(`${API}/bootstrap`)).json()).flags;
     expect(midFlight.referralRewards, 'an unconfirmed toggle changed the server').toBe(true);
 
     await page.getByRole('button', { name: /^Disable$/ }).click();
@@ -182,7 +182,7 @@ test.describe('referralRewards is a server document', () => {
     /* Polled: the switch flips from optimistic local state, so `aria-checked` settles a turn before
        the write is on the wire. */
     await expect
-      .poll(async () => (await (await fetch(`${API}/flags`)).json()).referralRewards,
+      .poll(async () => (await (await fetch(`${API}/bootstrap`)).json()).flags.referralRewards,
         { message: 'the disable never reached the settings document' })
       .toBe(false);
   });

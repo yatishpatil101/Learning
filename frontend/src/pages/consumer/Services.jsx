@@ -91,7 +91,7 @@ function Counter({ to, prefix = '', suffix = '', run }) {
   return <p className="text-2xl sm:text-3xl font-extrabold gradient-text">{prefix}{fmtCount(v)}{suffix}</p>;
 }
 
-/* Read Move-in Pack configuration from `/move-pack` and fail closed so unconfirmed prices are never offered. */
+/* Move-in Pack configuration from the `/bootstrap` section; fails closed so unconfirmed prices are never offered. */
 function useMovePackConfig() {
   const [cfg, setCfg] = useState({ enabled: false, items: {} });
   useEffect(() => {

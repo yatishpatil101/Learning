@@ -279,17 +279,17 @@ class SocietyContentReportTest extends AbstractApiTest {
         String contributionId = contribution(author, slug);
         String reportId = fileAndId(reporter, "society_contribution", contributionId, "personal");
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.contributions.totalElements").value(1));
 
         triage(staff, reportId, "actioned", "hide_content")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("actioned"));
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.contributions.totalElements").value(0));
     }
 
     /**
@@ -343,10 +343,10 @@ class SocietyContentReportTest extends AbstractApiTest {
 
         triage(staff, reportId, "actioned", "hide_content").andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].replies").isEmpty());
+                .andExpect(jsonPath("$.contributions.totalElements").value(1))
+                .andExpect(jsonPath("$.contributions.content[0].replies").isEmpty());
     }
 
     /**
@@ -367,9 +367,9 @@ class SocietyContentReportTest extends AbstractApiTest {
 
         triage(staff, reportId, "actioned", "hide_content").andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/questions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.questions.totalElements").value(0));
     }
 
     @Test
@@ -386,10 +386,10 @@ class SocietyContentReportTest extends AbstractApiTest {
 
         triage(staff, reportId, "actioned", "hide_content").andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/questions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].answers").isEmpty());
+                .andExpect(jsonPath("$.questions.totalElements").value(1))
+                .andExpect(jsonPath("$.questions.content[0].answers").isEmpty());
     }
 
     @Test
@@ -405,9 +405,9 @@ class SocietyContentReportTest extends AbstractApiTest {
 
         triage(staff, reportId, "actioned", "hide_content").andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/board"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.board.totalElements").value(0));
     }
 
     /* ------------------------------------------------------------- the guards */
@@ -478,9 +478,9 @@ class SocietyContentReportTest extends AbstractApiTest {
         triage(staff, reportId, "dismissed", "hide_content")
                 .andExpect(status().isBadRequest());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.contributions.totalElements").value(1));
     }
 
     /**
@@ -515,9 +515,9 @@ class SocietyContentReportTest extends AbstractApiTest {
         triage(reporter, reportId, "actioned", "hide_content")
                 .andExpect(status().isForbidden());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.contributions.totalElements").value(1));
     }
 
     /** The queue's filter is validated against the vocabulary, or a typo reads as "queue clear". */

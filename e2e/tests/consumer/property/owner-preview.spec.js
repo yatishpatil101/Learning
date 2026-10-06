@@ -93,7 +93,7 @@ test.describe('LIVE — an owner\'s listing before it is approved', () => {
 
     await signedInAs(page, me.mobile);
     const listingsRead = page.waitForResponse((res) =>
-      new URL(res.url()).pathname === '/api/me/listings'
+      new URL(res.url()).pathname === '/api/me/dashboard'
       && res.request().method() === 'GET'
       && res.status() === 200);
     await page.goto('/dashboard#listings');
@@ -123,7 +123,7 @@ test.describe('LIVE — an owner\'s listing before it is approved', () => {
     const approved = await approveListing(request, posted.id, admin);
     expect(approved.status(), await approved.text()).toBe(200);
     const refreshed = page.waitForResponse((res) =>
-      new URL(res.url()).pathname === '/api/me/listings'
+      new URL(res.url()).pathname === '/api/me/dashboard'
       && res.request().method() === 'GET'
       && res.status() === 200);
     await page.reload();

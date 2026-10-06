@@ -129,17 +129,6 @@ public class ContactService {
                 verifiedIds), row, now));
     }
 
-    @Transactional(readOnly = true)
-    public long myPendingCount(UUID ownerId) {
-        List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(ownerId);
-        if (ownedPropertyIds.isEmpty()) {
-            return 0L;
-        }
-        return contactRequests.countByPropertyIdInAndStatusAndCreatedAtAfter(
-                ownedPropertyIds, ContactRequestStatuses.PENDING,
-                Instant.now().minus(ContactRequestStatuses.PENDING_TTL));
-    }
-
     @Transactional
     public void respond(AuthPrincipal owner, String reqId, StatusUpdate body) {
         ContactRequest row = Ids.parseUuid(reqId)

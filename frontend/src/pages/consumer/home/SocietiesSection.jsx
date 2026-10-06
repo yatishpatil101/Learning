@@ -2,53 +2,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { listSocietiesWithListings } from '../../../services/societyService.js';
+import { useNearViewport } from '../../../lib/useNearViewport.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-/**
- * How early to start fetching, in pixels of scroll ahead of the rail: far enough that the request
- * is in flight before the strip is legible, close enough that a hero-only visit never pays for it.
- */
+/** Fetch far enough ahead that the request is in flight before the strip is legible,
+ * yet a hero-only visit never pays for it. */
 const PREFETCH_MARGIN = '400px';
 
 /** Placeholder keys, one per card the rail shows, so the reserved row is the shape of the answer. */
 const SKELETONS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
-/**
- * Home discovery entry point for the Society Hub: the strongest few societies, with everything else
- * routed to /societies. Mirrors the "Explore by property type" strip so the two rows read alike.
- */
 export default function SocietiesSection() {
   const navigate = useNavigate();
   /* `null` is "not asked yet, or still in flight", a different fact from an empty catalogue — and
      the scroll gate means the visitor is looking at the section through that window. */
   const [societies, setSocieties] = useState(null);
   const rootRef = useRef(null);
-  const [inView, setInView] = useState(false);
+  const inView = useNearViewport(rootRef, PREFETCH_MARGIN);
   const scrollRef = useRef(null);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
   const [fadeLeft, setFadeLeft] = useState(false);
   const [fadeRight, setFadeRight] = useState(false);
 
-  /* Nothing is requested until the rail is nearly on screen, so this never competes with the hero
-     for the entry route's connections. Without `IntersectionObserver`, fetch immediately. */
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return undefined;
-    if (typeof IntersectionObserver !== 'function') { setInView(true); return undefined; }
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        setInView(true);
-        io.disconnect();
-      }
-    }, { rootMargin: PREFETCH_MARGIN });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-  /* From the seam, never from `data/societies.js`: a bundled society the server has dropped would
-     link to a dead hub. `hasListings=true` narrows it to one page — see the flow doc, § 9.4. */
+  /* From the seam: a stale society would link to a dead hub. `hasListings=true` narrows it to one
+     page — see the flow doc, § 9.4. */
   useEffect(() => {
     if (!inView) return undefined;
     let alive = true;

@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
    cannot distinguish server persistence from localStorage. */
 
 /** Not live in the seeded roster, so the switcher answers with the waitlist modal rather than a
- *  city switch. `live-geo-policy` asserts the same default from the other direction. */
+ *  city switch. `geo-policy` asserts the same default from the other direction. */
 const CITY = 'Mumbai';
 
 async function openWaitlistModal(page) {

@@ -137,3 +137,16 @@ test('a page past the end still reports the size of the set it is past the end o
   expect(past.totalElements).toBe(whole.totalElements);
   expect(past.totalPages).toBeGreaterThan(0);
 });
+
+test('one feed request draws the board, the other tab\'s count included', async ({ page, request }) => {
+  const feeds = [];
+  page.on('request', (r) => { if (/\/flatmates\/feed\?/.test(r.url())) feeds.push(r.url()); });
+  await openBoard(page);
+  await page.waitForLoadState('networkidle');
+  expect(feeds).toHaveLength(1);
+
+  const moveIn = await feed(request, { tab: 'move-in', size: '1' });
+  const teamUp = await feed(request, { tab: 'team-up', size: '1' });
+  expect(moveIn.otherTabElements).toBe(teamUp.totalElements);
+  expect(teamUp.otherTabElements).toBe(moveIn.totalElements);
+});

@@ -57,9 +57,9 @@ test.describe('society community tab (live)', () => {
     const author = await newAccount();
     await shareTip(request, author, slug, 'The back gate is quicker before 9am.');
 
-    const res = await request.get(`${API}/societies/${slug}/contributions`);
+    const res = await request.get(`${API}/societies/${slug}/hub`);
     expect(res.status()).toBe(200);
-    const page = await res.json();
+    const page = (await res.json()).contributions;
     const mine = page.content.find((c) => c.body === 'The back gate is quicker before 9am.');
     expect(mine, 'the tip to be readable without a token').toBeTruthy();
     // Most e2e accounts have no profile name, which is also the state of most real users on their
@@ -89,7 +89,7 @@ test.describe('society community tab (live)', () => {
     });
     expect(byAuthor.status()).toBe(204);
 
-    const after = await (await request.get(`${API}/societies/${slug}/contributions`)).json();
+    const after = (await (await request.get(`${API}/societies/${slug}/hub`)).json()).contributions;
     expect(after.content.find((c) => c.id === id), 'the tip and its thread are gone').toBeFalsy();
   });
 
@@ -97,9 +97,9 @@ test.describe('society community tab (live)', () => {
     // The point of seeding rather than waiving: a hub whose community tab is empty on every fresh
     // database renders an empty state and proves nothing, and a spec that posts then reads back is
     // equally happy against a tab that only ever shows you your own writes.
-    const res = await request.get(`${API}/societies/blue-ridge-towers-hinjawadi/contributions`);
+    const res = await request.get(`${API}/societies/blue-ridge-towers-hinjawadi/hub`);
     expect(res.status()).toBe(200);
-    const rows = (await res.json()).content;
+    const rows = (await res.json()).contributions.content;
 
     const pick = rows.find((c) => c.referralName === 'Vishal Kadam (electrician)');
     expect(pick, 'the seeded trusted pick').toBeTruthy();

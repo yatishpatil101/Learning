@@ -1,5 +1,5 @@
 /** `{id}` is the UUID, never the slug; a non-participant gets 404 rather than 403. */
-import { ApiError, del, get, patch, post, unwrapPage } from '../../http.js';
+import { ApiError, PAGE_LOAD_TTL, del, get, patch, post, unwrapPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toCaseFile, toQueueRow } from './propertyReviewMapper.js';
 
@@ -106,7 +106,7 @@ export async function listPropertyReviewQueue({ page = 0, size = 20, status, unr
 
 export async function listMyPropertyReviews({ page = 0, size = 20 } = {}) {
   const capped = Math.min(size, MAX_PAGE_SIZE);
-  const res = await get('/me/property-reviews', { page, size: capped });
+  const res = await get('/me/property-reviews', { page, size: capped }, { ttl: PAGE_LOAD_TTL });
   const unwrapped = unwrapPage(res, { page, size: capped });
   return { ...unwrapped, items: unwrapped.items.map(toQueueRow) };
 }

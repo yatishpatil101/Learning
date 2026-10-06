@@ -221,7 +221,7 @@ class BotDefenceFilterTest {
         @Test
         @DisplayName("leaves reads alone, including a GET on a challenged path")
         void ignoresReads() throws Exception {
-            MockHttpServletRequest request = new MockHttpServletRequest("GET", Routes.Cities.BASE);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", Routes.Bootstrap.BASE);
             request.setRequestURI(Routes.Cities.WAITLIST);
 
             run(enforcing(), request);

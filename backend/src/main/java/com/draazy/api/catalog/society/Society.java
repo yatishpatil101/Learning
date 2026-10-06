@@ -102,13 +102,7 @@ public class Society extends AuditedEntity {
     @Column(name = "lifts")
     private Integer lifts;
 
-    /**
-     * The security arrangement, as free text.
-     *
-     * <p>Was a boolean until V15. "Is there security?" is a question every gated society answers yes
-     * to, which makes the answer worthless; "3-tier + CCTV" versus "Guard at gate only" is the
-     * distinction somebody choosing where to live is actually asking about. See spec fix S25.
-     */
+    /** Free text: a yes/no is worthless, while "3-tier + CCTV" vs "Guard at gate only" is what buyers weigh. */
     @Column(name = "security")
     private String security;
 
@@ -143,31 +137,12 @@ public class Society extends AuditedEntity {
     @Column(name = "source")
     private String source;
 
-    /**
-     * Which human action minted this society — {@link SocietyMintOrigins#DEMAND} when a searcher
-     * looked for the building and we did not have it, {@link SocietyMintOrigins#LISTING} when
-     * somebody posting a flat could not find their society. Null for every row nobody minted.
-     *
-     * <p><strong>A different axis from {@link #source}, not a fourth value of it.</strong>
-     * {@code source} is where the record came from and is what a reader weighs; this is what a
-     * person was doing when they added it, and is what ops reads. Every row that has one has
-     * {@code source = community}, which is exactly why they cannot be the same column: folding the
-     * two together would make {@code community} mean two things and would drag every existing
-     * comparison against it into a distinction none of them care about.
-     *
-     * <p>Null means not recorded — true of curated and RERA rows and of every community row minted
-     * before V108 — and must not be read as "not demand".
-     */
+    /** What a person was doing when minting the row (ops reads this); a separate axis from {@link #source}.
+     * Null means not recorded, not "not demand". */
     @Column(name = "mint_origin")
     private String mintOrigin;
 
-    /**
-     * The member who minted this society, for community-sourced rows; null for curated and RERA
-     * imports, which nobody in particular typed in.
-     *
-     * <p>Kept so an operator reviewing a candidate can ask the person who added it, and so one
-     * account minting fifty societies is visible rather than merely suspected.
-     */
+    /** Who minted a community row, so ops can ask them and spot one account minting many; null otherwise. */
     @Column(name = "created_by")
     private java.util.UUID createdBy;
 
@@ -230,17 +205,8 @@ public class Society extends AuditedEntity {
     @Column(name = "claim_status", nullable = false)
     private String claimStatus = SocietyClaimStatus.UNCLAIMED;
 
-    /**
-     * Ops' free-text note about this building — why a claim is stuck, what the secretary said.
-     *
-     * <p><strong>Never leaves the back office.</strong> {@link SocietyResponse} does not carry it and
-     * must not learn to: this is moderator prose about a named building and usually about the people
-     * living in it, and the two routes that serve {@code SocietyResponse} are anonymous reads. The
-     * same reasoning keeps the {@code geo} blacklist's reason off {@code GET /geo}.
-     *
-     * <p>Null means no note. A note the operator cleared is stored as null rather than {@code ""},
-     * so the console cannot end up rendering "never had one" and "had one, deleted" differently.
-     */
+    /** Moderator prose about a named building: it must never reach {@link SocietyResponse}, which anonymous reads serve.
+     * A cleared note is stored as null, not blank. */
     @Column(name = "admin_note")
     private String adminNote;
 

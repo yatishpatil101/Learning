@@ -2,7 +2,7 @@
 // docs/system/frontend-data-seam.md
 import { API_BASE } from './config.js';
 import {
-  localStorageWritable, logoutUser, readAccessToken, sessionRemembered, writeTokens,
+  isInternal, localStorageWritable, logoutUser, readAccessToken, readUser, sessionRemembered, writeTokens,
 } from '../lib/auth.js';
 
 const TRACE_HEADER = 'X-Trace-Id';
@@ -71,6 +71,16 @@ export function observeBuildStamp(fn) {
 // Opts: `method`, `body`, `query`, `headers`, `auth`, `withStatus`, `signal`. Their exact
 // semantics, and what `withStatus` is for: docs/system/frontend-data-seam.md
 export async function request(path, opts = {}) {
+  try {
+    return await exchange(path, opts);
+  } finally {
+    // A refused write (409, 404…) usually means client and server state diverged, so the re-read
+    // that recovers from it must not be served from the cache either.
+    if ((opts.method ?? 'GET') !== 'GET' && !opts.keepReads) clearReads();
+  }
+}
+
+async function exchange(path, opts) {
   const { auth = true, withStatus = false } = opts;
   const res = await send(path, opts, auth ? readAccessToken() : null);
 
@@ -81,13 +91,94 @@ export async function request(path, opts = {}) {
     if (token) return toResult(await send(path, opts, token), withStatus);
     // Reached only when the server actually refused; an unreachable server throws instead, so this
     // sign-out always follows an answer rather than the absence of one.
-    logoutUser();
+    endSession();
   }
 
   return toResult(res, withStatus);
 }
 
-export const get = (path, query, opts) => request(path, { ...opts, method: 'GET', query });
+// Concurrent identical reads share one fetch; `ttl` (ms) keeps a result for later callers and a primed seed (`once`) until its first reader.
+// Any write drops everything, so a read after a write is never stale.
+const reads = new Map();
+// Bumped on every clear, so a read that was in flight across a write is not kept as fresh.
+let readGeneration = 0;
+function clearReads() {
+  reads.clear();
+  readGeneration += 1;
+}
+
+function endSession() {
+  clearReads();
+  logoutUser();
+}
+
+// Registered at module load, so it runs before every listener that re-reads on this signal.
+globalThis.addEventListener?.('draazy-settings-change', clearReads);
+
+const readKey = (path, query, auth = true) =>
+  `${auth ? readAccessToken() ?? '' : ''} ${path}${buildQuery(query)}`;
+
+function forget(key, entry) {
+  if (reads.get(key) === entry) reads.delete(key);
+}
+
+function track(key, promise, { ttl = 0, once = false } = {}) {
+  const entry = { until: Infinity, once };
+  const generation = readGeneration;
+  entry.promise = promise.then(
+    (data) => {
+      entry.settled = true;
+      if (ttl > 0 && !entry.taken && generation === readGeneration) entry.until = Date.now() + ttl;
+      else forget(key, entry);
+      return data;
+    },
+    (err) => { forget(key, entry); throw err; },
+  );
+  reads.set(key, entry);
+  return entry;
+}
+
+// The shared fetch carries no caller's signal, so one caller aborting cannot fail the others.
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  const aborted = () => new DOMException('The operation was aborted.', 'AbortError');
+  if (signal.aborted) return Promise.reject(aborted());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(aborted());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+export function get(path, query, opts = {}) {
+  const { ttl, signal, ...rest } = opts;
+  if (rest.withStatus || rest.headers) return request(path, { ...rest, method: 'GET', query, signal });
+  const key = readKey(path, query, rest.auth);
+  const hit = reads.get(key);
+  if (!hit || hit.until <= Date.now()) {
+    return abortable(track(key, request(path, { ...rest, method: 'GET', query }), { ttl }).promise, signal);
+  }
+  hit.read = true;
+  if (hit.once) {
+    hit.taken = true;
+    if (hit.settled) forget(key, hit);
+  }
+  return abortable(hit.promise, signal);
+}
+
+// Long enough to absorb the reads a page's panels repeat while mounting; any write clears it first.
+export const PAGE_LOAD_TTL = 5_000;
+
+// Seeds the read `get(path, query)` would make with a value fetched elsewhere (a bootstrap section); a null or failed seed falls back to the real request.
+// An unread seed is dropped, so the next `get` can surface its own error. Without `ttl` it is single-use; with it, readers within `ttl` ms share it.
+export function prime(path, query, value, { ttl } = {}) {
+  let entry;
+  const fallback = () => (entry.read
+    ? request(path, { method: 'GET', query })
+    : Promise.reject(new Error('unread seed')));
+  entry = track(readKey(path, query), value.then((data) => data ?? fallback(), fallback), ttl ? { ttl } : { ttl: 10_000, once: true });
+  entry.promise.catch(() => {});
+}
 export const post = (path, body, opts) => request(path, { ...opts, method: 'POST', body });
 export const patch = (path, body, opts) => request(path, { ...opts, method: 'PATCH', body });
 // PUT carries no body on the endpoints that use it so far (`/me/saved/{id}` is an idempotent
@@ -104,7 +195,7 @@ export async function openEventStream(path, { onEvent, onOpen, signal } = {}) {
   if (res.status === 401 && readAccessToken()) {
     const token = await refreshAccessToken();
     if (token) res = await stream(path, token, signal);
-    else logoutUser();
+    else endSession();
   }
   if (!res.ok) return toResult(res);
   onOpen?.();
@@ -151,6 +242,15 @@ export function unwrapFullPage(res, label) {
 /** True for a `multipart/form-data` body: the platform owns its `Content-Type` (boundary and all). */
 const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
 
+// index.html starts `GET /bootstrap` (user-independent) before the bundle loads, and the first read
+// of it takes that response (once: a body reads once). Staff skip it because their reads revalidate.
+function takeEarlyRead(url) {
+  const early = globalThis.__dzBootstrap;
+  if (url !== '/bootstrap' || !early || isInternal(readUser())) return null;
+  globalThis.__dzBootstrap = undefined;
+  return early;
+}
+
 async function send(path, { method = 'GET', body, query, headers: extra, signal }, token) {
   const headers = { Accept: 'application/json' };
   // JSON is the common case; a FormData body is serialised by the platform, which also sets the
@@ -162,15 +262,16 @@ async function send(path, { method = 'GET', body, query, headers: extra, signal 
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(API_BASE + path + buildQuery(query), {
+    const early = method === 'GET' ? takeEarlyRead(path + buildQuery(query)) : null;
+    const res = (early && await early) || await fetch(API_BASE + path + buildQuery(query), {
       method,
       headers,
       // The refresh token rides an HttpOnly cookie. Same-origin this is a no-op; it earns its place
       // only in the cross-origin `VITE_API_BASE` deployment — docs/system/frontend-data-seam.md.
       credentials: 'include',
-      // Any read by a signed-in user revalidates (public `auth: false` ones too), so an editor never
-      // sees the anonymous-visitor cache: PublicReadCacheFilter.java, docs/system/cross-cutting.md §9.
-      cache: readAccessToken() ? 'no-cache' : 'default',
+      // Staff revalidate every read, so an editor never sees the anonymous-visitor cache;
+      // consumers accept its few seconds: PublicReadCacheFilter.java, docs/system/cross-cutting.md §9.
+      cache: isInternal(readUser()) ? 'no-cache' : 'default',
       body: body === undefined ? undefined : isFormData(body) ? body : JSON.stringify(body),
       signal,
     });
@@ -344,6 +445,7 @@ async function doRefresh(entryToken) {
       method: 'POST',
       body: { remember },
       auth: false,
+      keepReads: true,
     });
     if (!data?.accessToken) return null;
     persistTokens(data, remember);

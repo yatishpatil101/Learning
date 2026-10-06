@@ -79,24 +79,17 @@ test('a live staff sign-in takes its identity from the server, not from the scre
   expect(consoleErrors).toHaveLength(0);
 });
 
-test('the catalogue the console renders is the one the server enforces', async () => {
+test('the function catalogue the console renders is served by the server', async () => {
   // The console must not ship a second hard-coded permission source of truth.
-  const res = await fetch(`${API}/admin/permission-catalogue`, {
+  const res = await fetch(`${API}/admin/function-catalogue`, {
     headers: await authHeaders('9000000000'),
   });
   expect(res.status).toBe(200);
   const catalogue = await res.json();
   expect(catalogue.length).toBeGreaterThan(0);
 
-  const names = catalogue.map((p) => p.name);
-  expect(names).toContain('properties:verify');
-  expect(names).toContain('properties:moderate');
-  // `properties:write` was never an enforced atom; moderation and verification are the two that gate routes.
-  expect(names).not.toContain('properties:write');
-
-  const adminOnly = catalogue.filter((p) => p.adminOnly).map((p) => p.name);
-  expect(adminOnly.sort()).toEqual([
-    'audit:read', 'finance:read',
-    'settings:read', 'settings:write', 'users:write',
-  ]);
+  const names = catalogue.map((f) => f.name);
+  expect(names).toContain('kyc');
+  expect(names).toContain('support');
+  expect(names).toContain('desk:rental');
 });

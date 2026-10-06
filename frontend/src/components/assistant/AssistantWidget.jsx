@@ -83,15 +83,16 @@ export default function AssistantWidget() {
   const threadRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Load FAQs once so the matcher can answer them too (best-effort).
   const sheet = useSheetViewport();
   useScrollLock(open && sheet);
 
+  // FAQs feed the matcher only, so they load the first time the panel opens, not on every page.
+  const faqsRequested = useRef(false);
   useEffect(() => {
-    let alive = true;
-    listFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+    if (!open || faqsRequested.current) return;
+    faqsRequested.current = true;
+    listFaqs().then((f) => setFaqs(f || [])).catch(() => {});
+  }, [open]);
   // Persist the thread across route changes / refresh within the session.
 
   useEffect(() => {

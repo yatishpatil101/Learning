@@ -1,4 +1,4 @@
-import { del, get, patch, post, put, unwrapPage, unwrapFullPage } from '../../http.js';
+import { PAGE_LOAD_TTL, del, get, patch, post, put, unwrapPage, unwrapFullPage } from '../../http.js';
 // Leaf module, deliberately not re-exported through `http.js`, so this import stays cycle-free.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
@@ -102,11 +102,6 @@ export async function roomInterest(id, { share = 'solo', message } = {}) {
     share: vocab('share', share) || 'solo',
     message,
   })));
-}
-
-/** `POST /flatmates/rooms/{id}/agreement/reissue` — re-request the rental agreement evidence. */
-export async function reissueRoomAgreement(id) {
-  await post(`/flatmates/rooms/${encodeURIComponent(id)}/agreement/reissue`, {});
 }
 
 /** `POST /flatmates/groups` — form a group. */
@@ -223,14 +218,6 @@ export async function withdrawInterest(kind, id) {
   await withConflictCode(() => del(`/flatmates/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/interest`));
 }
 
-export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
-  const res = await post(`/flatmates/groups/${encodeURIComponent(id)}/owner-consent`, clean({
-    ownerMobile,
-    otp,
-  }));
-  return { consentRecorded: !!res?.consentRecorded };
-}
-
 /** The flat identity travels with consent so the server can fingerprint the row. */
 export async function requestOwnerConsent({ ownerMobile, otp, title, society, locality } = {}) {
   const res = await post('/flatmates/owner-consent',
@@ -312,7 +299,7 @@ export async function decideRequest(id, decision) {
 }
 /** `GET /me/flatmate-posts` — the caller's own seeker posts, moderation state included. */
 export async function myFlatmatePosts({ page = 0, size = 20 } = {}) {
-  const res = await get('/me/flatmate-posts', clean({ page, size }));
+  const res = await get('/me/flatmate-posts', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
   return { ...paged, items: paged.items.map(toSeekerPostViewModel) };
 }
@@ -368,6 +355,7 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24, {
       return toSeekerPostViewModel(r);
     }),
     verifiedTotal: res?.verifiedElements ?? 0,
+    otherTabTotal: Number.isFinite(res?.otherTabElements) ? res.otherTabElements : null,
     // `unwrapPage` names this `totalPages`; the board's pager reads `pageCount`, and an absent one
     // makes its clamp `NaN` rather than merely wrong.
     pageCount: res?.totalPages ?? 0,
@@ -539,13 +527,13 @@ export async function moderateGroupApplication(id, modStatus, note) {
 }
 
 export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
-  const res = await get('/me/flatmate-groups', clean({ page, size }));
+  const res = await get('/me/flatmate-groups', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
   return { ...paged, items: paged.items.map(toGroupViewModel) };
 }
 
 export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
-  const res = await get('/me/flatmate-rooms', clean({ page, size }));
+  const res = await get('/me/flatmate-rooms', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
   return { ...paged, items: paged.items.map(toRoomViewModel) };
 }

@@ -1,25 +1,31 @@
 package com.draazy.api.catalog.society;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-/**
- * Sort whitelist for {@code GET /societies}, mirroring {@code catalog.property.PropertySort}.
- *
- * <p>An unrestricted {@code ?sort=} on a public endpoint lets an anonymous caller order by any
- * column — which both probes the schema and can force an unindexed full scan on demand. Anything
- * outside this set is dropped and the list falls back to alphabetical, which is what a directory
- * wants anyway.
- */
+/** Whitelist: an unrestricted {@code ?sort=} on a public endpoint lets anonymous callers probe the schema
+ * and force unindexed scans. Computed orderings are ranked by the service ({@link SocietyRanking}). */
 public final class SocietySort {
 
+    static final String RELEVANCE = "relevance";
+    static final String RATING = "rating";
+    static final String HOMES = "homes";
+
     private static final Set<String> ALLOWED = Set.of("name", "occupancy", "year", "units");
+    private static final Set<String> RANKED = Set.of(RELEVANCE, RATING, HOMES);
     private static final Sort DEFAULT = Sort.by(Sort.Direction.ASC, "name");
 
     private SocietySort() {
+    }
+
+    /** Best-first by definition, so the direction is ignored; they are not columns and never reach {@link #sanitize}. */
+    static Optional<String> ranking(Pageable pageable) {
+        return pageable.getSort().stream().findFirst()
+                .map(Sort.Order::getProperty).filter(RANKED::contains);
     }
 
     /** Return a pageable whose sort is limited to the whitelist (alphabetical when none remain). */
@@ -29,5 +35,11 @@ public final class SocietySort {
                 .toList();
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
                 safe.isEmpty() ? DEFAULT : Sort.by(safe));
+    }
+
+    /** Closed by slug because names repeat across localities and offset paging over a tie can repeat or skip a society. */
+    static Pageable tieBroken(Pageable sanitized) {
+        return PageRequest.of(sanitized.getPageNumber(), sanitized.getPageSize(),
+                sanitized.getSort().and(Sort.by("slug")));
     }
 }

@@ -14,26 +14,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The server-side half of Team &amp; Access (tech debt D192/D13).
- *
- * <p>Before this, {@code roleId} and {@code moduleAccess} were session fields the admin client
- * invented at mock login and kept in browser storage; {@code V61} deleted the one thing that had
- * reached the database. These three routes are what make the console's grid describe something the
- * server will honour: a catalogue it must render from, a read of what is stored, and a write that
- * refuses anything outside the catalogue.
- *
- * <p><strong>Admin only, plus {@code users:write} for the write and {@code users:read} for the two
- * reads.</strong> Editing who may do what is the same privilege as minting a colleague, so it sits
- * behind the same atom as {@code POST /users/staff} rather than gaining one of its own — a
- * separately revocable "may edit permissions" would be an administrator who cannot create an admin
- * but can grant themselves… nothing, because {@code BackOfficeAccessService} refuses a
- * self-edit. One atom, one story.
- *
- * <p>Separate from {@link UserAdminController} because the resource is different: that controller
- * serves the account, this one serves the account's access, and the two have different bodies,
- * different failure modes and — after the next slice — probably different audiences.
- */
+/** Editing who may do what is the same privilege as minting a colleague, so it sits behind the {@code users:write} atom
+ * of {@code POST /users/staff}; {@code BackOfficeAccessService} refuses a self-edit. */
 @RestController
 public class BackOfficeAccessController {
 
@@ -48,20 +30,6 @@ public class BackOfficeAccessController {
 
     public BackOfficeAccessController(BackOfficeAccessService service) {
         this.service = service;
-    }
-
-    /**
-     * {@code GET /admin/permission-catalogue} — every atom the server enforces.
-     *
-     * <p>Served rather than hard-coded in the console so the grid cannot offer a permission the
-     * server would ignore. That divergence is the whole of {@code V61}: the client composed bundles
-     * from its own module list, the server spoke a different vocabulary, and the document in between
-     * granted nothing while looking like policy.
-     */
-    @GetMapping(Routes.Admin.PERMISSION_CATALOGUE)
-    @PreAuthorize(ACCESS_READ)
-    public List<BackOfficePermissions.Permission> catalogue() {
-        return service.catalogue();
     }
 
     @GetMapping(Routes.Admin.FUNCTION_CATALOGUE)

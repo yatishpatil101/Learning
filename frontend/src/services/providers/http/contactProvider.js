@@ -1,4 +1,4 @@
-import { get, patch, post, unwrapFullPage } from '../../http.js';
+import { PAGE_LOAD_TTL, get, patch, post, unwrapFullPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import { NO_CONTACT_GATE } from '../../../lib/contact.js';
@@ -8,7 +8,7 @@ export async function contactStatus(propertyId) {
   if (!propertyId) return NO_CONTACT_GATE;
   if (!readAccessToken()) return NO_CONTACT_GATE;
   try {
-    return await get('/contacts/status', { propertyId });
+    return await get('/contacts/status', { propertyId }, { ttl: PAGE_LOAD_TTL });
   } catch (err) {
     if (err?.status === 401 || err?.status === 404) return NO_CONTACT_GATE;
     throw err;
@@ -22,7 +22,7 @@ export async function requestContact(propertyId, message) {
 
 /** The owner's inbox, newest first. */
 export async function myContactRequests({ page = 0, size = MAX_PAGE_SIZE } = {}) {
-  const res = await get('/me/contact-requests', { page, size });
+  const res = await get('/me/contact-requests', { page, size }, { ttl: PAGE_LOAD_TTL });
   const items = unwrapFullPage(res, 'contact');
   return {
     items,
@@ -35,10 +35,4 @@ export async function myContactRequests({ page = 0, size = MAX_PAGE_SIZE } = {})
 
 export async function respondToContactRequest(reqId, status) {
   return patch(`/me/contact-requests/${encodeURIComponent(reqId)}`, { status });
-}
-
-/** Counted server-side, so it stays correct past the first page. */
-export async function pendingContactCount() {
-  const res = await get('/me/contact-requests/pending-count');
-  return res?.pending ?? 0;
 }

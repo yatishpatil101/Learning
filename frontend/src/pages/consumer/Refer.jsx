@@ -5,14 +5,13 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
 import { referralListingsTarget } from '../../lib/referralConfig.js';
-import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import { getMyReferralSummary, referralLink } from '../../services/referralService.js';
 import { usePricing } from '../../context/PricingContext.jsx';
 
 export default function Refer() {
   const { t } = useTranslation();
-  const { user, isIn, hasEverListed } = useAuth();
+  const { isIn, hasEverListed } = useAuth();
   const { toast } = useToast();
   const { fee } = usePricing();
   const { flagEnabled } = useAppFlags();
@@ -20,38 +19,8 @@ export default function Refer() {
   // agreement track below is part of the base referral program and always runs.
   const quotaRewards = flagEnabled('referralRewards');
 
-  /**
-   * The code, and the count of people who used it, both come from the server now.
-   *
-   * This used to be `const CODE = referralCode()` — a synchronous read of a string the *browser*
-   * minted: four letters of the user's name and the last four digits of their mobile, kept under
-   * `dzReferralCode:<mobile>` in localStorage. The server mints `PUNE-AB12` in `referral_codes`
-   * (V23), permanent by design because "rotating it would break every card and forwarded message
-   * already carrying the old one". Two codes for one user is one too many, and the browser's was
-   * the one `POST /referrals/redeem` could not resolve — so every link this page has ever produced
-   * pointed at a scheme that could not recognise it.
-   *
-   * `invited` moves with it, and the meaning tightens. Locally it counted *completed shares*, which
-   * is a number about this browser's owner rather than about anybody they reached. The server's
-   * counts redemptions. The copy under it — "You've invited N" — was only ever true of the second.
-   *
-   * The **contact and listing balances** are the server's too now (D31b). They used to be read
-   * straight out of the same localStorage counters this page incremented, which meant the page
-   * that advertised the reward was also the page that granted it. `GET /me/entitlements` derives
-   * the bonus from the referrals that justify it every time it is asked, so a clawed-back referral
-   * takes its contacts back with it and no counter has to be un-incremented by hand.
-   *
-   * The *progress* narrative moved with them (D234). `listed` and `joined` were localStorage
-   * counters drained from a browser-side credit ledger, and `referralFreeAgreements()` divided one
-   * of them by three — so the free-agreement perk survived a clawback, and could be minted by
-   * clearing site data and referring the same friend again. `converted` and `invited` come off the
-   * same summary as the code, and `agreements.free` off the same entitlements call as the contact
-   * and listing bonuses. Nothing on this page is now both the advertisement and the grant.
-   *
-   * Nothing renders until the summary resolves. The alternative is a page that shows a blank code
-   * for a tick and a Copy button that puts an empty string on the clipboard, which is the quiet
-   * kind of wrong: the user gets feedback saying "Copied".
-   */
+  /** Code, counts and balances come from the server, so a clawback takes its bonus back; nothing renders until the
+   * summary resolves, or Copy would copy ''. */
   const [summary, setSummary] = useState(null);
   const [summaryFailed, setSummaryFailed] = useState(false);
   const reloadSummary = useCallback(() => {
@@ -64,25 +33,19 @@ export default function Refer() {
   useEffect(() => reloadSummary(), [reloadSummary]);
 
   const CODE = summary?.code || '';
-  /* Built from the summary's code, never from a default. `referralLink` moved out of the store with
-     this line: its old signature defaulted the argument to the browser-minted code, so the page
-     could show the server's code and share a link carrying the other one. It now takes the code and
-     returns '' for a blank one, which is what this expression used to guard by hand. */
+  /* Built from the summary's code, never a default, so the page
+     can't show one code and share a link carrying another. */
   const LINK = referralLink(CODE);
   const L_TARGET = referralListingsTarget;
   const [copied, setCopied] = useState(null); // 'code' | 'link' | null
-  /* The progress narrative, from the server. `listed` used to be a localStorage counter drained
-     from a browser-side credit ledger; it is now `converted` — referrals the server has actually
-     qualified or approved, which is the same set `GET /me/entitlements` derives every bonus on this
-     page from. The two can no longer disagree, because there is only one of them. `joined` is
-     `invited`, people who have redeemed the code, for the same reason. */
+  /* `converted` is the referrals the server qualified, the same set
+     /me/entitlements derives bonuses from, so they can't disagree. */
   const invited = summary?.invited || 0;
   const listed = summary?.converted || 0;
   const joined = invited;
 
-  /* Balances, from whoever is serving. `null` until the answer lands — rendered as an em dash
-     rather than as 0, because "you have 0 contacts left" and "we have not asked yet" are different
-     sentences and only one of them should send a user to the checkout. */
+  /* Null until the answer lands and rendered as an em dash, not 0:
+     'no contacts left' must not send a user to checkout early. */
   const [ent, setEnt] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -92,24 +55,15 @@ export default function Refer() {
     return () => { alive = false; };
   }, []);
   const contacts = ent?.contacts?.referralBonus ?? 0;
-  /* Free rent agreements earned, from the server. This was `referralFreeAgreements()`, a local
-     division of a local counter — so it survived a clawback and could be minted by clearing site
-     data and starting again. `agreements.free` is derived on every request from the qualified
-     referrals that justify it. */
+  /* `agreements.free` is derived per request from the qualified
+     referrals, so a clawback can't leave the perk behind. */
   const free = ent?.agreements?.free ?? 0;
   const bonusSlots = ent?.listings?.referralBonus ?? 0;
   const left = ent?.contacts?.unlimited ? null : (ent?.contacts?.remaining ?? null);
-  /* Listing slots left, both halves from the server. This used to subtract `activeListingCount()`
-     — a count of the listings *this browser* had posted — from `listingLimit(planLimit)`, which
-     added the referral bonus a second time on top of the allowance that already contained it. An
-     owner who had posted from another device was told they had their whole ceiling free. */
-  const [quota, setQuota] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    loadListingQuota(user).then((q) => { if (alive) setQuota(q); });
-    return () => { alive = false; };
-  }, [user]);
-  const slotsLeft = quota?.allowance == null ? null : Math.max(0, quota.allowance - quota.used);
+  const listings = ent?.listings;
+  const slotsLeft = Number.isFinite(listings?.allowance)
+    ? Math.max(0, listings.allowance - (Number(listings.used) || 0))
+    : null;
 
   // The admin fee schedule's figure — the same one the wizard charges for the agreement this rewards.
   const FEE_RENT_AGREEMENT = fee('rentAgreementPlatform');
@@ -143,11 +97,8 @@ export default function Refer() {
     toast(t(ok ? 'misc1.referLinkCopied' : 'misc1.referCodeCopied'), ok ? 'success' : 'error');
   };
 
-  /* A completed share used to bump a local `invited` counter as well as re-reading the server's.
-     It no longer does. That counter incremented every time somebody pressed Share — it was a count
-     of button presses wearing the name of a count of people, and it drifted further from the
-     server's every time the page was used. `GET /me/referrals` counts codes actually redeemed,
-     which is the honest answer to "how many people have you invited", so this just asks again. */
+  /* Only re-read the server: GET /me/referrals counts redeemed
+     codes, the honest answer to how many people were invited. */
   const countInvite = () => { reloadSummary(); };
 
   // Native OS share sheet (mobile-first): WhatsApp, SMS, Telegram, email, etc.
@@ -188,11 +139,8 @@ export default function Refer() {
         {/* Referral code / link / share */}
         <section className="glass rounded-2xl p-5 sm:p-6 lg:col-span-3 min-w-0">
           {!CODE ? (
-            /* Not a spinner for its own sake: every control in this card is a function of the code,
-               so rendering them before it arrives means a Copy button that writes "" and then says
-               "Copied". The failure branch says what failed rather than showing an empty card, and
-               offers the retry, because a referral scheme that silently has no code looks to the
-               user like a scheme they are not in. */
+            /* Controls depend on the code, so rendering early would give a Copy
+               button writing ''; failure offers a retry, not an empty card. */
             <div className="py-10 text-center">
               {summaryFailed ? (
                 <>

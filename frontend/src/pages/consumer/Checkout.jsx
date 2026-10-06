@@ -28,7 +28,7 @@ export default function Checkout() {
   const { flagEnabled } = useAppFlags();
   const [params] = useSearchParams();
   const planId = params.get('plan');
-  // The configured price list, from `GET /pricing`. Only the fallback — `serverPrice` below is the
+  // The configured price list, from `GET /bootstrap` (`pricing`). Only the fallback — `serverPrice` below is the
   // plan catalogue's own number and wins when it resolves.
   const { prices } = usePricing();
   const CO = checkoutPlans(t, prices);

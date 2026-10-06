@@ -24,15 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * {@code GET /admin/reviews} — the queue that {@code PATCH /reviews/{id}/status} needed.
- *
- * <p>Moderation could take a review down but had no way to find one: reviews are post-moderated, so
- * they are published on write, and every other read filters to {@code published}. A moderator could
- * act only on a review whose id they already had — in practice only reported ones. Anything nobody
- * reported was unreachable, and so was the result of any decision already taken, since a rejected
- * review disappears from every public read including this one's only alternative.
- */
+/** {@code GET /admin/reviews}: reviews publish on write, so moderators could only act on ids they already had. */
 @DisplayName("Moderation — the review queue is reachable")
 class ReviewModerationQueueTest extends AbstractApiTest {
 
@@ -86,10 +78,7 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
-    /**
-     * The filter that makes the queue useful after the fact: "what have we taken down". Without it
-     * a rejection is a write with no read anywhere on the platform that can confirm it happened.
-     */
+    /** "What have we taken down": otherwise nothing on the platform can confirm a rejection happened. */
     @Test
     @DisplayName("the status filter narrows to one moderation state")
     void statusFilterNarrowsTheQueue() throws Exception {
@@ -115,10 +104,7 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                 .andExpect(status().isForbidden());
     }
 
-    /**
-     * The loop the two endpoints now close, asserted end to end: find a review, take it down, and
-     * see the decision reflected. Each half existed; only together are they a moderation system.
-     */
+    /** The find-then-take-down loop end to end; each endpoint alone is not a moderation system. */
     @Test
     @DisplayName("a review found in the queue can be taken down and the change is visible there")
     void queueAndDecisionCloseTheLoop() throws Exception {
@@ -138,22 +124,8 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].id").value(r.getId().toString()));
     }
 
-    /**
-     * The queue's rows say which status they are.
-     *
-     * <p><strong>Why this is the test that matters for the unfiltered call.</strong> The controller
-     * describes its useful mode as "no filter at all (everything, newest first, which is how a
-     * moderator finds a review nobody has reported yet)" — and until the field shipped, that mode
-     * returned a mixed-status list in which nothing distinguished a live review from one already
-     * taken down. A moderator could not tell whether a row still needed a decision, so the only
-     * safe reading of every row was "unknown", and the {@code ?status=} filter was not a
-     * convenience but the only way to recover information the response should have carried. Two
-     * requests, and still no single view of the queue.
-     *
-     * <p>Asserted with {@code Matchers.contains}, not a scalar: a JSONPath filter yields an array
-     * even when it selects one element, so {@code value("rejected")} would compare a JSONArray to a
-     * String and fail for the wrong reason.
-     */
+    /** Rows carry their status: without it an unfiltered queue mixes live and rejected reviews indistinguishably.
+     * Uses {@code Matchers.contains} since a JSONPath filter yields an array even for one element. */
     @Test
     @DisplayName("every queue row carries its moderation status, so the unfiltered queue is usable")
     void queueRowsCarryTheirStatus() throws Exception {
@@ -170,20 +142,8 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                         .value(Matchers.contains(ReviewStatuses.REJECTED)));
     }
 
-    /**
-     * And no other read carries it.
-     *
-     * <p>{@code status} is admin-only information, but the reason it is withheld is not only
-     * secrecy: every public read filters {@code status = 'published'} before it maps, so the field
-     * would be a constant there. A constant field is worse than an absent one — it reads like
-     * something a client may branch on, and the first client that writes
-     * {@code if (r.status !== 'published')} against a public list has written a branch that can
-     * never be taken and will never be noticed.
-     *
-     * <p>Absent (NON_NULL) rather than null, so the shape of the response does not advertise that a
-     * field is being withheld. {@code Matchers.empty()} is the assertion for that: the filter
-     * expression selects the row and finds no such key, yielding an empty array.
-     */
+    /** No public read carries {@code status}: it is constant there, and a constant field invites client branches
+     * that never run. Absent (NON_NULL), not null, so the response shape doesn't advertise a withheld field. */
     @Test
     @DisplayName("the public property read does not carry status — it would be a constant there")
     void publicReadsOmitStatus() throws Exception {
@@ -204,9 +164,9 @@ class ReviewModerationQueueTest extends AbstractApiTest {
 
         mvc.perform(get("/properties/" + p.getId() + "/reviews"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id=='" + r.getId() + "')].rating")
+                .andExpect(jsonPath("$.content[?(@.id=='" + r.getId() + "')].rating")
                         .value(Matchers.contains(4)))
-                .andExpect(jsonPath("$[?(@.id=='" + r.getId() + "')].status")
+                .andExpect(jsonPath("$.content[?(@.id=='" + r.getId() + "')].status")
                         .value(Matchers.empty()));
     }
 }

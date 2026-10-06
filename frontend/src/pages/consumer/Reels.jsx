@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import '../../styles/routes/reels.css';
 import { fmtINR, rentLabel } from '../../lib/format.js';
-import { listProperties, getProperty } from '../../services/propertyService.js';
-import { isResidentialHome } from '../../data/propertyTypes.js';
+import { getProperty, searchListings } from '../../services/propertyService.js';
+import { RESIDENTIAL_KEYS } from '../../data/propertyTypes.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 /* The feed is the live catalogue, not a curated list — a hardcoded set means a newly posted home can never appear
@@ -14,18 +14,16 @@ import { useToast } from '../../context/ToastContext.jsx';
 /* Past this the horizontal swipe outlasts the viewer, and the vertical feed — which is the point of the page — stops
    advancing. */
 const MIN_PHOTOS = 3;
-/* How many listings the feed will open detail requests for. */
 const MAX_PHOTOS = 5;
 const FEED_MAX = 24;
-/* How many photos this listing has, which is not the same as which ones it has. */
-
-const photoCountOf = (p) => p.photoCount ?? (p.gallery || []).length;
+/* `flatmates` keeps shared rooms in the feed: the server's building keys alone exclude any listing with a share type. */
+const REEL_QUERY = { types: [...RESIDENTIAL_KEYS, 'flatmates'], minPhotos: MIN_PHOTOS, sort: 'createdAt,desc' };
 
 const toReel = (p) => ({
   /* Carried alongside `id` because they are different strings and the save needs the other one. */
   id: p.id,
   uuid: p.uuid,
-  photos: (p.gallery || []).slice(0, MAX_PHOTOS),
+  photos: ((p.gallery || []).length ? p.gallery : [p.image]).filter(Boolean).slice(0, MAX_PHOTOS),
   title: p.title,
   loc: p.locality,
   deal: p.deal,
@@ -62,30 +60,10 @@ export default function Reels() {
   const [feed, setFeed] = useState(null);
 
   useEffect(() => {
-    /* Two rounds, because the two halves of a reel live on two different responses. */
     let alive = true;
-    listProperties({}, 'newest').then(async (all) => {
+    searchListings(REEL_QUERY, { size: FEED_MAX }).then(({ items }) => {
       if (!alive) return;
-      const eligible = all
-        .filter((p) => isResidentialHome(p.type) && photoCountOf(p) >= MIN_PHOTOS)
-        .slice(0, FEED_MAX);
-
-      const hydrated = await Promise.all(eligible.map(async (p) => {
-        // A list row that already carries enough of a gallery needs no detail fetch.
-        if ((p.gallery || []).length >= MIN_PHOTOS) return p;
-        try {
-          return (await getProperty(p.id)) || null;
-          // One listing failing to open is not a reason to show an empty feed. Drop it and keep the rest — the gate
-          // below re-checks, so a partial detail cannot slip through as a one-frame "tour".
-        } catch {
-          return null;
-        }
-      }));
-
-      if (!alive) return;
-      setFeed(hydrated
-        .filter((p) => p && (p.gallery || []).length >= MIN_PHOTOS)
-        .map(toReel));
+      setFeed(items.map(toReel));
       // `feed` stays null forever on a rejection, and null is the loading state — so a failed catalogue read renders
       // "loading" indefinitely.
     }).catch(() => {
@@ -94,10 +72,15 @@ export default function Reels() {
     return () => { alive = false; };
   }, []);
 
+  /* A list row carries only the cover, so a reel's gallery is its detail read, fetched for the reel
+     in view and the next one rather than for the whole feed up front. */
+  const [galleries, setGalleries] = useState({});
+  const requested = useRef(new Set());
+
   const reels = useMemo(() => {
-    const list = feed || [];
+    const list = (feed || []).map((r) => (galleries[r.id] ? { ...r, photos: galleries[r.id] } : r));
     return filter === 'all' ? list : list.filter((r) => r.deal === filter);
-  }, [feed, filter]);
+  }, [feed, galleries, filter]);
   /* Liked is session-only and intentionally uncounted. */
 
   const [liked, setLiked] = useState(() => new Set());
@@ -114,6 +97,19 @@ export default function Reels() {
   const activeRef = useRef(0);
   const burstSeq = useRef(0);
   activeRef.current = active;
+
+  useEffect(() => {
+    [reels[active], reels[active + 1]].forEach((r) => {
+      if (!r || requested.current.has(r.id)) return;
+      requested.current.add(r.id);
+      getProperty(r.id)
+        .then((p) => {
+          const photos = (p?.gallery || []).slice(0, MAX_PHOTOS);
+          if (photos.length) setGalleries((g) => ({ ...g, [r.id]: photos }));
+        })
+        .catch(() => {});
+    });
+  }, [reels, active]);
 
   const setReelRef = useCallback((id) => (el) => {
     if (el) reelRefs.current[id] = el; else delete reelRefs.current[id];

@@ -20,7 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-@DisplayName("GET /listing-policy — the photo limit an admin sets is the one a visitor is quoted")
+@DisplayName("GET /bootstrap listingPolicy — the photo limit an admin sets is the one a visitor is quoted")
 class ListingPolicyEndpointTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
@@ -42,9 +42,9 @@ class ListingPolicyEndpointTest extends AbstractApiTest {
     @Test
     @DisplayName("anonymous callers get ten when nobody has configured it")
     void defaultsToTen() throws Exception {
-        mvc.perform(get(Routes.ListingPolicy.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.maxPhotos").value(10));
+                .andExpect(jsonPath("$.listingPolicy.maxPhotos").value(10));
     }
 
     @Test
@@ -52,9 +52,9 @@ class ListingPolicyEndpointTest extends AbstractApiTest {
     void anAdminChangeIsPublished() throws Exception {
         putListings("{\"maxPhotos\":6}").andExpect(status().isOk());
 
-        mvc.perform(get(Routes.ListingPolicy.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.maxPhotos").value(6));
+                .andExpect(jsonPath("$.listingPolicy.maxPhotos").value(6));
     }
 
     @ParameterizedTest
@@ -65,7 +65,7 @@ class ListingPolicyEndpointTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.message", containsString("listings.maxPhotos")));
 
-        mvc.perform(get(Routes.ListingPolicy.BASE))
-                .andExpect(jsonPath("$.maxPhotos").value(10));
+        mvc.perform(get(Routes.Bootstrap.BASE))
+                .andExpect(jsonPath("$.listingPolicy.maxPhotos").value(10));
     }
 }

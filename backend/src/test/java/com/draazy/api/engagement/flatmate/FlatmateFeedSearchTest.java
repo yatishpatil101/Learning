@@ -16,10 +16,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/**
- * Native {@code UNION ALL} SQL the compiler cannot check, where a bad column or cast is a 500 on a
- * default page load. Each facet is asserted alone, since an {@code and} already false hides errors.
- */
+/** Native {@code UNION ALL} SQL the compiler can't check: a bad column or cast is a 500 on a default page load.
+ * Each facet is asserted alone, since an {@code and} already false hides errors. */
 @DisplayName("Flatmate feed — every facet and every sort produces runnable SQL")
 class FlatmateFeedSearchTest extends AbstractApiTest {
 
@@ -31,10 +29,7 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
         return Arguments.of(name, requests);
     }
 
-    /**
-     * The verified subtotal can exceed the total only if the two were counted over different sets.
-     * Asserting the relation rather than either number keeps this independent of the fixture.
-     */
+    /** Verified subtotal > total only if counted over different sets; asserting the relation is fixture-free. */
     private void expectWellFormedPage(MockHttpServletRequestBuilder request) throws Exception {
         String body = mvc.perform(request)
                 .andExpect(status().isOk())
@@ -221,10 +216,7 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * `tab` chooses which half of the market is searched, so an unrecognised one must not be
-     * guessed. `sort` falls back for the opposite reason: it only reorders a correct answer.
-     */
+    /** `tab` picks which half of the market is searched, so unknowns aren't guessed; `sort` only reorders. */
     @Test
     @DisplayName("an absent tab defaults; an unrecognised one is refused rather than guessed")
     void tabResolution() throws Exception {
@@ -232,10 +224,7 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
         mvc.perform(feed("nonsense-tab")).andExpect(status().isBadRequest());
     }
 
-    /**
-     * A semantic check, not just an executability one: a predicate that is merely always false runs,
-     * plans and answers a well-formed page of an empty set. The relation holds for any fixture.
-     */
+    /** Semantic, not just executable: an always-false predicate still plans and returns an empty page. */
     @Test
     @DisplayName("a later move-in cutoff never returns fewer rows than an earlier one")
     void moveInDaysWidensMonotonically() throws Exception {
@@ -253,10 +242,7 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * Junk passed through narrows to nothing, so a typo or stale deep link reads as "the board is
-     * empty". Asserted against the unfiltered total, making it a claim about the junk, not the fixture.
-     */
+    /** Junk must not narrow to nothing, or a typo or stale deep link reads as "the board is empty". */
     @Test
     @DisplayName("an unknown facet value is ignored rather than matching nothing")
     void unknownFacetValuesAreDropped() throws Exception {
@@ -269,10 +255,7 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
                 .isEqualTo(totalOf(feed("move-in").param("attachedBath", "attached")));
     }
 
-    /**
-     * Zero rows means the window functions have no row to read totals off, so they are counted
-     * separately; reporting 0 would collapse {@code totalPages} and unmount the pager on page 4.
-     */
+    /** With zero rows the window functions can't read totals, so count separately; 0 would unmount the pager. */
     @Test
     @DisplayName("a page past the end is empty but still reports the whole match set")
     void pastTheEnd() throws Exception {
@@ -282,5 +265,17 @@ class FlatmateFeedSearchTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content").isEmpty())
                 .andExpect(jsonPath("$.totalElements").value((int) whole));
+    }
+
+    @Test
+    @DisplayName("each tab reports the other tab's total under the same facets")
+    void otherTabTotalMatchesTheOtherTab() throws Exception {
+        for (String[] pair : new String[][] {{"move-in", "team-up"}, {"team-up", "move-in"}}) {
+            String json = mvc.perform(feed(pair[0]).param("verifiedOnly", "true").param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            long other = ((Number) JsonPath.read(json, "$.otherTabElements")).longValue();
+            assertThat(other).as(pair[0]).isEqualTo(totalOf(feed(pair[1]).param("verifiedOnly", "true")));
+        }
     }
 }

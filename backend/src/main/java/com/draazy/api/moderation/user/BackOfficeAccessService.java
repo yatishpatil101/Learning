@@ -12,7 +12,6 @@ import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficeFunctions;
-import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Roles;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -24,42 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Read and replace one back-office account's permission document (tech debt D192/D13).
- *
- * <p>This is the half {@code V61} said did not exist: "no team-member management endpoint of any
- * kind — the Team &amp; Access console writes to browser storage". A document nothing can write is
- * as useless as one nothing reads, and a document the <em>browser</em> writes is the allow-list the
- * client opts out of, so both halves ship together or neither does.
- *
- * <h2>The four refusals, and why each is a refusal rather than a shrug</h2>
- *
- * <ol>
- *   <li><strong>A name the catalogue does not contain.</strong> 422. {@link AccountPermissions}
- *       would drop it harmlessly, so storing it would be safe — and that is exactly the problem it
- *       would cause. {@code settings.customRoles} was safe for its whole life too, right up until
- *       somebody wired it and it began granting what had accumulated in it while an operator was
- *       told it did something. An administrator who ticks {@code properties:verify} because their
- *       console still offers it must be told the server does not enforce it, not quietly obeyed.</li>
- *   <li><strong>A name this account's role can never hold.</strong> 422. The intersection would drop
- *       it, so this is the same argument one rung down: a stored {@code settings:write} on a staff
- *       account is a line in an access-control document that reads like a grant and is not one.</li>
- *   <li><strong>A target who is not back-office.</strong> 422. A buyer has no back-office
- *       baseline to narrow, so a document for one could only ever be read as an attempt to grant.
- *       Refusing here means the table never holds a row whose only possible reading is the wrong
- *       one.</li>
- *   <li><strong>The caller editing their own document.</strong> 403, and this one is operational
- *       rather than philosophical. Writing this document requires {@code users:write}; an
- *       administrator or manager who removes {@code users:write} from themselves has removed the
- *       ability to put it back, and the repair is a database edit during whatever incident
- *       prompted the change.</li>
- * </ol>
- *
- * <p><strong>Every write is audited</strong>, with the resulting document in the context. The audit
- * row is the only record of what an account's access used to be — the table itself keeps just the
- * current document, deliberately, since a history table for a control this small would be more
- * machinery than the question deserves and {@code audit_log} already answers "who changed what".
- */
+/** Replaces one account's permission document; each write is audited since the table keeps only the current one.
+ * Self-edit is refused: dropping {@code users:write} would lock the caller out. */
 @Service
 public class BackOfficeAccessService {
 
@@ -81,10 +46,6 @@ public class BackOfficeAccessService {
         this.adminNotifications = adminNotifications;
     }
 
-    /** Everything the server enforces, in render order. Static data; no account is involved. */
-    public List<BackOfficePermissions.Permission> catalogue() {
-        return BackOfficePermissions.CATALOGUE;
-    }
 
     public List<BackOfficeFunctions.Function> functionCatalogue() {
         return BackOfficeFunctions.CATALOGUE;
@@ -174,15 +135,7 @@ public class BackOfficeAccessService {
         return read(actor, id);
     }
 
-    /**
-     * The stored names as a list, or an empty list if the row is unreadable.
-     *
-     * <p>The screen showing an administrator a corrupt document as "nothing stored" is a lie the
-     * effective set immediately corrects: {@link AccountPermissions} denies everything for that row,
-     * so the response's {@code effective} is empty too — and empty-effective with a
-     * {@code scoped: true} flag is a state the console can only reach this way. Throwing instead
-     * would take the repair screen down along with the row it exists to repair.
-     */
+    /** Unreadable rows give an empty list so the repair screen survives the row it repairs. */
     private List<String> parseStored(String raw) {
         try {
             JsonNode document = objectMapper.readTree(raw);

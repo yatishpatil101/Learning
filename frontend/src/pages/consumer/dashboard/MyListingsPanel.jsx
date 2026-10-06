@@ -82,7 +82,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const refreshSplits = useCallback(async (key) => {
     if (!key) { setSplitByProp({}); return; }
     try {
-      const page = await myFlatmateRooms({ size: 200 });
+      const page = await myFlatmateRooms({ size: 100 });
       const map = {};
       (page?.items || []).forEach((room) => {
         if (!room.propertyId) return;
@@ -102,13 +102,12 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const splitOf = useCallback(
     (l) => splitByProp[String(l.uuid || l.id)] || null,
     [splitByProp],
+  );
   // Paid owner plans toggle featuring themselves; free plans see an upsell. `isPaidOwner` is false
   // until a subscription is active, so an abandoned checkout never hands out a paid tool.
-  );
   const featuringOn = flagEnabled('paidFeaturedListings');
 
-    // loadOwnerProperties also runs the managed-record bridge (a write), so guard
-    // against a storage failure leaving the list stuck on stale/empty data.
+  // A failed reload keeps the list on screen rather than blanking it.
   const refreshListings = useCallback(async ({ notifyParent = false } = {}) => {
     try {
       const next = await loadOwnerProperties(user);
@@ -127,7 +126,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const [quota, setQuota] = useState({ used: 0, allowance: null });
   useEffect(() => {
     let live = true;
-    loadListingQuota(user)
+    loadListingQuota()
       .then((next) => { if (live) setQuota(next); })
       .catch(() => { if (live) setQuota({ used: 0, allowance: null }); });
     return () => { live = false; };

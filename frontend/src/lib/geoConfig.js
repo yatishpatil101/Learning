@@ -1,14 +1,11 @@
-/* Single source of truth for the app's Google-Places geo policy. Framework-agnostic and
-   synchronous: `loadGeoPolicy()` fetches once at boot and caches here, because turning "is this
-   place blacklisted" into a promise would push an await into every keystroke handler. The
-   built-in defaults below serve the window before that resolves. Reads its cache lazily inside
-   functions to stay init-order safe. */
+/* Synchronous cache of the geo policy, so no await lands in
+   every keystroke handler; built-in defaults cover boot. / */
 
 import { listCities as fetchCities } from '../services/cityService.js';
 import { getGeo } from '../services/settingsService.js';
 
 // `live` here is only the fail-soft fallback used when the city catalogue cannot be reached;
-// the authoritative launch status is a column on the roster served by `GET /cities`.
+// the authoritative launch status is a column on the roster served by `GET /bootstrap` (`cities`).
 export const CITY_GEO = {
   Pune: {
     center: { lat: 18.553, lng: 73.86 },
@@ -58,7 +55,7 @@ export function getActiveCity() {
 // `{}` means the same thing to every consumer below: no overrides, use the built-ins.
 let geoPolicy = {};
 
-// The curated city roster and its live bit. Served by `GET /cities`; the built-ins stand in only
+// The curated city roster and its live bit. Served by `GET /bootstrap` (`cities`); the built-ins stand in only
 // until that first fetch lands, or for as long as it keeps failing.
 let cityRoster = defaultCityRoster();
 
@@ -112,7 +109,7 @@ export async function loadGeoPolicy() {
   const mine = ++started;
   try {
     // `allSettled`, emphatically not `all`: the blacklist's default fails *open*, so coupling it
-    // to a 502 on `/cities` would silently un-hide every place the operator suppressed.
+    // to a failed roster read would silently un-hide every place the operator suppressed.
     const [geoResult, citiesResult] = await Promise.allSettled([getGeo(), fetchCities()]);
     // Drop a response from a request that has since been superseded: without this an admin who
     // saves twice quickly can have the first save's policy overwrite the second's.

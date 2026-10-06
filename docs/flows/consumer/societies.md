@@ -125,20 +125,26 @@ answer `pool[fnvHash(listing.id) % pool.length]` over the locality's societies, 
 all but one listing in a pool-sized group by construction, and the property page printed the chosen
 building's builder, towers, units, year and occupancy as if they described the home. Callers must
 handle null - the property page's Society section renders **nothing at all** when unbound, because a
-heading over a generic "Building" still asserts membership. `listingsInSociety(listings, socId)`
-filters listings whose bound society id matches, so an unbound listing counts towards no hub.
+heading over a generic "Building" still asserts membership. A hub's homes come from the server
+(`GET /properties?societies=<slug>`), so an unbound listing counts towards no hub.
 
 ### 5.3 Societies index (`Societies.jsx`)
 - Enriches every society with `{ verified, community, managed, rating: entityRating('society', slug),
-  homes: listingsInSociety(listings, id).length }`. The rating is keyed on the **slug**, which is what
-  the hub writes reviews under; the synthetic `S01`-style `id` is only ever a listings-join key.
-- **Filters:** locality (`loc`), verified-only toggle, free-text `q` over `name + builder +
-  localityTitle`. Locality + query mirror into the URL (shareable/deep-linkable).
-- **Sorts:**
+  homes: listingCount }`, where `listingCount` is the server's count on each `GET /societies` row.
+  The rating is keyed on the **slug**, which is what the hub writes reviews under.
+- **One server page at a time.** The page asks `GET /societies?q&locality&verified&sort&page&size=24`
+  and draws what comes back; "Show more" asks for the next page. First load is `/bootstrap` plus one
+  ~19 KB read rather than a 4-page, 271 KB walk of the directory. `q` is debounced (250 ms); `loc` and
+  `q` mirror into the URL (shareable/deep-linkable). The locality dropdown is the bundled locality
+  registry (`data/localities.js`), not derived from loaded rows.
+- **Filters** (all server-side): `locality` (exact slug) and `q`, a case-insensitive substring over
+  `name + builder + locality words` (`baner-road` is "baner road"). Archived rows never appear.
+- **Sorts** (`sort=`), ranked over the **whole filtered set** before paging, so page 2 continues
+  page 1. Aggregates are the card's own (listings and reviews summed over the merge family):
   - `relevance` (default): `rel = Number(verified)*4 + min(homes,3) + rating.avg/5`, desc, then name.
   - `rating`: avg desc, then count desc, then name.
   - `homes`: homes desc, then verified desc, then name.
-  - `name`: A-Z.
+  - `name`: A-Z (a plain `ORDER BY name`, paged in SQL).
 - **Add-society funnel:** the "Can't find X?" CTA shows when `query.trim().length >= 2` and no exact
   name match. `addSociety` -> `mintDemandSociety({ name, localitySlug })` which mints a `community`
   candidate (`source: 'demand'`), then the page follows it through `FollowContext` and navigates to
@@ -462,16 +468,24 @@ exposing a sort the schema cannot serve.
 
 **Follows come in two operations on purpose.** `listFollowedSocieties` narrows to slugs for
 `FollowContext`, which is mounted app-wide, answers `has(slug)` for every society card on every page
-from memory, and must not hold up to 500 full records to compute a set of strings; the slugs also
-resolve through the local catalogue for the synthetic `S01` id that `listingsInSociety` joins on,
-where a server UUID would match no listings. `listFollowedSocietyRows` returns whole rows for the
+from memory, and must not hold up to 500 full records to compute a set of strings. `listFollowedSocietyRows` returns whole rows (with `listingCount`) for the
 dashboard panel that has to *draw* the list. The alternative — mapping `getSociety` over the slugs —
 is one request per followed society to draw a name and a locality this endpoint already sends. A
 followed slug the reader cannot resolve is **absent** rather than present as a stub, so `length` may
 be smaller than the follow count. Both reads use `unwrapFullPage`: a follow set that outgrew one
 page would otherwise show as unfollowed, which looks like the user never followed them.
 
-**One read for four facts.** `getSocietyMembership` answers the caller's own residency request,
+**One read for the community sections.** `GET /societies/{slug}/hub` answers `{ membership, questions,
+board, contributions, proposals }`, each section exactly what its own endpoint answered before the
+merge (`getSocietyMembership`, `listSocietyQuestions`, `listSocietyBoard`, `listSocietyContributions`,
+`getSocietyProposals` are now sections of that one response and share a single request for 3s; any
+write clears it). The route is public and caller-aware, so it is deliberately not in
+`PublicReadCacheFilter`. A section the server could not read is `null` (the provider throws, so the
+hub still isolates the failure per section) and an unknown society is a 404 for the whole read; `page`
+and `size` apply to the paged sections, `kind` to the board. `/residents` stays its own committee-only
+call.
+
+**Membership is four facts at once.** The `membership` section answers the caller's own residency request,
 whether they are the committee, the society's live claim, and how many residents are verified,
 because the hub takes all four rendering decisions at once and three reads would flicker controls
 into and out of existence as they landed. It is safe signed out — `resident: null`, `admin: false`,
@@ -623,10 +637,12 @@ server sent rather than being narrowed to a boolean — the hub's badge asks `!!
 answering `true` would make the day it happened unrecoverable downstream. `listingCount` is the
 server's own count of live listings summed over the merge family, and `0` there is a real zero.
 
-**The directory is read page by page**, because it renders every society: page 0 first because it is
-the only way to learn `totalPages`, the rest in parallel. The 20-page stop is a stop, not a page
-size — a wrong `totalPages` would otherwise turn one page load into an unbounded request storm — and
-hitting it warns, because a silently short index renders rated societies as "Not rated yet". The
+**The directory is read one page at a time**, filtered and ordered by the server. `relevance`, `rating`
+and `homes` rank on aggregates computed on read (live listings and published reviews summed over the
+merge family, never the unmaintained `listing_count`/`avg_rating` columns), so `SocietyService.ranked`
+loads the filtered set, ranks it with `SocietyRanking` (same formula and tie-break as the card's) and
+turns only the requested page into cards; `name` and the column sorts stay a SQL `ORDER BY`. A request
+leading with a computed sort echoes `sort: "<mode>,desc"`. The
 listing-bearing rail asks for the server's page ceiling rather than a second smaller literal,
 because the server can only narrow the population: the badge half of "strongest" is not a sortable
 column, so the ordering happens client-side and the candidate set must be well above the eight it

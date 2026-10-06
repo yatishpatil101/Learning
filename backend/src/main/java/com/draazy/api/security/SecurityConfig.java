@@ -90,10 +90,9 @@ public class SecurityConfig {
                                 Routes.Auth.STAFF_INVITE_REDEEM).permitAll()
 
                         // Public catalogue reads. Single-segment matcher keeps deeper writes
-                        // (e.g. /{id}/archive) authenticated; TRUST_STATS is named by decision.
+                        // (e.g. /{id}/archive) authenticated.
                         .requestMatchers(HttpMethod.GET,
                                 Routes.Properties.BASE, Routes.Properties.FEATURED,
-                                Routes.Properties.TRUST_STATS,
                                 Routes.Properties.ANY_SINGLE).permitAll()
 
                         // The public seller card — the only public route that reads the users
@@ -103,27 +102,17 @@ public class SecurityConfig {
                         // Public reference catalogue: the pages a visitor sees before deciding
                         // whether to sign up at all. Why each is public: cross-cutting.md §8.4.
                         .requestMatchers(HttpMethod.GET,
-                                Routes.Cities.BASE,
                                 Routes.Localities.BASE,
                                 Routes.Societies.BASE, Routes.Societies.ANY_SINGLE,
 
-                                // The five public two-segment society reads, named individually
-                                // because ANY_SINGLE does not cover them and its siblings are writes.
-                                Routes.Societies.MEMBERSHIP,
-                                Routes.Societies.QUESTIONS,
-                                Routes.Societies.BOARD,
-                                Routes.Societies.CONTRIBUTIONS,
-                                Routes.Societies.PROPOSALS,
+                                // The public two-segment society read, named individually
+                                // because ANY_SINGLE does not cover it and its siblings are writes.
+                                Routes.Societies.HUB,
                                 Routes.Fees.BASE,
 
-                                // The config blocks a logged-out visitor's render depends on, each
-                                // scoped to one block so the rest of /admin/settings stays admin.
-                                Routes.Flags.BASE,
-                                Routes.Plans.BASE,
-                                Routes.MovePack.BASE,
-                                Routes.Pricing.BASE,
-                                Routes.ListingPolicy.BASE,
-                                Routes.Geo.BASE).permitAll()
+                                // Flags, geo, cities, prices and plans: what a logged-out visitor's
+                                // render depends on, each section scoped so /admin/settings stays admin.
+                                Routes.Bootstrap.BASE).permitAll()
 
                         .requestMatchers(HttpMethod.POST, Routes.Cities.WAITLIST).permitAll()
 
@@ -148,9 +137,8 @@ public class SecurityConfig {
                         // serve a public GET and an authenticated POST on the identical path.
                         .requestMatchers(HttpMethod.GET,
                                 Routes.Content.FAQS,
-                                Routes.Reviews.FOR_PROPERTY, Routes.Reviews.SUMMARY_FOR_PROPERTY,
-                                Routes.Reviews.FOR_ENTITY,
-                                Routes.Reviews.SUMMARY_FOR_ENTITY).permitAll()
+                                Routes.Reviews.FOR_PROPERTY,
+                                Routes.Reviews.FOR_ENTITY).permitAll()
 
                         // Token-scoped document share: the expiring token IS the credential,
                         // checked in DocumentRequestService.shared. GET-only and exact-path.

@@ -56,7 +56,7 @@ class MaintenanceModeFilterTest extends AbstractApiTest {
     void maintenanceLeavesReadsAlone() throws Exception {
         setMaintenance(true);
 
-        mvc.perform(get(Routes.Flags.BASE)).andExpect(status().isOk());
+        mvc.perform(get(Routes.Bootstrap.BASE)).andExpect(status().isOk());
     }
 
     @Test

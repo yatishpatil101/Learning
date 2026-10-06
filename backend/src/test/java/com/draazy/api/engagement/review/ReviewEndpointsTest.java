@@ -28,20 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Contract + behaviour proof for reviews.
- *
- * <p><strong>What is at stake here is different from every earlier slice.</strong> Elsewhere the
- * risk was "can I read someone else's row?". Reviews are the trust surface, so the failure mode is a
- * caller <em>writing</em> rows they have not earned — stacking a listing with praise, burying a
- * rival, or forging the "Verified resident" badge that makes a review worth believing. That rule
- * used to live in {@code ReviewsSection.jsx}: in the browser, which is to say nowhere. The
- * load-bearing assertions below are therefore the eligibility refusals, the derived-not-supplied
- * badge, and one-review-per-author.
- *
- * <p>Runs against the live Flyway'd Postgres so V16's UNIQUE index is the real one. Rows are
- * created in-test and rolled back.
- */
+/** Runs on the live Flyway'd Postgres so V16's UNIQUE index is real. The risk here is unearned writes, so the key
+ * assertions are the eligibility refusals, the derived (not supplied) badge, and one review per author. */
 @DisplayName("Engagement — reviews")
 class ReviewEndpointsTest extends AbstractApiTest {
 
@@ -316,8 +304,9 @@ class ReviewEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get("/properties/" + p.getId() + "/reviews"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].rating").value(5));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].rating").value(5))
+                .andExpect(jsonPath("$.summary.reviewCount").value(1));
     }
 
     // ---------------------------------------------------- entity review writes
@@ -399,9 +388,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.categories.Maintenance").doesNotExist())
                 .andExpect(jsonPath("$.categories.length()").value(2));
 
-        // `accuracy` is a perfectly good key — for a property. Refused here, not dropped: a 201
-        // with the aspect silently gone is a write the caller believes worked and a bar that
-        // stays empty forever.
+        // `accuracy` is a property key: refused, not dropped, since a 201 with the aspect gone misleads.
         User other = user("9820000031", "Meera Kulkarni");
         mvc.perform(post("/reviews/society/" + slug)
                         .header(HttpHeaders.AUTHORIZATION, bearer(other))
@@ -439,9 +426,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
     @DisplayName("a locality review keys on the slug and keeps the property vocabulary it has always accepted")
     void localityReviewsKeepTheirVocabulary() throws Exception {
         User author = user("9820000033", "Rahul Joshi");
-        // Its own locality rather than a seeded one: this asserts an exact stored value, and a
-        // fixture shared with the rest of the suite would make that depend on reference data the
-        // test does not own.
+        // Own locality, not a seeded one: an exact stored value must not depend on data the test doesn't own.
         String slug = "vocab-fixture-baner";
         jdbc.update("insert into localities (slug, name) values (?, ?)", slug, "Fixture Baner");
 

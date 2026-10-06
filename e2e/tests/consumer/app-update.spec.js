@@ -34,8 +34,7 @@ async function stampBuild(page) {
     }
     hits += 1;
     const build = frozen || hits === 1 ? BUILD_BOOT : BUILD_DEPLOYED;
-    /* The reload under test tears the document down mid-flight, which disposes responses still in
-       the handler. Nothing is owed to a request whose page no longer exists. */
+    /* The reload disposes responses still in the handler mid-flight; nothing is owed to a dead page. */
     try {
       await route.fulfill({ response, headers: { ...response.headers(), 'X-Draazy-Build': build } });
     } catch {
@@ -55,12 +54,20 @@ const countBoots = async (page) => {
   return () => page.evaluate(() => Number(sessionStorage.getItem('dz:e2e:boots') || 0));
 };
 
+/* A guest on /listings sends one stamped read: the reference reads are cached and unstamped, and
+   the page-view beacon waits a minute. A client-side search change is the user's next request. */
+const searchAgain = (page) => page.evaluate(() => {
+  window.history.pushState({}, '', '/listings?deal=rent');
+  window.dispatchEvent(new PopStateEvent('popstate'));
+});
+
 test.describe('App update banner', () => {
   test('a deploy mid-session offers a reload, takes none by itself, and reloads when asked', async ({ page }) => {
     const boots = await countBoots(page);
     const api = await stampBuild(page);
 
     await open(page, '/listings');
+    await searchAgain(page);
 
     await expect(banner(page)).toContainText(UPDATE_TITLE);
     /* The banner is answering a real change of build, not an absent header or a single lonely
@@ -87,6 +94,7 @@ test.describe('App update banner', () => {
     const api = await stampBuild(page);
 
     await open(page, '/listings');
+    await searchAgain(page);
     await expect(banner(page)).toContainText(UPDATE_TITLE);
 
     await dismissButton(page).click();
@@ -112,6 +120,7 @@ test.describe('App update banner', () => {
     await stampBuild(page);
 
     await open(page, '/listings');
+    await searchAgain(page);
     await expect(banner(page)).toContainText(UPDATE_TITLE);
 
     await context.setOffline(true);
@@ -134,6 +143,7 @@ test.describe('App update banner', () => {
     api.freeze();
 
     await open(page, '/listings');
+    await searchAgain(page);
 
     /* The control: without it the suite could not tell a working latch from a banner that is
        simply always on. */

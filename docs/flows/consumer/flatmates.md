@@ -373,7 +373,8 @@ The single decision point every supply path calls - group create, single-room po
 - **Empty-state intelligence:** when a tab is empty and budget is the binding constraint, `raiseHint`
   finds the cheapest post that *would* match at "Any" and offers a concrete "raise your budget to ₹X"
   instead of a dead end. When the other tab still holds stock for the same filters, the empty state
-  offers a **cross-tab rescue** (`otherCount` / `switchTab`) rather than "widen your budget".
+  offers a **cross-tab rescue** (`otherCount` / `switchTab`) rather than "widen your budget". The
+  count arrives on the feed response itself (`otherTabElements`, same facets), not a second request.
 
 ### Alerts (`alertCriteria.js`, `FlatmateAlertCard`)
 - `buildFlatmateAlertRecord(filters, tab)` produces `{ kind: 'flatmates', tab, ...filters, label }`,
@@ -528,14 +529,12 @@ it lives with the flow it serves.
 - **Owner tier is re-asked, not granted once.** `deriveTier` runs only on a host-initiated write, so
   a listing archived or sent back to pending afterwards used to leave its rooms badged with nobody
   able to take it back: owner tier never enters the Ops queue, so there was no lever. An hourly
-  sweep (`FlatmateModerationService.reconcileOwnerTier`) re-asks the question of every standing
+  sweep (`FlatmateTrustReconciler.reconcileOwnerTier`) re-asks the question of every standing
   claim and demotes the ones whose listing has stopped standing — to `tenant` if the host also
   declared an agreement, else `identity`, either way unbadged until Ops says otherwise. It is a
   sweep rather than a hook on each status change because seven places across four modules write a
-  property status, and the eighth that forgets would be silent. Ops can also run the same pass on
-  demand — `POST /admin/flatmate-reviews/reconcile-owner-tier`, which answers how many posts it
-  demoted — for the case the hourly cadence is too slow for: a listing pulled precisely *because*
-  its owner turned out not to own it. It is idempotent, so two people working the queue is safe.
+  property status, and the eighth that forgets would be silent. It is idempotent: it re-asks a
+  question rather than applying a delta, so a repeat pass finds nothing left to do.
 - **Sorting.** Every branch ends in `id desc`: without a total order two rows sharing a timestamp or
   a price may come back in either order from page to page, and the boundary row is then shown twice
   or skipped. A null price sorts `nulls last` in both directions, because "we do not know" is neither
@@ -819,11 +818,10 @@ surfaces the validation error rather than smoothing it over.
 (`bring`) or wants to be paired (`match`) — a two-person `bring` against a one-seat room is a
 different conversation.
 
-**Owner consent has a group-less twin.** `recordOwnerConsent` records onto a group and so needs one;
-`requestOwnerConsent` is taken *before* the group exists, which is when the form asks for it. The
-consent is keyed on (owner mobile, tenant) rather than on a post, so it can be granted first and
-read back at submit time. Both are called twice — without `otp` to send the owner a code, with it to
-record consent. `resendAfterSeconds` is passed through and never defaulted: it is present only on
+**Owner consent is taken before the group exists.** `requestOwnerConsent` runs when the form asks
+for it, so the consent is keyed on (owner mobile, tenant, flat) rather than on a post, and can be
+granted first and read back at submit time. It is called twice — without `otp` to send the owner a
+code, with it to record consent. `resendAfterSeconds` is passed through and never defaulted: it is present only on
 the send call, and the countdown has to be the gap this deployment will actually enforce, since a
 number invented client-side would re-enable "Resend" while the server was still refusing.
 

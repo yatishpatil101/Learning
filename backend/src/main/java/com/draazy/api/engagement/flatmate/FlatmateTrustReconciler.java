@@ -3,13 +3,11 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
-import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.trust.RegisteredTenancyLookup;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
-import com.draazy.api.security.AuthPrincipal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,12 +28,11 @@ public class FlatmateTrustReconciler {
     private final UserRepository users;
     private final FlatmateBadges badges;
     private final Notifier notifier;
-    private final AuditService audit;
 
     public FlatmateTrustReconciler(FlatmateReviewRepository reviews, FlatmateRoomRepository rooms,
             FlatmateGroupRepository groups,
             PropertyRepository properties, RegisteredTenancyLookup agreements,
-            UserRepository users, FlatmateBadges badges, Notifier notifier, AuditService audit) {
+            UserRepository users, FlatmateBadges badges, Notifier notifier) {
         this.reviews = reviews;
         this.rooms = rooms;
         this.groups = groups;
@@ -44,7 +41,6 @@ public class FlatmateTrustReconciler {
         this.users = users;
         this.badges = badges;
         this.notifier = notifier;
-        this.audit = audit;
     }
 
     /** {@code deriveTier} runs only on a host-initiated write, so without this pass an owner-tier
@@ -82,16 +78,6 @@ public class FlatmateTrustReconciler {
         notifier.notify(hostId, "flatmate.moderated.held", "Your flatmate ad is back in review",
                 "The listing it was linked to is no longer live, so our team will check the ad"
                         + " before it shows again.", link);
-    }
-
-    /** A button because the hourly tick is the wrong latency for a listing pulled precisely because
-     * its owner turned out not to own it. */
-    @Transactional
-    public int reconcileOwnerTier(AuthPrincipal caller) {
-        int demoted = reconcileOwnerTier();
-        audit.record(caller, "flatmate.ownerTier.reconcile", "flatmateReview", "all",
-                "demoted", String.valueOf(demoted));
-        return demoted;
     }
 
     /** {@code deriveTier}'s conditions minus ownership — the fingerprint records the flat, not who

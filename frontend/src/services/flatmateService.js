@@ -15,8 +15,6 @@ export const setRoomSeats = async (id, seatsOpen) => (await provider()).setRoomS
 export const setRoomOccupants = async (id, occupants) => (await provider()).setRoomOccupants(id, occupants);
 /** Ask to take the room. Creates a `pending` request in the host's inbox. */
 export const roomInterest = async (id, body) => (await provider()).roomInterest(id, body);
-/** Re-request the rental-agreement evidence behind a room. */
-export const reissueRoomAgreement = async (id) => (await provider()).reissueRoomAgreement(id);
 
 /* ─── Groups ────────────────────────────────────────────────────────────────────────────────── */
 
@@ -38,9 +36,6 @@ export const leaveGroup = async (id) => (await provider()).leaveGroup(id);
 export const removeGroupMember = async (id, memberId) => (await provider()).removeGroupMember(id, memberId);
 /** Take back a pending request. `kind` = `group` | `room` | `flatmate`. */
 export const withdrawInterest = async (kind, id) => (await provider()).withdrawInterest(kind, id);
-
-/** The flat owner acknowledges a tenant's sublet — the anti-broker guardrail. */
-export const recordOwnerConsent = async (id, body) => (await provider()).recordOwnerConsent(id, body);
 
 /** The same acknowledgement taken *before* the group exists: keyed on (owner mobile, tenant), so it can be granted
  * first and read back at submit. Called twice — without `otp`, then with it. */

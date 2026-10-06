@@ -48,7 +48,7 @@ test.describe('LIVE: caller-scoped flatmate state', () => {
 
     await signIn(page, mobile);
     const myPosts = page.waitForResponse((response) =>
-      response.url().includes('/api/me/flatmate-posts') && response.request().method() === 'GET' && response.status() === 200,
+      response.url().includes('/api/me/dashboard') && response.request().method() === 'GET' && response.status() === 200,
     );
     await page.goto('/dashboard');
     await myPosts;

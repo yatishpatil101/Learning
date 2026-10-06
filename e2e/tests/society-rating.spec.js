@@ -103,8 +103,9 @@ test('the live directory card reports the aggregate the server computed', async 
 
   // The per-aspect half, against Postgres rather than a browser store.
   const summary = await page.request
-    .get(`/api/reviews/society/${chosen.slug}/summary`)
-    .then((r) => r.json());
+    .get(`/api/reviews/society/${chosen.slug}`)
+    .then((r) => r.json())
+    .then((body) => body.summary);
   const catAvg = summary.categoryAverages || {};
   expect(Object.keys(catAvg).sort())
     .toEqual(Object.keys(catAvg).filter((k) => SOCIETY_ASPECTS.includes(k)).sort());

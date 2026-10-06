@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import RotatingNoun from '../../components/RotatingNoun.jsx';
@@ -20,15 +21,22 @@ import CtaSection from './home/CtaSection.jsx';
 import FaqSection from './home/FaqSection.jsx';
 import NotifyMe from '../../components/pmf/NotifyMe.jsx';
 
+const LG = '(min-width: 1024px)';
+
 export default function Home() {
   const { t } = useTranslation();
   const rootRef = useScrollReveal();
   const navigate = useNavigate();
-  // Active city drives all city-facing copy + which sections render. Cities we have no
-  // inventory for (everything but Pune today) get city-aware copy and an honest empty
-  // state instead of Pune content.
+  // Cities without inventory (all but Pune) get city-aware copy and an honest empty state instead of Pune content.
   const { city } = useCity();
   const hasData = cityHasData(city);
+  const [wide, setWide] = useState(() => window.matchMedia(LG).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(LG);
+    const onChange = (e) => setWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   return (
     <div ref={rootRef}>
@@ -77,12 +85,10 @@ export default function Home() {
 
           <TrustChips className="hidden lg:flex mb-[30px]" />
 
-          {/* Desktop-only. On a phone this panel cost 286px of the first screen and
-              pushed real inventory 1.5 screens down; the bottom nav's Search tab goes
-              straight to /listings, which carries the same controls above live
-              results. Unchanged at lg and up. */}
+          {/* Desktop-only: on a phone the bottom nav's Search tab goes straight to /listings.
+              Not mounted below lg, so a phone never fetches the panel's recent-searches rail. */}
           <div className="hidden lg:block">
-            <HeroSearchPanel />
+            {wide ? <HeroSearchPanel /> : null}
           </div>
 
           {hasData ? <HeroStats className="hidden lg:flex mt-[34px]" /> : null}
@@ -103,10 +109,8 @@ export default function Home() {
 
       {hasData ? (
         <>
-          {/* Mobile reorders these three by CSS so real stock is the first thing
-              a visitor sees, then how to browse, then why to trust us. The DOM
-              order is left alone, so the desktop tree — and every desktop
-              assertion written against it — is untouched. */}
+          {/* Mobile reorders these by CSS so real stock comes first; DOM
+              order stays so the desktop tree and its assertions hold. */}
           <div className="flex flex-col">
             {/* CATEGORIES */}
             <div className="order-2 lg:order-none">

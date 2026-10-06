@@ -6,8 +6,8 @@ export const listProperties = async (filters, sort) => (await provider()).listPr
 export const getProperty = async (id) => (await provider()).getProperty(id);
 export const featuredProperties = async (limit) => (await provider()).featuredProperties(limit);
 
-// `verifiedOwners` counts distinct people, which no page can derive. `localitySlug` is optional.
-export const trustStats = async (localitySlug) => (await provider()).trustStats(localitySlug);
+// `verifiedOwners` counts distinct people, which no page can derive.
+export const trustStats = async () => (await provider()).trustStats();
 
 export const propertyCounts = async () => (await provider()).propertyCounts();
 
@@ -23,6 +23,9 @@ export const countProperties = async (filters) => (await provider()).countProper
 
 /** Resolve several listings by id, skipping ids the server does not know. Order follows `ids`. */
 export const getPropertiesByIds = async (ids) => (await provider()).getPropertiesByIds(ids);
+
+// Public cards rather than detail reads, so it is one request however many ids.
+export const listPropertiesByIds = async (ids) => (await provider()).listPropertiesByIds(ids);
 
 // Separate from `listProperties` because `{ total, verifiedTotal, unstatedTotal, pageCount }`
 // describe the whole match and cannot be recovered from a page.

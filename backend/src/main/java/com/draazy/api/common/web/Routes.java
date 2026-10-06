@@ -47,12 +47,6 @@ public final class Routes {
 
         public static final String FEATURED = BASE + "/featured";
 
-        /** Public — verified share of the live catalogue. Safe beside {@link #BY_ID} because an exact
-         * path outranks a template one. */
-        public static final String TRUST_STATS = BASE + "/trust-stats";
-
-        public static final String COUNTS = BASE + "/counts";
-
         public static final String BY_ID = BASE + "/{id}";
 
         /** Security-chain matcher for the public single-listing read. Single-segment ({@code *}) so
@@ -89,9 +83,7 @@ public final class Routes {
         private Cities() {
         }
 
-        public static final String BASE = "/cities";
-
-        public static final String WAITLIST = BASE + "/waitlist";
+        public static final String WAITLIST = "/cities/waitlist";
     }
 
     public static final class Localities {
@@ -121,7 +113,8 @@ public final class Routes {
 
         public static final String BY_SLUG = BASE + "/{slug}";
 
-        public static final String MEMBERSHIP = BY_SLUG + "/membership";
+        /** Public {@code GET} — membership, questions, board, contributions and proposals in one read. */
+        public static final String HUB = BY_SLUG + "/hub";
 
         /** Authenticated — {@code POST} asks to be recognised as a resident of one flat. */
         public static final String RESIDENTS = BY_SLUG + "/residents";
@@ -133,7 +126,7 @@ public final class Routes {
         /** Authenticated — {@code POST} claims this society on behalf of its committee. */
         public static final String CLAIM = BY_SLUG + "/claim";
 
-        /** Public {@code GET}, authenticated {@code POST} — questions asked about this society. */
+        /** Authenticated — {@code POST} asks a question about this society. */
         public static final String QUESTIONS = BY_SLUG + "/questions";
 
         /** Authenticated — {@code POST} answers one question. */
@@ -143,8 +136,7 @@ public final class Routes {
 
         public static final String BOARD_ITEM = BOARD + "/{itemId}";
 
-        /** Public {@code GET}, authenticated {@code POST} — the community tab's tips, trusted picks
-         * and photos. */
+        /** Authenticated — {@code POST} shares a tip, trusted pick or photo on the community tab. */
         public static final String CONTRIBUTIONS = BY_SLUG + "/contributions";
 
         public static final String CONTRIBUTION = CONTRIBUTIONS + "/{contributionId}";
@@ -156,7 +148,7 @@ public final class Routes {
 
         public static final String CONTRIBUTION_REPLY = CONTRIBUTION_REPLIES + "/{replyId}";
 
-        /** Public {@code GET}, authenticated {@code POST} — what the community says this society is. */
+        /** Authenticated — {@code POST} proposes a detail, the resident group link or a map pin. */
         public static final String PROPOSALS = BY_SLUG + "/proposals";
 
         /** Security-chain matcher; single-segment for the same reason as {@link Localities#ANY_SINGLE}. */
@@ -233,47 +225,19 @@ public final class Routes {
         public static final String BASE = "/fees";
     }
 
-    /** Public — which product features the client should render. */
-    public static final class Flags {
+    public static final class Bootstrap {
 
-        private Flags() {
+        private Bootstrap() {
         }
 
-        public static final String BASE = "/flags";
-    }
+        /** Public — the reference data every page render needs, in one caller-independent read. */
+        public static final String BASE = "/bootstrap";
 
-    public static final class MovePack {
+        /** Authenticated — the caller's own app-shell state, in one read. */
+        public static final String ME = "/me/bootstrap";
 
-        private MovePack() {
-        }
-
-        public static final String BASE = "/move-pack";
-    }
-
-    /** Public — what Draazy charges for its own products. */
-    public static final class Pricing {
-
-        private Pricing() {
-        }
-
-        public static final String BASE = "/pricing";
-    }
-
-    public static final class ListingPolicy {
-
-        private ListingPolicy() {
-        }
-
-        public static final String BASE = "/listing-policy";
-    }
-
-    /** Public — where the platform operates, and which places it will not suggest. */
-    public static final class Geo {
-
-        private Geo() {
-        }
-
-        public static final String BASE = "/geo";
+        /** Authenticated — the signed-in owner/seeker dashboard's inbox reads, in one read. */
+        public static final String ME_DASHBOARD = "/me/dashboard";
     }
 
     /** The authenticated owner's own listings. */
@@ -374,9 +338,6 @@ public final class Routes {
 
         public static final String BASE = "/me/contact-requests";
 
-        /** A count, not a list, because {@link #BASE} is paged and a badge derived from one page is
-         * wrong as soon as there are two. */
-        public static final String PENDING_COUNT = BASE + "/pending-count";
 
         public static final String BY_ID = BASE + "/{reqId}";
     }
@@ -552,17 +513,14 @@ public final class Routes {
 
         public static final String TRANSACTION_BY_ID = TRANSACTIONS + "/{txnId}";
 
-        /** Authenticated — {@code GET}/{@code PUT} the purchase and valuation figures. */
+        /** Authenticated — {@code PUT} the purchase and valuation figures. */
         public static final String BASIS = BASE + "/basis";
 
         /** Authenticated — income/expense/net over a window. */
         public static final String SUMMARY = BASE + "/summary";
 
-        /** Authenticated — monthly cashflow series. */
-        public static final String CASHFLOW = BASE + "/cashflow";
-
-        /** Authenticated — recurring rows projected to their next occurrence. */
-        public static final String DUES = BASE + "/dues";
+        /** Authenticated — {@code GET} basis, dues and cashflow in one read. */
+        public static final String OVERVIEW = BASE + "/overview";
     }
 
     public static final class Rentals {
@@ -696,9 +654,6 @@ public final class Routes {
         /** Authenticated — record how many people live in a room. Owner-split rooms only. */
         public static final String ROOM_OCCUPANTS = ROOMS + "/{id}/occupants";
 
-        /** Authenticated — a room changed hands, so the flat's joint agreement must be reissued. */
-        public static final String ROOM_AGREEMENT_REISSUE = ROOMS + "/{id}/agreement/reissue";
-
         /** Authenticated — enquire about a room, carrying the share intent. */
         public static final String ROOM_INTEREST = ROOMS + "/{id}/interest";
 
@@ -710,9 +665,6 @@ public final class Routes {
 
         /** Authenticated — reopen or close a group seat. */
         public static final String GROUP_SEATS = GROUP_BY_ID + "/seats";
-
-        /** Authenticated — request, then confirm, the flat owner's OTP consent. */
-        public static final String GROUP_OWNER_CONSENT = GROUP_BY_ID + "/owner-consent";
 
         public static final String OWNER_CONSENT = "/flatmates/owner-consent";
 
@@ -747,12 +699,8 @@ public final class Routes {
         /** {@code GET} public, {@code POST} authenticated — reviews of one listing. */
         public static final String FOR_PROPERTY = "/properties/{propId}/reviews";
 
-        public static final String SUMMARY_FOR_PROPERTY = FOR_PROPERTY + "/summary";
-
         /** {@code GET} public, {@code POST} authenticated — reviews of a society, locality or owner. */
         public static final String FOR_ENTITY = "/reviews/{entityType}/{entityId}";
-
-        public static final String SUMMARY_FOR_ENTITY = FOR_ENTITY + "/summary";
     }
 
     public static final class Content {
@@ -893,14 +841,11 @@ public final class Routes {
         public static final String INVITE_DECISION = MY_INVITES + "/{partyId}";
     }
 
-    /** Billing catalogue and subscriptions. {@link #BASE} is public — the price list is published
-     * before the sign-up wall, exactly like {@link Fees}. */
+    /** Subscriptions. The plan catalogue itself is published on {@link Bootstrap#BASE}. */
     public static final class Plans {
 
         private Plans() {
         }
-
-        public static final String BASE = "/plans";
 
         /** Authenticated — {@code GET} the caller's current plan, {@code POST} to change it. */
         public static final String SUBSCRIPTION = "/me/subscription";
@@ -1039,10 +984,6 @@ public final class Routes {
         /** Ops — decide one host verification. A rejection must carry a reason. */
         public static final String FLATMATE_REVIEW_BY_ID = FLATMATE_REVIEWS + "/{id}";
 
-        /** Ops — re-check every standing owner-tier claim. An hourly sweep runs the same pass; see
-         * {@code FlatmateTrustReconciler#reconcileOwnerTier} for why the queue cannot reach it. */
-        public static final String FLATMATE_OWNER_TIER_RECONCILE =
-                FLATMATE_REVIEWS + "/reconcile-owner-tier";
 
         /** Under {@code /admin} rather than {@code /me} because every status past {@code draft} asserts
          * what a sub-registrar did, and the flatmate trust sweep reads that field as badge evidence. */
@@ -1147,6 +1088,7 @@ public final class Routes {
         public static final String ANALYTICS_ENGAGEMENT = "/admin/analytics/engagement";
 
         public static final String ANALYTICS_SURFERS = "/admin/analytics/surfers";
+
         public static final String ANALYTICS_FUNNEL = "/admin/analytics/funnel";
 
         public static final String SUPPORT_TICKETS = "/admin/support-tickets";
@@ -1164,8 +1106,6 @@ public final class Routes {
 
         public static final String CITY_WAITLIST = "/admin/cities/waitlist";
 
-        /** Admin only — every per-account permission the server actually enforces. */
-        public static final String PERMISSION_CATALOGUE = "/admin/permission-catalogue";
 
         public static final String FUNCTION_CATALOGUE = "/admin/function-catalogue";
 

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { DEFAULT_CITY, getCities, getCityLive, onGeoChange } from '../lib/geoConfig.js';
 import { joinCityWaitlist } from '../services/cityService.js';
 
-/* Which cities are live comes from the curated roster (`GET /cities`, Pune-only when unreachable)
+/* Which cities are live comes from the curated roster (`GET /bootstrap` (`cities`), Pune-only when unreachable)
    read live via lib/geoConfig.js; a non-live city opens the waitlist instead of switching. */
 const CityContext = createContext(null);
 const CKEY = 'draazyCity';
@@ -23,7 +23,7 @@ export function CityProvider({ children }) {
 
   useEffect(() => {
     const sync = () => setCities(getCities());
-    /* `onGeoChange` fires when lib/geoConfig.js finishes fetching `GET /geo`; until then the roster
+    /* `onGeoChange` fires when lib/geoConfig.js finishes fetching `GET /bootstrap` (`geo`); until then the roster
        is the built-in defaults, so without it a second live city renders as "coming soon". */
     const unsubscribe = onGeoChange(sync);
     window.addEventListener('draazy-settings-change', sync);

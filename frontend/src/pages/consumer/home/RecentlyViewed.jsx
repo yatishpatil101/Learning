@@ -3,14 +3,11 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
-import { getProperty } from '../../../services/propertyService.js';
+import { listPropertiesByIds } from '../../../services/propertyService.js';
 import { getRecentProps } from '../../../lib/localPrefs.js';
 import { priceLabel } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
-/* "Recently viewed" rail — a return-visitor convenience. Reads the per-user MRU
-   list of property ids this browser keeps and resolves them to cards. Renders
-   nothing on a first visit (empty list), so it never adds noise for new users. */
 export default function RecentlyViewed() {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
@@ -19,9 +16,7 @@ export default function RecentlyViewed() {
     let alive = true;
     const ids = getRecentProps().slice(0, 4);
     if (!ids.length) return undefined;
-    Promise.all(ids.map((id) => getProperty(id).catch(() => null))).then((rows) => {
-      if (alive) setItems(rows.filter(Boolean));
-    });
+    listPropertiesByIds(ids).then((rows) => { if (alive) setItems(rows); }).catch(() => {});
     return () => { alive = false; };
   }, []);
 

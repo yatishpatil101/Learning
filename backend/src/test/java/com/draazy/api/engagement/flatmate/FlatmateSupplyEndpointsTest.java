@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.ResultActions;
 
 // A cap a client enforces is a suggestion, so Guardrails proves the anti-broker cap and the address
 // dedupe hold in the process that inserts, and Tiers that a tier is derived.
@@ -49,6 +48,9 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
 
     @Autowired
     PersonalDocumentRepository personalDocuments;
+
+    @Autowired
+    FlatmateTrustReconciler reconciler;
 
         @PersistenceContext
         EntityManager entityManager;
@@ -1098,11 +1100,6 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                     String.class, roomId);
         }
 
-        private ResultActions reconcile(User ops) throws Exception {
-            return mvc.perform(post(Routes.Moderation.FLATMATE_OWNER_TIER_RECONCILE)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
-                    .andExpect(status().isOk());
-        }
 
         @Test
         @DisplayName("approving grants the badge and tells the host")
@@ -1318,7 +1315,6 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
         @DisplayName("archiving the listing takes the owner-tier badge back with it")
         void ownerTierIsReconciledWhenTheListingStopsStanding() throws Exception {
             User host = user("9820000066", "Landlord", Roles.Wire.OWNER);
-            User ops = user("9820000067", "Ops10", Roles.Wire.STAFF);
 
             Property flat = new Property(host, "Flat in Kothrud", "rent", "apartment",
                     38000L, "Kothrud", "Pune");
@@ -1341,7 +1337,7 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                     .andReturn().getResponse().getContentAsString();
             String roomId = idOf(created);
 
-            reconcile(ops).andExpect(jsonPath("$.demoted").value(0));
+            assertThat(reconciler.reconcileOwnerTier()).isZero();
             assertThat(roomTier(roomId)).isEqualTo("owner");
 
             flat.archive("Owner withdrew the listing");
@@ -1349,24 +1345,15 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
 
             // Owner tier is the one rung the queue cannot reach, so the sweep is the only lever:
             // deriveTier runs only on a host-initiated write, and owner-tier posts never queue.
-            reconcile(ops).andExpect(jsonPath("$.demoted").value(1));
+            assertThat(reconciler.reconcileOwnerTier()).isEqualTo(1);
             assertThat(roomTier(roomId)).isEqualTo("identity");
             mvc.perform(get(Routes.Flatmates.FEED).param("tab", "move-in").param("locality", "Kothrud")
                             .param("verifiedOnly", "true").param("size", "100"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[*].id", Matchers.not(Matchers.hasItem(roomId))));
 
-            reconcile(ops).andExpect(jsonPath("$.demoted").value(0));
+            assertThat(reconciler.reconcileOwnerTier()).isZero();
             assertThat(roomTier(roomId)).isEqualTo("identity");
-        }
-
-        @Test
-        @DisplayName("a host cannot run the owner-tier pass over everybody else's posts")
-        void reconcileIsStaffOnly() throws Exception {
-            User host = user("9820000068", "NotOps", Roles.Wire.OWNER);
-            mvc.perform(post(Routes.Moderation.FLATMATE_OWNER_TIER_RECONCILE)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
-                    .andExpect(status().isForbidden());
         }
 
         @Test

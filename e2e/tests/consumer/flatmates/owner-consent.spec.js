@@ -48,19 +48,19 @@ test('owner-consent OTP flow records consent on the server, and the card shows t
 
   expect(group.ownerConsent).toBe(false);
 
-  const sendRes = await fetch(`${API}/flatmates/groups/${group.id}/owner-consent`, {
+  const sendRes = await fetch(`${API}/flatmates/owner-consent`, {
     method: 'POST',
     headers: auth(tenantToken),
-    body: JSON.stringify({ ownerMobile }),
+    body: JSON.stringify({ ownerMobile, title, locality: 'Baner' }),
   });
   const sendBody = await sendRes.text();
   expect(sendRes.status, `send OTP: ${sendBody}`).toBe(200);
   expect(JSON.parse(sendBody).consentRecorded).toBe(false);
   // Step 2: the same route again, now carrying the fixed E2E OTP.
-  const confirmRes = await fetch(`${API}/flatmates/groups/${group.id}/owner-consent`, {
+  const confirmRes = await fetch(`${API}/flatmates/owner-consent`, {
     method: 'POST',
     headers: auth(tenantToken),
-    body: JSON.stringify({ ownerMobile, otp: E2E_OTP }),
+    body: JSON.stringify({ ownerMobile, otp: E2E_OTP, title, locality: 'Baner' }),
   });
   const confirmBody = await confirmRes.text();
   expect(confirmRes.status, `confirm OTP: ${confirmBody}`).toBe(200);

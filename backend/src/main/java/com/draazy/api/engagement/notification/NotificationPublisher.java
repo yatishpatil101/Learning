@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.notification;
 
+import com.draazy.api.common.trust.LiveUpdates;
 import com.draazy.api.common.trust.Notifier;
 import java.time.Clock;
 import java.time.Instant;
@@ -14,14 +15,16 @@ public class NotificationPublisher implements Notifier {
 
     private final NotificationRepository notifications;
     private final NotificationPreferenceService preferences;
+    private final LiveUpdates live;
 
     /** Clock is a test seam for quiet-hours decisions, not an application-wide knob. */
     private Clock clock = Clock.systemUTC();
 
     public NotificationPublisher(NotificationRepository notifications,
-            NotificationPreferenceService preferences) {
+            NotificationPreferenceService preferences, LiveUpdates live) {
         this.notifications = notifications;
         this.preferences = preferences;
+        this.live = live;
     }
 
     @Override
@@ -35,12 +38,17 @@ public class NotificationPublisher implements Notifier {
         note.setLink(link);
         note.setDeliverAfter(QuietHours.deferUntil(prefs, Instant.now(clock)).orElse(null));
         notifications.saveAndFlush(note);
+        if (note.getDeliverAfter() == null) {
+            live.notificationsChanged(userId);
+        }
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void markRead(UUID userId, String type, String link) {
-        notifications.markReadByTypeAndLink(userId, type, link);
+        if (notifications.markReadByTypeAndLink(userId, type, link) > 0) {
+            live.notificationsChanged(userId);
+        }
     }
 
     void useClock(Clock pinned) {

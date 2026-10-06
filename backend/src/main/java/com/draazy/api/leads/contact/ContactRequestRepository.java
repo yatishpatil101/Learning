@@ -52,12 +52,6 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
 
     Page<ContactRequest> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 
-    // Count in SQL because the paged inbox no longer fetches the whole array.
-    long countByPropertyIdInAndStatus(Collection<UUID> propertyIds, String status);
-
-    long countByPropertyIdInAndStatusAndCreatedAtAfter(
-            Collection<UUID> propertyIds, String status, java.time.Instant createdAt);
-
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     // This table owns the question, so the finance slice should not query it.
     @Query("""

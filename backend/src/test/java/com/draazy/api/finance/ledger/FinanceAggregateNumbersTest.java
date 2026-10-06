@@ -25,35 +25,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
-/**
- * A characterisation harness for {@code /summary} and {@code /cashflow} — tech debt D132.
- *
- * <p><strong>Why this class exists separately from {@link FinanceEndpointsTest}.</strong> That
- * class proves the contract: the windows exist, the periods differ, soft-deleted rows leave the
- * totals. This one proves the <em>arithmetic</em>, by pinning every number both endpoints return
- * for one deliberately awkward ledger. D132 moves aggregation work around; the only defence
- * against a performance change quietly altering an owner's books is a test that fails on a single
- * rupee. Written and run <em>before</em> the change, so its passing afterwards means something.
- *
- * <p>The seeded ledger is chosen for the cases that break naive rewrites:
- * <ul>
- *   <li>a soft-deleted row, which every aggregate must exclude (V10's {@code archived = false});</li>
- *   <li>months with no rows at all, which a bare {@code GROUP BY} silently drops but the series
- *       must still emit as zero points;</li>
- *   <li>a future-dated row — legal, because {@link TransactionCreateRequest} deliberately does not
- *       constrain {@code date} — which {@code /summary} counts and {@code /cashflow} does not. That
- *       asymmetry is real behaviour and is pinned here so a shared window bound cannot erase it;</li>
- *   <li>a negative amount written straight to the column, proving the sum is verbatim and nothing
- *       in the stack takes an absolute value.</li>
- * </ul>
- *
- * <p><strong>Dates are relative to today, never literal.</strong> A fixture pinned to a hard-coded
- * month passes until the quarter turns over. Everything below is derived from {@link #thisMonth()}
- * so the same assertions hold on any day the suite runs — and in {@link PlatformTime#IST} rather
- * than the JVM default, because that is the calendar the service buckets in (D174). On a UTC host
- * a bare {@code YearMonth.now()} here would seed the previous month for the first 5.5 hours of
- * every Indian day and this class would fail for reasons that have nothing to do with arithmetic.
- */
+/** Pins every number {@code /summary} and {@code /cashflow} return for one awkward ledger. Dates derive from
+ * {@link #thisMonth()} in {@link PlatformTime#IST}, the service's calendar. */
 class FinanceAggregateNumbersTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
@@ -105,14 +78,7 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
                 .replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    /**
-     * Seed the awkward ledger described in the class javadoc.
-     *
-     * <p>The two "this month" rows sit on the 1st rather than on {@code today}: a row dated today
-     * would fall outside a {@code period=month} window on no day of the year, but a row dated the
-     * 1st is the boundary case — {@code date >= from} is inclusive, and an off-by-one that made it
-     * exclusive would drop it.
-     */
+    /** Rows sit on the 1st, the boundary: {@code date >= from} is inclusive and an off-by-one would drop them. */
     private void seed(User owner, Property p) throws Exception {
         YearMonth thisMonth = thisMonth();
 
@@ -183,42 +149,39 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
 
         YearMonth thisMonth = thisMonth();
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=3")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=3")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$.cashflow.length()").value(3))
                 // oldest first: two months ago, carrying only the expense
-                .andExpect(jsonPath("$[0].month").value(thisMonth.minusMonths(2).toString()))
-                .andExpect(jsonPath("$[0].income").value(0))
-                .andExpect(jsonPath("$[0].expense").value(TWO_MONTHS_AGO_EXPENSE))
-                .andExpect(jsonPath("$[0].net").value(-TWO_MONTHS_AGO_EXPENSE))
+                .andExpect(jsonPath("$.cashflow[0].month").value(thisMonth.minusMonths(2).toString()))
+                .andExpect(jsonPath("$.cashflow[0].income").value(0))
+                .andExpect(jsonPath("$.cashflow[0].expense").value(TWO_MONTHS_AGO_EXPENSE))
+                .andExpect(jsonPath("$.cashflow[0].net").value(-TWO_MONTHS_AGO_EXPENSE))
                 // last month
-                .andExpect(jsonPath("$[1].month").value(thisMonth.minusMonths(1).toString()))
-                .andExpect(jsonPath("$[1].income").value(LAST_MONTH_INCOME))
-                .andExpect(jsonPath("$[1].expense").value(0))
-                .andExpect(jsonPath("$[1].net").value(LAST_MONTH_INCOME))
+                .andExpect(jsonPath("$.cashflow[1].month").value(thisMonth.minusMonths(1).toString()))
+                .andExpect(jsonPath("$.cashflow[1].income").value(LAST_MONTH_INCOME))
+                .andExpect(jsonPath("$.cashflow[1].expense").value(0))
+                .andExpect(jsonPath("$.cashflow[1].net").value(LAST_MONTH_INCOME))
                 // this month: the deleted row is absent from the bucket
-                .andExpect(jsonPath("$[2].month").value(thisMonth.toString()))
-                .andExpect(jsonPath("$[2].income").value(THIS_MONTH_INCOME))
-                .andExpect(jsonPath("$[2].expense").value(THIS_MONTH_EXPENSE))
-                .andExpect(jsonPath("$[2].net").value(THIS_MONTH_INCOME - THIS_MONTH_EXPENSE));
+                .andExpect(jsonPath("$.cashflow[2].month").value(thisMonth.toString()))
+                .andExpect(jsonPath("$.cashflow[2].income").value(THIS_MONTH_INCOME))
+                .andExpect(jsonPath("$.cashflow[2].expense").value(THIS_MONTH_EXPENSE))
+                .andExpect(jsonPath("$.cashflow[2].net").value(THIS_MONTH_INCOME - THIS_MONTH_EXPENSE));
     }
 
-    /**
-     * The series stops at this month, so the post-dated row is invisible to the chart even though
-     * {@code /summary} counts it. Pinned because it is the one place the two endpoints disagree.
-     */
+    /** The chart series stops at this month, so the post-dated row is hidden though {@code /summary} counts it. */
     @Test
     void cashflow_neverEmitsAMonthBeyondThisOne() throws Exception {
         User owner = owner("9832100005");
         Property p = listing(owner);
         seed(owner, p);
 
-        String body = mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=12")
+        String body = mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=12")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(12))
-                .andExpect(jsonPath("$[11].month").value(thisMonth().toString()))
+                .andExpect(jsonPath("$.cashflow.length()").value(12))
+                .andExpect(jsonPath("$.cashflow[11].month").value(thisMonth().toString()))
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain(thisMonth().plusMonths(2).toString());
@@ -234,18 +197,18 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
 
         YearMonth thisMonth = thisMonth();
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=5")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=5")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(5))
-                .andExpect(jsonPath("$[0].month").value(thisMonth.minusMonths(4).toString()))
-                .andExpect(jsonPath("$[0].income").value(0))
-                .andExpect(jsonPath("$[0].expense").value(0))
-                .andExpect(jsonPath("$[0].net").value(0))
-                .andExpect(jsonPath("$[1].month").value(thisMonth.minusMonths(3).toString()))
-                .andExpect(jsonPath("$[1].income").value(0))
-                .andExpect(jsonPath("$[1].expense").value(0))
-                .andExpect(jsonPath("$[1].net").value(0));
+                .andExpect(jsonPath("$.cashflow.length()").value(5))
+                .andExpect(jsonPath("$.cashflow[0].month").value(thisMonth.minusMonths(4).toString()))
+                .andExpect(jsonPath("$.cashflow[0].income").value(0))
+                .andExpect(jsonPath("$.cashflow[0].expense").value(0))
+                .andExpect(jsonPath("$.cashflow[0].net").value(0))
+                .andExpect(jsonPath("$.cashflow[1].month").value(thisMonth.minusMonths(3).toString()))
+                .andExpect(jsonPath("$.cashflow[1].income").value(0))
+                .andExpect(jsonPath("$.cashflow[1].expense").value(0))
+                .andExpect(jsonPath("$.cashflow[1].net").value(0));
     }
 
     // ---- 4: an empty ledger is a well-formed answer, not a null or a 404 ----
@@ -262,16 +225,16 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.expense").value(0))
                 .andExpect(jsonPath("$.net").value(0));
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=2")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=2")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].income").value(0))
-                .andExpect(jsonPath("$[0].expense").value(0))
-                .andExpect(jsonPath("$[0].net").value(0))
-                .andExpect(jsonPath("$[1].income").value(0))
-                .andExpect(jsonPath("$[1].expense").value(0))
-                .andExpect(jsonPath("$[1].net").value(0));
+                .andExpect(jsonPath("$.cashflow.length()").value(2))
+                .andExpect(jsonPath("$.cashflow[0].income").value(0))
+                .andExpect(jsonPath("$.cashflow[0].expense").value(0))
+                .andExpect(jsonPath("$.cashflow[0].net").value(0))
+                .andExpect(jsonPath("$.cashflow[1].income").value(0))
+                .andExpect(jsonPath("$.cashflow[1].expense").value(0))
+                .andExpect(jsonPath("$.cashflow[1].net").value(0));
     }
 
     // ---- 5: signs. The API refuses a negative; the sum, if one exists, is verbatim ----
@@ -291,14 +254,7 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /**
-     * A negative amount written past validation is summed as written.
-     *
-     * <p>Inserted through {@link org.springframework.jdbc.core.JdbcTemplate} precisely because the
-     * API will not produce it: the point is that neither the aggregate nor the mapper takes an
-     * absolute value, so a row that got in some other way still adds up to what the column says
-     * rather than to its magnitude.
-     */
+    /** Inserted via JDBC since the API refuses it: a negative amount must be summed as written. */
     @Test
     void aggregates_sumTheColumnVerbatim_evenWhenARowIsNegative() throws Exception {
         User owner = owner("9832100009");
@@ -316,10 +272,10 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.expense").value(THIS_MONTH_EXPENSE - 5000))
                 .andExpect(jsonPath("$.net").value(-(THIS_MONTH_EXPENSE - 5000)));
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=1")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=1")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].expense").value(THIS_MONTH_EXPENSE - 5000));
+                .andExpect(jsonPath("$.cashflow[0].expense").value(THIS_MONTH_EXPENSE - 5000));
     }
 
     // ---- 6: another owner's numbers stay another owner's ----
@@ -334,7 +290,7 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
         mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=all")
                         .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
                 .andExpect(status().isNotFound());
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=3")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=3")
                         .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
                 .andExpect(status().isNotFound());
     }
@@ -363,15 +319,7 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
 
     // ---- 7: the index the aggregates are only cheap because of ----
 
-    /**
-     * The covering index from V51 exists and still carries what the aggregates sum.
-     *
-     * <p>An index is the one part of a performance fix that leaves no trace in the code it speeds
-     * up: both queries return identical numbers with it, without it, and after some future
-     * migration quietly drops it, so nothing else in this suite would notice its loss. Asserted
-     * against {@code pg_indexes} rather than trusted, because a silent reversion here is a return
-     * to a heap visit per ledger row on every summary an owner opens.
-     */
+    /** Asserted on {@code pg_indexes}: the V51 covering index leaves no trace in results if dropped. */
     @Test
     void v51_coveringIndexExists_andCarriesTheColumnsTheAggregatesSum() {
         var defs = jdbc.queryForList(

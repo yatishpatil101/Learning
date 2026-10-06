@@ -39,7 +39,9 @@ public record ListingFacets(
         Long maxDeposit,
         Double nearLat,
         Double nearLng,
-        Double nearRadiusKm) {
+        Double nearRadiusKm,
+        List<String> ids,
+        Integer minPhotos) {
 
     public ListingFacets(List<String> types, List<String> commercialUses, List<String> bhks,
             List<String> furnishings, List<String> localities, List<String> societies,
@@ -53,13 +55,13 @@ public record ListingFacets(
                 landUse, room, tenants, construction, availableFrom, pets, ownerVerified, ownershipVerified,
                 rera, societyVerified, conveyanceDone, null, null, null, null,
                 minArea, maxArea, null, minAge, maxAge, minFloor, maxFloor, minDeposit,
-                maxDeposit, nearLat, nearLng, nearRadiusKm);
+                maxDeposit, nearLat, nearLng, nearRadiusKm, null, null);
     }
 
     public static final ListingFacets NONE = new ListingFacets(
             null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null, null);
 
     /** Widest-first, or empty when unfiltered; kept here so the cumulative rule sits next to the field. */
     public List<String> availableFromBuckets() {

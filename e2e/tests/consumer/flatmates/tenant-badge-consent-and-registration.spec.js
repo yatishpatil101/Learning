@@ -77,9 +77,10 @@ async function decide(reviewId, decision, note = 'e2e verdict') {
   return { status: response.status, body: await response.text() };
 }
 /** Walk the owner through both legs of the consent OTP, which is the only way the flag is set. */
-async function recordConsent(groupId, token, ownerMobile) {
-  for (const payload of [{ ownerMobile }, { ownerMobile, otp: E2E_OTP }]) {
-    const response = await fetch(`${API}/flatmates/groups/${groupId}/owner-consent`, {
+async function recordConsent(group, token, ownerMobile) {
+  const address = { title: group.title, locality: group.locality };
+  for (const payload of [{ ownerMobile, ...address }, { ownerMobile, otp: E2E_OTP, ...address }]) {
+    const response = await fetch(`${API}/flatmates/owner-consent`, {
       method: 'POST',
       headers: auth(token),
       body: JSON.stringify(payload),
@@ -108,7 +109,7 @@ test('Ops cannot badge a sub-let the owner never consented to, and can once they
   expect(rejected.status, rejected.body).toBe(200);
   // Now the owner actually consents, and the same claim goes through.
   const consented = await createTenantGroup(accessToken, { consentMobile: ownerMobile });
-  await recordConsent(consented.id, accessToken, ownerMobile);
+  await recordConsent(consented, accessToken, ownerMobile);
 
   const secondReview = await queuedReview(consented.id);
   expect(secondReview.ownerConsent, 'the OTP must have written the flag the gate reads').toBe(true);

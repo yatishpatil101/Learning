@@ -2,7 +2,7 @@ package com.draazy.api.catalog;
 
 import com.draazy.api.support.AbstractApiTest;
 
-import static org.hamcrest.Matchers.greaterThan;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,40 +18,46 @@ import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
-/**
- * {@code GET /properties/trust-stats} — the verified share of the live catalogue.
- *
- * <p>These three numbers were computed in the browser until now, from whichever listings the
- * homepage had already loaded. Each test here pins one of the ways that was wrong, so a regression
- * has to reintroduce a specific defect rather than merely drift.
- *
- * <p>Every test narrows to its own locality slug. The seeded catalogue is shared and its shape is
- * not this test's fixture: asserting on catalogue-wide totals would make these tests fail whenever
- * somebody seeds another flat, which is the kind of red that teaches people to ignore red.
- */
+/** Catalogue-wide and the seeded catalogue is shared, so every test asserts growth from a baseline read, never an absolute total. */
 class TrustStatsTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    ObjectMapper objectMapper;
 
-    /** A slug no seed uses, so each test owns its slice of the catalogue outright. */
-    private static final String SLUG = "trust-stats-fixture";
+    /** A slug no seed uses, so the fixture listings are the only ones in it. */
+    private static final String SLUG = "trust-tally-fixture";
 
-    /**
-     * The fixture locality has to exist before anything can be listed in it.
-     *
-     * <p>{@code properties.locality_slug} carries a foreign key to {@code localities}, which is the
-     * reason these tests cannot simply invent a slug and why they do not borrow a seeded one either:
-     * a seeded locality already has listings, and a test that counts them is a test that fails the
-     * next time somebody seeds a flat. Rolled back with the rest of the transaction.
-     */
+    /** {@code properties.locality_slug} is a foreign key to {@code localities}; rolled back with the test. */
     @BeforeEach
     void createFixtureLocality() {
         jdbc.update("insert into localities (slug, name, city) values (?, ?, 'Pune')"
                 + " on conflict (slug) do nothing", SLUG, "Trust Stats Fixture");
+    }
+
+    private record Tally(long total, long verified, long owners) {
+    }
+
+    private Tally tally() throws Exception {
+        String json = mvc.perform(get("/bootstrap"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode stats = objectMapper.readTree(json).path("trustStats");
+        return new Tally(stats.path("totalListings").asLong(), stats.path("verifiedListings").asLong(),
+                stats.path("verifiedOwners").asLong());
+    }
+
+    private void assertGrewBy(Tally before, long total, long verified, long owners) throws Exception {
+        Tally after = tally();
+        assertThat(after.total() - before.total()).as("totalListings").isEqualTo(total);
+        assertThat(after.verified() - before.verified()).as("verifiedListings").isEqualTo(verified);
+        assertThat(after.owners() - before.owners()).as("verifiedOwners").isEqualTo(owners);
     }
 
     private User owner(String mobile) {
@@ -75,49 +81,19 @@ class TrustStatsTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    // ---------------- reachability ----------------
-
-    /**
-     * The headline answers with no Authorization header.
-     *
-     * <p>It is named explicitly in the security chain rather than left to
-     * {@code Routes.Properties.ANY_SINGLE}, and this is the test that would notice if that entry
-     * were dropped on the assumption that the single-segment matcher still covered it.
-     */
     @Test
     void theTrustHeadlineIsPublic() throws Exception {
-        mvc.perform(get("/properties/trust-stats")).andExpect(status().isOk());
-        mvc.perform(get("/properties/trust-stats").param("locality", "kothrud"))
-                .andExpect(status().isOk());
-    }
-
-    /**
-     * A literal path outranks the {@code /properties/{id}} template.
-     *
-     * <p>Worth its own assertion because the failure mode is not a 404: {@code trust-stats} would be
-     * read as a slug, the lookup would miss, and the homepage would get a listing-not-found where it
-     * asked for a count. The three keys being present is what proves which handler ran.
-     */
-    @Test
-    void theRouteIsNotSwallowedByTheSingleListingLookup() throws Exception {
-        mvc.perform(get("/properties/trust-stats"))
+        mvc.perform(get("/bootstrap"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").exists())
-                .andExpect(jsonPath("$.verifiedListings").exists())
-                .andExpect(jsonPath("$.verifiedOwners").exists());
+                .andExpect(jsonPath("$.trustStats.totalListings").exists())
+                .andExpect(jsonPath("$.trustStats.verifiedListings").exists())
+                .andExpect(jsonPath("$.trustStats.verifiedOwners").exists());
     }
 
-    // ---------------- what counts as live ----------------
-
-    /**
-     * Only approved, unarchived listings are counted.
-     *
-     * <p>Four listings, one live. A total of 4 means the moderation predicate was dropped, which
-     * would put pending and rejected listings into a number a visitor reads as "homes you can look
-     * at right now".
-     */
+    /** Four listings, one live: growth of 4 means the moderation predicate was dropped. */
     @Test
     void onlyApprovedAndUnarchivedListingsAreCounted() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100001");
         listing(asha, "Live flat", PropertyStatus.APPROVED);
         listing(asha, "Pending flat", PropertyStatus.PENDING);
@@ -126,41 +102,13 @@ class TrustStatsTest extends AbstractApiTest {
         gone.archive("owner withdrew");
         properties.saveAndFlush(gone);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(1))
-                .andExpect(jsonPath("$.verifiedListings").value(0))
-                .andExpect(jsonPath("$.verifiedOwners").value(0));
+        assertGrewBy(before, 1, 0, 0);
     }
 
-    /**
-     * An unknown locality answers zeroes rather than {@code 404}.
-     *
-     * <p>This is a headline about a slice of the catalogue, and a slice with nothing in it is a real
-     * answer — a locality that has just been added has genuinely zero verified listings. Answering
-     * 404 would also make the endpoint a cheap oracle for which slugs exist.
-     */
-    @Test
-    void anUnknownLocalityAnswersZeroesRatherThanNotFound() throws Exception {
-        mvc.perform(get("/properties/trust-stats").param("locality", "no-such-locality-anywhere"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(0))
-                .andExpect(jsonPath("$.verifiedListings").value(0))
-                .andExpect(jsonPath("$.verifiedOwners").value(0));
-    }
-
-    // ---------------- the two badges ----------------
-
-    /**
-     * Either badge makes a listing verified, and carrying both does not count it twice.
-     *
-     * <p>Three live listings: one owner-verified, one ownership-verified, one carrying both. The
-     * expected answer is 3. A 4 means the two clauses were summed instead of or'd, which is the
-     * arithmetic that lets {@code verifiedListings} exceed {@code totalListings} — the one thing a
-     * share must never do.
-     */
+    /** Owner-verified, ownership-verified and both make three; 4 means the clauses were summed instead of or'd. */
     @Test
     void eitherBadgeCountsAndBothTogetherCountOnce() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100002");
         Property ownerOnly = listing(asha, "Owner verified", PropertyStatus.APPROVED);
         ownerOnly.setOwnerVerified(true);
@@ -175,26 +123,13 @@ class TrustStatsTest extends AbstractApiTest {
         both.verifyOwnership(Instant.now(), null);
         properties.saveAndFlush(both);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(3))
-                .andExpect(jsonPath("$.verifiedListings").value(3));
+        assertGrewBy(before, 3, 3, 1);
     }
 
-    /**
-     * An ownership verdict whose evidence has expired does not count — the badge lapsed with it.
-     *
-     * <p>The whole point of the clause that spells out {@code ownership_verified_until > now}
-     * instead of reading {@code ownership_verified} alone. {@code Property.isOwnershipVerified()} is
-     * derived and lapses with no write to the row, so the column stays {@code true} long after the
-     * badge has gone from the listing page. Counting the column would tell a visitor that a listing
-     * is verified while the listing itself says it is not.
-     *
-     * <p>Mutation check: drop the {@code ownershipVerifiedUntil} condition from the query and this
-     * expects 2 and gets 3.
-     */
+    /** An expired verdict does not count: {@code isOwnershipVerified()} lapses with no row write, so the column stays {@code true}. */
     @Test
     void anExpiredOwnershipVerdictDoesNotCountBecauseTheBadgeIsGone() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100003");
         Property current = listing(asha, "Still valid", PropertyStatus.APPROVED);
         current.verifyOwnership(
@@ -210,26 +145,13 @@ class TrustStatsTest extends AbstractApiTest {
                 Instant.now().minus(Duration.ofDays(200)), Instant.now().minus(Duration.ofDays(1)));
         properties.saveAndFlush(lapsed);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(3))
-                .andExpect(jsonPath("$.verifiedListings").value(2));
+        assertGrewBy(before, 3, 2, 0);
     }
 
-    // ---------------- verifiedOwners counts people ----------------
-
-    /**
-     * One owner with three verified listings is one verified owner.
-     *
-     * <p>This is the number that could not be computed in the browser at all, and the reason the
-     * endpoint exists: the list response carries no {@code ownerId}, so the page had no way to tell
-     * three flats from one landlord apart from three flats from three. Counting rows would inflate
-     * the figure precisely for the prolific poster a visitor has least reason to trust on volume.
-     *
-     * <p>Mutation check: drop {@code distinct} and this expects 2 and gets 4.
-     */
+    /** One owner with three verified listings is one verified owner; counting rows would give 4. */
     @Test
     void verifiedOwnersCountsPeopleNotListings() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100004");
         User bhavna = owner("9811100005");
         for (String title : new String[] {"Asha one", "Asha two", "Asha three"}) {
@@ -241,82 +163,42 @@ class TrustStatsTest extends AbstractApiTest {
         hers.setOwnerVerified(true);
         properties.saveAndFlush(hers);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(4))
-                .andExpect(jsonPath("$.verifiedListings").value(4))
-                .andExpect(jsonPath("$.verifiedOwners").value(2));
+        assertGrewBy(before, 4, 4, 2);
     }
 
-    /**
-     * An ownership-verified listing does not make its owner a verified owner.
-     *
-     * <p>The two badges say different things: one is that this person proved who they are, the other
-     * that this listing's paperwork checked out. A landlord who has never shown ID can still have a
-     * verified deed, and rolling that up into "verified owners" would let the weaker claim borrow
-     * the stronger one's wording on the homepage.
-     */
+    /** A verified deed says nothing about the person, so it must not lend its owner the stronger wording. */
     @Test
     void aVerifiedDeedDoesNotMakeItsOwnerAVerifiedPerson() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100006");
         Property p = listing(asha, "Deed but no ID", PropertyStatus.APPROVED);
         p.verifyOwnership(Instant.now(), null);
         properties.saveAndFlush(p);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(1))
-                .andExpect(jsonPath("$.verifiedListings").value(1))
-                .andExpect(jsonPath("$.verifiedOwners").value(0));
+        assertGrewBy(before, 1, 1, 0);
     }
 
-    /**
-     * A verified owner whose only listing is not live counts for nothing.
-     *
-     * <p>The distinct-owner count is scoped by the same live predicate as the other two, so all
-     * three numbers describe the same slice. Without that, a locality could report more verified
-     * owners than it has listings, which reads as a shortage of homes rather than as a bug.
-     */
+    /** All three numbers share one live predicate, else a catalogue could report more owners than listings. */
     @Test
     void aVerifiedOwnerWithNothingLiveIsNotCounted() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100007");
         Property pending = listing(asha, "Awaiting moderation", PropertyStatus.PENDING);
         pending.setOwnerVerified(true);
         properties.saveAndFlush(pending);
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(0))
-                .andExpect(jsonPath("$.verifiedOwners").value(0));
+        assertGrewBy(before, 0, 0, 0);
     }
 
-    // ---------------- scoping ----------------
-
-    /**
-     * The locality parameter narrows; without it a listing elsewhere is counted too.
-     *
-     * <p>Both sides of the comparison are planted by this test rather than borrowed from the seed.
-     * The first version leaned on the catalogue being non-empty and failed on a database where it
-     * was — the test profile seeds no listings at all — which was the test's fault and not the
-     * endpoint's, and exactly the kind of red that gets a working assertion deleted.
-     *
-     * <p>A filter silently ignored makes the scoped read return 2 instead of 1.
-     */
     @Test
-    void theLocalityParameterNarrowsTheSlice() throws Exception {
+    void listingsInEveryLocalityAreCounted() throws Exception {
+        Tally before = tally();
         User asha = owner("9811100008");
         Property mine = listing(asha, "In the fixture locality", PropertyStatus.APPROVED);
         mine.setOwnerVerified(true);
         properties.saveAndFlush(mine);
         listingIn(asha, "Somewhere else entirely", PropertyStatus.APPROVED, "kothrud");
 
-        mvc.perform(get("/properties/trust-stats").param("locality", SLUG))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(1))
-                .andExpect(jsonPath("$.verifiedListings").value(1));
-
-        mvc.perform(get("/properties/trust-stats"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").value(greaterThan(1)));
+        assertGrewBy(before, 2, 1, 1);
     }
 }

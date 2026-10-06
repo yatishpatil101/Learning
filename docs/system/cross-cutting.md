@@ -490,6 +490,12 @@ filter as the list. Each row carries a stable `id`, `read` flag, timestamp and l
 rows drive both `/notifications` and the header bell. Read rows leave the list after 30 days; all
 notification rows are purged after 90 days by `NotificationRetentionSweep`.
 
+The bell's count is pushed, not polled: when a row becomes deliverable, or `markRead` changes one,
+`NotificationPublisher` sends an id-free `notification` event on the caller's `/messages/stream`
+(through the `LiveUpdates` port), and `NotificationContext` re-reads the count. A row held for quiet
+hours is not pushed. The stream hub is per instance, so the client still polls every 5 minutes while
+the stream is open, and every 60s while it is not.
+
 Notifications are the natural delivery channel for maker-checker outcomes (contact approved, deal
 finalized, listing verified/rejected). The review thread in property verification
 (`addReviewMessage` in `properties-admin.js`) plays the same role owner<->admin, carrying the
@@ -586,8 +592,7 @@ Three rules hold across the whole `permitAll` block:
   path-only `permitAll` would silently open the write side.
 - **Exact-path and single-segment.** `ANY_SINGLE` matchers are deliberately one segment, which is
   what keeps `/{id}/archive` and the society residency queue authenticated. Any public two-segment
-  child therefore needs its own line — `Routes.Properties.ROOMS`, `Societies.MEMBERSHIP`,
-  `Societies.QUESTIONS/BOARD/CONTRIBUTIONS/PROPOSALS`. `TRUST_STATS` is named explicitly even though
+  child therefore needs its own line — `Routes.Properties.ROOMS`, `Societies.HUB`. `Properties.FEATURED` is named explicitly even though
   `ANY_SINGLE` would already match it, so that a public endpoint is public by decision rather than
   by accident of path depth.
 - **Narrow the payload, not just the route.** `GET /owners/{id}` is the only public route that reads
@@ -601,7 +606,7 @@ Why each public family is public:
 |---|---|
 | `/auth/login`, `/auth/staff-login`, `/auth/refresh`, `/auth/staff-invite/redeem` | The caller holds no session; for the invite redeem, the single-use token **is** the credential, verified in `StaffInviteService`. |
 | Catalogue reads (properties, cities, localities, societies, fees) | The pages a visitor sees before deciding whether to sign up at all. |
-| `/flags`, `/pricing`, `/plans`, `/move-pack`, `/geo` | These toggles and prices decide what a logged-out visitor sees, so an admin-only reader cannot be the client's source for them. Each is scoped to one block of the settings document, so the rest of `/admin/settings` (fees, permissions, `adminFlags`, the referral auto-qualify threshold, blacklist reasons) stays admin-only. `/move-pack` is separate from `/flags` because the latter's contract is map-of-boolean and would have to drop the prices; the switch travels with the prices it gates so configuration that must be consistent cannot arrive half-applied. |
+| `GET /bootstrap` | Its sections (`flags`, `geo`, `cities`, `pricing`, `listingPolicy`, `movePack`, `plans`) decide what a logged-out visitor sees, so an admin-only reader cannot be the client's source for them. Each section is scoped to one block of the settings document, so the rest of `/admin/settings` (fees, permissions, `adminFlags`, the referral auto-qualify threshold, blacklist reasons) stays admin-only. `movePack` is separate from `flags` because the latter is map-of-boolean and would have to drop the prices; the switch travels with the prices it gates so configuration that must be consistent cannot arrive half-applied. |
 | `POST /cities/waitlist`, `POST /service-waitlist` | The people these exist for are not users and may never become any. POST-only; reading the leads back is staff/admin, because each row is a name and a mobile number. Each is additionally rate-limited per mobile in its service, and the waitlist is challenged in `BotDefenceFilter`. |
 | `POST /demand-signals`, `POST /page-views` | The two high-volume kinds fire on public surfaces, and the demand most worth measuring belongs to the visitor who left without signing up. Write-only by design: the aggregate is on `/admin/supply-gap`, because a public read would hand a competitor a locality-by-locality map of what Draazy is short of. |
 | `GET /documents/shared` | The link is forwarded to a lawyer or banker with no Draazy account; the unguessable, expiring share token **is** the credential, checked in `DocumentRequestService.shared`. |
@@ -961,9 +966,9 @@ read retries, and resolving `true` would tell a surface its partial 28-row view 
 
 ### Public reference reads — memory, browser and edge (`PublicReadCacheFilter`)
 
-Every page render reads the same dozen answers that do not vary by caller: `/flags`, `/geo`,
-`/pricing`, `/listing-policy`, `/move-pack`, `/plans`, `/fees`, `/cities`, `/localities`,
-`/properties/featured`, `/properties/trust-stats` and `/properties/counts`. Answering each from
+Every page render reads the same answers that do not vary by caller: `/bootstrap` (flags, geo,
+cities, pricing, listing policy, Move-in Pack, plans, the live listing `counts` and the `trustStats`
+headline in one body), `/fees`, `/localities`, `/faqs` and `/properties/featured`. Answering each from
 Postgres every time spends the 20-connection budget (4 instances × pool 5) on a constant. Three free
 layers absorb them instead, without Redis:
 
@@ -979,23 +984,40 @@ layers absorb them instead, without Redis:
    The edge's copy can then live one more TTL in a browser, so **an anonymous visitor sees an edit at
    most 2 × TTL (60s) late**.
 
-**Signed-in users and the editing admin see changes instantly.** `http.js` sends every read as
-`cache: 'no-cache'` while an access token exists, which makes the browser add
+**Staff and the editing admin see changes instantly; signed-in consumers within one TTL.** `http.js`
+sends every read by a staff or admin user as `cache: 'no-cache'`, which makes the browser add
 `Cache-Control: max-age=0`. The edge and the filter both treat that as a bypass. The filter also
 recomputes and refreshes its entry, so the next anonymous read on that instance is fresh too. A
 `Cache-Control` the browser adds does not trigger a CORS preflight.
 
-There is no write-path invalidation. Property writers are too many, and bulk or native queries skip
-entity listeners, so the TTL is the contract. Add a path to `PATHS` only if its answer is identical
-for every caller: anything personalised would leak between users. `PermissionMap` stays uncached on
-purpose.
+A successful `/admin/**` write clears the filter's entries on the instance that took it; the other
+instances serve out their TTL. Property writers are too many, and bulk or native queries skip
+entity listeners, so for everything else the TTL is the contract. Add a path to `PATHS` only if its
+answer is identical for every caller: anything personalised would leak between users.
+`PermissionMap` stays uncached on purpose.
 
-These reads carry no `X-Draazy-Build`. A replayed stamp from before a deploy would raise a false
+In the browser, `http.js` shares one fetch between concurrent identical GETs, keeps `/bootstrap` for
+the same 30s, and drops every kept read on any successful write or `draazy-settings-change`. The
+signed-in shell's eight reads (profile, plan, identity, saved, saved searches, followed societies,
+both unread counts) arrive as one `GET /me/bootstrap`, which seeds those reads at boot and sign-in
+(`services/meBootstrapService.js`); a section that failed comes back `null` and the client re-reads
+it from its own endpoint. The owner dashboard and hub do the same with `GET /me/dashboard` (`services/meDashboardService.js`):
+ `X-Draazy-Build`. A replayed stamp from before a deploy would raise a false
 "new version" banner, and every other response still carries the stamp.
 
 Tests and the e2e profile set the TTL to `0s`, which makes the filter inert. Specs reset the database
 under live JVMs and expect an anonymous page to see an admin edit immediately.
 `PublicReadCacheFilterTest` proves the cache's behaviour instead.
+
+### Platform settings rows — `SettingsCache`
+
+Staff bypass the filter above, and the commission, flag, geo and Move-in Pack reads behind
+`/bootstrap` and many write paths each read a `platform_settings` row. `SettingsCache` keeps each row
+for `draazy.cache.settings.ttl` (`SETTINGS_CACHE_TTL`, default 30s), so a hit borrows no pool
+connection. `AdminSettingsService.update` clears it after commit on the instance that took the write;
+other instances catch up within one TTL. Kill switches (`PlatformSettings.flag`: maintenance mode,
+signups, staff login) and `PermissionMap` always read fresh: a stale "off" there is a security
+failure, not a display lag. Tests and e2e run with `0s`; `SettingsCacheTest` proves the cache.
 
 ### Listing photos — card copies and an immutable CDN
 

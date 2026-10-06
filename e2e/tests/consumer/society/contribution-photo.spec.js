@@ -60,10 +60,10 @@ test('the photo a resident picks is uploaded and referenced, not pasted into the
      this returns is what the server actually kept. */
 
   const headers = await authHeaders(mobile);
-  const listed = await fetch(`${API}/societies/${SLUG}/contributions`, { headers });
+  const listed = await fetch(`${API}/societies/${SLUG}/hub`, { headers });
   expect(listed.status).toBe(200);
-  const rows = await listed.json();
-  const mine = (Array.isArray(rows) ? rows : rows.content || []).find((c) => c.body === caption);
+  const rows = (await listed.json()).contributions;
+  const mine = rows.content.find((c) => c.body === caption);
   expect(mine, 'the contribution should be readable back from the server').toBeTruthy();
   /* The assertion the old code fails on, stated three ways so the failure message says which. */
   expect(typeof mine.photoUrl, 'photoUrl must be a string, not the preview object').toBe('string');
@@ -109,8 +109,8 @@ test('an upload that fails files nothing, rather than a photo post with no photo
   await expect(modal.getByPlaceholder(/Caption/i)).toHaveValue(caption);
 
   const headers = await authHeaders(mobile);
-  const listed = await fetch(`${API}/societies/${SLUG}/contributions`, { headers });
-  const rows = await listed.json();
-  const found = (Array.isArray(rows) ? rows : rows.content || []).find((c) => c.body === caption);
+  const listed = await fetch(`${API}/societies/${SLUG}/hub`, { headers });
+  const rows = (await listed.json()).contributions;
+  const found = rows.content.find((c) => c.body === caption);
   expect(found, 'nothing should have reached the server').toBeFalsy();
 });

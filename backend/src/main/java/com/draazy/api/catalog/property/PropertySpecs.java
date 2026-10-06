@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -345,6 +346,7 @@ final class PropertySpecs {
         in(f.furnishings(), root.get("furnishing"), cb, where);
         in(f.localities(), root.get("localitySlug"), cb, where);
         in(f.societies(), root.get("societySlug"), cb, where);
+        idsFacet(f.ids(), root, cb, where);
         inFacing(f.facing(), root.get("facing"), cb, where);
         in(f.landUse(), root.get("landUse"), cb, where);
         in(f.room(), root.get("room"), cb, where);
@@ -452,6 +454,10 @@ final class PropertySpecs {
         }
         if (f.minBaths() != null && f.minBaths() >= 1) {
             where.add(cb.or(root.get("bathrooms").isNull(), cb.ge(root.get("bathrooms"), f.minBaths())));
+        }
+        if (f.minPhotos() != null && f.minPhotos() >= 1) {
+            where.add(cb.ge(cb.function("jsonb_array_length", Integer.class, root.get("images")),
+                    f.minPhotos()));
         }
         if (f.minAge() != null) {
             where.add(cb.or(root.get("ageYears").isNull(), cb.ge(root.get("ageYears"), f.minAge())));
@@ -608,6 +614,23 @@ final class PropertySpecs {
             return;
         }
         where.add(column.in(tokens));
+    }
+
+    /** A listing's id in the browser is its slug or its UUID, so a token matches either. */
+    private static void idsFacet(List<String> values, Root<Property> root, CriteriaBuilder cb,
+            List<Predicate> where) {
+        if (tooMany(values)) {
+            where.add(cb.disjunction());
+            return;
+        }
+        List<String> tokens = clean(values);
+        if (tokens.isEmpty()) {
+            unmatchableIfAsked(values, cb, where);
+            return;
+        }
+        List<UUID> uuids = tokens.stream().map(PropertyService::tryUuid).filter(Objects::nonNull).toList();
+        Predicate bySlug = root.get("slug").in(tokens);
+        where.add(uuids.isEmpty() ? bySlug : cb.or(bySlug, root.get("id").in(uuids)));
     }
 
     /** Lowercase values only; the index covers the bare column, not {@code lower(...)}. */

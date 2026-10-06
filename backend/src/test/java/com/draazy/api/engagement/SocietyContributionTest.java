@@ -142,14 +142,14 @@ class SocietyContributionTest extends AbstractApiTest {
         User author = user("9864000001", "Ishita Rane");
         tip(author, slug, "The back gate is quicker before 9am.");
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].body").value("The back gate is quicker before 9am."))
-                .andExpect(jsonPath("$.content[0].authorName").value("Ishita Rane"))
-                .andExpect(jsonPath("$.content[0].helpfulCount").value(0))
-                .andExpect(jsonPath("$.content[0].helpfulByMe").value(false))
+                .andExpect(jsonPath("$.contributions.content[0].body").value("The back gate is quicker before 9am."))
+                .andExpect(jsonPath("$.contributions.content[0].authorName").value("Ishita Rane"))
+                .andExpect(jsonPath("$.contributions.content[0].helpfulCount").value(0))
+                .andExpect(jsonPath("$.contributions.content[0].helpfulByMe").value(false))
                 // A reader with no account has nothing to remove, so no control is drawn for them.
-                .andExpect(jsonPath("$.content[0].canRemove").value(false));
+                .andExpect(jsonPath("$.contributions.content[0].canRemove").value(false));
     }
 
     @Test
@@ -163,16 +163,16 @@ class SocietyContributionTest extends AbstractApiTest {
 
         // The plumber never agreed to appear on the open web. Everything else about the
         // recommendation stays visible, so the card still reads as a recommendation.
-        mvc.perform(get("/societies/" + slug + "/contributions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].referralName").value("Vishal the electrician"))
-                .andExpect(jsonPath("$.content[0].referralContact").doesNotExist());
+                .andExpect(jsonPath("$.contributions.content[0].referralName").value("Vishal the electrician"))
+                .andExpect(jsonPath("$.contributions.content[0].referralContact").doesNotExist());
 
         User neighbour = user("9864000003", "Sneha Kale");
-        mvc.perform(get("/societies/" + slug + "/contributions")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(neighbour)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].referralContact").value("9822001122"));
+                .andExpect(jsonPath("$.contributions.content[0].referralContact").value("9822001122"));
     }
 
     @Test
@@ -194,8 +194,8 @@ class SocietyContributionTest extends AbstractApiTest {
                 .andExpect(status().isOk());
 
         tip(author, slug, "Water pressure is best on the lower floors.");
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].authorIsResident").value(true));
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].authorIsResident").value(true));
 
         // The committee changes its mind. A stored flag would keep vouching for them.
         mvc.perform(patch("/societies/" + slug + "/residents/" + residentId)
@@ -204,8 +204,8 @@ class SocietyContributionTest extends AbstractApiTest {
                         .content("{\"status\":\"rejected\"}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].authorIsResident").value(false));
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].authorIsResident").value(false));
     }
 
     /* ------------------------------------------------------------ the write */
@@ -255,13 +255,13 @@ class SocietyContributionTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"kind\":\"tip\",\"body\":\"Hello\"}"))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(get("/societies/" + slug + "/contributions")).andExpect(status().isOk());
+        mvc.perform(get("/societies/" + slug + "/hub")).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("an unknown society is a 404, not an empty list")
     void unknownSociety() throws Exception {
-        mvc.perform(get("/societies/no-such-society-anywhere/contributions"))
+        mvc.perform(get("/societies/no-such-society-anywhere/hub"))
                 .andExpect(status().isNotFound());
     }
 
@@ -311,15 +311,15 @@ class SocietyContributionTest extends AbstractApiTest {
         mvc.perform(put(url).header(HttpHeaders.AUTHORIZATION, bearer(one))).andExpect(status().isOk());
         mvc.perform(put(url).header(HttpHeaders.AUTHORIZATION, bearer(two))).andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/contributions")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(one)))
-                .andExpect(jsonPath("$.content[0].helpfulCount").value(2))
-                .andExpect(jsonPath("$.content[0].helpfulByMe").value(true));
+                .andExpect(jsonPath("$.contributions.content[0].helpfulCount").value(2))
+                .andExpect(jsonPath("$.contributions.content[0].helpfulByMe").value(true));
 
-        mvc.perform(get("/societies/" + slug + "/contributions")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(author)))
-                .andExpect(jsonPath("$.content[0].helpfulCount").value(2))
-                .andExpect(jsonPath("$.content[0].helpfulByMe").value(false));
+                .andExpect(jsonPath("$.contributions.content[0].helpfulCount").value(2))
+                .andExpect(jsonPath("$.contributions.content[0].helpfulByMe").value(false));
     }
 
     @Test
@@ -344,16 +344,16 @@ class SocietyContributionTest extends AbstractApiTest {
                 + " where id = ?::uuid", older);
 
         // Newest-first until somebody weighs in.
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].id").value(newer));
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].id").value(newer));
 
         mvc.perform(put("/societies/" + slug + "/contributions/" + older + "/helpful")
                         .header(HttpHeaders.AUTHORIZATION, bearer(voter)))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].id").value(older))
-                .andExpect(jsonPath("$.content[1].id").value(newer));
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].id").value(older))
+                .andExpect(jsonPath("$.contributions.content[1].id").value(newer));
     }
 
     /* -------------------------------------------------------------- replies */
@@ -373,8 +373,8 @@ class SocietyContributionTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.authorName").value("Pooja Gaikwad")));
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].replies[0].body").value("Who holds it?"));
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].replies[0].body").value("Who holds it?"));
 
         // The tip's author does not own the conversation about it — only their own words in it.
         mvc.perform(delete("/societies/" + slug + "/contributions/" + id + "/replies/" + replyId)
@@ -385,8 +385,8 @@ class SocietyContributionTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(replier)))
                 .andExpect(status().isNoContent());
 
-        mvc.perform(get("/societies/" + slug + "/contributions"))
-                .andExpect(jsonPath("$.content[0].replies").isEmpty());
+        mvc.perform(get("/societies/" + slug + "/hub"))
+                .andExpect(jsonPath("$.contributions.content[0].replies").isEmpty());
     }
 
     @Test

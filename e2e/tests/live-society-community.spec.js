@@ -70,9 +70,9 @@ test.describe('society community', () => {
     expect((await answered.json()).authorIsResident).toBe(true);
 
     // No Authorization header: the read a visitor gets before they have an account.
-    const publicRead = await request.get(`${API}/societies/${slug}/questions`);
+    const publicRead = await request.get(`${API}/societies/${slug}/hub`);
     expect(publicRead.status()).toBe(200);
-    const { content } = await publicRead.json();
+    const { content } = (await publicRead.json()).questions;
     const mine = content.find((q) => q.id === question.id);
     expect(mine, 'the question we just asked').toBeTruthy();
     expect(mine.answers).toHaveLength(1);

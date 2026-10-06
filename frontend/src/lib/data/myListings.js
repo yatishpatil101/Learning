@@ -90,12 +90,12 @@ export async function getMyRooms() {
 
 /* Combined "My Listings": the owner's property listings plus their flatmate posts. */
 export async function loadMyListings(user) {
-  /* Drop archived rows for this combined panel; the seam must keep returning the owner's full file. */
-  const mine = (await myListings(user)).filter((l) => !l.archived);
-  const [rooms, flatmatePosts, flatmateGroups] = await Promise.all([
+  const [mine, rooms, flatmatePosts, flatmateGroups] = await Promise.all([
+    myListings(user),
     getMyRooms(),
     getMyFlatmatePosts(),
     getMyFlatmateGroups(),
   ]);
-  return [...flatmatePosts, ...flatmateGroups, ...rooms, ...mine];
+  /* Drop archived rows for this combined panel; the seam must keep returning the owner's full file. */
+  return [...flatmatePosts, ...flatmateGroups, ...rooms, ...mine.filter((l) => !l.archived)];
 }

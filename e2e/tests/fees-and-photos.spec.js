@@ -9,11 +9,12 @@ import { PHOTO_PNG } from '../helpers/listingPhotos.helper.js';
 const OWNER = { mobile: '9470744469', name: 'Meera Deshpande' };
 const ADMIN = '9000000000';
 
-// The admin Fees tab is the only price source; `GET /pricing` is its public projection.
+// The admin Fees tab is the only price source; the `pricing` section of `GET /bootstrap` is its
+// public projection.
 const rupees = (n) => '₹' + Number(n).toLocaleString('en-IN');
-const adminPrices = async () => (await fetch(`${API}/pricing`)).json();
+const adminPrices = async () => (await (await fetch(`${API}/bootstrap`)).json()).pricing;
 const gstOn = (fee, percent) => Math.round((fee * percent) / 100);
-// What `platform_fees('rent')` used to quote while the admin schedule said ₹500.
+// A fee that disagrees with the admin schedule's ₹500, so it must never appear.
 const STALE_RENT_FEE = '₹1,999';
 
 async function saveFees(fees) {
@@ -167,16 +168,16 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
 
 // Default pricing can look valid without a request, so tests wait on the response.
 test.describe('Pricing — the product quotes the database, not the bundle (live)', () => {
-  test('the plans page renders the figures the anonymous price request returned, not the bundled fallback', async ({ page }) => {
+  test('the plans page renders the figures the anonymous bootstrap read returned, not the bundled fallback', async ({ page }) => {
     // Armed before the navigation: if the browser never asks, this times out.
     const asked = page.waitForResponse(
-      (r) => r.url().includes('/api/pricing') && r.request().method() === 'GET',
+      (r) => r.url().includes('/api/bootstrap') && r.request().method() === 'GET',
       { timeout: 20000 },
     );
     await page.goto('/plans');
     const res = await asked;
     expect(res.status()).toBe(200);
-    const prices = await res.json();
+    const prices = (await res.json()).pricing;
 
     // Keys as a set because a missing fee renders as "₹0", not as missing UI.
     expect(Object.keys(prices).sort()).toEqual([
@@ -207,7 +208,7 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
     const repriced = 1_234;
     await saveFees({ ownerPlanYearly: repriced });
     try {
-      const plans = await (await fetch(`${API}/plans`)).json();
+      const { plans } = await (await fetch(`${API}/bootstrap`)).json();
       expect(plans.find((p) => p.name === 'Owner Plus')?.price, 'the catalogue charges the admin price').toBe(repriced);
 
       await page.goto('/plans');
@@ -218,27 +219,21 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
   });
 
   // Count requests so deleted fetches and duplicate fetches both fail.
-  test('the home page never asks for the price list; /plans then asks exactly once', async ({ page }) => {
+  test('each page load reads the public reference data exactly once', async ({ page }) => {
     let asks = 0;
     page.on('request', (r) => {
-      if (r.method() === 'GET' && r.url().includes('/api/pricing')) asks += 1;
+      if (r.method() === 'GET' && r.url().includes('/api/bootstrap')) asks += 1;
     });
 
     await page.goto('/');
     // Use `appReady()`: `networkidle` can resolve before `main.jsx` evaluates.
     await appReady(page);
     await expect(page.locator('input[role="combobox"]').first()).toBeVisible({ timeout: 20000 });
-    expect(asks, 'home renders no price, so it must not fetch the price list').toBe(0);
+    await expect.poll(() => asks, { message: 'home boots from one bootstrap read' }).toBe(1);
 
-    // Arm before navigation because paint can beat the later pricing request.
-    const asked = page.waitForRequest(
-      (r) => r.method() === 'GET' && r.url().includes('/api/pricing'),
-      { timeout: 20000 },
-    );
     await page.goto('/plans');
-    await asked;
     await expect(page.locator('details').filter({ hasText: /per year/i }).first())
       .toBeVisible({ timeout: 20000 });
-    expect(asks, 'the read is deferred, not deleted — and it happens once').toBe(1);
+    expect(asks, 'a fresh load reads it again, once').toBe(2);
   });
 });

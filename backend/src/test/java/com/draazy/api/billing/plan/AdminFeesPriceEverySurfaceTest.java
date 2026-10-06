@@ -52,7 +52,7 @@ class AdminFeesPriceEverySurfaceTest extends AbstractApiTest {
     }
 
     private static String planPrice(String id) {
-        return "$[?(@.id=='" + id + "')].price";
+        return "$.plans[?(@.id=='" + id + "')].price";
     }
 
     @Test
@@ -60,14 +60,14 @@ class AdminFeesPriceEverySurfaceTest extends AbstractApiTest {
         saveFees("{\"ownerPlanYearly\":1299,\"ownerProYearly\":2999,\"seekerPlusTopup\":249}")
                 .andExpect(status().isOk());
 
-        mvc.perform(get(Routes.Plans.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(planPrice(OWNER_FREE)).value(hasItem(0)))
                 .andExpect(jsonPath(planPrice(OWNER_PLUS)).value(hasItem(1299)))
                 .andExpect(jsonPath(planPrice(OWNER_PRO)).value(hasItem(2999)))
                 .andExpect(jsonPath(planPrice(SEEKER_PLUS)).value(hasItem(249)))
-                .andExpect(jsonPath("$[0].id").value(OWNER_FREE))
-                .andExpect(jsonPath("$[3].id").value(OWNER_PRO));
+                .andExpect(jsonPath("$.plans[0].id").value(OWNER_FREE))
+                .andExpect(jsonPath("$.plans[3].id").value(OWNER_PRO));
     }
 
     @Test
@@ -99,7 +99,7 @@ class AdminFeesPriceEverySurfaceTest extends AbstractApiTest {
 
     @Test
     void theSeededScheduleAgreesEverywhere() throws Exception {
-        mvc.perform(get(Routes.Plans.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(jsonPath(planPrice(OWNER_PLUS)).value(hasItem(999)))
                 .andExpect(jsonPath(planPrice(OWNER_PRO)).value(hasItem(2499)))
                 .andExpect(jsonPath(planPrice(SEEKER_PLUS)).value(hasItem(199)));
@@ -118,7 +118,7 @@ class AdminFeesPriceEverySurfaceTest extends AbstractApiTest {
         saveFees("{\"ownerPlanYearly\":0}").andExpect(status().isUnprocessableEntity());
         saveFees("{\"rentAgreementPlatform\":499.5}").andExpect(status().isUnprocessableEntity());
 
-        mvc.perform(get(Routes.Plans.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(jsonPath(planPrice(OWNER_PRO)).value(hasItem(2499)));
     }
 }

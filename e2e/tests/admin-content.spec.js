@@ -146,7 +146,7 @@ test.describe('admin review moderation', () => {
       expect(target, 'the e2e seed must contain a published property review').toBeTruthy();
 
       const publicBefore = await (await request.get(`${API}/properties/${target.targetId}/reviews`)).json();
-      expect(publicBefore.some((r) => r.id === target.id)).toBe(true);
+      expect(publicBefore.content.some((r) => r.id === target.id)).toBe(true);
 
       await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
       await page.goto('/admin/reports?tab=reviews');
@@ -170,7 +170,7 @@ test.describe('admin review moderation', () => {
 
       /* Archived reviews leave the public read, so the aggregate rating must drop them too. */
       const publicAfter = await (await request.get(`${API}/properties/${target.targetId}/reviews`)).json();
-      expect(publicAfter.some((r) => r.id === target.id)).toBe(false);
+      expect(publicAfter.content.some((r) => r.id === target.id)).toBe(false);
 
       // Put it back, because the seeded row is shared and the next spec to read it should find the
       // state it was seeded in.

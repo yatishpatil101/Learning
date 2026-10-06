@@ -76,14 +76,6 @@ public class FlatmateSupplyController {
         return service.setOccupants(principal, id, body.occupants());
     }
 
-    /** Contract {@code reissueJointAgreement} — 202, because the reissue is an errand rather than a
-     * record. */
-    @PostMapping(Routes.Flatmates.ROOM_AGREEMENT_REISSUE)
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public void reissue(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
-        service.reissueAgreement(principal, id);
-    }
-
     @PostMapping(Routes.Flatmates.ROOM_INTEREST)
     @ResponseStatus(HttpStatus.CREATED)
     public void roomInterest(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
@@ -133,14 +125,6 @@ public class FlatmateSupplyController {
 
     /** 200 for both calls; the body says which happened. Role-guarded like the creates it serves:
      * the consent flow spends a send budget against a third party's number. */
-    @PostMapping(Routes.Flatmates.GROUP_OWNER_CONSENT)
-    @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
-    public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
-            @Valid @RequestBody OwnerConsentRequest body) {
-        boolean recorded = consentService.ownerConsent(principal, id, body.ownerMobile(), body.otp());
-        return recorded ? ConsentResult.recorded() : ConsentResult.sent(resendAfterSeconds());
-    }
-
     @PostMapping(Routes.Flatmates.OWNER_CONSENT)
     @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
     public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal,

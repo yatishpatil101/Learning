@@ -198,26 +198,6 @@ public class FlatmateSupplyService {
         return mapper.toDto(saved, ownView(caller, saved, committedInFlat(saved)));
     }
 
-    /** One agreement covers the whole flat, so a room changing hands invalidates it for everyone;
-     * recorded as a notification errand. */
-    @Transactional
-    public void reissueAgreement(AuthPrincipal caller, UUID roomId) {
-        FlatmateRoom room = ownedRoom(caller, roomId);
-        if (!room.isSplitRoom()) {
-            throw new ForbiddenException(
-                    "Only a flat let room by room has a joint agreement to reissue.");
-        }
-        notifier.notify(
-                caller.userId(),
-                "flatmate.agreement.reissue",
-                "Joint rent agreement reissue started",
-                "A room in this flat changed hands, so the joint agreement covering everyone needs "
-                        + "reissuing. Our team will be in touch to arrange it.",
-                FlatmateLinks.of("room", room.getId()));
-        audit.record(caller, "flatmate.agreement.reissue", "flatmateRoom", room.getId().toString(),
-                "propertyId", String.valueOf(room.getPropertyId()));
-    }
-
     @Transactional
     public void roomInterest(AuthPrincipal caller, UUID roomId, String share, String message) {
         FlatmateRoom room = rooms.findVisible(roomId)

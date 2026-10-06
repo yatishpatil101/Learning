@@ -86,10 +86,6 @@ class DashboardDecisionAuditHardeningTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeContactRequests.BASE).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].status").value(ContactRequestStatuses.EXPIRED));
-        mvc.perform(get(Routes.MeContactRequests.PENDING_COUNT)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pending").value(0));
         String body = mvc.perform(contactDecision(owner, reqId, ContactRequestStatuses.APPROVED))
                 .andExpect(status().isConflict())
                 .andReturn().getResponse().getContentAsString();

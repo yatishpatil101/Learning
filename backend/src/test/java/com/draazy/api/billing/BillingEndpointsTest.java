@@ -68,15 +68,15 @@ class BillingEndpointsTest extends AbstractApiTest {
 
     @Test
     void thePriceListsAreReadableWithoutAToken() throws Exception {
-        mvc.perform(get(Routes.Plans.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()", Matchers.greaterThanOrEqualTo(4)))
-                .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].price").value(
+                .andExpect(jsonPath("$.plans.length()", Matchers.greaterThanOrEqualTo(4)))
+                .andExpect(jsonPath("$.plans[?(@.id=='" + PAID_PLAN + "')].price").value(
                         Matchers.hasItem(999)))
 
-                .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].listingLimit").value(
+                .andExpect(jsonPath("$.plans[?(@.id=='" + PAID_PLAN + "')].listingLimit").value(
                         Matchers.hasItem(2)))
-                .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].contactLimit").value(
+                .andExpect(jsonPath("$.plans[?(@.id=='" + PAID_PLAN + "')].contactLimit").value(
                         Matchers.hasItem(Matchers.nullValue())));
     }
 

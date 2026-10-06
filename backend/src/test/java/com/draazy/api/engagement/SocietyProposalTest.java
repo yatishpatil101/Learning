@@ -230,15 +230,15 @@ class SocietyProposalTest extends AbstractApiTest {
 
         // A stranger is told the group is there — that is the nudge to verify a flat — and is
         // told nothing that would let them walk into it.
-        mvc.perform(get("/societies/" + slug + "/proposals"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.whatsappAvailable").value(true))
-                .andExpect(jsonPath("$.whatsappJoinUrl").doesNotExist());
+                .andExpect(jsonPath("$.proposals.whatsappAvailable").value(true))
+                .andExpect(jsonPath("$.proposals.whatsappJoinUrl").doesNotExist());
 
-        mvc.perform(get("/societies/" + slug + "/proposals")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(resident)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.whatsappJoinUrl")
+                .andExpect(jsonPath("$.proposals.whatsappJoinUrl")
                         .value("https://chat.whatsapp.com/ZzYyXx987654"));
     }
 
@@ -376,14 +376,14 @@ class SocietyProposalTest extends AbstractApiTest {
         propose(author, slug, "{\"kind\":\"details\",\"builder\":\"Awaiting Review\"}")
                 .andExpect(status().isCreated());
 
-        mvc.perform(get("/societies/" + slug + "/proposals")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(author)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pending[0].kind").value("details"))
-                .andExpect(jsonPath("$.pending[0].builder").value("Awaiting Review"))
-                .andExpect(jsonPath("$.pending[0].authorName").value("Sanjay"));
+                .andExpect(jsonPath("$.proposals.pending[0].kind").value("details"))
+                .andExpect(jsonPath("$.proposals.pending[0].builder").value("Awaiting Review"))
+                .andExpect(jsonPath("$.proposals.pending[0].authorName").value("Sanjay"));
 
-        String anonymous = mvc.perform(get("/societies/" + slug + "/proposals"))
+        String anonymous = mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(anonymous).doesNotContain("9865000018");

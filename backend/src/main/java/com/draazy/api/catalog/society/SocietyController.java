@@ -18,10 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code /societies} - the public society directory and hub, caller-aware so a signed-in reader gets
- * {@code followedByMe} while an anonymous one gets {@code false} (docs/flows/consumer/societies.md 9.6).
- */
+/** Caller-aware: signed-in readers get {@code followedByMe}, anonymous ones {@code false} (societies.md 9.6). */
 @RestController
 public class SocietyController {
 
@@ -33,19 +30,18 @@ public class SocietyController {
         this.mintService = mintService;
     }
 
-    /**
-     * {@code GET /societies} - paged directory; {@code sort} is clamped to {@link SocietySort}'s
-     * whitelist and {@code hasListings=true} narrows to societies with a live listing.
-     */
+    /** {@code sort} is clamped to {@link SocietySort}'s whitelist; {@code hasListings} and
+     *  {@code verified} narrow to societies with a live listing / a verified badge. */
     @GetMapping(Routes.Societies.BASE)
     public PageResponse<SocietyResponse> browse(
             @CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String locality,
             @RequestParam(required = false) Boolean hasListings,
+            @RequestParam(required = false) Boolean verified,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                societyService.browse(q, locality, hasListings, pageable, viewerId(principal)),
+                societyService.browse(q, locality, hasListings, verified, pageable, viewerId(principal)),
                 Function.identity());
     }
 

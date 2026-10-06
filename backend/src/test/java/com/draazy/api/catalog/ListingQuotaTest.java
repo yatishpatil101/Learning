@@ -3,6 +3,7 @@ package com.draazy.api.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
+import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
@@ -113,6 +115,22 @@ class ListingQuotaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.archived").value(true));
 
         assertThat(tryPost(o, "The new flat")).isEqualTo(201);
+    }
+
+    @Test
+    @DisplayName("entitlements report the same held count the gate refuses on")
+    void entitlementsReportTheHeldCount() throws Exception {
+        User o = owner("9861000010");
+        existing(o, "Live", PropertyStatus.APPROVED);
+        existing(o, "Queued", PropertyStatus.PENDING);
+        existing(o, "Turned down", PropertyStatus.REJECTED);
+        Property gone = existing(o, "Taken down", PropertyStatus.APPROVED);
+        mvc.perform(delete("/me/listings/" + gone.getId()).header("Authorization", bearer(o)))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.Plans.ENTITLEMENTS).header("Authorization", bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.listings.used").value(2));
     }
 
     @Test

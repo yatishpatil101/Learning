@@ -38,15 +38,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
-/**
- * Contract + behaviour proof for the finance ledger (S5.3), driven through the real filter chain
- * against the live Flyway'd Postgres under {@code ddl-auto=validate}.
- *
- * <p>Covers the §11 bar for this surface: owner scoping (404 never 403), whole-rupee money, PATCH
- * partial-update semantics (spec fix S19), soft-delete — the row leaves the ledger and the totals
- * but survives in the table, summary period windows (spec fix S18), the nullable occupancy rate
- * (spec fix S20), the recurring dues projection, and route-constant agreement.
- */
+/** Contract + behaviour proof for the finance ledger, through the real filter chain on Flyway'd Postgres. */
 class FinanceEndpointsTest extends AbstractApiTest {
 
     @Autowired MockMvc mvc;
@@ -59,14 +51,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
 
     // ---- helpers ----
 
-    /**
-     * Push pending JPA writes to the database.
-     *
-     * <p>The test method and the request handler share one transaction, but not one view of it:
-     * {@code save()} only queues an insert in the persistence context, so a {@link JdbcTemplate}
-     * read issued afterwards goes straight to a table that has not been written yet and sees
-     * nothing. Every assertion below that reads a raw column flushes first.
-     */
+    /** Flush first: {@code save()} only queues the insert, so a {@link JdbcTemplate} read would see nothing. */
     private void flush() {
         em.flush();
     }
@@ -107,13 +92,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
         return today.toString();
     }
 
-    /**
-     * The date the <em>service</em> considers today — India's, not the host's (D174).
-     *
-     * <p>A bare {@code LocalDate.now()} here would disagree with the server for the first 5.5 hours
-     * of every Indian day on a UTC host, and the period windows below would start failing at
-     * midnight IST for reasons that have nothing to do with the contract they are pinning.
-     */
+    /** The service's today (India's, not the host's): bare {@code LocalDate.now()} is off 5.5h daily on UTC. */
     private static final LocalDate today = LocalDate.now(PlatformTime.IST);
 
     // ---- 1: a ledger row round-trips with money intact ----
@@ -144,7 +123,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
     // ---- 2: another owner's ledger is 404, never 403 ----
 
     @ParameterizedTest(name = "{0} {1} for a non-owner is 404, not 403")
-    @CsvSource({"GET,/transactions", "POST,/transactions", "GET,/basis"})
+    @CsvSource({"GET,/transactions", "POST,/transactions", "GET,/overview"})
     void nonOwner_returns404NotForbidden(String method, String route) throws Exception {
         User owner = user("9821100002");
         User stranger = user("9821100003");
@@ -172,7 +151,6 @@ class FinanceEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---- 4: PATCH is a genuine partial update (spec fix S19) ----
 
     @Test
     void updateTransaction_absentFieldsAreLeftAlone() throws Exception {
@@ -181,8 +159,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
         String id = addTxn(owner, p, "{\"type\":\"expense\",\"category\":\"Repairs\","
                 + "\"amount\":500000,\"date\":\"" + today() + "\",\"note\":\"Plumbing\"}");
 
-        // Send only the amount. Before S19 this shape was a 422: the schema required type, amount
-        // and date, which made PATCH a PUT wearing a PATCH's name.
+        // Only the amount: PATCH must be a genuine partial update, not a PUT that requires type, amount and date.
         mvc.perform(patch(txnPath(p) + "/" + id)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -240,12 +217,8 @@ class FinanceEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.income").value(0));
     }
 
-    // ---- 6: the summary aggregates, and honours the period window (spec fix S18) ----
 
-    /**
-     * The UI has always offered "This quarter" and "This year", and the mock silently returned
-     * all-time for both. This is the regression guard for that fix.
-     */
+    /** "This quarter" and "This year" must narrow the window rather than silently returning all-time. */
     @Test
     void summary_quarterAndYear_areRealWindowsNotAllTime() throws Exception {
         User owner = user("9821100012");
@@ -274,7 +247,6 @@ class FinanceEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ---- 7: occupancyRate is null, not zero, for a property never let (spec fix S20) ----
 
     @Test
     void summary_occupancyRate_isNullWhenNeverLet() throws Exception {
@@ -310,10 +282,10 @@ class FinanceEndpointsTest extends AbstractApiTest {
                         .content("{\"purchasePrice\":9000000}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/basis")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.purchasePrice").value(9000000));
+                .andExpect(jsonPath("$.basis.purchasePrice").value(9000000));
 
         // property_id is the primary key, so a second PUT cannot mean a second basis.
         flush();
@@ -333,13 +305,27 @@ class FinanceEndpointsTest extends AbstractApiTest {
         addTxn(owner, p, "{\"type\":\"expense\",\"category\":\"Repairs\",\"amount\":100000,"
                 + "\"date\":\"" + today.minusMonths(2) + "\"}");
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/dues")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].category").value("Maintenance"))
-                .andExpect(jsonPath("$[0].nextDue").exists())
-                .andExpect(jsonPath("$[0].daysUntil").exists());
+                .andExpect(jsonPath("$.dues.length()").value(1))
+                .andExpect(jsonPath("$.dues[0].category").value("Maintenance"))
+                .andExpect(jsonPath("$.dues[0].nextDue").exists())
+                .andExpect(jsonPath("$.dues[0].daysUntil").exists());
+    }
+
+
+    @Test
+    void overview_returnsNullBasisUntilRecorded() throws Exception {
+        User owner = user("9821100019");
+        Property p = listing(owner);
+
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.basis").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.dues.length()").value(0))
+                .andExpect(jsonPath("$.cashflow.length()").value(12));
     }
 
     // ---- 10: cashflow rejects an out-of-range window ----
@@ -349,7 +335,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
         User owner = user("9821100020");
         Property p = listing(owner);
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=600")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=600")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isBadRequest());
     }
@@ -374,17 +360,8 @@ class FinanceEndpointsTest extends AbstractApiTest {
 
     // ---- 11b: the ledger is paged, and a hostile page size is clamped ----
 
-    /**
-     * A property ledger grows on a schedule and is never culled, so it is paged (api-standards.md
-     * §5.1). Two things are asserted that a refactor could silently break: the response is the
-     * {@code PageEnvelope} the contract now declares rather than a bare array, and an absurd
-     * {@code size} is clamped by {@code spring.data.web.pageable.max-page-size} instead of being
-     * honoured — an owner with years of history is otherwise a one-request memory spike.
-     *
-     * <p>The {@code sort} parameter is deliberately hostile: the operation declares no sort, so the
-     * controller must drop it. Passing it through would reach the query as an unknown property and
-     * surface as a 500.
-     */
+    /** Ledgers are paged: the response is a {@code PageEnvelope} and an absurd {@code size} is clamped. The
+     * undeclared {@code sort} must be dropped, or it 500s as an unknown query property. */
     @Test
     void listTransactions_isPagedAndClampsPageSize() throws Exception {
         User owner = user("9821100031");
@@ -447,7 +424,6 @@ class FinanceEndpointsTest extends AbstractApiTest {
                 Routes.Finances.TRANSACTION_BY_ID,
                 Routes.Finances.BASIS,
                 Routes.Finances.SUMMARY,
-                Routes.Finances.CASHFLOW,
-                Routes.Finances.DUES);
+                Routes.Finances.OVERVIEW);
     }
 }

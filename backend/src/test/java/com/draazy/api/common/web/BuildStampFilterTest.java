@@ -63,12 +63,12 @@ class BuildStampFilterTest {
     void omitsTheHeaderOnAReadTheEdgeOrBrowserMayReplay() throws Exception {
         var filter = filterFor(buildAt("2026-09-19T12:00:00Z"), Duration.ofSeconds(30));
 
-        assertThat(stampOf(filter, new MockHttpServletRequest("GET", "/flags"))).isNull();
+        assertThat(stampOf(filter, new MockHttpServletRequest("GET", "/bootstrap"))).isNull();
         assertThat(stampOf(filter, new MockHttpServletRequest("GET", "/me"))).isNotNull();
     }
 
     private static String stampOf(BuildStampFilter filter) throws Exception {
-        return stampOf(filter, new MockHttpServletRequest("GET", "/flags"));
+        return stampOf(filter, new MockHttpServletRequest("GET", "/bootstrap"));
     }
 
     private static String stampOf(BuildStampFilter filter, MockHttpServletRequest request)

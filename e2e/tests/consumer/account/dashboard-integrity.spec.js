@@ -153,6 +153,7 @@ test('double-tapping Accept sends one successful contact decision', async ({ pag
 
 test('aborted contact request inbox shows LoadError with retry on All leads', async ({ page }) => {
   await signedInAs(page, ACTORS.owner);
+  await page.route('**/api/me/dashboard', (route) => route.abort());
   await page.route('**/api/me/contact-requests?**', (route) => route.abort());
   await page.goto('/dashboard#enquiries');
   await expect(page.getByRole('tab', { name: /All leads/i })).toBeVisible();

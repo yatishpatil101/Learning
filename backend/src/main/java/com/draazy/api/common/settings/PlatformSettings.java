@@ -7,7 +7,6 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -20,7 +19,7 @@ public class PlatformSettings {
     /** The seeded key holding the fee block (see {@code R__DML_seed_reference_data.sql}). */
     public static final String FEES_KEY = "fees";
 
-    /** The seeded key holding the feature-toggle block, the same one {@code GET /flags} publishes. */
+    /** The seeded key holding the feature-toggle block, the same one {@code GET /bootstrap} publishes. */
     static final String FLAGS_KEY = "flags";
 
     /** Indian GST, as a percentage. Statutory, and 18% is the current rate for these services. */
@@ -78,101 +77,89 @@ public class PlatformSettings {
     public static final int MAX_GROUPS_PER_PERSON = 10;
 
     private final SettingRepository settings;
+    private final SettingsCache cache;
     private final ObjectMapper objectMapper;
 
-    public PlatformSettings(SettingRepository settings, ObjectMapper objectMapper) {
+    public PlatformSettings(SettingRepository settings, SettingsCache cache,
+            ObjectMapper objectMapper) {
         this.settings = settings;
+        this.cache = cache;
         this.objectMapper = objectMapper;
     }
 
-    @Transactional(readOnly = true)
     public BigDecimal gstPercent() {
         return percent(FEES_KEY, "gstPercent", DEFAULT_GST_PERCENT);
     }
 
     /** GST on a whole-rupee amount at the configured rate, rounded half-up to whole rupees. */
-    @Transactional(readOnly = true)
     public long gstOn(long rupees) {
         return BigDecimal.valueOf(rupees).multiply(gstPercent())
                 .divide(MAX_PERCENT, 0, RoundingMode.HALF_UP).longValueExact();
     }
 
-    @Transactional(readOnly = true)
     public long ownerPlanYearly() {
         return wholeNumber(FEES_KEY, "ownerPlanYearly", DEFAULT_OWNER_PLAN_YEARLY, MAX_PRICE);
     }
 
-    @Transactional(readOnly = true)
     public long ownerProYearly() {
         return wholeNumber(FEES_KEY, "ownerProYearly", DEFAULT_OWNER_PRO_YEARLY, MAX_PRICE);
     }
 
-    @Transactional(readOnly = true)
     public long rentAgreementPlatform() {
         return wholeNumber(FEES_KEY, "rentAgreementPlatform", DEFAULT_RENT_AGREEMENT_PLATFORM,
                 MAX_PRICE);
     }
 
-    @Transactional(readOnly = true)
     public long seekerPlusTopup() {
         return wholeNumber(FEES_KEY, "seekerPlusTopup", DEFAULT_SEEKER_PLUS_TOPUP, MAX_PRICE);
     }
 
-    @Transactional(readOnly = true)
     public long featuredListing() {
         return wholeNumber(FEES_KEY, "featuredListing", DEFAULT_FEATURED_LISTING, MAX_PRICE);
     }
 
-    @Transactional(readOnly = true)
     public long freeContactLimit() {
         return wholeNumber(FEES_KEY, "freeContactLimit", DEFAULT_FREE_CONTACT_LIMIT,
                 MAX_CONTACT_GRANT);
     }
 
-    @Transactional(readOnly = true)
     public long referralContactBonus() {
         return wholeNumber(FEES_KEY, "referralContactBonus", DEFAULT_REFERRAL_CONTACT_BONUS,
                 MAX_CONTACT_GRANT);
     }
 
-    @Transactional(readOnly = true)
     public long referralQualifyPerMonth() {
         return wholeNumber(FEES_KEY, "referralQualifyPerMonth", DEFAULT_REFERRAL_QUALIFY_PER_MONTH,
                 MAX_REFERRAL_QUALIFY_PER_MONTH);
     }
 
-    @Transactional(readOnly = true)
     public int maxListingPhotos() {
         return (int) wholeNumber(LISTINGS_KEY, "maxPhotos", DEFAULT_MAX_LISTING_PHOTOS,
                 MIN_LISTING_PHOTOS, MAX_LISTING_PHOTOS);
     }
 
-    @Transactional(readOnly = true)
     public int maxGroupsPerPerson() {
         return (int) wholeNumber(FLATMATES_KEY, "maxGroupsPerPerson", DEFAULT_GROUPS_PER_PERSON,
                 MIN_GROUPS_PER_PERSON, MAX_GROUPS_PER_PERSON);
     }
 
-    @Transactional(readOnly = true)
     public boolean signupsEnabled() {
         return flag(FLAGS_KEY, "signupsEnabled", true);
     }
 
-    @Transactional(readOnly = true)
     public boolean staffLoginEnabled() {
         return flag(FLAGS_KEY, "staffLoginEnabled", true);
     }
 
-    @Transactional(readOnly = true)
     public boolean subscriptionPlansEnabled() {
         return flag(FLAGS_KEY, "subscriptionPlans", true);
     }
 
-    @Transactional(readOnly = true)
     public boolean maintenanceMode() {
         return flag(FLAGS_KEY, "maintenanceMode", false);
     }
 
+    // Read past the cache: these are kill switches, and one must bite on the next request.
     private boolean flag(String key, String field, boolean whenUndecided) {
         Optional<Setting> row = settings.findById(key);
         if (row.isEmpty()) {
@@ -198,8 +185,7 @@ public class PlatformSettings {
 
     private long wholeNumber(String key, String field, long fallback, long min, long max) {
         try {
-            JsonNode value = settings.findById(key)
-                    .map(Setting::getValue)
+            JsonNode value = cache.value(key)
                     .map(objectMapper::readTree)
                     .map(node -> node.get(field))
                     .orElse(null);
@@ -222,8 +208,7 @@ public class PlatformSettings {
 
     private BigDecimal percent(String key, String field, BigDecimal fallback) {
         try {
-            JsonNode value = settings.findById(key)
-                    .map(Setting::getValue)
+            JsonNode value = cache.value(key)
                     .map(objectMapper::readTree)
                     .map(node -> node.get(field))
                     .orElse(null);

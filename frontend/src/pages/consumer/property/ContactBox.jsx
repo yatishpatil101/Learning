@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
@@ -19,7 +20,9 @@ export function ContactBox({ p, isIn, toast }) {
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = p.id || '';
-  const { gate, loading, setGate } = useContactGate(propId);
+  // The route param, not `p.id`: useProperty already reads the gate under it, so the two share one request.
+  const { id: routeId } = useParams();
+  const { gate, loading, setGate } = useContactGate(routeId || propId);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [busy, setBusy] = useState(false);

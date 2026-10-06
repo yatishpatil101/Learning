@@ -7,13 +7,8 @@ import { listPlans } from '../../services/planService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-/**
- * Every price here is the admin Fees tab's: the server prices paid plans in `GET /plans` and the
- * rent row of `GET /fees` from that schedule, and charges the same figures. Cards read the
- * catalogue because it is what `POST /me/subscription` bills; `fee()` (from `GET /pricing`, the
- * same schedule) is only the pre-resolution and failed-fetch fallback — a pricing page that renders
- * a stale number still converts, one that renders a blank does not.
- */
+/** Prices come from the `GET /bootstrap` `plans` catalogue, which is what `POST /me/subscription` bills;
+ * `fee()` is only the fallback, because a stale price still converts and a blank one does not. */
 const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 const FREE_IDS = ['free', 'seeker-free', 'owner-free'];
@@ -27,11 +22,7 @@ const ownerPlans = (t, fee) => [
   { id: 'owner2', name: t('misc1.plansOwnerName'), price: fee('ownerPlanYearly'), sub: t('misc1.plansOwnerSub'), tag: t('misc1.plansOwnerTag'), feats: [t('misc1.plansOwnerFeat1'), t('misc1.plansOwnerFeat2'), t('misc1.plansOwnerFeat3'), t('misc1.plansOwnerFeat4')], cta: t('misc1.plansOwnerCta'), href: '/checkout?plan=owner2', pop: true, badge: t('misc1.plansOwnerBadge') },
   { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1'), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
 ];
-/**
- * @param rentFee the rent-agreement platform fee, already formatted.
- * @param price   resolves a plan slug to the price the card shows, so the FAQ prose cannot quote a
- *                different number than the card for the same plan.
- */
+/** `price` resolves a plan slug to the card's price so FAQ prose can't quote a different number. */
 const plansFaqs = (t, rentFee, price) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
   [t('misc1.plansFaq2Q'), t('misc1.plansFaq2A')],
@@ -71,10 +62,7 @@ function PlanCard({ p, current }) {
   );
 }
 
-// Mobile-only: turns a persona's plans into a horizontal swipe carousel so the
-// value ladder can be compared by swiping instead of scrolling five full-height
-// cards. Cards are 82% wide so the next plan peeks (an affordance to swipe), and
-// the dots track / drive position. Desktop keeps the plain grid below.
+// Cards are 82% wide so the next plan peeks as a swipe affordance; desktop keeps the plain grid below.
 function PlanCarousel({ plans, current }) {
   const scrollRef = useRef(null);
   const [active, setActive] = useState(0);
@@ -127,23 +115,8 @@ function PlanCarousel({ plans, current }) {
               aria-label={p.name}
               aria-current={i === active ? 'true' : undefined}
               onClick={() => goTo(i)}
-              /* The dot is drawn by the inner span; the button around it is the
-                 target. The dots themselves were 8x8 — unhittable, on the only
-                 control that reveals the Plus and Pro plans on a phone.
-
-                 Deliberately 24x44, not 44x44. Three dots 44px wide would either
-                 overlap (ambiguous taps, worse than small ones) or have to be
-                 spread far enough apart that they stop reading as one indicator.
-                 24px is the WCAG 2.5.8 AA floor and, with the row's spacing, puts
-                 adjacent centres 32px apart. Height is free, so it takes the full
-                 44px. Swiping the rail remains the primary interaction; these are
-                 indicators that happen to be tappable.
-
-                 data-tap-exempt records that as reviewed rather than missed: the
-                 mobile sweep holds the rest of the app to 44px, and without the
-                 marker this rail reads as an oversight every time someone runs it.
-                 The 2.5.8 spacing exception is what the pass rests on — 32px
-                 between adjacent centres clears the 24px offset it asks for. */
+              /* 24x44, not 44x44: wider dots would overlap; 24px with 32px spacing meets WCAG 2.5.8.
+                 data-tap-exempt marks it reviewed. */
               data-tap-exempt
               className="grid h-11 w-6 place-items-center"
             >
@@ -162,9 +135,7 @@ function PlanCarousel({ plans, current }) {
 export default function Plans() {
   const { t } = useTranslation();
   const { hasEverListed } = useAuth();
-  // The platform's own price list, from `GET /pricing`. This is the fallback the catalogue reads
-  // below fall through to — a constant compiled into the bundle would mean a page whose whole
-  // purpose is to quote a price quoting one nobody could change.
+  // Fallback price list from `GET /bootstrap`; a compiled-in constant would quote a price nobody could change.
   const { fee } = usePricing();
   // The plan the caller holds, from the same context the paywall and the Feature action read, so
   // the "Current plan" lock on a card cannot disagree with the entitlement it implies.
@@ -191,28 +162,14 @@ export default function Plans() {
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
   const SEEKER = seekerPlans(t, fee).map(priced);
   const OWNER = ownerPlans(t, fee).map(priced);
-  /**
-   * The charged price for a plan slug, formatted — for prose that quotes a price outside a card.
-   * Reads the catalogue first and falls back to the configured fee only while it is unreachable,
-   * so a sentence about a plan cannot quote a different number than the card for that plan.
-   */
+  /** Falls back to the configured fee only while the catalogue is
+   * unreachable, so prose can't quote a different number than the card. */
   const priceOf = (slug) => (catalogue[slug]
     ? rupees(catalogue[slug].price)
     : fee(slug === 'owner5' ? 'ownerProYearly' : 'ownerPlanYearly'));
   const FAQS = plansFaqs(t, RENT_FEE, priceOf);
-  /* On mobile the two persona sections collapse into a single toggle so the user only sees the
-     plans relevant to them — default to their persona (seeker-first for signed-out visitors, who
-     are almost always searching).
-
-     `null` means "the user has not chosen", NOT "seeker". Seeding the state from `hasEverListed`
-     instead would latch whatever that predicate said on the first render and never hear the
-     correction, which on this screen is a real window rather than a theoretical one: `/plans` is
-     an unguarded route, so it paints while auth is still loading off the cached user blob — and
-     every session cached before `listingsCount` existed has no such key, making the predicate
-     answer `false` for an owner. That is precisely the permanently-false persona check this whole
-     change set out to delete, and a `useState` initializer would have quietly reintroduced it at
-     the one call site that reads it. Deriving instead keeps the toggle following auth until the
-     user touches it, after which their explicit choice wins for good. */
+  /* `null` means 'not chosen', not 'seeker': seeding from `hasEverListed` would latch a first-render false while
+     auth still loads. Deriving follows auth until the user touches the toggle. */
   const [persona, setPersona] = useState(null);
   const activePersona = persona ?? (hasEverListed ? 'owner' : 'seeker');
   const personas = [
@@ -276,12 +233,8 @@ export default function Plans() {
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4 flex items-center gap-2"><Icon name="help-circle" className="w-4 h-4 text-teal-400" /> {t('misc1.plansFrequentlyAsked')}</h2>
         <div className="space-y-3">
           {FAQS.map(([q, a]) => (
-            /* The card held the vertical padding and the summary held none, so the
-               question was a 20px-tall target sitting in the middle of a 52px row
-               with 16px of dead card above and below it — the padding looked like
-               part of the control and wasn't. Moving py-4 onto the summary hands
-               that space to the thing you actually tap; the card measures the same
-               open or closed, so nothing moves on the page. */
+            /* py-4 sits on the summary, not the card, so the tapped question gets the padding and the card
+               measures the same open or closed. */
             <details key={q} className="glass rounded-xl px-5">
               <summary className="flex items-center justify-between cursor-pointer font-medium text-sm py-4 min-h-[44px]">{q}<Icon name="chevron-down" className="faq-chevron w-4 h-4 text-gray-400 transition-transform flex-shrink-0" /></summary>
               <p className="text-gray-400 text-sm mt-3 pb-4 leading-relaxed">{a}</p>

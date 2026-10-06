@@ -16,14 +16,15 @@ import { SHARE_OPENER, SEEKER_OPENER } from './openers.js';
 import { useFlatmateDiscovery, emptyFilters } from './useFlatmateDiscovery.jsx';
 import { useFlatmateSupply } from './useFlatmateSupply.jsx';
 import { useGroupPickers } from './useGroupPickers.js';
+import { MAX_PAGE_SIZE } from '../../../services/apiLimits.js';
 
 export { emptyFilters };
 export const MAP_MAX_AREAS = 5;
 const DETAIL_KIND = { r: 'room', g: 'group', s: 'post' };
 
-/* The provider merges the seed and drops moderated rows, so a flagged post disappears from the
- * public board — but not from the owner's dashboard, which labels it instead. */
-const MY_PAGE = 200;
+/* The provider drops moderated rows from the public board but not the owner's dashboard; the size matches
+ * lib/data/myListings.js so a dashboard visit and this page share one cached read. */
+const MY_PAGE = MAX_PAGE_SIZE;
 const interestKey = ({ kind, targetId }) => (kind === 'room' || kind === 'group' ? `${kind}-${targetId}` : targetId);
 
 /* The shortlist speaks two dialects: cards key their bookmark `r:|g:|s:`, while the server names the table

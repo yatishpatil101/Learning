@@ -37,12 +37,6 @@ public class SocietyMembershipController {
         this.permissions = permissions;
     }
 
-    @GetMapping(Routes.Societies.MEMBERSHIP)
-    public SocietyMembership membership(@CurrentUser AuthPrincipal principal,
-            @PathVariable String slug) {
-        return memberships.membership(slug, viewerId(principal));
-    }
-
     /** Strip client sort because the projection only supports the fixed newest-first order. */
     @GetMapping(Routes.Societies.RESIDENTS_QUEUE)
     public PageResponse<SocietyResidentResponse> queue(@CurrentUser AuthPrincipal principal,
@@ -72,11 +66,6 @@ public class SocietyMembershipController {
     public SocietyClaimResponse claim(@CurrentUser AuthPrincipal principal,
             @PathVariable String slug, @Valid @RequestBody SocietyClaimRequest body) {
         return claimService.claim(slug, principal.userId(), body);
-    }
-
-    /** Null for an anonymous reader — a legitimate state on {@link #membership}, not a failure. */
-    private static UUID viewerId(AuthPrincipal principal) {
-        return principal != null ? principal.userId() : null;
     }
 
     private static boolean isStaff(AuthPrincipal principal) {

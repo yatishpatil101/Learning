@@ -117,7 +117,7 @@ test.describe('society content reports (live)', () => {
     const questionReport = await fileOk(request, reporter, 'society_question', doomed, 'abuse');
     expect((await triage(request, questionReport, { status: 'actioned', enforcement: 'hide_content' })).status()).toBe(200);
 
-    const afterQuestion = await (await request.get(`${API}/societies/${slug}/questions`)).json();
+    const afterQuestion = (await (await request.get(`${API}/societies/${slug}/hub`)).json()).questions;
     const questionIds = afterQuestion.content.map((q) => q.id);
     // A thread whose question has gone is a page of replies to nothing, so the answers go too —
     // they are only ever readable through the question.
@@ -131,7 +131,7 @@ test.describe('society content reports (live)', () => {
     const answerReport = await fileOk(request, reporter, 'society_answer', badAnswer, 'abuse');
     expect((await triage(request, answerReport, { status: 'actioned', enforcement: 'hide_content' })).status()).toBe(200);
 
-    const afterAnswer = await (await request.get(`${API}/societies/${slug}/questions`)).json();
+    const afterAnswer = (await (await request.get(`${API}/societies/${slug}/hub`)).json()).questions;
     const row = afterAnswer.content.find((q) => q.id === survivor);
     expect(row, 'the question to survive its answer being removed').toBeTruthy();
     const answerIds = row.answers.map((a) => a.id);

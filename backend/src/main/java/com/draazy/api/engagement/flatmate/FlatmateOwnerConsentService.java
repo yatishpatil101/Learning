@@ -3,7 +3,6 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ErrorCodes;
-import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.RateLimitedException;
 import com.draazy.api.common.error.UnauthorizedException;
@@ -46,40 +45,8 @@ public class FlatmateOwnerConsentService {
         this.audit = audit;
     }
 
-    /** {@code noRollbackFor} must repeat {@link OtpService#verifyCode}'s own list: rollback rules are
-     * consulted at every boundary, so a list that stops here resets the 3-guess ceiling. */
-    @Transactional(noRollbackFor = {OtpSender.DeliveryFailedException.class,
-            UnauthorizedException.class, RateLimitedException.class})
-    public boolean ownerConsent(AuthPrincipal caller, UUID groupId, String ownerMobile, String otp) {
-        FlatmateGroup group = groups.findById(groupId)
-                .filter(g -> !g.isArchived())
-                .orElseThrow(() -> NotFoundException.of("Group"));
-        if (!group.getHostId().equals(caller.userId())) {
-            throw new ForbiddenException("You can only request consent for a group you created.");
-        }
-        String mobile = normalise(caller, ownerMobile);
-
-        if (FlatmateVocabulary.blankToNull(otp) == null) {
-            send(caller.userId(), mobile, group.getAddressFingerprint());
-            group.setOwnerConsentMobile(mobile);
-
-            // Re-derived, not left standing: retargeting the number is a claim about a different
-            // person, and a carried-over flag would read as consent B has never given.
-            group.setOwnerConsent(has(mobile, caller.userId(), group.getAddressFingerprint()));
-            groups.saveAndFlush(group);
-            return false;
-        }
-
-        record(caller, mobile, otp, groupId, group.getAddressFingerprint());
-        group.setOwnerConsent(true);
-        group.setOwnerConsentMobile(mobile);
-        groups.saveAndFlush(group);
-        publication.recordOwnerConsent(groupId);
-        return true;
-    }
-
-    /** The group-less twin: the address travels with the request ( scopes the row to a flat) and is
-     * settled before the send, so an unfingerprintable address costs no SMS and no cooldown. */
+    /* {@code noRollbackFor} must repeat {@link OtpService#verifyCode}'s list: rollback rules apply at every boundary, so a
+       shorter list here resets the 3-guess ceiling. */
     @Transactional(noRollbackFor = {OtpSender.DeliveryFailedException.class,
             UnauthorizedException.class, RateLimitedException.class})
     public boolean ownerConsent(AuthPrincipal caller, String title, String society, String locality,

@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -100,11 +101,11 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .as("the stored counter is still stale — that is the point of this test")
                 .isZero();
 
-        mvc.perform(get("/cities"))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].slug").value("pune"))
-                .andExpect(jsonPath("$[0].live").value(true))
-                .andExpect(jsonPath("$[0].listingCount").value(2));
+                .andExpect(jsonPath("$.cities[0].slug").value("pune"))
+                .andExpect(jsonPath("$.cities[0].live").value(true))
+                .andExpect(jsonPath("$.cities[0].listingCount").value(2));
     }
 
     @Test

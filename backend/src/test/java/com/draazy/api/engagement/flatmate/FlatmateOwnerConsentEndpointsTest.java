@@ -260,8 +260,8 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("consent granted through an existing group is visible in my groups")
-    void groupScopedConsentShowsInMyGroups() throws Exception {
+    @DisplayName("consent granted after the group exists is visible in my groups")
+    void consentAfterTheGroupExistsShowsInMyGroups() throws Exception {
         User tenant = user("9830000417", "Scoped");
         String ownerMobile = "9830000418";
         usedMobiles.add(ownerMobile);
@@ -278,34 +278,8 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
                 .andReturn().getResponse().getContentAsString();
         String groupId = JsonPath.read(groupJson, "$.id");
 
-        mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerMobile\":\"9830000418\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.consentRecorded").value(false));
-
-        assertThat(jdbc.queryForObject(
-                "select purpose from otp_codes where mobile = ?", String.class, ownerMobile))
-                .startsWith("owner-consent:");
-        assertThat(jdbc.queryForObject(
-                "select owner_consent from flatmate_groups where id = ?::uuid",
-                Boolean.class, groupId)).isFalse();
-
-        em.flush();
-        jdbc.update("""
-                UPDATE otp_codes SET code_hash = ?
-                WHERE id = (SELECT id FROM otp_codes WHERE mobile = ?
-                            ORDER BY created_at DESC LIMIT 1)""",
-                sha256Hex("424242"), ownerMobile);
-        em.clear();
-
-        mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ownerMobile\":\"9830000418\",\"otp\":\"424242\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.consentRecorded").value(true));
+        sendAndForceCode(tenant, ownerMobile, "Scoped consent", "Baner");
+        record(tenant, ownerMobile, "Scoped consent", "Baner");
 
         String myGroups = mvc.perform(get(Routes.Flatmates.MY_GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))

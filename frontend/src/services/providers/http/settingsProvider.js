@@ -1,4 +1,5 @@
 import { get, put } from '../../http.js';
+import { bootstrapSection } from './bootstrap.js';
 import { PRICING_DEFAULTS } from '../../settingsService.js';
 import { DEFAULT_MAX_PHOTOS, MAX_PHOTOS_CEILING } from '../../../lib/uploads/policy.js';
 
@@ -23,13 +24,12 @@ export async function getCustomRoles() {
 
 /* App flags affect anonymous visitors, so they publish outside admin-only settings. */
 export async function getAppFlags() {
-  const flags = await get('/flags');
+  const flags = await bootstrapSection('flags');
   return flags && typeof flags === 'object' ? flags : {};
 }
 
-/* Move-pack config is public and not boolean-only, so it cannot live under `/flags`. */
 export async function getMovePack() {
-  const cfg = await get('/move-pack');
+  const cfg = await bootstrapSection('movePack');
   if (!cfg || typeof cfg !== 'object') return { enabled: false, items: {} };
   return {
     enabled: cfg.enabled === true,
@@ -37,15 +37,13 @@ export async function getMovePack() {
   };
 }
 
-/* Geo config is public structured data, not boolean flags. */
 export async function getGeo() {
-  const geo = await get('/geo');
+  const geo = await bootstrapSection('geo');
   return geo && typeof geo === 'object' ? geo : {};
 }
 
-/* Pricing is public structured data, not boolean flags. */
 export async function getPricing() {
-  const raw = await get('/pricing');
+  const raw = await bootstrapSection('pricing');
   if (!raw || typeof raw !== 'object') return { ...PRICING_DEFAULTS };
   const out = { ...PRICING_DEFAULTS };
   for (const key of Object.keys(PRICING_DEFAULTS)) {
@@ -54,9 +52,9 @@ export async function getPricing() {
   return out;
 }
 
-/** `GET /listing-policy` (schema `ListingPolicy`, `common/settings/ListingPolicyController.java`). */
+/** The `listingPolicy` section of `GET /bootstrap` (`common/settings/ListingPolicyController.java`). */
 export async function getListingPolicy() {
-  const raw = await get('/listing-policy');
+  const raw = await bootstrapSection('listingPolicy');
   const n = raw?.maxPhotos;
   return { maxPhotos: Number.isInteger(n) && n > 0 && n <= MAX_PHOTOS_CEILING ? n : DEFAULT_MAX_PHOTOS };
 }

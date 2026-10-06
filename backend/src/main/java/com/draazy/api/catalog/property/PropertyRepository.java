@@ -226,13 +226,10 @@ public interface PropertyRepository
                 count(distinct case when p.ownerVerified = true then p.owner.id end))
             from Property p
             where p.status = :status
-              and p.archived = false
-              and (:all = true or p.localitySlug = :slug)""")
+              and p.archived = false""")
     TrustTally tallyTrust(
             @Param("status") String status,
-            @Param("now") Instant now,
-            @Param("all") boolean all,
-            @Param("slug") String slug);
+            @Param("now") Instant now);
 
     /** Count live listings matching a saved search's facets; the alert sweep and the saved-search list
      * share one query so the two readings cannot drift. {@code unbounded} drops the recency predicate. */

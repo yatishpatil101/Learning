@@ -35,11 +35,11 @@ class AppFlagsEndpointTest extends AbstractApiTest {
 
     @Test
     void anonymousCallersGetTheSeededFlags() throws Exception {
-        mvc.perform(get(Routes.Flags.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.kycBadgeEnabled").value(true))
-                .andExpect(jsonPath("$.boostEnabled").doesNotExist())
-                .andExpect(jsonPath("$.maintenanceMode").value(false));
+                .andExpect(jsonPath("$.flags.kycBadgeEnabled").value(true))
+                .andExpect(jsonPath("$.flags.boostEnabled").doesNotExist())
+                .andExpect(jsonPath("$.flags.maintenanceMode").value(false));
     }
 
     @Test
@@ -50,14 +50,14 @@ class AppFlagsEndpointTest extends AbstractApiTest {
                         .content("{\"flags\":{\"maintenanceMode\":true,\"mapSearch\":false}}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(get(Routes.Flags.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.maintenanceMode").value(true))
-                .andExpect(jsonPath("$.mapSearch").value(false))
+                .andExpect(jsonPath("$.flags.maintenanceMode").value(true))
+                .andExpect(jsonPath("$.flags.mapSearch").value(false))
 
                 // The merge is deep: a regression would blank untouched features in the response
                 // the client renders from, without failing any admin-side assertion.
-                .andExpect(jsonPath("$.kycBadgeEnabled").value(true));
+                .andExpect(jsonPath("$.flags.kycBadgeEnabled").value(true));
     }
 
     // A string {@code "false"} reads as enabled on the client, so forwarding it buys no behaviour.
@@ -72,10 +72,10 @@ class AppFlagsEndpointTest extends AbstractApiTest {
         em.flush();
         em.clear();
 
-        mvc.perform(get(Routes.Flags.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.emiCalculator").doesNotExist())
+                .andExpect(jsonPath("$.flags.emiCalculator").doesNotExist())
 
-                .andExpect(jsonPath("$.maintenanceMode").value(false));
+                .andExpect(jsonPath("$.flags.maintenanceMode").value(false));
     }
 }

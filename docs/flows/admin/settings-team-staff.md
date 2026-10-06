@@ -99,7 +99,7 @@ dead manager label, not this real schema role.
 
 The browser resolves nothing. `GET /me` returns `User.permissions`, the caller's own resolved atom
 list, and `canAccessModule(user, key)` in `adminModules.js` is a set membership test against it. The
-grantable grid is `GET /admin/permission-catalogue`; the console holds no list of its own, so a
+grantable grid is `GET /admin/function-catalogue`; the console holds no list of its own, so a
 renamed atom cannot leave a tickable box that grants nothing.
 
 The five administrator-only atoms are `finance:read`, `users:write`, `audit:read`,

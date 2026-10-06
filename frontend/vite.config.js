@@ -5,6 +5,16 @@ import helpContentPlugin from './scripts/vite-plugin-help-content.mjs';
 
 const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
 
+/* Vite's HTML %ENV% replacement has no fallback and leaves an unset name as literal text, but the deploy build
+   leaves VITE_API_BASE unset and relies on config.js's '/api' default — so the preload applies the same default. */
+function apiBaseHtmlPlugin() {
+  let base = '/api';
+  return {
+    name: 'draazy-api-base-html',
+    configResolved(c) { base = c.env.VITE_API_BASE || '/api'; },
+    transformIndexHtml: (html) => html.replaceAll('__API_BASE__', base),
+  };
+}
 /* Cache shell/static assets only; listing/account data must stay NetworkOnly so stale availability
    or private state never ships from a service worker. */
 function pwaPlugin() {
@@ -64,10 +74,7 @@ function pwaPlugin() {
           },
         },
         {
-          // Listing photography: immutable per URL and the heaviest thing on a card. Capped so a
-          // long browsing session cannot fill the device's storage quota. Only the card copies of an
-          // upload (PhotoVariants.java): the originals are also fetched with CORS for the wizard's
-          // canvas hash, which a cached opaque response would break.
+          // Card copies only: originals are CORS-fetched for the canvas hash, which caching would break.
           urlPattern: ({ url }) => url.origin === 'https://images.unsplash.com'
             || /\/photos\/[0-9a-f-]{36}\/[0-9a-f-]{36}(?:-[0-9a-f]{16})?\.w\d+\.jpg$/.test(url.pathname),
           handler: 'CacheFirst',
@@ -83,7 +90,7 @@ function pwaPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), helpContentPlugin({ root: __dirname }), pwaPlugin()],
+  plugins: [react(), helpContentPlugin({ root: __dirname }), pwaPlugin(), apiBaseHtmlPlugin()],
   build: {
     rollupOptions: {
       output: {

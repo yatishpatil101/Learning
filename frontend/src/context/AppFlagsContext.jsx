@@ -3,9 +3,8 @@ import { getAppFlags } from '../services/settingsService.js';
 
 const AppFlagsContext = createContext(null);
 
-/* These gate what a logged-out visitor sees, so they come from the public `GET /flags` rather than
-   from the admin-only settings document or any browser-local copy. `flagEnabled` tests `!== false`,
-   so an undecided flag is on and a failed fetch takes nothing away. */
+/* Flags come from the public `GET /bootstrap`, not the admin settings document, because they gate what logged-out visitors see;
+   `flagEnabled` tests `!== false`, so an undecided flag is on and a failed fetch takes nothing away. */
 export function AppFlagsProvider({ children }) {
   const [flags, setFlags] = useState({});
 

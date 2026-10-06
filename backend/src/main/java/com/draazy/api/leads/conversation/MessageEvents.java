@@ -1,6 +1,7 @@
 package com.draazy.api.leads.conversation;
 
 import com.draazy.api.common.trust.FlatmateGroupRoster;
+import com.draazy.api.common.trust.LiveUpdates;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import java.time.Duration;
@@ -19,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Component
-public class MessageEvents {
+public class MessageEvents implements LiveUpdates {
 
     private static final Duration ACTIVE_TOUCH_INTERVAL = Duration.ofMinutes(1);
     private static final Duration TYPING_REPEAT_WINDOW = Duration.ofSeconds(2);
@@ -60,6 +61,11 @@ public class MessageEvents {
             Event event = new Event(conversation.getId().toString());
             participants(conversation).forEach(userId -> hub.publish(userId, "message", event));
         });
+    }
+
+    @Override
+    public void notificationsChanged(UUID userId) {
+        afterCommit(() -> hub.publish(userId, "notification", Map.of()));
     }
 
     public void read(Conversation conversation, UUID readerId) {

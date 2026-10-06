@@ -135,9 +135,9 @@ test.describe('LIVE: property domain against the real API', () => {
   test('My Listings uses /me/listings and shows non-public statuses', async ({ page }) => {
     await signedInAs(page, OWNER.mobile);
 
-    const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
+    const mine = await captureJson(page, /\/api\/me\/dashboard$/);
     await page.goto('/dashboard');
-    const body = await lastJson(mine);
+    const body = (await lastJson(mine)).listings;
     const rows = Array.isArray(body) ? body : (body.content ?? []);
 
     expect(rows.length).toBe(OWNER.total);
@@ -149,7 +149,7 @@ test.describe('LIVE: property domain against the real API', () => {
     await signedInAs(page, OWNER.mobile);
 
     // Wait for the listing selector so uploads target an owner property.
-    const mine = page.waitForResponse((r) => r.url().includes('/api/me/listings') && r.status() === 200);
+    const mine = page.waitForResponse((r) => r.url().includes('/api/me/dashboard') && r.status() === 200);
     await page.goto('/dashboard#documents');
     await mine;
     await expect(page.getByRole('heading', { name: 'Document Vault' })).toBeVisible();
@@ -258,9 +258,9 @@ test.describe('LIVE: property domain against the real API', () => {
     await expect(page.locator('text=/Submitted for review/i')).toBeVisible({ timeout: 20_000 });
     expect(documentWrites).toEqual([]);
 
-    const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
+    const mine = await captureJson(page, /\/api\/me\/dashboard$/);
     await page.goto('/dashboard');
-    const rows = await lastJson(mine).then((b) => (Array.isArray(b) ? b : (b.content ?? [])));
+    const rows = (await lastJson(mine)).listings?.content ?? [];
     expect(rows.some((r) => String(r.id) === String(body.id))).toBe(true);
 
     const mirrored = await page.evaluate(() => Object.keys(localStorage)

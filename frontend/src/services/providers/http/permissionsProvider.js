@@ -3,8 +3,6 @@ import { get, put } from '../../http.js';
 // The console must have no opinion of its own about access: anything composed client-side is a
 // union and can only widen, while the server's model may only narrow a role's baseline.
 
-// Server-ordered on purpose — re-sorting alphabetically would split related property atoms.
-export const getPermissionCatalogue = () => get('/admin/permission-catalogue');
 export const getFunctionCatalogue = () => get('/admin/function-catalogue');
 
 /** One member's document: what was granted, and what that resolves to against their role. */

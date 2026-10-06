@@ -35,17 +35,14 @@ public class PropertyController {
     private final ListingArchiveService archiveService;
     private final PropertyMapper propertyMapper;
     private final ContactGate contactGate;
-    private final ListingCounts listingCounts;
     private final AccountPermissions permissions;
 
     public PropertyController(PropertyService propertyService, ListingArchiveService archiveService,
-            PropertyMapper propertyMapper, ContactGate contactGate, ListingCounts listingCounts,
-            AccountPermissions permissions) {
+            PropertyMapper propertyMapper, ContactGate contactGate, AccountPermissions permissions) {
         this.propertyService = propertyService;
         this.archiveService = archiveService;
         this.propertyMapper = propertyMapper;
         this.contactGate = contactGate;
-        this.listingCounts = listingCounts;
         this.permissions = permissions;
     }
 
@@ -79,12 +76,6 @@ public class PropertyController {
     @GetMapping(Routes.Properties.FEATURED)
     public List<PropertySummary> featured() {
         return propertyService.featured().stream().map(propertyMapper::toSummary).toList();
-    }
-
-    /** Counted by the database rather than the browser: docs/flows/consumer/search-listings.md section 9.8. */
-    @GetMapping(Routes.Properties.TRUST_STATS)
-    public TrustStatsResponse trustStats(@RequestParam(required = false) String locality) {
-        return listingCounts.trustStats(locality);
     }
 
     /** {@code 404} when not publicly visible, except to the owner and a checker; a {@code null} viewer masks the contact. */

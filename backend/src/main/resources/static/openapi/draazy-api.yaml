@@ -504,6 +504,13 @@ paths:
           in: query
           description: Society slugs, OR'd.
           schema: { type: array, maxItems: 16, items: { type: string } }
+        - name: ids
+          in: query
+          description: >
+            Listing slugs or UUIDs, OR'd. Batches what would otherwise be one `GET /properties/{id}`
+            per card (recently viewed, a visit's listing title) into one search; the public floor
+            still applies, so an id that is not live simply drops out.
+          schema: { type: array, maxItems: 16, items: { type: string } }
         - name: amenities
           in: query
           description: >
@@ -612,6 +619,7 @@ paths:
         - { name: minArea, in: query, description: 'Inclusive lower bound in square feet after converting the stored `area_unit`. Unstated areas are kept and counted into `unstatedElements`, as for `minAge`.', schema: { type: number, minimum: 0 } }
         - { name: maxArea, in: query, description: 'Inclusive upper bound in square feet after converting the stored `area_unit`. Unstated areas are kept and counted into `unstatedElements`, as for `minAge`.', schema: { type: number, minimum: 0 } }
         - { name: minBaths, in: query, description: 'Inclusive lower bound on bathrooms. Values below 1 are ignored; unstated bathrooms are kept and counted into `unstatedElements`, as for `minAge`.', schema: { type: integer, minimum: 0 } }
+        - { name: minPhotos, in: query, description: 'Inclusive lower bound on the number of photos (the reels feed asks for 3). Values below 1 are ignored.', schema: { type: integer, minimum: 0 } }
         - name: minAge
           in: query
           description: >
@@ -710,57 +718,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PropertySummary' }
-  /properties/counts:
-    get:
-      tags: [Catalog & Search]
-      summary: Live listing counts by deal and category
-      description: >
-        Publicly visible catalogue counts grouped by deal (`buy`/`rent`) and the canonical category
-        key used by the home-page property tiles. The visibility floor is the same as
-        `GET /properties`: approved and not archived.
-      security: []
-      operationId: propertyCounts
-      responses:
-        '200':
-          description: Live listing counts for home category tiles
-          headers:
-            Cache-Control:
-              schema: { type: string }
-              description: >
-                Public cache hint, `max-age=<seconds left>, public`; the same for every public
-                reference read. See docs/system/cross-cutting.md §9.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PropertyCounts' }
-  /properties/trust-stats:
-    get:
-      tags: [Catalog & Search]
-      summary: Verified share of the live catalogue
-      description: >
-        The three trust headlines, counted by the database, for the whole live catalogue or for one
-        locality. Declared before `/properties/{id}` for readability only — Spring ranks an exact
-        path above a template one, so this can never be read as a listing whose id is `trust-stats`.
-
-
-        It exists because the homepage used to derive these numbers in the browser from whichever
-        listings it had already loaded, which made every one of them a statement about the current
-        page dressed up as a statement about the catalogue. The distinct-owner figure was the worst:
-        two pages of the same owner's flats counted as two verified owners.
-      security: []
-      operationId: propertyTrustStats
-      parameters:
-        - name: locality
-          in: query
-          description: >
-            Locality *slug*, not a display name. An unknown slug answers zeroes rather than 404 —
-            this is a headline about a slice, and an empty slice is a real slice.
-          schema: { type: string }
-      responses:
-        '200':
-          description: Counts for the whole catalogue, or for the requested locality
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TrustStats' }
   /properties/{id}:
     parameters:
       - { $ref: '#/components/parameters/PropertyId' }
@@ -831,7 +788,7 @@ paths:
       security: []
       operationId: listSocieties
       parameters:
-        - { name: q, in: query, schema: { type: string }, description: Free-text name/builder search }
+        - { name: q, in: query, schema: { type: string }, description: Free-text search over name, builder and the locality's words (baner-road is "baner road") }
         - { name: locality, in: query, schema: { type: string }, description: Filter by locality slug }
         - name: hasListings
           in: query
@@ -840,7 +797,22 @@ paths:
             When true, keep only societies with at least one live (approved, unarchived) listing.
             Omitted or false returns the whole directory — false is not the inverse, because
             "societies with nothing listed" is an ops question rather than a public one.
-        - { name: sort, in: query, schema: { type: string }, description: 'e.g. occupancy,desc' }
+        - name: verified
+          in: query
+          schema: { type: boolean }
+          description: >
+            When true, keep only societies the card badges as verified: ops-confirmed (`verifiedAt`
+            set), or not member-added (`source` is not `community`) with both `registration` and
+            `conveyance` on file. Omitted or false returns the whole directory.
+        - name: sort
+          in: query
+          schema: { type: string }
+          description: >
+            A column, e.g. `occupancy,desc` (`name`, `occupancy`, `year`, `units`; anything else
+            falls back to `name,asc`), or one of three computed orderings, best first, direction
+            ignored: `relevance` (verified x4 + min(homes, 3) + average/5), `rating` (average, then
+            review count) and `homes` (live listings, then verified). Name breaks ties. Computed
+            orderings rank the whole filtered set before paging, so page 2 continues page 1.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -915,39 +887,83 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /societies/{slug}/membership:
+  /societies/{slug}/hub:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
     get:
       tags: [Engagement]
-      summary: Where the caller stands in this society
+      summary: The society page's community sections in one read
       security: []
-      operationId: getSocietyMembership
+      operationId: getSocietyHub
       description: >
-        One read for four facts the hub needs before it can draw a single control: this reader's own
-        residency, whether they are the committee, the society's live claim, and how many residents
-        are verified.
+        Membership, questions, noticeboard, contributions and proposals for the caller, in one
+        response. Each section is exactly what that section's own read answered before they were
+        merged, computed for the same caller.
 
 
-        Public and caller-aware, the same shape `getSociety` uses. `permitAll` does not reject a
-        bearer token, so a signed-in reader gets their standing and an anonymous one gets the
-        society's public facts with the personal parts null. The alternative -- a `401` for the
-        signed-out case -- would force the hub to guess who is looking before it asks, and the
-        client cannot know that before the token round-trips.
+        Public and caller-aware: `permitAll` does not reject a bearer token, so a signed-in reader
+        gets their standing, per-row delete controls and votes, and an anonymous one gets the
+        public facts with the personal parts null or withheld (a recommended person's phone, the
+        WhatsApp invite).
 
 
-        Four facts in one response rather than four reads, because they are drawn together and a
-        page that renders them as they arrive flickers a "Verify your flat" prompt in front of a
-        resident who verified theirs last year.
+        **Sections are isolated.** One that cannot be read -- a refusal, or a bad `kind` -- is
+        `null` and does not blank the others. An unknown society is a `404` for the whole read.
+
+
+        `page` and `size` apply to the three paged sections, clamped to the platform ceiling; when
+        absent each keeps its own default (questions 20, board 20, contributions 50). `kind`
+        narrows the board only. Not shared-cacheable: every section depends on who is asking.
+      parameters:
+        - { name: kind, in: query, schema: { type: string }, description: Narrow the board to one notice kind; omit for all }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: >
-            The caller's standing. `resident` and `claim` are null for a signed-out reader and for a
-            signed-in one who has never asked; `verifiedResidents` is public either way, because it
-            is the number that tells a prospective buyer whether this hub is alive.
+          description: The sections, each null when it could not be read
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SocietyMembership' }
+              schema:
+                type: object
+                properties:
+                  membership:
+                    oneOf:
+                      - $ref: '#/components/schemas/SocietyMembership'
+                      - type: 'null'
+                  questions:
+                    oneOf:
+                      - allOf:
+                          - $ref: '#/components/schemas/PageEnvelope'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/SocietyQuestion' }
+                      - type: 'null'
+                  board:
+                    oneOf:
+                      - allOf:
+                          - $ref: '#/components/schemas/PageEnvelope'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/SocietyBoardItem' }
+                      - type: 'null'
+                  contributions:
+                    oneOf:
+                      - allOf:
+                          - $ref: '#/components/schemas/PageEnvelope'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/SocietyContribution' }
+                      - type: 'null'
+                  proposals:
+                    oneOf:
+                      - $ref: '#/components/schemas/SocietyProposals'
+                      - type: 'null'
         '404': { $ref: '#/components/responses/NotFound' }
   /societies/{slug}/residents:
     parameters:
@@ -1096,39 +1112,6 @@ paths:
   /societies/{slug}/questions:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: Questions asked about this society
-      security: []
-      operationId: listSocietyQuestions
-      description: >
-        Public, newest first, with each question's answers attached rather than fetched per row --
-        a Q&A tab that needed a second call per question would issue twenty requests to draw one
-        screen.
-
-
-        **Deliberately not gated on residency, on either side.** The person with the most to ask has
-        not moved in yet, and refusing them the question would leave the tab full of residents
-        talking to each other about a building they already understand. The reader is protected by
-        the `authorIsResident` badge instead, which says who is answering from inside the building
-        and who is not, and lets them weigh it themselves.
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Questions, newest first, answers nested
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyQuestion' }
-        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Ask a question about this society
@@ -1184,39 +1167,6 @@ paths:
   /societies/{slug}/board:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: The society noticeboard
-      security: []
-      operationId: listSocietyBoard
-      description: >
-        Public to read, because an active noticeboard is the most honest signal a society hub can
-        give a prospective buyer -- a building where somebody posted about the water tank cleaning
-        last Tuesday is a building somebody is looking after.
-
-
-        **Caller-aware for exactly one field.** The rows are identical for everyone; whether a
-        delete control is drawn is not. Working that out on the client from a display name would get
-        it wrong the moment two residents share one, so `canRemove` is computed server-side against
-        the actual rule -- author, committee, or staff.
-      parameters:
-        - { name: kind, in: query, schema: { type: string }, description: Narrow to one notice kind; omit for all }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Notices, newest first
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyBoardItem' }
-        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Post a notice (verified resident, committee or staff)
@@ -1273,44 +1223,6 @@ paths:
   /societies/{slug}/contributions:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: The community tab -- tips, trusted picks and photos
-      security: []
-      operationId: listSocietyContributions
-      description: >
-        Deliberately **unfiltered**. The tab's chips carry a count for every bucket including the
-        ones you are not looking at, so the page is drawn from one read and filtered in the browser;
-        a `kind` parameter would mean either a request per chip or counts that lag the list.
-
-
-        **Caller-aware for three things a client cannot work out for itself**: whether this reader
-        has already voted (`helpfulByMe`), whether a delete control would actually work
-        (`canRemove`), and whether they are entitled to see a recommended person's phone number.
-        That last one is the load-bearing case -- an electrician somebody recommended never agreed
-        to be on the open web, so `referralContact` is withheld from a signed-out reader.
-
-
-        Page size defaults to 50, higher than the platform's usual 20: this is a scroll-through
-        feed, not a work queue, and the chip counts are only honest if the rows behind them are
-        actually loaded.
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Contributions, newest first, replies nested
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyContribution' }
-        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Add a tip, a trusted pick or a photo
@@ -1453,35 +1365,6 @@ paths:
   /societies/{slug}/proposals:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: What the community says this society is
-      security: []
-      operationId: listSocietyProposals
-      description: >
-        One resource for three things the hub used to keep in three `localStorage` keys: missing
-        details, the resident WhatsApp group, and a corrected map pin. They share one lifecycle --
-        propose, ops screen, apply -- and a client that has to know which of three URLs a form posts
-        to has been handed a decision the server is better placed to make.
-
-
-        **One read rather than three, so the page cannot render half a state**: a banner saying your
-        pin correction is pending beside a map that has already been corrected.
-
-
-        Public because the hub calls it before it knows who is looking; what it publishes is not.
-        A signed-out reader is told a resident group exists (`whatsappAvailable`) and is nudged to
-        verify their flat, and never sees `whatsappJoinUrl` -- an invite link is a door into a group
-        of people who live somewhere, and it reaches a verified resident or nobody.
-      responses:
-        '200':
-          description: >
-            Every pending proposal plus the resident group's status. `whatsappJoinUrl` is null for
-            anyone who is not a verified resident of this society, whatever `whatsappAvailable` says.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyProposals' }
-        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Propose a detail, the resident group link, or a corrected pin
@@ -1684,20 +1567,33 @@ paths:
       operationId: unfollowSociety
       responses:
         '204': { description: Unfollowed }
-  /cities:
+  /bootstrap:
     get:
       tags: [Catalog & Search]
-      summary: Available cities
+      summary: The public reference data every page render needs
       security: []
-      operationId: listCities
+      operationId: getBootstrap
       responses:
         '200':
-          description: Cities
+          description: >-
+            Flags, geo policy, the city roster, Draazy's own prices, the listing policy, the
+            Move-in Pack, the plan catalogue, the live listing counts by deal and category
+            (`counts`, the home category tiles) and the whole-catalogue trust headlines
+            (`trustStats`), in one read. Every section answers every caller
+            identically, so the response is cached per instance and by the browser
+            (`PublicReadCacheFilter`, cross-cutting.md §9). Each section projects one block of the
+            admin-only settings document and nothing beside it: `fees`, `permissions`,
+            `adminFlags` and each blacklist entry's operator `note` are never published.
+
+
+            **flags**: only explicitly-set booleans; absent means enabled. **movePack**: absent
+            means off, so a missing or malformed row answers `enabled: false` with no prices.
+            **geo**: overrides the client merges over its built-in city geometry; a fresh install
+            answers `{}`. None of the settings sections fail on bad configuration: each falls back
+            to its default.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/City' }
+              schema: { $ref: '#/components/schemas/Bootstrap' }
   /cities/waitlist:
     post:
       tags: [Catalog & Search]
@@ -1730,179 +1626,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Fees' }
-  /flags:
-    get:
-      tags: [Catalog & Search]
-      summary: Feature toggles the client should render against
-      security: []
-      operationId: getAppFlags
-      responses:
-        '200':
-          description: >-
-            The `flags` block of `AdminSettings`, and only that block.
-
-            Public because these toggles decide what a **logged-out visitor** sees — the map view,
-            the EMI calculator, the referral offer, whether signups are open at all. `GET
-            /admin/settings` cannot serve them: it is admin-only in both directions on purpose,
-            because the same document carries the fee table and the permission map. Before this
-            route existed the client kept its own copy in local storage, so an operator could switch
-            maintenance mode on, be told it saved, and watch the site carry on serving.
-
-            **Absent means enabled.** The client's test is `flags[key] !== false`, so only toggles
-            somebody has explicitly decided about appear here and `{}` is a correct answer for a
-            fresh install. Values that are not booleans are omitted rather than forwarded.
-
-            Deliberately one block, not a public projection of the settings document: `adminFlags`,
-            `fees`, `permissions` and `geo` are not here, and the next block that needs an anonymous
-            reader gets its own route.
-          content:
-            application/json:
-              schema:
-                type: object
-                description: Flag name to explicit setting. Unlisted flags are enabled.
-                additionalProperties: { type: boolean }
-                example:
-                  kycBadgeEnabled: true
-                  maintenanceMode: false
-  /move-pack:
-    get:
-      tags: [Catalog & Search]
-      summary: Move-in Pack launch state and price list
-      security: []
-      operationId: getMovePack
-      responses:
-        '200':
-          description: >-
-            The `movePack` block of `AdminSettings`, and only that block.
-
-            Public for the reason `/fees` already settled: a price quoted to somebody who has not
-            signed in is not a privileged fact, and this one is quoted on a page that renders for
-            visitors who may never have an account. `GET /admin/settings` cannot serve it, because
-            that document also carries the permission map.
-
-            **Why not another key on `/flags`.** That endpoint's contract is map-of-boolean and it
-            drops non-booleans on purpose, so it cannot carry a price list without giving up the
-            guarantee that makes it safe to read blindly. Its own description asks the next block
-            needing a public reader to make its own case rather than move in; this is that case.
-
-            **Why `enabled` travels with the prices** instead of joining the flags: it decides
-            whether the prices beside it may be shown at all, and configuration that has to be
-            consistent should not be assembled from two responses that can arrive in either order
-            or fail independently.
-
-            **Absent means off**, which is the one place this endpoint must not agree with
-            `/flags`. There, a flag nobody configured is enabled, so shipping a feature is a code
-            change rather than a code change plus a config row. Applying that to a price would have
-            an unconfigured install offering to sell at a number nobody chose. A missing,
-            unparseable or malformed row therefore answers `enabled: false` with no prices, which
-            puts the page in coming-soon mode and captures a waitlist signup instead of taking
-            money.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/MovePackConfig' }
-  /pricing:
-    get:
-      tags: [Catalog & Search]
-      summary: What Draazy charges for its own products
-      security: []
-      operationId: getPricing
-      responses:
-        '200':
-          description: >-
-            The platform's own price list: the two owner plans, the seeker contact top-up, the
-            featured-listing fee, the platform's share of a rent agreement, and the two percentages
-            that make up a rent-payment convenience charge.
-
-            **Why this is not `/fees`.** That route answers what a *transaction* costs, keyed by
-            deal intent, and most of what it quotes is not ours — stamp duty and registration are
-            the state's, and the zero beside brokerage is the platform's entire pitch. This answers
-            what Draazy sells and for how much. Putting "the government takes 1% of the agreement
-            value" and "Owner Pro is a yearly subscription" in one array of one shape would leave a
-            reader unable to tell which of the two it was holding, so the two questions get two
-            routes with names far enough apart that nobody has to check. `/fees` is unchanged.
-
-            **Why not another key on `/flags`.** The answer `/move-pack` gives: that endpoint's
-            contract is map-of-boolean and it drops everything else on purpose, so the guarantee
-            that makes it safe to read blindly is exactly what a price list would cost it.
-
-            **Public** for the reason `/fees` settled and `/move-pack` reused: a price quoted before
-            the sign-up wall is not a privileged fact, and these are quoted on the plans page and the
-            paywall, which a visitor reaches without an account. `GET
-            /admin/settings` cannot serve them, because that document also carries the permission
-            map.
-
-            **Seven named fields, not the `fees` block.** That block also holds the free contact
-            allowance, the referral bonus, and `referralQualifyPerMonth` — the threshold past which
-            a referral stops qualifying automatically and goes to the fraud desk. Publishing that
-            would tell the one reader who most wants to know exactly where the line is. A projection
-            would carry it; this response cannot, and the next key ops adds to the document is not
-            published by accident.
-
-            Never fails on bad configuration. Every value falls back to its seeded figure, because
-            the callers are page renders and a 500 on the plans page is a worse answer to a mistyped
-            price than the one the platform charged yesterday.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PlatformPricing' }
-  /listing-policy:
-    get:
-      tags: [Catalog & Search]
-      summary: The limits a listing's content must satisfy
-      security: []
-      operationId: getListingPolicy
-      responses:
-        '200':
-          description: >-
-            The numbers the post-a-property wizard quotes and every listing and flatmate-room write
-            enforces, read from one accessor so the two cannot disagree. Stored in the `listings`
-            block of `/admin/settings`; public for the reason `/pricing` is. Never fails on bad
-            configuration: an unset or out-of-range value answers the default.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ListingPolicy' }
-  /geo:
-    get:
-      tags: [Catalog & Search]
-      summary: Map coverage and place-suppression policy
-      security: []
-      operationId: getGeoPolicy
-      responses:
-        '200':
-          description: >-
-            The `geo` block of `AdminSettings`, projected and narrowed.
-
-            Public because every part of it decides what a logged-out visitor is shown: where a map
-            centres, whether a locality search box is hard-fenced to the city bounds or merely
-            biased toward them, and which places are hidden from every suggestion box in the
-            product. `GET /admin/settings` cannot serve it — that document also carries the fee
-            table and the permission map. City launch status is served on `GET /cities`, not here.
-
-            **Why not another key on `/flags`.** Same answer as `/move-pack`: that endpoint is
-            typed map-of-boolean and drops everything else on purpose. Two of this block's three
-            parts are a per-city roster of coordinates and an ordered list, so neither would
-            survive the trip.
-
-            **Everything here is an override.** The client ships built-in defaults — a centre, a
-            bounding box and a launch status per city — and merges this response over them. There
-            is deliberately no seeded `geo` row, so a fresh install answers `{}` and gets the
-            built-in policy, which is the correct reading of an operator who has never opened the
-            Maps panel. It also makes the endpoint safe to fail: unreachable leaves the client on
-            defaults rather than on nothing.
-
-            **Malformed values are dropped, not forwarded**, as on `/flags` and `/move-pack`. A
-            centre missing a longitude is not a point and a box missing an edge is not a smaller
-            box — it is a fence with a gap, and the search it fences would quietly start
-            suggesting places from the next district. Dropping falls back to the built-in, which
-            is the only other honest reading.
-
-            **The operator's note is not here.** Each stored blacklist entry carries a free-text
-            reason for hiding the place — moderator prose about a named building, written when
-            staff were the readers. The client's matcher has never read it: it tests `placeId`
-            exactly and `term` as a case-insensitive substring, and nothing else. So it is
-            withheld from this anonymous route and stays on `/admin/settings`, where it belongs.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GeoPolicy' }
   /me/listings:
     get:
       tags: [Listings]
@@ -4987,41 +4710,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateReview' }
-  /admin/flatmate-reviews/reconcile-owner-tier:
-    post:
-      tags: [Moderation]
-      summary: Re-check every standing owner-tier badge (ops)
-      description: >
-        Owner tier is the one rung this queue cannot reach: it is granted by an Ops-approved
-        listing rather than by a moderator, so an owner-tier post never enters the queue. The tier
-        is only re-derived when the host next edits the post, so a listing archived or sent back to
-        pending afterwards leaves its rooms and groups badged with no lever to take it back.
-
-
-        This re-asks the question of every standing claim and demotes the ones whose listing has
-        stopped being approved — to `tenant` if the host also declared an agreement, otherwise
-        `identity`; unbadged either way until Ops decides. An hourly sweep runs the same pass, so
-        this is the button for when that latency is too long: typically a listing pulled precisely
-        because its owner turned out not to own it.
-
-
-        Idempotent. It re-asks a question rather than applying a delta, so a second call finds
-        nothing left to do and answers `0`.
-      operationId: reconcileFlatmateOwnerTier
-      externalDocs: { description: Behaviour, url: docs/flows/consumer/flatmates.md }
-      responses:
-        '200':
-          description: The pass ran
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [demoted]
-                properties:
-                  demoted:
-                    type: integer
-                    description: >
-                      How many posts lost owner tier. Zero is the healthy answer, not an error.
   /admin/flatmate-reviews/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -5334,8 +5022,7 @@ paths:
       operationId: myContactRequests
       description: >
         Newest first, owner-scoped. Paged: this collection grows with inbound demand rather than with
-        the owner's own actions, so a popular listing is exactly what makes it large. Use
-        `myPendingContactCount` for the "waiting on you" badge - counting one page under-reports.
+        the owner's own actions, so a popular listing is exactly what makes it large.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -5352,24 +5039,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/ContactRequest' }
-  /me/contact-requests/pending-count:
-    get:
-      tags: [Leads & Contact]
-      summary: Count of contact requests awaiting the owner
-      operationId: myPendingContactCount
-      description: >
-        The owner's "waiting on you" badge. Counted server-side because `myContactRequests` is paged:
-        filtering one page client-side is the wrong number precisely for the owner who has enough
-        leads to need the badge.
-      responses:
-        '200':
-          description: Pending count
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  pending: { type: integer, example: 3 }
   /me/contact-requests/{reqId}:
     parameters: [ { $ref: '#/components/parameters/ReqId' } ]
     patch:
@@ -5578,11 +5247,12 @@ paths:
       summary: Stream message realtime events
       operationId: streamMessages
       description: >
-        Authenticated SSE stream for message, read, typing and presence invalidation events. Clients
-        fetch the relevant conversation after receiving an event; payloads carry ids only.
+        Authenticated SSE stream for message, read, typing and presence invalidation events, plus
+        `notification` when the caller's unread notification count may have changed. Clients
+        fetch the relevant conversation or count after receiving an event; payloads carry ids only.
       responses:
         '200':
-          description: "Server-sent events: `message`, `read`, `typing`, `presence`."
+          description: "Server-sent events: `message`, `read`, `typing`, `presence`, `notification`."
           headers:
             X-Accel-Buffering:
               schema: { type: string, enum: ['no'] }
@@ -5930,12 +5600,6 @@ paths:
         '204': { description: Deleted }
   /me/finances/{propId}/basis:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
-    get:
-      tags: [Rentals & Payments]
-      summary: Ownership basis
-      operationId: getBasis
-      responses:
-        '200': { description: Basis, content: { application/json: { schema: { $ref: '#/components/schemas/OwnershipBasis' } } } }
     put:
       tags: [Rentals & Payments]
       summary: Set ownership basis
@@ -5964,39 +5628,20 @@ paths:
           schema: { type: string, enum: [all, month, quarter, year], default: all }
       responses:
         '200': { description: Summary, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceSummary' } } } }
-  /me/finances/{propId}/cashflow:
+  /me/finances/{propId}/overview:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
     get:
       tags: [Rentals & Payments]
-      summary: Monthly cashflow
-      operationId: financeCashflow
+      summary: Basis, dues and cashflow in one read
+      operationId: financeOverview
       parameters:
         - name: months
           in: query
-          description: How many months back to project, ending with the current month.
+          description: How many months of cashflow, ending with the current month.
           schema: { type: integer, minimum: 1, maximum: 60, default: 12 }
       responses:
-        '200':
-          description: Cashflow series
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/CashflowPoint' }
-  /me/finances/{propId}/dues:
-    parameters: [ { $ref: '#/components/parameters/PropId' } ]
-    get:
-      tags: [Rentals & Payments]
-      summary: Upcoming dues
-      operationId: financeDues
-      responses:
-        '200':
-          description: Dues
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Due' }
+        '200': { description: Overview, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceOverview' } } } }
+        '404': { description: No such property, or not the caller's }
   /me/rentals:
     get:
       tags: [Rentals & Payments]
@@ -7969,20 +7614,45 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/RentAgreement' }
-  /plans:
+  /me/bootstrap:
     get:
-      tags: [Billing & Growth]
-      summary: Subscription plans catalog
-      operationId: listPlans
-      security: []
+      tags: [Engagement]
+      summary: The signed-in app shell's state in one read
+      operationId: getMeBootstrap
       responses:
         '200':
-          description: Plans
+          description: >-
+            Each section is byte-for-byte what its own endpoint answers (`/auth/me`,
+            `/me/subscription`, `/me/verification/identity`, `/me/saved?size=500`,
+            `/me/saved-searches`, `/me/societies/following?size=500`,
+            `/notifications/unread-count`, `/messages/unread-count`), so a client can seed its
+            per-endpoint state from it. A section whose read failed is `null` and the client
+            re-reads it from its own endpoint; `me` is never null, because a caller who cannot be
+            read gets that error instead.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Plan' }
+              schema: { $ref: '#/components/schemas/MeBootstrap' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me/dashboard:
+    get:
+      tags: [Engagement]
+      summary: The dashboard's inbox reads in one call
+      operationId: getMeDashboard
+      responses:
+        '200':
+          description: >-
+            Each section is byte-for-byte what its own endpoint answers (`/me/listings?size=100`,
+            `/me/flatmate-posts`, `/me/flatmate-rooms`, `/me/flatmate-groups`,
+            `/me/contact-requests`, `/me/photo-requests`, `/me/documents/requests`,
+            `/me/flatmate-requests`, `/me/group-applications`, `/visits`, `/me/visit-requests`,
+            `/me/deals` and `/me/property-reviews` at `page=0&size=100`, plus `/me/tenancies`,
+            `/me/recent-searches`, `/me/service-request-invites`, `/me/managed-properties` and
+            `/me/entitlements`), so a client can seed its per-endpoint state from it. A section
+            whose read failed is `null` and the client re-reads it from its own endpoint.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeDashboard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /me/subscription:
     get:
       tags: [Billing & Growth]
@@ -8375,14 +8045,16 @@ paths:
       summary: Reviews for a property/locality
       operationId: listReviews
       security: []
+      description: >
+        Every published review, newest first (unpaged: the per-target unique index bounds the
+        list), with `summary` computed by the database over the same reviews.
       responses:
         '200':
-          description: Reviews
+          description: Reviews with the rating summary
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Review' }
+              schema: { $ref: '#/components/schemas/ReviewList' }
+        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Post a review
@@ -8398,24 +8070,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Review' }
-  /properties/{propId}/reviews/summary:
-    parameters: [ { $ref: '#/components/parameters/PropId' } ]
-    get:
-      tags: [Engagement]
-      summary: Rating summary for a property
-      operationId: getReviewSummary
-      security: []
-      description: >
-        Aggregate ratings for one listing, computed by the database over every published review --
-        not over a page, and not by reducing the list client-side. Public for the same reason the
-        list is: this is what an anonymous visitor is weighing up.
-      responses:
-        '200':
-          description: Rating summary
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ReviewSummary' }
-        '404': { $ref: '#/components/responses/NotFound' }
   /reviews/{entityType}/{entityId}:
     parameters:
       - { name: entityType, in: path, required: true, schema: { type: string, enum: [society, locality, owner] } }
@@ -8425,24 +8079,21 @@ paths:
       summary: Reviews for a society / locality / owner
       operationId: listEntityReviews
       security: []
-      # Paged: a popular locality's reviews are bounded only by the city's user base. The avg +
-      # count the UI needs come from the society / locality DETAIL endpoints, not a page sum.
+      description: >
+        Paged: a popular locality's reviews are bounded only by the city's user base. `summary`
+        is computed by the database over every published review, not over the page returned. 404
+        when the entity type is not one of the three, or when nothing of that kind exists under
+        that identifier.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Paged reviews
+          description: Paged reviews with the rating summary
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/Review' }
+              schema: { $ref: '#/components/schemas/ReviewList' }
+        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Engagement]
       summary: Post a review for a society / locality / owner
@@ -8458,27 +8109,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Review' }
-  /reviews/{entityType}/{entityId}/summary:
-    parameters:
-      - { name: entityType, in: path, required: true, schema: { type: string, enum: [society, locality, owner] } }
-      - { name: entityId, in: path, required: true, schema: { type: string }, description: Slug or id of the target entity }
-    get:
-      tags: [Engagement]
-      summary: Rating summary for a society / locality / owner
-      operationId: getEntityReviewSummary
-      security: []
-      description: >
-        Aggregate ratings for one society, locality or owner, computed by the database over every
-        published review -- not over a page. Public for the same reason the list is. 404 when the
-        entity type is not one of the three, or when nothing of that kind exists under that
-        identifier.
-      responses:
-        '200':
-          description: Rating summary
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ReviewSummary' }
-        '404': { $ref: '#/components/responses/NotFound' }
   /flatmates/feed:
     get:
       tags: [Engagement]
@@ -8893,18 +8523,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/FlatmateRoom' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /flatmates/rooms/{id}/agreement/reissue:
-    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    post:
-      tags: [Engagement]
-      summary: Reissue the flat's joint rent agreement
-      description: >
-        One agreement covers the owner and every flatmate in the flat, so a room changing hands
-        invalidates it. Starts a fresh rent-agreement service request bound to the flat.
-      operationId: reissueJointAgreement
-      responses:
-        '202': { description: Reissue started }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /flatmates/groups:
     post:
       tags: [Engagement]
@@ -9007,50 +8625,13 @@ paths:
               schema: { $ref: '#/components/schemas/FlatmateGroup' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /flatmates/groups/{id}/owner-consent:
-    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    post:
-      tags: [Engagement]
-      summary: Request or confirm the flat owner's consent
-      description: >
-        Tenant replacement track. Called once without `otp` to send an OTP to the flat owner, then
-        again with it to record an auditable consent. Consent is never client-asserted.
-      operationId: requestOwnerConsent
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [ownerMobile]
-              properties:
-                ownerMobile: { $ref: '#/components/schemas/Mobile' }
-                otp: { type: string, minLength: 6, maxLength: 6 }
-      responses:
-        '200':
-          description: OTP sent, or consent recorded
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ConsentResult' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401':
-          description: >
-            The `otp` was wrong, expired, or there is no code outstanding for that mobile. Only a
-            wrong `otp` carries `attemptsRemaining`; its absence means the code is gone and the
-            owner must be sent a new one.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-              example: { error: unauthorized, message: Incorrect OTP, status: 401, attemptsRemaining: 2 }
-        '422': { $ref: '#/components/responses/ValidationError' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
   /flatmates/owner-consent:
     post:
       tags: [Engagement]
       summary: Request or confirm the flat owner's consent before the group exists
       description: >
-        The group-less twin of `requestOwnerConsent`, for the moment the group form asks for
-        consent — which is before there is a group to attach it to. Same two-call shape: once
+        Taken when the group form asks for consent — before there is a group to attach it to.
+        Two calls: once
         without `otp` to send the owner a code, again with it to record the consent. The row is
         keyed on (owner mobile, tenant, flat), so the recording call must name the flat: a group
         sends `title` and `locality`, a room sends `society` and `locality`. Without them the
@@ -10554,7 +10135,7 @@ paths:
         city roster and each city's `live` bit are served from the `cities` catalogue itself.
         Requires the `settings:write` permission in addition to the admin role. Every call writes a
         `city.update` audit row carrying `beforeLive` and `afterLive`, including when the value is
-        unchanged. `slug` is matched exactly, as published by `GET /cities`.
+        unchanged. `slug` is matched exactly, as published in the `cities` section of `GET /bootstrap`.
       x-roles: [admin]
       requestBody:
         required: true
@@ -10565,24 +10146,23 @@ paths:
         '204': { description: Saved }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /admin/permission-catalogue:
+  /admin/function-catalogue:
     get:
       tags: [Admin & Analytics]
-      summary: Every back-office permission atom the server enforces
-      operationId: getPermissionCatalogue
+      summary: Every grantable back-office function
+      operationId: getFunctionCatalogue
       description: >
-        The atom vocabulary routes check after role guards. Accounts store functions, not atoms;
-        clients use this read-only list to explain the effective access returned by
-        `/users/{id}/permissions`.
+        Functions are the stored unit managers grant. The server derives permission atoms and desk
+        scopes from these names.
       x-roles: [manager, admin]
       responses:
         '200':
-          description: The atom catalogue, in render order
+          description: The function catalogue, in render order
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/BackOfficePermission' }
+                items: { $ref: '#/components/schemas/BackOfficeFunction' }
   /admin/function-catalogue:
     get:
       tags: [Admin & Analytics]
@@ -11176,7 +10756,7 @@ components:
           minimum: 0
           description: >
             Guesses left against the OTP just rejected. Present **only** where a submitted `otp`
-            was wrong: the 401 from `login`, and from the two owner-consent routes, which verify
+            was wrong: the 401 from `login`, and from the owner-consent route, which verifies
             through the same primitive. Absent from every other error — including the
             `otp_attempts_exhausted` 429 that follows, where the code is already burnt and the
             remedy is a new one rather than another try.
@@ -11235,6 +10815,11 @@ components:
         - type: object
           properties:
             verifiedElements: { type: integer, format: int64, example: 41 }
+            otherTabElements:
+              type: integer
+              format: int64
+              example: 12
+              description: The other tab's total under the same facets, for its tab label.
     Mobile:
       type: string
       pattern: '^[6-9][0-9]{9}$'
@@ -13598,7 +13183,7 @@ components:
           maxItems: 20
           items: { type: string, format: uri-reference }
           description: >-
-            At most `GET /listing-policy`'s `maxPhotos` (an admin setting, 10 by default); more is a `422`.
+            At most `GET /bootstrap`'s `listingPolicy.maxPhotos` (an admin setting, 10 by default); more is a `422`.
             URLs returned by `POST /me/photos`, exactly as returned. Any other URL, or one with a query or fragment added,
             is a `422` - except, on PATCH, a URL the listing already holds.
         floorPlan:
@@ -13905,23 +13490,6 @@ components:
           description: >-
             Wall-clock time at insert, not transaction start, so two messages prepared in one unit of
             work still order against each other. Ordering is the point of this list.
-    BackOfficePermission:
-      type: object
-      description: >
-        One back-office permission atom. `name` is `module:action` and is the exact string stored
-        and checked — the module and action are the same value split for grouping, so a console can
-        render a grid without parsing.
-      required: [name, module, action, adminOnly]
-      properties:
-        name: { type: string, example: 'tickets:read' }
-        module: { type: string, example: tickets }
-        action: { type: string, enum: [read, write, verify, moderate] }
-        adminOnly:
-          type: boolean
-          description: >-
-            Whether the route this atom guards is admin-only, so a staff account can never hold it
-            however its document is written. Advisory to the UI and authoritative on the server —
-            the same field, precisely so a screen cannot offer a checkbox the server would ignore.
     BackOfficeFunction:
       type: object
       required: [name, label, group, atoms]
@@ -14769,6 +14337,20 @@ components:
         income: { $ref: '#/components/schemas/Money' }
         expense: { $ref: '#/components/schemas/Money' }
         net: { $ref: '#/components/schemas/Money' }
+    FinanceOverview:
+      type: object
+      properties:
+        basis:
+          description: Null until the owner records purchase/valuation figures.
+          oneOf:
+            - { $ref: '#/components/schemas/OwnershipBasis' }
+            - { type: 'null' }
+        dues:
+          type: array
+          items: { $ref: '#/components/schemas/Due' }
+        cashflow:
+          type: array
+          items: { $ref: '#/components/schemas/CashflowPoint' }
     Tenancy:
       type: object
       properties:
@@ -15584,11 +15166,12 @@ components:
         referralBonus: { type: integer, description: Part of allowance earned by referrals }
     ListingEntitlement:
       type: object
-      # Reported, not enforced: it exists so the browser stops computing the allowance itself — a
-      # client gate reading a server number can be tightened later; one reading its own cannot.
       properties:
         allowance: { type: integer }
         referralBonus: { type: integer }
+        used:
+          type: integer
+          description: Listings occupying a slot — the count `POST /me/listings` refuses on.
     AgreementEntitlement:
       type: object
       properties:
@@ -15786,6 +15369,23 @@ components:
         Amenities:    { type: integer, minimum: 1, maximum: 5 }
         Connectivity: { type: integer, minimum: 1, maximum: 5 }
       additionalProperties: false
+    ReviewList:
+      type: object
+      description: >
+        Reviews of one target plus the rating summary over every published review of it -- the
+        `PageEnvelope` fields, with `content` typed and `summary` beside it so the cards and the
+        stars come from one read.
+      required: [content, summary]
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/Review' }
+        page: { type: integer, example: 0 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64, example: 137 }
+        totalPages: { type: integer, example: 7 }
+        sort: { type: [string, 'null'], example: createdAt,desc }
+        summary: { $ref: '#/components/schemas/ReviewSummary' }
     ReviewSummary:
       type: object
       required: [reviewCount, distribution, categoryAverages]
@@ -16300,7 +15900,7 @@ components:
           maxItems: 20
           items: { type: string, format: uri }
           description: >
-            At most `GET /listing-policy`'s `maxPhotos`, the same ceiling a listing has; more is a `422`.
+            At most `GET /bootstrap`'s `listingPolicy.maxPhotos`, the same ceiling a listing has; more is a `422`.
             Optional, so a host can post the room and add pictures once they are back at the flat.
             An empty gallery still costs the room its auto-publish: it files as `pending` for Ops
             rather than reaching the board, because a pictureless room is the shape of broker spam.
@@ -16967,6 +16567,201 @@ components:
           type: string
           nullable: true
           description: Null when there is no note. A cleared note is null, never an empty string.
+    Bootstrap:
+      type: object
+      required: [flags, geo, cities, pricing, listingPolicy, movePack, plans, counts, trustStats]
+      properties:
+        flags:
+          type: object
+          description: Flag name to explicit setting. Unlisted flags are enabled.
+          additionalProperties: { type: boolean }
+        geo: { $ref: '#/components/schemas/GeoPolicy' }
+        cities:
+          type: array
+          items: { $ref: '#/components/schemas/City' }
+        pricing: { $ref: '#/components/schemas/PlatformPricing' }
+        listingPolicy: { $ref: '#/components/schemas/ListingPolicy' }
+        movePack: { $ref: '#/components/schemas/MovePackConfig' }
+        plans:
+          type: array
+          items: { $ref: '#/components/schemas/Plan' }
+        counts: { $ref: '#/components/schemas/PropertyCounts' }
+        trustStats: { $ref: '#/components/schemas/TrustStats' }
+    MeBootstrap:
+      type: object
+      required: [me]
+      properties:
+        me: { $ref: '#/components/schemas/User' }
+        subscription: { oneOf: [ { $ref: '#/components/schemas/Subscription' }, { type: 'null' } ] }
+        identity: { oneOf: [ { $ref: '#/components/schemas/IdentityVerification' }, { type: 'null' } ] }
+        saved:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/PropertySummary' }
+            - type: 'null'
+        savedSearches:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/SavedSearch' }
+        following:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/Society' }
+            - type: 'null'
+        notificationsUnread:
+          type: [object, 'null']
+          properties:
+            count: { type: integer }
+        messagesUnread:
+          type: [object, 'null']
+          properties:
+            count: { type: integer }
+    MeDashboard:
+      type: object
+      properties:
+        listings:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/PropertyModerationRow' }
+            - type: 'null'
+        flatmatePosts:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/FlatmateSeekerPost' }
+            - type: 'null'
+        flatmateRooms:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/FlatmateRoom' }
+            - type: 'null'
+        flatmateGroups:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/FlatmateGroup' }
+            - type: 'null'
+        contactRequests:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/ContactRequest' }
+            - type: 'null'
+        photoRequests:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/PhotoRequest' }
+            - type: 'null'
+        documentRequests:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/DocumentRequest' }
+            - type: 'null'
+        flatmateRequests:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/FlatmateRequest' }
+            - type: 'null'
+        groupApplications:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/GroupApplication' }
+            - type: 'null'
+        visits:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/Visit' }
+            - type: 'null'
+        visitRequests:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/Visit' }
+            - type: 'null'
+        tenancies:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/Tenancy' }
+        propertyReviews: { oneOf: [ { $ref: '#/components/schemas/PropertyReviewQueuePage' }, { type: 'null' } ] }
+        recentSearches:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/RecentSearch' }
+        serviceRequestInvites:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/ServiceRequestParty' }
+        managedProperties:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/ManagedProperty' }
+        entitlements: { oneOf: [ { $ref: '#/components/schemas/Entitlements' }, { type: 'null' } ] }
+        deals:
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/PageEnvelope'
+                - type: object
+                  properties:
+                    content:
+                      type: array
+                      items: { $ref: '#/components/schemas/Deal' }
+            - type: 'null'
     GeoPolicy:
       type: object
       description: >
@@ -16974,14 +16769,14 @@ components:
 
 
         **Every field is an override.** The client ships a built-in centre and bounding box per city,
-        and merges this document over them. City launch status is served separately by `GET /cities`.
+        and merges this document over them. City launch status is the `cities` section of `GET /bootstrap`.
         So an empty object is the correct answer for an install whose operator has never opened the
         Maps panel — not a broken one — and an unreachable server leaves the client on its defaults
         rather than on nothing.
 
 
-        **Values that do not typecheck are dropped rather than forwarded**, as on `/flags` and
-        `/move-pack`. The stored block is untyped and hand-editable, and a half-written bounding box
+        **Values that do not typecheck are dropped rather than forwarded**, as on the `flags` and
+        `movePack` sections. The stored block is untyped and hand-editable, and a half-written bounding box
         passed through would be a response that disagrees with this schema.
       required: [cities, blacklist]
       properties:
@@ -17783,7 +17578,7 @@ components:
         listings:
           type: object
           description: >-
-            Listing content rules, published on `GET /listing-policy`. `maxPhotos` must be a whole number in
+            Listing content rules, published in the `listingPolicy` section of `GET /bootstrap`. `maxPhotos` must be a whole number in
             [3, 20]; anything else is a `422` and nothing is saved.
           properties:
             maxPhotos: { type: integer, minimum: 3, maximum: 20, example: 10 }
@@ -17811,7 +17606,7 @@ components:
             know about geo" when in fact it stores and merges it like everything else.
 
 
-            The public projection of this block is `GET /geo`, which is narrower in one respect: it
+            The public projection of this block is the `geo` section of `GET /bootstrap`, which is narrower in one respect: it
             withholds each blacklist entry's free-text reason. That note is moderator prose about a
             named building and is served **only** here.
           additionalProperties: true

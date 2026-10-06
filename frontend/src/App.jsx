@@ -2,7 +2,6 @@ import { Navigate, Route, Routes, useLocation, useNavigationType, useRoutes } fr
 import { lazy, Suspense, useEffect, useRef } from 'react';
 
 import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
-import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
 import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
 import { AppFlagsProvider } from './context/AppFlagsContext.jsx';
@@ -15,9 +14,11 @@ import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBea
 import Home from './pages/consumer/Home.jsx';
 import Signin from './pages/consumer/Signin.jsx';
 import Signup from './pages/consumer/Signup.jsx';
-import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
 import LegacyHelpLangRedirect from './components/help/LegacyHelpLangRedirect.jsx';
+
+const AdminLayout = lazy(() => import('./components/layout/AdminLayout.jsx'));
+const StaffLogin = lazy(() => import('./pages/consumer/StaffLogin.jsx'));
 
 /* Route-shaped Suspense fallbacks, necessarily in the entry chunk. They must stay free of imports
    of their own or they drag a route's dependencies into the critical path. */

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { feed } from '../../../services/flatmateService.js';
 import { isAbort } from '../../../services/http.js';
 import { createSearchCache } from '../../../lib/searchCache.js';
-import { TAB_MOVE_IN, TAB_TEAM_UP } from './model.js';
+import { TAB_MOVE_IN } from './model.js';
 
 const EMPTY = { items: [], total: 0, verifiedTotal: 0, pageCount: 0 };
 
@@ -11,8 +11,6 @@ const EMPTY = { items: [], total: 0, verifiedTotal: 0, pageCount: 0 };
 const cache = createSearchCache({ max: 30, ttl: 60_000 });
 
 const cacheKey = (tab, filters, page, size) => JSON.stringify([tab, filters, page, size]);
-
-const otherTab = (tab) => (tab === TAB_MOVE_IN ? TAB_TEAM_UP : TAB_MOVE_IN);
 
 export default function useFlatmatesSearch({ tab = TAB_MOVE_IN, filters, page = 0, size = 24 }) {
   /* `loaded` means "answered at least once" and `status` cannot carry it: a tab count nobody has fetched yet must not
@@ -54,18 +52,14 @@ export default function useFlatmatesSearch({ tab = TAB_MOVE_IN, filters, page = 
 
     (async () => {
       try {
-        /* The inactive tab's count is not decoration: stock a seeker cannot see is stock they
-         * never switch tabs for. */
-        const [primary, other] = await Promise.allSettled([
-          run(tab, page, size),
-          run(otherTab(tab), 0, 1),
-        ]);
-        if (primary.status === 'rejected') throw primary.reason;
+        /* The response also carries the inactive tab's count. It is not decoration: stock a seeker
+         * cannot see is stock they never switch tabs for. */
+        const primary = await run(tab, page, size);
         if (!live || mine !== seq.current) return;
         setState({
-          data: primary.value,
+          data: primary,
           tab,
-          otherCount: other.status === 'fulfilled' ? other.value.total ?? null : null,
+          otherCount: primary.otherTabTotal ?? null,
           status: 'ready',
           error: null,
           loaded: true,

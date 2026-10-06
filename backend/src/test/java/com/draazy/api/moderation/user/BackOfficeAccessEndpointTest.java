@@ -20,19 +20,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The management half of D192/D13 — the endpoint {@code V61} recorded as not existing at all
- * ("no team-member management endpoint of any kind — the Team &amp; Access console writes to browser
- * storage").
- *
- * <p>Most of what is asserted here is <strong>refusals</strong>, and that is the point of the
- * surface. A write endpoint that stored whatever it was sent would recreate the exact artefact this
- * lane exists to clean up: an access-control document full of names an operator was told meant
- * something and the server ignores.
- *
- * <p>Audit rows are written {@code REQUIRES_NEW} and therefore survive the rollback, so the
- * successful writes below clean {@code audit_log} themselves.
- */
+/** Mostly refusals: storing whatever was sent would leave names the server ignores. Audit rows commit via
+ * {@code REQUIRES_NEW} and survive the rollback, so successful writes clean {@code audit_log} themselves. */
 @DisplayName("D192/D13 — the per-account permission endpoints")
 class BackOfficeAccessEndpointTest extends AbstractApiTest {
 
@@ -62,16 +51,10 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the atom and function catalogues are served")
+    @DisplayName("the function catalogue is served")
     void catalogueIsServed() throws Exception {
         User admin = save("9866030001", Roles.Wire.ADMIN, null);
 
-        mvc.perform(get(Routes.Admin.PERMISSION_CATALOGUE)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer "
-                                + jwtService.issueAccessToken(admin)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.name == 'tickets:read')].action").value("read"))
-                .andExpect(jsonPath("$[?(@.name == 'settings:write')].adminOnly").value(true));
         mvc.perform(get(Routes.Admin.FUNCTION_CATALOGUE)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer "
                                 + jwtService.issueAccessToken(admin)))
@@ -82,17 +65,14 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[?(@.name == 'desk:rental')].desk").value(Teams.RENTAL));
     }
 
-    /**
-     * Staff are refused the whole surface. Editing who may do what is the same privilege as minting
-     * a colleague, and the role guard is the first term of both.
-     */
+    /** Staff are refused: editing who may do what is the same privilege as minting a colleague. */
     @Test
     @DisplayName("staff cannot read the catalogue or write a document")
     void staffAreRefused() throws Exception {
         User staff = save("9866030002", Roles.Wire.STAFF, Teams.RENTAL);
         User target = save("9866030003", Roles.Wire.STAFF, Teams.LEGAL);
 
-        mvc.perform(get(Routes.Admin.PERMISSION_CATALOGUE)
+        mvc.perform(get(Routes.Admin.FUNCTION_CATALOGUE)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer "
                                 + jwtService.issueAccessToken(staff)))
                 .andExpect(status().isForbidden());
@@ -142,11 +122,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.effective").value(hasItem("dashboard:read")));
     }
 
-    /**
-     * The console's own vocabulary is refused rather than stored. This is the endpoint half of
-     * {@code V61}'s "inventing that mapping is writing policy nobody agreed" — the server does not
-     * translate {@code properties:verify}, and it does not pretend to.
-     */
+    /** The console's own vocabulary is refused, not stored: {@code properties:verify} has no server meaning. */
     @Test
     @DisplayName("a name the server does not enforce is refused, not stored")
     void unknownNamesAreRefused() throws Exception {
@@ -186,11 +162,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         assertThat(putPermissions(admin, buyer, "{\"functions\":[]}")).isEqualTo(422);
     }
 
-    /**
-     * Self-edit is refused so that an administrator cannot remove their own ability to undo the
-     * removal. Two administrators can still scope each other, which is the shape this surface should
-     * have had anyway.
-     */
+    /** Self-edit is refused so an admin can't remove their own ability to undo it; admins can scope each other. */
     @Test
     @DisplayName("an administrator cannot edit their own permissions")
     void selfEditIsRefused() throws Exception {

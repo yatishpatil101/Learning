@@ -38,10 +38,17 @@ test.describe('LIVE: flatmate post expiry', () => {
     await signedInAs(page, mobile);
 
     let renewed = false;
+    const expire = (list) => list.content.map((p) => ({ ...p, modStatus: 'expired' }));
     await page.route(/\/me\/flatmate-posts(\?|$)/, async (route) => {
       const res = await route.fetch();
       const body = await res.json();
-      if (!renewed) body.content = body.content.map((p) => ({ ...p, modStatus: 'expired' }));
+      if (!renewed) body.content = expire(body);
+      await route.fulfill({ response: res, json: body });
+    });
+    await page.route('**/api/me/dashboard', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      if (!renewed && body.flatmatePosts) body.flatmatePosts.content = expire(body.flatmatePosts);
       await route.fulfill({ response: res, json: body });
     });
 

@@ -31,9 +31,10 @@ async function openRoomPhotoStep(page) {
 test.describe('flatmate room photo limit', () => {
   test('the room wizard follows the limit the server publishes and skips extra picks', async ({ page }) => {
     let photoId = 0;
-    await page.route('**/api/listing-policy', (route) => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({ maxPhotos: 4 }),
-    }));
+    await page.route('**/api/bootstrap', async (route) => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, json: { ...(await res.json()), listingPolicy: { maxPhotos: 4 } } });
+    });
     await page.route('**/api/me/photos', (route) => {
       photoId += 1;
       return route.fulfill({

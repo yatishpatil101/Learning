@@ -128,7 +128,7 @@ export default function useListProperty() {
       return undefined;
     }
     let live = true;
-    loadListingQuota(user).then((q) => {
+    loadListingQuota().then((q) => {
       if (!live) return;
       setQuota({ used: q.used, allowance: q.allowance });
       setCanPost(q.canPost);

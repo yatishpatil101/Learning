@@ -98,7 +98,7 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
 
     await signedInAs(page, ACTORS.owner);
     const inbox = page.waitForResponse((r) =>
-      new URL(r.url()).pathname.endsWith('/api/me/documents/requests') &&
+      new URL(r.url()).pathname.endsWith('/api/me/dashboard') &&
       r.request().method() === 'GET' &&
       r.status() === 200,
     );

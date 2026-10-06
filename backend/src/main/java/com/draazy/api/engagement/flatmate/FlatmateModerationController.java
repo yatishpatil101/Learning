@@ -19,7 +19,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -38,13 +37,11 @@ public class FlatmateModerationController {
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_FLATMATES_WRITE;
 
     private final FlatmateModerationService service;
-    private final FlatmateTrustReconciler reconciler;
     private final FlatmateModerationDetails details;
 
     public FlatmateModerationController(FlatmateModerationService service,
-            FlatmateTrustReconciler reconciler, FlatmateModerationDetails details) {
+            FlatmateModerationDetails details) {
         this.service = service;
-        this.reconciler = reconciler;
         this.details = details;
     }
 
@@ -90,18 +87,6 @@ public class FlatmateModerationController {
     public void moderate(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody ModerationRequest body) {
         service.moderate(principal, id, body.modStatus(), body.note());
-    }
-
-    /** {@link #FLATMATES_WRITE}, not read: it demotes posts. Idempotent — it re-asks a question
-     * rather than applying a delta, so a second click finds nothing left to do. */
-    @PostMapping(Routes.Moderation.FLATMATE_OWNER_TIER_RECONCILE)
-    @PreAuthorize(FLATMATES_WRITE)
-    public ReconcileResponse reconcileOwnerTier(@CurrentUser AuthPrincipal principal) {
-        return new ReconcileResponse(reconciler.reconcileOwnerTier(principal));
-    }
-
-    /** How many posts the pass demoted. Zero is the healthy answer, not an error. */
-    public record ReconcileResponse(int demoted) {
     }
 
     /** Contract schema {@code DecisionRequest}: {@code approved} or {@code rejected}, with a reason

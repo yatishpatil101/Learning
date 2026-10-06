@@ -120,6 +120,10 @@ Axes, and the column each resolves to:
    would answer such a request with every sale listing, all of them unstated).
 10. **Near-a-place:** `nearLat`/`nearLng`/`nearRadiusKm`; radius is `nearRadius` km, or
     `nearRadius * 0.4` km when `nearMode === 'min'` (minutes-to-km heuristic).
+11. **By id (`ids`):** not a filter control. Up to 16 slugs or UUIDs, so a strip of known listings
+    (recently viewed, the dashboard feed) is one public read rather than one detail read per card —
+    `listPropertiesByIds`. The approved floor still applies, so a listing that went off-market drops
+    out instead of 404ing a card.
 - **Relevance-gated filters:** each optional filter is wrapped in `rel(section)`
   (`sectionVisible`), so a filter hidden as irrelevant for the current property types never narrows
   results.
@@ -484,12 +488,11 @@ nothing and the filter silently does not apply.
 
 `GET /properties/{id}` is public, so `principal` is null for an anonymous reader and a null viewer
 always masks the owner's mobile. The gate verdict comes from the `ContactGate` port, which the
-contacts feature implements. `GET /properties/trust-stats` is public and counted by the database:
-derived in the browser from whichever listings were already loaded, each figure would be a statement
-about the current page dressed up as a statement about the catalogue - worst for the distinct-owner
-figure, where two pages of the same owner's flats count as two verified owners. An unknown locality
-slug answers zeroes rather than 404, because this is a headline about a slice and an empty slice is
-a real slice.
+contacts feature implements. The `trustStats` section of `GET /bootstrap` is public and counted by the
+database over the whole live catalogue: derived in the browser from whichever listings were already
+loaded, each figure would be a statement about the current page dressed up as a statement about the
+catalogue - worst for the distinct-owner figure, where two pages of the same owner's flats count as
+two verified owners. The home category tiles read the neighbouring `counts` section the same way.
 
 The archive/restore `PATCH`es hide private fields **even from the owner**: the owner reads their own
 meter number from `GET /me/listings/{id}`, and branching visibility on whether the caller happens to
@@ -568,9 +571,9 @@ own, which is what makes the approved-and-unarchived floor, the paging and the c
 ones every other surface gets; without the floor, an owner's page would show their own rejected and
 archived rows to a stranger.
 
-`trustStats` does no client-side arithmetic and has no fallback: an unknown locality answers zeroes
-rather than 404, so there is no not-found case to translate, and a genuine failure should surface
-rather than be papered over with a plausible-looking number.
+`trustStats` does no client-side arithmetic and has no fallback: it is a section of `GET /bootstrap`,
+so there is no not-found case to translate, and a genuine failure should surface rather than be
+papered over with a plausible-looking number.
 
 `countProperties` gets an exact match count at any catalogue size with no new endpoint: ask for the
 smallest possible page and read `totalElements`, which the server computes over the full result set.

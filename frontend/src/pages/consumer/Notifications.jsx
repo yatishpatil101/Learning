@@ -48,13 +48,12 @@ export default function Notifications() {
   const [pageInfo, setPageInfo] = useState({ page: 0, total: 0, totalPages: 0 });
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
+  const loadedOnce = useRef(false);
   const undoRef = useRef(null);
   const dismissPendingRef = useRef(null);
   const rootRef = useScrollReveal([filter, notifs.length]);
 
-    // An unreachable inbox renders empty rather than throwing the page away. The bell already
-    // shows nothing in that case, so the two agree.
-  /* Read the inbox: server rows merged with whatever has been derived. */
+  // An unreachable inbox renders empty rather than throwing the page away; the bell shows nothing then too.
   const loadPage = useCallback(async (page = 0) => {
     setStatus('loading');
     try {
@@ -64,7 +63,9 @@ export default function Notifications() {
         : [...new Map([...cur, ...next.items].map((n) => [n.id, n])).values()]));
       setPageInfo({ page: next.page, total: next.total, totalPages: next.totalPages });
       setStatus('ready');
-      refreshBadge();
+      // The bell was read at sign-in and the stream keeps it current; only a re-read can find it stale.
+      if (loadedOnce.current) refreshBadge();
+      loadedOnce.current = true;
     } catch {
       setStatus('error');
     }

@@ -503,6 +503,21 @@ class ListingSearchTest extends AbstractApiTest {
         }
 
         @Test
+        @DisplayName("a photo minimum counts the gallery, so the reels feed needs no client filter")
+        void minimumPhotosCountsTheGallery() throws Exception {
+            Property bare = rent("Two photos");
+            bare.setImages(List.of("a", "b"));
+            Property tour = rent("Three photos");
+            tour.setImages(List.of("a", "b", "c"));
+            persist(bare);
+            persist(tour);
+
+            String owner = "&owner=" + seller.getId();
+            assertThat(count("minPhotos=3" + owner)).isEqualTo(1);
+            assertThat(count("minPhotos=0" + owner)).isEqualTo(2);
+        }
+
+        @Test
         @DisplayName("food narrows to the owner's veg / jain rule, and non-veg excludes both")
         void foodPreferenceNarrowsThroughJsonb() throws Exception {
             Property veg = rent("Veg only");

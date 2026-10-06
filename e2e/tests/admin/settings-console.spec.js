@@ -10,9 +10,9 @@ async function settingsDoc() {
 }
 
 async function publicPricing() {
-  const res = await fetch(`${API}/pricing`);
+  const res = await fetch(`${API}/bootstrap`);
   if (!res.ok) throw new Error(`reading pricing failed (${res.status})`);
-  return await res.json();
+  return (await res.json()).pricing;
 }
 
 async function writeSettings(patch) {
@@ -99,7 +99,7 @@ test('saving the fee schedule changes the price the public route quotes', async 
   // the supported entry point and it removes a click that can land before the strip has mounted.
   await page.goto('/admin/settings?tab=fees');
 
-  // `featuredListing` is safe to nudge and republishes through anonymous `/pricing`.
+  // `featuredListing` is safe to nudge and republishes through the anonymous `/bootstrap`.
   const fee = page.getByRole('spinbutton', { name: 'Featured Listing' });
   await expect(fee).toBeVisible();
   const before = Number(await fee.inputValue());
@@ -119,7 +119,7 @@ test('saving the fee schedule changes the price the public route quotes', async 
 
   expect(Number((await settingsDoc()).fees.featuredListing)).toBe(next);
 
-  // Anonymous `/pricing` catches wrong keys and stale public settings caches.
+  // Anonymous `/bootstrap` catches wrong keys and stale public settings caches.
   expect(Number((await publicPricing()).featuredListing)).toBe(next);
 });
 
@@ -130,7 +130,7 @@ test('saving the photo limit writes the listings block the public policy route a
   const field = page.getByRole('spinbutton', { name: 'Max photos per listing' });
   await expect(field).toBeVisible();
   const current = Number(await field.inputValue());
-  expect((await (await fetch(`${API}/listing-policy`)).json()).maxPhotos).toBe(current);
+  expect((await (await fetch(`${API}/bootstrap`)).json()).listingPolicy.maxPhotos).toBe(current);
 
   // Every save is a PUT to this route, so zero PUTs proves cancel wrote nothing.
   const writes = [];

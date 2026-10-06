@@ -82,7 +82,7 @@ test('an owner shares a real contact request from the Action Center and clears t
 
   await signedInAs(page, owner.mobile);
   const contactInboxRead = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/api/me/contact-requests'
+    new URL(response.url()).pathname === '/api/me/dashboard'
     && response.request().method() === 'GET'
     && response.status() === 200,
   );
@@ -107,10 +107,6 @@ test('an owner shares a real contact request from the Action Center and clears t
 
   const approved = await ownerContactRequest(owner, listing.id, buyer.name);
   expect(approved.status, 'Accept must persist the owner approval on the server').toBe('approved');
-
-  const pendingCount = await api('GET', '/me/contact-requests/pending-count', owner.headers);
-  expect(pendingCount.status).toBe(200);
-  expect(pendingCount.body.pending).toBe(0);
 });
 
 test('a fresh seeker has an honest empty Action Center and no owner-only Requests navigation', async ({ page }) => {
@@ -118,13 +114,13 @@ test('a fresh seeker has an honest empty Action Center and no owner-only Request
 
   await signedInAs(page, seeker.mobile);
   const inboxRead = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/api/me/contact-requests'
+    new URL(response.url()).pathname === '/api/me/dashboard'
     && response.request().method() === 'GET'
     && response.status() === 200,
   );
   await page.goto('/dashboard');
   const inbox = await inboxRead;
-  expect((await inbox.json()).content).toEqual([]);
+  expect((await inbox.json()).contactRequests.content).toEqual([]);
 
   await expect(page.getByTestId('verify-badge-cta')).toBeVisible();
   await expect(page.getByTestId('action-center-clear')).toBeVisible();

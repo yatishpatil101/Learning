@@ -106,7 +106,7 @@ test('a pending verified buyer keeps the server-provided Serious Buyer badge bef
 
   await signedInAs(page, fixture.owner.mobile);
   const contactInbox = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/api/me/contact-requests'
+    new URL(response.url()).pathname === '/api/me/dashboard'
     && response.request().method() === 'GET'
     && response.status() === 200,
   );

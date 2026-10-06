@@ -1,6 +1,6 @@
 /** HTTP service-request provider; `serviceRequestService.js` is the only contract to the tracker and
  * `serviceRequestMapper.js` holds shape translation. */
-import { del, get, patch, post, postMultipart, put } from '../../http.js';
+import { PAGE_LOAD_TTL, del, get, patch, post, postMultipart, put } from '../../http.js';
 import {
   toChecklist, toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
 } from './serviceRequestMapper.js';
@@ -166,7 +166,7 @@ export async function createCoFillServiceRequest({ request, role, mobile }) {
 
 /** Outstanding invitations addressed to the signed-in account. */
 export async function listMyServiceRequestInvites() {
-  const rows = await get('/me/service-request-invites');
+  const rows = await get('/me/service-request-invites', undefined, { ttl: PAGE_LOAD_TTL });
   return Array.isArray(rows) ? rows : [];
 }
 

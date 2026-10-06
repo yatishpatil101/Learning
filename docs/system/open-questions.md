@@ -427,9 +427,9 @@ sub-questions went the same way and shipped as **D192**. (1) `account_permission
 (2) A permission document may only ever *remove* access, never add it; the console's
 `BASE ∪ role-bundle ∪ moduleAccess` widening model was not adopted in any form, and
 `AccountPermissionsGuardTest` pins the narrowing. (3) No new route-level vocabulary was invented:
-`GET /admin/permission-catalogue` serves the atoms the server already enforces, so the grid cannot
-offer a permission the server would ignore, and the write refuses anything outside the catalogue.
-`BackOfficeAccessController` holds the three routes behind `users:read` / `users:write` — the same
+The atoms stay the ones the server already enforces (`BackOfficePermissions.CATALOGUE`), so the
+write refuses anything outside the catalogue.
+`BackOfficeAccessController` holds the routes behind `users:read` / `users:write` — the same
 atom as minting a colleague, since editing who may do what is the same privilege — and refuses
 self-edit. `AdminTeam.jsx` now reads and writes the server's set instead of browser storage, and
 the `V61` refusal of `settings.customRoles` stands.

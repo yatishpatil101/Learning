@@ -50,6 +50,9 @@ class ArchitectureBoundaryTest {
         LAYER.put("finance", 4);
 
         LAYER.put("services", 3);
+        // The aggregates (/bootstrap, /me/bootstrap, /me/dashboard) read across the platform and nothing reads them,
+        // so they rank above every context they compose.
+        LAYER.put("bootstrap", 8);
         LAYER.put("deals", 5);
 
         LAYER.put("moderation", 6);

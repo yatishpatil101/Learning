@@ -74,7 +74,7 @@ feature context ──▶ security ──▶ common       feature context ──
 | 0 | `content`, `identity` | shared kernel only |
 | 1 | `catalog` | layer 0 |
 | 2 | `documents`, `leads`, `engagement`, `billing` | layers 0–1 |
-| 3 | `finance`, `services` | layers 0–2 |
+| 3 | `finance`, `services`, `bootstrap` | layers 0–2 |
 | 4 | `deals` | layers 0–3 |
 | 5 | `moderation` | layers 0–4 |
 

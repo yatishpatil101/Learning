@@ -88,7 +88,7 @@ class SavedSearchMatcher {
                 areaBound(filters, "maxArea", 1),
                 intValue(filters, "minBaths"),
                 null, null, null, null, null, null,
-                null, null, null);
+                null, null, null, null, null);
         return properties.countVisibleMatching(query, facets, baseline);
     }
 

@@ -10,10 +10,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The flatmates feed (contract {@code listFlatmateFeed}) — public. Its own controller because it
- * reads all three collections: discovery, not supply. Facets: docs/flows/consumer/flatmates.md §5.
- */
+/** Public feed; its own controller because it reads all three collections.
+ * Facets: docs/flows/consumer/flatmates.md §5. */
 @RestController
 public class FlatmateFeedController {
 
@@ -57,6 +55,7 @@ public class FlatmateFeedController {
         FlatmateFeedService.FeedResult result =
                 service.feed(facets, Pageables.unsorted(pageable));
         return FlatmateFeedResponse.of(
-                PageResponse.of(result.page(), dto -> dto), result.verifiedTotal());
+                PageResponse.of(result.page(), dto -> dto), result.verifiedTotal(),
+                result.otherTabTotal());
     }
 }

@@ -37,7 +37,7 @@ class CityAdminEndpointTest extends AbstractApiTest {
             jdbc.update("delete from audit_log where actor = ?", adminId);
         }
         // The roster is shared state the repeatable seed does not reassert, so restore it by hand or
-        // the next class to read `GET /cities` inherits a live Mumbai.
+        // the next class to read `GET /bootstrap` inherits a live Mumbai.
         jdbc.update("update cities set live = (slug = 'pune')");
     }
 
@@ -64,9 +64,9 @@ class CityAdminEndpointTest extends AbstractApiTest {
                                 {"live":true}"""))
                 .andExpect(status().isNoContent());
 
-        mvc.perform(get(Routes.Cities.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.slug=='mumbai')].live", contains(true)));
+                .andExpect(jsonPath("$.cities[?(@.slug=='mumbai')].live", contains(true)));
     }
 
     /** Launching a city is an operational decision, and one nobody can attribute is not a record. */

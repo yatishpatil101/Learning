@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -8,13 +8,16 @@ import { useFollows } from '../../context/FollowContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
-import { listProperties } from '../../services/propertyService.js';
-import { listSocietyCatalogue, mintSociety } from '../../services/societyService.js';
-import { listingsInSociety } from '../../data/societies.js';
+import { allLocalities } from '../../data/localities.js';
+import { listSocietiesPage, mintSociety } from '../../services/societyService.js';
 import { Stars } from './property/Stars.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 const norm = (s) => String(s || '').trim().toLowerCase();
+
+const PAGE_SIZE = 24;
+const SEARCH_DEBOUNCE_MS = 250;
 
 /* Sort options carry i18n keys, not English labels — the <Select> is fed
    translated copy at render time so the list follows the reader's language. */
@@ -25,21 +28,14 @@ const SORTS = [
   { value: 'name', labelKey: 'societies.sortName' },
 ];
 
-/* A society with no reviews and one whose rating could not be read are different facts, so the card
-   says so: collapsing them prints "Not rated yet", a confident claim about a building that may well
-   be rated. */
-function SocietyCard({ s, followed, onFollow, t, ratingLoading, ratingFailed }) {
+/* The rating is the server's aggregate on the row: no reviews means unrated, not a failed read. */
+function SocietyCard({ s, followed, onFollow, t }) {
   return (
     <div className="glass rounded-2xl p-5 flex flex-col gap-3 hover:border-teal-400/30 transition-all reveal">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          {/* One line of a 15px title is ~21px tall and this one clamps to two, so
-              its height is set by the text, not by anything I can pad without
-              shifting the meta row and the rating line on all 24 cards. It stays
-              small on purpose. The exemption is the one WCAG grants explicitly:
-              "View hub" at the foot of this same card goes to the same
-              /society/:slug and clears 44px on touch, so the function is reachable
-              from a compliant control on the same screen. */}
+          {/* Stays small on purpose: the two-line clamped title can't be padded without shifting the card rows;
+              'View hub' on the same card clears 44px, which is the WCAG exemption. */}
           <Link to={`/society/${s.slug}`} data-tap-exempt className="font-bold text-white text-[15px] leading-snug hover:text-teal-300 transition-colors line-clamp-2">
             {s.name}
           </Link>
@@ -60,11 +56,7 @@ function SocietyCard({ s, followed, onFollow, t, ratingLoading, ratingFailed }) 
       </div>
 
       <div className="flex items-center gap-3 text-xs">
-        {ratingLoading ? (
-          <span className="skeleton inline-block h-4 w-20 rounded" data-testid="society-rating-skeleton" />
-        ) : ratingFailed ? (
-          <span className="text-amber-300/80 inline-flex items-center gap-1.5" data-testid="society-rating-unavailable"><Icon name="alert-triangle" className="w-3.5 h-3.5 flex-shrink-0" /> {t('society.ratingUnavailable')}</span>
-        ) : s.rating.count ? (
+        {s.rating.count ? (
           <span className="inline-flex items-center gap-1.5" data-testid="society-rating"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
         ) : (
           <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> {t('societies.notRated')}</span>
@@ -105,40 +97,58 @@ export default function Societies() {
   const [loc, setLoc] = useState(params.get('loc') || '');
   const [sort, setSort] = useState('relevance');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [listings, setListings] = useState([]);
-  /* The directory's own rows, from the seam. Empty until the read lands — the grid's own
-     "no societies match" copy is gated on the ratings' `loading` flag below. */
-  const [societies, setSocieties] = useState([]);
-  /* The rating for every card in one read. `{ index, loading, failed }` rather than a bare object
-     because "not read yet" and "could not be read" are not "no reviews" — see `SocietyCard`. */
-  const [ratings, setRatings] = useState({ index: {}, loading: true, failed: false });
   const [busy, setBusy] = useState(false);
-  const [limit, setLimit] = useState(24);
+  const [q, setQ] = useState(query.trim());
+  /* `rows` keeps the previous answer while the next one is in flight, so a filter tap does not
+     collapse the grid under the reader's thumb; `key` says which request the rows answer. */
+  const [feed, setFeed] = useState({ rows: [], ratings: {}, total: 0, page: 0, key: '', status: 'loading' });
+  const [more, setMore] = useState('idle');
+  const readId = useRef(0);
 
   useEffect(() => {
-    let alive = true;
-    listProperties({}).then((all) => { if (alive) setListings(all); });
-    return () => { alive = false; };
-  }, []);
+    const id = setTimeout(() => setQ(query.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [query]);
 
-  /* The grid and the ratings in one read: the ratings request already walks the whole directory, so
-     drawing the grid from the bundled `data/societies.js` instead meant every society minted
-     through the API was absent. A read that fails is not an empty directory — `failed` puts an
-     honest message on the ratings while the grid renders whatever rows arrived. */
+  const key = JSON.stringify([q, loc, sort, verifiedOnly]);
+  const read = useCallback(
+    (page) => listSocietiesPage({ q, locality: loc, sort, verified: verifiedOnly, page, size: PAGE_SIZE }),
+    [q, loc, sort, verifiedOnly],
+  );
+
   useEffect(() => {
-    let alive = true;
-    listSocietyCatalogue()
-      .then(({ rows, ratings: index }) => {
-        if (!alive) return;
-        setSocieties(rows);
-        setRatings({ index, loading: false, failed: false });
-      })
+    const id = ++readId.current;
+    setFeed((f) => ({ ...f, status: 'loading' }));
+    setMore('idle');
+    read(0)
+      .then((p) => { if (id === readId.current) setFeed({ ...p, page: 0, key, status: 'ready' }); })
       .catch((err) => {
-        console.warn('[societies] catalogue unavailable', err);
-        if (alive) setRatings({ index: {}, loading: false, failed: true });
+        console.warn('[societies] directory unavailable', err);
+        if (id === readId.current) setFeed({ rows: [], ratings: {}, total: 0, page: 0, key, status: 'failed' });
       });
-    return () => { alive = false; };
-  }, []);
+    // `key` is derived from the same inputs as `read`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [read]);
+
+  const showMore = async () => {
+    const id = readId.current;
+    setMore('busy');
+    try {
+      const p = await read(feed.page + 1);
+      if (id !== readId.current) return;
+      setFeed((f) => ({
+        ...f,
+        rows: [...f.rows, ...p.rows.filter((r) => !f.rows.some((x) => x.slug === r.slug))],
+        ratings: { ...f.ratings, ...p.ratings },
+        total: p.total,
+        page: f.page + 1,
+      }));
+      setMore('idle');
+    } catch (err) {
+      console.warn('[societies] next page unavailable', err);
+      if (id === readId.current) setMore('failed');
+    }
+  };
 
   // Keep the locality (and query) in the URL so a filtered view is shareable and
   // deep-linkable (e.g. the Locality page can link "Societies in Baner").
@@ -149,75 +159,45 @@ export default function Societies() {
     setParams(next, { replace: true });
   }, [query, loc, setParams]);
 
-  /* The catalogue read's own state, named apart from the ratings it arrives with. `ratings.loading`
-     and `ratings.failed` describe the *same* request — one read carries both — but the grid and a
-     card ask different questions of it, and a reader should not have to know they share a wire. */
-  const catalogueLoading = ratings.loading;
-  const catalogueFailed = ratings.failed && !societies.length;
-  /* And whether we are entitled to say a society is missing. `exact` is a search over `societies`,
-     so before the read lands — or after it fails — it finds nothing, and every name looks new. */
-  const catalogueReady = !catalogueLoading && !catalogueFailed;
+  const loading = feed.status === 'loading';
+  const failed = feed.status === 'failed';
+  const fresh = feed.status === 'ready' && feed.key === key;
 
-  const enriched = useMemo(() => societies.map((soc) => {
-    /* `source`, not `tier`: the server records how a society got here and, separately, whether ops
-       have confirmed it — so a member-added society that has been verified stops being badged as
-       unchecked, which a browser-stamped `tier` could never do. The `tier` fallback below is a
-       belt for locally-seeded rows, not a second vocabulary. */
+  const cards = useMemo(() => feed.rows.map((soc) => {
+    /* `source`, not `tier`: ops confirmation is recorded separately, so a verified
+       member-added society is not badged as unchecked. */
     const community = (soc.source || soc.tier) === 'community';
-    const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
       slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
-      verified, community, managed: soc.claimStatus === 'claimed',
-      /* The row's own aggregate from `GET /societies`, keyed on the slug the index carries. A slug
-         the index does not carry is not "unrated" but "this reader knows nothing about it" — which
-         for a community society minted in the browser is the truth, and renders as the unrated
-         branch because that is the honest thing to say about a building with no reviews anywhere. */
-      rating: ratings.index[soc.slug] || { avg: null, count: 0 },
-      homes: listingsInSociety(listings, soc.slug).length,
+      verified: !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance)),
+      community,
+      managed: soc.claimStatus === 'claimed',
+      /* A slug the index lacks is unrated, which is the honest thing to say about a building with no
+         reviews anywhere. */
+      rating: feed.ratings[soc.slug] || { avg: null, count: 0 },
+      homes: soc.listingCount,
     };
-  }), [societies, listings, ratings.index]);
+  }), [feed.rows, feed.ratings]);
+
+  /* Only a settled answer to this exact query may say a society is missing; against an in-flight or
+     failed read every name looks new, and the funnel would mint a duplicate. */
+  const exact = useMemo(() => cards.find((s) => norm(s.name) === norm(query)), [cards, query]);
+  const canCreate = fresh && norm(query) === norm(q) && query.trim().length >= 2 && !exact;
 
   const localities = useMemo(() => {
-    const set = [...new Set(enriched.map((s) => s.localitySlug).filter(Boolean))].sort();
-    return [{ value: '', label: t('societies.allLocalities') }, ...set.map((slug) => ({ value: slug, label: titleCase(slug) }))];
-  }, [enriched, t]);
+    const known = allLocalities().map((l) => ({ value: l.slug, label: titleCase(l.slug) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const extra = loc && !known.some((o) => o.value === loc) ? [{ value: loc, label: titleCase(loc) }] : [];
+    return [{ value: '', label: t('societies.allLocalities') }, ...known, ...extra];
+  }, [loc, t]);
 
   const sortOptions = useMemo(() => SORTS.map((o) => ({ value: o.value, label: t(o.labelKey) })), [t]);
 
-  const results = useMemo(() => {
-    const q = norm(query);
-    let list = enriched.filter((s) => {
-      if (loc && s.localitySlug !== loc) return false;
-      if (verifiedOnly && !s.verified) return false;
-      if (q && !(`${s.name} ${s.builder} ${titleCase(s.localitySlug)}`.toLowerCase().includes(q))) return false;
-      return true;
-    });
-    /* `avg` is null for an unrated society, not 0 — arithmetic on it would coerce to 0 anyway, but
-       silently, and a null that reads as "worst possible rating" is worth spelling out. */
-    const avg = (s) => s.rating.avg ?? 0;
-    const rel = (s) => (Number(s.verified) * 4) + Math.min(s.homes, 3) + (avg(s) / 5);
-    list = list.slice().sort((a, b) => {
-      if (sort === 'rating') return (avg(b) - avg(a)) || (b.rating.count - a.rating.count) || a.name.localeCompare(b.name);
-      if (sort === 'homes') return (b.homes - a.homes) || (Number(b.verified) - Number(a.verified)) || a.name.localeCompare(b.name);
-      if (sort === 'name') return a.name.localeCompare(b.name);
-      return rel(b) - rel(a) || a.name.localeCompare(b.name);
-    });
-    return list;
-  }, [enriched, query, loc, verifiedOnly, sort]);
-
-  useEffect(() => { setLimit(24); }, [query, loc, verifiedOnly, sort]);
-
-  const exact = useMemo(() => results.find((s) => norm(s.name) === norm(query)), [results, query]);
-  // Gated on `catalogueReady`: against a half-read catalogue every society reads as absent, so this
-  // would offer to mint a duplicate of one.
-  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
-
   const onFollow = async (slug) => {
     if (!isIn) { sendToSignIn('community'); return; }
-    /* The context flips optimistically and rolls back on failure, so it returns the state it
-       actually settled on rather than the one that was attempted. The toast reads that, so a
-       refused write says "unfollowed" instead of cheerfully confirming an alert nobody will get. */
+    /* The context returns the state it settled on after any rollback, so
+       a refused write toasts 'unfollowed', not a false confirmation. */
     const now = await follows.toggle(slug);
     toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
@@ -227,7 +207,7 @@ export default function Societies() {
      found sends the member looking for a row that is not new. */
   const addSociety = async () => {
     if (!isIn) { sendToSignIn('community'); return; }
-    if (!catalogueReady) return;
+    if (!canCreate) return;
     setBusy(true);
     let out;
     try {
@@ -243,8 +223,6 @@ export default function Societies() {
     toast(out.created ? t('societies.addedToast') : t('societies.alreadyListedToast'), 'success');
     nav('/society/' + out.society.slug);
   };
-
-  const visible = results.slice(0, limit);
 
   return (
     <div ref={rootRef} className="soc-page">
@@ -303,7 +281,7 @@ export default function Societies() {
         {/* Count + add-society funnel */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4 reveal">
           <p className="text-sm text-gray-400">
-            <span className="font-semibold text-white">{results.length}</span> {results.length === 1 ? t('societies.countOne') : t('societies.countOther')}{loc ? ` ${t('societies.inLocality', { locality: titleCase(loc) })}` : ''}
+            <span className="font-semibold text-white">{feed.total}</span> {feed.total === 1 ? t('societies.countOne') : t('societies.countOther')}{loc ? ` ${t('societies.inLocality', { locality: titleCase(loc) })}` : ''}
           </p>
         </div>
 
@@ -323,21 +301,15 @@ export default function Societies() {
           </button>
         ) : null}
 
-        {/* Grid.
-
-            Three branches, not two. "No societies match your filters" is a claim about the
-            catalogue, and it is false in both of the states this page passes through before it has
-            one: while the read is in flight, and after it has failed. It used to be unreachable
-            because `allSocieties()` answered synchronously out of the bundle; now that the rows
-            come from the seam, printing it would tell a reader their filters were too narrow when
-            the truth is we have not looked yet, or could not. */}
-        {catalogueLoading ? (
+        {/* Loading and failed are not "no match": printing that would blame the reader's filters for a read
+            not yet made or not completed. */}
+        {!cards.length && !failed && !fresh ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy="true">
             {Array.from({ length: 6 }, (_, i) => (
               <div key={i} className="glass h-40 animate-pulse rounded-2xl" />
             ))}
           </div>
-        ) : catalogueFailed ? (
+        ) : failed ? (
           <div className="glass rounded-2xl px-6 py-14 text-center reveal">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
               <Icon name="wifi-off" className="h-6 w-6 text-amber-400" />
@@ -346,17 +318,17 @@ export default function Societies() {
             <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{t('societies.unavailableSub')}</p>
             <button type="button" onClick={() => window.location.reload()} className="btn-outline mt-4">{t('societies.retry')}</button>
           </div>
-        ) : results.length ? (
+        ) : cards.length ? (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {visible.map((s) => (
-                <SocietyCard key={s.slug} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy={loading}>
+              {cards.map((s) => (
+                <SocietyCard key={s.slug} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} />
               ))}
             </div>
-            {results.length > limit ? (
+            {feed.rows.length < feed.total ? (
               <div className="flex justify-center mt-8">
-                <button type="button" onClick={() => setLimit((n) => n + 24)} className="btn-outline">
-                  {t('societies.showMore')} <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
+                <button type="button" onClick={showMore} disabled={more === 'busy' || loading} className="btn-outline !h-11 px-5 disabled:opacity-60">
+                  {more === 'failed' ? t('societies.retry') : t('societies.showMore')} <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
                 </button>
               </div>
             ) : null}

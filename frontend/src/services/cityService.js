@@ -1,10 +1,10 @@
 import { createProvider } from './config.js';
 
-// `lib/geoConfig.js` composes one map policy from `GET /geo` and `GET /cities` — changing what
+// `lib/geoConfig.js` composes one map policy from `GET /bootstrap` (`geo`) and `GET /bootstrap` (`cities`) — changing what
 // this returns moves that policy.
 const provider = createProvider('city');
 
-/** The curated city roster shoppers can pick from (`GET /cities`). */
+/** The curated city roster shoppers can pick from (`GET /bootstrap` (`cities`)). */
 export const listCities = async () => (await provider()).listCities();
 
 /** Flip one curated city's launch state from the back office (`PATCH /admin/cities/{slug}`). */

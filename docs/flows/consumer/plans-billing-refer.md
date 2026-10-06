@@ -51,7 +51,7 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 ## 5. Business rules & logic  *(the meat)*
 
 ### Plan catalog (`Plans.jsx`)
-The cards read the live `/plans` catalogue; `fee()` remains only as the fallback when it has not
+The cards read the live plan catalogue (`GET /bootstrap`, `plans`); `fee()` remains only as the fallback when it has not
 resolved, which is why the two tables must agree and are pinned together by
 `PlanPriceMatchesFeeScheduleTest`:
 - **Seeker:** `seeker-free` (Rs 0) and `seeker-plus` (Rs 199/mo; "Unlock 15 owner contacts",
@@ -77,8 +77,8 @@ resolved, which is why the two tables must agree and are pinned together by
 - **Listing quota (server-side since D234).** The plan's cap lives in `plans.listing_limit`
   (`free`/`owner-free` = 1, `owner2` = 2, `owner5` = 5) and the referral bonus is derived from
   qualified referrals; `GET /me/entitlements` returns their sum as `listings.allowance`, alongside
-  the `listings.referralBonus` already contained in it. The count measured against it is
-  `GET /me/listings` filtered to the statuses that occupy a slot — pending, approved, flagged, sold,
+  the `listings.referralBonus` already contained in it, and `listings.used` — the same count
+  `POST /me/listings` refuses on: listings in the statuses that occupy a slot — pending, approved, flagged, sold,
   rented. **Rejected does not count**: a listing moderation refused is not occupying anything the
   owner can use, and charging a slot for it would let a moderator permanently spend a free-tier
   owner's whole allowance. Flatmate posts never consume quota, and editing an existing listing never

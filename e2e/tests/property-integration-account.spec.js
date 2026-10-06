@@ -295,13 +295,12 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
 
     await page.goto('/dashboard');
     await expect
-      .poll(() => calls.filter((c) => / GET \/api\/(me\/saved|me\/saved-searches|visits|me\/visit-requests)$/.test(c)),
+      .poll(() => calls.filter((c) => / GET \/api\/(me\/saved|me\/saved-searches|me\/dashboard)$/.test(c)),
         { timeout: 30000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
       .toEqual(expect.arrayContaining([
         '200 GET /api/me/saved',
         '200 GET /api/me/saved-searches',
-        '200 GET /api/visits',
-        '200 GET /api/me/visit-requests',
+        '200 GET /api/me/dashboard',
       ]));
 
     // Open the visits tab because it mounts the rescheduling control.
@@ -394,19 +393,19 @@ test.describe('LIVE: deals, offers and finalization against the real API', () =>
     expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  test('the owner dashboard reads its deal book from /me/deals, in one request not one per card', async ({ page }) => {
+  test('the owner dashboard reads its deal book through /me/dashboard, in one request not one per card', async ({ page }) => {
     await signedInAs(page, OWNER.mobile);
     const calls = [];
     watchApiCalls(page, calls);
 
     await page.goto('/dashboard#listings');
     await expect
-      .poll(() => calls.filter((c) => / GET \/api\/me\/deals$/.test(c)).length,
+      .poll(() => calls.filter((c) => / GET \/api\/me\/dashboard$/.test(c)).length,
         { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
       .toBeGreaterThan(0);
 
     const dealReads = calls.filter((c) => /GET \/api\/me\/deals$/.test(c)).length;
-    expect(dealReads, `one read should serve every card, saw ${dealReads}`).toBeLessThanOrEqual(2);
+    expect(dealReads, `the dashboard read should serve every card, saw ${dealReads}`).toBe(0);
 
     expect(calls.filter((c) => /GET \/api\/me\/deals\/[0-9a-f-]{36}$/.test(c))).toEqual([]);
   });
@@ -482,7 +481,7 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
     expect(revived, `the coming-soon page called a withdrawn endpoint: ${revived.join(' | ')}`).toEqual([]);
   });
 
-  test('the owner Finances tab reads summary, cashflow and dues from the server, not from the page it holds', async ({ page }) => {
+  test('the owner Finances tab reads summary, overview (basis, dues, cashflow) and transactions from the server, not from the page it holds', async ({ page }) => {
     await signedInAs(page, OWNER.mobile);
     const calls = [];
     watchApiCalls(page, calls);
@@ -499,12 +498,17 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
         { timeout: 20000 })
       .toBeGreaterThan(0);
 
-    for (const endpoint of ['cashflow', 'dues', 'transactions']) {
+    for (const endpoint of ['overview', 'transactions']) {
       expect(
         calls.filter((c) => new RegExp(`GET /api/me/finances/.*/${endpoint}`).test(c)).length,
         `${endpoint} should be served by the API; calls seen: ${calls.join(' | ')}`,
       ).toBeGreaterThan(0);
     }
+
+    const retired = calls.filter((c) => /GET \/api\/me\/finances\/[^/]+\/(basis|cashflow|dues)/.test(c));
+    expect(retired, `basis, cashflow and dues now ride on /overview; saw ${retired.join(' | ')}`).toEqual([]);
+    const overviewReads = calls.filter((c) => /GET \/api\/me\/finances\/[^/]+\/overview/.test(c)).length;
+    expect(overviewReads, `one overview read should serve the tab, saw ${overviewReads}`).toBeLessThanOrEqual(2);
 
     const summaryReads = calls.filter((c) => /GET \/api\/me\/finances\/.*\/summary$/.test(c)).length;
     expect(summaryReads, `one summary read should serve the tab, saw ${summaryReads}`).toBeLessThanOrEqual(3);

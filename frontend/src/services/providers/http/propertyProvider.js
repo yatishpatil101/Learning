@@ -1,6 +1,6 @@
 /** Shape translation lives in `propertyMapper.js`; what the server does not yet cover is named at each call site
  * rather than silently no-oped. */
-import { del, get, patch, post } from '../../http.js';
+import { PAGE_LOAD_TTL, del, get, patch, post } from '../../http.js';
 import {
   toEditForm,
   toListingCreate,
@@ -11,6 +11,7 @@ import {
   toViewModelList,
   unsupportedFilters,
 } from './propertyMapper.js';
+import { bootstrapSection } from './bootstrap.js';
 
 /** **100 because that is the server's ceiling** (`spring.data.web.pageable.max-page-size`). Anything larger here
  * mutes `warnIfTruncated`, which is the guard that makes the ceiling audible. */
@@ -86,12 +87,12 @@ export async function featuredProperties(limit = 6) {
 
 /** The three trust numbers, counted by the database over the whole live catalogue. No client-side arithmetic and no
  * fallback: a genuine failure should surface, not be papered over with a number. */
-export async function trustStats(localitySlug) {
-  return get('/properties/trust-stats', localitySlug ? { locality: localitySlug } : null, { auth: false });
+export async function trustStats() {
+  return bootstrapSection('trustStats');
 }
 
 export async function propertyCounts() {
-  return get('/properties/counts', null, { auth: false });
+  return bootstrapSection('counts');
 }
 
 export async function ownerProfile(id) {
@@ -124,9 +125,18 @@ export async function getPropertiesByIds(ids = []) {
   return found.filter(Boolean);
 }
 
+/** Cards for up to 16 slugs or UUIDs in one search, in the order asked; ids not publicly live drop out. */
+export async function listPropertiesByIds(ids = []) {
+  const wanted = ids.slice(0, 16);
+  if (!wanted.length) return [];
+  const rows = toViewModelList(await get('/properties', { ids: wanted, size: wanted.length }, { auth: false }));
+  const byId = new Map(rows.flatMap((p) => [[p.id, p], [p.uuid, p]]));
+  return wanted.map((id) => byId.get(id)).filter(Boolean);
+}
+
 /** The `user` argument is ignored: ownership is the access token's, never the caller's to name. */
 export async function myListings() {
-  const page = await get('/me/listings', { size: PAGE_SIZE });
+  const page = await get('/me/listings', { size: PAGE_SIZE }, { ttl: PAGE_LOAD_TTL });
   warnIfTruncated(page);
   return toViewModelList(page);
 }

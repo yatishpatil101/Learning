@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 @DisplayName("Property counts — public category aggregates")
-class PropertyCountsControllerTest extends AbstractApiTest {
+class PropertyCountsTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
@@ -60,10 +60,10 @@ class PropertyCountsControllerTest extends AbstractApiTest {
     }
 
     private PropertyCountsResponse counts() throws Exception {
-        String json = mvc.perform(get("/properties/counts"))
+        String json = mvc.perform(get("/bootstrap"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readValue(json, PropertyCountsResponse.class);
+        return objectMapper.treeToValue(objectMapper.readTree(json).path("counts"), PropertyCountsResponse.class);
     }
 
     private long searchTotal(String deal, String type) throws Exception {

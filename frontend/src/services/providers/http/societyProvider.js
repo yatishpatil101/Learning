@@ -1,14 +1,8 @@
-// `GET /societies` carries `avgRating`/`reviewCount` per row, so the whole directory's ratings
-// cost one walk of this endpoint.
-import { del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
+// `GET /societies` carries `avgRating`/`reviewCount`/`listingCount` per row, so a directory page
+// needs no second read for its ratings or home counts.
+import { ApiError, del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toRatingIndex, toSociety } from './societyMapper.js';
-
-/** The server's hard ceiling (`spring.data.web.pageable.max-page-size`); asking for more is clamped. */
-const PAGE_SIZE = 100;
-
-/** 20 × 100 = 2,000 societies. The seeded catalogue is 348. */
-const MAX_PAGES = 20;
 
 // The badge half of "strongest" is not a sortable column, so the server can only narrow the
 // population. Pinned to the page ceiling, not a second literal.
@@ -18,33 +12,24 @@ const LISTED_CANDIDATES = MAX_PAGE_SIZE;
 // shorter list but societies the directory draws as unfollowed.
 const FOLLOW_PAGE_SIZE = 500;
 
-// Rows plus a separate slug-keyed rating index, so unrated `null` stays distinct from zero.
-// Warns when MAX_PAGES caps the walk, because silent truncation resembles a filter failure.
-export async function listSocietyCatalogue() {
-  const first = await get('/societies', { page: 0, size: PAGE_SIZE });
-  const reported = Number(first?.totalPages) || 1;
-  const pages = Math.min(reported, MAX_PAGES);
-  if (reported > MAX_PAGES) {
-    console.warn(
-      `[society] GET /societies reports ${reported} pages; reading the first ${MAX_PAGES}. `
-      + 'Societies past that are absent from the directory and render as unrated.',
-    );
-  }
-
-  const rest = await Promise.all(
-    Array.from({ length: pages - 1 }, (_, i) => get('/societies', { page: i + 1, size: PAGE_SIZE })),
-  );
-
-  const rows = [];
-  const ratings = {};
-  for (const res of [first, ...rest]) {
-    for (const row of Array.isArray(res?.content) ? res.content : []) {
-      const soc = toSociety(row);
-      if (soc) rows.push(soc);
-    }
-    Object.assign(ratings, toRatingIndex(res?.content));
-  }
-  return { rows, ratings };
+// `sort` and `verified` are applied server-side; ratings are slug-keyed so an unrated `null` is not zero.
+export async function listSocietiesPage({
+  q = '', locality = '', sort = 'relevance', verified = false, page = 0, size = 24,
+} = {}) {
+  const res = await get('/societies', {
+    q: q || undefined,
+    locality: locality || undefined,
+    sort,
+    verified: verified || undefined,
+    page,
+    size,
+  });
+  const content = Array.isArray(res?.content) ? res.content : [];
+  return {
+    rows: content.map(toSociety).filter(Boolean),
+    ratings: toRatingIndex(content),
+    total: Number(res?.totalElements) || 0,
+  };
 }
 
 // Each row carries `listingCount`. Ratings are omitted because the rail does not render them.
@@ -152,10 +137,34 @@ const RESIDENT_PAGE_SIZE = 500;
 
 const societyPath = (slug, suffix) => `/societies/${encodeURIComponent(slug)}${suffix}`;
 
+// The hub renders questions and the board in full — there is no "load more" — so a short read is a
+// question nobody answers. `unwrapFullPage` flags a society that outgrows this.
+const COMMUNITY_PAGE_SIZE = 200;
+
+// The five reads share one server response, so identical queries share one request;
+// the short `ttl` lets staggered reads land on it, and any write clears it.
+function readHub(slug, extra) {
+  return get(
+    societyPath(slug, '/hub'),
+    { page: 0, size: COMMUNITY_PAGE_SIZE, ...extra },
+    { ttl: 3_000 },
+  );
+}
+
+// A null section is one the server could not read, which the five old endpoints each reported as
+// their own failure; callers isolate failures per section, so it is thrown rather than returned.
+async function hubSection(slug, name, extra) {
+  const section = (await readHub(slug, extra))?.[name];
+  if (section == null) {
+    throw new ApiError({ code: 'SOCIETY_SECTION_UNAVAILABLE', status: 500, message: `Society ${name} could not be read.` });
+  }
+  return section;
+}
+
 // Public and caller-aware, so the hub renders the "claim this society" invitation on first paint
 // without waiting on a sign-in check.
 export async function getSocietyMembership(slug) {
-  return get(societyPath(slug, '/membership'));
+  return hubSection(slug, 'membership');
 }
 
 // The server amends the standing request rather than queueing a second, so calling twice leaves
@@ -184,14 +193,9 @@ export async function claimSociety(slug, body) {
   return post(societyPath(slug, '/claim'), body);
 }
 
-// The hub renders questions and the board in full — there is no "load more" — so a short read is a
-// question nobody answers. `unwrapFullPage` flags a society that outgrows this.
-const COMMUNITY_PAGE_SIZE = 200;
-
 // Public, because the person with the most to ask about a building has not moved into it yet.
 export async function listSocietyQuestions(slug) {
-  const res = await get(societyPath(slug, '/questions'), { page: 0, size: COMMUNITY_PAGE_SIZE });
-  return unwrapFullPage(res, 'society questions');
+  return unwrapFullPage(await hubSection(slug, 'questions'), 'society questions');
 }
 
 /** Any signed-in caller; 401 otherwise. */
@@ -207,12 +211,7 @@ export async function answerSocietyQuestion(slug, questionId, body) {
 // `kind` narrows to one; the hub omits it and draws both columns from one read rather than paying
 // two round trips.
 export async function listSocietyBoard(slug, { kind } = {}) {
-  const res = await get(societyPath(slug, '/board'), {
-    page: 0,
-    size: COMMUNITY_PAGE_SIZE,
-    ...(kind ? { kind } : {}),
-  });
-  return unwrapFullPage(res, 'society board');
+  return unwrapFullPage(await hubSection(slug, 'board', kind ? { kind } : undefined), 'society board');
 }
 
 // A 403 means the caller has not verified a flat here — the rule, not an error to retry.
@@ -228,11 +227,7 @@ export async function removeBoardItem(slug, itemId) {
 // Deliberately unfiltered: the chips count every kind, so a filtered read could not draw the page
 // and two fetches could disagree. Public — a recommended person's phone is the withheld field.
 export async function listSocietyContributions(slug) {
-  const res = await get(societyPath(slug, '/contributions'), {
-    page: 0,
-    size: COMMUNITY_PAGE_SIZE,
-  });
-  return unwrapFullPage(res, 'society contributions');
+  return unwrapFullPage(await hubSection(slug, 'contributions'), 'society contributions');
 }
 
 // `photoUrl` must already be a URL — upload through `POST /me/photos` first, or the photo is
@@ -273,7 +268,7 @@ export async function removeContributionReply(slug, contributionId, replyId) {
 // One read, so the page cannot render half a state. `whatsappJoinUrl` is null without a verified
 // flat here; `whatsappAvailable` is not.
 export async function getSocietyProposals(slug) {
-  return get(societyPath(slug, '/proposals'));
+  return hubSection(slug, 'proposals');
 }
 
 // One endpoint for detail, WhatsApp-link and map-pin proposals — one lifecycle wearing three names.

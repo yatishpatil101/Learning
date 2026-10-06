@@ -73,6 +73,11 @@ public class FlatmateSearchQueries {
                 ((Number) rows.getFirst()[3]).longValue());
     }
 
+    public long total(FlatmateSearchQuery facets) {
+        Map<String, Object> params = new HashMap<>();
+        return countOnly(matchesCte(facets, params), params).total();
+    }
+
     private Result countOnly(String matches, Map<String, Object> params) {
         Query count = em.createNativeQuery(matches + """
                 select count(*), coalesce(sum(case when verified then 1 else 0 end), 0)

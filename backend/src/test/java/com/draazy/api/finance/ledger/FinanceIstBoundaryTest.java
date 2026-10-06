@@ -22,32 +22,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.AopTestUtils;
 
-/**
- * The finance aggregates bucket by the Indian calendar, not by the host's — tech debt D174.
- *
- * <p><strong>The bug this pins.</strong> {@code FinanceService} used to read bare
- * {@code LocalDate.now()} and {@code YearMonth.now()}, which resolve against
- * {@code TimeZone.getDefault()}. On a UTC host the JVM is still on <em>yesterday's</em> date for the
- * first 5.5 hours of every Indian day, so between 00:00 and 05:29 IST:
- * <ul>
- *   <li>1 April — the first day of the Indian financial year — was answered as 31 March, and
- *       {@code period=year} returned the whole of the FY that had just <em>ended</em>;</li>
- *   <li>the 1st of any month was answered as the last day of the previous one, so
- *       {@code period=month} and the {@code /cashflow} series were both a month behind;</li>
- *   <li>{@code /dues} reported one extra day until everything.</li>
- * </ul>
- * An owner opening the Finances tab over morning chai would be shown last year's books, and would
- * be shown this year's if they refreshed after 05:30. That is the worst kind of wrong number: one
- * that corrects itself before anyone can reproduce it.
- *
- * <p><strong>Why the pinned clock is deliberately UTC-zoned.</strong> {@link Clock#fixed} carries a
- * zone of its own, and pinning it to {@code Asia/Kolkata} would prove only that this test knows
- * about IST. Pinning it to {@link ZoneOffset#UTC} reproduces the exact host configuration that
- * causes the bug, so every IST answer asserted below is one the <em>service</em> chose.
- *
- * <p>The instant is 2026-03-31T20:00:00Z, which is 01:30 on 1 April 2026 in India: simultaneously
- * the previous financial year, the previous month and the previous day to a UTC host.
- */
+/** The finance aggregates bucket by the Indian calendar, not the host's: the clock is pinned in UTC (01:30 IST on
+ * 1 April) to reproduce the host config that put them a day, month or financial year behind. */
 class FinanceIstBoundaryTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
@@ -66,20 +42,13 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
     private static final long NEW_FY_INCOME = 500_000L;
     private static final long LAST_FY_INCOME = 700_000L;
 
-    /**
-     * Restore the system clock. The service is an application-scoped singleton, so a pinned clock
-     * left behind would follow every later test in this JVM into 2026.
-     */
+    /** The service is a singleton, so a pinned clock left behind would follow every later test in this JVM. */
     @AfterEach
     void unpinClock() {
         target().useClock(null);
     }
 
-    /**
-     * The bean behind the {@code @Transactional} proxy. Writing the field through the proxy would
-     * set it on the CGLIB subclass and leave the target — the object whose methods actually run —
-     * on the system clock, so the test would pass for the wrong reason.
-     */
+    /** The bean behind the proxy: a field set on the CGLIB subclass leaves the real target on the system clock. */
     private FinanceService target() {
         return AopTestUtils.getTargetObject(financeService);
     }
@@ -107,11 +76,7 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    /**
-     * Post one income row. Written before the clock is pinned in every test below, because
-     * {@code addTransaction} takes the date from the request body and never reads the clock — the
-     * seed must not depend on the thing under test.
-     */
+    /** Posted before the clock is pinned: {@code addTransaction} takes the date from the body, not the clock. */
     private void income(User owner, Property p, long amount, LocalDate date) throws Exception {
         mvc.perform(post("/me/finances/" + p.getId() + "/transactions")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
@@ -131,14 +96,7 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
 
     // ---- 1: the financial year boundary ----
 
-    /**
-     * {@code period=year} starts on 1 April, and at 01:30 IST on 1 April that is <em>today</em>.
-     *
-     * <p>The discriminating number is {@link #LAST_FY_INCOME}. On the system default of a UTC host
-     * the service would read 31 March, {@code SummaryPeriods.startOf} would answer 1 April
-     * <em>2025</em>, and this window would return both rows — the whole of the financial year that
-     * had ended ninety minutes earlier, presented to the owner as "this year".
-     */
+    /** {@code period=year} starts 1 April (today, 01:30 IST); a UTC host would read 31 March, adding last FY. */
     @Test
     void summaryPeriodYear_startsOnTheIndianFyBoundary_notTheHostsPreviousDay() throws Exception {
         User owner = owner("9833100001");
@@ -160,10 +118,7 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
 
     // ---- 2: the calendar month boundary ----
 
-    /**
-     * {@code period=month} starts on the 1st of the Indian month. A UTC host would read 31 March
-     * and open the window on 1 March, pulling the previous month's row into "this month".
-     */
+    /** {@code period=month} must start on the 1st of the Indian month; a UTC host would open it on 1 March. */
     @Test
     void summaryPeriodMonth_startsOnTheIndianMonth_notTheHostsPreviousOne() throws Exception {
         User owner = owner("9833100002");
@@ -177,14 +132,7 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.income").value(NEW_FY_INCOME));
     }
 
-    /**
-     * The cashflow series ends with the Indian month, and says so in the label.
-     *
-     * <p>{@code months=1} reduces the series to the single bucket the bug moves: IST answers
-     * {@code 2026-04} carrying April's row, a UTC host answers {@code 2026-03} carrying March's.
-     * The month string is asserted as well as the total because the label is what the chart's axis
-     * shows — a series that is a month out but internally consistent still misleads.
-     */
+    /** {@code months=1} isolates the bucket the bug moves; the label is asserted too since the axis shows it. */
     @Test
     void cashflow_endsWithTheIndianMonth_notTheHostsPreviousOne() throws Exception {
         User owner = owner("9833100003");
@@ -192,24 +140,17 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
 
         pinToIstNewFinancialYear();
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/cashflow?months=1")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview?months=1")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].month").value("2026-04"))
-                .andExpect(jsonPath("$[0].income").value(NEW_FY_INCOME));
+                .andExpect(jsonPath("$.cashflow.length()").value(1))
+                .andExpect(jsonPath("$.cashflow[0].month").value("2026-04"))
+                .andExpect(jsonPath("$.cashflow[0].income").value(NEW_FY_INCOME));
     }
 
     // ---- 3: dues count days from the Indian date ----
 
-    /**
-     * A monthly row anchored on the 1st is due <em>today</em> at 01:30 IST on 1 April, not
-     * tomorrow.
-     *
-     * <p>{@code daysUntil} is the number the UI turns into "due today" or a red badge. Reading the
-     * host's 31 March would answer 1, and an owner whose EMI is debited that morning would be told
-     * it had not fallen due yet.
-     */
+    /** A row anchored on the 1st is due today, not tomorrow; a UTC host would answer {@code daysUntil} 1. */
     @Test
     void dues_countDaysFromTheIndianDate_notTheHostsPreviousDay() throws Exception {
         User owner = owner("9833100004");
@@ -225,11 +166,11 @@ class FinanceIstBoundaryTest extends AbstractApiTest {
 
         pinToIstNewFinancialYear();
 
-        mvc.perform(get("/me/finances/" + p.getId() + "/dues")
+        mvc.perform(get("/me/finances/" + p.getId() + "/overview")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].nextDue").value(FIRST_OF_NEW_FY.toString()))
-                .andExpect(jsonPath("$[0].daysUntil").value(0));
+                .andExpect(jsonPath("$.dues.length()").value(1))
+                .andExpect(jsonPath("$.dues[0].nextDue").value(FIRST_OF_NEW_FY.toString()))
+                .andExpect(jsonPath("$.dues[0].daysUntil").value(0));
     }
 }

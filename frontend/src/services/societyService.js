@@ -1,7 +1,4 @@
-/**
- * Society Service — society rows, the rating aggregate a card renders, and the caller's follows.
- * Slug-not-id joins, the null-vs-zero rating rule, follows: docs/flows/consumer/societies.md
- */
+/** Slug-not-id joins, null-vs-zero rating rule and follows: docs/flows/consumer/societies.md */
 import { createProvider } from './config.js';
 import { isBlacklisted } from '../lib/geoConfig.js';
 // The one place the "locality label to slug" rule is written; a fourth copy of a slug rule is how a
@@ -26,24 +23,15 @@ export const searchSocieties = async (query, localityLabel = '') => {
     .slice(0, 20);
 };
 
-/**
- * One page of the society directory for the back office. `total` counts the whole filtered set,
- * not this page — the console's "Societies" tile reads it.
- */
+/** `total` counts the whole filtered set, not this page; the console's "Societies" tile reads it. */
 export const listSocietyDirectory = async (opts) => (await provider()).listSocietyDirectory(opts);
 
-/**
- * One society, addressed by slug. `null` means "no such society" and only that; every other failure
- * throws, because "does not exist" and "could not reach the server" are different claims.
- */
+/** `null` means only "no such society"; other failures throw, since "missing" and "unreachable" differ. */
 export const getSociety = async (slug) => (await provider()).getSociety(slug);
 
 
-/**
- * Directory rows plus a separate slug-keyed rating index, so unrated `null` stays distinct from
- * zero.
- */
-export const listSocietyCatalogue = async () => (await provider()).listSocietyCatalogue();
+/** Ratings are a slug-keyed index so an unrated `null` stays distinct from zero. */
+export const listSocietiesPage = async (opts) => (await provider()).listSocietiesPage(opts);
 
 /**
  * Listing-bearing societies for the strongest-first rail; rows carry the server's `listingCount`.
@@ -54,16 +42,10 @@ export const listSocietiesWithListings = async () => (await provider()).listSoci
 /** The slugs of the societies the caller follows, newest first. Empty when signed out. */
 export const listFollowedSocieties = async () => (await provider()).listFollowedSocieties();
 
-/**
- * The same follows as whole rows, for callers that have to *draw* the list rather than test
- * membership. A slug this reader cannot resolve is absent rather than a stub, so `length` may differ.
- */
+/** A slug this reader cannot resolve is absent rather than a stub, so `length` may differ from the follow list. */
 export const listFollowedSocietyRows = async () => (await provider()).listFollowedSocietyRows();
 
-/**
- * Follow one society. Idempotent. Throws 404 for a society minted only in this browser, which is
- * why `FollowContext` keeps those follows local.
- */
+/** Throws 404 for a society minted only in this browser, which is why `FollowContext` keeps those local. */
 export const followSociety = async (slug) => (await provider()).followSociety(slug);
 
 /** Unfollow one society. Idempotent: unfollowing one not followed is not an error. */
@@ -280,10 +262,7 @@ export const mergeSocieties = async (from, into) => (await provider()).mergeSoci
  */
 export const undoSocietyMerge = async (slug) => (await provider()).undoSocietyMerge(slug);
 
-/**
- * One society as the back-office editor needs it. Its reason for existing is `adminNote`, kept off
- * the public payload because it is moderator prose about a named building.
- */
+/** `adminNote` is kept off the public payload because it is moderator prose about a named building. */
 export const getSocietyAdminView = async (slug) => (await provider()).getSocietyAdminView(slug);
 
 /**

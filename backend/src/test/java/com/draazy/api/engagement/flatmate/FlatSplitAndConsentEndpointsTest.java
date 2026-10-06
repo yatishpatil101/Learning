@@ -263,9 +263,7 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
             User owner = user(mobile, "Optimist");
             Property flat = listing(owner, PropertyStatus.APPROVED, 2);
 
-            // Lettable rooms = bedrooms + hall, so a 2 BHK tops out at three; the flat cap sits
-            // between one and three people per room. 422 rather than 400: the contract declares
-            // only 403/409/422 for this operation.
+            // Lettable rooms = bedrooms + hall; 422 not 400 because the contract declares only 403/409/422 here.
             mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
@@ -369,16 +367,18 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
             User tenant = user("9830000022", "Tenant2", Roles.Wire.BUYER);
             String groupId = createGroup(tenant);
 
-            mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
+            mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                             .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"ownerMobile\":\"9830000023\"}"))
+                            .content("{\"ownerMobile\":\"9830000023\",\"title\":\"Replacement flatmate\","
+                                    + "\"locality\":\"Baner\"}"))
                     .andExpect(status().isOk());
 
-            mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
+            mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                             .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"ownerMobile\":\"9830000023\",\"otp\":\"000000\"}"))
+                            .content("{\"ownerMobile\":\"9830000023\",\"otp\":\"000000\","
+                                    + "\"title\":\"Replacement flatmate\",\"locality\":\"Baner\"}"))
                     .andExpect(status().isUnauthorized());
 
             Boolean consented = jdbc.queryForObject(
@@ -387,19 +387,6 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
             assertThat(consented).isFalse();
         }
 
-        @Test
-        @DisplayName("only the group's host may request consent for it")
-        void hostScoped() throws Exception {
-            User tenant = user("9830000025", "Host", Roles.Wire.BUYER);
-            User other = user("9830000026", "Meddler", Roles.Wire.BUYER);
-            String groupId = createGroup(tenant);
-
-            mvc.perform(post(Routes.Flatmates.GROUP_OWNER_CONSENT, groupId)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(other))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"ownerMobile\":\"9830000027\"}"))
-                    .andExpect(status().isForbidden());
-        }
 
         private String createGroup(User host) throws Exception {
             String json = mvc.perform(post(Routes.Flatmates.GROUPS)

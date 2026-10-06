@@ -8,7 +8,6 @@ import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -24,15 +23,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The owner's property finance ledger at {@code /me/finances/{propId}} — transactions, ownership
- * basis, and the three aggregates derived from them.
- *
- * <p>No {@code @PreAuthorize} role guard: the spec carries no {@code x-roles} on any of these
- * operations, and inventing one would restrict a surface the contract says every authenticated
- * owner may use. Authentication plus strict owner-scoping in {@link FinanceService} is the gate,
- * and a caller who is not the owner gets 404 rather than 403.
- */
+/** No {@code @PreAuthorize}: the spec has no {@code x-roles} here,
+ * so strict owner-scoping in {@link FinanceService} is the gate (404, not 403). */
 @RestController
 public class MeFinancesController {
 
@@ -42,12 +34,7 @@ public class MeFinancesController {
         this.financeService = financeService;
     }
 
-    /**
-     * {@code GET /me/finances/{propId}/transactions} (contract {@code listTransactions}).
-     *
-     * <p>Sort stripped via {@link Pageables#unsorted(Pageable)}: the contract offers no
-     * {@code sort} here and the query fixes its own order (newest first).
-     */
+    /** Sort stripped via {@link Pageables#unsorted(Pageable)}: the contract offers no {@code sort}. */
     @GetMapping(Routes.Finances.TRANSACTIONS)
     public PageResponse<TransactionDto> listTransactions(@CurrentUser AuthPrincipal principal,
                                                  @PathVariable("propId") String propId,
@@ -67,10 +54,6 @@ public class MeFinancesController {
         return financeService.addTransaction(principal.userId(), parseUuid(propId), body);
     }
 
-    /**
-     * {@code PATCH /me/finances/{propId}/transactions/{txnId}} (contract
-     * {@code updateTransaction}) — a genuine partial update; absent fields are left alone.
-     */
     @PatchMapping(Routes.Finances.TRANSACTION_BY_ID)
     public TransactionDto updateTransaction(@CurrentUser AuthPrincipal principal,
                                             @PathVariable("propId") String propId,
@@ -80,10 +63,6 @@ public class MeFinancesController {
                 principal.userId(), parseUuid(propId), parseTxnUuid(txnId), body);
     }
 
-    /**
-     * {@code DELETE /me/finances/{propId}/transactions/{txnId}} (contract
-     * {@code deleteTransaction}) — soft-deletes the row. Returns 204.
-     */
     @DeleteMapping(Routes.Finances.TRANSACTION_BY_ID)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteTransaction(@CurrentUser AuthPrincipal principal,
@@ -91,13 +70,6 @@ public class MeFinancesController {
                                   @PathVariable("txnId") String txnId) {
         financeService.deleteTransaction(
                 principal.userId(), parseUuid(propId), parseTxnUuid(txnId));
-    }
-
-    /** {@code GET /me/finances/{propId}/basis} (contract {@code getBasis}). */
-    @GetMapping(Routes.Finances.BASIS)
-    public OwnershipBasisDto getBasis(@CurrentUser AuthPrincipal principal,
-                                      @PathVariable("propId") String propId) {
-        return financeService.getBasis(principal.userId(), parseUuid(propId));
     }
 
     /** {@code PUT /me/finances/{propId}/basis} (contract {@code setBasis}) — upsert. */
@@ -117,27 +89,16 @@ public class MeFinancesController {
         return financeService.summary(principal.userId(), parseUuid(propId), period);
     }
 
-    /** {@code GET /me/finances/{propId}/cashflow} (contract {@code financeCashflow}). */
-    @GetMapping(Routes.Finances.CASHFLOW)
-    public List<CashflowPointDto> cashflow(@CurrentUser AuthPrincipal principal,
-                                           @PathVariable("propId") String propId,
-                                           @RequestParam(value = "months", required = false)
-                                           Integer months) {
-        return financeService.cashflow(principal.userId(), parseUuid(propId), months);
+    /** {@code months} sizes the cashflow series (default 12). */
+    @GetMapping(Routes.Finances.OVERVIEW)
+    public FinanceOverviewDto overview(@CurrentUser AuthPrincipal principal,
+                                       @PathVariable("propId") String propId,
+                                       @RequestParam(value = "months", required = false)
+                                       Integer months) {
+        return financeService.overview(principal.userId(), parseUuid(propId), months);
     }
 
-    /** {@code GET /me/finances/{propId}/dues} (contract {@code financeDues}). */
-    @GetMapping(Routes.Finances.DUES)
-    public List<DueDto> dues(@CurrentUser AuthPrincipal principal,
-                             @PathVariable("propId") String propId) {
-        return financeService.dues(principal.userId(), parseUuid(propId));
-    }
-
-    /**
-     * A malformed property id is 404, not 400. The caller asked for a property that cannot exist,
-     * and answering "your id is the wrong shape" versus "no such property" tells a prober which
-     * ids are worth trying.
-     */
+    /** A malformed property id is 404, not 400, as telling the shape from absence would show a prober which ids are worth trying. */
     private static UUID parseUuid(String token) {
         return Ids.parseUuid(token).orElseThrow(() -> NotFoundException.of("Property"));
     }

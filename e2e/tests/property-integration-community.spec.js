@@ -178,7 +178,7 @@ test.describe('LIVE: reviews against the real API', () => {
 
   });
 
-  test('the property review list and its summary are both served by the live API', async ({ page, request }) => {
+  test('the property review list and its summary arrive in one live API response', async ({ page, request }) => {
     const slug = await seedPropertyReview(page, request);
 
     const calls = [];
@@ -189,7 +189,6 @@ test.describe('LIVE: reviews against the real API', () => {
       { timeout: 25_000 },
     ).catch(() => null);
     const listArrived = arrival(path);
-    const summaryArrived = arrival(`${path}/summary`);
 
     // Navigate by slug and open amenities because it mounts the reviews fixture.
     await page.goto(`/property/${slug}?tab=amenities`);
@@ -198,15 +197,10 @@ test.describe('LIVE: reviews against the real API', () => {
     expect(listRes, `no GET ${path} — the page asked for: ${calls.join(' | ') || 'nothing'}`).not.toBeNull();
     expect(listRes.status(), `GET ${path}`).toBe(200);
 
-    const summaryRes = await summaryArrived;
-    expect(
-      summaryRes,
-      `no GET ${path}/summary — the page asked for: ${calls.join(' | ') || 'nothing'}`,
-    ).not.toBeNull();
-    expect(summaryRes.status(), `GET ${path}/summary`).toBe(200);
-
-    const rows = await listRes.json();
-    expect(Array.isArray(rows), `expected a bare array, got ${JSON.stringify(rows).slice(0, 200)}`).toBe(true);
+    const payload = await listRes.json();
+    expect(Array.isArray(payload.content), `expected a list envelope, got ${JSON.stringify(payload).slice(0, 200)}`).toBe(true);
+    expect(payload.summary, 'the list response carries the rating summary').toBeTruthy();
+    const rows = payload.content;
     const mine = rows.find((r) => r.author === CHATTER.name);
     expect(mine, `no review by ${CHATTER.name} in ${JSON.stringify(rows).slice(0, 400)}`).toBeTruthy();
     expect(mine.targetType).toBe('property');
@@ -220,7 +214,7 @@ test.describe('LIVE: reviews against the real API', () => {
     expect(mine.context).toBe('visit');
     await expect(section.getByText('Visited', { exact: true }).first()).toBeVisible();
 
-    const sum = await summaryRes.json();
+    const sum = payload.summary;
     expect(sum.reviewCount, 'the fixture should have left at least one published review').toBeGreaterThan(0);
 
     const aggregate = section.getByTestId('reviews-aggregate');
@@ -245,16 +239,26 @@ test.describe('LIVE: reviews against the real API', () => {
 
     await expect(section).not.toContainText(/no reviews yet/i);
     await expect(section.getByTestId('property-reviews-unavailable')).toHaveCount(0);
+
+    expect(
+      calls.filter((c) => c.includes('/reviews/summary')),
+      `the summary route no longer exists — the page asked for: ${calls.join(' | ')}`,
+    ).toEqual([]);
   });
 
-  test('a failed summary read leaves the reviews rendered and says the rating is unavailable', async ({ page, request }) => {
+  test('a list response without its summary leaves the reviews rendered and says the rating is unavailable', async ({ page, request }) => {
     const slug = await seedPropertyReview(page, request);
 
     const path = `/api/properties/${OWNER_LISTING}/reviews`;
-    // Match the exact summary path so the list request remains available.
+    // The summary rides on the list response, so the partial failure is a response that lost it.
     await page.route(
-      (u) => u.pathname === `${path}/summary`,
-      (route) => route.abort('failed'),
+      (u) => u.pathname === path,
+      async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        const res = await route.fetch();
+        const { summary, ...rest } = await res.json();
+        return route.fulfill({ status: res.status(), contentType: 'application/json', body: JSON.stringify(rest) });
+      },
     );
 
     const listArrived = page.waitForResponse(
@@ -266,9 +270,9 @@ test.describe('LIVE: reviews against the real API', () => {
     const listRes = await listArrived;
     expect(listRes, `no GET ${path} arrived`).not.toBeNull();
     expect(listRes.status()).toBe(200);
-    const rows = await listRes.json();
+    const rows = (await listRes.json()).content;
     const mine = rows.find((r) => r.author === CHATTER.name);
-    expect(mine, 'the fixture review should still be readable — only the summary was aborted').toBeTruthy();
+    expect(mine, 'the fixture review should still be readable — only the summary was dropped').toBeTruthy();
 
     const section = await openReviewsSection(page);
     await expect(section.getByTestId('reviews-summary-skeleton')).toHaveCount(0);
@@ -301,21 +305,19 @@ test.describe('LIVE: the flatmates board against the real API', () => {
     expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  test('both tabs are served by the API for a signed-out visitor, and the board is not empty', async ({ page }) => {
+  test('both tabs are counted from one API read for a signed-out visitor, and the board is not empty', async ({ page }) => {
     await page.context().clearCookies();
     const calls = [];
     watchApiCalls(page, calls);
+    const feed = page.waitForResponse((r) => /\/api\/flatmates\/feed\b/.test(r.url()) && r.request().method() === 'GET');
 
     await page.goto('/flatmates');
     const moveIn = page.getByRole('button', { name: /Move in now/i });
     await expect(moveIn).toBeVisible({ timeout: 20000 });
 
-    for (const feed of ['feed']) {
-      await expect
-        .poll(() => calls.filter((c) => new RegExp(`GET /api/flatmates/${feed}`).test(c)).length,
-          { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
-        .toBeGreaterThanOrEqual(2);
-    }
+    const body = await (await feed).json();
+    expect(body.otherTabElements, 'the feed carries the other tab\'s total').toEqual(expect.any(Number));
+    expect(calls.filter((c) => /GET \/api\/flatmates\/feed/.test(c)), `API calls seen: ${calls.join(' | ')}`).toHaveLength(1);
 
     await expect(moveIn).toHaveAttribute('aria-label', /\d+ homes/);
     const label = await moveIn.getAttribute('aria-label');

@@ -131,7 +131,8 @@ Old claim: "the server never sends the owner's number to a buyer, approved or no
   in the listing chat. The masked `requester.mobile` stays as the list-safe display string.
 
 Approved listing chats now have a real-time layer: `/messages/stream` sends id-only `message`,
-`read`, `typing` and `presence` invalidations, and clients refetch the thread. Read receipts and
+`read`, `typing` and `presence` invalidations, and clients refetch the thread. The same stream
+carries a `notification` event that refreshes the bell's count (cross-cutting.md §7). Read receipts and
 online/last-seen are reciprocal privacy features (`shareReadReceipts`, `shareActivityStatus`); if
 either participant turns one off, that surface is hidden while delivery still records normally.
 
@@ -296,10 +297,6 @@ request against someone else's listing, and an owner with no listings gets an em
 second query. N+1-safe at three queries - listing ids, requests, requesters - regardless of inbox
 size, and the verified badge on each party is one more query for the whole page.
 
-`myPendingContactCount` is an endpoint rather than a client-side filter. Counting pending rows in a
-fetched inbox is only correct while the inbox is unpaged; paging it would quietly turn the badge into
-"pending requests on page one", wrong in exactly the situation the badge exists for. Counted in the
-database it is right at any inbox size and costs one integer.
 
 `respondContactRequest` enforces owner scope by lookup, not by a check after the fact: the row is
 only accepted once `properties.findByIdAndOwner_Id` confirms the caller owns the listing it points

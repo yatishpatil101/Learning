@@ -2,10 +2,8 @@ package com.draazy.api.engagement.flatmate;
 
 import java.util.List;
 
-/**
- * Every facet the flatmate board offers, in one value — the line the client does not cross. Facets,
- * clamps and per-parameter semantics: docs/flows/consumer/flatmates.md §5.
- */
+/** Every facet in one value, the line the client doesn't cross.
+ * Clamps and per-parameter semantics: docs/flows/consumer/flatmates.md §5. */
 public record FlatmateSearchQuery(
         String tab,
         String q,
@@ -26,28 +24,16 @@ public record FlatmateSearchQuery(
         Long meBudget,
         String meGender) {
 
-    /**
-     * The widest circle the board will search. An unclamped radius turns a bounded index range into
-     * a full scan; Pune is ~15km across, so 50 is generous and still cheap.
-     */
+    /** Widest circle searched: an unclamped radius turns a bounded index range into a full scan. */
     public static final double MAX_RADIUS_KM = 50.0;
 
-    /**
-     * The tightest circle the board will search — a privacy floor. An exact great-circle test with
-     * an arbitrarily small radius trilaterates a group's flat out of a DTO that omits it.
-     */
+    /** Privacy floor: an exact great-circle test with a tiny radius trilaterates a group's flat. */
     public static final double MIN_RADIUS_KM = 0.5;
 
-    /**
-     * The longest move-in window the board will answer. Unclamped, {@code current_date + :moveInDays}
-     * overflows the date type and Postgres raises — a 500 any anonymous caller can reach.
-     */
+    /** Unclamped, {@code current_date + :moveInDays} overflows the date type, a 500 reachable anonymously. */
     public static final int MAX_MOVE_IN_DAYS = 730;
 
-    /**
-     * The most values a repeated parameter may carry. Each element emits a predicate and a bind on
-     * both halves of the union, so length sizes the SQL text on a route with no login.
-     */
+    /** Each element adds a predicate and bind to both union halves, so length sizes SQL on a login-free route. */
     public static final int MAX_LIST_VALUES = 12;
 
     /** Every sort the board offers. An unknown value falls back rather than 500s. */
@@ -79,10 +65,7 @@ public record FlatmateSearchQuery(
         meGender = FlatmateVocabulary.blankToNull(meGender);
     }
 
-    /**
-     * A value the database could hold, or nothing. An unrecognised facet must be dropped: passing it
-     * narrows to empty, which reads as "there is nothing here" rather than as the caller's typo.
-     */
+    /** Unrecognised facets are dropped: passing one narrows to empty, which reads as "nothing here". */
     private static String oneOf(String value, java.util.Set<String> allowed) {
         String clean = FlatmateVocabulary.blankToNull(value);
         if (clean == null) {
@@ -105,10 +88,7 @@ public record FlatmateSearchQuery(
                 false, null, List.of(), null, null, null, List.of(), null, null);
     }
 
-    /**
-     * Whether {@code match} has anything to score against. Without it every row ties, so the SQL
-     * skips a scoring expression it would only tie on and falls through to recency.
-     */
+    /** Without a match value every row ties, so SQL skips the scoring expression and falls through to recency. */
     public boolean scoresAgainstMe() {
         return SORT_MATCH.equals(sort)
                 && (!meLocalities.isEmpty() || meBudget != null || meGender != null);
@@ -118,10 +98,16 @@ public record FlatmateSearchQuery(
         return FlatmateVocabulary.TAB_MOVE_IN.equals(tab);
     }
 
-    /**
-     * A centre without a radius and a radius without a centre are both incomplete questions, so
-     * neither narrows anything. Mirrors {@code ListingFacets.hasNearPoint}.
-     */
+    /** The same facets on the other tab, for the count its tab label shows. */
+    public FlatmateSearchQuery otherTab() {
+        return new FlatmateSearchQuery(
+                movingIn() ? FlatmateVocabulary.TAB_TEAM_UP : FlatmateVocabulary.TAB_MOVE_IN,
+                q, locality, nearLat, nearLng, nearRadiusKm, minBudget, maxBudget, gender,
+                verifiedOnly, moveInDays, habits, attachedBath, sharing, sort, meLocalities,
+                meBudget, meGender);
+    }
+
+    /** A centre without a radius (or vice versa) narrows nothing; mirrors {@code ListingFacets.hasNearPoint}. */
     public boolean hasNearPoint() {
         return nearLat != null && nearLng != null && nearRadiusKm != null && nearRadiusKm > 0;
     }
@@ -130,10 +116,7 @@ public record FlatmateSearchQuery(
         return Math.clamp(nearRadiusKm, MIN_RADIUS_KM, MAX_RADIUS_KM);
     }
 
-    /**
-     * The same preference in the vocabulary a group speaks ({@code any|women|men}). Passing
-     * {@code female} through matches no group at all; anything unrecognised returns null, which widens.
-     */
+    /** Maps to the group vocabulary ({@code any|women|men}); {@code female} matches no group; unknown widens. */
     public String policy() {
         if (gender == null) {
             return null;

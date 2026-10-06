@@ -24,22 +24,12 @@ public class MeContactRequestsController {
     }
 
     // Entries mask requester mobile; approved requests reveal it only in `contact`.
-    // The "waiting on you" count that used to be derived by filtering this array client-side now has its own endpoint.
     @GetMapping(Routes.MeContactRequests.BASE)
     public PageResponse<ContactRequestResponse> myContactRequests(
             @CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
                 contactService.myRequests(principal.userId(), Pageables.unsorted(pageable)), r -> r);
-    }
-
-    @GetMapping(Routes.MeContactRequests.PENDING_COUNT)
-    public PendingCountResponse pendingCount(@CurrentUser AuthPrincipal principal) {
-        return new PendingCountResponse(contactService.myPendingCount(principal.userId()));
-    }
-
-    // Wrap counts now so future sibling fields do not break numeric JSON clients.
-    public record PendingCountResponse(long pending) {
     }
 
     @PatchMapping(Routes.MeContactRequests.BY_ID)

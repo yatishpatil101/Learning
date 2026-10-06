@@ -30,9 +30,9 @@ test('home category tiles render the server count and link to the matching deal'
 });
 
 async function liveCounts(request) {
-  const res = await request.get(`${API}/properties/counts`);
-  expect(res.status(), 'GET /properties/counts').toBe(200);
-  const body = await res.json();
+  const res = await request.get(`${API}/bootstrap`);
+  expect(res.status(), 'GET /bootstrap').toBe(200);
+  const body = (await res.json()).counts;
   return new Map((body.counts || []).map((row) => [`${row.category}:${row.deal}`, Number(row.count) || 0]));
 }
 

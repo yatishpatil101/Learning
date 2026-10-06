@@ -1,5 +1,5 @@
 /** Server has no payment rail yet; `/pay-rent` stays a static page. */
-import { del, get, patch, post, put, unwrapPage } from '../../http.js';
+import { PAGE_LOAD_TTL, del, get, patch, post, put, unwrapPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
   toBasisViewModel,
@@ -29,7 +29,7 @@ const unwrapMapped = (res, fn, requested = 0) => {
 /** `GET /me/tenancies` — tenancies where the caller is the **tenant**. */
 export async function myTenancies() {
   if (!signedIn()) return [];
-  return toList(await get('/me/tenancies'), toTenancyViewModel);
+  return toList(await get('/me/tenancies', undefined, { ttl: PAGE_LOAD_TTL }), toTenancyViewModel);
 }
 
 /** The server decides what comes back: every claim if the caller owns the listing, their own otherwise. The client
@@ -186,10 +186,12 @@ export async function deleteTransaction(propId, txnId) {
   await del(`/me/finances/${encodeURIComponent(propId)}/transactions/${encodeURIComponent(txnId)}`);
 }
 
-/** `GET /me/finances/{propId}/basis` — purchase price, loan, current value. `null` when unrecorded. */
+const financeOverview = (propId) => get(`/me/finances/${encodeURIComponent(propId)}/overview`);
+
+/** `basis` of `GET /me/finances/{propId}/overview` — purchase price, loan, current value. `null` when unrecorded. */
 export async function getBasis(propId) {
   if (!signedIn() || !propId) return null;
-  return toBasisViewModel(await get(`/me/finances/${encodeURIComponent(propId)}/basis`));
+  return toBasisViewModel((await financeOverview(propId))?.basis);
 }
 
 /** `PUT /me/finances/{propId}/basis`. */
@@ -212,16 +214,16 @@ export async function financeSummary(propId, period) {
   ));
 }
 
-/** `GET /me/finances/{propId}/cashflow` — the monthly series the chart draws. */
+/** `cashflow` of `GET /me/finances/{propId}/overview` — the monthly series the chart draws. */
 export async function cashflow(propId) {
   if (!signedIn() || !propId) return [];
-  return toList(await get(`/me/finances/${encodeURIComponent(propId)}/cashflow`), toCashflowPoint);
+  return toList((await financeOverview(propId))?.cashflow, toCashflowPoint);
 }
 
-/** `GET /me/finances/{propId}/dues` — what is coming, with a server-computed `daysUntil`. */
+/** `dues` of `GET /me/finances/{propId}/overview` — what is coming, with a server-computed `daysUntil`. */
 export async function dues(propId) {
   if (!signedIn() || !propId) return [];
-  return toList(await get(`/me/finances/${encodeURIComponent(propId)}/dues`), toDueViewModel);
+  return toList((await financeOverview(propId))?.dues, toDueViewModel);
 }
 
 export async function myRentAgreements() {

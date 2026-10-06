@@ -149,10 +149,10 @@ class SocietyCommunityTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.societySlug").value(slug));
 
         // No Authorization header at all — the read a visitor gets before they have signed up.
-        mvc.perform(get("/societies/" + slug + "/questions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].body").value("Is the water supply metered?"))
-                .andExpect(jsonPath("$.content[0].authorName").value("Prospective Buyer"));
+                .andExpect(jsonPath("$.questions.content[0].body").value("Is the water supply metered?"))
+                .andExpect(jsonPath("$.questions.content[0].authorName").value("Prospective Buyer"));
     }
 
     @Test
@@ -192,12 +192,12 @@ class SocietyCommunityTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.authorIsResident").value(false));
 
-        mvc.perform(get("/societies/" + slug + "/questions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].answers.length()").value(2))
+                .andExpect(jsonPath("$.questions.content[0].answers.length()").value(2))
                 // Answers read oldest-first: a thread is a conversation, and reading a reply
                 // before the thing it replies to is unintelligible.
-                .andExpect(jsonPath("$.content[0].answers[0].authorName").value("Verified Neighbour"));
+                .andExpect(jsonPath("$.questions.content[0].answers[0].authorName").value("Verified Neighbour"));
     }
 
     @Test
@@ -222,9 +222,9 @@ class SocietyCommunityTest extends AbstractApiTest {
                         .content("{\"status\":\"rejected\"}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/questions"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].authorIsResident").value(false));
+                .andExpect(jsonPath("$.questions.content[0].authorIsResident").value(false));
     }
 
     @Test
@@ -307,22 +307,24 @@ class SocietyCommunityTest extends AbstractApiTest {
         postItem(ops, slug, "{\"kind\":\"notice\",\"title\":\"Lift is noisy\"}")
                 .andExpect(status().isCreated());
 
-        mvc.perform(get("/societies/" + slug + "/board"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].title").value("Sooner tanker"))
+                .andExpect(jsonPath("$.board.content[0].title").value("Sooner tanker"))
                 // An anonymous reader is offered no delete control — the alternative is a button
                 // that 403s, which reads as a broken page rather than a rule.
-                .andExpect(jsonPath("$.content[0].canRemove").value(false))
-                .andExpect(jsonPath("$.content[1].title").value("Later AGM"))
-                .andExpect(jsonPath("$.content[2].title").value("Lift is noisy"));
+                .andExpect(jsonPath("$.board.content[0].canRemove").value(false))
+                .andExpect(jsonPath("$.board.content[1].title").value("Later AGM"))
+                .andExpect(jsonPath("$.board.content[2].title").value("Lift is noisy"));
 
-        mvc.perform(get("/societies/" + slug + "/board").param("kind", "notice"))
+        mvc.perform(get("/societies/" + slug + "/hub").param("kind", "notice"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].title").value("Lift is noisy"));
+                .andExpect(jsonPath("$.board.totalElements").value(1))
+                .andExpect(jsonPath("$.board.content[0].title").value("Lift is noisy"));
 
-        mvc.perform(get("/societies/" + slug + "/board").param("kind", "rumour"))
-                .andExpect(status().isBadRequest());
+        mvc.perform(get("/societies/" + slug + "/hub").param("kind", "rumour"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.board").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.questions.content").isArray());
     }
 
     @Test
@@ -353,27 +355,27 @@ class SocietyCommunityTest extends AbstractApiTest {
                 .andExpect(status().isCreated()));
 
         // The neighbour is a verified resident here — residency buys posting, not moderation.
-        mvc.perform(get("/societies/" + slug + "/board")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(neighbour)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].canRemove").value(false));
+                .andExpect(jsonPath("$.board.content[0].canRemove").value(false));
 
         mvc.perform(delete("/societies/" + slug + "/board/" + itemId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(neighbour)))
                 .andExpect(status().isForbidden());
 
-        mvc.perform(get("/societies/" + slug + "/board")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(committee)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].canRemove").value(true));
+                .andExpect(jsonPath("$.board.content[0].canRemove").value(true));
 
         mvc.perform(delete("/societies/" + slug + "/board/" + itemId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(committee)))
                 .andExpect(status().isNoContent());
 
-        mvc.perform(get("/societies/" + slug + "/board"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.board.totalElements").value(0));
     }
 
     @Test
@@ -420,9 +422,7 @@ class SocietyCommunityTest extends AbstractApiTest {
     void unknownSociety() throws Exception {
         User anyone = user("9863000021", "Lost");
 
-        mvc.perform(get("/societies/no-such-society-anywhere/questions"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/societies/no-such-society-anywhere/board"))
+        mvc.perform(get("/societies/no-such-society-anywhere/hub"))
                 .andExpect(status().isNotFound());
         ask(anyone, "no-such-society-anywhere", "Hello?").andExpect(status().isNotFound());
     }

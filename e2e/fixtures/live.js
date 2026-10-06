@@ -61,8 +61,8 @@ export const test = base.extend({
 
     const set = async (patch) => {
       if (before === null) {
-        const res = await fetch(`${API}/flags`);
-        before = res.ok ? await res.json() : {};
+        const res = await fetch(`${API}/bootstrap`);
+        before = res.ok ? (await res.json()).flags : {};
       }
       Object.keys(patch).forEach((key) => touched.add(key));
       await write(patch);
@@ -84,9 +84,9 @@ export const test = base.extend({
     const touched = new Set();
 
     const read = async () => {
-      const res = await fetch(`${API}/cities`);
+      const res = await fetch(`${API}/bootstrap`);
       if (!res.ok) throw new Error(`reading cities failed (${res.status})`);
-      return await res.json();
+      return (await res.json()).cities;
     };
 
     const write = async (slug, live) => {
@@ -119,9 +119,7 @@ export const test = base.extend({
     // Accounts this test narrowed, so teardown can widen them back.
     const scoped = new Set();
 
-    // Callers may still name raw atoms. Every staff account holds `dashboard:read` already, and
-    // `identity:write` is administrator-only, so the `kyc` function a staffer receives can view a case
-    // but never decide it.
+    // `identity:write` is administrator-only, so a staffer's `kyc` function can view a case but never decide it.
     const functionsFor = (names) => {
       const mapped = new Set();
       for (const name of names) {

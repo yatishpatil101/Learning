@@ -1,36 +1,5 @@
 // @ts-check
-/**
- * A society for one live test to write to, and nobody else.
- *
- * ## Why this exists as a helper rather than five copies of a `find()`
- *
- * Every live society spec used to open its own building the same way: read a page of
- * `GET /societies`, take the first `claimStatus === 'unclaimed'` row, and remember it in a
- * module-scoped `Set` so a later test in the same file would take the next one.
- *
- * That guard never guarded anything. A module-scoped `Set` is scoped to a **worker process**, and
- * Playwright re-imports the module in each one, so every worker starts with its own empty set while
- * the societies it is rationing are global to the database. Two tests in one file could take the
- * same seeded society, and five files could take all of them at once — the sets were per worker,
- * and the societies were not.
- *
- * The failure that surfaced it is the shape to remember: a residency test verified one resident,
- * asked the membership endpoint how many verified residents the society had, and was told three.
- * Nothing was wrong with the code under test. Two other tests were living in the same building.
- *
- * ## Why minting is the fix and not a bigger `Set`
- *
- * A shared registry across workers would need a file or a lock, and it would still be rationing a
- * fixed pool of seeded rows: the suite would start failing the day it grew past the seed. Minting
- * removes the contention rather than arbitrating it. `POST /societies` is a first-class consumer
- * route — a member adding a building Draazy does not have — so a test society is created the same
- * way a real one is, and arrives in exactly the state these specs want: unclaimed, so residency
- * decisions go through the ops queue rather than needing a committee the test has not created; and
- * empty, so a spec that counts rows before and after a removal is counting only its own.
- *
- * The row is public on arrival (`SecurityConfig` permits `GET /societies/{slug}` and its membership
- * child), which the anonymous-reader assertions in these files depend on.
- */
+/** Mints a society per test: a module-scoped `Set` is per worker, while seeded societies are database-global. */
 import { expect } from '@playwright/test';
 import { API, authHeaders } from './liveAuth.js';
 

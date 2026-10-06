@@ -96,9 +96,10 @@ test.describe('list property photo UX', () => {
   });
 
   test('follows the limit the server publishes rather than a bundled number', async ({ page }) => {
-    await page.route('**/api/listing-policy', (route) => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({ maxPhotos: 4 }),
-    }));
+    await page.route('**/api/bootstrap', async (route) => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, json: { ...(await res.json()), listingPolicy: { maxPhotos: 4 } } });
+    });
     await openPhotos(page);
     const photos = page.locator('[data-err="photos"]');
     await expect(photos).toContainText('Up to 4 photos');

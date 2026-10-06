@@ -1,8 +1,6 @@
 /* Static data for the Home page — extracted for separation of concerns. */
 
-/* Hero-search property types mirror the canonical browse taxonomy, so a search maps 1:1 to the
-   listings filter. The type-specific sub-filters travel with them, so the hero's third dropdown
-   offers exactly what the Listings filter panel does for that type. */
+/* Hero types mirror the browse taxonomy so a search maps 1:1 to the listings filter, sub-filters included. */
 export { HOME_TYPE_OPTS as TYPE_OPTS, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
 import { localityNames } from './localities.js';
 
@@ -28,10 +26,7 @@ export const NEARBY = {
   Magarpatta: ['Hadapsar', 'Amanora', 'Mundhwa'],
 };
 
-/* Popular localities per city, as [name, defaultDeal] tuples — the source of truth for
-   the home hero "Popular:" chips. Only Pune has a curated registry today, so other cities
-   resolve to [] and their pickers fall back to live Google Places suggestions (city-biased)
-   instead of leaking Pune localities. */
+/* Only Pune has a curated registry; other cities resolve to [] and use city-biased Google Places suggestions. */
 export const CITY_POPULAR = {
   Pune: [['Baner', 'buy'], ['Wakad', 'buy'], ['Hinjawadi', 'buy'], ['Kothrud', 'buy'], ['Koregaon Park', 'buy'], ['Viman Nagar', 'rent']],
 };
@@ -46,10 +41,8 @@ export function popularChipsFor(city) {
   return CITY_POPULAR[city] || [];
 }
 
-/* Canonical marketing stats — single source of truth so the hero, "Why Draazy"
-   and testimonials never disagree. Each figure describes a DIFFERENT metric.
-   TODO(API): still hard-coded; bind `properties` to the /properties/counts total and the rest to
-   real aggregates before launch. */
+/* Canonical marketing stats, so the hero, "Why Draazy" and testimonials never disagree; each figure is a different metric.
+   TODO(API): still hard-coded; bind `properties` to the /bootstrap `counts` total and the rest to real aggregates before launch. */
 export const STATS = {
   properties: '11,240+',
   verifiedOwners: '523+',

@@ -22,10 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * The owner-contact quota is server-enforced. Referral rewards are contacts, not stored counters —
- * every allowance is derived from the caller's live plan and qualified referrals on every call.
- */
+/** The owner-contact quota is server-enforced; allowances derive from the live plan and referrals each call. */
 @DisplayName("Entitlements — the contact quota the browser used to keep")
 class EntitlementsEndpointsTest extends AbstractApiTest {
 
@@ -94,10 +91,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
         return plans.findById(UUID.fromString(planId)).orElseThrow().getPrice();
     }
 
-    /**
-     * Earn one qualified referral for {@code referrer}, through the real endpoints — a fixture that
-     * set the status directly would still pass if the referral desk stopped setting it.
-     */
+    /** Earns the referral through real endpoints; setting the status directly would pass even if it broke. */
     private String referralApprovedFor(User referrer, String refereeMobile, User staff)
             throws Exception {
         User referee = identityVerified(refereeMobile, "buyer");
@@ -140,7 +134,8 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
                 // Owner Free's listing_limit. Reported even to a buyer, because the number is a
                 // property of the account rather than of the role it is browsing under.
                 .andExpect(jsonPath("$.listings.allowance").value(1))
-                .andExpect(jsonPath("$.listings.referralBonus").value(0));
+                .andExpect(jsonPath("$.listings.referralBonus").value(0))
+                .andExpect(jsonPath("$.listings.used").value(0));
     }
 
     @Test
@@ -198,10 +193,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("contact_quota_exhausted"));
     }
 
-    /**
-     * Running out means no new owner, not that already-opened conversations stop — that would break
-     * the idempotency the contact gate depends on for double-taps.
-     */
+    /** Running out blocks only new owners; opened conversations must stay open for double-tap idempotency. */
     @Test
     @DisplayName("an exhausted caller can still re-read the requests they already opened")
     void exhaustionNeverClosesADoorAlreadyOpened() throws Exception {
@@ -243,10 +235,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.agreements.free").value(0));
     }
 
-    /**
-     * Asserted at two and at three, because a bonus computed with the wrong operator passes every
-     * test that only ever earns the reward — the interesting number is the last one earning nothing.
-     */
+    /** Asserted at two and three: a wrong-operator bonus passes tests that only earn; the last earns nothing. */
     @Test
     @DisplayName("the third qualified referral is the one that pays — two earn nothing")
     void threeReferralsBuyASlotAndAFreeAgreement() throws Exception {
@@ -315,10 +304,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.listings.allowance").value(2));
     }
 
-    /**
-     * {@code GET /me/subscription} reports pending rows so a subscriber can resume an unpaid order;
-     * reading entitlement off it would grant the plan's allowance to anyone who closed the tab.
-     */
+    /** Pending rows exist so unpaid orders can resume; reading entitlement off them would grant the plan. */
     @Test
     @DisplayName("an unpaid order confers nothing — capability is not the same question as standing")
     void aPendingSubscriptionEntitlesNothing() throws Exception {

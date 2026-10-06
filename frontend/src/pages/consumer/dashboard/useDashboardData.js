@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useAsyncList from '../../../hooks/useAsyncList.js';
 import { MAX_PAGE_SIZE } from '../../../services/apiLimits.js';
-import { listProperties } from '../../../services/propertyService.js';
+import { listPropertiesByIds, searchListings } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
@@ -36,6 +36,18 @@ const toPhotoRow = (r) => ({
   status: r.status || 'pending',
   requestedAt: r.createdAt ? Date.parse(r.createdAt) : 0,
 });
+
+// Six cards for the overview feed — recently viewed if any still resolve, else the newest homes.
+async function loadFeed() {
+  try {
+    const recent = await listPropertiesByIds(getRecentProps().slice(0, 6));
+    if (recent.length) return { recent, recommended: [] };
+    const { items } = await searchListings({ sort: 'createdAt,desc' }, { size: 6 });
+    return { recent: [], recommended: items };
+  } catch {
+    return { recent: [], recommended: [] };
+  }
+}
 /* Data layer for the consumer Dashboard: owns all remote/persisted state, the load + per-user request effects, and
    the mutation handlers. */
 
@@ -48,7 +60,7 @@ export function useDashboardData({ user, toast }) {
   const [alertMatches, setAlertMatches] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
-  const [reviewsByProp, setReviewsByProp] = useState(() => new Map());
+  const [reviewRows, setReviewRows] = useState([]);
   const [reviewThread, setReviewThread] = useState(null);
   const [busyIds, setBusyIds] = useState(() => new Set());
   const busyRef = useRef(new Set());
@@ -298,20 +310,8 @@ export function useDashboardData({ user, toast }) {
   };
 
   const [bundle, dataStatus, , retryData, dataError, refreshData] = useAsyncList(
-      // Both sides of the visit relationship. The dashboard serves one person who may be both a seeker and an owner,
-      // and the two server endpoints are deliberately separate.
-    async () => {
-      const [shownListings, propsResult, mine, onMine] = await Promise.all([
-        loadMyListings(user),
-        listProperties({ includeAllStatuses: true }, 'newest').then(
-          (props) => ({ ok: true, props }),
-          () => ({ ok: false, props: [] }),
-        ),
-        listVisits(),
-        myVisitRequests(),
-      ]);
-      return [shownListings, propsResult.props, mine, onMine, propsResult.ok];
-    },
+    // Both sides of the visit relationship: one person may be both a seeker and an owner.
+    () => Promise.all([loadMyListings(user), loadFeed(), listVisits(), myVisitRequests()]),
     [user?.mobile],
   );
   /* Derivation, split from the fetch so the loader stays a pure read and every `set*` below runs off one settled
@@ -319,28 +319,14 @@ export function useDashboardData({ user, toast }) {
 
   useEffect(() => {
     if (bundle.length < 4) return;
-    const [shownListings, props, mine, onMine] = bundle;
+    const [shownListings, feed, mine, onMine] = bundle;
     setListings(shownListings);
-    const byId = new Map(props.map((p) => [p.id, p]));
     // Deduped by id: a user visiting their own listing legitimately appears in both reads.
     const merged = [...new Map([...mine, ...onMine.map((v) => ({ ...v, hostedByMe: true }))].map((v) => [v.id, v])).values()]
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    setVisits(merged.map((v) => {
-      const p = byId.get(v.listingId);
-      return {
-        ...v,
-        listing: v.listing || p?.title || '',
-        ownerMobile: v.ownerMobile || p?.ownerMobile || '',
-      };
-    // Recently Viewed = the user's REAL view history (per-user MRU), resolved against the live catalog.
-    }));
-    const approved = props.filter((p) => p.status === 'approved');
-    const approvedById = new Map(approved.map((p) => [p.id, p]));
-    const realRecent = getRecentProps().map((id) => approvedById.get(id)).filter(Boolean).slice(0, 6);
-    setRecent(realRecent);
-    setRecommended(approved.slice(0, 6));
-    // Recompute saved-search match counts after the async list lands.
-    // First pass is empty, so skipping this would hide the retention strip.
+    setVisits(merged.map((v) => ({ ...v, listing: v.listing || '', ownerMobile: v.ownerMobile || '' })));
+    setRecent(feed.recent);
+    setRecommended(feed.recommended);
   }, [bundle]);
 
   /* The verification queue, keyed both ways. */
@@ -378,21 +364,25 @@ export function useDashboardData({ user, toast }) {
 
   const refreshReviews = useCallback(async () => {
     try {
-      const { items } = await listMyPropertyReviews({ size: MAX_PAGE_SIZE });
-      const bySlug = new Map(listings.map((l) => [l.uuid || l.id, l.id]));
-      const next = new Map();
-      items.forEach((row) => {
-        next.set(row.propertyId, row);
-        const slug = bySlug.get(row.propertyId);
-        if (slug) next.set(slug, row);
-      });
-      setReviewsByProp(next);
+      setReviewRows((await listMyPropertyReviews({ size: MAX_PAGE_SIZE })).items);
     } catch {
-      setReviewsByProp(new Map());
+      setReviewRows([]);
     }
-  }, [listings]);
+  }, []);
 
   useEffect(() => { refreshReviews(); }, [refreshReviews]);
+
+  // Keyed by both UUID and slug: the server answers with the UUID, the cards hold the slug.
+  const reviewsByProp = useMemo(() => {
+    const slugOf = new Map(listings.map((l) => [l.uuid || l.id, l.id]));
+    const next = new Map();
+    reviewRows.forEach((row) => {
+      next.set(row.propertyId, row);
+      const slug = slugOf.get(row.propertyId);
+      if (slug) next.set(slug, row);
+    });
+    return next;
+  }, [reviewRows, listings]);
 
   return {
     listings, visits, recent, recommended, alertMatches,

@@ -12,6 +12,7 @@ import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
 import { listRecentSearches } from '../../services/recentSearchService.js';
 import { myTenancies } from '../../services/rentService.js';
+import { primeMeDashboard } from '../../services/meDashboardService.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
 import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
@@ -44,6 +45,8 @@ export default function Dashboard() {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  // During render, so the seeds exist before any panel's effect makes its own read.
+  useState(primeMeDashboard);
   const { unread: chatUnread } = useConversationUnread();
   /* Loaded into state because this is a request: the first paint has an empty array and the tabs appear when the
      answer lands. */

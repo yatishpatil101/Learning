@@ -9,6 +9,7 @@ import { localityBySlug } from '../../../data/localities.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 import { CARD_SIZES } from '../../../lib/imgSrcSet.js';
+import { useNearViewport } from '../../../lib/useNearViewport.js';
 
 const LIMIT = 3;
 const RADIUS_KM = 6;
@@ -39,7 +40,11 @@ export function SimilarProperties({ p }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const secRef = useRef(null);
+  const sentinelRef = useRef(null);
+  // Up to 200 candidate rows: not worth fetching for a visitor who never scrolls this far.
+  const near = useNearViewport(sentinelRef, '600px');
   useEffect(() => {
+    if (!near) return undefined;
     let alive = true;
     // Same deal only (never mix buy with rent) — buyers/renters want like-for-like.
     const candidates = async () => {
@@ -68,8 +73,7 @@ export function SimilarProperties({ p }) {
       const picked = [...ideal];
       const has = (id) => picked.some((c) => c.x.id === id);
 
-      // Tier 3 (last resort): nearest listings by distance so we never show random,
-      // far, or wildly-priced properties like before — closest available wins.
+      // Last resort: nearest listings by distance, never random, far or wildly-priced ones.
       if (picked.length < LIMIT) {
         cands
           .filter((c) => c.km <= RADIUS_KM && !has(c.x.id))
@@ -86,7 +90,7 @@ export function SimilarProperties({ p }) {
       setItems(picked.slice(0, LIMIT).map((c) => ({ ...c.x, _km: c.km })));
     });
     return () => { alive = false; };
-  }, [p.id, p.deal, p.localitySlug, p.bhkNum, p.price, p.lat, p.lng]);
+  }, [near, p.id, p.deal, p.localitySlug, p.bhkNum, p.price, p.lat, p.lng]);
 
   // This section mounts asynchronously (after the parent's scroll-reveal observer
   // has already scanned the page), so reveal it directly once the cards render.
@@ -94,13 +98,10 @@ export function SimilarProperties({ p }) {
     if (items.length && secRef.current) secRef.current.classList.add('visible');
   }, [items]);
 
-  if (!items.length) return null;
+  if (!items.length) return <div ref={sentinelRef} aria-hidden="true" />;
   return (
     <section ref={secRef} className="fade-in">
-
-      {/* itself. */}
       <MobileCollapse
-
         label={t('property.similarProperties')}
         summary={String(items.length)}
         header={<h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2"><Icon name="layout-grid" className="w-5 h-5 text-brand-teal-2" /> {t('property.similarProperties')}</h2>}

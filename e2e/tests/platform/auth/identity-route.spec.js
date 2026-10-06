@@ -181,7 +181,12 @@ test('status handles revoked, not_reviewed and withdraw', async ({ page, login, 
   await page.setViewportSize({ width: 390, height: 844 });
   let mode = 'revoked';
   let deletes = 0;
-  // Routed only now, so everything up to the submit is the real flow.
+  // Routed only now, so everything up to the submit is the real flow. The boot bundle's identity
+  // section is dropped so the page reads the routed endpoint below.
+  await page.route('**/api/me/bootstrap', async (route) => {
+    const response = await route.fetch();
+    return route.fulfill({ response, json: { ...(await response.json()), identity: null } });
+  });
   await page.route('**/api/me/verification/identity', async (route) => {
     if (route.request().method() === 'DELETE') {
       deletes += 1;

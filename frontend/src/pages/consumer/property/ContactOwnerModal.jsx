@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
@@ -32,7 +32,8 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = String(p.id || '');
-  const { gate, loading } = useContactGate(propId);
+  const { id: routeId } = useParams();
+  const { gate, loading } = useContactGate(routeId || propId);
   // `isIn` gates the fetch: signed out there is no quota to report, and no token to ask with.
   const { entitlements } = useEntitlements(isIn);
   const left = contactsLeft(entitlements);

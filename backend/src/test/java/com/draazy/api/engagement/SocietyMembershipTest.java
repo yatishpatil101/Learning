@@ -250,10 +250,10 @@ class SocietyMembershipTest extends AbstractApiTest {
 
         approveClaim(claim(user("9862000015", "Omkar"), slug));
 
-        mvc.perform(get("/societies/" + slug + "/membership")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(waiting)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resident.assignedTo").value("committee"));
+                .andExpect(jsonPath("$.membership.resident.assignedTo").value("committee"));
 
         apply(user("9862000016", "Pallavi"), slug, "G", "2")
                 .andExpect(status().isOk())
@@ -363,12 +363,12 @@ class SocietyMembershipTest extends AbstractApiTest {
     @DisplayName("a stranger gets the society's facts and none of their own")
     void membershipIsPublicAndCallerAware() throws Exception {
         String slug = society(17);
-        mvc.perform(get("/societies/" + slug + "/membership"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.societySlug").value(slug))
-                .andExpect(jsonPath("$.resident").doesNotExist())
-                .andExpect(jsonPath("$.admin").value(false))
-                .andExpect(jsonPath("$.verifiedResidents").value(0));
+                .andExpect(jsonPath("$.membership.societySlug").value(slug))
+                .andExpect(jsonPath("$.membership.resident").doesNotExist())
+                .andExpect(jsonPath("$.membership.admin").value(false))
+                .andExpect(jsonPath("$.membership.verifiedResidents").value(0));
     }
 
     @Test
@@ -377,12 +377,12 @@ class SocietyMembershipTest extends AbstractApiTest {
         String slug = society(18);
         claim(user("9862000029", "Chirag"), slug);
 
-        mvc.perform(get("/societies/" + slug + "/membership"))
+        mvc.perform(get("/societies/" + slug + "/hub"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.claim.status").value("pending"))
-                .andExpect(jsonPath("$.claim.claimantName").value("Committee Member"))
-                .andExpect(jsonPath("$.claim.claimantMobile").doesNotExist())
-                .andExpect(jsonPath("$.claim.email").doesNotExist());
+                .andExpect(jsonPath("$.membership.claim.status").value("pending"))
+                .andExpect(jsonPath("$.membership.claim.claimantName").value("Committee Member"))
+                .andExpect(jsonPath("$.membership.claim.claimantMobile").doesNotExist())
+                .andExpect(jsonPath("$.membership.claim.email").doesNotExist());
     }
 
     @Test
@@ -396,23 +396,23 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isOk()));
         decide(bearer(committee), slug, id, "verified").andExpect(status().isOk());
 
-        mvc.perform(get("/societies/" + slug + "/membership")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(committee)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.admin").value(true))
-                .andExpect(jsonPath("$.verifiedResidents").value(1));
+                .andExpect(jsonPath("$.membership.admin").value(true))
+                .andExpect(jsonPath("$.membership.verifiedResidents").value(1));
 
-        mvc.perform(get("/societies/" + slug + "/membership")
+        mvc.perform(get("/societies/" + slug + "/hub")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000032", "Farah"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.admin").value(false))
-                .andExpect(jsonPath("$.verifiedResidents").value(1));
+                .andExpect(jsonPath("$.membership.admin").value(false))
+                .andExpect(jsonPath("$.membership.verifiedResidents").value(1));
     }
 
     @Test
     @DisplayName("an unknown society is a 404, not an empty membership")
     void unknownSociety() throws Exception {
-        mvc.perform(get("/societies/no-such-society-at-all/membership"))
+        mvc.perform(get("/societies/no-such-society-at-all/hub"))
                 .andExpect(status().isNotFound());
     }
 

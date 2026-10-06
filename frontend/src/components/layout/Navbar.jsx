@@ -36,8 +36,8 @@ export default function Navbar() {
   const postLabel = !isPaidOwner && listingLimit === 1
     ? t('chrome.postPropertyFree')
     : t('nav.postProperty');
-  // Bump on any store write (saved) so the badges below refresh live in the same tab, without
-  // waiting for a route change. Notifications listen for `pn:store` in their own context.
+  // Bump on any local-prefs write so the badges below refresh live in the same tab, without
+  // waiting for a route change.
   const [, setStoreTick] = useState(0);
   useEffect(() => {
     const bump = () => setStoreTick((n) => n + 1);

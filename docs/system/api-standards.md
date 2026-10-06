@@ -222,7 +222,7 @@ bounds beside it, instead of `settings.get("fees").get("gstPercent")`. Every acc
 defaulted, in-range answer, because this class sits in the path of taking money and the alternative
 to a default is a 500 on the pay button because somebody mistyped a config value in the back office.
 
-- **Price fallbacks must match what a healthy install answers** and what `GET /pricing` publishes. A
+- **Price fallbacks must match what a healthy install answers** and what `GET /bootstrap` (`pricing`) publishes. A
   default that differed would let a broken config row quietly *change* the price rather than merely
   fail to be read.
 - **Every ceiling catches a typo, not an attack.** `MAX_PERCENT = 100` stops a fat-fingered `200`
@@ -256,7 +256,7 @@ and the same default would strand a fresh or malformed install behind the mainte
 way in to fix it.
 
 Both `signupsEnabled` and `staffLoginEnabled` are **server-enforced, not merely published on
-`GET /flags`**. `signupsEnabled` decides whether a row is written and `POST /auth/login` provisions
+`GET /bootstrap` (`flags`)**. `signupsEnabled` decides whether a row is written and `POST /auth/login` provisions
 on first verified sign-in, so a client-only guard would leave the only account-creating consumer path
 wide open while the back office reported onboarding shut. `staffLoginEnabled` is reached for during
 an incident, and an attacker posts to the endpoint rather than clicking the button — and it binds
@@ -270,7 +270,7 @@ would let the `REQUIRES_NEW` write it guards commit on its own connection and th
 request — minting the very account the flag exists to prevent, orphaned, behind a 500 nobody reads as
 a bypass. A non-boolean is treated as undecided rather than coerced, because it is not a value.
 
-**`GET /flags` is public and deliberately one block wide.** It serves `settings.flags` and nothing
+**`GET /bootstrap` (`flags`) is public and deliberately one block wide.** It serves `settings.flags` and nothing
 else — not `adminFlags`, not `fees`, not `permissions` — because those toggles gate what an anonymous
 visitor sees while the same document holds the fee table and the permission map. Publishing a flag
 there is **not** enforcing it: `kycBadgeEnabled` is render-only and the actions behind it have their
@@ -301,7 +301,7 @@ with **one user's own activity**, or when it is fixed reference data.
 | One user's own actions | array | `/me/deals`, `/me/offers`, `/me/visit-requests` |
 | **Inbound demand** — rows written by *other* users against the caller | `PageEnvelope` | `/messages`, `/me/saved` |
 | **Time** — rows accrue on a schedule and are never culled | `PageEnvelope` | `/me/finances/{propId}/transactions` |
-| Fixed reference / CMS data | array | `/fees`, `/cities`, `/localities`, `/plans`, `/faqs` |
+| Fixed reference / CMS data | array | `/fees`, `/localities`, `/faqs`, and the `cities` / `plans` sections of `/bootstrap` |
 
 The middle rows are the ones that get confused. A landlord has eight offers, not eighty thousand,
 so paging `/me/offers` buys nothing and costs a `count(*)` on every read. But a *ledger* under `/me/`
@@ -468,7 +468,7 @@ Rules:
   should be. Where a deeper read *is* public (e.g. a listing's rooms), it gets its own explicit
   allowlist entry — being a read on a public resource does not make it public by inheritance.
 - **An exact path outranks a template one**, so a literal sibling of a `{id}` route (`/properties/
-  trust-stats` beside `/properties/{id}`) can never be read as an id.
+  featured` beside `/properties/{id}`) can never be read as an id.
 
 ## 8. DTOs, mapping & the entity↔wire boundary
 
@@ -605,11 +605,11 @@ first loops the client forever.
   the table is deliberately open (`geo` is read by the client and never appears in `AdminSettings`).
   Back-office access is decided by role, team and the `permissions` allow-list.
 - **Non-boolean `flags.*`.** Every reader treats a non-boolean as undecided (`AppFlagsController`
-  drops it from `GET /flags`; `PlatformSettings.flag` returns its absent-means-ON default), so
+  drops it from `GET /bootstrap` (`flags`); `PlatformSettings.flag` returns its absent-means-ON default), so
   `{"flags":{"signupsEnabled":"false"}}` would be stored, audited as a change, echoed back and
   enforced as *on*. Refused rather than coerced: guessing is unrecoverable in the direction that
   silently opens something.
-- **`geo.cities.*.live`.** City launch state is a column on `cities` served by `GET /cities`,
+- **`geo.cities.*.live`.** City launch state is a column on `cities` served by `GET /bootstrap` (`cities`),
   because a value deciding what a logged-out visitor sees cannot have an administrator-only reader.
   It is nested rather than in the top-level deny set because `geo` is very much supported - it still
   carries `enforceCityLimit`, the map centre and bounds, and the blacklist.

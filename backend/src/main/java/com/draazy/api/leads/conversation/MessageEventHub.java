@@ -41,6 +41,8 @@ public class MessageEventHub {
         emitter.onCompletion(remove);
         emitter.onTimeout(remove);
         emitter.onError(ignored -> remove.run());
+        // Flushes the headers now, so the client sees the stream open instead of waiting for the first heartbeat.
+        client.heartbeat();
         return emitter;
     }
 
@@ -64,8 +66,15 @@ public class MessageEventHub {
         heartbeats.shutdownNow();
     }
 
+    // An exception escaping a scheduleAtFixedRate task cancels every later run, so one bad client must not.
     private void heartbeat() {
-        clients.values().forEach(set -> set.forEach(Client::heartbeat));
+        clients.values().forEach(set -> set.forEach(client -> {
+            try {
+                client.heartbeat();
+            } catch (RuntimeException ignored) {
+                // The emitter's own timeout removes it.
+            }
+        }));
     }
 
     private void remove(Client client, Runnable onEmpty) {

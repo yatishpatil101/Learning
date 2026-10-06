@@ -3,9 +3,8 @@ import { PRICING_DEFAULTS, getPricing } from '../services/settingsService.js';
 
 const PricingContext = createContext(null);
 
-/* `settings.fees` read once from `GET /pricing` and handed down as a synchronous reader, so the six
-   screens that quote a price inline in render never await or flash. The fetch is deferred until a
-   priced screen calls `usePricing()`, and a failed read keeps the last answer rather than resetting. */
+/* `settings.fees` is read once from `GET /bootstrap` and handed down as a synchronous reader so priced screens never await;
+   the fetch is deferred until `usePricing()` is called, and a failed read keeps the last answer. */
 export function PricingProvider({ children }) {
   const [prices, setPrices] = useState(PRICING_DEFAULTS);
   const [active, setActive] = useState(false);

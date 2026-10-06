@@ -30,20 +30,20 @@ class OriginGateTest {
 
     @Test
     void aRequestWithoutTheSecretIsRefusedEvenOnAPublicRoute() throws Exception {
-        mvc.perform(get(Routes.Cities.BASE))
+        mvc.perform(get(Routes.Bootstrap.BASE))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("forbidden"));
     }
 
     @Test
     void aWrongSecretIsRefused() throws Exception {
-        mvc.perform(get(Routes.Cities.BASE).header(OriginGateFilter.HEADER, SECRET + "x"))
+        mvc.perform(get(Routes.Bootstrap.BASE).header(OriginGateFilter.HEADER, SECRET + "x"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void theProxysSecretIsLetThrough() throws Exception {
-        mvc.perform(get(Routes.Cities.BASE).header(OriginGateFilter.HEADER, SECRET))
+        mvc.perform(get(Routes.Bootstrap.BASE).header(OriginGateFilter.HEADER, SECRET))
                 .andExpect(status().isOk());
     }
 

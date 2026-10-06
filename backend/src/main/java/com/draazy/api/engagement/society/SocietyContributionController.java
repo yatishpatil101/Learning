@@ -1,7 +1,5 @@
 package com.draazy.api.engagement.society;
 
-import com.draazy.api.common.web.PageResponse;
-import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.security.AccountPermissions;
@@ -11,11 +9,8 @@ import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import java.util.UUID;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -45,21 +40,6 @@ public class SocietyContributionController {
             AccountPermissions permissions) {
         this.contributions = contributions;
         this.permissions = permissions;
-    }
-
-    /**
-     * {@code GET /societies/{slug}/contributions} — public, caller-aware.
-     *
-     * <p>Caller-aware for three things a client cannot work out for itself: whether this reader has
-     * already voted, whether a delete control would actually work, and whether they are entitled to
-     * see a recommended person's phone number.
-     */
-    @GetMapping(Routes.Societies.CONTRIBUTIONS)
-    public PageResponse<SocietyContributionResponse> list(@CurrentUser AuthPrincipal principal,
-            @PathVariable String slug,
-            @PageableDefault(size = 50) Pageable pageable) {
-        return PageResponse.of(contributions.list(slug, viewerId(principal), isStaff(principal),
-                Pageables.unsorted(pageable)), c -> c);
     }
 
     /** {@code POST /societies/{slug}/contributions} — any signed-in caller. */
@@ -108,11 +88,6 @@ public class SocietyContributionController {
             @PathVariable UUID contributionId, @PathVariable UUID replyId) {
         contributions.removeReply(slug, contributionId, replyId, principal.userId(),
                 staffRemoval(principal));
-    }
-
-    /** Null for an anonymous reader — a legitimate state on the list read, not a failure. */
-    private static UUID viewerId(AuthPrincipal principal) {
-        return principal != null ? principal.userId() : null;
     }
 
     private boolean isStaff(AuthPrincipal principal) {

@@ -3,10 +3,7 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.web.PageResponse;
 import java.util.List;
 
-/**
- * The flatmate feed response: the standard {@code PageEnvelope} fields plus {@code verifiedElements},
- * counted over the whole match by the statement that produced this page so the two cannot disagree.
- */
+/** {@code verifiedElements} is counted by the statement that produced the page so the two cannot disagree. */
 public record FlatmateFeedResponse<T>(
         List<T> content,
         int page,
@@ -14,10 +11,11 @@ public record FlatmateFeedResponse<T>(
         long totalElements,
         int totalPages,
         String sort,
-        long verifiedElements) {
+        long verifiedElements,
+        long otherTabElements) {
 
-    /** Widen a mapped page with the aggregate. */
-    public static <T> FlatmateFeedResponse<T> of(PageResponse<T> page, long verifiedElements) {
+    public static <T> FlatmateFeedResponse<T> of(PageResponse<T> page, long verifiedElements,
+            long otherTabElements) {
         return new FlatmateFeedResponse<>(
                 page.content(),
                 page.page(),
@@ -25,6 +23,7 @@ public record FlatmateFeedResponse<T>(
                 page.totalElements(),
                 page.totalPages(),
                 page.sort(),
-                verifiedElements);
+                verifiedElements,
+                otherTabElements);
     }
 }

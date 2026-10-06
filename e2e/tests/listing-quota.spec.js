@@ -35,6 +35,7 @@ test.describe('Listing quota — live', () => {
     const occupying = rows.filter((r) => !r.flatmate && !r.archived
       && !/deleted|archived|rejected/i.test(String(r.status || '')));
     expect(occupying.length).toBe(4);
+    expect(listings.used).toBe(4);
     // The whole point: four against a ceiling of one. Nothing in the browser was consulted.
     expect(occupying.length).toBeGreaterThan(listings.allowance);
   });

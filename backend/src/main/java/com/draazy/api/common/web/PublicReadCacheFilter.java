@@ -24,10 +24,7 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
-/**
- * Answers the public reference reads every page render makes from memory, and tells browsers and the
- * Cloudflare edge they may reuse them. Rationale and staleness budget: cross-cutting.md §9.
- */
+/** Serves public reference reads from memory and lets browsers and the edge cache them (cross-cutting.md §9). */
 @Component
 // After Spring Security, so a hit still passes the origin gate, CORS and the security headers.
 @Order(Ordered.LOWEST_PRECEDENCE)
@@ -35,12 +32,14 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
 
     // Each must answer every caller identically: one that varied by caller would leak across users.
     static final Set<String> PATHS = Set.of(
-            Routes.Flags.BASE, Routes.Geo.BASE, Routes.Pricing.BASE, Routes.ListingPolicy.BASE,
-            Routes.MovePack.BASE, Routes.Plans.BASE, Routes.Fees.BASE, Routes.Cities.BASE,
-            Routes.Localities.BASE, Routes.Properties.FEATURED, Routes.Properties.TRUST_STATS,
-            Routes.Properties.COUNTS);
+            Routes.Bootstrap.BASE, Routes.Fees.BASE, Routes.Localities.BASE, Routes.Content.FAQS,
+            Routes.Properties.FEATURED);
 
-    /** Bounds memory against arbitrary query strings, e.g. {@code trust-stats?locality=<random>}. */
+    private static final String ADMIN_PREFIX = "/admin/";
+
+    private static final Set<String> READ_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+
+    /** Bounds memory against arbitrary query strings, e.g. {@code /properties/featured?x=<random>}. */
     static final int MAX_ENTRIES = 256;
 
     private final long ttlMillis;
@@ -60,18 +59,35 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
 
     /** Whether this request is served through the cache; false for everything when the TTL is zero. */
     public boolean caches(HttpServletRequest request) {
-        return ttlMillis > 0 && "GET".equals(request.getMethod())
-                && PATHS.contains(request.getRequestURI().substring(request.getContextPath().length()));
+        return ttlMillis > 0 && "GET".equals(request.getMethod()) && PATHS.contains(pathOf(request));
+    }
+
+    // Every back-office write can change a cached answer (settings, cities, plans, FAQs, moderation),
+    // so a successful one drops them all. Only on this instance: the others serve out their TTL.
+    private boolean evicts(HttpServletRequest request) {
+        return ttlMillis > 0 && !READ_METHODS.contains(request.getMethod())
+                && pathOf(request).startsWith(ADMIN_PREFIX);
+    }
+
+    private static String pathOf(HttpServletRequest request) {
+        return request.getRequestURI().substring(request.getContextPath().length());
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !caches(request);
+        return !caches(request) && !evicts(request);
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain chain) throws ServletException, IOException {
+        if (!caches(request)) {
+            chain.doFilter(request, response);
+            if (response.getStatus() < HttpServletResponse.SC_BAD_REQUEST) {
+                entries.clear();
+            }
+            return;
+        }
         String key = request.getRequestURI() + '?' + Objects.toString(request.getQueryString(), "");
         long now = System.currentTimeMillis();
         Entry entry = wantsFresh(request) ? null : entries.get(key);
@@ -104,7 +120,7 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
         response.getOutputStream().write(entry.body());
     }
 
-    /** A signed-in client sends this on every read (http.js), so it always sees its own edits. */
+    /** Sent on every staff and admin read (http.js), so an editor always sees their own edits. */
     private static boolean wantsFresh(HttpServletRequest request) {
         String header = request.getHeader(HttpHeaders.CACHE_CONTROL);
         if (header == null) {

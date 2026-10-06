@@ -16,7 +16,7 @@ test('an owner reactivates a dormant listing through the dashboard and the API p
 
   await signedInAs(page, ACTORS.owner);
   const listingRead = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/api/me/listings'
+    new URL(response.url()).pathname === '/api/me/dashboard'
     && response.request().method() === 'GET'
     && response.status() === 200,
   );

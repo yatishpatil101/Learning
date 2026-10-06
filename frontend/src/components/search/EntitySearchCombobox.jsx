@@ -66,14 +66,19 @@ export default function EntitySearchCombobox({
     if (closeSignal != null) setOpen(false);
   }, [closeSignal]);
 
+  // The index is ~100 listings, so it is read on first open rather than on every page that mounts a search box.
+  const [indexWanted, setIndexWanted] = useState(false);
+  useEffect(() => { if (open) setIndexWanted(true); }, [open]);
+
   useEffect(() => {
     if (!hasData) { setListings([]); return undefined; }
+    if (!indexWanted) return undefined;
     let alive = true;
     listProperties({}, 'newest')
       .then((rows) => { if (alive) setListings(Array.isArray(rows) ? rows : []); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [hasData]);
+  }, [hasData, indexWanted]);
 
   const catalogueReady = useSocietyCatalogue();
   const index = useMemo(

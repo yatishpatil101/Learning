@@ -82,7 +82,7 @@ test('an owner with an approved listing gets Requests navigation and a Verified 
 
   await signedInAs(page, owner.mobile);
   const listingsRead = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/api/me/listings'
+    new URL(response.url()).pathname === '/api/me/dashboard'
     && response.request().method() === 'GET'
     && response.status() === 200,
   );

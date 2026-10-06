@@ -16,7 +16,3 @@ export const myContactRequests = async (opts) => (await provider()).myContactReq
 /** Approve or decline one request. `status` is 'approved' | 'declined'. */
 export const respondToContactRequest = async (reqId, status) =>
   (await provider()).respondToContactRequest(reqId, status);
-
-/** Deliberately not derived from `myContactRequests`: that is one page, so a busy owner's badge would silently cap at
- * the page size and under-report exactly when it matters most. */
-export const pendingContactCount = async () => (await provider()).pendingContactCount();
