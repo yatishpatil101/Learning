@@ -13,7 +13,7 @@ import { Chips, QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import Switch from '../../components/ui/Switch.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import AdminFlagsPanel from './settings/AdminFlagsPanel.jsx';
-import AppFlagsPanel from './settings/AppFlagsPanel.jsx';
+import AppFlagsPanel, { appFlagOn } from './settings/AppFlagsPanel.jsx';
 import MapsGeoPanel from './settings/MapsGeoPanel.jsx';
 
 function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Confirm', danger }) {
@@ -269,7 +269,7 @@ export default function AdminSettings() {
   };
 
   const requestAppFlagToggle = (k) => {
-    const nextVal = !settings.flags[k];
+    const nextVal = !appFlagOn(settings.flags, k);
     setConfirm({
       title: `${nextVal ? 'Enable' : 'Disable'} ${humanize(k)}?`,
       message: `This will ${nextVal ? 'enable' : 'disable'} "${humanize(k)}" across the platform.`,

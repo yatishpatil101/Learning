@@ -15,7 +15,6 @@ import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
 import { fmtINR, classNames } from '../../../lib/format.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { useAdminFlags } from '../../../context/AdminFlagsContext.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import LoadError from '../../../components/LoadError.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
@@ -49,7 +48,6 @@ const openingSection = (listing) => {
 
 export default function PropertyReviewModal({ review, setReview, onRefresh }) {
   const { toast } = useToast();
-  const { optionEnabled } = useAdminFlags();
   const { user } = useAuth();
   const [thread, setThread] = useState(null);
   const [threadError, setThreadError] = useState(null);
@@ -80,11 +78,6 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     if (review) setSection(openingSection(review));
   }
 
-  /* Read once per render rather than inside the effect, so it can be a dependency: flags resolve async, and
-     one turning true after the modal opened left the timeline mounted empty with no second fetch. */
-  const commsLogOn = optionEnabled('properties.commsLog');
-  const qualityScoreOn = optionEnabled('properties.qualityScore');
-
   // Per-run cancellation prevents StrictMode and listing-switch races. Idempotent open avoids
   // a get-then-create race; the read receipt is bodyless, so render the opened case file.
   useEffect(() => {
@@ -107,26 +100,24 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     })();
     setOutreach([]);
     setNotes([]);
-    if (commsLogOn) {
-      // A collapsed timeline's fetch must not block the checklist or decision buttons.
-      (async () => {
-        try {
-          const rows = await listOwnerOutreach(pid(listing));
-          if (!cancelled) setOutreach(rows);
-        } catch {
-          if (!cancelled) setOutreach([]);
-        }
-      })();
-      // Notes and chasers share a timeline but load independently so one failure cannot erase both.
-      (async () => {
-        try {
-          const rows = await listNotes('listing', listing.id);
-          if (!cancelled) setNotes(rows);
-        } catch {
-          if (!cancelled) setNotes([]);
-        }
-      })();
-    }
+    // A collapsed timeline's fetch must not block the checklist or decision buttons.
+    (async () => {
+      try {
+        const rows = await listOwnerOutreach(pid(listing));
+        if (!cancelled) setOutreach(rows);
+      } catch {
+        if (!cancelled) setOutreach([]);
+      }
+    })();
+    // Notes and chasers share a timeline but load independently so one failure cannot erase both.
+    (async () => {
+      try {
+        const rows = await listNotes('listing', listing.id);
+        if (!cancelled) setNotes(rows);
+      } catch {
+        if (!cancelled) setNotes([]);
+      }
+    })();
     setCommsOpen(false);
     setDecisionMode(null);
     setReasonCode('');
@@ -144,7 +135,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       setThread(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewKey, commsLogOn, threadReload]);
+  }, [reviewKey, threadReload]);
 
   // The shared template library is independent of the listing and renders its own empty state.
   useEffect(() => {
@@ -382,13 +373,11 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       setWaOpen(false);
       setWaPreview(null);
       // Re-read the server ledger rather than manufacturing a local history entry.
-      if (commsLogOn) {
-        try {
-          setOutreach(await listOwnerOutreach(pid(review)));
-        } catch {
-          /* The chaser was written; a failed refresh of the panel below it is not worth a second
-             toast contradicting the first. */
-        }
+      try {
+        setOutreach(await listOwnerOutreach(pid(review)));
+      } catch {
+        /* The chaser was written; a failed refresh of the panel below it is not worth a second
+           toast contradicting the first. */
       }
       onRefresh();
     } catch (err) {
@@ -471,7 +460,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                 {review.featured ? <span className="rounded-full border border-teal-400/30 bg-teal-500/15 px-2.5 py-0.5 text-xs text-teal-300">{'\u2605'} Featured</span> : null}
                 {ownerEdited(review) ? <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-500/15 px-2.5 py-0.5 text-xs text-amber-300"><History className="h-3 w-3" /> Owner edited</span> : null}
                 {review.priceReduced ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs text-emerald-300"><TrendingDown className="h-3 w-3" /> Price reduced</span> : null}
-                {qualityScoreOn ? <QualityScoreBadge listing={review} /> : null}
+                <QualityScoreBadge listing={review} />
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-300">
                 <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {review.locality} {'\u00B7'} {review.bhk || '\u2014'} {'\u00B7'} {review.type}</span>
@@ -652,30 +641,26 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                   </div>
                 </div>
 
-                {review.ownerMobile || commsLogOn ? (
-                  <div className="divide-y divide-white/10 rounded-xl border border-white/10">
-                    {review.ownerMobile && (
-                      <WhatsappTemplates
-                        review={review}
-                        waOpen={waOpen}
-                        setWaOpen={setWaOpen}
-                        waTemplates={waTemplates}
-                        waPreview={waPreview}
-                        setWaPreview={setWaPreview}
-                        waPreviewText={waPreview ? interpolateOutreachTemplate(waPreview.body, previewVariables(review)) : ''}
-                        busy={busy}
-                        handleSendWaTemplate={handleSendWaTemplate}
-                      />
-                    )}
-                    {commsLogOn && (
-                      <CommunicationLog
-                        commsOpen={commsOpen}
-                        setCommsOpen={setCommsOpen}
-                        commsLog={commsLog}
-                      />
-                    )}
-                  </div>
-                ) : null}
+                <div className="divide-y divide-white/10 rounded-xl border border-white/10">
+                  {review.ownerMobile && (
+                    <WhatsappTemplates
+                      review={review}
+                      waOpen={waOpen}
+                      setWaOpen={setWaOpen}
+                      waTemplates={waTemplates}
+                      waPreview={waPreview}
+                      setWaPreview={setWaPreview}
+                      waPreviewText={waPreview ? interpolateOutreachTemplate(waPreview.body, previewVariables(review)) : ''}
+                      busy={busy}
+                      handleSendWaTemplate={handleSendWaTemplate}
+                    />
+                  )}
+                  <CommunicationLog
+                    commsOpen={commsOpen}
+                    setCommsOpen={setCommsOpen}
+                    commsLog={commsLog}
+                  />
+                </div>
               </div>
             ) : null}
           </div>

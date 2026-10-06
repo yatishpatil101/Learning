@@ -2393,21 +2393,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-.dz-tour-frame {
-  width: min(90vw, 960px);
-  aspect-ratio: 16 / 9;
-  border-radius: 1rem;
-  overflow: hidden;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
-  background: #000;
-}
-
-.dz-tour-frame iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
 /* Property insight bars, rent-detail cells, modals, sticky CTA */
 .insight-bar {
   height: 8px;

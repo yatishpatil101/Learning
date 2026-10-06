@@ -5,7 +5,6 @@ import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 
@@ -13,7 +12,6 @@ import { valueBenchmark } from './locationIntel.js';
  * ₹/sq.ft plus trend), and what will it actually cost (EMI plus the stamp duty. */
 export function PriceInsights({ p }) {
   const { t } = useTranslation();
-  const { flagEnabled } = useAppFlags();
   const [dp, setDp] = useState(20);
   const [tenure, setTenure] = useState(20);
 
@@ -170,7 +168,7 @@ export function PriceInsights({ p }) {
             <div className="flex justify-between"><span className="text-slate-400">{t('property.monthlyEmi')}</span><span className="text-brand-teal-3 font-extrabold text-lg">₹{fmtNum(emi)}</span></div>
             <p className="text-[11px] text-slate-500 pt-1">{t('property.emiIndicative')}</p>
           </div>
-          {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>}
+          <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>
         </MobileCollapse> : null}
       </div>
 

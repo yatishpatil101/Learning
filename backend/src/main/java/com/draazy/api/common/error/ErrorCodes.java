@@ -25,6 +25,8 @@ public final class ErrorCodes {
 
     public static final String SIGNUPS_CLOSED = "signups_closed";
 
+    public static final String PURCHASES_PAUSED = "purchases_paused";
+
     // 403 on /auth/login: back-office accounts sign in with password + authenticator only.
     public static final String STAFF_SIGN_IN_REQUIRED = "staff_sign_in_required";
 

@@ -26,7 +26,7 @@
 - **Routes (from `src/App.jsx`):**
   - `/services` - hub (`Services.jsx`).
   - `/home-loans` - home loans page with `LoanEmiCalc` (`services/HomeLoans.jsx`).
-  - `/emi-calculator` - full EMI calculator, behind `AppFlagRoute flag="emiCalculator"`
+  - `/emi-calculator` - full EMI calculator
     (`EmiCalculator.jsx`).
   - `/services/property-legal` - legal page with `LegalCostCalc` (`services/PropertyLegal.jsx`).
   - `/services/packers-movers` - packers page with `PackersEstimator` (`services/PackersMovers.jsx`).
@@ -87,7 +87,7 @@ interest = max(total - P, 0)
   `{ principal, interest, balance }`.
 - Card version (`computeEmi` in `LoanEmiCalc.jsx`) is the same formula with `n = max(years,1)*12`
   and rounded outputs; ranges amount 5L..3Cr, rate 7..12%, tenure 5..30y (defaults 50L/8.5/20).
-  Its CTA to the full page shows only when `flagEnabled('emiCalculator')`.
+  Its CTA always links to the full page.
 
 ### 5.2 Legal stamp-duty & registration (`LegalCostCalc.jsx`, `computeStampDuty`)
 Maharashtra ready-reckoner-style estimate for a *purchase*:
@@ -197,5 +197,4 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   Move-in waitlist requires a valid mobile (`isValidMobile`).
 - **Admin config unavailable:** Move-in Pack uses `DEFAULT_PACK_PRICES` until `settings.movePack`
   loads; if `enabled` is false the whole section is a waitlist.
-- **Feature flags:** `/emi-calculator` and the card's "open full" CTA require `emiCalculator`;
-  the flag being off hides the deep link but the card math still works.
+- **Feature flags:** none — the EMI calculator is always on.

@@ -7,7 +7,7 @@ import { srcSetFor } from '../../../lib/imgSrcSet.js';
 import { MAX_PHOTOS_CEILING } from '../../../lib/uploads/policy.js';
 import VideoWalkthrough from './VideoWalkthrough.jsx';
 
-export function Gallery({ gallery, active, setActive, title, p, flagEnabled, setLightbox, setTourOpen, requestPhotos, priceStr }) {
+export function Gallery({ gallery, active, setActive, title, p, setLightbox, requestPhotos, priceStr }) {
   const { t } = useTranslation();
   const count = gallery.length;
   const go = (dir) => setActive((i) => (i + dir + count) % count);
@@ -82,13 +82,6 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
               <Icon name="image-plus" className="w-4 h-4" /> {t('property.requestPhotosShort')}
             </button>
           </div>
-          {/* Hidden below sm: on a phone the hero is full-bleed and swipeable, and this labelled pill covers the
-             photo while sitting directly in the swipe path. */}
-          {flagEnabled('videoListings') && (
-            <button type="button" onClick={() => setTourOpen(true)} className="absolute z-20 top-4 left-4 flex items-center gap-2 min-h-[44px] px-4 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
-              <Icon name="video" className="w-4 h-4 text-brand-teal-3" /> {t('property.virtualTour')}
-            </button>
-          )}
           {priceStr ? (
             <>
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
@@ -162,12 +155,6 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
             <button type="button" onClick={() => go(1)} aria-label={t('property.nextPhoto')} className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full glass-strong text-white items-center justify-center hover:bg-white/15 transition-smooth"><Icon name="chevron-right" className="w-5 h-5" /></button>
           </>
         ) : null}
-
-        {flagEnabled?.('videoListings') && (
-        <button type="button" onClick={() => setTourOpen(true)} className="absolute top-4 left-4 hidden sm:flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
-          <Icon name="video" className="w-4 h-4 text-brand-teal-3" /> {t('property.virtualTour')}
-        </button>
-        )}
 
         {/* The label is `hidden sm:inline`, so on a phone this collapses to a bare 16px icon and the padding alone
            left it 46x34. */}

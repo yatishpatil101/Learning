@@ -7,6 +7,7 @@ import { listPlans } from '../../services/planService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { usePricing } from '../../context/PricingContext.jsx';
+import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 
 const checkoutPlans = (t, fees) => ({
   'seeker-plus': { name: 'Seeker Plus', nameLabel: t('misc.coSeekerPlusName'), price: fees.seekerPlusTopup, sub: t('misc.coSeekerPlusSub'), kind: 'topup', icon: 'user-plus', tagline: t('misc.coSeekerPlusTagline'), feats: [t('misc.coSeekerPlusFeat1'), t('misc.coSeekerPlusFeat2'), t('misc.coSeekerPlusFeat3'), t('misc.coSeekerPlusFeat4')], done: { title: t('misc.coSeekerPlusDoneTitle'), body: t('misc.coSeekerPlusDoneBody'), cta: t('misc.coSeekerPlusDoneCta'), href: '/listings' } },
@@ -24,6 +25,7 @@ export default function Checkout() {
   const { t } = useTranslation();
   const { isIn } = useAuth();
   const { planId: currentPlanId, subscribe, refresh } = usePlan();
+  const { flagEnabled } = useAppFlags();
   const [params] = useSearchParams();
   const planId = params.get('plan');
   // The configured price list, from `GET /pricing`. Only the fallback — `serverPrice` below is the
@@ -81,7 +83,7 @@ export default function Checkout() {
     } catch (err) {
       // 409 is the server's one-open-unpaid-order cap and earns its own message, because retrying cannot work
       // until the sweep retires the older order. Branch on status, never `err.message` — this page is localised.
-      setError(err?.status === 409 ? t('misc.coOrderAlreadyOpen') : t('misc.coPaymentFailed'));
+      setError(err?.status === 409 ? t('misc.coOrderAlreadyOpen') : err?.code === 'purchases_paused' ? t('misc.coPausedBody') : t('misc.coPaymentFailed'));
     } finally {
       setPaying(false);
     }
@@ -98,6 +100,7 @@ export default function Checkout() {
   // Guard against paying twice for a plan you already hold; the one-time Seeker Plus top-up has no lasting
   // ownership, so it stays re-purchasable. Shown before payment only — a purchase made now still succeeds.
   const alreadyOnThisPlan = P.kind === 'plan' && !result && currentPlanId === planId;
+  const paused = !result && !flagEnabled('subscriptionPlans');
 
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -110,6 +113,16 @@ export default function Checkout() {
           <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(16,185,129,.15)' }}><Icon name="badge-check" className="w-9 h-9 text-emerald-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coAlreadyActiveTitle')}</h2>
           <p className="text-gray-400 text-sm mb-6">{t('misc.coAlreadyActiveBody', { plan: P.nameLabel })}</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link to="/dashboard#billing" className="btn-teal px-5 py-2.5 rounded-xl font-semibold text-sm">{t('misc.coManagePlan')}</Link>
+            <Link to="/plans" className="px-5 py-2.5 rounded-xl font-semibold text-sm border border-white/10 text-gray-200 hover:bg-white/5 transition-colors">{t('misc.coViewPlans')}</Link>
+          </div>
+        </div>
+      ) : paused ? (
+        <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(245,158,11,.15)' }}><Icon name="pause-circle" className="w-9 h-9 text-amber-400" /></div>
+          <h2 className="text-xl font-extrabold mb-1">{t('misc.coPausedTitle')}</h2>
+          <p className="text-gray-400 text-sm mb-6">{t('misc.coPausedBody')}</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link to="/dashboard#billing" className="btn-teal px-5 py-2.5 rounded-xl font-semibold text-sm">{t('misc.coManagePlan')}</Link>
             <Link to="/plans" className="px-5 py-2.5 rounded-xl font-semibold text-sm border border-white/10 text-gray-200 hover:bg-white/5 transition-colors">{t('misc.coViewPlans')}</Link>

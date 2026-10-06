@@ -38,7 +38,7 @@ export const ADMIN_MODULES = [
   { key: 'properties', label: 'Properties', path: '/admin/properties', icon: Building2, atom: 'properties:read', writeAtom: 'properties:moderate' },
   { key: 'users', label: 'Users', path: '/admin/users', icon: Users, atom: 'users:read' },
   ...DESK_MODULES,
-  { key: 'support', label: 'Support queue', path: '/admin/support', icon: LifeBuoy, atom: 'tickets:read', writeAtom: 'tickets:write' },
+  { key: 'support', label: 'Support queue', path: '/admin/support', icon: LifeBuoy, flagKey: 'support', atom: 'tickets:read', writeAtom: 'tickets:write' },
   { key: 'enquiries', label: 'Enquiries', path: '/admin/enquiries', icon: MessageSquare, atom: 'enquiries:read' },
   { key: 'referrals', label: 'Referrals', path: '/admin/referrals', icon: Gift, atom: 'reports:write' },
   { key: 'finance', label: 'Finance', path: '/admin/finance', icon: IndianRupee, flagKey: 'finance', adminOnly: true, atom: 'finance:read' },

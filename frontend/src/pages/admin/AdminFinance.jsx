@@ -5,7 +5,6 @@ import { getFinanceOverview, getFinanceSeries, listFinanceTransactions } from '.
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useTabParam } from '../../lib/useTabParam.js';
-import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -88,7 +87,6 @@ function FlowRow({ label, amount, neg, pos, total, note, noteLabel }) {
 
 export default function AdminFinance() {
   const { t } = useTranslation();
-  const { optionEnabled } = useAdminFlags();
   const [finance, setFinance] = useState(null);
   const [series, setSeries] = useState(null);
   const [ledger, setLedger] = useState(null);
@@ -206,7 +204,6 @@ export default function AdminFinance() {
       icons={<IconAction label={`Open transaction ${r.id}`} icon={Eye} onClick={() => setDetail(r)} />}
     />
   );
-  const showLedger = optionEnabled('finance.transactions');
   const ledgerTruncated = txTotal > txRows.length;
 
   return (
@@ -215,21 +212,18 @@ export default function AdminFinance() {
         <button onClick={doRevenueExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
       } />
 
-      {showLedger ? (
-        <QueueTabs
-          tabs={[{ key: 'overview', label: 'Overview', count: null }, { key: 'transactions', label: 'Transactions', count: ledger ? txTotal : null }]}
-          active={tab}
-          onChange={setTab}
-          label="Finance views"
-          idPrefix="finance"
-        />
-      ) : null}
+      <QueueTabs
+        tabs={[{ key: 'overview', label: 'Overview', count: null }, { key: 'transactions', label: 'Transactions', count: ledger ? txTotal : null }]}
+        active={tab}
+        onChange={setTab}
+        label="Finance views"
+        idPrefix="finance"
+      />
 
-      {tab === 'overview' || !showLedger ? (<div {...(showLedger ? { id: 'finance-panel', role: 'tabpanel', 'aria-labelledby': 'finance-tab-overview' } : {})}>
+      {tab === 'overview' ? (<div id="finance-panel" role="tabpanel" aria-labelledby="finance-tab-overview">
       {disclosures.length > 0 && (
         <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-testid="finance-disclosures">
-          {/* h3 to match the other panels on this page — the banner is their sibling, not their
-              parent, and the outline must not change shape when a flag is flipped. */}
+          {/* h3 to match the other panels on this page — the banner is           their sibling, not their parent. */}
           <h3 className="flex items-center gap-2 text-sm font-bold text-amber-200">
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
             {t('adminFinance.disclosureTitle')}
@@ -260,100 +254,95 @@ export default function AdminFinance() {
         ))}
       </div>
 
-      {optionEnabled('finance.charts') && (
-        <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <div className="dz-card p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-bold">Revenue by month</h3>
-              <Select
-                size="sm"
-                value={String(range)}
-                onChange={(v) => setRange(+v)}
-                ariaLabel="Revenue window"
-                options={[
-                  { value: '6', label: '6 months' },
-                  { value: '12', label: '12 months' },
-                  { value: '24', label: '24 months' },
-                ]}
-              />
-            </div>
-            <BarChart
-              labels={slicedSeries.map((m) => monthLabel(m.month))}
-              datasets={[
-                { label: 'Subscriptions', data: slicedSeries.map((m) => m.subscriptions), stack: 's', color: PALETTE[0] },
-                { label: 'Services', data: slicedSeries.map((m) => m.services), stack: 's', color: PALETTE[1] },
+      <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="dz-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-bold">Revenue by month</h3>
+            <Select
+              size="sm"
+              value={String(range)}
+              onChange={(v) => setRange(+v)}
+              ariaLabel="Revenue window"
+              options={[
+                { value: '6', label: '6 months' },
+                { value: '12', label: '12 months' },
+                { value: '24', label: '24 months' },
               ]}
-              height={280}
-              options={{ scales: { x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { stacked: true, ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
-            />
-            {!serviceOrdersCounted && <NotMeasured>{t('adminFinance.servicesQuoted')}</NotMeasured>}
-          </div>
-          <div className="dz-card p-4">
-            <h3 className="mb-3 font-bold">Revenue mix (this month)</h3>
-            <DoughnutChart
-              labels={['Subscriptions', 'Services']}
-              values={[month.subscriptions, month.services]}
-              colors={[PALETTE[0], PALETTE[1]]}
-              height={280}
             />
           </div>
+          <BarChart
+            labels={slicedSeries.map((m) => monthLabel(m.month))}
+            datasets={[
+              { label: 'Subscriptions', data: slicedSeries.map((m) => m.subscriptions), stack: 's', color: PALETTE[0] },
+              { label: 'Services', data: slicedSeries.map((m) => m.services), stack: 's', color: PALETTE[1] },
+            ]}
+            height={280}
+            options={{ scales: { x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { stacked: true, ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
+          />
+          {!serviceOrdersCounted && <NotMeasured>{t('adminFinance.servicesQuoted')}</NotMeasured>}
         </div>
-      )}
+        <div className="dz-card p-4">
+          <h3 className="mb-3 font-bold">Revenue mix (this month)</h3>
+          <DoughnutChart
+            labels={['Subscriptions', 'Services']}
+            values={[month.subscriptions, month.services]}
+            colors={[PALETTE[0], PALETTE[1]]}
+            height={280}
+          />
+        </div>
+      </div>
 
-      {optionEnabled('finance.models') && (
-        <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
-          <div className="dz-card p-4">
-            <h3 className="mb-3 font-bold">MRR growth</h3>
-            <LineChart
-              labels={slicedSeries.map((m) => monthLabel(m.month))}
-              datasets={[{ label: 'MRR', data: slicedSeries.map((m) => m.subscriptions), fill: true }]}
-              options={{ scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
-            />
-            <p className="mt-2 text-xs text-gray-500">{t('adminFinance.mrrChartBasis')}</p>
-          </div>
-          <div className="dz-card p-4">
-            <h3 className="mb-2 text-sm font-bold">Subscriptions</h3>
-            <p className="mb-3 text-xs text-gray-500">Active paid plans</p>
-            {(plans || []).length === 0 ? (
-              <p className="py-2 text-sm text-gray-500">{t('adminFinance.noActivePlans')}</p>
-            ) : (plans || []).map((p) => (
-              /* Keyed on the price too: a repriced plan legitimately returns one line per price
-                 cohort, so the name alone is no longer unique. */
-              <div key={`${p.name}:${p.price}`} className="flex items-center justify-between border-b border-white/5 py-2 text-sm">
-                <div>
-                  <div className="font-medium">{p.name}</div>
-                  <div className="text-xs text-gray-500">{fmtNum(p.active)} active · {fmtINR(p.price)}/{p.billingCycle === 'yearly' ? 'yr' : p.billingCycle === 'quarterly' ? 'qtr' : 'mo'}</div>
-                </div>
-                <div className="font-semibold">{fmtINR(p.monthlyValue)}</div>
+      <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
+        <div className="dz-card p-4">
+          <h3 className="mb-3 font-bold">MRR growth</h3>
+          <LineChart
+            labels={slicedSeries.map((m) => monthLabel(m.month))}
+            datasets={[{ label: 'MRR', data: slicedSeries.map((m) => m.subscriptions), fill: true }]}
+            options={{ scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
+          />
+          <p className="mt-2 text-xs text-gray-500">{t('adminFinance.mrrChartBasis')}</p>
+        </div>
+        <div className="dz-card p-4">
+          <h3 className="mb-2 text-sm font-bold">Subscriptions</h3>
+          <p className="mb-3 text-xs text-gray-500">Active paid plans</p>
+          {(plans || []).length === 0 ? (
+            <p className="py-2 text-sm text-gray-500">{t('adminFinance.noActivePlans')}</p>
+          ) : (plans || []).map((p) => (
+            /* Keyed on the price too: a repriced plan returns one line per price cohort, so the name alone is not unique. */
+            <div key={`${p.name}:${p.price}`} className="flex items-center justify-between border-b border-white/5 py-2 text-sm">
+              <div>
+                <div className="font-medium">{p.name}</div>
+                <div className="text-xs text-gray-500">{fmtNum(p.active)} active · {fmtINR(p.price)}/{p.billingCycle === 'yearly' ? 'yr' : p.billingCycle === 'quarterly' ? 'qtr' : 'mo'}</div>
               </div>
-            ))}
-            <div className="flex justify-between border-t border-white/15 pt-2 text-sm font-bold">
-              <span className="text-gray-400">MRR total</span><span>{fmtINR(mrr)}</span>
+              <div className="font-semibold">{fmtINR(p.monthlyValue)}</div>
             </div>
-          </div>
-          <div className="space-y-4">
-            <div className="dz-card p-4">
-              <h3 className="mb-1 text-sm font-bold">Net position</h3>
-              <p className="mb-2 text-xs text-gray-500">This month</p>
-              <FlowRow
-                label="Gross revenue"
-                amount={monthRevenue}
-                note={serviceOrdersCounted ? null : t('adminFinance.servicesNotCounted')}
-                noteLabel={t('adminFinance.notMeasured')}
-              />
-              {/* Rent-payment rail rows are absent rather than zeroed; zero would imply a quiet month. */}
-              <FlowRow
-                label="Refunds"
-                amount={finance.refunds}
-                neg
-                note={refundsMeasured ? null : t('adminFinance.refundsNotMeasured')}
-                noteLabel={t('adminFinance.notMeasured')}
-              />
-              <FlowRow label="Net retained" amount={monthRevenue - finance.refunds} total />
-            </div>
+          ))}
+          <div className="flex justify-between border-t border-white/15 pt-2 text-sm font-bold">
+            <span className="text-gray-400">MRR total</span><span>{fmtINR(mrr)}</span>
           </div>
         </div>
-      )}
+        <div className="space-y-4">
+          <div className="dz-card p-4">
+            <h3 className="mb-1 text-sm font-bold">Net position</h3>
+            <p className="mb-2 text-xs text-gray-500">This month</p>
+            <FlowRow
+              label="Gross revenue"
+              amount={monthRevenue}
+              note={serviceOrdersCounted ? null : t('adminFinance.servicesNotCounted')}
+              noteLabel={t('adminFinance.notMeasured')}
+            />
+            {/* Rent-payment rail rows are absent rather than zeroed; zero would imply a quiet month. */}
+            <FlowRow
+              label="Refunds"
+              amount={finance.refunds}
+              neg
+              note={refundsMeasured ? null : t('adminFinance.refundsNotMeasured')}
+              noteLabel={t('adminFinance.notMeasured')}
+            />
+            <FlowRow label="Net retained" amount={monthRevenue - finance.refunds} total />
+          </div>
+        </div>
+      </div>
       </div>) : (
         <QueuePanel
           idPrefix="finance"

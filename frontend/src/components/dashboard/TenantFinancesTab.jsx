@@ -5,7 +5,6 @@ import Icon from '../Icon.jsx';
 import HScroll from '../ui/HScroll.jsx';
 import Select from '../ui/Select.jsx';
 import { fmtINR } from '../../lib/format.js';
-import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import {
   myRentals, addRental, updateRental, deleteRental,
 } from '../../services/rentService.js';
@@ -49,7 +48,6 @@ const basisSalaryKey = (mob) => 'dzHraBasic:' + (mob || 'anon');
 
 export default function TenantFinancesTab({ user, toast }) {
   const { t, i18n } = useTranslation();
-  const { flagEnabled } = useAppFlags();
   const mob = user?.mobile || '';
   const [idx, setIdx] = useState(0);
   /* One caller-scoped read. */
@@ -304,9 +302,7 @@ export default function TenantFinancesTab({ user, toast }) {
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
-            {flagEnabled('emiCalculator') && (
-              <Link to="/emi-calculator" className="dz-control dz-control--ghost px-3 text-xs gap-1.5"><Icon name="calculator" className="w-4 h-4" /> {t('wallet.emiCalc')}</Link>
-            )}
+            <Link to="/emi-calculator" className="dz-control dz-control--ghost px-3 text-xs gap-1.5"><Icon name="calculator" className="w-4 h-4" /> {t('wallet.emiCalc')}</Link>
             <Link to="/listings?deal=buy" className="dz-control dz-control--action px-4 gap-1.5"><Icon name="home" className="w-4 h-4" /> {t('wallet.homesToBuy')}</Link>
           </div>
         </div>

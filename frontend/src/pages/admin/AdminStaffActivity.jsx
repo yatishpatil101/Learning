@@ -250,10 +250,7 @@ export default function AdminStaffActivity() {
         </div>
       )}
 
-      {/* KPI summary row. Two facts the server counts, then the busiest kinds of record in the
-          window — rather than the old page's two hardcoded tiles, which named 'listings' and
-          'services' whether or not either had happened. */}
-      {optionEnabled('staffActivity.kpis') && (
+      {/* KPI summary row: two server-counted facts, then the busiest kinds of record in the window. */}
       <div className="mb-6 grid gap-3 grid-cols-2 sm:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
           <div data-testid="kpi-total" className="text-2xl font-bold text-white">{fmtNum(headline.total)}</div>
@@ -270,7 +267,6 @@ export default function AdminStaffActivity() {
           </div>
         ))}
       </div>
-      )}
 
 
       {/* Filters bar */}

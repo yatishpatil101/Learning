@@ -164,6 +164,11 @@ public class PlatformSettings {
     }
 
     @Transactional(readOnly = true)
+    public boolean subscriptionPlansEnabled() {
+        return flag(FLAGS_KEY, "subscriptionPlans", true);
+    }
+
+    @Transactional(readOnly = true)
     public boolean maintenanceMode() {
         return flag(FLAGS_KEY, "maintenanceMode", false);
     }

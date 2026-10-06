@@ -181,8 +181,8 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
 
               <GroupApplyCard p={p} isIn={isIn} toast={toast} />
 
-              {flagEnabled('emiCalculator') && !isLand && !isRent && <Link to="/emi-calculator" className="flex min-h-[44px] items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
-              {flagEnabled('compareProperties') && <CompareToggleBar p={p} />}
+              {!isLand && !isRent && <Link to="/emi-calculator" className="flex min-h-[44px] items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
+              <CompareToggleBar p={p} />
             </div>
           </section>
   );

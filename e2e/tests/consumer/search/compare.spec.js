@@ -1,6 +1,4 @@
 import { test, expect } from '../../../fixtures/live.js';
-// The `compareProperties` flag is server state (`GET /flags`), so the `flags` fixture writes it via
-// `PUT /admin/settings`; `draazyCompare` stays in localStorage because CompareContext really uses it.
 const A = 'p5013'; // 1 BHK Flat, Baner (buy)
 const B = 'p5121'; // 2 BHK Flat, Wakad (rent)
 // The global cookie-consent banner is also role="dialog"; seed consent so it never
@@ -83,8 +81,7 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.locator(`a[href="/property/${B}"]`)).toHaveCount(0);
   });
 
-  test('a property can be added via the property-page compare toggle', async ({ page, flags }) => {
-    await flags.enable('compareProperties');
+  test('a property can be added via the property-page compare toggle', async ({ page }) => {
     await seedConsent(page);
     await page.goto(`/property/${A}`);
 
@@ -98,8 +95,7 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
   });
 
-  test('listing cards carry only the save heart, never a compare toggle', async ({ page, flags }) => {
-    await flags.enable('compareProperties');
+  test('listing cards carry only the save heart, never a compare toggle', async ({ page }) => {
     await seedConsent(page);
     await page.goto('/listings?deal=buy');
     await expect(page.locator('.heart-btn').first()).toBeVisible({ timeout: 20_000 });
@@ -141,10 +137,7 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.getByText('Could not load properties. Check your connection and try again.')).toBeVisible();
     await expect(page.getByText('No more properties to add.')).toHaveCount(0);
   });
-  /* The picker takes the scroll lock, so the table behind it is unreachable by pointer and wheel —
-     but with no `role`, a screen reader could still read it and `isTopDialog` could not see it.
-     Untrapped, Tab walks straight out of the picker into that table, so the two would disagree about
-     where the user is. */
+  /* Without a `role` the picker is invisible to `isTopDialog`, and untrapped Tab escapes into the table. */
   test('the picker announces itself as a modal dialog while it holds the scroll lock, and keeps Tab inside itself', async ({ page }) => {
     await seedConsent(page);
     await seedCompare(page, [A]);

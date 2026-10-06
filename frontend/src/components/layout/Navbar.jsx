@@ -108,7 +108,7 @@ export default function Navbar() {
   const acctItems = (close, { mobile = false } = {}) => (
       /* Compare is the exception, and only on the drawer's side of the breakpoint. */
     <>
-      {mobile && flagEnabled('compareProperties') ? (
+      {mobile ? (
         <Link to="/compare" onClick={close} className={rowCls}>
           <Icon name="git-compare" className="w-4 h-4 text-gray-400" />
           <span className="flex-1">Compare properties</span>
@@ -307,7 +307,7 @@ export default function Navbar() {
               {postLabel}
             </Link>
             {/* Signed in, this target leaves the phone bar for the drawer; signed out has no drawer. */}
-            {flagEnabled('compareProperties') && (showCompare || compareCount > 0) ? (
+            {showCompare || compareCount > 0 ? (
               <Link to="/compare" className={'dz-topbar__action tap-target tap-extend relative items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group ' + (isIn ? 'hidden lg:inline-flex' : 'inline-flex')} title="Compare Properties" aria-label="Compare properties">
                 <Icon name="git-compare" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                 {compareCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{compareCount}</span>}
@@ -315,12 +315,10 @@ export default function Navbar() {
             ) : null}
             {isIn ? (
               <>
-                {flagEnabled('savedListings') && (
-                  <Link to="/saved" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
-                    <Icon name="heart" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
-                    {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
-                  </Link>
-                )}
+                <Link to="/saved" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
+                  <Icon name="heart" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
+                  {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
+                </Link>
                 <NotificationBell />
                 {flagEnabled('inAppMessaging') && (
                   <Link to="/messages" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Messages" aria-label="Messages">

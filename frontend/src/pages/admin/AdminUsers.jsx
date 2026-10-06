@@ -126,7 +126,6 @@ export default function AdminUsers() {
   const closeAction = () => { setActionModal(null); setActionError(''); };
 
   const openTimeline = useCallback(async (targetUser) => {
-    if (!optionEnabled('users.timeline')) return;
     setTimelineUser(targetUser);
     setTimeline(null);
     setUserNotes(null);
@@ -142,7 +141,7 @@ export default function AdminUsers() {
     } catch {
       if (alive.current) { setTimeline([]); toast('Could not load this user\u2019s activity', 'error'); }
     }
-  }, [optionEnabled, toast]);
+  }, [toast]);
   const closeTimeline = () => { setTimelineUser(null); setTimeline(null); setUserNotes(null); setUserNoteDraft(''); };
 
   /* Refetched rather than optimistically prepended: the server decides the id, the timestamp and
@@ -294,7 +293,7 @@ export default function AdminUsers() {
           ) : null}
         </>
       }
-      primary={isAdmin && optionEnabled('users.timeline') ? (
+      primary={isAdmin ? (
         <button type="button" onClick={() => openTimeline(u)} title="View activity" className={BTN.ghost}>
           <Eye className="h-3.5 w-3.5" /> View activity
         </button>
@@ -392,107 +391,105 @@ export default function AdminUsers() {
         )}
       </Modal>
 
-      {optionEnabled('users.timeline') && (
-        <Modal open={!!timelineUser} onClose={closeTimeline} title={timelineUser ? `Activity — ${timelineUser.name || timelineUser.mobile}` : ''} size="lg">
-          {timelineUser && (
-            <div>
-              <div className="mb-4 flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                <div className="grid h-12 w-12 place-items-center rounded-full bg-indigo-500/15 text-indigo-300 text-lg font-bold">
-                  {avatarFor(timelineUser.name || '?')}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-white">{timelineUser.name || 'Unnamed'}</span>
-                    {timelineUser.verified && <BadgeCheck className="h-4 w-4 text-brand-teal" />}
-                    <Badge status={timelineUser.status} />
-                  </div>
-                  <div className="text-xs text-gray-400 mt-0.5">{timelineUser.mobile} · {timelineUser.role}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-white">{timeline?.length ?? '—'}</div>
-                  <div className="text-xs text-gray-500">activities</div>
-                </div>
+      <Modal open={!!timelineUser} onClose={closeTimeline} title={timelineUser ? `Activity — ${timelineUser.name || timelineUser.mobile}` : ''} size="lg">
+        {timelineUser && (
+          <div>
+            <div className="mb-4 flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+              <div className="grid h-12 w-12 place-items-center rounded-full bg-indigo-500/15 text-indigo-300 text-lg font-bold">
+                {avatarFor(timelineUser.name || '?')}
               </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-white">{timelineUser.name || 'Unnamed'}</span>
+                  {timelineUser.verified && <BadgeCheck className="h-4 w-4 text-brand-teal" />}
+                  <Badge status={timelineUser.status} />
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5">{timelineUser.mobile} · {timelineUser.role}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-white">{timeline?.length ?? '—'}</div>
+                <div className="text-xs text-gray-500">activities</div>
+              </div>
+            </div>
 
-              <div data-testid="user-notes" className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-200">
-                  <MessageSquareText className="h-4 w-4 text-indigo-400" /> Staff notes
-                  {userNotes && (
-                    <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">{userNotes.length}</span>
-                  )}
-                </div>
-                <div className="mt-3 flex items-start gap-2">
-                  <textarea
-                    value={userNoteDraft}
-                    onChange={(e) => setUserNoteDraft(e.target.value)}
-                    rows={2}
-                    placeholder="What should the next person know about this account?"
-                    aria-label="Add a staff note"
-                    className="dz-input resize-none text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={submitUserNote}
-                    disabled={savingNote || !userNoteDraft.trim()}
-                    className="dz-btn-primary shrink-0 px-3 py-2 text-xs disabled:opacity-40"
-                  >
-                    {savingNote ? 'Saving…' : 'Add note'}
-                  </button>
-                </div>
-                {userNotes === null ? (
-                  <div className="mt-3 text-xs text-gray-500">Loading notes…</div>
-                ) : userNotes.length > 0 ? (
-                  <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
-                    {userNotes.map((n) => (
-                      <div key={n.id} data-testid="user-note" className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-xs leading-relaxed">
-                        <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                          <span className="font-medium text-gray-300">{n.author}</span>
-                          {n.at && <span>{timeAgo(n.at)}</span>}
-                          {n.editedAt && <span className="italic">edited</span>}
-                        </div>
-                        <p className="mt-0.5 text-gray-400">{n.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-3 text-xs text-gray-500">Nobody has written a note about this account yet.</div>
+            <div data-testid="user-notes" className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-gray-200">
+                <MessageSquareText className="h-4 w-4 text-indigo-400" /> Staff notes
+                {userNotes && (
+                  <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">{userNotes.length}</span>
                 )}
               </div>
-
-              {timeline === null ? (
-                <Loading />
-              ) : timeline.length > 0 ? (
-                <div className="relative pl-6 border-l border-white/10 max-h-[60vh] overflow-y-auto space-y-4">
-                  {timeline.map((entry, i) => {
-                    const styles = TIMELINE_STYLES[entry.kind] || { icon: Mail, dot: 'bg-gray-400', color: 'text-gray-300', title: 'Activity' };
-                    const Icon = styles.icon;
-                    return (
-                      <div key={`${entry.kind}-${entry.entityId}-${entry.at}-${i}`} className="relative">
-                        <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-ink ${styles.dot}`} />
-                        <div className="flex items-start gap-3">
-                          <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 ${styles.color}`}>
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`text-sm font-semibold ${styles.color}`}>{styles.title}</span>
-                              {entry.status && <Badge status={entry.status} />}
-                            </div>
-                            {entry.label && <p className="text-sm text-gray-400 mt-0.5 truncate">{entry.label}</p>}
-                            <div className="text-[11px] text-gray-500 mt-1">{timeAgo(entry.at)}</div>
-                          </div>
-                        </div>
+              <div className="mt-3 flex items-start gap-2">
+                <textarea
+                  value={userNoteDraft}
+                  onChange={(e) => setUserNoteDraft(e.target.value)}
+                  rows={2}
+                  placeholder="What should the next person know about this account?"
+                  aria-label="Add a staff note"
+                  className="dz-input resize-none text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={submitUserNote}
+                  disabled={savingNote || !userNoteDraft.trim()}
+                  className="dz-btn-primary shrink-0 px-3 py-2 text-xs disabled:opacity-40"
+                >
+                  {savingNote ? 'Saving…' : 'Add note'}
+                </button>
+              </div>
+              {userNotes === null ? (
+                <div className="mt-3 text-xs text-gray-500">Loading notes…</div>
+              ) : userNotes.length > 0 ? (
+                <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                  {userNotes.map((n) => (
+                    <div key={n.id} data-testid="user-note" className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-xs leading-relaxed">
+                      <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                        <span className="font-medium text-gray-300">{n.author}</span>
+                        {n.at && <span>{timeAgo(n.at)}</span>}
+                        {n.editedAt && <span className="italic">edited</span>}
                       </div>
-                    );
-                  })}
+                      <p className="mt-0.5 text-gray-400">{n.text}</p>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <div className="py-8 text-center text-sm text-gray-500">No activity recorded for this user yet.</div>
+                <div className="mt-3 text-xs text-gray-500">Nobody has written a note about this account yet.</div>
               )}
             </div>
-          )}
-        </Modal>
-      )}
+
+            {timeline === null ? (
+              <Loading />
+            ) : timeline.length > 0 ? (
+              <div className="relative pl-6 border-l border-white/10 max-h-[60vh] overflow-y-auto space-y-4">
+                {timeline.map((entry, i) => {
+                  const styles = TIMELINE_STYLES[entry.kind] || { icon: Mail, dot: 'bg-gray-400', color: 'text-gray-300', title: 'Activity' };
+                  const Icon = styles.icon;
+                  return (
+                    <div key={`${entry.kind}-${entry.entityId}-${entry.at}-${i}`} className="relative">
+                      <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-ink ${styles.dot}`} />
+                      <div className="flex items-start gap-3">
+                        <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 ${styles.color}`}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm font-semibold ${styles.color}`}>{styles.title}</span>
+                            {entry.status && <Badge status={entry.status} />}
+                          </div>
+                          {entry.label && <p className="text-sm text-gray-400 mt-0.5 truncate">{entry.label}</p>}
+                          <div className="text-[11px] text-gray-500 mt-1">{timeAgo(entry.at)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-sm text-gray-500">No activity recorded for this user yet.</div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

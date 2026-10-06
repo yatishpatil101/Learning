@@ -1,84 +1,62 @@
 import { useState } from 'react';
-import { ChevronRight, Globe, Shield, CreditCard, Home, Search, Building2, MessageCircle } from 'lucide-react';
+import { ChevronRight, Globe, Shield, CreditCard, Search, Building2 } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
 import Switch from '../../../components/ui/Switch.jsx';
 
+/* Only runtime kill switches and launch gates: each one must switch a live feature off when it
+   misbehaves, costs too much or is abused. `off: true` marks the one flag whose absence means off. */
 const APP_FLAG_SECTIONS = [
   {
-    section: 'discovery',
-    title: 'Discovery & Search',
-    desc: 'How buyers and tenants find properties',
+    section: 'engagement',
+    title: 'Discovery & Engagement',
+    desc: 'Buyer and tenant features with a running cost or abuse risk',
     icon: Search,
     flags: [
-      { key: 'mapSearch', label: 'Map search', desc: 'Interactive map-based property search' },
-      { key: 'compareProperties', label: 'Compare properties', desc: 'Side-by-side property comparison tool' },
-      { key: 'savedListings', label: 'Saved listings', desc: 'Allow users to save/bookmark properties' },
-      { key: 'newProjectListings', label: 'New project listings', desc: 'Dedicated section for new-launch projects' },
-      { key: 'videoListings', label: 'Video listings', desc: 'Support video tours on property pages' },
+      { key: 'mapSearch', label: 'Map search', desc: 'Google Maps view on the listings page' },
+      { key: 'scheduleVisit', label: 'Schedule visit', desc: 'Booking property site visits with owners' },
+      { key: 'reviewsEnabled', label: 'User reviews', desc: 'Property and locality reviews written by users' },
+      { key: 'inAppMessaging', label: 'In-app messaging', desc: 'Chat between buyers, tenants and owners' },
+      { key: 'assistant', label: 'Assistant', desc: 'The floating help assistant on consumer pages' },
     ],
   },
   {
-    section: 'engagement',
-    title: 'Engagement & Visits',
-    desc: 'User interaction with listings',
-    icon: Home,
-    flags: [
-      { key: 'scheduleVisit', label: 'Schedule visit', desc: 'Allow users to book property site visits' },
-      { key: 'emiCalculator', label: 'EMI calculator', desc: 'Home loan EMI calculator tool' },
-      { key: 'reviewsEnabled', label: 'User reviews', desc: 'Allow users to review properties & localities' },
-      { key: 'reviewModeration', label: 'Review moderation', desc: 'Hold reviews for admin approval before publishing' },
-    ],
-  },
-  {
-    section: 'listings',
-    title: 'Listing & Posting',
-    desc: 'Owner-facing listing features',
+    section: 'trust',
+    title: 'Trust & Communities',
+    desc: 'Flows that depend on review capacity or a staged launch',
     icon: Building2,
     flags: [
-      { key: 'listingVerification', label: 'Listing verification', desc: 'Require admin approval before publishing new listings' },
-      { key: 'kycBadgeEnabled', label: 'Verified badge (identity review)', desc: 'Offer the opt-in identity verification flow — a trust signal, not a posting or contact gate' },
-      { key: 'ownerPhonePrivacy', label: 'Owner phone privacy', desc: 'Mask owner phone numbers from non-verified buyers' },
-      { key: 'paidFeaturedListings', label: 'Paid featured listings', desc: 'Owners can pay to feature their listing' },
-      { key: 'zeroBrokerage', label: 'Zero brokerage', desc: 'Advertise zero-brokerage model on platform' },
-    ],
-  },
-  {
-    section: 'monetization',
-    title: 'Monetization & Payments',
-    desc: 'Revenue and payment features',
-    icon: CreditCard,
-    flags: [
-      { key: 'subscriptionPlans', label: 'Subscription plans', desc: 'Tiered plans for owners (Basic, Pro, Premium)' },
-      { key: 'referralRewards', label: 'Referral rewards', desc: 'Show the refer-and-earn routes to free owner contacts and listing slots. Off hides them; bonuses already earned still count.' },
+      { key: 'kycBadgeEnabled', label: 'Verified badge (identity review)', desc: 'The opt-in identity verification flow; a trust signal, not a posting or contact gate' },
       { key: 'societySaaS', label: 'Society SaaS', desc: 'Society management module (maintenance, notices)' },
     ],
   },
   {
-    section: 'communication',
-    title: 'Communication',
-    desc: 'Messaging and notification channels',
-    icon: MessageCircle,
+    section: 'payments',
+    title: 'Monetization & Payments',
+    desc: 'Money-moving features to pause during a gateway or fraud incident',
+    icon: CreditCard,
     flags: [
-      { key: 'inAppMessaging', label: 'In-app messaging', desc: 'Real-time chat between buyer and owner' },
-      { key: 'demoChatSeed', label: 'Demo chat seeds', desc: 'Pre-fill the inbox with sample conversations (off = real users start empty)' },
-      { key: 'whatsappEnabled', label: 'WhatsApp integration', desc: 'Send notifications and templates via WhatsApp' },
-      { key: 'emailNotifications', label: 'Email notifications', desc: 'Transactional and marketing emails' },
-      { key: 'smsNotifications', label: 'SMS notifications', desc: 'OTP, alerts, and reminders via SMS' },
-      { key: 'pushNotifications', label: 'Push notifications', desc: 'Browser and mobile push alerts' },
+      { key: 'subscriptionPlans', label: 'Plan purchases', desc: 'Buying plans and top-ups at checkout. Off pauses new purchases; active plans keep working.' },
+      { key: 'paidFeaturedListings', label: 'Paid featured listings', desc: 'Paid owners can feature a listing; free owners see the upsell' },
+      { key: 'referralRewards', label: 'Referral rewards', desc: 'Show the refer-and-earn routes to free owner contacts and listing slots. Off hides them; bonuses already earned still count.' },
     ],
   },
   {
     section: 'platform',
     title: 'Platform & Access',
-    desc: 'Core platform controls',
+    desc: 'Incident controls the server enforces',
     icon: Shield,
     flags: [
       { key: 'signupsEnabled', label: 'Public signups', desc: 'Allow new user registration (close to freeze onboarding)' },
-      { key: 'staffLoginEnabled', label: 'Staff login', desc: 'Allow staff/ops team to sign in' },
-      { key: 'maintenanceMode', label: 'Maintenance mode', desc: 'Block all consumer access — show maintenance page', danger: true },
+      { key: 'staffLoginEnabled', label: 'Staff login', desc: 'Allow staff and managers to sign in; administrators always can' },
+      { key: 'maintenanceMode', label: 'Maintenance mode', desc: 'Block all consumer access and show the maintenance page', danger: true, off: true },
     ],
   },
 ];
+
+const OFF_BY_DEFAULT = new Set(APP_FLAG_SECTIONS.flatMap((s) => s.flags.filter((f) => f.off).map((f) => f.key)));
+
+/** What the site actually does with a stored flag: consumers read a missing flag as on. */
+export const appFlagOn = (flags, key) => (OFF_BY_DEFAULT.has(key) ? flags?.[key] === true : flags?.[key] !== false);
 
 export default function AppFlagsPanel({ flags, onToggle }) {
   const [selected, setSelected] = useState(APP_FLAG_SECTIONS[0].section);
@@ -99,7 +77,7 @@ export default function AppFlagsPanel({ flags, onToggle }) {
           {APP_FLAG_SECTIONS.map((config) => {
             const isActive = config.section === selected;
             const Icon = config.icon;
-            const enabledCount = config.flags.filter((f) => flags[f.key]).length;
+            const enabledCount = config.flags.filter((f) => appFlagOn(flags, f.key)).length;
             return (
               <button
                 key={config.section}
@@ -147,7 +125,7 @@ function ActiveSection({ active, flags, onToggle }) {
 
       <div>
         {active.flags.map((flag) => {
-          const checked = !!flags[flag.key];
+          const checked = appFlagOn(flags, flag.key);
           return (
             <div key={flag.key} className={classNames('flex items-center justify-between gap-4 px-6 py-4 border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors', flag.danger && checked && 'bg-rose-500/5')}>
               <div className="min-w-0 flex-1">

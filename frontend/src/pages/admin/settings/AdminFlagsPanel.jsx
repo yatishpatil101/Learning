@@ -3,78 +3,24 @@ import { AlertTriangle, ToggleRight } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
 import Switch from '../../../components/ui/Switch.jsx';
 
+/* Whole-module kill switches plus the two bulk-data exports. Everything else in the console is
+   always on: a switch nobody would flip in an incident is only another way to break a page. */
 const ADMIN_FLAG_SECTIONS = [
-  { section: 'dash', title: 'Dashboard', desc: 'Control which dashboard sections are visible', hasTabFlag: false, critical: true, options: [
-    { key: 'sla', label: 'SLA health', desc: 'Service level compliance panel', cost: 'medium' },
-    { key: 'glanceRevenue', label: 'Revenue tile', desc: 'Revenue KPI in At a Glance', cost: 'low' },
-    { key: 'glanceTraffic', label: 'Traffic tile', desc: 'Visits Today KPI in At a Glance', cost: 'low' },
+  { section: 'properties', title: 'Properties', desc: 'Listing management', critical: true, options: [
+    { key: 'csvExport', label: 'CSV export', desc: 'Download the listing table as a CSV file' },
   ] },
-  { section: 'analytics', title: 'Analytics', desc: 'Full analytics dashboard with multiple sub-tabs', hasTabFlag: true, options: [
-    { key: 'traffic', label: 'Traffic', desc: 'Website visits & pageviews', cost: 'low' },
-    { key: 'engagement', label: 'Engagement', desc: 'Session duration & bounce rate', cost: 'low' },
-    { key: 'geography', label: 'Geography', desc: 'Listings & demand by locality', cost: 'low' },
-    { key: 'supplyGap', label: 'Supply-demand gap', desc: 'Market opportunity analysis', cost: 'high' },
-    { key: 'pricing', label: 'Pricing intelligence', desc: 'Market rate comparisons', cost: 'high' },
-    { key: 'sla', label: 'SLA compliance', desc: 'Service level tracking charts', cost: 'medium' },
+  { section: 'users', title: 'Users', desc: 'User management', critical: true, options: [
+    { key: 'csvExport', label: 'CSV export', desc: 'Download the user table as a CSV file' },
   ] },
-  { section: 'finance', title: 'Finance', desc: 'Revenue tracking & financial reporting', hasTabFlag: true, options: [
-    { key: 'charts', label: 'Revenue charts', desc: 'Monthly stacked bar & MRR', cost: 'low' },
-    { key: 'transactions', label: 'Transactions table', desc: 'Full transaction ledger', cost: 'medium' },
-    { key: 'models', label: 'Financial models', desc: 'Subscription & payout calculations', cost: 'low' },
-  ] },
-  { section: 'properties', title: 'Properties', desc: 'Options within the properties management page', hasTabFlag: false, critical: true, options: [
-    { key: 'csvExport', label: 'CSV export', desc: 'Export property data to CSV', cost: 'low' },
-    { key: 'commsLog', label: 'Communication timeline', desc: 'Owner communication history', cost: 'high' },
-    { key: 'qualityScore', label: 'Quality score', desc: 'Listing completeness indicators', cost: 'low' },
-  ] },
-  { section: 'users', title: 'Users', desc: 'Options within user management', hasTabFlag: false, options: [
-    { key: 'timeline', label: 'Activity timeline', desc: 'Full user activity history modal', cost: 'high' },
-    { key: 'bulkOps', label: 'Bulk operations', desc: 'Multi-select batch actions', cost: 'low' },
-    { key: 'csvExport', label: 'CSV export', desc: 'Export user data to CSV', cost: 'low' },
-  ] },
-  { section: 'services', title: 'Home Loans desk', desc: 'Ticket options on the Home Loans desk', hasTabFlag: true, options: [
-    { key: 'priority', label: 'Priority levels', desc: 'High/medium/low ticket priority', cost: 'low' },
-    { key: 'staffAssignment', label: 'Staff assignment', desc: 'Assign tickets to individual staff', cost: 'low' },
-  ] },
-  { section: 'enquiries', title: 'Enquiries', desc: 'Lead pipeline sub-tabs', hasTabFlag: false, critical: true, options: [
-    { key: 'visits', label: 'Visits tab', desc: 'Scheduled site visits tracking', cost: 'low' },
-    { key: 'deals', label: 'Deals tab', desc: 'Deal pipeline tracking', cost: 'low' },
-    { key: 'funnelTime', label: 'Funnel time analysis', desc: 'Conversion time metrics', cost: 'low' },
-  ] },
-  { section: 'content', title: 'Content', desc: 'CMS and content management sub-tabs', hasTabFlag: false, options: [
-    { key: 'cityDemand', label: 'City demand', desc: 'Multi-city demand overview', cost: 'low' },
-    { key: 'banners', label: 'Banners', desc: 'Homepage promotional banners', cost: 'low' },
-    { key: 'faqs', label: 'FAQs', desc: 'Frequently asked questions', cost: 'low' },
-    { key: 'announcements', label: 'Announcements', desc: 'User-facing announcements', cost: 'low' },
-  ] },
-  { section: 'staffActivity', title: 'Team Activity', desc: 'Team activity page options', hasTabFlag: false, options: [
-    { key: 'kpis', label: 'KPI tiles', desc: 'Summary metrics above the activity log', cost: 'low' },
-  ] },
-  { section: 'reports', title: 'Reports', desc: 'Abuse reports & content moderation', hasTabFlag: true, options: [
-    { key: 'properties', label: 'Reported properties', desc: 'Property abuse reports', cost: 'low' },
-    { key: 'users', label: 'Reported users', desc: 'User abuse reports', cost: 'low' },
-    { key: 'posts', label: 'Reported posts', desc: 'Flatmate room, group and seeker posts', cost: 'low' },
-    { key: 'reviews', label: 'Reviews', desc: 'Approve or reject user reviews', cost: 'low' },
-  ] },
-  { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [
-    { key: 'seekers', label: 'Seekers', desc: 'Flatmate seeker posts', cost: 'low' },
-    { key: 'groups', label: 'Groups', desc: 'Flatmate groups', cost: 'low' },
-    { key: 'applications', label: 'Applications', desc: 'Group applications to listings', cost: 'low' },
-  ] },
+  { section: 'analytics', title: 'Analytics', desc: 'Traffic, demand and pricing dashboards', hasTabFlag: true, options: [] },
+  { section: 'finance', title: 'Finance', desc: 'Revenue, transactions and payouts', hasTabFlag: true, options: [] },
+  { section: 'reports', title: 'Reports', desc: 'Abuse reports and review moderation', hasTabFlag: true, options: [] },
+  { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [] },
   { section: 'support', title: 'Support', desc: 'Customer support ticket queue', hasTabFlag: true, options: [] },
+  { section: 'services', title: 'Home Loans desk', desc: 'Home loan enquiry tickets', options: [] },
+  { section: 'content', title: 'Content', desc: 'Banners, FAQs and announcements', options: [] },
+  { section: 'staffActivity', title: 'Team Activity', desc: 'Staff performance and the activity log', options: [] },
 ];
-
-const COST_DOT = {
-  low: 'bg-emerald-400',
-  medium: 'bg-amber-400',
-  high: 'bg-rose-400',
-};
-
-const COST_LABEL = {
-  low: { cls: 'text-emerald-400/80', label: 'Low' },
-  medium: { cls: 'text-amber-400/80', label: 'Med' },
-  high: { cls: 'text-rose-400/80', label: 'High' },
-};
 
 function getSectionEnabled(config, adminFlags) {
   if (config.critical) return true;
@@ -201,14 +147,12 @@ export default function AdminFlagsPanel({ adminFlags, onToggle }) {
                 {/* Table heading row */}
                 <div className="flex items-center gap-4 px-7 py-3 border-b border-white/[0.06] bg-white/[0.015]">
                   <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Feature</span>
-                  <span className="w-16 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Cost</span>
                   <span className="w-14 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Status</span>
                 </div>
 
                 {/* Option rows */}
                 {active.options.map((opt, i) => {
                   const checked = adminFlags[active.section]?.[opt.key] !== false;
-                  const costInfo = COST_LABEL[opt.cost];
                   return (
                     <div
                       key={opt.key}
@@ -221,15 +165,8 @@ export default function AdminFlagsPanel({ adminFlags, onToggle }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className={classNames('text-sm font-medium', checked ? 'text-gray-100' : 'text-gray-400')}>{opt.label}</span>
-                          {opt.cost === 'high' && <AlertTriangle className="h-3 w-3 text-rose-400/70 shrink-0" />}
                         </div>
                         <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{opt.desc}</p>
-                      </div>
-
-                      {/* Cost indicator */}
-                      <div className="w-16 flex items-center justify-center gap-1.5">
-                        <span className={classNames('h-1.5 w-1.5 rounded-full', COST_DOT[opt.cost])} />
-                        <span className={classNames('text-[11px] font-medium', costInfo.cls)}>{costInfo.label}</span>
                       </div>
 
                       {/* Toggle */}

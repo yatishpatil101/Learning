@@ -187,7 +187,7 @@ const BACK_OFFICE_ROUTES = [{
     { path: 'packers', element: <ModuleRoute moduleKey="desk:packers"><OpsDraftingDesk key="packers" desk="packers" /></ModuleRoute> },
     { path: 'valuation', element: <ModuleRoute moduleKey="desk:valuation"><OpsDraftingDesk key="valuation" desk="valuation" /></ModuleRoute> },
     { path: 'drafting-desk', element: <DeskRedirect /> },
-    { path: 'support', element: <ModuleRoute moduleKey="support"><OpsSupportQueue /></ModuleRoute> },
+    { path: 'support', element: <ModuleRoute moduleKey="support"><FlagRoute flag="support"><OpsSupportQueue /></FlagRoute></ModuleRoute> },
     { path: 'enquiries', element: <ModuleRoute moduleKey="enquiries"><AdminEnquiries /></ModuleRoute> },
     { path: 'referrals', element: <ModuleRoute moduleKey="referrals"><OpsReferrals /></ModuleRoute> },
     { path: 'finance', element: <ModuleRoute moduleKey="finance"><FlagRoute flag="finance"><AdminFinance /></FlagRoute></ModuleRoute> },
@@ -235,7 +235,7 @@ export default function App() {
           <Route path="/listings" element={<Listings />} />
           <Route path="/property/:id" element={<Property />} />
           <Route path="/owner/:id" element={<Owner />} />
-          <Route path="/compare" element={<AppFlagRoute flag="compareProperties"><Compare /></AppFlagRoute>} />
+          <Route path="/compare" element={<Compare />} />
           <Route path="/signin" element={<Signin />} />
           <Route path="/signup" element={<AppFlagRoute flag="signupsEnabled"><Signup /></AppFlagRoute>} />
           <Route path="/staff-login" element={<StaffLogin />} />
@@ -253,7 +253,7 @@ export default function App() {
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/plans" element={<Plans />} />
           <Route path="/refer" element={<ProtectedRoute><Refer /></ProtectedRoute>} />
-          <Route path="/emi-calculator" element={<AppFlagRoute flag="emiCalculator"><EmiCalculator /></AppFlagRoute>} />
+          <Route path="/emi-calculator" element={<EmiCalculator />} />
           <Route path="/tenant-profile" element={<ProtectedRoute><TenantProfile /></ProtectedRoute>} />
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/schedule-visit" element={<AppFlagRoute flag="scheduleVisit"><ProtectedRoute><ScheduleVisit /></ProtectedRoute></AppFlagRoute>} />
@@ -265,7 +265,7 @@ export default function App() {
           <Route path="/reels" element={<Reels />} />
           {/* No auth wall: saves live in localStorage and several surfaces write them while signed
               out, so a guard here made the bottom nav's Saved tab a dead end for those users. */}
-          <Route path="/saved" element={<AppFlagRoute flag="savedListings"><Saved /></AppFlagRoute>} />
+          <Route path="/saved" element={<Saved />} />
           <Route path="/pay-rent" element={<ProtectedRoute><PayRent /></ProtectedRoute>} />
           <Route path="/locality" element={<Locality />} />
           <Route path="/locality/:slug" element={<Locality />} />

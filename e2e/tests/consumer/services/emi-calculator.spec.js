@@ -2,10 +2,6 @@ import { test, expect } from '../../../fixtures/live.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-/* The page is pure client-side `useState`/`useMemo` arithmetic, but the route is flag-gated and
-   under the live build that flag comes from `GET /flags`. If the flag is ever turned off
-   server-side, `await flags.enable('emiCalculator')` is the fix — the `toHaveCount(3)` in
-   `beforeEach` fails loudly rather than vacuously if the route stops rendering. */
 test.describe('EMI calculator', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(`${BASE}/emi-calculator`, { waitUntil: 'networkidle' });

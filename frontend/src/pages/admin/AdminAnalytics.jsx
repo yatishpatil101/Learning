@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { listLocalities } from '../../services/localityService.js';
 import { listCityWaitlist } from '../../services/cityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -24,25 +23,19 @@ export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const [days, setDays] = useState(90);
-  const { optionEnabled } = useAdminFlags();
 
   /* No Seasonal tab: month-over-month demand needs years of history that do not exist yet. */
 
-  // The supply gap is a server aggregate, so it is fetched rather than derived. Kept out of the
-  // `analytics` gate above because it is one tab: an outage in the demand report should leave the
-  // other seven tabs rendering, so a failure here empties this tab rather than the page.
+  // Server aggregate: a failure empties this tab, not the page.
   const [supplyGap, setSupplyGap] = useState([]);
-  const showSupplyGap = optionEnabled('analytics.supplyGap');
   const [locs, setLocs] = useState([]);
-  const showGeography = optionEnabled('analytics.geography');
   useEffect(() => {
-    if (!showSupplyGap) { setSupplyGap([]); return undefined; }
     let alive = true;
     fetchSupplyGap()
       .then((rows) => { if (alive) setSupplyGap(rows); })
       .catch(() => { if (alive) setSupplyGap([]); });
     return () => { alive = false; };
-  }, [showSupplyGap]);
+  }, []);
 
   /*
    * The other half of the Supply Gap tab: which cities people want Draazy to launch in.
@@ -60,22 +53,18 @@ export default function AdminAnalytics() {
    */
   const [cityWaitlist, setCityWaitlist] = useState(null);
   const [cityWaitlistFailed, setCityWaitlistFailed] = useState(false);
-  /* The retry exists because `showSupplyGap` never changes on its own, so without it the only way
-     out of the failed state is a full page reload — the panel would tell the operator not to read
-     the outage as "nobody asked" and then offer them no way to find out what it really was. */
+  /* Nothing re-runs the read, so without a retry the failed state needs a full page reload. */
   const [cityWaitlistAttempt, setCityWaitlistAttempt] = useState(0);
   const retryCityWaitlist = () => setCityWaitlistAttempt((n) => n + 1);
   useEffect(() => {
-    if (!showSupplyGap) { setCityWaitlist(null); setCityWaitlistFailed(false); return undefined; }
     let alive = true;
     listCityWaitlist()
       .then((rows) => { if (alive) { setCityWaitlist(rows); setCityWaitlistFailed(false); } })
       .catch(() => { if (alive) { setCityWaitlist(null); setCityWaitlistFailed(true); } });
     return () => { alive = false; };
-  }, [showSupplyGap, cityWaitlistAttempt]);
+  }, [cityWaitlistAttempt]);
 
   useEffect(() => {
-    if (!showGeography) { setLocs([]); return undefined; }
     let alive = true;
     listLocalities()
       .then((rows) => {
@@ -89,7 +78,7 @@ export default function AdminAnalytics() {
       })
       .catch(() => { if (alive) setLocs([]); });
     return () => { alive = false; };
-  }, [showGeography]);
+  }, []);
 
   /*
    * Pricing and SLA are measured, so they are fetched rather than generated.
@@ -107,72 +96,63 @@ export default function AdminAnalytics() {
    */
   const [pricingRows, setPricingRows] = useState(null);
   const [pricingFailed, setPricingFailed] = useState(false);
-  const showPricing = optionEnabled('analytics.pricing');
   useEffect(() => {
-    if (!showPricing) { setPricingRows(null); setPricingFailed(false); return undefined; }
     let alive = true;
     localityPricing()
       .then((rows) => { if (alive) { setPricingRows(rows); setPricingFailed(false); } })
       .catch(() => { if (alive) { setPricingRows(null); setPricingFailed(true); } });
     return () => { alive = false; };
-  }, [showPricing]);
+  }, []);
 
   const [slaSummary, setSlaSummary] = useState(null);
   const [slaFailed, setSlaFailed] = useState(false);
-  const showSla = optionEnabled('analytics.sla');
   useEffect(() => {
-    if (!showSla) { setSlaSummary(null); setSlaFailed(false); return undefined; }
     let alive = true;
     reviewSla()
       .then((summary) => { if (alive) { setSlaSummary(summary); setSlaFailed(false); } })
       .catch(() => { if (alive) { setSlaSummary(null); setSlaFailed(true); } });
     return () => { alive = false; };
-  }, [showSla]);
+  }, []);
 
   /* `days` is set on the Traffic tab and shared with Engagement; `[]` in the catch would show zero traffic. */
   const [trafficReport, setTrafficReport] = useState(null);
   const [trafficFailed, setTrafficFailed] = useState(false);
-  const showTraffic = optionEnabled('analytics.traffic');
   useEffect(() => {
-    if (!showTraffic) { setTrafficReport(null); setTrafficFailed(false); return undefined; }
     let alive = true;
     fetchTraffic({ days })
       .then((r) => { if (alive) { setTrafficReport(r); setTrafficFailed(false); } })
       .catch(() => { if (alive) { setTrafficReport(null); setTrafficFailed(true); } });
     return () => { alive = false; };
-  }, [showTraffic, days]);
+  }, [days]);
 
   const [engagementReport, setEngagementReport] = useState(null);
   const [engagementFailed, setEngagementFailed] = useState(false);
-  const showEngagement = optionEnabled('analytics.engagement');
   useEffect(() => {
-    if (!showEngagement) { setEngagementReport(null); setEngagementFailed(false); return undefined; }
     let alive = true;
     fetchEngagement({ days })
       .then((r) => { if (alive) { setEngagementReport(r); setEngagementFailed(false); } })
       .catch(() => { if (alive) { setEngagementReport(null); setEngagementFailed(true); } });
     return () => { alive = false; };
-  }, [showEngagement, days]);
+  }, [days]);
 
   const [audienceReport, setAudienceReport] = useState(null);
   const [audienceFailed, setAudienceFailed] = useState(false);
   useEffect(() => {
-    if (!showTraffic) { setAudienceReport(null); setAudienceFailed(false); return undefined; }
     let alive = true;
     fetchAudience({ days })
       .then((r) => { if (alive) { setAudienceReport(r); setAudienceFailed(false); } })
       .catch(() => { if (alive) { setAudienceReport(null); setAudienceFailed(true); } });
     return () => { alive = false; };
-  }, [showTraffic, days]);
+  }, [days]);
 
   const tabs = [
-    optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} setDays={setDays} /> },
-    optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
-    optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
-    optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
-    optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
-    optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
-  ].filter(Boolean);
+    { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} setDays={setDays} /> },
+    { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
+    { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
+    { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
+    { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
+    { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
+  ];
 
   /* Resolve against existing tabs, not the raw URL: an unknown or switched-off tab would render an empty page. */
   const activeTab = tabs.some((t) => t.key === requestedTab) ? requestedTab : tabs[0]?.key;

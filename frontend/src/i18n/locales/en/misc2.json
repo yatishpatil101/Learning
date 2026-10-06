@@ -255,6 +255,8 @@
     "coPrototypeNoPayment": "Prototype — no real payment is processed.",
     "coAlreadyActiveTitle": "You're already on this plan",
     "coAlreadyActiveBody": "Your {{plan}} plan is active. There's nothing more to pay — manage it anytime from your dashboard.",
+    "coPausedTitle": "Plan purchases are paused",
+    "coPausedBody": "We've paused new purchases for a short while. Your current plan is not affected. Please try again later.",
     "coManagePlan": "Manage plan",
     "coViewPlans": "View all plans",
 

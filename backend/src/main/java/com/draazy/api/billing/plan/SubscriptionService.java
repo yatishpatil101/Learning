@@ -2,8 +2,11 @@ package com.draazy.api.billing.plan;
 
 import com.draazy.api.common.PlatformTime;
 import com.draazy.api.common.error.ConflictException;
+import com.draazy.api.common.error.ErrorCodes;
+import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.persistence.ConstraintViolations;
+import com.draazy.api.common.settings.PlatformSettings;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -46,17 +49,19 @@ public class SubscriptionService {
     private final PlanMapper mapper;
     private final PaymentGateway gateway;
     private final UserRepository users;
+    private final PlatformSettings platformSettings;
 
     private final TransactionTemplate transactions;
 
     public SubscriptionService(PlanRepository plans, SubscriptionRepository subscriptions,
             PlanMapper mapper, PaymentGateway gateway, UserRepository users,
-            PlatformTransactionManager transactionManager) {
+            PlatformSettings platformSettings, PlatformTransactionManager transactionManager) {
         this.plans = plans;
         this.subscriptions = subscriptions;
         this.mapper = mapper;
         this.gateway = gateway;
         this.users = users;
+        this.platformSettings = platformSettings;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -72,6 +77,11 @@ public class SubscriptionService {
 
     public SubscriptionDto subscribe(AuthPrincipal caller, SubscribeRequest body,
             String idempotencyKey) {
+        // The admin kill switch for a gateway outage or fraud spike; plans already bought keep working.
+        if (!platformSettings.subscriptionPlansEnabled()) {
+            throw new ForbiddenException(ErrorCodes.PURCHASES_PAUSED,
+                    "Plan purchases are paused for a short while. Please try again later.");
+        }
         String key = blankToNull(idempotencyKey);
         Opened opened = transactions.execute(tx -> open(caller, body, key));
 

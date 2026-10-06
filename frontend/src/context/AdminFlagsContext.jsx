@@ -4,18 +4,12 @@ import { getSettings, updateSettings } from '../services/settingsService.js';
 const AdminFlagsContext = createContext(null);
 
 const DEFAULT_ADMIN_FLAGS = {
-  tab: { analytics: true, finance: true, reports: true, support: true, flatmates: true, services: true },
-  dash: { sla: true, glanceRevenue: true, glanceTraffic: true },
-  analytics: { traffic: true, engagement: true, conversion: true, geography: true, supplyGap: true, pricing: true, sla: true },
-  finance: { charts: true, transactions: true, models: true },
-  properties: { csvExport: true, commsLog: true, qualityScore: true },
-  users: { enabled: true, timeline: true, bulkOps: true, csvExport: true },
-  services: { enabled: true, priority: true, staffAssignment: true },
-  enquiries: { visits: true, deals: true, funnelTime: true },
-  content: { enabled: true, cityDemand: true, banners: true, faqs: true, announcements: true },
-  reports: { properties: true, users: true, posts: true, reviews: true },
-  flatmates: { seekers: true, groups: true, applications: true },
-  staffActivity: { enabled: true, kpis: true },
+  tab: { analytics: true, finance: true, reports: true, support: true, flatmates: true },
+  properties: { csvExport: true },
+  users: { csvExport: true },
+  services: { enabled: true },
+  content: { enabled: true },
+  staffActivity: { enabled: true },
 };
 
 /* `read=false` without `settings:read`: `GET /admin/settings` is admin-only, so the read would be a
@@ -57,11 +51,10 @@ export function AdminFlagsProvider({ children, read = true }) {
 
   const optionEnabled = useCallback((dotPath) => {
     const [section, option] = dotPath.split('.');
-    // Tab-level gate (for analytics, finance, reports, support, flatmates)
-    if (section in (adminFlags.tab || {}) && !adminFlags.tab[section]) {
+    // Only these sections are tabs, so a stale `tab.services` must not gate.
+    if (section in DEFAULT_ADMIN_FLAGS.tab && adminFlags.tab?.[section] === false) {
       return false;
     }
-    // Module-level gate (for dash, properties, users, services, enquiries, content, staffActivity)
     const sectionFlags = adminFlags[section];
     if (sectionFlags && 'enabled' in sectionFlags && !sectionFlags.enabled) {
       return false;

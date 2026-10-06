@@ -1,11 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
-/* Interactive EMI / affordability calculator — the signature "customer touch" for the
-   home-loans page. Pure math in computeEmi() so it stays testable; the full-featured
-   page lives at /emi-calculator for depth. */
 export function computeEmi(principal, annualRate, years) {
   const p = Math.max(principal, 0);
   const n = Math.max(years, 1) * 12;
@@ -17,9 +13,7 @@ export function computeEmi(principal, annualRate, years) {
 const fmt = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
 const fmtShort = (n) => (n >= 1e7 ? '₹' + (n / 1e7).toFixed(2) + ' Cr' : '₹' + (n / 1e5).toFixed(1) + ' L');
 
-// Module-level so its identity is stable across renders — a Row defined inside the
-// component would be a new type every render, remounting the range input and dropping
-// the native slider drag between pointer events.
+// Module-level for stable identity: a Row defined inside the component would remount the range input mid-drag.
 const Row = ({ label, value, min, max, step, onChange, val }) => (
   <div>
     <div className="flex items-center justify-between mb-2">
@@ -31,7 +25,6 @@ const Row = ({ label, value, min, max, step, onChange, val }) => (
 );
 
 export default function LoanEmiCalc({ t }) {
-  const { flagEnabled } = useAppFlags();
   const [amount, setAmount] = useState(5000000);
   const [rate, setRate] = useState(8.5);
   const [years, setYears] = useState(20);
@@ -65,7 +58,7 @@ export default function LoanEmiCalc({ t }) {
             <div><p className="text-[10px] text-gray-500">{t('services.homeLoans.emiCalc.totalInterest')}</p><p className="text-sm font-bold text-white mt-0.5">{fmtShort(interest)}</p></div>
             <div><p className="text-[10px] text-gray-500">{t('services.homeLoans.emiCalc.totalPayable')}</p><p className="text-sm font-bold text-white mt-0.5">{fmtShort(total)}</p></div>
           </div>
-          {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="btn-teal mt-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 w-full"><Icon name="trending-up" className="w-4 h-4" /> {t('services.homeLoans.emiCalc.openFull')}</Link>}
+          <Link to="/emi-calculator" className="btn-teal mt-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 w-full"><Icon name="trending-up" className="w-4 h-4" /> {t('services.homeLoans.emiCalc.openFull')}</Link>
         </div>
       </div>
     </section>

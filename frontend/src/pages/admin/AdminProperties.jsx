@@ -451,7 +451,7 @@ export default function AdminProperties() {
                 tab={activeTab}
                 repliedIds={repliedIds}
                 actions={actionsFor[activeTab]}
-                showScore={optionEnabled('properties.qualityScore')}
+                showScore
                 empty={filtered ? 'No listings match these filters.' : 'All caught up — nothing waiting here.'}
               />
             )}

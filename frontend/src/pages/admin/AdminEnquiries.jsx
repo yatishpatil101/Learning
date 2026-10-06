@@ -5,7 +5,6 @@ import { addNote } from '../../services/noteService.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -38,7 +37,6 @@ const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
  * Read-only: `contact_requests.status` is the owner's consent, so no Close/cancel button has a server meaning. */
 export default function AdminEnquiries() {
   const { toast } = useToast();
-  const { optionEnabled } = useAdminFlags();
   const [tab, setTab] = useTabParam(['enquiries', 'visits', 'deals', 'funnel'], 'enquiries');
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState('');
@@ -52,19 +50,16 @@ export default function AdminEnquiries() {
   const [funnelTime, setFunnelTime] = useState('');
   const [funnelDeal, setFunnelDeal] = useState('');
 
-  const visitsEnabled = optionEnabled('enquiries.visits');
-  const dealsEnabled = optionEnabled('enquiries.deals');
-
   const reload = () =>
     Promise.all([
       listEnquiries(),
-      visitsEnabled ? listVisits() : Promise.resolve([]),
-      dealsEnabled ? listDeals() : Promise.resolve([]),
+      listVisits(),
+      listDeals(),
     ]).then(([e, v, d]) => {
       setEnquiries(e); setVisits(v); setDeals(d);
     });
 
-  useEffect(() => { let a = true; reload().then(() => !a); return () => { a = false; }; }, [visitsEnabled, dealsEnabled]); // eslint-disable-line
+  useEffect(() => { let a = true; reload().then(() => !a); return () => { a = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps -- load once on mount
 
   // Filed against the listing: that is the case file a colleague opens tomorrow.
   const noteResponded = async (r) => {
@@ -115,10 +110,10 @@ export default function AdminEnquiries() {
 
   const tabs = [
     { key: 'enquiries', label: 'Enquiries', count: enquiries.length },
-    visitsEnabled ? { key: 'visits', label: 'Visits', count: visits.length } : null,
-    dealsEnabled ? { key: 'deals', label: 'Deals', count: deals.length } : null,
+    { key: 'visits', label: 'Visits', count: visits.length },
+    { key: 'deals', label: 'Deals', count: deals.length },
     { key: 'funnel', label: 'Funnel', count: null },
-  ].filter(Boolean);
+  ];
 
   const gmv = deals.reduce((s, d) => s + (d.value || 0), 0);
   const note = tab === 'deals' ? `Deals agreed through the platform \u2014 ${fmtINR(gmv)} across all deals.` : NOTES[tab];

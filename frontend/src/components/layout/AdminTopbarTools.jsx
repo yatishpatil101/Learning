@@ -49,13 +49,13 @@ const NAV_INDEX_FULL = [
 ];
 
 const FEATURES_INDEX = [
-  { label: 'Traffic', keywords: 'traffic visits pageviews sessions visitors', path: '/admin/analytics?tab=traffic', parent: 'Analytics', flag: 'analytics.traffic' },
-  { label: 'Engagement', keywords: 'engagement session duration bounce rate top pages', path: '/admin/analytics?tab=engagement', parent: 'Analytics', flag: 'analytics.engagement' },
-  { label: 'Geography', keywords: 'geography locality area demand listings rates pune', path: '/admin/analytics?tab=geography', parent: 'Analytics', flag: 'analytics.geography' },
-  { label: 'Supply Gap', keywords: 'supply gap demand market opportunity underserved', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
-  { label: 'City Requests', keywords: 'city request expansion request your city geographic demand waitlist new city', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
-  { label: 'Pricing Intelligence', keywords: 'pricing market rate comparison sqft intelligence', path: '/admin/analytics?tab=pricing', parent: 'Analytics', flag: 'analytics.pricing' },
-  { label: 'SLA Compliance', keywords: 'sla compliance service level response time ticket pickup delivery concierge turnaround', path: '/admin/analytics?tab=sla', parent: 'Analytics', flag: 'analytics.sla' },
+  { label: 'Traffic', keywords: 'traffic visits pageviews sessions visitors', path: '/admin/analytics?tab=traffic', parent: 'Analytics', flag: 'analytics' },
+  { label: 'Engagement', keywords: 'engagement session duration bounce rate top pages', path: '/admin/analytics?tab=engagement', parent: 'Analytics', flag: 'analytics' },
+  { label: 'Geography', keywords: 'geography locality area demand listings rates pune', path: '/admin/analytics?tab=geography', parent: 'Analytics', flag: 'analytics' },
+  { label: 'Supply Gap', keywords: 'supply gap demand market opportunity underserved', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics' },
+  { label: 'City Requests', keywords: 'city request expansion request your city geographic demand waitlist new city', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics' },
+  { label: 'Pricing Intelligence', keywords: 'pricing market rate comparison sqft intelligence', path: '/admin/analytics?tab=pricing', parent: 'Analytics', flag: 'analytics' },
+  { label: 'SLA Compliance', keywords: 'sla compliance service level response time ticket pickup delivery concierge turnaround', path: '/admin/analytics?tab=sla', parent: 'Analytics', flag: 'analytics' },
 
   { label: 'To Verify', keywords: 'verification queue pending review approve reject', path: '/admin/properties?tab=verify', parent: 'Properties', flag: null },
   { label: 'Re-checks', keywords: 'recheck re-check edited live price furnishing possession', path: '/admin/properties?tab=recheck', parent: 'Properties', flag: null },
@@ -65,17 +65,17 @@ const FEATURES_INDEX = [
   { label: 'All Listings', keywords: 'all listings approved active staff posted featured', path: '/admin/properties?tab=all', parent: 'Properties', flag: null },
 
   { label: 'Enquiries List', keywords: 'enquiries list leads inbox messages contact', path: '/admin/enquiries?tab=enquiries', parent: 'Enquiries', flag: null },
-  { label: 'Site Visits', keywords: 'visits site scheduling calendar viewing property', path: '/admin/enquiries?tab=visits', parent: 'Enquiries', flag: 'enquiries.visits' },
-  { label: 'Deals', keywords: 'deals closed gmv transactions negotiation', path: '/admin/enquiries?tab=deals', parent: 'Enquiries', flag: 'enquiries.deals' },
+  { label: 'Site Visits', keywords: 'visits site scheduling calendar viewing property', path: '/admin/enquiries?tab=visits', parent: 'Enquiries', flag: null },
+  { label: 'Deals', keywords: 'deals closed gmv transactions negotiation', path: '/admin/enquiries?tab=deals', parent: 'Enquiries', flag: null },
   { label: 'Conversion Funnel', keywords: 'funnel conversion pipeline enquiry visit deal time drop-off', path: '/admin/enquiries?tab=funnel', parent: 'Enquiries', flag: null },
 
-  { label: 'Revenue Charts', keywords: 'revenue charts mrr subscriptions services featured', path: '/admin/finance', parent: 'Finance', flag: 'finance.charts' },
-  { label: 'Transactions', keywords: 'transactions ledger payments billing invoices', path: '/admin/finance', parent: 'Finance', flag: 'finance.transactions' },
-  { label: 'Financial Models', keywords: 'models subscription payout calculations', path: '/admin/finance', parent: 'Finance', flag: 'finance.models' },
+  { label: 'Revenue Charts', keywords: 'revenue charts mrr subscriptions services featured', path: '/admin/finance', parent: 'Finance', flag: 'finance' },
+  { label: 'Transactions', keywords: 'transactions ledger payments billing invoices', path: '/admin/finance', parent: 'Finance', flag: 'finance' },
+  { label: 'Financial Models', keywords: 'models subscription payout calculations', path: '/admin/finance', parent: 'Finance', flag: 'finance' },
 
-  { label: 'Banners', keywords: 'banners promotional homepage carousel', path: '/admin/content?tab=banners', parent: 'Content', flag: 'content.banners' },
-  { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content?tab=faqs', parent: 'Content', flag: 'content.faqs' },
-  { label: 'Announcements', keywords: 'announcements notifications alerts', path: '/admin/content?tab=announcements', parent: 'Content', flag: 'content.announcements' },
+  { label: 'Banners', keywords: 'banners promotional homepage carousel', path: '/admin/content?tab=banners', parent: 'Content', flag: 'content.enabled' },
+  { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content?tab=faqs', parent: 'Content', flag: 'content.enabled' },
+  { label: 'Announcements', keywords: 'announcements notifications alerts', path: '/admin/content?tab=announcements', parent: 'Content', flag: 'content.enabled' },
 
   { label: 'General Settings', keywords: 'general site email notifications sms configuration', path: '/admin/settings?tab=general', parent: 'Settings', flag: null },
   { label: 'Fee Configuration', keywords: 'fees pricing commission brokerage charges', path: '/admin/settings?tab=fees', parent: 'Settings', flag: null },
@@ -84,7 +84,7 @@ const FEATURES_INDEX = [
 
   { label: 'Reported Properties', keywords: 'reported abuse fake fraud listings', path: '/admin/reports?tab=listings', parent: 'Reports', flag: 'reports' },
   { label: 'Reported Users', keywords: 'reported impersonation abuse spam', path: '/admin/reports?tab=users', parent: 'Reports', flag: 'reports' },
-  { label: 'Reviews Moderation', keywords: 'reviews moderation feedback ratings approve reject', path: '/admin/reports?tab=reviews', parent: 'Reports', flag: 'reports.reviews' },
+  { label: 'Reviews Moderation', keywords: 'reviews moderation feedback ratings approve reject', path: '/admin/reports?tab=reviews', parent: 'Reports', flag: 'reports' },
 
   { label: 'Host Verification', keywords: 'verification tenant owner badge flatmate agreement', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
   { label: 'Flatmate Moderation', keywords: 'seekers rooms groups flatmate share roommate posts publish', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
@@ -100,8 +100,8 @@ const FEATURES_INDEX = [
 
   { label: 'Team Performance', keywords: 'staff kpi performance metrics summary leaderboard turnaround', path: '/admin/staff-activity?tab=performance', parent: 'Team Activity', flag: null },
 
-  { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.priority' },
-  { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.staffAssignment' },
+  { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.enabled' },
+  { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.enabled' },
 
   { label: 'Staff Desks at a Glance', keywords: 'desks routes access permissions which desk index map runbook internal ops', path: '/help/a/staff-desks', parent: 'Runbooks', flag: null },
   { label: 'Verification SLAs', keywords: 'sla slas turnaround target verification listing queue recheck duplicates needs info breach runbook internal ops deadline', path: '/help/a/verification-sla', parent: 'Runbooks', flag: null },

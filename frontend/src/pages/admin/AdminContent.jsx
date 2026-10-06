@@ -21,13 +21,6 @@ const BLANK_ANN = { title: '', body: '', severity: 'info', active: true };
 /** Modal kind -> the API's `{type}` path segment. */
 const TYPE_OF = { banner: 'banners', faq: 'faqs', announcement: 'announcements' };
 
-/** Map tab id → feature-flag dot-path (null = always visible) */
-const TAB_FLAG_MAP = {
-  banners: 'content.banners',
-  faqs: 'content.faqs',
-  announcements: 'content.announcements',
-};
-
 export default function AdminContent() {
   const { toast } = useToast();
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
@@ -38,14 +31,6 @@ export default function AdminContent() {
   const [faqs, setFaqs] = useState([]);
   const [editModal, setEditModal] = useState(null);
   const [editData, setEditData] = useState({});
-
-  const visibleTabs = useMemo(
-    () => TABS.filter(([id]) => {
-      const flag = TAB_FLAG_MAP[id];
-      return flag === null || optionEnabled(flag);
-    }),
-    [optionEnabled],
-  );
 
   useEffect(() => {
     let alive = true;
@@ -144,7 +129,7 @@ export default function AdminContent() {
       <PageHeader title="Content" subtitle="Manage banners, FAQs and announcements." />
 
       <QueueTabs
-        tabs={visibleTabs.map(([key, label]) => ({ key, label, count: loaded ? { banners: activeBanners, faqs: activeFaqs, announcements: activeAnns }[key].length : null }))}
+        tabs={TABS.map(([key, label]) => ({ key, label, count: loaded ? { banners: activeBanners, faqs: activeFaqs, announcements: activeAnns }[key].length : null }))}
         active={tab}
         onChange={setTab}
         label="Content types"

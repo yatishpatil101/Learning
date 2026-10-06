@@ -11,7 +11,6 @@ import { listTicketQueue } from '../../services/ticketService.js';
 import { listUsers } from '../../services/usersService.js';
 import { dashboardKpis, reviewSla, traffic as fetchTraffic } from '../../services/analyticsService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
-import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { canOpenPath, hasPermission, ticketPath } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -69,17 +68,13 @@ export default function AdminDashboard() {
 
 function PlatformDashboard({ user }) {
   const [data, setData] = useState(null);
-  const { optionEnabled } = useAdminFlags();
   const canOpen = (href) => canOpenPath(user, href);
   const canReadAnalytics = hasPermission(user, 'analytics:read');
 
-  const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
-  const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
-  const showSla = optionEnabled('dash.sla') && canReadAnalytics;
   const [sla, setSla] = useState(null);
 
   useEffect(() => {
-    if (!showSla) { setSla(null); return undefined; }
+    if (!canReadAnalytics) { setSla(null); return undefined; }
     let alive = true;
     reviewSla()
       .then((s) => { if (alive) setSla(s); })
@@ -88,7 +83,7 @@ function PlatformDashboard({ user }) {
         if (alive) setSla(null);
       });
     return () => { alive = false; };
-  }, [showSla]);
+  }, [canReadAnalytics]);
 
   /* Queue depths come from the paged collections their tiles link through to, so a tile always
      agrees with the list it opens. A non-essential read hides its tile rather than zeroing it. */
@@ -190,10 +185,10 @@ function PlatformDashboard({ user }) {
   const glanceTilesAll = [
     { lbl: 'Total Users', val: kpis?.totalUsers, display: fmtNum(kpis?.totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: owners == null ? 'buyers & owners' : `${fmtNum(owners)} owners`, show: Boolean(kpis) },
     { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties?tab=all', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },
-    { lbl: 'Revenue (last 30 days)', val: kpis?.revenue30d, display: fmtINR(kpis?.revenue30d), icon: IndianRupee, tint: 'emerald', href: '/admin/finance', sub: 'rolling window', show: showGlanceRevenue && kpis?.revenue30d != null },
+    { lbl: 'Revenue (last 30 days)', val: kpis?.revenue30d, display: fmtINR(kpis?.revenue30d), icon: IndianRupee, tint: 'emerald', href: '/admin/finance', sub: 'rolling window', show: kpis?.revenue30d != null },
     { lbl: 'Deals closed (30d)', val: kpis?.dealsClosed30d, display: fmtNum(kpis?.dealsClosed30d), icon: Trophy, tint: 'coral', href: '/admin/enquiries', sub: 'last 30 days', show: Boolean(kpis) },
     { lbl: 'Signups today', val: lastDay?.signups, display: fmtNum(lastDay?.signups), icon: UserPlus, tint: 'rose', href: '/admin/users', sub: 'new registrations', show: Boolean(lastDay) },
-    { lbl: 'Visits today', val: lastDay?.sessions, display: fmtNum(lastDay?.sessions), icon: MousePointerClick, tint: 'indigo', href: '/admin/analytics', sub: `${fmtNum(sessions30)} in 30d`, show: showGlanceTraffic && Boolean(lastDay) },
+    { lbl: 'Visits today', val: lastDay?.sessions, display: fmtNum(lastDay?.sessions), icon: MousePointerClick, tint: 'indigo', href: '/admin/analytics', sub: `${fmtNum(sessions30)} in 30d`, show: Boolean(lastDay) },
   ];
   const glanceTiles = glanceTilesAll.filter((t) => t.show && canOpen(t.href)).map((t) => ({ ...t, attention: false }));
 
@@ -206,7 +201,7 @@ function PlatformDashboard({ user }) {
     <div>
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across Draazy" />
 
-      {showSla ? <SlaHealthPanel sla={sla} /> : null}
+      {canReadAnalytics ? <SlaHealthPanel sla={sla} /> : null}
 
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className={SECTIONS}>Needs attention</h2>

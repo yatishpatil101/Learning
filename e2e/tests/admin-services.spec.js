@@ -180,7 +180,7 @@ test.describe('admin service requests desk', () => {
     await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
     await page.goto('/admin/services');
     await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Service Requests', exact: true })).toHaveCount(0);
 
     const board = async (mobile) => {
       const res = await request.get(`${API}/tickets?size=1`, { headers: await authHeaders(mobile) });

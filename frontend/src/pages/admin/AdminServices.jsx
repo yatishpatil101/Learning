@@ -269,7 +269,6 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
     );
   }
 
-  const withPriority = optionEnabled('services.priority');
   const statusLabel = (s) => `${s.label} ${counts[s.key]}`;
 
   const rowPrimary = (t) => (
@@ -325,7 +324,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
             <Chips label="Status" options={STATUS_TABS.map((s) => ({ value: s.key, label: statusLabel(s) }))} value={fStat} onChange={setFStat} />
           ) : null}
           <SearchBox value={q} onChange={setQ} placeholder="Search id, customer, detail…" label="Search tickets" />
-          {withPriority ? <Chips label="Priority" options={PRIORITY_CHIPS} value={fPrio} onChange={setFPrio} /> : null}
+          <Chips label="Priority" options={PRIORITY_CHIPS} value={fPrio} onChange={setFPrio} />
           {q || fPrio ? <ClearFilters onClick={() => { setQ(''); setFPrio(''); }} /> : null}
           <div className="ml-auto flex items-center gap-2">
             <button type="button" onClick={doExport} className={BTN.ghost}>
@@ -343,7 +342,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
             key={t.id}
             id={t.id}
             title={titleOf(t) || '(no subject)'}
-            badges={<><Badge status={t.status} />{withPriority ? <Badge status={t.priority} /> : null}<AgeChip ticket={t} /></>}
+            badges={<><Badge status={t.status} /><Badge status={t.priority} /><AgeChip ticket={t} /></>}
             meta={<><span>{t.customer}</span>{t.mobile ? <><Dot /><span>{t.mobile}</span></> : null}</>}
             facts={(
               <>
@@ -398,7 +397,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
                 <div className="text-lg font-bold">{titleOf(active)}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge status={active.status} />
-                  {optionEnabled('services.priority') && <Badge status={active.priority} />}
+                  <Badge status={active.priority} />
                 </div>
                 <div className="mt-2 text-sm text-gray-400">
                   {active.customer} · {active.mobile}
@@ -425,12 +424,10 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
             <div>
               <div className="mb-2 text-sm font-semibold text-gray-300">Assignment &amp; status</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {optionEnabled('services.staffAssignment') && (
-                  <div>
-                    <div className="mb-1 block text-xs text-gray-400">Assign to</div>
-                    <Select value={form.assigneeId} onChange={(v) => setForm((f) => ({ ...f, assigneeId: v }))} options={staffOpts} ariaLabel="Assign to" />
-                  </div>
-                )}
+                <div>
+                  <div className="mb-1 block text-xs text-gray-400">Assign to</div>
+                  <Select value={form.assigneeId} onChange={(v) => setForm((f) => ({ ...f, assigneeId: v }))} options={staffOpts} ariaLabel="Assign to" />
+                </div>
                 <div>
                   <div className="mb-1 block text-xs text-gray-400">Status</div>
                   <Select value={form.status} onChange={(v) => setForm((f) => ({ ...f, status: v }))} options={MODAL_STATUS_OPTS} ariaLabel="Status" />

@@ -7,7 +7,6 @@ import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS, SOC
 import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { hasPermission } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -71,10 +70,10 @@ const TAB_KIND = {
 const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
 
 const TABS = [
-  { key: 'listings', label: 'Properties', flag: 'reports.properties' },
-  { key: 'users', label: 'Users & owners', flag: 'reports.users' },
-  { key: 'posts', label: 'Flatmate posts', flag: 'reports.posts' },
-  { key: 'society', label: 'Society posts', flag: 'reports.society' },
+  { key: 'listings', label: 'Properties' },
+  { key: 'users', label: 'Users & owners' },
+  { key: 'posts', label: 'Flatmate posts' },
+  { key: 'society', label: 'Society posts' },
 ];
 
 const NOTES = {
@@ -92,7 +91,6 @@ const PAGE_SIZE = 10;
 
 export default function AdminReports() {
   const { toast } = useToast();
-  const { optionEnabled } = useAdminFlags();
   const { user } = useAuth();
   const canSeeReviews = hasPermission(user, 'properties:read');
   const [searchParams] = useSearchParams();
@@ -311,10 +309,9 @@ export default function AdminReports() {
     rows.map((r) => [r.id, r.kind, r.targetTitle || r.targetId, r.reasonLabel, r.reportedBy || 'Withheld', fmtDate(r.at), r.status, r.actionTaken || '']),
   );
 
-  const visibleTabs = TABS.filter((t) => optionEnabled(t.flag));
   const tabs = [
-    ...visibleTabs.map((t) => ({ key: t.key, label: t.label, count: undecided[t.key] })),
-    ...(canSeeReviews && optionEnabled('reports.reviews') ? [{ key: 'reviews', label: 'Reviews', count: null }] : []),
+    ...TABS.map((t) => ({ key: t.key, label: t.label, count: undecided[t.key] })),
+    ...(canSeeReviews ?  [{ key: 'reviews', label: 'Reviews', count: null }] : []),
   ];
   const openInView = rows.filter((r) => r.status === 'open');
   const allOpenSelected = openInView.length > 0 && selected.size === openInView.length;

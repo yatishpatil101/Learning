@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useParams, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
-import useScrollLock from '../../../hooks/useScrollLock.js';
 import { recordSignal } from '../../../services/demandService.js';
 import { getProperty } from '../../../services/propertyService.js';
 import { track } from '../../../lib/pmf.js';
@@ -28,7 +27,6 @@ export default function useProperty() {
   const [active, setActive] = useState(0);
   const [ovOpen, setOvOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
@@ -95,14 +93,6 @@ export default function useProperty() {
   }, [authIdentity, contactGateLoading, isIn, p, resumeAction, resumeAfterVerify]);
 
   const gallery = useMemo(() => (p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]).filter(Boolean) : []), [p]);
-
-  useScrollLock(tourOpen);
-  useEffect(() => {
-    if (!tourOpen) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setTourOpen(false); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tourOpen]);
 
   if (p === undefined) return { loading: true, tr };
   if (!p) return { notFound: true, tr };
@@ -338,7 +328,7 @@ export default function useProperty() {
 
   return {
     tr, p, active, setActive, ovOpen, setOvOpen, lightbox, setLightbox,
-    tourOpen, setTourOpen, reportOpen, setReportOpen, contactOpen, setContactOpen,
+    reportOpen, setReportOpen, contactOpen, setContactOpen,
     visitOpen, setVisitOpen,
     isIn, user, toast, flagEnabled, rootRef, gallery, activeTab,
     handleContact, handleSchedule, inlineOtpReason,
