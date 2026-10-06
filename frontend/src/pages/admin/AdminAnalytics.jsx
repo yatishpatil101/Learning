@@ -11,6 +11,7 @@ import {
   reviewSla,
   traffic as fetchTraffic,
   engagement as fetchEngagement,
+  funnel as fetchFunnel,
   surfers as fetchAudience,
 } from '../../services/analyticsService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
@@ -18,12 +19,13 @@ import EngagementTab from './analytics/EngagementTab.jsx';
 import SupplyGapTab from './analytics/SupplyGapTab.jsx';
 import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
+import FunnelTab from './analytics/FunnelTab.jsx';
 import { RANGE_OPTIONS } from './analytics/constants.jsx';
 
 const POSTHOG_APP_URL = import.meta.env.VITE_POSTHOG_APP_URL || '';
 
 // Pricing is a snapshot of the live catalogue, so it has no window to pick.
-const WINDOWED_TABS = new Set(['traffic', 'engagement', 'supply-gap', 'sla']);
+const WINDOWED_TABS = new Set(['funnel', 'traffic', 'engagement', 'supply-gap', 'sla']);
 
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -107,9 +109,20 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [days]);
 
+  const [funnelReport, setFunnelReport] = useState(null);
+  const [funnelFailed, setFunnelFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetchFunnel({ days })
+      .then((r) => { if (alive) { setFunnelReport(r); setFunnelFailed(false); } })
+      .catch(() => { if (alive) { setFunnelReport(null); setFunnelFailed(true); } });
+    return () => { alive = false; };
+  }, [days]);
+
   const tabs = [
     { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} /> },
     { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
+    { key: 'funnel', label: 'Funnel', content: <FunnelTab report={funnelReport} failed={funnelFailed} days={days} /> },
     { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} failed={supplyGapFailed} days={days} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
     { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
     { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} days={days} /> },
@@ -122,7 +135,7 @@ export default function AdminAnalytics() {
     <div>
       <PageHeader
         title="Analytics"
-        subtitle="Traffic, demand, pricing & SLA"
+        subtitle="Traffic, funnel, demand, pricing & SLA"
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             {WINDOWED_TABS.has(activeTab) ? (

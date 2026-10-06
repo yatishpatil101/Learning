@@ -1,28 +1,5 @@
-/**
- * Analytics Service — the measured half of the admin Analytics page, plus the dashboard scorecard.
- *
- * `GET /admin/analytics/{pricing,sla,traffic,engagement,surfers}` and `GET /admin/dashboard`, all
- * staff/admin.
- *
- * **This module is only ever measured data.** Where a card has no server source it is absent rather
- * than sampled behind a chip: six-month price trends and per-listing price position need history
- * and per-listing market estimates nothing records, the weekly SLA compliance line needs weekly
- * snapshots nothing writes, and a Seasonal tab needs years of demand history collection is too
- * young to have. A chip is not enough — an invention sits in the same grid and the same typeface as
- * a measurement, so where the data ends the card ends too. Traffic, engagement and anonymous-surfer
- * figures are answerable only because `POST /page-views` collects them and an hourly rollup
- * aggregates them; see `services/pageViewService.js`.
- *
- * **Every function rejects rather than resolving empty.** Each backs a screen whose entire purpose
- * is its figures, and zeroes on an outage would claim no listing is mispriced, no review has
- * breached and nobody visited — a more expensive lie than an empty tab. The page catches per tab,
- * so one failure does not blank the other seven.
- *
- * **Rates are null when nothing was measured; counts are not.** A 0% bounce rate claims every
- * visitor read on and a 0% anonymous share claims every visitor signed in, both assertions about a
- * week nobody visited. Every `*Pct` and every average arrives nullable and must render as "—";
- * every count arrives as a number, because zero sessions is a measurement.
- */
+/** Measured data only: a card with no server source is absent, not sampled, and functions reject on outage
+ * rather than resolve empty. Rates are null when nothing was measured (render "—"); counts are real zeros. */
 import { createProvider } from './config.js';
 
 const provider = createProvider('analytics');
@@ -131,6 +108,9 @@ export const traffic = async (opts) => (await provider()).traffic(opts);
  *   topPages: {path: string, views: number, anonViews: number}[]}>}
  */
 export const engagement = async (opts) => (await provider()).engagement(opts);
+
+/** Listings posted, approved, contacted, visited and closed per ISO week, zero-filled; each stage counts events in the week they happened. */
+export const funnel = async (opts) => (await provider()).funnel(opts);
 
 /**
  * How much of the audience browses without an account, and where it leaves.

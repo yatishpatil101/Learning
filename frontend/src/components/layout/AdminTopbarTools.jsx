@@ -51,6 +51,7 @@ const NAV_INDEX_FULL = [
 const FEATURES_INDEX = [
   { label: 'Traffic', keywords: 'traffic visits pageviews sessions visitors', path: '/admin/analytics?tab=traffic', parent: 'Analytics', flag: 'analytics' },
   { label: 'Engagement', keywords: 'engagement session duration bounce rate top pages', path: '/admin/analytics?tab=engagement', parent: 'Analytics', flag: 'analytics' },
+  { label: 'Funnel', keywords: 'funnel conversion listings approved contacts visits deals closed', path: '/admin/analytics?tab=funnel', parent: 'Analytics', flag: 'analytics' },
   { label: 'Supply Gap', keywords: 'supply gap demand market opportunity underserved locality area', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics' },
   { label: 'City Requests', keywords: 'city request expansion request your city geographic demand waitlist new city', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics' },
   { label: 'Pricing Intelligence', keywords: 'pricing market rate comparison sqft intelligence', path: '/admin/analytics?tab=pricing', parent: 'Analytics', flag: 'analytics' },

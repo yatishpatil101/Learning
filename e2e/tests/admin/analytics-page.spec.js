@@ -5,8 +5,8 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 // The seeded admin, as used by the other live admin specs.
 const admin = () => authHeaders('9000000000');
 
-// Named once so the "all five" test cannot drift.
-const TABS = ['Traffic', 'Engagement', 'Supply Gap', 'Pricing', 'SLA'];
+// Named once so the "all six" test cannot drift.
+const TABS = ['Traffic', 'Engagement', 'Funnel', 'Supply Gap', 'Pricing', 'SLA'];
 
 // Deep links are the page contract, not a shortcut around the UI.
 async function openAnalytics(page, tab) {
@@ -14,7 +14,7 @@ async function openAnalytics(page, tab) {
   await expect(page.getByRole('heading', { name: /Analytics/i })).toBeVisible();
 }
 
-test('analytics opens on Traffic with all five tabs, no Conversion or Anonymous surfers tab, its chart cards and a CSV export, and logs no console errors', async ({ page, login, consoleErrors }) => {
+test('analytics opens on Traffic with all six tabs, no Conversion or Anonymous surfers tab, its chart cards and a CSV export, and logs no console errors', async ({ page, login, consoleErrors }) => {
   test.slow();
   await login.asAdmin();
   await test.step('analytics page loads without errors', async () => {
@@ -23,7 +23,7 @@ test('analytics opens on Traffic with all five tabs, no Conversion or Anonymous 
     await expect(page.getByRole('tab', { name: 'Traffic' })).toBeVisible();
     expect(consoleErrors).toHaveLength(0);
   });
-  await test.step('analytics opens on Traffic and offers all five tabs', async () => {
+  await test.step('analytics opens on Traffic and offers all six tabs', async () => {
     await openAnalytics(page);
     await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
     for (const label of TABS) {
@@ -94,6 +94,10 @@ test('the tab is carried in the URL, retired deep links fall back to Traffic, an
     await page.getByLabel('Report window').click();
     await page.getByRole('option', { name: 'Last 30 days' }).click();
     await expect(page.getByLabel('Report window')).toContainText('30 days');
+
+    await page.getByRole('tab', { name: 'Funnel' }).click();
+    await expect(page.getByLabel('Report window')).toContainText('30 days');
+    await expect(page.getByText('Stages by week')).toBeVisible();
 
     await page.getByRole('tab', { name: 'Supply Gap' }).click();
     await expect(page.getByLabel('Report window')).toContainText('30 days');
@@ -199,6 +203,34 @@ test('a failed supply-gap read says so instead of zeroing every locality KPI', a
   await expect(page.getByRole('heading', { name: 'City Expansion Requests' })).toBeVisible();
 });
 
+test('Funnel tab totals each stage over the window the API reports', async ({ page, login, request }) => {
+  await login.asAdmin();
+  const res = await request.get(`${API}/admin/analytics/funnel?days=30`, { headers: await admin() });
+  expect(res.ok()).toBeTruthy();
+  const { weeks } = await res.json();
+  expect(weeks.length).toBeGreaterThan(0);
+
+  await openAnalytics(page, 'funnel');
+  await page.getByLabel('Report window').click();
+  await page.getByRole('option', { name: 'Last 30 days' }).click();
+  await expect(page.getByText('Stages by week')).toBeVisible();
+
+  for (const stage of ['posted', 'approved', 'contacts', 'visits', 'deals']) {
+    const total = weeks.reduce((sum, w) => sum + w[stage], 0);
+    await expect(page.getByTestId(`funnel-${stage}`).locator('div').first()).toHaveText(total.toLocaleString('en-IN'));
+  }
+  await expect(page.getByText(/Biggest drop|Not enough activity/)).toBeVisible();
+});
+
+test('a failed funnel read says so instead of showing zero stages', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.route('**/admin/analytics/funnel*', (route) => route.fulfill({ status: 500, body: '{}' }));
+
+  await openAnalytics(page, 'funnel');
+  await expect(page.getByRole('alert').filter({ hasText: /funnel report did not answer/i })).toBeVisible();
+  await expect(page.getByTestId('funnel-posted')).toHaveCount(0);
+});
+
 test('unmeasured values read as unmeasured and no tab presents generated numbers', async ({ page, login, request }) => {
   test.slow();
   await login.asAdmin();
@@ -244,7 +276,7 @@ test('unmeasured values read as unmeasured and no tab presents generated numbers
     await expect(dashRow.locator('td').nth(1)).toContainText('₹');
   });
   await test.step('no analytics tab presents generated numbers', async () => {
-    for (const tab of ['traffic', 'engagement', 'supply-gap', 'pricing', 'sla']) {
+    for (const tab of ['traffic', 'engagement', 'funnel', 'supply-gap', 'pricing', 'sla']) {
       await openAnalytics(page, tab);
       await expect(page.locator('[role="tabpanel"], main').first()).toBeVisible();
       await expect(page.getByText('Illustrative data.')).toHaveCount(0);

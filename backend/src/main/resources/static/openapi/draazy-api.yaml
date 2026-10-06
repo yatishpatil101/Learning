@@ -9666,6 +9666,26 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminAnalyticsSurfers' }
+  /admin/analytics/funnel:
+    get:
+      tags: [Admin & Analytics]
+      summary: Listings posted, approved, contacted, visited and closed, per week
+      operationId: adminAnalyticsFunnel
+      x-roles: [staff, admin]
+      description: >
+        Each stage counts events in the week they happened (IST, weeks start Monday), not one cohort
+        followed through, so stage ratios over the window are throughput. Every week the window
+        touches is present, zero-filled. Archived listings are excluded; approved is a listing's first
+        approval; deals are closed deals by `closed_at`.
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 90, minimum: 1, maximum: 365 }, description: Window length; echoed back in the response }
+      responses:
+        '200':
+          description: Weekly stage counts for the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsFunnel' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /admin/analytics/pricing:
     get:
       tags: [Admin & Analytics]
@@ -17205,6 +17225,26 @@ components:
                 description: >
                   Beside the total rather than folded into it: a page only signed-in users reach
                   and a page anonymous users bounce off are different problems with the same count.
+    AdminAnalyticsFunnel:
+      type: object
+      description: Weekly marketplace stage counts for one window.
+      required: [days, from, to, weeks]
+      properties:
+        days: { type: integer }
+        from: { type: string, format: date, description: First IST day included }
+        to: { type: string, format: date, description: First IST day excluded }
+        weeks:
+          type: array
+          items:
+            type: object
+            required: [week, posted, approved, contacts, visits, deals]
+            properties:
+              week: { type: string, format: date, description: The Monday the week starts on }
+              posted: { type: integer, format: int64 }
+              approved: { type: integer, format: int64 }
+              contacts: { type: integer, format: int64, description: Contact requests sent }
+              visits: { type: integer, format: int64, description: Visits booked }
+              deals: { type: integer, format: int64, description: Deals closed }
     AdminAnalyticsSurfers:
       type: object
       description: The anonymous-to-signed-in funnel for one window.

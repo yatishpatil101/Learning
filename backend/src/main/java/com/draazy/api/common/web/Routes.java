@@ -419,7 +419,7 @@ public final class Routes {
         private SupportTickets() {
         }
 
-        /** Authenticated — GET the caller's own tickets (spec fix S47), POST to raise one. */
+        /** Authenticated — GET the caller's own tickets, POST to raise one. */
         public static final String BASE = "/support/tickets";
 
         public static final String BY_ID = BASE + "/{id}";
@@ -1147,6 +1147,7 @@ public final class Routes {
         public static final String ANALYTICS_ENGAGEMENT = "/admin/analytics/engagement";
 
         public static final String ANALYTICS_SURFERS = "/admin/analytics/surfers";
+        public static final String ANALYTICS_FUNNEL = "/admin/analytics/funnel";
 
         public static final String SUPPORT_TICKETS = "/admin/support-tickets";
 

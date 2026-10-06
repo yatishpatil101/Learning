@@ -1,6 +1,6 @@
 # Flow: Admin Analytics
 
-> The insight console: 5 analytics tabs (Traffic, Engagement, Supply Gap, Pricing, SLA) plus the
+> The insight console: 6 analytics tabs (Traffic, Engagement, Funnel, Supply Gap, Pricing, SLA) plus the
 > Dashboard KPI tiles, all read from server reports, with one report-window selector in the page header.
 > **Status:** documented from React source - **Primary role(s):** admin (with the Analytics module)
 
@@ -15,7 +15,7 @@
   and property verification) are being met. The funnel here complements [`enquiries-funnel.md`](./enquiries-funnel.md).
 
 ## 2. Entry points
-- **Routes:** `/admin/analytics?tab=<key>` (default `traffic`). Tab keys: `traffic`, `engagement`, `supply-gap`,
+- **Routes:** `/admin/analytics?tab=<key>` (default `traffic`). Tab keys: `traffic`, `engagement`, `funnel`, `supply-gap`,
   `pricing`, `sla`; any other key (including the retired `geography`, `seasonal`, `surfers`) falls back to Traffic.
   The Dashboard (`/admin`) surfaces KPI tiles + SLA panels that link into these tabs (e.g. `?tab=supply-gap`).
 - **Tiles / triggers:** a header `Report window` select (30/90/180 days, shown on every tab except Pricing),
@@ -74,6 +74,16 @@ Static illustrative series over `WK12`: avg session minutes `3.2..4.5`, bounce `
 ### 5.4 Geography tab — removed
 It charted ~155 localities in 360px bars (unreadable), and its demand index and ₹/sqft were curated
 seed constants. Locality demand now lives on Supply Gap, measured prices on Pricing.
+
+### 5.4a Funnel tab (`GET /admin/analytics/funnel?days=`, `AdminFunnelService`)
+Weekly (IST, Monday-start, zero-filled) counts of five stages over the window (1–365 days, default 90):
+- **Posted** — non-archived `properties.created_at`.
+- **Approved** — the first approval audit row per non-archived listing: `property.status` → `approved`, or the console's case-file / second-approver `property.verification.decision` = `approve` (re-approvals don't recount).
+- **Contacts** — `contact_requests.created_at` (requests sent; there is no reliable approval timestamp).
+- **Visits** — `visits.created_at`. **Deals** — `deals.closed_at` where `status = 'closed'`.
+
+Each stage counts events in the week they happened, not one cohort followed through, so the tiles'
+"% of previous" is window throughput. The lowest step is called out as the biggest drop; a stage after a zero shows `—`.
 
 ### 5.5 Supply Gap tab (`GET /admin/supply-gap?days=`)
 Per-locality supply vs weighted demand over the header window:
@@ -181,7 +191,7 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
 - **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, whatsappEnabled).
 
 ### 5.10 Time ranges & filters
-- **Report window** `days` (30/90/180), in the page header, drives Traffic, Engagement, Supply Gap and SLA
+- **Report window** `days` (30/90/180), in the page header, drives Traffic, Engagement, Funnel, Supply Gap and SLA
   (SLA windows decisions only; the backlog is always live). Pricing and the city waitlist have no window.
 - Tab visibility is driven by `analytics.<key>` flags; the whole page needs the `analytics` module flag.
 

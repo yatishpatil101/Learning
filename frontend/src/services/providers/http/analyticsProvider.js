@@ -159,6 +159,23 @@ export async function engagement(opts = {}) {
   };
 }
 
+export async function funnel(opts = {}) {
+  const f = await get('/admin/analytics/funnel', window_(opts));
+  return {
+    days: count(f?.days),
+    from: String(f?.from || ''),
+    to: String(f?.to || ''),
+    weeks: (Array.isArray(f?.weeks) ? f.weeks : []).map((w) => ({
+      week: String(w?.week || ''),
+      posted: count(w?.posted),
+      approved: count(w?.approved),
+      contacts: count(w?.contacts),
+      visits: count(w?.visits),
+      deals: count(w?.deals),
+    })),
+  };
+}
+
 export async function surfers(opts = {}) {
   const s = await get('/admin/analytics/surfers', window_(opts));
   return {
