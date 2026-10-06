@@ -11,6 +11,9 @@ import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
  */
 const FAIR_BAND_PCT = 10;
 
+/** Must match `AdminPricingService.MIN_SAMPLE`: fewer approved flats than this get no asking rate. */
+const MIN_SAMPLE = 3;
+
 /** Nullable money. A dash, never a zero — the point of the endpoint is that it can say "no data". */
 const money = (v) => (v == null ? '—' : fmtINR(v));
 
@@ -23,31 +26,7 @@ const deviation = (row) =>
     ? null
     : ((row.avgActualRatePerSqft - row.marketRatePerSqft) / row.marketRatePerSqft) * 100);
 
-/**
- * The Pricing tab: measured locality pricing, and nothing else.
- *
- * `rows` is the server report (`GET /admin/analytics/pricing`) and every figure derived from it is
- * real.
- *
- * **What used to be here.** A six-month price-trend chart and a twenty-row "Listing Price Position"
- * table, both drawn by a seeded generator and chipped `Sample`. Both are deleted rather than
- * rebuilt. The trend needs price-history snapshots nothing records — a listing's price is a column,
- * not a series — and the table needed per-listing market estimates the server does not compute and
- * has no source for. The table was the worse of the two: it printed invented listing titles, with
- * invented prices, behind links to `/admin/properties?review=<id>` that resolved to nothing, in a
- * console whose other tables are the real catalogue. A chip does not survive that; the row looked
- * exactly like something to go and fix.
- *
- * **Nulls render as dashes and are never coerced.** A locality with no approved buy listings has no
- * average asking rate. The browser version filled that hole with the curated market rate, so an
- * empty locality showed a deviation of exactly zero and counted towards "fair priced" — the report
- * flattered precisely the areas with nothing in them. Every dash here is somewhere worth sourcing.
- *
- * @param {{rows: (object[]|null), failed: boolean}} props `rows` of null means "not loaded yet" and
- *   renders nothing; an empty array means the report loaded and is empty, which renders. `failed`
- *   separates the two — without it a 500 would render as a successful report finding no mispriced
- *   localities anywhere, which is the most misleading page this tab can show.
- */
+/** Nulls render as dashes, never coerced: a market-rate fallback would score a thin locality as fair. */
 export default function PricingTab({ rows, failed }) {
   if (failed) {
     return (
@@ -70,10 +49,6 @@ export default function PricingTab({ rows, failed }) {
     : null;
 
   const marketRates = rows.map((r) => r.marketRatePerSqft).filter((v) => v != null);
-  // Summed over `measured`, not `rows`. The four tiles beside this one are computed over the
-  // localities an asking rate could actually be derived for, and a headline that counted the rest
-  // would overstate the sample the analysis rests on — on the one tab whose purpose is not doing that.
-  const analysedListings = measured.reduce((s, r) => s + r.totalListings, 0);
   const yieldRanking = rows
     .filter((r) => r.rentalYieldPct != null)
     .sort((a, b) => b.rentalYieldPct - a.rentalYieldPct);
@@ -83,13 +58,13 @@ export default function PricingTab({ rows, failed }) {
       {/* KPI summary — per locality, because that is the granularity the server measures at. */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         {[
-          [fmtNum(analysedListings), 'Listings analysed', 'text-white'],
+          [fmtNum(measured.length), 'Localities priced', 'text-white'],
           [fair, `Fair priced (±${FAIR_BAND_PCT}%)`, 'text-emerald-400'],
           [overpriced, 'Overpriced areas', 'text-rose-400'],
           [underpriced, 'Underpriced areas', 'text-amber-400'],
           [pct(avgYield), 'Avg rental yield', 'text-teal-400'],
-          [money(marketRates.length ? Math.max(...marketRates) : null), 'Highest ₹/sqft', 'text-indigo-400'],
-          [money(marketRates.length ? Math.min(...marketRates) : null), 'Lowest ₹/sqft', 'text-sky-400'],
+          [money(marketRates.length ? Math.max(...marketRates) : null), 'Highest market rate', 'text-indigo-400'],
+          [money(marketRates.length ? Math.min(...marketRates) : null), 'Lowest market rate', 'text-sky-400'],
         ].map(([val, label, color]) => (
           <div key={label} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
             <div className={`text-2xl font-bold ${color}`}>{val}</div>
@@ -98,17 +73,15 @@ export default function PricingTab({ rows, failed }) {
         ))}
       </div>
 
-      {measured.length < rows.length ? (
-        <p className="text-xs text-gray-500">
-          {rows.length - measured.length} of {rows.length} localities have no approved listing with a
-          usable area, so no asking rate could be measured. They show a dash rather than being assumed
-          to match the market rate.
-        </p>
-      ) : null}
+      <p className="text-xs text-gray-500">
+        Asking rate and yield are measured from approved flats only, and need {MIN_SAMPLE}+ per locality.
+        Market rate, avg rent and demand are curated reference figures.
+        {measured.length < rows.length ? ` ${rows.length - measured.length} of ${rows.length} localities have too few flats to price.` : ''}
+      </p>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Market rate vs actual ₹/sqft" desc="Per locality. Gaps are localities with nothing to average." height={340}>
-          <BarChart labels={rows.map((l) => l.name)} datasets={[{ label: 'Market rate', data: rows.map((l) => l.marketRatePerSqft), color: C.indigo }, { label: 'Actual rate', data: rows.map((l) => l.avgActualRatePerSqft), color: C.teal }]} options={{ scales: { x: AX, y: axis({ ticks: { color: '#94a3b8', callback: (v) => `₹${(v / 1000).toFixed(0)}k` } }) } }} />
+        <Card title="Market rate vs asking ₹/sqft" desc="Priced localities only." height={340}>
+          <BarChart labels={measured.map((l) => l.name)} datasets={[{ label: 'Market rate', data: measured.map((l) => l.marketRatePerSqft), color: C.indigo }, { label: 'Asking rate', data: measured.map((l) => l.avgActualRatePerSqft), color: C.teal }]} options={{ scales: { x: AX, y: axis({ ticks: { color: '#94a3b8', callback: (v) => `₹${(v / 1000).toFixed(0)}k` } }) } }} />
         </Card>
         <Card title="Rental yield by locality" desc="Annual rent / property value %" height={340}>
           <BarChart horizontal labels={yieldRanking.map((l) => l.name)} datasets={[{ label: 'Yield %', data: yieldRanking.map((l) => l.rentalYieldPct), color: C.emerald }]} options={{ scales: { x: axis({ ticks: { color: '#94a3b8', callback: (v) => `${v}%` } }), y: AX } }} />

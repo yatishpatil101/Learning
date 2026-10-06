@@ -80,8 +80,13 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
     /** {@code area} is a {@code BigDecimal} so a test can hand in null or zero, the case the
      *  averages have to survive. Returns the saved row so callers can push it out of scope. */
     private Property listing(String slug, String deal, long price, BigDecimal area, String suffix) {
+        return listing(slug, deal, "apartment", price, area, suffix);
+    }
+
+    private Property listing(String slug, String deal, String type, long price, BigDecimal area,
+                             String suffix) {
         Property p = new Property(owner(suffix), "Fixture " + slug + " " + suffix,
-                deal, "apartment", price, "Fixture " + slug, "Pune");
+                deal, type, price, "Fixture " + slug, "Pune");
         p.setLocalitySlug(slug);
         p.setArea(area);
         p.setStatus(PropertyStatus.APPROVED);
@@ -110,6 +115,7 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         String slug = "d999-pricing-shape";
         locality(slug);
         listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "1");
+        listing(slug, "buy", 11_000_000L, new BigDecimal("1000"), "1b");
         listing(slug, "buy", 12_000_000L, new BigDecimal("1000"), "2");
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "3");
 
@@ -118,13 +124,48 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(row.get("name")).isEqualTo("Fixture " + slug);
         assertThat(num(row, "marketRatePerSqft")).isEqualTo(MARKET_RATE);
         assertThat(num(row, "avgActualRatePerSqft"))
-                .as("the mean of the two asking rates, not the curated ₹%d", MARKET_RATE)
+                .as("the mean of the three asking rates, not the curated ₹%d", MARKET_RATE)
                 .isEqualTo(11_000L);
         assertThat(num(row, "avgRent")).isEqualTo(AVG_RENT);
-        assertThat(num(row, "buyCount")).isEqualTo(2L);
+        assertThat(num(row, "buyCount")).isEqualTo(3L);
         assertThat(num(row, "rentCount")).isEqualTo(1L);
-        assertThat(num(row, "totalListings")).isEqualTo(3L);
+        assertThat(num(row, "totalListings")).isEqualTo(4L);
         assertThat(num(row, "demand")).isEqualTo((long) DEMAND);
+    }
+
+    /** One or two listings are an owner's opinion, not a locality's price, and a verdict of
+     *  "overpriced area" off them sends sourcing after noise. */
+    @Test
+    void fewerThanThreeFlatsIsTooFewToPrice() throws Exception {
+        String slug = "d999-pricing-thin";
+        locality(slug);
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "t1");
+        listing(slug, "buy", 12_000_000L, new BigDecimal("1000"), "t2");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "t3");
+
+        Map<String, Object> row = row(admin(), slug);
+
+        assertThat(row.get("avgActualRatePerSqft")).isNull();
+        assertThat(row.get("rentalYieldPct")).isNull();
+        assertThat(num(row, "buyCount")).as("still supply").isEqualTo(2L);
+    }
+
+    /** The curated rate is a flat rate; a plot or a shop at a tenth of it per sqft is a different
+     *  market, not a bargain. */
+    @Test
+    void onlyFlatsAreAveragedAgainstTheMarketRate() throws Exception {
+        String slug = "d999-pricing-mixed";
+        locality(slug);
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "m1");
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "m2");
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "m3");
+        listing(slug, "buy", "Plot", 1_000_000L, new BigDecimal("1000"), "m4");
+        listing(slug, "buy", "Office Space", 30_000_000L, new BigDecimal("1000"), "m5");
+
+        Map<String, Object> row = row(admin(), slug);
+
+        assertThat(num(row, "avgActualRatePerSqft")).isEqualTo(10_000L);
+        assertThat(num(row, "buyCount")).as("every type is still supply").isEqualTo(5L);
     }
 
     /** The only figure combining both halves of the schema: a missing ×12 reports 0.3, and dividing
@@ -134,6 +175,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         String slug = "d999-pricing-yield";
         locality(slug);
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4b");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4c");
 
         Map<String, Object> row = row(admin(), slug);
 
@@ -172,6 +215,7 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         String slug = "d999-pricing-noarea";
         locality(slug);
         listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "5");
+        listing(slug, "buy", 11_000_000L, new BigDecimal("1000"), "5b");
         listing(slug, "buy", 12_000_000L, new BigDecimal("1000"), "6");
         listing(slug, "buy", 8_000_000L, null, "7");
         listing(slug, "buy", 8_000_000L, BigDecimal.ZERO, "8");
@@ -179,12 +223,12 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         Map<String, Object> row = row(admin(), slug);
 
         assertThat(num(row, "avgActualRatePerSqft"))
-                .as("averaged over the two listings that carry an area, and only those")
+                .as("averaged over the three listings that carry an area, and only those")
                 .isEqualTo(11_000L);
         assertThat(num(row, "buyCount"))
-                .as("all four are still listings — supply and the sample are different questions")
-                .isEqualTo(4L);
-        assertThat(num(row, "totalListings")).isEqualTo(4L);
+                .as("all five are still listings — supply and the sample are different questions")
+                .isEqualTo(5L);
+        assertThat(num(row, "totalListings")).isEqualTo(5L);
     }
 
     /** Locality-by-locality pricing is commercially sensitive; a signed-in seeker is still public. */
@@ -219,6 +263,8 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         String slug = "d999-pricing-invisible";
         locality(slug);
         listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "9");
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "9b");
+        listing(slug, "buy", 10_000_000L, new BigDecimal("1000"), "9c");
 
         Property pending = listing(slug, "buy", 30_000_000L, new BigDecimal("1000"), "a");
         pending.setStatus(PropertyStatus.PENDING);
@@ -230,12 +276,12 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         Map<String, Object> row = row(admin(), slug);
 
         assertThat(num(row, "avgActualRatePerSqft"))
-                .as("the one approved listing; ₹30,000 or ₹40,000 per sqft would be unmissable in the mean")
+                .as("the approved listings; ₹30,000 or ₹40,000 per sqft would be unmissable in the mean")
                 .isEqualTo(10_000L);
         assertThat(num(row, "buyCount"))
                 .as("a listing awaiting review is not supply, and an archived one is gone")
-                .isEqualTo(1L);
-        assertThat(num(row, "totalListings")).isEqualTo(1L);
+                .isEqualTo(3L);
+        assertThat(num(row, "totalListings")).isEqualTo(3L);
     }
 
     /** An inactive locality is not part of the catalogue and is not part of the report. */

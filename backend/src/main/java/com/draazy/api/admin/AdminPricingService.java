@@ -31,40 +31,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AdminPricingService {
 
-    /**
-     * The report, in one statement.
-     *
-     * <p>{@code archived = false} joins {@code status = 'approved'} because that pair is what the
-     * rest of the platform means by a live listing (see {@code PropertyRepository}); approving a
-     * listing and then soft-deleting it leaves the status untouched, so status alone would price a
-     * locality partly on homes that are no longer offered.
-     *
-     * <p>The {@code filter} clauses do the deal split inside a single pass. {@code p.area > 0} is
-     * null-safe by construction — {@code null > 0} is unknown, so a missing area fails the filter
-     * exactly as a zero one does, and neither reaches the division.
-     *
-     * <p>{@code count(*) filter (where p.deal = ...)} is safe under the left join: the padded row of
-     * a locality with no listings has a null {@code deal}, which no filter matches, so an empty
-     * locality counts zero rather than one. {@code count(p.id)} is used for the total for the same
-     * reason — {@code count(*)} there would report 1.
-     *
-     * <p>Yield is average monthly asking rent per square foot, annualised, over the curated capital
-     * rate for the same square foot. Both sides are per-sqft so the areas cancel, which is what lets
-     * a two-bedroom and a studio in the same locality be averaged together at all. The mean is taken
-     * over listings rather than over rupees, so one very large flat cannot speak for the locality.
-     * {@code nullif(..., 0)} is the guard on the only divisor that is not already filtered — a
-     * curated rate of zero is a curation bug, and dividing by it would report an infinite yield.
-     */
+    /** Live = approved and not archived (soft-delete leaves status untouched); yield is per-sqft so areas cancel.
+     * Flats only, at least {@link #MIN_SAMPLE}, else null: one or two listings are an opinion, not a price. */
     private static final String PRICING_INSIGHTS = """
             select l.slug,
                    l.name,
                    round(l.rate_per_sqft)                            as market_rate_per_sqft,
-                   round(avg(p.price / p.area) filter (
-                       where p.deal = 'buy' and p.area > 0))         as avg_actual_rate_per_sqft,
+                   case when count(*) filter (where p.deal = 'buy' and p.property_type_key = 'flat'
+                                                and p.area > 0) >= :minSample
+                        then round(avg(p.price / p.area) filter (
+                            where p.deal = 'buy' and p.property_type_key = 'flat' and p.area > 0))
+                   end                                               as avg_actual_rate_per_sqft,
                    l.avg_rent,
-                   round(avg(p.price / p.area) filter (
-                       where p.deal = 'rent' and p.area > 0)
-                       * 12 / nullif(l.rate_per_sqft, 0) * 100, 1)   as rental_yield_pct,
+                   case when count(*) filter (where p.deal = 'rent' and p.property_type_key = 'flat'
+                                                and p.area > 0) >= :minSample
+                        then round(avg(p.price / p.area) filter (
+                            where p.deal = 'rent' and p.property_type_key = 'flat' and p.area > 0)
+                            * 12 / nullif(l.rate_per_sqft, 0) * 100, 1)
+                   end                                               as rental_yield_pct,
                    count(*) filter (where p.deal = 'buy')            as buy_count,
                    count(*) filter (where p.deal = 'rent')           as rent_count,
                    count(p.id)                                       as total_listings,
@@ -78,6 +62,8 @@ public class AdminPricingService {
              group by l.slug, l.name, l.rate_per_sqft, l.avg_rent, l.demand
              order by l.name
             """;
+
+    static final int MIN_SAMPLE = 3;
 
     private final EntityManager em;
 
@@ -95,6 +81,7 @@ public class AdminPricingService {
     public List<PricingInsightRow> report() {
         List<Object[]> rows = em.createNativeQuery(PRICING_INSIGHTS)
                 .setParameter("status", PropertyStatus.APPROVED)
+                .setParameter("minSample", MIN_SAMPLE)
                 .getResultList();
 
         List<PricingInsightRow> out = new ArrayList<>(rows.size());

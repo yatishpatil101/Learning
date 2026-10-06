@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ExternalLink } from 'lucide-react';
-import { listLocalities } from '../../services/localityService.js';
 import { listCityWaitlist } from '../../services/cityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import Select from '../../components/ui/Select.jsx';
 import { QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
 import {
@@ -15,45 +15,34 @@ import {
 } from '../../services/analyticsService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
 import EngagementTab from './analytics/EngagementTab.jsx';
-import GeographyTab from './analytics/GeographyTab.jsx';
 import SupplyGapTab from './analytics/SupplyGapTab.jsx';
 import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
+import { RANGE_OPTIONS } from './analytics/constants.jsx';
 
 const POSTHOG_APP_URL = import.meta.env.VITE_POSTHOG_APP_URL || '';
+
+// Pricing is a snapshot of the live catalogue, so it has no window to pick.
+const WINDOWED_TABS = new Set(['traffic', 'engagement', 'supply-gap', 'sla']);
 
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const [days, setDays] = useState(90);
 
-  /* No Seasonal tab: month-over-month demand needs years of history that do not exist yet. */
-
-  // Server aggregate: a failure empties this tab, not the page.
-  const [supplyGap, setSupplyGap] = useState([]);
-  const [locs, setLocs] = useState([]);
+  // A failure here empties this tab, not the page, and says so.
+  const [supplyGap, setSupplyGap] = useState(null);
+  const [supplyGapFailed, setSupplyGapFailed] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetchSupplyGap()
-      .then((rows) => { if (alive) setSupplyGap(rows); })
-      .catch(() => { if (alive) setSupplyGap([]); });
+    fetchSupplyGap({ days })
+      .then((rows) => { if (alive) { setSupplyGap(rows); setSupplyGapFailed(false); } })
+      .catch(() => { if (alive) { setSupplyGap(null); setSupplyGapFailed(true); } });
     return () => { alive = false; };
-  }, []);
+  }, [days]);
 
-  /*
-   * The other half of the Supply Gap tab: which cities people want Draazy to launch in.
-   *
-   * A second request rather than a field on the supply-gap report, because they are answers to two
-   * different questions against two unrelated tables — localities inside a city we serve, and cities
-   * we do not. Fetched separately for the same reason Supply Gap is fetched apart from the rest of
-   * the page: one report failing should empty one panel.
-   *
-   * Three states, like Pricing and SLA below and unlike `supplyGap` above, and the difference is
-   * deliberate. `[]` in the catch renders "No city requests yet" — a claim that nobody has asked,
-   * assembled out of a failed read. This panel exists because it spent its whole life making
-   * exactly that claim wrongly; shipping it back with a catch that can re-make it would be a poor
-   * joke.
-   */
+  /* Separate request: different tables, and one failing report should empty one panel. `[]` in the catch
+     would claim nobody asked. */
   const [cityWaitlist, setCityWaitlist] = useState(null);
   const [cityWaitlistFailed, setCityWaitlistFailed] = useState(false);
   /* Nothing re-runs the read, so without a retry the failed state needs a full page reload. */
@@ -67,36 +56,7 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [cityWaitlistAttempt]);
 
-  useEffect(() => {
-    let alive = true;
-    listLocalities()
-      .then((rows) => {
-        if (!alive) return;
-        setLocs(rows.map((row) => ({
-          name: row.name,
-          listings: row.listingCount,
-          demand: row.demand ?? 0,
-          ratePerSqft: row.ratePerSqft ?? 0,
-        })));
-      })
-      .catch(() => { if (alive) setLocs([]); });
-    return () => { alive = false; };
-  }, []);
-
-  /*
-   * Pricing and SLA are measured, so they are fetched rather than generated.
-   *
-   * Each gets its own effect and its own catch, like Supply Gap above and for the same reason: a
-   * failure should empty one tab, not the page. `null` is the pre-arrival state and the tabs render
-   * nothing for it — distinct from a loaded report that happens to be empty, which they do render.
-   */
-  /*
-   * Three states, not two, and the third is why this is not simply `useState(null)` with a `[]` in
-   * the catch. `[]` means "the report loaded and found nothing", which renders a full KPI strip
-   * reading 0 overpriced and 0 underpriced areas — a confident all-clear manufactured out of a 500.
-   * That is the same class of lie the endpoints were written to retire, one layer up, so a failure
-   * has to be able to say so.
-   */
+  /* Three-state (`null`, value, `failed`): `[]` in the catch would render an all-clear out of a 500. */
   const [pricingRows, setPricingRows] = useState(null);
   const [pricingFailed, setPricingFailed] = useState(false);
   useEffect(() => {
@@ -111,13 +71,12 @@ export default function AdminAnalytics() {
   const [slaFailed, setSlaFailed] = useState(false);
   useEffect(() => {
     let alive = true;
-    reviewSla()
+    reviewSla({ days })
       .then((summary) => { if (alive) { setSlaSummary(summary); setSlaFailed(false); } })
       .catch(() => { if (alive) { setSlaSummary(null); setSlaFailed(true); } });
     return () => { alive = false; };
-  }, []);
+  }, [days]);
 
-  /* `days` is set on the Traffic tab and shared with Engagement; `[]` in the catch would show zero traffic. */
   const [trafficReport, setTrafficReport] = useState(null);
   const [trafficFailed, setTrafficFailed] = useState(false);
   useEffect(() => {
@@ -149,12 +108,11 @@ export default function AdminAnalytics() {
   }, [days]);
 
   const tabs = [
-    { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} setDays={setDays} /> },
+    { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} /> },
     { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
-    { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
-    { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
+    { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} failed={supplyGapFailed} days={days} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
     { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
-    { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
+    { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} days={days} /> },
   ];
 
   /* Resolve against existing tabs, not the raw URL: an unknown or switched-off tab would render an empty page. */
@@ -164,17 +122,26 @@ export default function AdminAnalytics() {
     <div>
       <PageHeader
         title="Analytics"
-        subtitle="Traffic, engagement & geographic insights"
-        actions={POSTHOG_APP_URL ? (
-          <a
-            href={POSTHOG_APP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-white/5 hover:text-white transition"
-          >
-            Product analytics <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        ) : null}
+        subtitle="Traffic, demand, pricing & SLA"
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {WINDOWED_TABS.has(activeTab) ? (
+              <div style={{ width: 170 }}>
+                <Select value={String(days)} onChange={(v) => setDays(Number(v))} options={RANGE_OPTIONS} ariaLabel="Report window" />
+              </div>
+            ) : null}
+            {POSTHOG_APP_URL ? (
+              <a
+                href={POSTHOG_APP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-white/5 hover:text-white transition"
+              >
+                Product analytics <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+          </div>
+        )}
       />
       <QueueTabs
         tabs={tabs.map(({ key, label }) => ({ key, label, count: null }))}

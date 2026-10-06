@@ -130,7 +130,9 @@ test('Traffic tab renders the anonymous-audience null contract as a dash, not as
   const report = await res.json();
 
   await openTab(page, login, 'traffic');
-
+  // Same window as the API read above; the page default is wider.
+  await page.getByLabel('Report window').click();
+  await page.getByRole('option', { name: 'Last 30 days' }).click();
   // Not a fallback discriminator — both an empty mock window and the e2e one render dashes.
   const inr = (n) => n.toLocaleString('en-IN');
   await expect(page.getByText(`Out of ${inr(report.totalSessions)} total sessions`)).toBeVisible();

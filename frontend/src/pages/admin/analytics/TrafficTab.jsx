@@ -1,14 +1,13 @@
 import { Download } from 'lucide-react';
 import { DoughnutChart, LineChart } from '../../../components/charts/index.jsx';
-import Select from '../../../components/ui/Select.jsx';
 import { exportCsv } from '../../../lib/csv.js';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { C, AX, axis, RANGE_OPTIONS, Card, LoadFailedNotice } from './constants.jsx';
+import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
 import AudiencePanel from './AudiencePanel.jsx';
 
 /** No 'New vs returning' card: the session id dies with the
  * tab, so a returning visitor is structurally underivable. */
-export default function TrafficTab({ report, failed, audience, audienceFailed, days, setDays }) {
+export default function TrafficTab({ report, failed, audience, audienceFailed, days }) {
   const { toast } = useToast();
 
   const exportTraffic = () => {
@@ -20,34 +19,6 @@ export default function TrafficTab({ report, failed, audience, audienceFailed, d
     toast(`Exported ${days}-day traffic CSV`);
   };
 
-  const picker = (
-    <div className="dz-card mb-4 flex flex-wrap items-center gap-3 p-3">
-      <span className="text-sm text-gray-400">Traffic window</span>
-      <div style={{ maxWidth: 170 }}>
-        <Select value={String(days)} onChange={(v) => setDays(Number(v))} options={RANGE_OPTIONS} ariaLabel="Traffic window" />
-      </div>
-      <button
-        className="dz-btn dz-btn-ghost ml-auto inline-flex items-center gap-2"
-        onClick={exportTraffic}
-        disabled={!report}
-      >
-        <Download className="h-4 w-4" /> Export traffic CSV
-      </button>
-    </div>
-  );
-
-  /*
-   * The picker is rendered by the single return below rather than by each branch, and that is
-   * load-bearing rather than tidiness.
-   *
-   * Returning `picker` bare while loading and `<div>{picker}...</div>` once loaded puts a `div` at
-   * the root of both, so React keeps the DOM node and swaps its children instead of remounting.
-   * The window control is inside those children, so it was destroyed and rebuilt the moment its own
-   * fetch resolved — with the dropdown open, which is exactly when a user has just changed it. The
-   * panel vanished mid-click and the change was lost. It reproduced 4 runs in 6.
-   *
-   * One shape for all three states means the control survives its own reload.
-   */
   const body = () => {
     if (failed) {
       return (
@@ -127,7 +98,15 @@ export default function TrafficTab({ report, failed, audience, audienceFailed, d
 
   return (
     <div>
-      {picker}
+      <div className="mb-4 flex justify-end">
+        <button
+          className="dz-btn dz-btn-ghost inline-flex items-center gap-2"
+          onClick={exportTraffic}
+          disabled={!report}
+        >
+          <Download className="h-4 w-4" /> Export traffic CSV
+        </button>
+      </div>
       {body()}
       <AudiencePanel report={audience} failed={audienceFailed} days={days} />
     </div>

@@ -1,8 +1,7 @@
 # Flow: Admin Analytics
 
-> The insight console: 8 analytics tabs (Traffic, Engagement, Anonymous surfers, Geography,
-> Supply Gap, Pricing, SLA, Seasonal) plus the Dashboard KPI tiles - each chart/KPI derived
-> deterministically from the mock DB or a seeded RNG, with a traffic time-window selector.
+> The insight console: 5 analytics tabs (Traffic, Engagement, Supply Gap, Pricing, SLA) plus the
+> Dashboard KPI tiles, all read from server reports, with one report-window selector in the page header.
 > **Status:** documented from React source - **Primary role(s):** admin (with the Analytics module)
 
 ---
@@ -16,14 +15,14 @@
   and property verification) are being met. The funnel here complements [`enquiries-funnel.md`](./enquiries-funnel.md).
 
 ## 2. Entry points
-- **Routes:** `/admin/analytics?tab=<key>` (default `traffic`). Tab keys: `traffic`, `engagement`, `surfers`,
-  `geography`, `supply-gap`, `pricing`, `sla`, `seasonal`. The Dashboard (`/admin`) surfaces KPI tiles + Smart
-  Alerts / SLA / Ops Scorecard panels that link into these tabs (e.g. `?tab=supply-gap`).
-- **Tiles / triggers:** a traffic-window `Select` (30/90/180 days), per-tab KPI cards, charts, and drill tables;
-  CSV export on the Traffic tab.
+- **Routes:** `/admin/analytics?tab=<key>` (default `traffic`). Tab keys: `traffic`, `engagement`, `supply-gap`,
+  `pricing`, `sla`; any other key (including the retired `geography`, `seasonal`, `surfers`) falls back to Traffic.
+  The Dashboard (`/admin`) surfaces KPI tiles + SLA panels that link into these tabs (e.g. `?tab=supply-gap`).
+- **Tiles / triggers:** a header `Report window` select (30/90/180 days, shown on every tab except Pricing),
+  per-tab KPI cards, charts, and drill tables; CSV export on the Traffic tab.
 - **Source components:**
-  - `src/pages/admin/AdminAnalytics.jsx` - tab shell, window state, per-tab flag gating.
-  - `src/pages/admin/analytics/*.jsx` - the 8 tab views + `constants.jsx` (palette, axes, `Card`).
+  - `src/pages/admin/AdminAnalytics.jsx` - tab shell, window state, header picker.
+  - `src/pages/admin/analytics/*.jsx` - the tab views + `constants.jsx` (palette, axes, `Card`).
   - `src/lib/data/analytics-extra.js` (barrel) -> `analytics/*.js` slices (all real aggregation logic).
   - Dashboard: `src/pages/admin/AdminDashboard.jsx` + `dashboard/*Panel.jsx`.
 
@@ -72,23 +71,21 @@ Static illustrative series over `WK12`: avg session minutes `3.2..4.5`, bounce `
 - Weekly split (8 buckets): `signedIn = min(wSignups * (11 + rng()*3), wVisits)`, `anon = wVisits - signedIn`.
 - `dropOff`: fixed exit-point percentages (contact wall 34%, etc.).
 
-### 5.4 Geography tab (`localities()` = `db.localities`)
-Three bars straight off locality records: Listings by locality (`l.listings`), Demand index (`l.demand`),
-Avg rate `l.ratePerSqft`. No transformation beyond mapping.
+### 5.4 Geography tab — removed
+It charted ~155 localities in 360px bars (unreadable), and its demand index and ₹/sqft were curated
+seed constants. Locality demand now lives on Supply Gap, measured prices on Pricing.
 
-### 5.5 Supply Gap tab (`supplyDemandGap()`)
-Per-locality supply vs weighted demand, sorted by `gap` desc:
-- `supply` = approved, non-archived listings per locality (`supplyMap`), fallback `loc.listings`.
-- Weighted **demand** accumulation into `demandMap`:
-  - each enquiry (+1, locality parsed from listing title `split(' in ')` last segment),
-  - each search intent in last 30 days (+1, also counted in `searchMap`),
-  - each property view in last 30 days (+0.5, also `viewMap`),
-  - each demand alert (+2, also `alertMap`), each demand post (+3).
-  - `demand = round(demandMap[name] || loc.demand * 0.4)`.
-- **Hot demand:** users who searched the same locality `>= 3` times in the last 7 days (`userLocCount` keyed `userId|locality`), counted per locality.
-- `gap = demand - supply`. Row also carries `searches`, `views`, `alerts`, `hot`, `ratePerSqft`, `avgRent`.
-- **Tab KPIs:** Under-served (`gap>0`), Well-served (`gap<=0`), Total demand (sum), Total supply (sum),
-  Property views 30d (sum `views`), Hot demand users (sum `hot`). Priority chip: High if `gap>=5 || hot>=2`, Medium if `gap>0`, else OK.
+### 5.5 Supply Gap tab (`GET /admin/supply-gap?days=`)
+Per-locality supply vs weighted demand over the header window:
+- `supply` = approved, non-archived listings per locality.
+- `demand` = `searches*2 + alerts*5`. Views are reported but **not** weighted: they grow with supply, so
+  counting them ranked well-stocked areas as under-served.
+- `demandPerListing = round1(demand / (supply + 1))`; rows sort by it desc, then by `demand`. The
+  no-locality row is always last and gets no priority.
+- **Tab KPIs:** Under-served (High or Medium), Well-served (OK), Total demand, Total supply,
+  Property views (`<days>d`), Hot demand users. Priority chip: High if `demandPerListing>=5 || repeatSeekers>=2`,
+  Medium if `>=1`, else OK (thresholds named in `SupplyGapTab.jsx`).
+- A failed read shows a notice instead of zeroed KPIs; the city panel below still renders.
 - **Demand Alerts by locality** (`alertsByLocality()`): groups `demandAlerts` by locality -> `{count, lastAt, rent, buy, topType}`, sorted by count.
 - **City Expansion Requests** (`GET /admin/cities/waitlist` via `cityService.listCityWaitlist()`):
   where people want Draazy to launch **next** — a different question from the rest of this tab,
@@ -109,16 +106,15 @@ Per-locality supply vs weighted demand, sorted by `gap` desc:
   attempt counter in the effect's deps: nothing else on this tab re-runs the read, so without it
   the panel would warn against misreading the outage and then offer no way to resolve it.
 
-### 5.6 Pricing tab (`pricingInsight()`)
-- **Per-locality (`locStats`):** `avgActualRate` = mean of `round(price/area)` over approved **buy** listings
-  (fallback `loc.ratePerSqft`); **rental yield** = mean of `((rent*12)/(area*ratePerSqft))*100` over rent listings
-  (fallback `((avgRent*12)/(ratePerSqft*1000))*100`), 1-dp; plus `marketRate`, `avgRent`, buy/rent counts, `demand`.
-- **Per-listing (`pricePositions`):** `marketPrice` = buy: `area*ratePerSqft`; rent: `avgRent*(bhkNum||2)*0.5`.
-  `deviation = round((price - marketPrice)/marketPrice*100)`; label = `overpriced` (>15), `underpriced` (<-15), else `fair`. Null marketPrice guarded out.
-- **priceTrends:** top-8 localities, 6-month deterministic (seed 777777): `rate = round(base * (1 + i*0.008 + (rng()*0.02 - 0.005)))`.
-- **Summary KPIs:** totalAnalysed, overpriced/underpriced/fair counts, `avgYield` (mean of locStats yields), highest/lowest `marketRate`.
-- Tables: listing price position (sorted by |deviation|, top 20) and locality breakdown (opportunity chip:
-  High if `demand>=85 && totalListings<=2`, Moderate if `demand>=75`, else Stable).
+### 5.6 Pricing tab (`GET /admin/analytics/pricing`)
+- **Asking ₹/sqft and rental yield are measured from approved flats only** (`property_type_key = 'flat'`,
+  `area > 0`), and are null unless the locality has at least `MIN_SAMPLE = 3` such flats — plots and
+  shops are not priced per sqft like flats, and one listing cannot speak for a locality.
+- Market rate, avg rent and demand are curated reference figures, labelled as such on the tab.
+- **Summary KPIs:** localities priced, overpriced/underpriced/fair counts (±10% of market rate), avg yield,
+  highest/lowest market rate. The chart draws only priced localities. No window: it is a live snapshot.
+- Locality breakdown table (opportunity chip: High if `demand>=85 && totalListings<=2`, Moderate if
+  `demand>=75`, else Stable).
 
 ### 5.7 SLA tab (`slaMetrics()`, seed 314159)
 Targets (hours): `listingApproval 24`, `servicePickup 4`, `serviceDelivery 72`, `conciergeToLive 168`.
@@ -150,6 +146,9 @@ Pinned by `AdminSlaAnalyticsTest`. Targets are served in the response so no clie
   the SLA. `breachedCount` stays 0, which is a true count rather than a derived figure.
 - **`?days=` filters on when the work was *finished*** — the decision or completion instant, never
   `created_at`. The backlog counts are present-tense and are deliberately not narrowed by the window.
+- **A listing waits from `coalesce(resubmitted_at, created_at)`**, matching the review queue, so an
+  edited listing is not reported overdue for its whole age. Reviewed is not filtered on the current
+  status: a listing since sold, paused or resubmitted was still decided.
 - **Ticket pickup is the first real assignment recorded in `audit_log`**, not `tickets.assignee_id`
   (a re-queued ticket has it back to null) and not the latest assignment row (`assigneeId: "none"` is
   an unassignment, not a pickup). Delivery counts `closed` as well as `resolved`: a desk that closes a
@@ -182,8 +181,8 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
 - **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, whatsappEnabled).
 
 ### 5.10 Time ranges & filters
-- **Traffic window** `days` (30/90/180) is the only interactive filter; it re-seeds `trafficSeries`/`anonymousSurfers`
-  and the traffic CSV. Analytics has no date-range picker beyond this - other slices use fixed windows (30d/7d in Supply Gap).
+- **Report window** `days` (30/90/180), in the page header, drives Traffic, Engagement, Supply Gap and SLA
+  (SLA windows decisions only; the backlog is always live). Pricing and the city waitlist have no window.
 - Tab visibility is driven by `analytics.<key>` flags; the whole page needs the `analytics` module flag.
 
 ### 5.11 What MUST move server-side

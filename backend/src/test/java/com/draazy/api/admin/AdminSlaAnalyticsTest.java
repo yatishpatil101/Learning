@@ -302,6 +302,18 @@ class AdminSlaAnalyticsTest extends AbstractApiTest {
             assertThat(num(json, "$.reviewedCount")).isZero();
         }
 
+        /** Reviewed is a past event; a listing that has since sold, paused or gone back to review
+         *  was still reviewed, and dropping it would time only the listings that never moved on. */
+        @Test
+        void aListingThatMovedOnAfterItsDecisionStillCountsAsReviewed() throws Exception {
+            clearRecordedDecisions();
+            recordDecision(listing("0050", PropertyStatus.SOLD, 400), 6);
+            recordDecision(listing("0051", PropertyStatus.PENDING, 400), 6);
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+            assertThat(num(json, "$.reviewedCount")).isEqualTo(2);
+        }
+
         /** {@code ?days=} filters on when the decision was taken, not when the listing was posted. */
         @Test
         void theWindowFiltersOnTheDecisionInstant() throws Exception {
@@ -386,6 +398,25 @@ class AdminSlaAnalyticsTest extends AbstractApiTest {
                     "$.pendingBreachingCount") - before)
                     .as("a listing posted 100 days ago is exactly what a backlog report is for")
                     .isEqualTo(1);
+        }
+
+        /** An edited listing re-enters the queue on resubmission; the review queue and the team
+         *  report both age it from there, so this report must too. */
+        @Test
+        void aResubmittedListingWaitsFromItsResubmission_notItsCreation() throws Exception {
+            String token = admin();
+            long before = num(body(Routes.Admin.ANALYTICS_SLA, token), "$.pendingBreachingCount");
+
+            UUID id = listing("0052", PropertyStatus.PENDING, 2400);
+            jdbc.update("update properties set resubmitted_at = now() - interval '1 hour' where id = ?", id);
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, token);
+            assertThat(num(json, "$.pendingBreachingCount") - before)
+                    .as("an hour in the queue is inside a 24-hour target")
+                    .isZero();
+            List<Number> waits = JsonPath.read(json,
+                    "$.worstPending[?(@.id == '" + id + "')].hoursWaiting");
+            assertThat(waits).allSatisfy(w -> assertThat(w.doubleValue()).isLessThan(24.0));
         }
 
         /** Longest-waiting first — a queue ordered any other way is not a queue. */

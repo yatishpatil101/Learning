@@ -10,22 +10,15 @@ const rate = (v) => (v == null ? '—' : `${v}%`);
 /** Target hours as the unit the desk talks in — days once a target runs past two of them. */
 const targetLabel = (h) => (h == null ? '—' : h >= 48 ? `${Math.round(h / 24)}d` : `${h}h`);
 
-/* Grey is not a third performance band, it is "no measurement" — which is why the null check comes
-   first and why neither branch below can be reached with a null. Green and red are only ever a
-   comparison that actually happened. */
+/* Grey is 'no measurement', not a performance band, so the
+   null check comes first; green/red are real comparisons. / */
 const avgTone = (avgHours, targetHours) => (
   avgHours == null || targetHours == null ? 'text-gray-500'
     : avgHours <= targetHours ? 'text-emerald-400'
       : 'text-rose-400');
 
-/**
- * One measured track: work completed, how long it took, and what is still outstanding.
- *
- * Every derived figure is nullable and every null renders as a dash or as "not recorded": the
- * empty case is the one this panel must not lie about. The two counts are the
- * exception and print as numbers including zero — "nothing is waiting" is a measurement, not the
- * absence of one, and the outstanding column is the only cell here an operator acts on today.
- */
+/** Derived figures are nullable and render as a dash or 'not recorded';
+ * counts print zero, as 'nothing waiting' is a measurement. */
 function Track({ title, desc, track, completedLabel, outstandingLabel }) {
   if (!track) return null;
   const compliant = track.slaRatePct == null ? null : track.slaRatePct >= 90;
@@ -72,29 +65,9 @@ function Track({ title, desc, track, completedLabel, outstandingLabel }) {
   );
 }
 
-/**
- * The SLA tab — four measured tracks, and nothing else.
- *
- * `sla` is the whole tab now (`GET /admin/analytics/sla`), derived from `audit_log`: the record of
- * who changed a listing's status or a ticket's owner, and when. Listing review is the flat block of
- * fields; ticket pickup, service delivery and the concierge pipeline arrive as `ticketPickup`,
- * `ticketDelivery` and `conciergeToLive`, each carrying its own target, turnaround and backlog.
- *
- * **There is no weekly compliance line.** It needs a history of weekly snapshots nothing writes,
- * and a chart that cannot be sourced does not become sourceable by being labelled `Sample` — it
- * sits in the same grid, in the same typeface, beside real measurements, and never moves.
- *
- * **Turnaround can be legitimately unknown, and says so.** Where the audit log holds nothing the
- * averages arrive null and render as "not recorded". Coercing them to zero would read as
- * instantaneous service and 0% compliance simultaneously — two false claims from one `|| 0`. The
- * backlog figures beside them survive, because they come from creation timestamps on work still
- * open.
- *
- * @param {{sla: (object|null), failed: boolean}} props `sla` of null renders nothing, which is the
- *   pre-arrival state; `failed` distinguishes that from a load that came back empty-handed, which
- *   would otherwise leave a permanently blank tab and no way to tell why.
- */
-export default function SlaTab({ sla, failed }) {
+/** No weekly compliance line: it needs snapshots nothing writes. Null averages render 'not recorded', since
+ * coercing to 0 would claim instant service and 0% compliance at once. */
+export default function SlaTab({ sla, failed, days }) {
   if (failed) {
     return (
       <LoadFailedNotice>
@@ -107,12 +80,8 @@ export default function SlaTab({ sla, failed }) {
 
   const compliant = sla.slaRatePct == null ? null : sla.slaRatePct >= 90;
   const overdue = sla.pendingBreachingCount;
-  /*
-   * The target is served rather than assumed, so it can be absent. Every comparison below keys on
-   * it — whether an average is green, whether a pending row is stamped overdue — and a missing
-   * target read as 0 would mark every listing late and colour every average red. Where it is null
-   * the comparison is suppressed rather than guessed, and the label drops the number.
-   */
+  /* The target is served, so it can be absent: a missing one read as
+     0 would mark every listing late, so comparisons are suppressed. */
   const target = sla.targetHours;
   const withinTargetLabel = target == null ? 'Within target' : `Within ${target}h target`;
 
@@ -121,7 +90,7 @@ export default function SlaTab({ sla, failed }) {
       {/* Measured: listing review turnaround and the live backlog. */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {[
-          [sla.reviewedCount, 'Listings reviewed', 'text-white'],
+          [sla.reviewedCount, `Listings reviewed (${days}d)`, 'text-white'],
           [hours(sla.avgHoursToReview), 'Avg time to review', avgTone(sla.avgHoursToReview, target)],
           [hours(sla.medianHoursToReview), 'Median time to review', sla.medianHoursToReview == null ? 'text-gray-500' : 'text-sky-400'],
           [rate(sla.slaRatePct), withinTargetLabel, compliant == null ? 'text-gray-500' : compliant ? 'text-emerald-400' : 'text-amber-400'],
@@ -149,9 +118,8 @@ export default function SlaTab({ sla, failed }) {
         {sla.worstPending.length === 0 ? (
           <p className="text-sm text-emerald-300">Nothing is waiting for review.</p>
         ) : (
-          // A scrollable region needs keyboard focus to be reachable without a mouse (WCAG 2.1.1),
-          // which is the documented exception to the rule disabled below.
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- named scroll region, see above
+          // A scrollable region needs keyboard focus to be reachable without a mouse (WCAG 2.1.1).
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- named scroll region
           <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Longest waiting listings">
             <table className="w-full text-sm">
               <thead><tr className="text-xs text-gray-500 border-b border-white/10"><th scope="col" className="text-left py-2 font-medium">Listing</th><th scope="col" className="text-right py-2 font-medium">Waiting</th><th scope="col" className="text-center py-2 font-medium">Status</th></tr></thead>
@@ -175,13 +143,8 @@ export default function SlaTab({ sla, failed }) {
         )}
       </div>
 
-      {/*
-       * Measured: the service desk and the concierge pipeline, from the same audit trail.
-       *
-       * Pickup is the first time a ticket was assigned to *somebody*, read from the audit log rather
-       * than from the ticket's current owner column — a ticket handed back to the pool still had a
-       * response time, and the column only remembers who holds it now.
-       */}
+      {/* Pickup is the first assignment in the audit log, not the
+          current owner column, which forgets tickets handed back. */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Track
           title="Ticket Pickup"

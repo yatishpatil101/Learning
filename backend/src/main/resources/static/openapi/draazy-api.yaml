@@ -10255,15 +10255,16 @@ paths:
         window.
 
 
-        `demand` is weighted, not a raw total: an alert counts 5, a search 2, a view 1. Somebody who
-        left an alert has said they want to be told when something appears, which is a stronger
-        statement than a page view. The weights are a judgement rather than a measurement, and they
+        `demand` is weighted, not a raw total: an alert counts 5, a search 2. Views are reported but
+        not counted - they are interest in listings that already exist, and they grow with supply.
+        The weights are a judgement rather than a measurement, and they
         are applied on read - changing them re-scores the whole history rather than only what
         arrives afterwards.
 
 
-        `gap` is `demand - supply` and is computed server-side so that one definition of the
-        weighting exists in one place.
+        `demandPerListing` is `demand / (supply + 1)` and is computed server-side so that one
+        definition of the weighting exists in one place. A ratio, not a difference: demand and
+        listings are different units.
 
 
         Two rows are easy to miss and both are deliberate. A locality with listings and no demand
@@ -10286,7 +10287,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
       responses:
         '200':
-          description: One row per locality with supply or demand, ordered by gap descending
+          description: One row per locality with supply or demand, ordered by demandPerListing descending, no-locality row last
           content:
             application/json:
               schema:
@@ -17257,8 +17258,9 @@ components:
         avgActualRatePerSqft:
           type: [number, 'null']
           description: >
-            What live listings actually average. The gap against `marketRatePerSqft` is the point of
-            the report: where they have separated, the curated number is misleading buyers.
+            What live flats actually average. The gap against `marketRatePerSqft` is the point of
+            the report: where they have separated, the curated number is misleading buyers. Null
+            with fewer than three approved buy flats carrying an area - too few to call a price.
         avgRent: { type: [number, 'null'] }
         rentalYieldPct: { type: [number, 'null'] }
         buyCount: { type: integer }
@@ -17541,7 +17543,7 @@ components:
         supply: { type: integer, format: int64, description: Live approved listings in this locality. }
         searches: { type: integer, format: int64 }
         alerts: { type: integer, format: int64 }
-        views: { type: integer, format: int64 }
+        views: { type: integer, format: int64, description: Reported for context; not counted in demand. }
         repeatSeekers:
           type: integer
           format: int64
@@ -17554,13 +17556,13 @@ components:
         demand:
           type: integer
           format: int64
-          description: Weighted total - alerts x5, searches x2, views x1.
-        gap:
-          type: integer
-          format: int64
+          description: Weighted total - alerts x5, searches x2. Views are not demand.
+        demandPerListing:
+          type: number
+          format: double
           description: >
-            `demand - supply`. Negative means the platform holds more homes there than anybody is
-            asking for, which is as actionable as the positive case and is why this is signed.
+            `demand / (supply + 1)`, one decimal. Rows are ordered by it, descending, with the
+            no-locality row last.
     CityWaitlistDemandRow:
       type: object
       description: >

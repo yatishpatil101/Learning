@@ -9,40 +9,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.persistence.EntityManager;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
-/**
- * Demand signals: the anonymous half of the supply-gap report.
- *
- * <p><strong>What was wrong.</strong> The Supply-Gap tab was assembled in the browser from four
- * localStorage arrays. Three call sites appended to them — a search, a "notify me" submit and a
- * property view — and the admin report read them back. Since localStorage is per browser, the
- * report described the searches performed by the administrator reading it, in that browser, since
- * storage was last cleared. The only column with any breadth was 82 invented enquiry rows. Demand
- * is the one quantity that is meaningless unless it aggregates across everybody, so it was the one
- * that could least afford to live in a single session.
- *
- * <p><strong>Why the anonymous write is tested first and hardest.</strong> Opening an unauthenticated
- * POST is the part of this change that could go wrong quietly. {@link #theWriteIsAnonymous} pins
- * that it works without a token — because a demand report that only hears from signed-in visitors
- * has lost exactly the population it exists to measure — and {@link #theReadIsNotPublic} pins that
- * the read did <em>not</em> come along for the ride. Those two run in opposite directions on the
- * same feature and are the pair worth keeping.
- *
- * <p><strong>Why no contact detail is asserted as absent.</strong> {@link #noContactDetailIsStored}
- * is a schema assertion rather than a behavioural one, and it is deliberate: the client used to send
- * a mobile number with every alert signal, and the easiest possible "fix" to a future bug report is
- * to add the column back. The test states the reason so that the next person has to argue with it.
- *
- * <p>Rows are counted through {@code jdbc} so the assertions are about what reached the table.
- *
- * <p>Fixtures: a locality inserted inline; nothing here depends on the seed.
- */
+/** Demand signals: the anonymous half of the supply-gap report. The write must work without a token, or it misses
+ * the population it measures; the read stays non-public. */
 @DisplayName("demand signals feed the supply-gap report")
 class DemandSignalTest extends AbstractApiTest {
 
@@ -72,13 +51,7 @@ class DemandSignalTest extends AbstractApiTest {
         return n == null ? 0 : n;
     }
 
-    /**
-     * The write is a JPA {@code save} inside the test's own transaction, so the INSERT is still
-     * sitting in the persistence context when the request returns. The assertions below read with
-     * {@code jdbc}, which does not trigger a Hibernate flush the way a JPA query does -- so without
-     * this the raw counts would be zero while the HTTP reads in the same class saw the rows, which
-     * is a confusing way to learn about flush ordering.
-     */
+    /** The JPA save is unflushed and {@code jdbc} reads don't flush, so flush before counting. */
     private void send(String body) throws Exception {
         mvc.perform(post("/demand-signals").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isAccepted());
@@ -166,19 +139,15 @@ class DemandSignalTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("demand is weighted by kind: an alert outweighs a view")
+    @DisplayName("demand is weighted by kind, and a view is not demand")
     void demandIsWeightedByKind() throws Exception {
         locality();
         send("{\"kind\":\"view\",\"localitySlug\":\"" + LOCALITY + "\"}");
         send("{\"kind\":\"search\",\"localitySlug\":\"" + LOCALITY + "\"}");
         send("{\"kind\":\"alert\",\"localitySlug\":\"" + LOCALITY + "\"}");
 
-        // 1 view (x1) + 1 search (x2) + 1 alert (x5) = 8. Asserted as the total rather than as
-        // three separate weights so that the test fails if the weights are changed without the
-        // report's meaning being reconsidered -- which is the point of weighting on read.
-        //
-        // Hamcrest `contains` rather than a bare value: a filtered JSONPath yields an array even
-        // when it selects one row, so `.value(8)` would be comparing a list to a number.
+        // 1 search (x2) + 1 alert (x5) = 7; views are not counted as they grow with supply.
+        // Hamcrest `contains`, as a filtered JSONPath yields an array even for one row.
         mvc.perform(get("/admin/supply-gap").header("Authorization", bearer(admin())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.localitySlug=='" + LOCALITY + "')].searches")
@@ -188,7 +157,31 @@ class DemandSignalTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[?(@.localitySlug=='" + LOCALITY + "')].views")
                         .value(Matchers.contains(1)))
                 .andExpect(jsonPath("$[?(@.localitySlug=='" + LOCALITY + "')].demand")
-                        .value(Matchers.contains(8)));
+                        .value(Matchers.contains(7)))
+                .andExpect(jsonPath("$[?(@.localitySlug=='" + LOCALITY + "')].demandPerListing")
+                        .value(Matchers.contains(7.0)));
+    }
+
+    @Test
+    @DisplayName("rows rank by demand per listing, and the row with no locality ranks last")
+    void rowsRankByDemandPerListing() throws Exception {
+        locality();
+        send("{\"kind\":\"search\",\"localitySlug\":\"" + LOCALITY + "\"}");
+        for (int i = 0; i < 5; i++) {
+            send("{\"kind\":\"alert\"}");
+        }
+
+        String json = mvc.perform(get("/admin/supply-gap").header("Authorization", bearer(admin())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Map<String, Object>> rows = JsonPath.read(json, "$[*]");
+
+        assertThat(rows.get(rows.size() - 1))
+                .as("nowhere to source supply for, so it is not a ranking candidate")
+                .doesNotContainKey("localitySlug");
+        assertThat(rows.subList(0, rows.size() - 1).stream()
+                        .map(r -> ((Number) r.get("demandPerListing")).doubleValue()).toList())
+                .isSortedAccordingTo(Comparator.reverseOrder());
     }
 
     @Test
@@ -196,9 +189,7 @@ class DemandSignalTest extends AbstractApiTest {
     void theUnknownLocalityIsTheInterestingRow() throws Exception {
         send("{\"kind\":\"alert\",\"localitySlug\":\"" + UNKNOWN + "\"}");
 
-        // No row in `localities`, no foreign key, and therefore no display name. This is a person
-        // asking for somewhere Draazy does not cover, which is the single most useful row the
-        // report can produce -- and exactly the row a foreign key would have rejected at write time.
+        // No `localities` row means no foreign key: someone asking for uncovered ground, which a FK would reject.
         mvc.perform(get("/admin/supply-gap").header("Authorization", bearer(admin())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.localitySlug=='" + UNKNOWN + "')].alerts")
@@ -233,9 +224,7 @@ class DemandSignalTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isAccepted());
         }
-        // Four anonymous searches for the same locality. The browser version stamped every one of
-        // these with the literal user id 'anon' and reported them as one hot seeker; here they add
-        // to `searches` and to nothing else, because nothing distinguishes four strangers from one.
+        // Four anonymous searches add to `searches` only: nothing distinguishes four strangers from one seeker.
         for (int i = 0; i < 4; i++) {
             send(body);
         }
