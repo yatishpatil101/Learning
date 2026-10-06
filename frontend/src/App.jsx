@@ -10,7 +10,6 @@ import { useAuth } from './context/AuthContext.jsx';
 import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/localPrefs.js';
 import { DESK_BY_VALUE, portalBase, portalPath } from './lib/adminModules.js';
-import { track } from './lib/pmf.js';
 import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
 
 import Home from './pages/consumer/Home.jsx';
@@ -123,8 +122,6 @@ function ScrollToTop() {
     prevPath.current = pathname;
     if (navType !== 'POP') window.scrollTo(0, 0);
   }, [pathname, navType]);
-  // PMF funnel: log a page_view on every route change (no-op unless flag on).
-  useEffect(() => { track('page_view', { path: pathname }); }, [pathname]);
   return null;
 }
 

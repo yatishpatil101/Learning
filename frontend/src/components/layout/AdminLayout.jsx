@@ -28,10 +28,7 @@ function AdminLayoutInner() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { tabEnabled } = useAdminFlags();
-  /* The registry filtered by two independent things: the global tab flag (what the platform has
-     switched on for everyone) and the caller's own atoms (what this person may open). `adminOnly`
-     is not a third filter — the atoms behind those modules are administrator-only in the server's
-     catalogue, so the atom check already excludes them; the field documents which rows those are. */
+  /* `adminOnly` is not a third filter: the server's catalogue already makes those atoms administrator-only. */
   const nav = ADMIN_MODULES
     .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && canAccessModule(user, m.key))
     .map((m) => [portalPath(user, m.path), m.label, m.icon, m.end]);
@@ -45,10 +42,8 @@ function AdminLayoutInner() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-ink lg:flex">
-      {/* Staff get the same connectivity answer consumers do (D164). An ops screen is where a
-          dropped connection is *most* expensive to misread: a queue that fails to load looks
-          exactly like a queue that is finally empty, and one of those ends a shift early. */}
+    <div className="ph-no-capture min-h-[100dvh] bg-ink lg:flex">
+      {/* Staff get the same connectivity banner: a queue that fails to load looks exactly like an empty one. */}
       <ConnectivityBanner />
       <aside
         className={
@@ -57,9 +52,8 @@ function AdminLayoutInner() {
         }
       >
         <div className="flex items-center justify-between px-5 py-4">
-          {/* min-h on touch only: the drawer is 280px wide with nothing beside the
-              wordmark, so a taller row costs nothing there, while the desktop rail
-              keeps its 56px header. */}
+          {/* min-h on touch only: the drawer has nothing beside the
+              wordmark; the desktop rail keeps its 56px header. */}
           <Link to={portalBase(user)} className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
             <LogoMark className="h-8 w-8 shrink-0 text-brand-teal" />
             <span className="font-extrabold">
@@ -67,9 +61,8 @@ function AdminLayoutInner() {
               <span className="ml-1 text-xs font-medium text-gray-400">{roleLabel(user?.role)}</span>
             </span>
           </Link>
-          {/* tap-extend, not tap-target: the drawn square sits in a tight header row,
-             so growing the box would push the wordmark. aria-label because this is
-             icon-only and a phone never surfaces `title`. */}
+          {/* tap-extend, not tap-target: growing the box would push
+              the wordmark; aria-label as phones never show `title`. */}
           <button onClick={() => setOpen(false)} aria-label="Close menu" className="tap-extend relative rounded-lg p-1 hover:bg-white/5 lg:hidden">
             <X className="h-5 w-5" />
           </button>
@@ -82,10 +75,8 @@ function AdminLayoutInner() {
               end={!!end}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
-                /* py-3 below sm, py-2.5 from there: 16 nav rows at 40px each are a
-                   long thumb-drag through a drawer, and a miss lands on the
-                   neighbouring section rather than nothing. The 4px it adds per row
-                   is inside a scrolling drawer, so nothing else moves. */
+                /* py-3 below sm: 16 nav rows at 40px are a long thumb-drag,
+                   and a miss lands on the neighbouring section. */
                 'flex items-center gap-3 rounded-xl px-3 py-3 sm:py-2.5 text-sm transition-all ' +
                 (isActive ? 'bg-brand-teal/15 text-brand-teal' : 'text-gray-300 hover:bg-white/5 hover:text-white')
               }
@@ -125,11 +116,8 @@ function AdminLayoutInner() {
               </div>
             ) : <div className="flex-1" />}
 
-            {/* Runbooks. Opens in a new tab on purpose: the help centre lives outside
-                the back-office shell, and someone checking an SLA mid-queue should not
-                lose the queue they are working. Both variants get it — ops needs the
-                runbooks more than admin does. Alignment is already handled upstream:
-                AdminTopbarTools is flex-1, so no margin is needed here. */}
+            {/* New tab so checking an SLA mid-queue doesn't lose the
+                queue; AdminTopbarTools is flex-1, so no margin here. */}
             <a
               href="/help/c/ops-playbook"
               target="_blank"
@@ -160,17 +148,10 @@ function AdminLayoutInner() {
             </div>
           </div>
         </header>
-        {/* The bottom padding carries the home-indicator inset. The consumer app
-            routes every bottom offset through --dz-safe-b (see the chrome-token block
-            in index.css); this shell was written without a bottom bar and so never
-            picked the pattern up, which leaves the last row of a queue sitting under
-            the gesture bar on a notched phone — exactly the row a field-ops user is
-            reaching for. `env()` resolves to 0px on desktop and in a browser tab, so
-            this is inert everywhere except an installed app on a notched device. */}
+        {/* Bottom padding carries the home-indicator inset (--dz-safe-b) so the last queue row isn't under the
+            gesture bar; env() is 0px outside an installed notched app. */}
         <main className="flex-1 p-4 pb-[calc(1rem+var(--dz-safe-b))] sm:p-6 sm:pb-[calc(1.5rem+var(--dz-safe-b))]">
-          {/* Same placement rationale as the consumer shell: a module that throws must not take
-              the sidebar down with it, or a moderator loses the navigation they would use to get
-              out of the broken queue. */}
+          {/* Same placement as the consumer shell: a throwing module must not take the sidebar down with it. */}
           <ErrorBoundary scope="admin-route" resetKey={pathname}>
             <Outlet />
           </ErrorBoundary>

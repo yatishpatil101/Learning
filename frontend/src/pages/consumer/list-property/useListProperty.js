@@ -30,6 +30,7 @@ import useListingMedia from './useListingMedia';
 import useListingLocation from './useListingLocation';
 import useRoomEdit from './useRoomEdit';
 import { LISTING_STEPS } from './StepNav.jsx';
+import { track } from '../../../lib/pmf.js';
 
 const LIST_PROPERTY_DRAFT_PREFIX = 'dzDraft:list-property';
 const LEGACY_LIST_PROPERTY_DRAFT_KEY = `${LIST_PROPERTY_DRAFT_PREFIX}:v2`;
@@ -677,6 +678,7 @@ export default function useListProperty() {
       return;
     }
     if (!editId) clearFormDraft();
+    if (!editId) track('listing_submitted', { deal: res?.listing?.deal, type: res?.listing?.type });
     // Refresh owner eligibility and quota after consuming a new-post allowance.
     if (!editId) refreshUser();
     skipLeaveGuard.current = true;

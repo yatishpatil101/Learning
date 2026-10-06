@@ -1,59 +1,29 @@
-/**
- * The page view beacon — a queue, a timer, and the rules about what is worth recording.
- *
- * Collection only. What may be sent lives in `routePatterns.js`; where it goes lives in
- * `services/pageViewService.js`; why any of it exists lives in that service's docblock.
- *
- * ## Why it batches
- *
- * A request per route change would spend a visitor's entire write budget on telemetry.
- * `WriteRateLimitFilter` allows 120 mutating requests a minute per caller, shared with everything
- * else they do, and clicking through listings produces route changes at a rate that competes with
- * that. The first casualty would not be the analytics — it would be the enquiry the visitor tried to
- * send afterwards, refused with a 429 because a beacon had already spent the budget. It would also
- * 429 the e2e suite, which navigates faster than any human, and the tests it broke would have
- * nothing to do with the change that broke them.
- *
- * Fifteen seconds and forty events turn that into roughly four requests a minute.
- */
+/** Queue, timer and rules for page-view collection. Batching keeps the beacon far under `WriteRateLimitFilter`'s
+ * 120 writes a minute, so telemetry cannot cause a 429 on a visitor's enquiry. */
 import { recordPageViews } from '../../services/pageViewService.js';
+import { CONSENT_CHANGE, hasAnalyticsConsent } from '../../components/CookieConsent.jsx';
 import { toRoutePattern, isBackOffice } from './routePatterns.js';
 
-/**
- * `sessionStorage`, deliberately, and never `localStorage`.
- *
- * The id dies with the tab. That is the privacy property the whole table rests on: sessions are
- * never correlated across visits, so the rows can never accumulate into a profile of one person's
- * browsing over weeks. A `localStorage` key would silently turn identical code into exactly that.
- */
+/** sessionStorage, never localStorage: the id dies with the tab
+ * so sessions can't be correlated into a browsing profile. */
 const SESSION_KEY = 'pn.pv.sid';
 
-const FLUSH_INTERVAL_MS = 15_000;
+const FLUSH_INTERVAL_MS = 60_000;
 
-/**
- * Below the server's cap of 50, not equal to it. A queue that filled between the length check and
- * the send would otherwise produce a 400 that discards the whole flush — a rare, load-dependent
- * failure that would be nearly impossible to reproduce from the symptom.
- */
+/** Stays below the server's cap of 50: a queue that fills between the length check and the send would 400 and discard the whole flush. */
 const MAX_QUEUED = 40;
 
 const TABLET_MIN_PX = 768;
 const DESKTOP_MIN_PX = 1024;
 
 let queue = [];
+// The consent state the queued views and the current session id were collected under.
+let queueAttributed = null;
 let timer = null;
 let started = false;
 let memorySessionId = null;
 
-/**
- * 32 characters of URL-safe randomness.
- *
- * `crypto.randomUUID` is deliberately not used: it is unavailable on insecure origins, which
- * includes the LAN address the app is opened on when testing from a phone — the one situation where
- * a mobile/desktop split is worth measuring. `getRandomValues` has no such restriction, and the
- * `Math.random` fallback below it is fine because this token needs to be unguessable by nobody; it
- * only needs to not collide.
- */
+/** 32 URL-safe chars; avoids `crypto.randomUUID` (absent on insecure LAN origins used for phone testing), and only needs to not collide. */
 const mintId = () => {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
   const size = 32;
@@ -69,15 +39,8 @@ const mintId = () => {
   return out.join('');
 };
 
-/**
- * The current tab's session id, minting one on first use.
- *
- * Every access is wrapped, because `sessionStorage` does not merely return null when unavailable —
- * reading it *throws* in Safari private mode and wherever storage is blocked by policy. An
- * unguarded access here would take down the route change that called it, which is a visible
- * navigation failure caused entirely by analytics. The memory fallback keeps the session coherent
- * for as long as the page lives, which is all it was ever for.
- */
+/** Storage access is wrapped: reading it throws in Safari
+ * private mode, and analytics must not break navigation.  */
 const sessionId = () => {
   try {
     const existing = globalThis.sessionStorage?.getItem(SESSION_KEY);
@@ -91,13 +54,7 @@ const sessionId = () => {
   }
 };
 
-/**
- * Viewport bucket, read at emit time rather than once at startup.
- *
- * A tablet rotating and a window being dragged onto a second monitor genuinely change the experience
- * being measured, and a session that starts narrow and ends wide is a real thing that a
- * once-per-session reading would misreport for its entire length.
- */
+/** Read at emit time: rotation or moving to another monitor changes the experience being measured mid-session. */
 const device = () => {
   const width = globalThis.innerWidth || DESKTOP_MIN_PX;
   if (width < TABLET_MIN_PX) return 'mobile';
@@ -105,13 +62,8 @@ const device = () => {
   return 'desktop';
 };
 
-/**
- * Host of the referring page, or undefined.
- *
- * Same-origin referrers are dropped: every internal navigation would otherwise report the site as
- * its own largest traffic source, which is both useless and actively misleading in a chart whose
- * entire job is to say where visitors come from.
- */
+/** Same-origin referrers are dropped, or every internal
+ * navigation would make the site its own top traffic source.  */
 const referrerHost = () => {
   try {
     const raw = globalThis.document?.referrer;
@@ -124,18 +76,8 @@ const referrerHost = () => {
   }
 };
 
-/**
- * Send whatever is queued.
- *
- * The queue is swapped out before the await, so views recorded while the request is in flight join
- * the next flush rather than being dropped by the reassignment when this one returns.
- *
- * **A failed batch is not re-queued.** That looks like data loss and is the right trade: retaining it
- * means a visitor on a flaky connection accumulates an unsendable queue and re-sends the whole thing
- * every fifteen seconds, so a degraded network becomes a self-inflicted load spike against the
- * server that is already struggling. Losing a handful of page views costs a rounding error in a
- * chart.
- */
+/** A failed batch is not re-queued: retrying on a flaky link would
+ * turn a degraded network into a load spike on the server. */
 const flush = () => {
   if (queue.length === 0) return;
   const batch = queue;
@@ -152,23 +94,28 @@ const flush = () => {
       // produce a negative, which the server rejects -- losing the whole batch over an artefact.
       agoMs: Math.max(0, at - e.at),
     })),
+    attributed: queueAttributed === true,
   });
 };
 
-/**
- * Record one page view. Called on every route change.
- *
- * Back-office routes return before anything is queued. Filtering at the reader instead would still
- * have stored a per-session record of which moderator opened which queue and when — a staff activity
- * log arriving by accident, in a table that has no access controls designed for one. The only way to
- * not hold that data is to not collect it.
- *
- * @param {string} pathname
- */
+/** A consent change ends the session so views sent under the old answer cannot be joined to attributed ones through `session_id`. */
+const followConsent = () => {
+  const attributed = hasAnalyticsConsent();
+  if (attributed === queueAttributed) return;
+  if (queueAttributed !== null) {
+    flush();
+    memorySessionId = null;
+    try { globalThis.sessionStorage?.removeItem(SESSION_KEY); } catch { /* storage blocked */ }
+  }
+  queueAttributed = attributed;
+};
+
+/** Records one page view per route change; back-office routes return before queueing, so no per-session record of which staff opened which queue exists. */
 export const recordPageView = (pathname) => {
   const path = toRoutePattern(pathname);
   if (isBackOffice(path)) return;
 
+  followConsent();
   queue.push({
     path,
     referrerHost: referrerHost(),
@@ -179,19 +126,7 @@ export const recordPageView = (pathname) => {
   if (queue.length >= MAX_QUEUED) flush();
 };
 
-/**
- * Start the flush timer. Idempotent; returns its own teardown.
- *
- * ## Why `visibilitychange` and not `beforeunload`
- *
- * `beforeunload` and `unload` are unreliable on mobile, where a tab is usually backgrounded and
- * killed rather than closed — so the last flush of a phone session, which is most sessions, would
- * simply not happen. Worse, registering a `beforeunload` listener suppresses the back/forward cache
- * in some browsers, and an analytics beacon that slows down every back button is not a trade worth
- * making. `visibilitychange` fires on the backgrounding that actually happens.
- *
- * @returns {() => void}
- */
+/** Starts the flush timer (idempotent; returns its teardown). Uses `visibilitychange`, not `beforeunload`, which is unreliable on mobile and defeats the back/forward cache. */
 export const startPageViewBeacon = () => {
   if (started) return () => {};
   started = true;
@@ -202,12 +137,15 @@ export const startPageViewBeacon = () => {
 
   timer = globalThis.setInterval(flush, FLUSH_INTERVAL_MS);
   globalThis.document?.addEventListener('visibilitychange', onHidden);
+  // At the change, not the next view: a reload in between would keep the old id under the new answer.
+  globalThis.addEventListener?.(CONSENT_CHANGE, followConsent);
 
   return () => {
     started = false;
     if (timer) globalThis.clearInterval(timer);
     timer = null;
     globalThis.document?.removeEventListener('visibilitychange', onHidden);
+    globalThis.removeEventListener?.(CONSENT_CHANGE, followConsent);
     flush();
   };
 };

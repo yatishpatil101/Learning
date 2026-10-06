@@ -9,6 +9,7 @@ import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { scheduleVisit } from '../../services/visitService.js';
+import { track } from '../../lib/pmf.js';
 import { getProperty } from '../../services/propertyService.js';
 import { priceLabel, fmtNum, avatarFor } from '../../lib/format.js';
 import { cityLabelFor } from '../../lib/geoConfig.js';
@@ -84,6 +85,7 @@ export default function ScheduleVisit() {
       .then(() => {
         draft.clear();
         setBooked(true);
+        track('visit_requested', { id: listingId || listing?.id, mode });
         toast(t('misc1.svToastRequested'), 'success');
       })
         /* A live visit already exists; the server refuses rather than moving the slot. */

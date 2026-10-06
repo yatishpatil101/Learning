@@ -12,33 +12,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/**
- * The aggregation behind every analytics chart, proved against real rows.
- *
- * <p>The rollup is the only place raw page views are read at all, and everything the console
- * displays is derived from what it writes — so an error here is not a wrong pixel, it is a wrong
- * number presented with the authority of a measurement. It is also SQL rather than Java, which
- * means the compiler proves nothing about it and a test is the only thing standing between a
- * mistyped {@code filter} clause and a plausible-looking chart.
- *
- * <p><strong>Why the fixture is three sessions and not thirty.</strong> Each one is here to make a
- * specific way of getting this wrong fail: a multi-page session (which a naive count would treat as
- * several visitors), a single-page session (the bounce), and a session crossing IST midnight (the
- * case where "which day is this" stops being obvious). Rows beyond those would raise the totals
- * without raising the coverage.
- *
- * <p>Inherits {@code @Transactional} from {@link AbstractApiTest}, so every row here rolls back and
- * {@code draazy_test} keeps holding schema and nothing else.
- */
+/** The rollup is the only reader of raw page views and is SQL the compiler can't check, so an error is a plausible
+ * wrong number. Three sessions suffice: multi-page, single-page (bounce), and one crossing IST midnight. */
 @DisplayName("Page view rollup")
 class PageViewRollupTest extends AbstractApiTest {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
-    /**
-     * A date far enough back that no seed or other test could have left raw views on it, and fixed
-     * rather than relative to today so the assertions below are arithmetic a reader can check.
-     */
+    /** Far back enough that no seed or test left views there; fixed so assertions are checkable arithmetic. */
     private static final LocalDate DAY = LocalDate.of(2031, 3, 17);
 
     @Autowired PageViewRollup rollup;
@@ -111,9 +92,7 @@ class PageViewRollupTest extends AbstractApiTest {
 
         rollUpWholeDay();
 
-        // Attributing the whole session to the day it started would leave the second day empty --
-        // and would make every day's totals depend on re-reading the day before, which is the
-        // property that lets the job recompute a short trailing window and stop.
+        // Attributing a session to its start day would empty day two and make totals depend on the day before.
         assertThat(sessionsOn(DAY)).isEqualTo(1L);
         assertThat(sessionsOn(DAY.plusDays(1))).isEqualTo(1L);
 
@@ -133,9 +112,7 @@ class PageViewRollupTest extends AbstractApiTest {
         rollUpWholeDay();
         rollUpWholeDay();
 
-        // The job recomputes a trailing window every hour, so it revisits the same day many times
-        // over. If it accumulated rather than replaced, today's traffic would climb all day on its
-        // own -- believably, which is what would make it hard to notice.
+        // The job recomputes a trailing window hourly; accumulating instead of replacing would make traffic climb.
         assertThat(sessionsOn(DAY)).isEqualTo(1L);
         assertThat(jdbc.queryForObject(
                 "select pageviews from page_view_daily where day = ?", Long.class, DAY))
@@ -155,9 +132,7 @@ class PageViewRollupTest extends AbstractApiTest {
         jdbc.update("delete from page_views where session_id = 'sess-a'");
         rollUpWholeDay();
 
-        // This is why the rollup deletes before inserting instead of upserting. An upsert only
-        // corrects days that still produce a row, so a day emptied by the retention sweep would
-        // keep its old totals for good -- wrong, and never revisited.
+        // Delete-then-insert, not upsert: an upsert never corrects a day emptied by the retention sweep.
         assertThat(jdbc.queryForObject(
                 "select count(*) from page_view_daily where day = ?", Long.class, DAY))
                 .isZero();
@@ -234,11 +209,7 @@ class PageViewRollupTest extends AbstractApiTest {
         return day.atTime(hour, minute).atZone(IST).toInstant();
     }
 
-    /**
-     * Inserts raw rows with SQL rather than through the service, so the fixture can place a view at
-     * a chosen instant. The service anchors everything to its own clock by design — which is the
-     * right behaviour and makes it useless for building a fixture spanning midnight.
-     */
+    /** Raw SQL, not the service, which anchors to its own clock and can't build a fixture spanning midnight. */
     private void view(String sessionId, UUID userId, String path, String device, Instant at) {
         view(sessionId, userId, path, device, null, at);
     }
@@ -246,8 +217,8 @@ class PageViewRollupTest extends AbstractApiTest {
     private void view(String sessionId, UUID userId, String path, String device,
             String referrerHost, Instant at) {
         jdbc.update("""
-                insert into page_views (session_id, user_id, path, device, referrer_host, occurred_at)
-                values (?, ?, ?, ?, ?, ?)
-                """, sessionId, userId, path, device, referrerHost, java.sql.Timestamp.from(at));
+                insert into page_views (session_id, user_id, signed_in, path, device, referrer_host, occurred_at)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """, sessionId, userId, userId != null, path, device, referrerHost, java.sql.Timestamp.from(at));
     }
 }

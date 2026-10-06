@@ -8,6 +8,7 @@ import Switch from './ui/Switch.jsx';
 
 const KEY = 'dz_cookie_consent_v1';
 const VERSION = 1;
+export const CONSENT_CHANGE = 'dz:consent-change';
 
 export function getCookieConsent() {
   try {
@@ -17,9 +18,11 @@ export function getCookieConsent() {
   return null;
 }
 
+export const hasAnalyticsConsent = () => Boolean(getCookieConsent()?.analytics);
+
 const CATEGORIES = [
   ['functional', 'Functional', 'Remembers preferences like language, recently viewed properties, and saved searches.'],
-  ['analytics', 'Analytics', 'Aggregated, non-identifying usage stats that help us improve the platform.'],
+  ['analytics', 'Analytics', 'Product analytics (PostHog): usage events and fully masked session replays that help us improve the platform.'],
   ['marketing', 'Marketing', 'Used for retargeting and measuring the effectiveness of our campaigns.'],
 ];
 
@@ -72,6 +75,7 @@ export default function CookieConsent() {
     try {
       localStorage.setItem(KEY, JSON.stringify({ necessary: true, ...value, version: VERSION, ts: Date.now() }));
     } catch { /* ignore */ }
+    window.dispatchEvent(new Event(CONSENT_CHANGE));
     setMode('hidden');
   };
 

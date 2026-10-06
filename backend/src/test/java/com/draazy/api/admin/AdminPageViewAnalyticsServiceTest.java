@@ -17,29 +17,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.draazy.api.support.AbstractApiTest;
 
-/**
- * The three analytics reads, proved end to end from raw page views through the rollup to the
- * response the console renders.
- *
- * <p><strong>Why the whole chain and not the service alone.</strong> Every figure here is a
- * measurement an operator will act on, and almost all of it is arithmetic split across a SQL
- * aggregate and a Java fold — a rate computed from the wrong denominator, or a window cut in the
- * wrong zone, produces a number that is entirely plausible and simply wrong. Mocking the repository
- * would prove the fold and leave the half that the compiler cannot check untested.
- *
- * <p>The tab this replaces had no tests because it had no data: every number on it came from a
- * seeded pseudo-random generator, so there was nothing to be right or wrong about.
- *
- * <p>Inherits {@code @Transactional} from {@link AbstractApiTest}, so every row rolls back and
- * {@code draazy_test} keeps holding schema and nothing else.
- */
+/** End to end from raw page views through the rollup: rates and windows split across a SQL aggregate and a Java
+ * fold, so mocking the repository would leave the half the compiler can't check untested. */
 @DisplayName("Admin page-view analytics")
 class AdminPageViewAnalyticsServiceTest extends AbstractApiTest {
 
-    /**
-     * Yesterday, not today: a fixture placed at "today 10:00" is in the future for most of the day,
-     * and a view in the future is not a case the collector can produce.
-     */
+    /** Yesterday: a "today 10:00" fixture is mostly in the future, which the collector can't produce. */
     private static final LocalDate DAY = LocalDate.now(PlatformTime.IST).minusDays(1);
 
     @Autowired AdminPageViewAnalyticsService service;
@@ -310,16 +293,13 @@ class AdminPageViewAnalyticsServiceTest extends AbstractApiTest {
         return day.atTime(hour, minute).atZone(PlatformTime.IST).toInstant();
     }
 
-    /**
-     * Inserts a raw view with SQL rather than through the collector, which anchors every event to
-     * its own clock by design — correct behaviour, and useless for placing a view on a chosen day.
-     */
+    /** Raw SQL, not the collector, which anchors events to its own clock and can't place a view on a day. */
     private void view(String sessionId, UUID userId, String path, String device,
             String referrerHost, Instant at) {
         jdbc.update("""
-                insert into page_views (session_id, user_id, path, referrer_host, device, occurred_at)
-                values (?, ?, ?, ?, ?, ?)
-                """, sessionId, userId, path, referrerHost, device, java.sql.Timestamp.from(at));
+                insert into page_views (session_id, user_id, signed_in, path, referrer_host, device, occurred_at)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """, sessionId, userId, userId != null, path, referrerHost, device, java.sql.Timestamp.from(at));
     }
 
     /** A bare account row: the conversion rate counts users, and only {@code mobile} is required. */

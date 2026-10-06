@@ -7,6 +7,7 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import useScrollLock from '../../../hooks/useScrollLock.js';
 import { scheduleVisit } from '../../../services/visitService.js';
+import { track } from '../../../lib/pmf.js';
 
 const nextDayIso = () => {
   const d = new Date();
@@ -62,6 +63,7 @@ export function ScheduleVisitModal({ p, isIn, onClose, toast }) {
         note: msg.trim(),
       });
       setDone(true);
+      track('visit_requested', { id: p?.id, mode });
       toast(t('property.visitRequestedToast'), 'success');
     } catch (e) {
       if (e?.status === 401) {

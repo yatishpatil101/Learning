@@ -57,6 +57,7 @@ export default function Privacy() {
         <li><strong>With other users</strong> — your name and verified status are visible on your listings. Contact details are shared only when you expressly initiate or accept a connection request.</li>
         <li><strong>With service partners</strong> — when you submit a service request (e.g., home loan eligibility check), we share the minimum details needed to fulfil your request with the selected partner(s).</li>
         <li><strong>With payment processors</strong> — to process transactions securely.</li>
+        <li><strong>With our analytics provider (PostHog)</strong> — only if you accept analytics cookies: pseudonymous usage events and session replays with all text, inputs and images masked. We never send your name, phone or email.</li>
         <li><strong>For legal compliance</strong> — when required by law, court order, or government authority.</li>
         <li><strong>Business transfers</strong> — in the event of a merger, acquisition, or asset sale, your data may be transferred to the successor entity.</li>
       </ul>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { ExternalLink } from 'lucide-react';
 import { listLocalities } from '../../services/localityService.js';
 import { listCityWaitlist } from '../../services/cityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -18,6 +19,8 @@ import GeographyTab from './analytics/GeographyTab.jsx';
 import SupplyGapTab from './analytics/SupplyGapTab.jsx';
 import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
+
+const POSTHOG_APP_URL = import.meta.env.VITE_POSTHOG_APP_URL || '';
 
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -159,7 +162,20 @@ export default function AdminAnalytics() {
 
   return (
     <div>
-      <PageHeader title="Analytics" subtitle="Traffic, engagement & geographic insights" />
+      <PageHeader
+        title="Analytics"
+        subtitle="Traffic, engagement & geographic insights"
+        actions={POSTHOG_APP_URL ? (
+          <a
+            href={POSTHOG_APP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-white/5 hover:text-white transition"
+          >
+            Product analytics <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        ) : null}
+      />
       <QueueTabs
         tabs={tabs.map(({ key, label }) => ({ key, label, count: null }))}
         active={activeTab}

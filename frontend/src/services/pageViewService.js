@@ -4,13 +4,7 @@ import { createProvider } from './config.js';
 
 const provider = createProvider('pageView');
 
-/**
- * Send one flush of queued page views. **Never rejects, and resolves to nothing.**
- *
- * @param {{sessionId: string, events: Array<{path: string, referrerHost?: string,
- *   device: 'mobile'|'tablet'|'desktop', agoMs: number}>}} batch
- * @returns {Promise<void>}
- */
+/** Sends one flush of queued page views; never rejects. `attributed` is the analytics-consent choice, without which the server keeps the viewer unnamed. */
 export const recordPageViews = async (batch) => {
   try {
     await (await provider()).recordPageViews(batch);

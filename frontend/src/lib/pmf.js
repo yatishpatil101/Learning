@@ -1,3 +1,5 @@
+import { CONSENT_CHANGE, hasAnalyticsConsent } from '../components/CookieConsent.jsx';
+import { capture } from './productAnalytics.js';
 
 const ON = import.meta.env.VITE_PMF_MODE === 'on';
 const GA_ID = import.meta.env.VITE_GA_ID || '';
@@ -7,7 +9,7 @@ export const pmfEnabled = ON;
 let gaLoaded = false;
 
 function ensureGA() {
-  if (!ON || !GA_ID || gaLoaded || typeof window === 'undefined') return;
+  if (!ON || !GA_ID || gaLoaded || typeof window === 'undefined' || !hasAnalyticsConsent()) return;
   gaLoaded = true;
   const s = document.createElement('script');
   s.async = true;
@@ -24,12 +26,19 @@ function ensureGA() {
 export function initPmf() {
   if (!ON) return;
   ensureGA();
+  window.addEventListener(CONSENT_CHANGE, () => {
+    const granted = hasAnalyticsConsent();
+    // GA keeps sending cookieless pings under consent 'denied'; the disable flag stops it entirely.
+    if (GA_ID) window[`ga-disable-${GA_ID}`] = !granted;
+    window.gtag?.('consent', 'update', { analytics_storage: granted ? 'granted' : 'denied' });
+    ensureGA();
+  });
 }
 
-// Fire a GA4 event for the PMF funnel (landing / view_listing / contact_click /
-// notify_submit). No-op when the flag is off.
+// Product-analytics event (PostHog, and GA4 in the PMF build). Both are no-ops without analytics consent.
 export function track(event, params = {}) {
-  if (!ON) return;
+  capture(event, params);
+  if (!ON || !hasAnalyticsConsent()) return;
   ensureGA();
   try { window.gtag?.('event', event, params); } catch { /* analytics must never break the app */ }
 }

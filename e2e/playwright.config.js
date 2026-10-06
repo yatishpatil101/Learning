@@ -36,6 +36,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     actionTimeout: 15_000 * TIMEOUT_SCALE,
     navigationTimeout: 20_000 * TIMEOUT_SCALE,
+    // Pairs with VITE_POSTHOG_KEY below: PostHog loads for real, but nothing reaches PostHog unless a spec routes it.
+    launchOptions: { args: ['--host-resolver-rules=MAP *.posthog.com ~NOTFOUND'] },
   },
   projects: [
     {
@@ -81,6 +83,7 @@ export default defineConfig({
     env: {
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
+      VITE_POSTHOG_KEY: 'phc_e2e',
     },
   },
 });

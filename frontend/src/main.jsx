@@ -17,6 +17,7 @@ import { ConversationProvider } from './context/ConversationContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
+import { initProductAnalytics } from './lib/productAnalytics.js';
 import { loadGeoPolicy } from './lib/geoConfig.js';
 import './i18n';
 // Ahead of index.css so @font-face lands before anything sets font-family. A JS import because
@@ -35,6 +36,7 @@ import './styles/components/dropdown.css';
 
 // Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
 initPmf();
+initProductAnalytics();
 
 // Bootstrap the Maps JS API once app-wide so every locality box can use Places, not just map
 // pages. Without a key the provider is skipped and consumers fall back to the static registry.

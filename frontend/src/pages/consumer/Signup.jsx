@@ -18,6 +18,7 @@ import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
 import { redeemReferral } from '../../services/referralService.js';
+import { track } from '../../lib/pmf.js';
 
 const BENEFITS = [
   [Bell, 'auth.benefitAlertsTitle', 'auth.benefitAlertsDesc'],
@@ -133,6 +134,7 @@ export default function Signup() {
       });
       setDone(true);
       const ref = params.get('ref');
+      if (wasNew) track('signup_completed', { role, referred: Boolean(ref) });
       if (ref) {
         /* Attribution is the server's job. Un-awaited and silent on failure: a 409 means a code the
            person who just signed up neither chose nor can fix — see the flow doc, § Sign up. */
