@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router';
 import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Compass, BookOpen } from 'lucide-react';
 import { searchForModeration } from '../../services/propertyService.js';
 import { listUsers } from '../../services/usersService.js';
-import { listTicketQueue } from '../../services/ticketService.js';
-import { listPropertyReviewQueue } from '../../services/propertyReviewService.js';
+import { adminBell } from '../../services/analyticsService.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { SERVICE_DESKS, canOpenPath, hasPermission, portalPath, ticketPath } from '../../lib/adminModules.js';
@@ -13,7 +12,6 @@ import { SERVICE_DESKS, canOpenPath, hasPermission, portalPath, ticketPath } fro
 const RESULT_CAP = 6;
 /** Rows shown per queue in the bell, on the same split: heading counts, list samples. */
 
-const BELL_CAP = 5;
 /** One request per pause in typing rather than one per keystroke. */
 
 const DEBOUNCE_MS = 200;
@@ -153,6 +151,26 @@ function StatusPill({ status }) {
   );
 }
 
+// A section the caller may read but the server left out is dark, never zero; a failed read darkens all of them.
+function toNotif(bell, canReadProperties, canReadTickets) {
+  const pending = bell?.pendingListings;
+  const open = bell?.openTickets;
+  const replied = bell?.ownerReplies;
+  return {
+    pending: pending?.items || [],
+    pendingTotal: pending?.total || 0,
+    open: open?.items || [],
+    openTotal: open?.total || 0,
+    replied: replied?.items || [],
+    repliedTotal: replied?.total || 0,
+    blind: [
+      ...(canReadProperties && !pending ? ['Pending verifications'] : []),
+      ...(canReadTickets && !open ? ['Open service requests'] : []),
+      ...(canReadProperties && !replied ? ['Owner replies'] : []),
+    ],
+    total: (pending?.total || 0) + (open?.total || 0) + (replied?.total || 0),
+  };
+}
 export default function AdminTopbarTools() {
   const navigate = useNavigate();
   const { tabEnabled, optionEnabled } = useAdminFlags();
@@ -269,36 +287,20 @@ export default function AdminTopbarTools() {
 
   const [notif, setNotif] = useState({ pending: [], pendingTotal: 0, open: [], openTotal: 0, replied: [], repliedTotal: 0, blind: [], total: 0 });
 
+  // One slim read serves the badge and the list; opening the bell re-reads it, closing does not.
+  const bellLoaded = useRef(false);
   useEffect(() => {
+    if (!canReadProperties && !canReadTickets) return undefined;
+    if (bellLoaded.current && !notifOpen) return undefined;
     let live = true;
-    (async () => {
-      const [pending, tickets, replies] = await Promise.allSettled([
-        canReadProperties ? searchForModeration({ status: 'pending' }, 'newest', { page: 1, size: BELL_CAP }) : NOTHING,
-        // `open` is the server's word for unclaimed.
-        canReadTickets ? listTicketQueue({ status: 'open', page: 0, size: BELL_CAP }) : NOTHING,
-        canReadProperties ? listPropertyReviewQueue({ unread: true, page: 0, size: BELL_CAP }) : NOTHING,
-      ]);
+    const settle = (bell) => {
       if (!live) return;
-      const total = (r) => (r.status === 'fulfilled' ? (r.value.total || 0) : 0);
-      const items = (r) => (r.status === 'fulfilled' ? (r.value.items || []) : []);
-      setNotif({
-        pending: items(pending),
-        pendingTotal: total(pending),
-        open: items(tickets),
-        openTotal: total(tickets),
-        replied: items(replies),
-        repliedTotal: total(replies),
-        blind: [
-          ...(pending.status === 'rejected' ? ['Pending verifications'] : []),
-          ...(tickets.status === 'rejected' ? ['Open service requests'] : []),
-          ...(replies.status === 'rejected' ? ['Owner replies'] : []),
-        ],
-        total: total(pending) + total(tickets) + total(replies),
-      });
-    })();
+      bellLoaded.current = true;
+      setNotif(toNotif(bell, canReadProperties, canReadTickets));
+    };
+    adminBell().then(settle, () => settle(null));
     return () => { live = false; };
   }, [notifOpen, canReadProperties, canReadTickets]);
-
   const go = (path) => { setSearchOpen(false); setNotifOpen(false); setQ(''); navigate(portalPath(user, path)); };
   const roleIcon = (role) => (role === 'staff' ? Wrench : role === 'owner' ? ShieldCheck : User);
 

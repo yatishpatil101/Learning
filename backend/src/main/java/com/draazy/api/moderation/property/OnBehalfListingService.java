@@ -3,6 +3,8 @@ package com.draazy.api.moderation.property;
 import com.draazy.api.catalog.listing.ListingQuota;
 import com.draazy.api.catalog.listing.ListingService;
 import com.draazy.api.catalog.property.Property;
+import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.identity.user.User;
@@ -21,14 +23,17 @@ public class OnBehalfListingService {
     private final ListingQuota quota;
     private final UserRepository users;
     private final UserService userService;
+    private final PropertyRepository properties;
     private final AuditService audit;
 
     public OnBehalfListingService(ListingService listings, ListingQuota quota,
-            UserRepository users, UserService userService, AuditService audit) {
+            UserRepository users, UserService userService, PropertyRepository properties,
+            AuditService audit) {
         this.listings = listings;
         this.quota = quota;
         this.users = users;
         this.userService = userService;
+        this.properties = properties;
         this.audit = audit;
     }
 
@@ -69,12 +74,14 @@ public class OnBehalfListingService {
                 .map(owner -> {
                     ListingQuota.ListingStanding standing = quota.standingFor(owner.getId());
                     return new OwnerListingStanding(digits, true, standing.allowance(),
-                            standing.held(), standing.overAllowance());
+                            standing.held(), standing.overAllowance(),
+                            properties.countByOwnerIdAndStatusAndArchivedFalse(owner.getId(),
+                                    PropertyStatus.PENDING));
                 })
-                .orElseGet(() -> new OwnerListingStanding(digits, false, 0, 0, false));
+                .orElseGet(() -> new OwnerListingStanding(digits, false, 0, 0, false, 0));
     }
 
     public record OwnerListingStanding(String mobile, boolean known, int allowance, long held,
-            boolean overAllowance) {
+            boolean overAllowance, long pending) {
     }
 }

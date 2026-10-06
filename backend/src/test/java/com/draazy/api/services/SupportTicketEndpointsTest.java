@@ -300,6 +300,33 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$.content[0].subject").value("Already handled"));
 
             queue(desk).andExpect(jsonPath("$.content", hasSize(2)));
+            queue(desk).andExpect(jsonPath("$.counts.all").value(
+                    org.hamcrest.Matchers.greaterThanOrEqualTo(2)));
+        }
+
+        @Test
+        @DisplayName("counts split the whole table into awaiting and answered, whatever filter was asked for")
+        void countsMoveWithTheDesk() throws Exception {
+            User asha = customer("9840000157");
+            User desk = staff("9840000158", Teams.RENTAL);
+            long awaiting = countOf(desk, "awaiting");
+            long answered = countOf(desk, "answered");
+            String handled = raiseTicket(asha, "Handled soon");
+            raiseTicket(asha, "Waiting still");
+            markRead(desk, handled);
+
+            mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                            .param("awaitingReply", "false").param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.counts.awaiting").value(awaiting + 1))
+                    .andExpect(jsonPath("$.counts.answered").value(answered + 1))
+                    .andExpect(jsonPath("$.counts.all").value(awaiting + answered + 2));
+        }
+
+        private long countOf(User desk, String key) throws Exception {
+            String body = queue(desk).andReturn().getResponse().getContentAsString();
+            return Long.parseLong(body.replaceAll("(?s).*\"counts\":\\{[^}]*\"" + key + "\":(\\d+).*", "$1"));
         }
 
         @Test

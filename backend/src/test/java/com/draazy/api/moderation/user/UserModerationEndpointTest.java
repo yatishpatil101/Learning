@@ -569,6 +569,37 @@ class UserModerationEndpointTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("counts=true tallies the whole filtered set, whatever tab or page was asked for")
+    void countsCoverTheWholeSet() throws Exception {
+        User actor = admin("9877100001");
+        User suspended = person("9877100002", Roles.Wire.OWNER);
+        User archived = person("9877100003", Roles.Wire.BUYER);
+        person("9877100004", Roles.Wire.BUYER);
+        mvc.perform(patch(path(Routes.Users.SUSPEND, suspended))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"under review\"}"))
+                .andExpect(status().isOk());
+        flushSoRawSqlCanSeeIt();
+        jdbc.update("update users set archived = true where id = ?", archived.getId());
+
+        mvc.perform(get(Routes.Users.BASE).param("counts", "true").param("q", "98771000")
+                        .param("customers", "true").param("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.counts.all").value(2))
+                .andExpect(jsonPath("$.counts.active").value(1))
+                .andExpect(jsonPath("$.counts.suspended").value(1))
+                .andExpect(jsonPath("$.counts.archived").value(1));
+
+        mvc.perform(get(Routes.Users.BASE).param("q", "98771000")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.counts").doesNotExist());
+    }
+
+    @Test
     @DisplayName("an unknown status is refused rather than answered with an empty page")
     void unknownStatusIsRefused() throws Exception {
         mvc.perform(get(Routes.Users.BASE).param("status", "banned")

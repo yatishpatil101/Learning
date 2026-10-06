@@ -213,6 +213,8 @@ public final class Routes {
         private AdminSocieties() {
         }
 
+        public static final String SUMMARY = "/admin/societies/summary";
+
         public static final String BY_SLUG = "/admin/societies/{slug}";
     }
 
@@ -1075,6 +1077,8 @@ public final class Routes {
 
         public static final String DASHBOARD = "/admin/dashboard";
 
+        public static final String BELL = "/admin/bell";
+
         public static final String SUPPLY_GAP = "/admin/supply-gap";
 
         /** Staff/admin — asking price against the locality's curated market rate. */
@@ -1108,6 +1112,8 @@ public final class Routes {
 
 
         public static final String FUNCTION_CATALOGUE = "/admin/function-catalogue";
+
+        public static final String TEAM = "/admin/team";
 
         public static final String MESSAGE_TEMPLATES = "/admin/message-templates";
 

@@ -79,4 +79,6 @@ public interface SocietyProposalRepository extends JpaRepository<SocietyProposal
             order by p.createdAt asc""")
     Page<SocietyProposal> queue(@Param("status") String status, @Param("kind") String kind,
             Pageable pageable);
+
+    long countByStatusAndKindIn(String status, java.util.Collection<String> kinds);
 }

@@ -39,7 +39,7 @@ const toBadgeGrant = (row) => ({
 
 /** One page of the directory. `archived` and `status` are separate query parameters because they are separate
  * columns: sending a status without pinning `archived=false` returns archived rows too. */
-export async function listUsers({ role, customers, status, q, page = 0, size = 20 } = {}) {
+export async function listUsers({ role, customers, status, q, page = 0, size = 20, counts } = {}) {
   const archived = status === 'archived';
   const res = await get('/users', {
     page,
@@ -49,9 +49,10 @@ export async function listUsers({ role, customers, status, q, page = 0, size = 2
     customers: customers || undefined,
     q: q || undefined,
     status: !archived && WIRE_STATUSES.has(status) ? status : undefined,
+    counts: counts || undefined,
   });
   const wrapped = unwrapPage(res, { page, size });
-  return { ...wrapped, items: wrapped.items.map(toRow) };
+  return { ...wrapped, counts: res?.counts, items: wrapped.items.map(toRow) };
 }
 
 /** The activity modal, returned exactly as the server sends it: the console builds each line's sentence from `kind`

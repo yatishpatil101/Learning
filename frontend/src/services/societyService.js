@@ -244,6 +244,9 @@ export const verifySocietyCandidate = async (slug) =>
 export const listSocietyCandidateDuplicates = async (slug, opts) =>
   (await provider()).listSocietyCandidateDuplicates(slug, opts);
 
+/** Pending-work counts for the society desk's tab badges. */
+export const getSocietiesSummary = async () => (await provider()).getSocietiesSummary();
+
 /**
  * Society merges currently in force, newest first — the other way round from the queues beside it,
  * because this is a record of decisions taken and the interesting one is the one just made.

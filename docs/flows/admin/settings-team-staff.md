@@ -122,6 +122,8 @@ see" (a per-row summary would cost one request per member to answer a question n
   console-only path precisely because the contract has no role-change route at all - `teamProvider`
   refuses a role or team change outright rather than PATCHing the subset the server accepts and
   reporting success for the rest.
+- The roster is one read, `GET /admin/team`: every back-office account (live and archived) with its
+  `functions`, in two queries. Desks reuse it for the assignee picker (`listTeamMembers`).
 - `saveTeamMember` posts to `/users/staff` on create and `PATCH /users/{id}` (name, email) on edit.
 - Suspend is `PATCH /users/{id}/archive`; there is no `DELETE /users/{id}` anywhere in the contract,
   so the console offers no Remove.

@@ -74,6 +74,22 @@ test.describe('similar listings', () => {
   });
 });
 
+for (const [desk, team] of [['rent-agreement', 'rental'], ['legal', 'legal'], ['interior', 'interior'], ['packers', 'packers'], ['valuation', 'valuation']]) {
+  test(`the ${desk} desk counts open tickets from the queue summary, not a size=1 tickets read`, async ({ page, login, consoleErrors }) => {
+    await login.asAdmin();
+    const gets = countGets(page);
+    const summaryRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/service-requests/queue-summary');
+    await page.goto(`/admin/${desk}`);
+    const summary = await (await summaryRead).json();
+    await page.waitForTimeout(1000);
+
+    expect(typeof summary.openTickets).toBe('number');
+    expect(gets.keys().filter((k) => k.startsWith('/api/service-requests/queue-summary'))).toEqual([`/api/service-requests/queue-summary?team=${team}`]);
+    expect(gets.keys().filter((k) => k.startsWith('/api/tickets?') && /[?&]size=1(&|$)/.test(k))).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+}
+
 test('the societies directory reads one filtered page, then the next on Show more', async ({ page, consoleErrors }) => {
   const gets = countGets(page);
   const firstPage = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/societies');
@@ -91,3 +107,148 @@ test('the societies directory reads one filtered page, then the next on Show mor
   expect(gets.keys()).toContain('/api/societies?sort=relevance&page=1&size=24');
   expect(consoleErrors).toEqual([]);
 });
+
+for (const [name, url, readyText] of [['the team page', '/admin/team', /Team/], ['a service desk', '/admin/home-loans', /Home Loans/i]]) {
+  test(`${name} reads the back-office roster once, from /admin/team`, async ({ page, login, consoleErrors }) => {
+    await login.asAdmin();
+    const gets = countGets(page);
+    const rosterRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/admin/team');
+    await page.goto(url);
+    await rosterRead;
+    await expect(page.getByText(readyText).first()).toBeVisible();
+    await page.waitForTimeout(1000);
+
+    expect(gets.timesPath('/api/admin/team')).toBe(1);
+    expect(gets.timesPath('/api/users')).toBe(0);
+    expect(gets.paths().filter((p) => p.endsWith('/permissions'))).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+}
+
+test('an admin page makes one light bell request, not three list reads', async ({ page, login, consoleErrors }) => {
+  await login.asAdmin();
+  const gets = countGets(page);
+  const bellRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/admin/bell');
+  await page.goto('/admin/settings');
+  const body = await (await bellRead).body();
+  await page.waitForTimeout(1000);
+
+  expect(gets.timesPath('/api/admin/bell')).toBe(1);
+  expect(gets.timesPath('/api/admin/settings')).toBeLessThanOrEqual(1);
+  for (const path of ['/api/admin/properties', '/api/tickets', '/api/admin/property-reviews']) {
+    expect(gets.timesPath(path), path).toBe(0);
+  }
+  expect(body.length, 'five slim rows per section, not five full admin rows').toBeLessThan(3_000);
+
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await page.waitForTimeout(500);
+  expect(gets.timesPath('/api/admin/bell'), 'opening and closing the bell does not refetch it').toBe(1);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('the platform dashboard is one aggregate read with no whole-list downloads', async ({ page, login, consoleErrors }) => {
+  await login.asAdmin();
+  const gets = countGets(page);
+  const dashboardRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/admin/dashboard');
+  await page.goto('/admin');
+  const body = await (await dashboardRead).body();
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await page.waitForTimeout(1000);
+
+  expect(gets.timesPath('/api/admin/dashboard')).toBe(1);
+  expect(gets.keys().filter((k) => /[?&]size=(100|200)(&|$)/.test(k))).toEqual([]);
+  for (const path of [
+    '/api/admin/properties', '/api/admin/properties/summary', '/api/admin/enquiries', '/api/admin/deals',
+    '/api/admin/visits', '/api/tickets', '/api/users', '/api/admin/analytics/traffic', '/api/admin/analytics/sla',
+  ]) {
+    expect(gets.timesPath(path), path).toBe(0);
+  }
+  expect(body.length).toBeLessThan(6_000);
+  expect(consoleErrors).toEqual([]);
+});
+
+const DESKS = [
+  {
+    name: 'users reads one paged list that carries the counts, and the pending badge grants once',
+    url: '/admin/users',
+    ready: /Users|Customers/,
+    once: ['/api/users', '/api/admin/badge-grants'],
+    never: [],
+    check: (gets) => {
+      const reads = gets.keys().filter((k) => k.startsWith('/api/users?'));
+      expect(reads).toHaveLength(1);
+      expect(reads[0]).toContain('counts=true');
+      expect(reads[0]).not.toMatch(/[?&]size=(1|100)(&|$)/);
+    },
+  },
+  {
+    name: 'support reads the queue once, with the tab counts on it',
+    url: '/admin/support',
+    ready: /Support/,
+    once: ['/api/admin/support-tickets'],
+    never: [],
+    check: (gets) => expect(gets.keys().filter((k) => /[?&]size=1(&|$)/.test(k))).toEqual([]),
+  },
+  {
+    name: 'flatmates reads one moderation queue for every kind and state',
+    url: '/admin/flatmates',
+    ready: /Flatmate/i,
+    once: ['/api/admin/flatmates/moderation', '/api/admin/group-applications', '/api/admin/flatmate-reviews'],
+    never: [],
+    check: () => {},
+  },
+  {
+    name: 'post-on-behalf downloads no pending-listing page',
+    url: '/admin/post-on-behalf',
+    ready: /Post on behalf|Owner/i,
+    once: [],
+    never: ['/api/admin/properties'],
+    check: () => {},
+  },
+  {
+    name: 'properties reads neither the owner-reply inbox nor the duplicate scan on load',
+    url: '/admin/properties',
+    ready: /To verify/,
+    once: [],
+    never: ['/api/admin/property-reviews', '/api/admin/properties/duplicates'],
+    check: () => {},
+  },
+  {
+    name: 'societies reads one summary and the open tab only',
+    url: '/admin/societies',
+    ready: /Claims/,
+    once: ['/api/admin/societies/summary', '/api/admin/society-claims'],
+    never: [
+      '/api/admin/society-merges', '/api/admin/society-residents', '/api/admin/society-proposals',
+      '/api/admin/society-candidates', '/api/societies',
+    ],
+    check: () => {},
+  },
+  {
+    name: 'analytics reads the open tab\u2019s reports only',
+    url: '/admin/analytics?tab=sla',
+    ready: /Analytics/,
+    once: ['/api/admin/analytics/sla'],
+    never: [
+      '/api/admin/analytics/traffic', '/api/admin/analytics/surfers', '/api/admin/analytics/engagement',
+      '/api/admin/analytics/funnel', '/api/admin/analytics/pricing', '/api/admin/supply-gap', '/api/admin/cities/waitlist',
+    ],
+    check: () => {},
+  },
+];
+
+for (const d of DESKS) {
+  test(`an admin desk: ${d.name}`, async ({ page, login, consoleErrors }) => {
+    await login.asAdmin();
+    const gets = countGets(page);
+    await page.goto(d.url);
+    await expect(page.getByText(d.ready).first()).toBeVisible();
+    await page.waitForTimeout(1000);
+
+    for (const path of d.once) expect(gets.timesPath(path), path).toBe(1);
+    for (const path of d.never) expect(gets.timesPath(path), path).toBe(0);
+    d.check(gets);
+    expect(consoleErrors).toEqual([]);
+  });
+}

@@ -174,6 +174,7 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.known").value(true))
                 .andExpect(jsonPath("$.allowance").value(1))
                 .andExpect(jsonPath("$.held").value(2))
+                .andExpect(jsonPath("$.pending").value(1))
                 .andExpect(jsonPath("$.overAllowance").value(true));
     }
 
@@ -206,6 +207,7 @@ class ConciergeListingQuotaTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.known").value(false))
                 .andExpect(jsonPath("$.held").value(0))
+                .andExpect(jsonPath("$.pending").value(0))
                 .andExpect(jsonPath("$.overAllowance").value(false));
     }
 

@@ -77,7 +77,6 @@ const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 export default function OpsDraftingDesk({ desk }) {
   const { toast } = useToast();
   const [tab, setTab] = useTabParam(TAB_KEYS, 'pickup');
-  const tickets = useDeskTickets(desk);
   const [q, setQ] = useState('');
   const [overdue, setOverdue] = useState(false);
   const [page, setPage] = useState(1);
@@ -89,6 +88,7 @@ export default function OpsDraftingDesk({ desk }) {
 
   // `null` on failure, so a tab count is omitted rather than reading "0".
   const [summary, setSummary] = useState(null);
+  const tickets = useDeskTickets(summary?.openTickets);
   const summarySeq = useRef(0);
   const loadSummary = useCallback(() => {
     const seq = ++summarySeq.current;

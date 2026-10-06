@@ -110,46 +110,80 @@ public class FlatmateModerationService {
                 host == null ? null : host.getMobile());
     }
 
+    /* Re-checks are live rows and the asked-for states are not, so the sets never overlap; {@code size} applies
+       to each kind and set, and {@code totalElements} is their sum. */
     @Transactional(readOnly = true)
-    public Page<FlatmateModerationQueueDto> moderationQueue(String kind, List<String> modStatus,
+    public Page<FlatmateModerationQueueDto> moderationQueue(List<String> kinds, List<String> modStatus,
             Pageable pageable) {
         List<String> requested = nonBlank(modStatus);
         boolean recheck = requested.contains(SELECTOR_RECHECK);
-        if (recheck && requested.size() > 1) {
-            throw new BadRequestException("modStatus=recheck cannot be combined with other states.");
+        List<String> states = modStates(
+                requested.stream().filter(s -> !SELECTOR_RECHECK.equals(s)).toList(),
+                recheck ? null : FlatmateVocabulary.MOD_PENDING);
+        List<String> wanted = nonBlank(kinds).stream()
+                .map(k -> FlatmateVocabulary.require(k,
+                        java.util.Set.of(FlatmateModerationQueueDto.KIND_POST,
+                                FlatmateModerationQueueDto.KIND_ROOM,
+                                FlatmateModerationQueueDto.KIND_GROUP), "kind"))
+                .distinct().toList();
+        if (wanted.isEmpty()) {
+            throw new BadRequestException("kind is required.");
         }
-        List<String> states = recheck ? List.of() : modStates(requested, FlatmateVocabulary.MOD_PENDING);
-        Pageable order = recheck ? byWorkItemAge(pageable) : pageable;
 
-        return switch (FlatmateVocabulary.require(kind == null ? "" : kind.strip(),
-                java.util.Set.of(FlatmateModerationQueueDto.KIND_POST,
-                        FlatmateModerationQueueDto.KIND_ROOM,
-                        FlatmateModerationQueueDto.KIND_GROUP), "kind")) {
-            case FlatmateModerationQueueDto.KIND_POST -> {
-                Page<FlatmateSeekerPost> page = recheck
-                        ? posts.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : posts.findByModStatusInAndArchivedFalse(states, order);
-                Map<UUID, String> names = namesOf(
-                        page.getContent().stream().map(FlatmateSeekerPost::getUserId).toList());
-                yield page.map(p -> FlatmateModerationQueueDto.of(p, names.get(p.getUserId())));
+        List<FlatmateModerationQueueDto> rows = new java.util.ArrayList<>();
+        long total = 0;
+        for (String kind : wanted) {
+            if (!states.isEmpty()) {
+                Page<FlatmateModerationQueueDto> page = byStates(kind, states, pageable);
+                rows.addAll(page.getContent());
+                total += page.getTotalElements();
             }
-            case FlatmateModerationQueueDto.KIND_ROOM -> {
-                Page<FlatmateRoom> page = recheck
-                        ? rooms.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : rooms.findByModStatusInAndArchivedFalse(states, order);
-                Map<UUID, String> names = namesOf(
-                        page.getContent().stream().map(FlatmateRoom::getHostId).toList());
-                yield page.map(r -> FlatmateModerationQueueDto.of(r, names.get(r.getHostId())));
+            if (recheck) {
+                Page<FlatmateModerationQueueDto> page = byRecheck(kind, byWorkItemAge(pageable));
+                rows.addAll(page.getContent());
+                total += page.getTotalElements();
             }
-            default -> {
-                Page<FlatmateGroup> page = recheck
-                        ? groups.findByRecheckRequestedAtNotNullAndArchivedFalse(order)
-                        : groups.findByModStatusInAndArchivedFalse(states, order);
-                Map<UUID, String> names = namesOf(
-                        page.getContent().stream().map(FlatmateGroup::getHostId).toList());
-                yield page.map(g -> FlatmateModerationQueueDto.of(g, names.get(g.getHostId())));
-            }
+        }
+        return new PageImpl<>(rows, pageable, total);
+    }
+
+    private Page<FlatmateModerationQueueDto> byStates(String kind, List<String> states,
+            Pageable pageable) {
+        return switch (kind) {
+            case FlatmateModerationQueueDto.KIND_POST ->
+                    presentPosts(posts.findByModStatusInAndArchivedFalse(states, pageable));
+            case FlatmateModerationQueueDto.KIND_ROOM ->
+                    presentRooms(rooms.findByModStatusInAndArchivedFalse(states, pageable));
+            default -> presentGroups(groups.findByModStatusInAndArchivedFalse(states, pageable));
         };
+    }
+
+    private Page<FlatmateModerationQueueDto> byRecheck(String kind, Pageable pageable) {
+        return switch (kind) {
+            case FlatmateModerationQueueDto.KIND_POST ->
+                    presentPosts(posts.findByRecheckRequestedAtNotNullAndArchivedFalse(pageable));
+            case FlatmateModerationQueueDto.KIND_ROOM ->
+                    presentRooms(rooms.findByRecheckRequestedAtNotNullAndArchivedFalse(pageable));
+            default -> presentGroups(groups.findByRecheckRequestedAtNotNullAndArchivedFalse(pageable));
+        };
+    }
+
+    private Page<FlatmateModerationQueueDto> presentPosts(Page<FlatmateSeekerPost> page) {
+        Map<UUID, String> names = namesOf(
+                page.getContent().stream().map(FlatmateSeekerPost::getUserId).toList());
+        return page.map(p -> FlatmateModerationQueueDto.of(p, names.get(p.getUserId())));
+    }
+
+    private Page<FlatmateModerationQueueDto> presentRooms(Page<FlatmateRoom> page) {
+        Map<UUID, String> names = namesOf(
+                page.getContent().stream().map(FlatmateRoom::getHostId).toList());
+        return page.map(r -> FlatmateModerationQueueDto.of(r, names.get(r.getHostId())));
+    }
+
+    private Page<FlatmateModerationQueueDto> presentGroups(Page<FlatmateGroup> page) {
+        Map<UUID, String> names = namesOf(
+                page.getContent().stream().map(FlatmateGroup::getHostId).toList());
+        return page.map(g -> FlatmateModerationQueueDto.of(g, names.get(g.getHostId())));
     }
 
     private static List<String> nonBlank(List<String> values) {

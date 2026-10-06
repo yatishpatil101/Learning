@@ -18,13 +18,13 @@ function bar(rate) {
 const targetLabel = (h) => (h == null ? '—' : h >= 48 ? `${Math.round(h / 24)}d` : `${h}h`);
 
 const track = (label, t) => (t == null ? null : {
-  label, rate: t.slaRatePct, target: t.targetHours, late: t.outstandingBreachingCount,
+  label, rate: t.slaRatePct, target: t.targetHours, late: t.late,
 });
 
-/** The four tracks `GET /admin/analytics/sla` measures; a track the server omits is not drawn. */
+/** The four tracks `GET /admin/dashboard` carries under `sla`; a track the server omits is not drawn. */
 function tracksOf(sla) {
   return [
-    { label: 'Listing approval', rate: sla.slaRatePct, target: sla.targetHours, late: sla.pendingBreachingCount },
+    track('Listing approval', sla.listingApproval),
     track('Ticket pickup', sla.ticketPickup),
     track('Service delivery', sla.ticketDelivery),
     track('Concierge → Live', sla.conciergeToLive),

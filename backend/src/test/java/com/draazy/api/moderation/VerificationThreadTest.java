@@ -793,4 +793,28 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0));
     }
-}
+
+    @Test
+    @DisplayName("a moderation queue row says whether the owner's last word is still unread by staff")
+    void queueRowsFlagAnOwnerReply() throws Exception {
+        User owner = user("9820000521", Roles.Wire.OWNER);
+        User ops = user("9820000522", Roles.Wire.STAFF);
+        Property replied = listing(owner, "rent");
+        Property quiet = listing(owner, "rent");
+        for (Property p : List.of(replied, quiet)) {
+            mvc.perform(post(path(p, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isCreated());
+        }
+        mvc.perform(post(path(replied, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Here is the bill.\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/admin/properties").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + replied.getId() + "')].ownerReplied")
+                        .value(true))
+                .andExpect(jsonPath("$.content[?(@.id == '" + quiet.getId() + "')].ownerReplied")
+                        .value(false));
+    }}

@@ -26,110 +26,54 @@ const POSTHOG_APP_URL = import.meta.env.VITE_POSTHOG_APP_URL || '';
 
 // Pricing is a snapshot of the live catalogue, so it has no window to pick.
 const WINDOWED_TABS = new Set(['funnel', 'traffic', 'engagement', 'supply-gap', 'sla']);
+const TAB_KEYS = ['traffic', 'engagement', 'funnel', 'supply-gap', 'pricing', 'sla'];
+
+/* Reads one report when its tab is first shown and again when `key` changes; three-state because a `[]` default would render an all-clear from a 500. */
+function useTabReport(load, shown, key) {
+  const [state, setState] = useState({ data: null, failed: false, key: undefined });
+  const current = state.key === key;
+  useEffect(() => {
+    if (!shown || current) return undefined;
+    let alive = true;
+    load()
+      .then((data) => { if (alive) setState({ data, failed: false, key }); })
+      .catch(() => { if (alive) setState({ data: null, failed: true, key }); });
+    return () => { alive = false; };
+    // `key` stands for everything `load` closes over; `load` itself is a fresh closure every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, current, key]);
+  return state;
+}
 
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const [days, setDays] = useState(90);
 
-  // A failure here empties this tab, not the page, and says so.
-  const [supplyGap, setSupplyGap] = useState(null);
-  const [supplyGapFailed, setSupplyGapFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetchSupplyGap({ days })
-      .then((rows) => { if (alive) { setSupplyGap(rows); setSupplyGapFailed(false); } })
-      .catch(() => { if (alive) { setSupplyGap(null); setSupplyGapFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
+  // An unknown `?tab=` falls back to the first tab, never to an empty page.
+  const activeTab = TAB_KEYS.includes(requestedTab) ? requestedTab : TAB_KEYS[0];
+  const on = (key) => activeTab === key;
 
-  /* Separate request: different tables, and one failing report should empty one panel. `[]` in the catch
-     would claim nobody asked. */
-  const [cityWaitlist, setCityWaitlist] = useState(null);
-  const [cityWaitlistFailed, setCityWaitlistFailed] = useState(false);
-  /* Nothing re-runs the read, so without a retry the failed state needs a full page reload. */
+  const supplyGap = useTabReport(() => fetchSupplyGap({ days }), on('supply-gap'), days);
+  /* Which cities people want Draazy in: a separate read because a different table answers it, so one failing report empties one panel. */
   const [cityWaitlistAttempt, setCityWaitlistAttempt] = useState(0);
   const retryCityWaitlist = () => setCityWaitlistAttempt((n) => n + 1);
-  useEffect(() => {
-    let alive = true;
-    listCityWaitlist()
-      .then((rows) => { if (alive) { setCityWaitlist(rows); setCityWaitlistFailed(false); } })
-      .catch(() => { if (alive) { setCityWaitlist(null); setCityWaitlistFailed(true); } });
-    return () => { alive = false; };
-  }, [cityWaitlistAttempt]);
-
-  /* Three-state (`null`, value, `failed`): `[]` in the catch would render an all-clear out of a 500. */
-  const [pricingRows, setPricingRows] = useState(null);
-  const [pricingFailed, setPricingFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    localityPricing()
-      .then((rows) => { if (alive) { setPricingRows(rows); setPricingFailed(false); } })
-      .catch(() => { if (alive) { setPricingRows(null); setPricingFailed(true); } });
-    return () => { alive = false; };
-  }, []);
-
-  const [slaSummary, setSlaSummary] = useState(null);
-  const [slaFailed, setSlaFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    reviewSla({ days })
-      .then((summary) => { if (alive) { setSlaSummary(summary); setSlaFailed(false); } })
-      .catch(() => { if (alive) { setSlaSummary(null); setSlaFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
-
-  const [trafficReport, setTrafficReport] = useState(null);
-  const [trafficFailed, setTrafficFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetchTraffic({ days })
-      .then((r) => { if (alive) { setTrafficReport(r); setTrafficFailed(false); } })
-      .catch(() => { if (alive) { setTrafficReport(null); setTrafficFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
-
-  const [engagementReport, setEngagementReport] = useState(null);
-  const [engagementFailed, setEngagementFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetchEngagement({ days })
-      .then((r) => { if (alive) { setEngagementReport(r); setEngagementFailed(false); } })
-      .catch(() => { if (alive) { setEngagementReport(null); setEngagementFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
-
-  const [audienceReport, setAudienceReport] = useState(null);
-  const [audienceFailed, setAudienceFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetchAudience({ days })
-      .then((r) => { if (alive) { setAudienceReport(r); setAudienceFailed(false); } })
-      .catch(() => { if (alive) { setAudienceReport(null); setAudienceFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
-
-  const [funnelReport, setFunnelReport] = useState(null);
-  const [funnelFailed, setFunnelFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetchFunnel({ days })
-      .then((r) => { if (alive) { setFunnelReport(r); setFunnelFailed(false); } })
-      .catch(() => { if (alive) { setFunnelReport(null); setFunnelFailed(true); } });
-    return () => { alive = false; };
-  }, [days]);
+  const cityWaitlist = useTabReport(listCityWaitlist, on('supply-gap'), cityWaitlistAttempt);
+  const pricing = useTabReport(localityPricing, on('pricing'), 0);
+  const sla = useTabReport(() => reviewSla({ days }), on('sla'), days);
+  const traffic = useTabReport(() => fetchTraffic({ days }), on('traffic'), days);
+  const audience = useTabReport(() => fetchAudience({ days }), on('traffic'), days);
+  const engagement = useTabReport(() => fetchEngagement({ days }), on('engagement'), days);
+  const funnel = useTabReport(() => fetchFunnel({ days }), on('funnel'), days);
 
   const tabs = [
-    { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} audience={audienceReport} audienceFailed={audienceFailed} days={days} /> },
-    { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
-    { key: 'funnel', label: 'Funnel', content: <FunnelTab report={funnelReport} failed={funnelFailed} days={days} /> },
-    { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} failed={supplyGapFailed} days={days} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
-    { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
-    { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} days={days} /> },
+    { key: 'traffic', label: 'Traffic', content: <TrafficTab report={traffic.data} failed={traffic.failed} audience={audience.data} audienceFailed={audience.failed} days={days} /> },
+    { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagement.data} failed={engagement.failed} days={days} /> },
+    { key: 'funnel', label: 'Funnel', content: <FunnelTab report={funnel.data} failed={funnel.failed} days={days} /> },
+    { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap.data} failed={supplyGap.failed} days={days} cityWaitlist={cityWaitlist.data} cityWaitlistFailed={cityWaitlist.failed} onRetryCityWaitlist={retryCityWaitlist} /> },
+    { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricing.data} failed={pricing.failed} /> },
+    { key: 'sla', label: 'SLA', content: <SlaTab sla={sla.data} failed={sla.failed} days={days} /> },
   ];
-
-  /* Resolve against existing tabs, not the raw URL: an unknown or switched-off tab would render an empty page. */
-  const activeTab = tabs.some((t) => t.key === requestedTab) ? requestedTab : tabs[0]?.key;
 
   return (
     <div>

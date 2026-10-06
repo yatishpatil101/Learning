@@ -48,23 +48,23 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
     void dashboardReturnsTheContractShape() throws Exception {
         mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalListings").isNumber())
-                .andExpect(jsonPath("$.activeListings").isNumber())
-                .andExpect(jsonPath("$.pendingModeration").isNumber())
-                .andExpect(jsonPath("$.totalUsers").isNumber())
-                .andExpect(jsonPath("$.newUsers7d").isNumber())
-                .andExpect(jsonPath("$.dealsClosed30d").isNumber());
+                .andExpect(jsonPath("$.kpis.totalListings").isNumber())
+                .andExpect(jsonPath("$.kpis.activeListings").isNumber())
+                .andExpect(jsonPath("$.kpis.pendingModeration").isNumber())
+                .andExpect(jsonPath("$.kpis.totalUsers").isNumber())
+                .andExpect(jsonPath("$.kpis.newUsers7d").isNumber())
+                .andExpect(jsonPath("$.kpis.dealsClosed30d").isNumber());
     }
 
     @Test
     void revenueIsBlankForStaffAndPresentForAdmin() throws Exception {
         mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, staff()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.revenue30d").value(org.hamcrest.Matchers.nullValue()));
+                .andExpect(jsonPath("$.kpis.revenue30d").value(org.hamcrest.Matchers.nullValue()));
 
         mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.revenue30d").isNumber());
+                .andExpect(jsonPath("$.kpis.revenue30d").isNumber());
     }
 
     @Test
@@ -122,6 +122,6 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
     private void assertKpi(String token, String field, long expected) throws Exception {
         mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$." + field).value((int) expected));
+                .andExpect(jsonPath("$.kpis." + field).value((int) expected));
     }
 }

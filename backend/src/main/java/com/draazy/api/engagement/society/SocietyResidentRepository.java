@@ -113,4 +113,6 @@ public interface SocietyResidentRepository extends JpaRepository<SocietyResident
             where r.societyId = :societyId and r.status = 'pending'
             """)
     int reassignPendingQueue(@Param("societyId") UUID societyId, @Param("queue") String queue);
+
+    long countByStatus(String status);
 }

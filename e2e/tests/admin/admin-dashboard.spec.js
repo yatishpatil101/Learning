@@ -7,7 +7,7 @@ async function scorecard(mobile) {
   const headers = await authHeaders(mobile);
   const res = await fetch(`${API}/admin/dashboard`, { headers });
   expect(res.status, 'GET /admin/dashboard').toBe(200);
-  return res.json();
+  return (await res.json()).kpis;
 }
 
 async function api(method, path, headers, body) {
@@ -129,9 +129,13 @@ test.describe('/admin dashboard — the scorecard is the server\'s', () => {
     await expect(tile(page, 'Revenue (last 30 days)')).toBeVisible();
   });
 
-  test('a staffer without the analytics function is refused the scorecard and lands on the staff portal', async ({ page, login }) => {
-    const refused = await fetch(`${API}/admin/dashboard`, { headers: await authHeaders(STAFF.rental) });
-    expect(refused.status, 'GET /admin/dashboard without analytics:read').toBe(403);
+  test('a staffer without the analytics function gets no scorecard sections and lands on the staff portal', async ({ page, login }) => {
+    const redacted = await fetch(`${API}/admin/dashboard`, { headers: await authHeaders(STAFF.rental) });
+    expect(redacted.status, 'GET /admin/dashboard is open to staff, section by section').toBe(200);
+    const sections = await redacted.json();
+    for (const gated of ['kpis', 'traffic', 'sla']) {
+      expect(sections[gated], `${gated} is absent, not empty, without its permission`).toBeUndefined();
+    }
 
     await login.asStaff('rental');
     await page.goto('/admin');
@@ -155,11 +159,14 @@ test.describe('/admin dashboard — the scorecard is the server\'s', () => {
 
     await openDashboard(page, login);
     expect(await tileValue(page, 'Flagged Listings')).toBe(String(summary.body.flagged));
+    expect(Number(await tileValue(page, 'Pending Verification')), 'Pending Verification is the same non-archived count the summary keeps').toBe(summary.body.pending);
   });
 
-  test('the Flagged tile goes away when the count it quotes is unavailable', async ({ page, login }) => {
-    // This is the leg that fails against the old code, and the equality above is not.
-    await page.route('**/admin/properties/summary*', (route) => route.abort());
+  test('the Flagged tile goes away when the listings section is not served', async ({ page, login }) => {
+    await page.route('**/admin/dashboard*', async (route) => {
+      const { listings, ...rest } = await (await route.fetch()).json();
+      await route.fulfill({ json: rest });
+    });
 
     await openDashboard(page, login);
     await expect(tile(page, 'Pending Verification')).toBeVisible();

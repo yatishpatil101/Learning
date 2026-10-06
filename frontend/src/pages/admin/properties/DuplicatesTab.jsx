@@ -53,7 +53,7 @@ function ListingColumn({ listing: l, isNewest, onKeep, disabled }) {
   );
 }
 
-export default function DuplicatesTab({ onRefresh, canModerate = true }) {
+export default function DuplicatesTab({ onRefresh, onCount, canModerate = true }) {
   const { toast } = useToast();
   const [state, setState] = useState({ status: 'loading', clusters: [], truncated: false, scanned: 0 });
   const [busy, setBusy] = useState(false);
@@ -61,6 +61,7 @@ export default function DuplicatesTab({ onRefresh, canModerate = true }) {
   const load = useCallback(async () => {
     try {
       const res = await listDuplicateClusters();
+      onCount?.((res.clusters ?? []).length);
       setState({
         status: 'ready',
         clusters: res.clusters ?? [],
@@ -70,9 +71,10 @@ export default function DuplicatesTab({ onRefresh, canModerate = true }) {
     } catch (err) {
       console.error('[DuplicatesTab] failed to load clusters', err);
       // A failed read must not render as "supply looks clean"; that is a false negative.
+      onCount?.(null);
       setState({ status: 'error', clusters: [], truncated: false, scanned: 0 });
     }
-  }, []);
+  }, [onCount]);
 
   useEffect(() => { load(); }, [load]);
 

@@ -5,5 +5,6 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 
 public record PropertyModerationResponse(
         @JsonUnwrapped PropertyResponse property,
-        ListingSignals signals) {
+        ListingSignals signals,
+        boolean ownerReplied) {
 }

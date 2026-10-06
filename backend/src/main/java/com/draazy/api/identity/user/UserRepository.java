@@ -61,6 +61,10 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
     @Query("select u from User u where u.role = :role and u.archived = false")
     List<User> findLiveByRole(@Param("role") String role);
 
+    // Unpaged on purpose: every admin, manager and staff account, live and archived, is one roster.
+    @Query("select u from User u where u.role in ('admin', 'manager', 'staff') order by u.createdAt desc")
+    List<User> findBackOfficeAccounts();
+
     // Prefix match is deliberate: the directory is not a broad substring search.
     @Query("""
             select u from User u
@@ -81,4 +85,17 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
             @Param("flagged") Boolean flagged,
             @Param("archived") boolean archived,
             Pageable pageable);
+
+    // Same predicates as searchForAdmin minus archived/status/flagged, so the tab counts group over one scan.
+    @Query("""
+            select u.archived, u.status, count(u) from User u
+            where (:role is null or u.role = :role)
+              and (:customers = false or u.role in ('owner', 'buyer'))
+              and (:prefix is null
+                   or lower(u.name) like :prefix escape '\\'
+                   or u.mobile like :prefix escape '\\')
+            group by u.archived, u.status
+            """)
+    List<Object[]> countByStanding(@Param("role") String role,
+            @Param("customers") boolean customers, @Param("prefix") String prefix);
 }

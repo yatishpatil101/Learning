@@ -9,20 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/**
- * Spring Data access for {@link Society}, plus the two follower aggregates the contract's
- * {@code followerCount} / {@code followedByMe} need.
- *
- * <p><strong>Why the follow queries are native and there is no {@code SocietyFollow} entity.</strong>
- * {@code society_follows} is a two-column join table with a composite primary key and no surrogate
- * id, so mapping it means an {@code @IdClass} or {@code @EmbeddedId} — real design work whose only
- * consumer today is two counts. The writes ({@code PUT|DELETE /me/societies/{slug}/follow}) belong to
- * the Engagement slice, and that slice should get to choose the mapping when it needs one. Reading a
- * count does not oblige this slice to decide it first.
- *
- * <p>Both queries are scoped to the ids on the current page and served by the table's primary key,
- * so neither grows with the size of the follow table.
- */
+/** Native: {@code society_follows} has a composite key, and mapping it is the Engagement slice's call. */
 public interface SocietyRepository
         extends JpaRepository<Society, UUID>, JpaSpecificationExecutor<Society> {
 
@@ -376,4 +363,8 @@ public interface SocietyRepository
      * quietly turn "and 47 more" into a smaller number that reads as the truth.
      */
     List<Society> findByMergedIntoOrderByMergedAtDesc(UUID survivorId);
+
+    @Query("select count(s) from Society s where s.source = 'community' and s.verifiedAt is null"
+            + " and s.mergedInto is null")
+    long countCandidates();
 }

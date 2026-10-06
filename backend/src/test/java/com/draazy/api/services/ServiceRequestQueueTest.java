@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +19,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 
 @DisplayName("Service requests — staff queue filters and summary")
 class ServiceRequestQueueTest extends ServiceFixtures {
@@ -142,6 +144,34 @@ class ServiceRequestQueueTest extends ServiceFixtures {
         mvc.perform(get(Routes.ServiceRequests.QUEUE_SUMMARY)
                         .header(HttpHeaders.AUTHORIZATION, bearer(deskless)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("queue summary carries the desk's open-ticket count, only for callers who can read tickets")
+    void queueSummaryOpenTickets() throws Exception {
+        User buyer = customer("9820000613");
+        User desk = staff("9820000614", Teams.RENTAL);
+        User noTickets = staff("9820000615", Teams.RENTAL);
+        jdbc.update("update back_office_permissions set permissions = '[\"desk:rental\"]'::jsonb where user_id = ?::uuid",
+                noTickets.getId().toString());
+        for (String team : new String[] {Teams.RENTAL, Teams.RENTAL, Teams.LEGAL}) {
+            mvc.perform(post(Routes.Tickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"subject\":\"Help\",\"body\":\"Need a hand\",\"team\":\"" + team + "\"}"))
+                    .andExpect(status().isCreated());
+        }
+
+        mvc.perform(get(Routes.ServiceRequests.QUEUE_SUMMARY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                        .param("team", Teams.RENTAL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.openTickets").value(2));
+        mvc.perform(get(Routes.ServiceRequests.QUEUE_SUMMARY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(noTickets))
+                        .param("team", Teams.RENTAL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.openTickets").doesNotExist());
     }
 
     private void force(String id, ServiceRequestStatus status, User assignee) {

@@ -123,7 +123,7 @@ export default function AdminTeam() {
   /* A compile-time constant of the server, not per-caller: load
      once so opening a member's record is one round trip. */
   const [catalogue, setCatalogue] = useState([]);
-  const [myFunctions, setMyFunctions] = useState([]);
+
   const [memberModal, setMemberModal] = useState(null); // form object or null
   const [inviteDialog, setInviteDialog] = useState(null);
   const [inviteCopied, setInviteCopied] = useState('');
@@ -152,17 +152,10 @@ export default function AdminTeam() {
     return () => { alive = false; };
   }, [failed]);
 
-  useEffect(() => {
-    if (isAdmin || !me?.id) {
-      setMyFunctions([]);
-      return undefined;
-    }
-    let alive = true;
-    getMemberPermissions(me.id)
-      .then((doc) => { if (alive) setMyFunctions(doc.functions || doc.permissions || []); })
-      .catch(() => { if (alive) setMyFunctions([]); });
-    return () => { alive = false; };
-  }, [isAdmin, me?.id]);
+  const myFunctions = useMemo(
+    () => (isAdmin ? [] : members?.find((m) => m.id === me?.id)?.functions ?? []),
+    [isAdmin, members, me?.id],
+  );
 
   const accessSummary = (m) => {
     if (m.role === 'admin') return 'Every function';

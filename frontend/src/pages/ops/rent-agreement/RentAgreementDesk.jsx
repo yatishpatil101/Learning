@@ -21,7 +21,6 @@ const NEXT_TONE = { desk: 'text-teal-200', customer: 'text-gray-400', colleague:
 
 export default function RentAgreementDesk() {
   const [tab, setTab] = useTabParam(TAB_KEYS, 'pickup');
-  const tickets = useDeskTickets('rental');
   const [q, setQ] = useState('');
   const [overdue, setOverdue] = useState(false);
   const [page, setPage] = useState(1);
@@ -33,6 +32,7 @@ export default function RentAgreementDesk() {
 
   // `null` on failure, so a tab count is omitted rather than reading "0".
   const [summary, setSummary] = useState(null);
+  const tickets = useDeskTickets(summary?.openTickets);
   const summarySeq = useRef(0);
   const loadSummary = useCallback(() => {
     const seq = ++summarySeq.current;

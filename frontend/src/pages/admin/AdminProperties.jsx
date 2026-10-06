@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Download } from 'lucide-react';
-import { searchForModeration, getProperty, setListingStatus, clearFlag, flagListing, updateListingAsModerator, archiveListing, restoreListing, listDuplicateClusters, moderationSummary } from '../../services/propertyService.js';
+import { searchForModeration, getProperty, setListingStatus, clearFlag, flagListing, updateListingAsModerator, archiveListing, restoreListing, moderationSummary } from '../../services/propertyService.js';
 import { chaseOwner } from '../../services/outreachService.js';
-import { startPropertyReview, decidePropertyReview, listPropertyReviewQueue } from '../../services/propertyReviewService.js';
+import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { freshnessState } from '../../lib/freshness.js';
@@ -181,32 +181,18 @@ export default function AdminProperties() {
   }, []);
 
   const [dupCount, setDupCount] = useState(null);
-  useEffect(() => {
-    let live = true;
-    listDuplicateClusters()
-      .then((res) => { if (live) setDupCount(res.clusters.length); })
-      .catch((err) => {
-        console.error('[AdminProperties] duplicate count unavailable', err);
-        if (live) setDupCount(null);
-      });
-    return () => { live = false; };
-  }, [reloadToken]);
 
-  // ponytail: first 100 unread cases only; page through if the desk ever holds more.
-  const [repliedIds, setRepliedIds] = useState(() => new Set());
-  useEffect(() => {
-    let live = true;
-    listPropertyReviewQueue({ unread: true, size: 100 })
-      .then((res) => { if (live) setRepliedIds(new Set(res.items.map((r) => r.propertyId))); })
-      .catch((err) => console.error('[AdminProperties] owner-replied set unavailable', err));
-    return () => { live = false; };
-  }, [reloadToken]);
+  const [openedIds, setOpenedIds] = useState(() => new Set());
 
   const isQueueTab = activeTab !== 'duplicates';
   const query = useMemo(() => queueFilters(activeTab, filters), [activeTab, filters]);
   const sort = sortFor(activeTab, filters.sort);
   const queue = useModerationQueue(isQueueTab, query, sort, page, reloadToken);
   const rows = useMemo(() => queue.page?.items || [], [queue.page]);
+  const repliedIds = useMemo(
+    () => new Set(rows.filter((r) => r.ownerReplied && !openedIds.has(pid(r))).map(pid)),
+    [rows, openedIds],
+  );
   const total = queue.page?.total ?? 0;
   const pageCount = queue.page?.pageCount ?? 0;
 
@@ -220,7 +206,7 @@ export default function AdminProperties() {
   const openReview = (l) => {
     setReview(l);
     // Opening the case marks the owner's replies read server-side.
-    setRepliedIds((ids) => { const next = new Set(ids); next.delete(l.uuid || l.id); return next; });
+    setOpenedIds((ids) => new Set(ids).add(pid(l)));
   };
 
   // Keyed by id, not a boolean: the bell links here with a new ?review= while the page is mounted.
@@ -438,7 +424,7 @@ export default function AdminProperties() {
         tabs={TABS.map((t) => ({ key: t.key, label: t.label, count: t.count(summary, dupCount) }))}
       />
 
-      {activeTab === 'duplicates' ? <DuplicatesTab onRefresh={refresh} canModerate={canModerate} /> : (
+      {activeTab === 'duplicates' ? <DuplicatesTab onRefresh={refresh} onCount={setDupCount} canModerate={canModerate} /> : (
         <section id="queue-panel" role="tabpanel" aria-labelledby={`queue-tab-${activeTab}`} className="dz-card overflow-hidden p-0">
           {activeMeta?.note ? (
             <p className="border-b border-white/10 px-4 py-2.5 text-xs text-gray-400" data-testid={`${activeTab}-note`}>{activeMeta.note}</p>

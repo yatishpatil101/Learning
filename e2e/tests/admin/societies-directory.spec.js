@@ -54,7 +54,7 @@ test('the desk counts the whole catalogue, not the page it is showing', async ({
   }
 
   /* The disclosure banner renders only when a queue failed to load. Its absence is what makes the
-     counts above worth reading — every one of them is disclosed as wrong in the same sentence. */
+     counts above worth reading. */
   await expect(page.getByText(/could not be loaded/i)).toHaveCount(0);
   expect(consoleErrors).toHaveLength(0);
 });

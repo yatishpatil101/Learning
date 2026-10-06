@@ -6,6 +6,7 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
+import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -16,8 +17,12 @@ import com.draazy.api.security.Roles;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -60,9 +65,7 @@ public class BackOfficeAccessService {
         }
         Optional<BackOfficeGrant> stored = grants.findById(target.getId());
         List<String> storedFunctions = stored.map(grant -> parseStored(grant.getPermissions())).orElse(List.of());
-        List<String> functions = stored.isPresent()
-                ? storedFunctions
-                : List.copyOf(accountPermissions.functionsFor(target.getRole(), target.getId()));
+        List<String> functions = functionsOf(target, stored.orElse(null));
         return new BackOfficeAccessResponse(
                 target.getId().toString(),
                 target.getRole(),
@@ -71,6 +74,37 @@ public class BackOfficeAccessService {
                 storedFunctions,
                 List.copyOf(accountPermissions.effectiveFor(target.getRole(), target.getId())),
                 List.copyOf(accountPermissions.desksFor(target.getRole(), target.getId())));
+    }
+
+    /** Functions are filled on the same terms as {@link #read}: an administrator reads any non-administrator, a manager only staff and itself. */
+    @Transactional(readOnly = true)
+    public List<TeamMemberResponse> roster(AuthPrincipal actor) {
+        List<User> accounts = users.findBackOfficeAccounts();
+        Map<UUID, BackOfficeGrant> stored = grants.findAllById(accounts.stream()
+                        .filter(account -> !Roles.Wire.ADMIN.equals(account.getRole()))
+                        .map(User::getId).toList())
+                .stream().collect(Collectors.toMap(BackOfficeGrant::getUserId, Function.identity()));
+        return accounts.stream().map(account -> new TeamMemberResponse(
+                account.getId().toString(), account.getName(), MobileMask.mask(account.getMobile()),
+                account.getEmail(), account.getRole(), account.getStatus(), account.isArchived(),
+                account.getCreatedAt(),
+                readable(actor, account) ? functionsOf(account, stored.get(account.getId())) : List.of()))
+                .toList();
+    }
+
+    private static boolean readable(AuthPrincipal actor, User target) {
+        if (Roles.Wire.ADMIN.equals(target.getRole())) {
+            return false;
+        }
+        return !Roles.Wire.MANAGER.equals(actor.role())
+                || actor.userId().equals(target.getId())
+                || Roles.Wire.STAFF.equals(target.getRole());
+    }
+
+    private List<String> functionsOf(User target, BackOfficeGrant stored) {
+        return stored != null
+                ? parseStored(stored.getPermissions())
+                : List.copyOf(BackOfficeFunctions.defaultForRole(target.getRole()));
     }
 
     /**

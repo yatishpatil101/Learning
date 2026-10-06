@@ -59,4 +59,6 @@ public interface SocietyClaimRepository extends JpaRepository<SocietyClaim, UUID
      */
     @Query("select c.societyId from SocietyClaim c where c.claimedBy = :userId and c.status = 'approved'")
     List<UUID> societiesAdministeredBy(@Param("userId") UUID userId);
+
+    long countByStatus(String status);
 }

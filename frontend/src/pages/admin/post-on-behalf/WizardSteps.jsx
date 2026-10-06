@@ -57,11 +57,11 @@ function ChoiceBoxes({ value, onChange, options, ariaLabel, invalid = false, col
   );
 }
 
-export function OwnerStep({ form, set, errors, pendingByMobile, standing }) {
+export function OwnerStep({ form, set, errors, standing }) {
   const mobileValid = /^[6-9]\d{9}$/.test(form.ownerMobile);
   /* The tally arrives as a prop from one read of the pending queue when the wizard opens. Defaulted
      so the step still renders if it is mounted without one. */
-  const dupCount = mobileValid ? (pendingByMobile?.get(form.ownerMobile) || 0) : 0;
+  const dupCount = mobileValid ? (standing?.pending || 0) : 0;
   /* Shown, never enforced: the desk is exempt from the owner's plan ceiling, so this is information
      for the call and reads as a sales prompt rather than a warning. */
   const overage = standing?.known && standing.overAllowance ? standing : null;

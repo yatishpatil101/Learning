@@ -38,6 +38,12 @@ public class BackOfficeAccessController {
         return service.functionCatalogue();
     }
 
+    @GetMapping(Routes.Admin.TEAM)
+    @PreAuthorize(ACCESS_READ)
+    public List<TeamMemberResponse> team(@CurrentUser AuthPrincipal principal) {
+        return service.roster(principal);
+    }
+
     /** {@code GET /users/{id}/permissions} — what is stored, and what it resolves to. */
     @GetMapping(Routes.Users.PERMISSIONS)
     @PreAuthorize(ACCESS_READ)
@@ -45,14 +51,7 @@ public class BackOfficeAccessController {
         return service.read(principal, id);
     }
 
-    /**
-     * {@code PUT /users/{id}/permissions} — replace the document.
-     *
-     * <p>A {@code PUT} of the whole list rather than a {@code PATCH} of a delta, because the caller
-     * is stating the access this account should have. Returns the stored result rather than echoing
-     * the request: after the write, what the account can do is the <em>intersection</em> of this list
-     * with its role baseline, and an administrator editing access must be shown the outcome.
-     */
+    /** {@code PUT /users/{id}/permissions} replaces the whole list and returns the stored result, as effective access is its intersection with the role baseline. */
     @PutMapping(Routes.Users.PERMISSIONS)
     @PreAuthorize(ACCESS_WRITE)
     public BackOfficeAccessResponse replace(@CurrentUser AuthPrincipal principal,
@@ -60,15 +59,7 @@ public class BackOfficeAccessController {
         return service.replace(principal, id, body == null ? List.of() : body.functionsOrPermissions());
     }
 
-    /**
-     * The write body.
-     *
-     * <p>{@code List<String>} rather than a richer shape: the catalogue is served separately, so the
-     * client has no reason to send back the module and action it was given, and a field the server
-     * ignores is a field a client will one day rely on. Names are validated against the catalogue in
-     * the service, where the account's role is known — the ceiling is per-role, so this is not a rule
-     * Bean Validation could have expressed.
-     */
+    /** {@code List<String>} because the catalogue is served separately; names are validated in the service, where the account's role (the per-role ceiling) is known. */
     public record PermissionsRequest(List<String> functions, List<String> permissions) {
         List<String> functionsOrPermissions() {
             return functions == null ? permissions : functions;

@@ -55,7 +55,7 @@ async function claimStatus(request, id) {
 const decide = async (request, id, status) =>
   request.patch(`${API}/admin/society-claims/${id}`, { headers: await admin(), data: { status } });
 
-test('a claims queue that fails says so beside a count still reading 0, and Retry really re-reads it', async ({ page, request, login }) => {
+test('a claims queue that fails says so while the tab count still reads the server summary, and Retry really re-reads it', async ({ page, request, login }) => {
   const filed = await fileClaim(request, 'Failing queue');
 
   await login.asAdmin();
@@ -67,7 +67,8 @@ test('a claims queue that fails says so beside a count still reading 0, and Retr
 
   const banner = page.getByRole('alert').filter({ hasText: /claims queue could not be\s+loaded/ });
   await expect(banner).toBeVisible();
-  await expect(claimsCount(page), 'the count is the zero the banner exists to label').toHaveText('0');
+  // The badge comes from `/admin/societies/summary`, not the failed list, so it still counts the claim.
+  await expect(claimsCount(page)).toHaveText(/^[1-9]\d*$/);
   await expect(rowFor(page, filed.name)).toHaveCount(0);
 
   await page.unroute(CLAIMS_LIST);

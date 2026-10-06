@@ -21,26 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/**
- * <strong>Proof that a per-account permission document decides something, and only downwards</strong>
- * (tech debt D192/D13).
- *
- * <p>{@code V61} deleted the previous attempt at this feature rather than wiring it, for three
- * reasons, and this suite is organised around them: there was no key on the verified principal to
- * resolve a document against, there was no server-side vocabulary a stored name could mean anything
- * in, and the model composed by <em>union</em> where the platform's rule is that a stored document
- * may only narrow. Each of those is asserted here in both directions against a real route, because
- * a guard that always says yes and a guard that is absent are indistinguishable from a happy path.
- *
- * <p><strong>403 rather than 404</strong>, for the same reason {@code PermissionMapGuardTest} gives:
- * these denials happen in {@code @PreAuthorize} before any row is read, so there is no row identity
- * to leak and nothing to hide behind a not-found.
- *
- * <p>Everything runs inside the test's rolled-back transaction, so the {@code back_office_permissions}
- * rows written below are visible to {@link AccountPermissions} — it joins the same transaction — and
- * are gone afterwards. That matters more here than usual: a leaked row would silently narrow an
- * account that unrelated suites expect to be unscoped.
- */
+/** A stored per-account document may only narrow, never add. Denials are 403 not 404: {@code @PreAuthorize} runs
+ * before any row is read. Rows roll back so they can't narrow accounts other suites expect to be unscoped. */
 @DisplayName("D192/D13 — a per-account permission document governs, and can only narrow")
 class AccountPermissionsGuardTest extends AbstractApiTest {
 
@@ -58,15 +40,7 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
         return users.saveAndFlush(user);
     }
 
-    /**
-     * Write the document as raw JSON, deliberately bypassing {@code BackOfficeAccessService}.
-     *
-     * <p>The endpoint validates every name against the catalogue, so going through it could only
-     * ever produce documents the resolver already agrees with — and the interesting cases are the
-     * ones an endpoint would refuse. A row written straight into the table is also the realistic
-     * shape of the threat: somebody with database access, or a future writer that forgets to
-     * validate.
-     */
+    /** Raw JSON, bypassing {@code BackOfficeAccessService}, whose validation can't produce hostile documents. */
     private void scope(UUID userId, String json) {
         jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) "
                 + "VALUES (?::uuid, ?::jsonb)", userId.toString(), json);
@@ -77,15 +51,8 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
                 .andReturn().getResponse().getStatus();
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 1. Absence
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * The state every account is in on the morning after this migration deploys, and the one that
-     * must be a no-op. Without this half, every refusal below would be satisfied by a guard that
-     * refused everybody — and a slice that quietly locked the back office would have shipped.
-     */
+    /** Absence must be a no-op: otherwise a guard refusing everybody would satisfy every refusal below. */
     @Test
     @DisplayName("a staff account with no document keeps only the landing atom")
     void noDocumentMeansRoleDefault() throws Exception {
@@ -95,24 +62,16 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
 
         assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, staffUser.getId()))
                 .containsExactly(BackOfficePermissions.DASHBOARD_READ);
-        assertThat(status(Routes.Admin.DASHBOARD, staff)).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, staff)).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, staff)).isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, staff)).isEqualTo(403);
         assertThat(status(Routes.Users.BASE, staff)).isEqualTo(403);
         assertThat(status(Routes.Admin.SETTINGS, admin)).isEqualTo(200);
-        // Not 200, and the difference is not this slice: GET /admin/audit-log with no filters
-        // answers 500 on PostgreSQL 13 — AuditLogRepository.search binds every filter as an
-        // untyped parameter used only in `? is null`, and the driver cannot infer a type for the
-        // timestamp ("could not determine data type of parameter $5"). No test in the codebase
-        // called the route unfiltered before this one, which is why it was never seen. Out of this
-        // lane to fix, so what is asserted here is the property this slice actually claims: an
-        // unscoped administrator is not turned away by the new guard.
+        // Not 200: unfiltered GET /admin/audit-log 500s on PostgreSQL 13 (untyped `? is null` timestamp
+        // parameter), so assert only that the new guard doesn't turn an unscoped administrator away.
         assertThat(status(Routes.Admin.AUDIT_LOG, admin)).isNotEqualTo(403);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 2. Narrowing — the thing the feature is for
-    // ---------------------------------------------------------------------------------------
 
     @Test
     @DisplayName("a document removes exactly what it omits, and only for the account it names")
@@ -122,10 +81,10 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
         scope(scoped.getId(), "[\"support\",\"desk:rental\"]");
 
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).as("kept").isEqualTo(200);
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).as("analytics omitted").isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(scoped))).as("analytics omitted").isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, bearer(scoped))).as("omitted").isEqualTo(403);
         assertThat(status(Routes.Users.BASE, bearer(scoped))).as("omitted").isEqualTo(403);
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(colleague)))
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(colleague)))
                 .as("the colleague on the same team was not touched").isEqualTo(200);
     }
 
@@ -141,17 +100,13 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
 
         assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(kyc))).isEqualTo(403);
         assertThat(status(Routes.Admin.ANALYTICS_SLA, bearer(kyc))).isEqualTo(403);
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(kyc))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(kyc))).isEqualTo(403);
         assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(analytics))).isEqualTo(200);
         assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(manager))).isEqualTo(200);
         assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(admin))).isEqualTo(200);
     }
 
-    /**
-     * An empty array is a legal, deliberate state and is why a document and no document cannot be
-     * the same thing. If they were, "this account may do nothing in the back office" would be
-     * inexpressible.
-     */
+    /** An empty array is deliberate: it must differ from no document, or "may do nothing" is inexpressible. */
     @Test
     @DisplayName("an empty document leaves only the landing atom")
     void anEmptyDocumentLeavesOnlyDashboard() throws Exception {
@@ -160,7 +115,7 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
 
         assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId()))
                 .containsExactly(BackOfficePermissions.DASHBOARD_READ);
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, bearer(scoped))).isEqualTo(403);
     }
@@ -176,23 +131,9 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
         assertThat(status(Routes.Admin.FINANCE, bearer(admin))).isEqualTo(200);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 3. Direction — the load-bearing half
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * <strong>The assertion this whole slice exists to make.</strong>
-     *
-     * <p>{@code settings.customRoles} composed {@code BASE ∪ role-bundle ∪ moduleAccess}, and
-     * {@code V61} deleted it rather than honour a union: a document that can add is a second, weaker
-     * access-control system reachable by whoever can write the table. Here the same document names
-     * five admin-only atoms on a <em>staff</em> account, and none of them takes effect — the
-     * intersection in {@link AccountPermissions#effectiveFor} drops every one, and the route's own
-     * {@code hasRole('ADMIN')} would have refused it regardless.
-     *
-     * <p>The kept atom is not decoration: without it, this test would pass against a resolver that
-     * denied everything, which is not the property being claimed.
-     */
+    /** The load-bearing half: five admin-only atoms on a staff account must all be dropped by the intersection in
+     * {@link AccountPermissions#effectiveFor}; the kept atom proves the resolver isn't just denying everything. */
     @Test
     @DisplayName("a document cannot widen: granting a staff account admin-only atoms grants nothing")
     void aDocumentCannotWidenTheRoleBaseline() throws Exception {
@@ -208,10 +149,7 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
                 .as("the document was honoured at all").isEqualTo(200);
     }
 
-    /**
-     * The same property stated against the resolver rather than a route, so that it holds for atoms
-     * added later whose routes this suite does not probe.
-     */
+    /** Against the resolver, so it holds for later atoms whose routes this suite doesn't probe. */
     @Test
     @DisplayName("the resolved set is always a subset of the compiled-in role baseline")
     void theResolvedSetIsAlwaysASubsetOfTheBaseline() {
@@ -248,16 +186,8 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
                 BackOfficePermissions.TICKETS_READ)).isFalse();
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 4. Vocabulary and fail-closed
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * The direct answer to {@code V61}'s second objection. The console's own keys —
-     * {@code enquiries}, {@code content}, {@code properties:verify} from {@code lib/adminModules.js}
-     * — are not mapped onto anything here, so a document written in that vocabulary grants nothing
-     * rather than granting whatever a later reader decides it must have meant.
-     */
+    /** The console's own keys ({@code enquiries}, {@code properties:verify}) are unmapped and grant nothing. */
     @Test
     @DisplayName("names the server does not enforce grant nothing, including the console's own")
     void unknownNamesGrantNothing() throws Exception {
@@ -265,28 +195,21 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
         scope(scoped.getId(), """
                 ["enquiries", "content", "properties:verify", "dashboard", "tickets"]""");
 
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Moderation.REPORTS, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Users.BASE, bearer(scoped))).isEqualTo(403);
     }
 
-    /**
-     * Fail closed on a document the resolver cannot read.
-     *
-     * <p>The column's CHECK constraint already rejects a non-array, so the reachable corruption is
-     * an array of the wrong thing — and the answer to it is a denial for that one account rather
-     * than a fallback to the baseline. That is the deliberate opposite of {@link PermissionMap},
-     * whose document is platform-wide: a typo there must not take the back office down, whereas a
-     * hand-edited row here can only have been hand-edited, and can only affect the account it names.
-     */
+    /** Fail closed on an unreadable document: denies that one account, unlike platform-wide {@link PermissionMap},
+     * where a typo must not take the back office down. */
     @Test
     @DisplayName("a document the resolver cannot read denies, rather than falling back")
     void anUnreadableDocumentDenies() throws Exception {
         User scoped = save("9866020011", Roles.Wire.STAFF, Teams.RENTAL);
         scope(scoped.getId(), "[1, 2, 3]");
 
-        assertThat(status(Routes.Admin.DASHBOARD, bearer(scoped))).isEqualTo(403);
+        assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);
         assertThat(accountPermissions.effectiveFor(Roles.Wire.STAFF, scoped.getId()))
                 .containsExactly(BackOfficePermissions.DASHBOARD_READ);
@@ -303,23 +226,9 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
                 .isFalse();
     }
 
-    // ---------------------------------------------------------------------------------------
-    // 5. The catalogue holds only what is enforced
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * The structural guard against this feature decaying into what {@code V61} had to delete.
-     *
-     * <p>{@code customRoles} became a security problem because it accumulated an access-control
-     * vocabulary that nothing enforced — safe right up until somebody wired it, at which point it
-     * would have started granting whatever operators had been told was meaningless. The rule that
-     * prevents a repeat is "a name is added to the catalogue in the same change that annotates the
-     * route it guards", and a rule nobody checks is a comment. So this sweeps the main sources for
-     * each atom's {@code REQUIRE_} fragment and fails if one is declared but used nowhere.
-     *
-     * <p>Deliberately a text scan rather than a reflective one: the fragments are consumed inside
-     * {@code @PreAuthorize} string concatenations, which leave no runtime trace to reflect over.
-     */
+    /** A catalogue name must be added in the same change that annotates its route; this text-scans main sources
+     * for each {@code REQUIRE_} fragment, as {@code @PreAuthorize} leaves nothing to reflect on. */
     @Test
     @DisplayName("every catalogued permission is referenced by at least one route guard")
     void everyCataloguedPermissionGuardsARoute() {

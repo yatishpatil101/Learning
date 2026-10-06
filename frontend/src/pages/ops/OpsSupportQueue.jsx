@@ -65,7 +65,7 @@ export default function OpsSupportQueue() {
       .then((res) => {
         if (!live) return;
         setState({ status: 'ready', items: res.items, total: res.total, error: null });
-        setCounts((c) => ({ ...c, [tab]: res.total }));
+        setCounts(res.counts || {});
       })
       .catch((err) => {
         // Never an empty list: "nothing is waiting" over a failed read ends a shift early.
@@ -75,14 +75,6 @@ export default function OpsSupportQueue() {
   }, [tab, page]);
 
   useEffect(load, [load, nonce]);
-
-  // One-row reads so every tab shows its total, not just the open one.
-  useEffect(() => {
-    let live = true;
-    Promise.all(TABS.map((t) => listSupportQueue({ awaitingReply: t.awaitingReply, page: 0, size: 1 }).then((r) => r.total, () => null)))
-      .then((totals) => { if (live) setCounts(Object.fromEntries(TABS.map((t, i) => [t.key, totals[i]]))); });
-    return () => { live = false; };
-  }, [nonce]);
 
   const switchTab = (key) => { setTab(key); setPage(0); };
 

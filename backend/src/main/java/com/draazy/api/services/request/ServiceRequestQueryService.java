@@ -4,7 +4,9 @@ import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Roles;
+import com.draazy.api.services.ticket.TicketService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -26,6 +28,7 @@ public class ServiceRequestQueryService {
     private final ServiceRequestRepository requests;
     private final ServiceRequestMapper mapper;
     private final AccountPermissions accountPermissions;
+    private final TicketService tickets;
 
     private static final Set<ServiceRequestStatus> MINE_STATUSES = EnumSet.of(
             ServiceRequestStatus.ASSIGNED,
@@ -41,10 +44,11 @@ public class ServiceRequestQueryService {
             ServiceRequestStatus.APPROVED);
 
     public ServiceRequestQueryService(ServiceRequestRepository requests,
-            ServiceRequestMapper mapper, AccountPermissions accountPermissions) {
+            ServiceRequestMapper mapper, AccountPermissions accountPermissions, TicketService tickets) {
         this.requests = requests;
         this.mapper = mapper;
         this.accountPermissions = accountPermissions;
+        this.tickets = tickets;
     }
 
     // Scope comes only from principal role; clients cannot set or remove requester scope.
@@ -94,7 +98,9 @@ public class ServiceRequestQueryService {
                 count(byStatus, ServiceRequestStatus.DRAFT_SHARED),
                 count(byStatus, ServiceRequestStatus.COMPLETED)
                         + count(byStatus, ServiceRequestStatus.CANCELLED),
-                overdue);
+                overdue,
+                accountPermissions.granted(caller, BackOfficePermissions.TICKETS_READ)
+                        ? tickets.countOpen(caller, team) : null);
     }
 
     private Page<ServiceRequest> findForQueue(AuthPrincipal caller, String team, String typeFilter,

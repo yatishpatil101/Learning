@@ -47,6 +47,13 @@ public class PropertyReviewQueue {
                 names.get(review.getReviewer())));
     }
 
+    /** Which of these listings have an owner message the desk has not read. */
+    @Transactional(readOnly = true)
+    public Set<UUID> awaitingStaff(java.util.Collection<UUID> propertyIds) {
+        return propertyIds.isEmpty() ? Set.of()
+                : new HashSet<>(reviews.propertyIdsAwaitingStaff(propertyIds));
+    }
+
     @Transactional(readOnly = true)
     public Page<PropertyReviewSummary> listMyCases(AuthPrincipal actor, Pageable pageable) {
         Page<PropertyReview> page = reviews.findAllForOwner(actor.userId(), pageable);

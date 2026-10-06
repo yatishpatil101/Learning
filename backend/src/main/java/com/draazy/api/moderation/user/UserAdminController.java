@@ -74,15 +74,17 @@ public class UserAdminController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean flagged,
             @RequestParam(defaultValue = "false") boolean archived,
+            @RequestParam(defaultValue = "false") boolean counts,
             @PageableDefault(size = 20) Pageable pageable) {
         if (status != null && !status.isBlank() && !UserStatuses.ALL.contains(status)) {
             throw new ValidationException("Unknown status '" + status + "'. Expected one of "
                     + "active, suspended, archived.");
         }
-        return PageResponse.of(
+        PageResponse<UserResponse> page = PageResponse.of(
                 service.list(role, customers, q, status, flagged, archived,
                         Pageables.unsorted(pageable)),
                 dto -> dto);
+        return counts ? page.withCounts(service.statusCounts(role, customers, q)) : page;
     }
 
     // Literal /users/staff is safe because Spring matches it ahead of the /users/{id} template.

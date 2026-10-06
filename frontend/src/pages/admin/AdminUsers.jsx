@@ -22,7 +22,7 @@ import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import {
-  BTN, CHIP, CHIP_TONE, Cell, Chips, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+  BTN, CHIP, CHIP_TONE, Cell, Chips, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox,
 } from '../../components/admin/WorkQueue.jsx';
 import BadgeApprovals from './BadgeApprovals.jsx';
 
@@ -72,12 +72,16 @@ export default function AdminUsers() {
   const canManageBadges = isAdmin && hasPermission(user, 'users:write');
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
-  const [pendingBadgeGrants, setPendingBadgeGrants] = useState([]);
+  const [pendingBadgeGrants, setPendingBadgeGrants] = useState(null);
   const [tab, setTab] = useTabParam([...STATUS_TABS.map((t) => t.key), ...(canManageBadges ? ['badges'] : [])], 'all');
   const status = STATUS_TABS.find((t) => t.key === tab)?.status ?? '';
   const [counts, setCounts] = useState({});
   const [role, setRole] = useState('');
   const [q, setQ] = useState('');
+  const resetKey = `${tab}|${role}|${q}`;
+  const [pageState, setPageState] = useState({ page: 1, key: resetKey });
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(pageState.key === resetKey ? pageState.page : 1, lastPage);
   const [actionModal, setActionModal] = useState(null); // { user, action, copy }
   const [actionError, setActionError] = useState('');
   const [noteText, setNoteText] = useState('');
@@ -98,23 +102,31 @@ export default function AdminUsers() {
     return () => { alive.current = false; };
   }, []);
 
-  /* One request per filter change: the status filter is server-side only, so a client filter would undercount. */
+  /* One request per filter change: the status filter exists only server-side, and the tab counts ride on the same response. */
   const load = useCallback(async () => {
-    const [page, grants, tallies] = await Promise.all([
-      listUsers({ role, customers: true, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE }),
-      canManageBadges ? listBadgeGrants({ status: 'pending', size: 50 }).catch((err) => {
-        toast(err?.message || 'Could not load badge approvals', 'error');
-        return { items: [] };
-      }) : Promise.resolve({ items: [] }),
-      Promise.all(STATUS_TABS.map((t) => listUsers({ role, customers: true, status: t.status, q: q.trim(), page: 0, size: 1 })
-        .then((p) => p.total, () => null))),
-    ]);
+    const res = await listUsers({ role, customers: true, status, q: q.trim(), page: page - 1, size: PAGE_SIZE, counts: true });
     if (!alive.current) return;
-    setRows(page.items);
-    setTotal(page.total);
-    setPendingBadgeGrants(grants.items || []);
-    setCounts(Object.fromEntries(STATUS_TABS.map((t, i) => [t.key, tallies[i]])));
-  }, [canManageBadges, role, status, q, toast]);
+    setRows(res.items);
+    setTotal(res.total);
+    setCounts(res.counts || {});
+  }, [role, status, q, page]);
+
+  const loadGrants = useCallback(async () => {
+    try {
+      const grants = await listBadgeGrants({ status: 'pending', size: 50 });
+      if (alive.current) setPendingBadgeGrants(grants.items || []);
+    } catch (err) {
+      toast(err?.message || 'Could not load badge approvals', 'error');
+      if (alive.current) setPendingBadgeGrants((current) => current || []);
+    }
+  }, [toast]);
+
+  // Every tab's rows read it for the "Badge pending" pill and to disable a second grant request.
+  useEffect(() => {
+    if (canManageBadges) loadGrants();
+  }, [canManageBadges, loadGrants]);
+
+  const reloadBadges = useCallback(() => Promise.all([load(), loadGrants()]), [load, loadGrants]);
 
   // Debounced, because `q` changes on every keystroke and each change is a request.
   useEffect(() => {
@@ -176,7 +188,7 @@ export default function AdminUsers() {
         case 'verifyRemove': {
           const result = await setUserBadge(u.id, action === 'verifyGrant', reason);
           if (result?.pending) {
-            setPendingBadgeGrants((current) => [result.request, ...current.filter((item) => item.id !== result.request.id)]);
+            setPendingBadgeGrants((current) => [result.request, ...(current || []).filter((item) => item.id !== result.request.id)]);
             toast('Sent for approval by another admin');
           } else {
             toast(action === 'verifyGrant' ? 'Verified badge granted' : 'Verified badge removed');
@@ -219,21 +231,26 @@ export default function AdminUsers() {
   };
 
   const list = rows || [];
-  const truncated = total > list.length;
   const pendingGrantByUser = useMemo(
-    () => new Map(pendingBadgeGrants.map((grant) => [String(grant.userId), grant])),
+    () => new Map((pendingBadgeGrants || []).map((grant) => [String(grant.userId), grant])),
     [pendingBadgeGrants],
   );
   const pendingGrantFor = useCallback((u) => pendingGrantByUser.get(String(u.id)), [pendingGrantByUser]);
 
-  const doExport = () =>
-    exportCsv(
-      'draazy-users.csv',
-      ['ID', 'Name', 'Mobile', 'Role', 'City', 'Listings', 'Joined', 'Verified', 'Status'],
-      list.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
-    );
+  const doExport = async () => {
+    try {
+      const all = await listUsers({ role, customers: true, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE });
+      exportCsv(
+        'draazy-users.csv',
+        ['ID', 'Name', 'Mobile', 'Role', 'City', 'Listings', 'Joined', 'Verified', 'Status'],
+        all.items.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
+      );
+    } catch (err) {
+      toast(err?.message || 'Could not export the users', 'error');
+    }
+  };
 
-  const { items: pageRows, paging } = useClientPaging(list, PAGE_SIZE, `${tab}|${role}|${q}`);
+  const paging = { page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)), total, size: PAGE_SIZE, onPage: (p) => setPageState({ page: p, key: resetKey }) };
 
   const actionButtons = (u) => {
     const pendingGrant = pendingGrantFor(u);
@@ -306,7 +323,7 @@ export default function AdminUsers() {
 
   const tabs = [
     ...STATUS_TABS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] ?? null })),
-    ...(canManageBadges ? [{ key: 'badges', label: 'Badge approvals', count: pendingBadgeGrants.length }] : []),
+    ...(canManageBadges ? [{ key: 'badges', label: 'Badge approvals', count: pendingBadgeGrants ? pendingBadgeGrants.length : null }] : []),
   ];
   const note = tab === 'badges' ? BADGES_NOTE : STATUS_TABS.find((t) => t.key === tab).note;
 
@@ -314,9 +331,7 @@ export default function AdminUsers() {
     <div>
       <PageHeader
         title="Users"
-        subtitle={truncated
-          ? `Showing ${fmtNum(list.length)} of ${fmtNum(total)} matching accounts — narrow the filters to see the rest.`
-          : `${fmtNum(total)} accounts — owners and buyers. Staff are under Team & Access.`}
+        subtitle={`${fmtNum(total)} accounts — owners and buyers. Staff are under Team & Access.`}
       />
 
       <QueueTabs tabs={tabs} active={tab} onChange={setTab} label="User status" idPrefix="users" />
@@ -340,10 +355,10 @@ export default function AdminUsers() {
         )}
       >
         {tab === 'badges' ? (
-          <BadgeApprovals requests={pendingBadgeGrants} currentUser={user} onReload={load} />
+          <BadgeApprovals requests={pendingBadgeGrants || []} currentUser={user} onReload={reloadBadges} />
         ) : (
           <RowList isEmpty={!list.length} empty="No users match these filters.">
-            {pageRows.map(userRow)}
+            {list.map(userRow)}
           </RowList>
         )}
       </QueuePanel>

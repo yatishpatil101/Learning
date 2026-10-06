@@ -66,7 +66,7 @@ public class FlatmateModerationController {
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
     @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateModerationQueueDto> moderationQueue(
-            @RequestParam(defaultValue = "post") String kind,
+            @RequestParam(defaultValue = "post") List<String> kind,
             @RequestParam(required = false) List<String> modStatus,
             @PageableDefault(size = 20, sort = "createdAt",
                     direction = Sort.Direction.ASC) Pageable pageable) {

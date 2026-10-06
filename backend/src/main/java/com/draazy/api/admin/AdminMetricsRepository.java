@@ -156,6 +156,27 @@ public class AdminMetricsRepository {
         return ((Number) query.getSingleResult()).longValue();
     }
 
+    public long countContactRequests(String status) {
+        return count("select count(*) from contact_requests where status = :v", status);
+    }
+
+    public long countVisits(String status) {
+        return count("select count(*) from visits where status = :v", status);
+    }
+
+    public long countDealsNotClosed() {
+        return count("select count(*) from deals where status <> :v", "closed");
+    }
+
+    public long countUsersWithRole(String role) {
+        return count("select count(*) from users where archived = false and role = :v", role);
+    }
+
+    private long count(String sql, String value) {
+        return ((Number) em.createNativeQuery(sql).setParameter("v", value)
+                .getSingleResult()).longValue();
+    }
+
     // SQL fragments come only from AdminMetricsService's fixed metric map, not requests.
     @SuppressWarnings("unchecked")
     public Map<String, Long> revenueBySource(LocalDate from, LocalDate to) {

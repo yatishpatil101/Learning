@@ -11,6 +11,7 @@ import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Roles;
 import java.util.List;
+import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,20 @@ public class SupportTicketService {
         return awaitingReply
                 ? mapper.toAdminPage(tickets.findByStaffUnreadTrueOrderByCreatedAtDesc(page))
                 : mapper.toAdminPage(tickets.findByStaffUnreadFalseOrderByCreatedAtDesc(page));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Long> queueCounts() {
+        long awaiting = 0;
+        long answered = 0;
+        for (Object[] row : tickets.countByStaffUnread()) {
+            if ((Boolean) row[0]) {
+                awaiting += (Long) row[1];
+            } else {
+                answered += (Long) row[1];
+            }
+        }
+        return Map.of("awaiting", awaiting, "answered", answered, "all", awaiting + answered);
     }
 
     // Opening messages are unread for the desk; otherwise new tickets vanish from the queue.

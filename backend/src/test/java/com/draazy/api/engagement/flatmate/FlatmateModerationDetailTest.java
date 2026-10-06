@@ -146,7 +146,7 @@ class FlatmateModerationDetailTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the queue takes several states at once, and recheck only on its own")
+    @DisplayName("the queue takes several kinds and states at once, recheck beside them")
     void multiStateQueue() throws Exception {
         User host = user("9811100008", "Multi Host", Roles.Wire.BUYER);
         User staff = user("9811100009", "Mod", Roles.Wire.ADMIN);
@@ -163,10 +163,15 @@ class FlatmateModerationDetailTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[?(@.id == '" + approved + "')]", Matchers.hasSize(1)))
                 .andExpect(jsonPath("$.content[?(@.id == '" + removed + "')]", Matchers.hasSize(0)));
 
+        String post = createPost(host);
         mvc.perform(get(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
-                        .param("kind", "room").param("modStatus", "recheck,pending")
+                        .param("kind", "room,post").param("modStatus", "recheck,pending")
+                        .param("size", "200")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + post + "')].kind",
+                        Matchers.contains("post")))
+                .andExpect(jsonPath("$.content[?(@.id == '" + approved + "')]", Matchers.hasSize(0)));
     }
 
     @Test

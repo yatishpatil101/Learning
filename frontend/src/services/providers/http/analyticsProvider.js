@@ -1,6 +1,6 @@
 /* Analytics distinguishes "not measurable" from zero; averages/rates preserve null while genuine
    counts coerce to 0. */
-import { get } from '../../http.js';
+import { PAGE_LOAD_TTL, get } from '../../http.js';
 
 /* Unparseable values become null so charts show a deliberate gap instead of a misleading NaN gap. */
 const num = (v) => {
@@ -78,22 +78,34 @@ export async function reviewSla(opts = {}) {
   };
 }
 
-/* Dashboard totals come from unpaged server counts; browser lists are capped and would undercount.
-   `revenue30d` stays nullable so redacted revenue is omitted, not rendered as ₹0. */
-export async function dashboardKpis() {
-  const k = await get('/admin/dashboard');
+/* The dashboard is one read; a section the caller may not see stays absent and its tiles hidden, and `revenue30d` stays nullable so redacted revenue is not shown as zero. */
+export async function adminDashboard() {
+  const d = (await get('/admin/dashboard')) || {};
+  const k = d.kpis;
   return {
-    totalListings: count(k?.totalListings),
-    activeListings: count(k?.activeListings),
-    pendingModeration: count(k?.pendingModeration),
-    openReports: count(k?.openReports),
-    totalUsers: count(k?.totalUsers),
-    newUsers7d: count(k?.newUsers7d),
-    dealsClosed30d: count(k?.dealsClosed30d),
-    revenue30d: num(k?.revenue30d),
+    ...d,
+    kpis: k && {
+      totalListings: count(k.totalListings),
+      activeListings: count(k.activeListings),
+      pendingModeration: count(k.pendingModeration),
+      openReports: count(k.openReports),
+      totalUsers: count(k.totalUsers),
+      newUsers7d: count(k.newUsers7d),
+      dealsClosed30d: count(k.dealsClosed30d),
+      revenue30d: num(k.revenue30d),
+    },
+    tickets: d.tickets && { ...d.tickets, latest: (d.tickets.latest || []).map((t) => ({ ...t, desk: t.team })) },
   };
 }
 
+/* Totals and five slim rows per queue the caller may read; a section the caller may not read is absent. */
+export async function adminBell() {
+  const b = (await get('/admin/bell', undefined, { ttl: PAGE_LOAD_TTL })) || {};
+  return {
+    ...b,
+    openTickets: b.openTickets && { ...b.openTickets, items: (b.openTickets.items || []).map((t) => ({ ...t, desk: t.team })) },
+  };
+}
 // Traffic reports are mostly rates, so empty-window percentages/averages stay null while sessions,
 // views, signups and exits are counts.
 

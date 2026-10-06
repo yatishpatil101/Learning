@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
+import { createListingOnBehalf, ownerListingStanding } from '../../services/propertyService.js';
 import { addNote } from '../../services/noteService.js';
 import { classNames, parseAmount } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -33,25 +33,6 @@ export default function AdminPostOnBehalf() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
-
-  /* Backs the "this owner already has N pending listings" warning, the desk's one chance to notice it is
-     taking the same flat down twice. Keyed by mobile — the only identifier an operator has on the phone. */
-  const [pendingByMobile, setPendingByMobile] = useState(() => new Map());
-  useEffect(() => {
-    let alive = true;
-    listForModeration({ status: 'pending' })
-      .then((rows) => {
-        if (!alive) return;
-        const tally = new Map();
-        for (const l of rows || []) {
-          const m = String(l.ownerMobile || '').replace(/\D/g, '').slice(-10);
-          if (m) tally.set(m, (tally.get(m) || 0) + 1);
-        }
-        setPendingByMobile(tally);
-      })
-      .catch(() => { /* advisory only — see above */ });
-    return () => { alive = false; };
-  }, []);
 
   /* The desk is exempt from the freemium ceiling, but an owner past their plan is an upgrade conversation
      only the operator can have. A reply for an edited number is dropped so standing never crosses owners. */
@@ -234,7 +215,7 @@ export default function AdminPostOnBehalf() {
     switch (step) {
       case 1: return (
         <div className="space-y-6">
-          <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} standing={standing} />
+          <OwnerStep form={form} set={set} errors={errors} standing={standing} />
           <div className="border-t border-white/10 pt-6"><PropertyStep form={form} set={set} errors={errors} /></div>
         </div>
       );

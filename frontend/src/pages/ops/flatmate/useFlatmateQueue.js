@@ -21,16 +21,14 @@ function sourcesFor(tab) {
   const size = SOURCE_SIZE;
   if (tab === 'pending') {
     return [
-      ...KINDS.map((kind) => ({ type: 'publish', load: () => listFlatmateModeration({ kind, modStatus: 'pending', size }) })),
-      // `recheck` is its own query: the server refuses it mixed with real states.
-      ...KINDS.map((kind) => ({ type: 'recheck', load: () => listFlatmateModeration({ kind, modStatus: 'recheck', size }) })),
+      { type: 'moderation', load: () => listFlatmateModeration({ kind: KINDS, modStatus: ['pending', 'recheck'], size }) },
       { type: 'badge', load: () => listFlatmateReviews({ status: 'pending', size }) },
       { type: 'application', load: () => listGroupApplications({ modStatus: 'pending', sort: 'createdAt,asc', size }) },
     ];
   }
   const modStatus = tab === 'published' ? PUBLISHED : HIDDEN;
   return [
-    ...KINDS.map((kind) => ({ type: 'post', load: () => listFlatmateModeration({ kind, modStatus, sort: 'createdAt,desc', size }) })),
+    { type: 'post', load: () => listFlatmateModeration({ kind: KINDS, modStatus, sort: 'createdAt,desc', size }) },
     { type: 'application', load: () => listGroupApplications({ modStatus, size }) },
   ];
 }
@@ -59,10 +57,10 @@ const badgeReasons = (review) => [
 
 function entryPatch(type, row) {
   switch (type) {
-    case 'publish':
-      return { post: fromPost(row), reasons: ['Awaiting publish'], since: row.createdAt };
-    case 'recheck':
-      return { post: fromPost(row), reasons: [recheckLabel(row.recheckReason)], since: row.recheckRequestedAt || row.createdAt };
+    case 'moderation':
+      return row.recheckRequestedAt
+        ? { post: fromPost(row), reasons: [recheckLabel(row.recheckReason)], since: row.recheckRequestedAt }
+        : { post: fromPost(row), reasons: ['Awaiting publish'], since: row.createdAt };
     case 'badge':
       return { review: row, reasons: badgeReasons(row), since: row.createdAt };
     case 'application':

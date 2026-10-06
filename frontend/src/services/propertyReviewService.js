@@ -78,11 +78,6 @@ export async function propertyReviewOverrideAvailable() {
   return Boolean((await provider()).OVERRIDE_REQUESTS_ENABLED);
 }
 
-/** The staff queue, newest touched first. `{ unread: true }` narrows it to cases holding an unopened owner reply. */
-export async function listPropertyReviewQueue(params) {
-  return (await provider()).listPropertyReviewQueue(params);
-}
-
 export async function listMyPropertyReviews(params) {
   return (await provider()).listMyPropertyReviews(params);
 }

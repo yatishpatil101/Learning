@@ -1,7 +1,5 @@
 /* Shape translation stays inline because this provider is the only caller. */
-import { ApiError, get, patch, post, unwrapFullPage } from '../../http.js';
-import { MAX_PAGE_SIZE } from '../../apiLimits.js';
-import { getMemberPermissions } from './permissionsProvider.js';
+import { PAGE_LOAD_TTL, ApiError, get, patch, post } from '../../http.js';
 
 const STAFF_ROLES = new Set(['staff', 'manager']);
 const STAFF_ROLES_ONLY = 'Team members may only be created with role staff or manager';
@@ -15,30 +13,12 @@ const toMember = (u) => ({
   // No server representation — see the header. Left empty rather than invented.
   roleId: null,
   moduleAccess: [],
-  functions: [],
-  status: u?.status === 'active' ? 'active' : 'suspended',
+  functions: u?.functions || [],
+  status: u?.status === 'active' && !u?.archived ? 'active' : 'suspended',
   createdAt: u?.createdAt || u?.joinedAt || null,
 });
 
-/* Team screens administer colleagues only, so buyer/owner accounts are never fetched. */
-export async function listTeamMembers() {
-  const query = { size: MAX_PAGE_SIZE };
-  const pages = await Promise.all(
-    ['admin', 'manager', 'staff'].flatMap((role) => [false, true].map((archived) =>
-      get('/users', { ...query, role, archived })
-        .then((res) => unwrapFullPage(res, `team:${role}`)))),
-  );
-  const members = pages.flat().map((u) => toMember(u));
-  return Promise.all(members.map(async (member) => {
-    if (member.role === 'admin') return member;
-    try {
-      const doc = await getMemberPermissions(member.id);
-      return { ...member, functions: doc.functions || doc.permissions || [] };
-    } catch {
-      return member;
-    }
-  }));
-}
+export const listTeamMembers = async () => (await get('/admin/team', undefined, { ttl: PAGE_LOAD_TTL })).map(toMember);
 
 export async function saveTeamMember(member, previous = null) {
   if (!member?.id) {

@@ -64,36 +64,43 @@ public class TicketService {
 
     @Transactional(readOnly = true)
     public Page<TicketDto> list(AuthPrincipal caller, String team, String status, Pageable pageable) {
-        String requested = blankToNull(team);
-        if (requested != null && !Teams.isKnown(requested)) {
-            throw new BadRequestException("Unknown team: " + requested);
-        }
         String statusFilter = blankToNull(status);
         if (statusFilter != null && !TicketStatuses.isKnown(statusFilter)) {
             throw new BadRequestException("Unknown ticket status: " + statusFilter);
         }
-
-        boolean allTeams;
-        List<String> teams;
-        if (isAdmin(caller)) {
-            allTeams = requested == null;
-            teams = requested == null ? List.of("__all__") : List.of(requested);
-        } else {
-            Set<String> desks = accountPermissions.desksFor(caller);
-            if (desks.isEmpty()) {
-                throw new ForbiddenException(
-                        "Your account is not on an ops desk yet, so there is no queue to show.");
-            }
-            if (requested != null && !desks.contains(requested)) {
-                throw new ForbiddenException("You can only see your assigned queues.");
-            }
-            allTeams = false;
-            teams = requested == null ? new ArrayList<>(desks) : List.of(requested);
-        }
-
-        Page<Ticket> page = tickets.findForBoard(allTeams, teams, statusFilter, pageable);
+        BoardScope scope = boardScope(caller, team);
+        Page<Ticket> page = tickets.findForBoard(scope.allTeams(), scope.teams(), statusFilter, pageable);
         return new PageImpl<>(mapper.toDtos(page.getContent()), page.getPageable(),
                 page.getTotalElements());
+    }
+
+    /** What {@code list(team, "open")} would total, without reading a page. */
+    @Transactional(readOnly = true)
+    public long countOpen(AuthPrincipal caller, String team) {
+        BoardScope scope = boardScope(caller, team);
+        return tickets.countForBoard(scope.allTeams(), scope.teams(), TicketStatuses.OPEN);
+    }
+
+    private record BoardScope(boolean allTeams, List<String> teams) {
+    }
+
+    private BoardScope boardScope(AuthPrincipal caller, String team) {
+        String requested = blankToNull(team);
+        if (requested != null && !Teams.isKnown(requested)) {
+            throw new BadRequestException("Unknown team: " + requested);
+        }
+        if (isAdmin(caller)) {
+            return new BoardScope(requested == null, requested == null ? List.of("__all__") : List.of(requested));
+        }
+        Set<String> desks = accountPermissions.desksFor(caller);
+        if (desks.isEmpty()) {
+            throw new ForbiddenException(
+                    "Your account is not on an ops desk yet, so there is no queue to show.");
+        }
+        if (requested != null && !desks.contains(requested)) {
+            throw new ForbiddenException("You can only see your assigned queues.");
+        }
+        return new BoardScope(false, requested == null ? new ArrayList<>(desks) : List.of(requested));
     }
 
     // quotedValue is caller-owned at creation; ops fills platform facts later.

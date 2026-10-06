@@ -97,13 +97,6 @@ export async function approvePropertyReviewOverride(propertyId, requestId, note)
   return toCaseFile(await post(`${caseFilePath(propertyId)}/override-requests/${encodeURIComponent(requestId)}/approve`, body));
 }
 
-export async function listPropertyReviewQueue({ page = 0, size = 20, status, unread } = {}) {
-  const capped = Math.min(size, MAX_PAGE_SIZE);
-  const res = await get('/admin/property-reviews', { page, size: capped, ...(status ? { status } : {}), ...(unread ? { unread: true } : {}) });
-  const unwrapped = unwrapPage(res, { page, size: capped });
-  return { ...unwrapped, items: unwrapped.items.map(toQueueRow) };
-}
-
 export async function listMyPropertyReviews({ page = 0, size = 20 } = {}) {
   const capped = Math.min(size, MAX_PAGE_SIZE);
   const res = await get('/me/property-reviews', { page, size: capped }, { ttl: PAGE_LOAD_TTL });

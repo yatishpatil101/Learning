@@ -427,6 +427,33 @@ class SocietyMembershipTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    @DisplayName("the console summary counts the pending work and is staff-only")
+    void summaryCountsPendingWork() throws Exception {
+        mvc.perform(get("/admin/societies/summary")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000401", "Nosy"))))
+                .andExpect(status().isForbidden());
+
+        String ops = staff("9862000402");
+        String before = mvc.perform(get("/admin/societies/summary")
+                        .header(HttpHeaders.AUTHORIZATION, ops))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long claims = Long.parseLong(before.replaceAll("(?s).*\"claims\":(\\d+).*", "$1"));
+        long residents = Long.parseLong(before.replaceAll("(?s).*\"residents\":(\\d+).*", "$1"));
+
+        String slug = society(9);
+        claim(user("9862000403", "Claimant"), slug);
+        apply(user("9862000404", "Resident"), slug, "A", "101").andExpect(status().isOk());
+
+        mvc.perform(get("/admin/societies/summary").header(HttpHeaders.AUTHORIZATION, ops))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claims").value(claims + 1))
+                .andExpect(jsonPath("$.residents").value(residents + 1))
+                .andExpect(jsonPath("$.candidates").isNumber())
+                .andExpect(jsonPath("$.moderation").isNumber());
+    }
+
     private String vaultDocument(User owner) {
         return jdbc.queryForObject("""
                 insert into personal_documents (owner_id, category, file_name, storage_key)

@@ -26,10 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * A report moved to {@code actioned} with an enforcement must leave the target in a different state,
- * in the same transaction, with the acting moderator named on it.
- */
+/** An {@code actioned} report with enforcement must change the target in one transaction, naming the moderator. */
 @DisplayName("Report triage — the decision reaches the thing that was reported")
 class ReportEnforcementTest extends AbstractApiTest {
 
@@ -87,10 +84,7 @@ class ReportEnforcementTest extends AbstractApiTest {
 
     // ------------------------------------------------------------------ authorisation
 
-    /**
-     * Reading the queue is ops-only; acting on it more so. A buyer reaching either verb would learn
-     * every complaint on the platform and could decide them.
-     */
+    /** Reading the queue is ops-only, acting more so: a buyer would learn every complaint and decide them. */
     @Test
     @DisplayName("a non-ops caller can neither read the queue nor decide a report")
     void buyerIsRefused() throws Exception {
@@ -167,10 +161,7 @@ class ReportEnforcementTest extends AbstractApiTest {
 
     // ------------------------------------------------------------------ the refusals
 
-    /**
-     * "Dismissed, and also taken down" is not a decision anybody means, and permitting it would
-     * leave an audit trail whose two halves contradict each other.
-     */
+    /** "Dismissed, and also taken down" is a contradiction that would leave a self-contradicting audit trail. */
     @Test
     @DisplayName("an enforcement is refused unless the report is being upheld")
     void enforcementRequiresActioned() throws Exception {
@@ -191,10 +182,7 @@ class ReportEnforcementTest extends AbstractApiTest {
         assertThat(reports.findById(filed.getId()).orElseThrow().getStatus()).isEqualTo("open");
     }
 
-    /**
-     * A review can be taken down, but not from here — the refusal has to name the alternative, or the
-     * moderator will believe fake reviews cannot be removed at all.
-     */
+    /** The refusal must name the alternative, or the moderator will believe fake reviews can't be removed. */
     @Test
     @DisplayName("an unsupported target refuses by naming the endpoint that can do the job")
     void unsupportedTargetNamesTheAlternative() throws Exception {
@@ -234,10 +222,7 @@ class ReportEnforcementTest extends AbstractApiTest {
 
     // ------------------------------------------------------------------ filters
 
-    /**
-     * A client-side filter over one page stops being true the moment the queue outgrows the page,
-     * and says nothing when it does.
-     */
+    /** A client-side filter over one page silently stops being true once the queue outgrows the page. */
     @Test
     @DisplayName("the queue filters by reason and by target type, server-side")
     void queueFiltersServerSide() throws Exception {
@@ -289,6 +274,6 @@ class ReportEnforcementTest extends AbstractApiTest {
 
         mvc.perform(get("/admin/dashboard").header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.openReports").value((int) (before + 2)));
+                .andExpect(jsonPath("$.kpis.openReports").value((int) (before + 2)));
     }
 }

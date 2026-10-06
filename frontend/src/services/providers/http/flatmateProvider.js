@@ -486,7 +486,7 @@ export async function decideFlatmateReview(id, decision, note) {
 const statesParam = (modStatus) => (Array.isArray(modStatus) ? modStatus.join(',') : modStatus) || undefined;
 
 export async function listFlatmateModeration({ kind = 'post', modStatus, sort, page = 0, size = 20 } = {}) {
-  const res = await get('/admin/flatmates/moderation', clean({ kind, modStatus: statesParam(modStatus), sort, page, size }));
+  const res = await get('/admin/flatmates/moderation', clean({ kind: statesParam(kind), modStatus: statesParam(modStatus), sort, page, size }));
   return toViewModelPage(unwrapPage(res, { page, size }), toModerationRowViewModel);
 }
 

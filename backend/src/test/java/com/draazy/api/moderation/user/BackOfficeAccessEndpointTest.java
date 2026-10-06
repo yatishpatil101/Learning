@@ -93,7 +93,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
         String bearer = "Bearer " + jwtService.issueAccessToken(target);
         assertThat(mvc.perform(get(Routes.Tickets.BASE).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andReturn().getResponse().getStatus()).isEqualTo(200);
-        assertThat(mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, bearer))
+        assertThat(mvc.perform(get(Routes.Admin.ANALYTICS_TRAFFIC).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andReturn().getResponse().getStatus()).isEqualTo(200);
     }
 

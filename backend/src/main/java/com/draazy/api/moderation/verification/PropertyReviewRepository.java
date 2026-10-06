@@ -1,5 +1,7 @@
 package com.draazy.api.moderation.verification;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -43,6 +45,16 @@ public interface PropertyReviewRepository extends JpaRepository<PropertyReview, 
             order by r.lastMessageAt desc, r.id desc
             """)
     Page<PropertyReview> findAllAwaitingStaff(Pageable pageable);
+
+    @Query("""
+            select r.propertyId from PropertyReview r
+            where r.propertyId in :propertyIds
+              and exists (select 1 from ReviewMessage m, Property p
+                          where m.review = r and p.id = r.propertyId
+                            and m.internal = false and m.readAt is null
+                            and m.senderId = p.owner.id)
+            """)
+    List<UUID> propertyIdsAwaitingStaff(@Param("propertyIds") Collection<UUID> propertyIds);
 
     @Query("""
             select r from PropertyReview r

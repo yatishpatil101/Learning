@@ -344,6 +344,10 @@ export async function listSocietyCandidateDuplicates(slug, { limit } = {}) {
 
 // `unwrapFullPage` rather than a silent `.content`: a console that shows the first twenty merges
 // and calls it the list is worse than one that says so.
+export async function getSocietiesSummary() {
+  return get('/admin/societies/summary');
+}
+
 export async function listSocietyMerges({ page, size } = {}) {
   const res = await get('/admin/society-merges', { page, size });
   return unwrapFullPage(res, 'society merges');

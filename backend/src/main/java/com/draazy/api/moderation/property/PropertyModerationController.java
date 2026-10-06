@@ -22,6 +22,7 @@ import com.draazy.api.moderation.duplicate.ListingDuplicateClusterService;
 import com.draazy.api.moderation.signal.ListingSignalService;
 import com.draazy.api.moderation.signal.ListingSignals;
 import com.draazy.api.moderation.signal.PropertyModerationResponse;
+import com.draazy.api.moderation.verification.PropertyReviewQueue;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
@@ -30,6 +31,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -73,12 +75,13 @@ public class PropertyModerationController {
     private final OwnerOutreachService outreach;
     private final ListingDuplicateClusterService duplicateClusters;
     private final ListingSignalService signals;
+    private final PropertyReviewQueue reviewQueue;
 
     public PropertyModerationController(PropertyModerationService service, ListingService listings,
             PropertyService propertyService, PropertyMapper propertyMapper,
             OnBehalfListingService onBehalf, PropertyModerationSummaryRepository summaries,
             OwnerOutreachService outreach, ListingDuplicateClusterService duplicateClusters,
-            ListingSignalService signals) {
+            ListingSignalService signals, PropertyReviewQueue reviewQueue) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
@@ -88,6 +91,7 @@ public class PropertyModerationController {
         this.outreach = outreach;
         this.duplicateClusters = duplicateClusters;
         this.signals = signals;
+        this.reviewQueue = reviewQueue;
     }
 
     // Queue rationale: docs/flows/admin/property-verification.md#moderation-controller.
@@ -123,11 +127,14 @@ public class PropertyModerationController {
         Page<Property> page = propertyService.searchForModeration(filters, mod, pageable);
         OutreachCounts counts = outreach.countsFor(page.getContent());
         Map<UUID, ListingSignals> pageSignals = signals.forProperties(page.getContent());
+        Set<UUID> replied = reviewQueue.awaitingStaff(
+                page.getContent().stream().map(Property::getId).toList());
         return PageResponse.of(page,
                 p -> new PropertyModerationResponse(
                         propertyMapper.toResponse(p, ContactVisibility.REVEALED,
                                 BackOfficeVisibility.VISIBLE, counts, PrivateFieldVisibility.VISIBLE),
-                        pageSignals.getOrDefault(p.getId(), ListingSignals.NONE)));
+                        pageSignals.getOrDefault(p.getId(), ListingSignals.NONE),
+                        replied.contains(p.getId())));
     }
 
     // Unfiltered because it answers "how much is waiting that I am not looking at".

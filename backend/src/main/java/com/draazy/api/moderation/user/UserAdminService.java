@@ -16,12 +16,14 @@ import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserMapper;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.identity.user.UserResponse;
+import com.draazy.api.identity.user.UserStatuses;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.BackOfficeFunctions;
 import com.draazy.api.security.Roles;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -81,6 +83,31 @@ public class UserAdminService {
         String state = (status == null || status.isBlank()) ? null : status.trim();
         return users.searchForAdmin(role, customers, prefix, state, flagged, archived, pageable)
                 .map(this::masked);
+    }
+
+    // One grouped COUNT over the same role/customers/q the list uses, so every status tab says what it
+    // would show. Archived is its own column: an archived row counts only under "archived".
+    @Transactional(readOnly = true)
+    public Map<String, Long> statusCounts(String role, boolean customers, String q) {
+        String prefix = (q == null || q.isBlank()) ? null : likePrefix(q.trim().toLowerCase());
+        long all = 0;
+        long active = 0;
+        long suspended = 0;
+        long archived = 0;
+        for (Object[] row : users.countByStanding(role, customers, prefix)) {
+            long n = (Long) row[2];
+            if ((Boolean) row[0]) {
+                archived += n;
+                continue;
+            }
+            all += n;
+            if (UserStatuses.ACTIVE.equals(row[1])) {
+                active += n;
+            } else if (UserStatuses.SUSPENDED.equals(row[1])) {
+                suspended += n;
+            }
+        }
+        return Map.of("all", all, "active", active, "suspended", suspended, "archived", archived);
     }
 
     // Turn a search term into an anchored LIKE pattern, neutralising the caller's own wildcards —

@@ -111,7 +111,7 @@ test('Ctrl+K opens the palette, page results navigate, Escape clears the term, a
 
     await page.keyboard.press('Escape');
 
-    // Closing alone is not enough; the stale query used to reappear on the next focus.
+    // Closing alone does not clear the query; it would reappear on the next focus.
     await expect(palette(page)).toHaveCount(0);
     await expect(page.getByLabel('Global search')).toHaveValue('');
 
@@ -181,7 +181,7 @@ test('the palette finds a posted listing and a registered person, and the bell c
     await expect(page.getByTestId('notif-unread-dot')).toBeVisible();
     await page.getByRole('button', { name: 'Notifications' }).click();
 
-    // The count comes from `GET /admin/properties?status=pending`, and the row we just posted is in it.
+    // The count comes from `GET /admin/bell`, and the row we just posted is in it.
     await expect(bell(page).getByText(/^Pending verification \(\d+\)$/)).toHaveCount(1);
 
     // The inversion against the mock twin.

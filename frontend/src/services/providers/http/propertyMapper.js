@@ -116,6 +116,7 @@ export function toViewModel(p) {
     recheckPending: p.recheckPending ?? false,
     recheckReason: p.recheckReason ?? '',
     recheckRequestedAt: p.recheckRequestedAt ?? '',
+    ownerReplied: p.ownerReplied ?? false,
     // Contact masking is the server's decision, never the mapper's.
     owner: p.owner?.name,
     ownerId: p.owner?.id,

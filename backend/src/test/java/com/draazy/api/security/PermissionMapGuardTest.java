@@ -16,10 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Every capability asserted in both directions against the same route and principal, with the
- * stored document as the only difference — a guard that always says yes looks like no guard.
- */
+/** Every capability asserted in both directions on the same route and principal, with only the stored document
+ * differing; a guard that always says yes looks like no guard. */
 @DisplayName("D67 — the stored permission map actually governs, and only downwards")
 class PermissionMapGuardTest extends AbstractApiTest {
 
@@ -52,7 +50,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
     }
 
     private int dashboardStatus(String bearer) throws Exception {
-        return mvc.perform(get(Routes.Admin.DASHBOARD).header(HttpHeaders.AUTHORIZATION, bearer))
+        return mvc.perform(get(Routes.Admin.ANALYTICS_TRAFFIC).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -70,10 +68,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
                 .andReturn().getResponse().getStatus();
     }
 
-    /**
-     * The seed is the current policy — a desk with the capability behaves as it should, and
-     * without this half every refusal would be satisfied by a guard refusing everyone.
-     */
+    /** The seed is the current policy; without this half, a guard refusing everyone would pass every refusal. */
     @Test
     @DisplayName("a desk that holds the capability is admitted")
     void heldCapabilityAdmits() throws Exception {
@@ -85,10 +80,8 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(ticketUpdateStatus(rental)).isNotEqualTo(403);
     }
 
-    /**
-     * A team missing from the document is refused, so its completeness must be asserted — a
-     * seventh team added to {@link Teams} without a bundle would silently lock that team out.
-     */
+    /** A team missing from the document is refused, so completeness is asserted: a team added to {@link Teams}
+     * without a bundle is locked out. */
     @Test
     @DisplayName("the seeded document names every team the platform recognises, plus admin")
     void theSeededDocumentIsComplete() {
@@ -120,10 +113,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(dashboardStatus(legal)).as("legal was not touched").isEqualTo(200);
     }
 
-    /**
-     * Every capability check is {@code and}-ed onto its role guard so an administrator's map
-     * cannot hand a buyer a staff capability. This test blocks a refactor to capability-alone.
-     */
+    /** Capability checks are {@code and}-ed with the role guard so an admin's map can't arm a buyer. */
     @Test
     @DisplayName("the map cannot widen: granting a capability to a buyer changes nothing")
     void theMapCannotWidenTheRoleBaseline() throws Exception {
@@ -151,10 +141,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(ticketUpdateStatus(admin)).isNotEqualTo(403);
     }
 
-    /**
-     * Deny-on-omission makes this an allow-list rather than a suggestion — an absent key meaning
-     * "allow" would leave an administrator no way to remove access by editing the document.
-     */
+    /** Deny-on-omission: an absent key meaning "allow" would leave an administrator no way to remove access. */
     @Test
     @DisplayName("a desk the document does not mention is refused")
     void omittedDeskIsRefused() throws Exception {
@@ -176,10 +163,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(queueStatus(packers)).isEqualTo(200);
     }
 
-    /**
-     * {@code permissions} is {@code additionalProperties: true} in the contract, so a string can
-     * land there. A document that cannot be an allow-list is broken, not restrictive.
-     */
+    /** {@code permissions} allows additional properties, so a string can land there; that document is broken. */
     @Test
     @DisplayName("a permission document that is not an object falls back to the role baseline")
     void malformedDocumentFallsBackToTheRoleBaseline() throws Exception {
@@ -189,10 +173,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(dashboardStatus(packers)).isEqualTo(200);
     }
 
-    /**
-     * Team-less staff have no allow-list key, and granting the baseline would create a policy no
-     * administrator could undo. {@code UserAdminService.addStaff} makes the state unreachable.
-     */
+    /** Team-less staff get no baseline, which no admin could undo; {@code UserAdminService.addStaff} stops it. */
     @Test
     @DisplayName("staff with no team are refused: a governed document has no way to name them")
     void teamlessStaffAreRefusedByAGovernedDocument() throws Exception {
@@ -211,10 +192,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
                 .isEqualTo(200);
     }
 
-    /**
-     * An <em>absent</em> document is the platform having no policy; an <em>unnameable</em> caller
-     * under a present one is a gap. Deleting the row must not lock the back office out.
-     */
+    /** An absent document is no policy, so deleting the row must not lock out the back office. */
     @Test
     @DisplayName("with no document at all, team-less staff fall back to the baseline like anyone else")
     void teamlessStaffStillSurviveAnAbsentDocument() throws Exception {
@@ -224,10 +202,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         assertThat(dashboardStatus(unassigned)).isEqualTo(200);
     }
 
-    /**
-     * Only the ops branch of {@code GET /service-requests} is capability-guarded — a customer's
-     * own list must be reachable whatever the document says, or narrowing an ops bundle breaks it.
-     */
+    /** Only the ops branch of {@code GET /service-requests} is guarded; a customer's own list must always work. */
     @Test
     @DisplayName("a customer's own service-request list is untouched by the permission map")
     void customersAreUnaffectedByTheOpsCapability() throws Exception {

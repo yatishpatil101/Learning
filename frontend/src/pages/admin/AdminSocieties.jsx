@@ -9,7 +9,7 @@ import {
   listSocietyProposalQueue, decideSocietyProposal,
   listSocietyResidentQueue, decideResidency,
   listSocietyCandidates, verifySocietyCandidate, listSocietyCandidateDuplicates,
-  listSocietyMerges, mergeSocieties, undoSocietyMerge,
+  listSocietyMerges, mergeSocieties, undoSocietyMerge, getSocietiesSummary,
   getSocietyAdminView, editSociety, listSocietyDirectory,
 } from '../../services/societyService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
@@ -75,6 +75,7 @@ export default function AdminSocieties() {
   const [suggestions, setSuggestions] = useState([]);
   const [waPending, setWaPending] = useState([]);
   const [locFixes, setLocFixes] = useState([]);
+  const [counts, setCounts] = useState(null);
   /* Which queues did not load. An empty table on an ops screen reads as "nothing to do", so a
      failed fetch and a drained queue are indistinguishable without this — and the failure mode is
      that moderation quietly stops and nobody notices. */
@@ -110,38 +111,48 @@ export default function AdminSocieties() {
       broke.push(label);
       return empty;
     });
-    /* Live rows only: decided rows would fill the 100-row page oldest-first and hide new work. */
-    const [claimRows, proposals, residentRows, candidateRows, mergeRows] = await Promise.all([
-      safe(listSocietyClaimQueue({ status: 'pending' }), 'claims', []),
-      safe(listSocietyProposalQueue({ status: 'pending' }), 'community proposal', []),
+    /* Only the open tab's queue is read, plus one summary for the badges; live rows only, since decided rows
+       would fill the 100-row page oldest-first and hide new work. */
+    const open = (t) => tab === t;
+    const proposalFilter = open('candidates') ? { status: 'pending', kind: 'details' } : { status: 'pending' };
+    const [counts, claimRows, proposals, residentRows, candidateRows, mergeRows] = await Promise.all([
+      getSocietiesSummary().catch((err) => {
+        if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
+        console.warn('[societies] Tab counts could not be loaded.', err);
+        return null;
+      }),
+      open('claims') ? safe(listSocietyClaimQueue({ status: 'pending' }), 'claims', []) : null,
+      open('candidates') || open('moderation')
+        ? safe(listSocietyProposalQueue(proposalFilter), 'community proposal', []) : null,
       /* Unfiltered, unlike its neighbours. A residency is the one decision on this console that is
          routinely revisited — a flat changes hands, and rejecting the outgoing resident is how the
          incoming one gets verified — so an operator has to be able to find the verified row to
          reject it. Asking only for `pending` would hide exactly the row they came for. */
-      safe(listSocietyResidentQueue(), 'resident verification', []),
+      open('residents') ? safe(listSocietyResidentQueue(), 'resident verification', []) : null,
       /* No status filter to pass: the route *is* the filter. A candidate is a community-minted
-         society with no verification stamp, so verifying one is what takes it off this list —
-         there is no decided-candidate row to accumulate and crowd out the new work. */
-      safe(listSocietyCandidates(), 'society candidates', []),
-      safe(listSocietyMerges(), 'merges', []),
+         society with no verification stamp, so verifying one is what takes it off this list. */
+      open('candidates') ? safe(listSocietyCandidates(), 'society candidates', []) : null,
+      open('candidates') ? safe(listSocietyMerges(), 'merges', []) : null,
     ]);
     if (seq !== reloadSeq.current) return; // a newer reload has already answered
 
     setQueueErrors(broke);
-    setClaims(claimRows);
-    setResidents(residentRows);
-    setCandidates(candidateRows);
-    setMerges(mergeRows);
-    /* The three "pending" lists are one resource with a `kind` column — `details`, `whatsapp`,
-       `location`. One request, grouped here, so there is no third queue to forget to drain and a
-       proposal cannot exist in two of them. */
-    setSuggestions(proposals.filter((p) => p.kind === 'details').map(toSuggestionRow));
-    setWaPending(proposals.filter((p) => p.kind === 'whatsapp'));
-    setLocFixes(proposals.filter((p) => p.kind === 'location'));
+    setCounts(counts);
+    if (claimRows) setClaims(claimRows);
+    if (residentRows) setResidents(residentRows);
+    if (candidateRows) setCandidates(candidateRows);
+    if (mergeRows) setMerges(mergeRows);
+    /* The "pending" lists are one resource with a `kind` column — `details`, `whatsapp`,
+       `location`. One request, grouped here, so a proposal cannot exist in two of them. */
+    if (proposals) {
+      setSuggestions(proposals.filter((p) => p.kind === 'details').map(toSuggestionRow));
+      setWaPending(proposals.filter((p) => p.kind === 'whatsapp'));
+      setLocFixes(proposals.filter((p) => p.kind === 'location'));
+    }
   };
   /* Keyed on `bump` alone: the duplicate hint below is served rather than computed, so the bundled
      catalogue is not read on this screen at all. */
-  useEffect(() => { reload(); }, [bump]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; `bump` is the real input.
+  useEffect(() => { reload(); }, [bump, tab]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; `bump` and `tab` are the real inputs.
 
   /* The directory is a real server page. `api-standards.md` §5: "a client-side pager is a smell,
      not a solution... if a screen needs a pager, the endpoint feeding it needs PageEnvelope".
@@ -166,6 +177,7 @@ export default function AdminSocieties() {
   }, [dirQuery]);
 
   useEffect(() => {
+    if (tab !== 'directory') return undefined;
     let alive = true;
     setDir((d) => ({ ...d, status: 'loading' }));
     listSocietyDirectory({ q: dirSearch, page: dirPage, size: DIR_PAGE_SIZE })
@@ -175,7 +187,7 @@ export default function AdminSocieties() {
          face for a bug, which is why it must not be the one a broken read wears. */
       .catch(() => { if (alive) setDir({ status: 'error', items: [], total: 0 }); });
     return () => { alive = false; };
-  }, [dirSearch, dirPage, bump]);
+  }, [tab, dirSearch, dirPage, bump]);
 
   /* The duplicate hint, served rather than computed here. The bundled catalogue is 28 curated
      societies compiled into the app; every duplicate this queue produces is a member-added row —
@@ -232,9 +244,6 @@ export default function AdminSocieties() {
   }, [tab, candidates]);
 
   const candidateRows = candidates.map((c) => ({ ...c, dupes: dupes[c.slug] }));
-
-  const pendingClaims = claims.filter((c) => c.status === 'pending').length;
-  const pendingRes = residents.filter((r) => r.status === 'pending').length;
 
   /* No client-side audit write beside the ten decisions in this block. `logAudit` unshifts a
      sentence onto a browser-local array only Admin ▸ Settings ▸ Audit log reads, describing
@@ -473,10 +482,10 @@ export default function AdminSocieties() {
   };
 
   const tabs = [
-    { key: 'claims', label: 'Claims', count: pendingClaims },
-    { key: 'residents', label: 'Residents', count: pendingRes },
-    { key: 'candidates', label: 'Candidates', count: candidates.length },
-    { key: 'moderation', label: 'Moderation', count: waPending.length + locFixes.length },
+    { key: 'claims', label: 'Claims', count: counts?.claims ?? null },
+    { key: 'residents', label: 'Residents', count: counts?.residents ?? null },
+    { key: 'candidates', label: 'Candidates', count: counts?.candidates ?? null },
+    { key: 'moderation', label: 'Moderation', count: counts?.moderation ?? null },
     /* `dir.total`, not `items.length`: the page holds twenty rows but the count means all matching societies. */
     { key: 'directory', label: 'Directory', count: dir.status === 'ready' ? dir.total : null },
   ];
@@ -491,7 +500,7 @@ export default function AdminSocieties() {
         <div role="alert" className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
           The {queueErrors.join(' and ')} {queueErrors.length > 1 ? 'queues' : 'queue'} could not be
           loaded, so {queueErrors.length > 1 ? 'those tabs are' : 'that tab is'} showing nothing
-          rather than nothing to do. The tab counts are wrong for the same reason.{' '}
+          rather than nothing to do.{' '}
           <button onClick={() => setBump((n) => n + 1)} className="underline underline-offset-2">Retry</button>
         </div>
       ) : null}

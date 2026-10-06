@@ -2552,6 +2552,13 @@ paths:
         - { name: status, in: query, schema: { type: string, enum: [active, suspended, archived] } }
         - { name: flagged, in: query, schema: { type: boolean } }
         - { name: archived, in: query, schema: { type: boolean, default: false } }
+        - name: counts
+          in: query
+          schema: { type: boolean, default: false }
+          description: >
+            Adds `counts` (`all`, `active`, `suspended`, `archived`) to the page: the whole filtered
+            set under `role`, `customers` and `q`, ignoring `status`, `flagged`, `archived` and paging.
+            `all` excludes archived accounts.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -4804,9 +4811,9 @@ paths:
         host proved what they claimed". An unbadged post and an unvetted post are different things.
 
 
-        One `kind` per call. Posts, rooms and groups are three tables with three shapes; a merged
-        board could not page without either loading every pending row or reporting a total that is
-        true of one table and false of the screen.
+        Several kinds may be asked for in one call (`kind=post,room,group`). Each kind is its own
+        table, so `size` applies per kind (and per `recheck` set) and `totalElements` is the sum;
+        a caller that wants every row asks with a `size` at least as large as the biggest backlog.
 
 
         The author's mobile is deliberately absent. Deciding whether a post may be published does
@@ -4816,8 +4823,13 @@ paths:
       parameters:
         - name: kind
           in: query
-          schema: { type: string, enum: [post, room, group], default: post }
-          description: Which board to page through.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { type: string, enum: [post, room, group] }
+            default: [post]
+          description: Which boards to page through, comma-joined.
         - name: modStatus
           in: query
           style: form
@@ -4834,8 +4846,8 @@ paths:
             so a team can review its own past decisions (`approved,live` is everything public).
 
 
-            `recheck` is a selector, not a state, and must be sent alone: it pages the posts that
-            stayed published but had their photos, note, rent or address edited since a moderator
+            `recheck` is a selector, not a state, and may ride beside real states
+            (`pending,recheck`): it pages the posts that stayed published but had their photos, note, rent or address edited since a moderator
             last read them, oldest edit first. Those rows keep whatever `modStatus` they had — going
             dark on every edit is the behaviour this exists to avoid — so they would otherwise be
             buried under `approved`.
@@ -6387,7 +6399,7 @@ paths:
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Support tickets, newest first
+          description: Support tickets, newest first, with `counts` (`awaiting`, `answered`, `all`) over the whole table
           content:
             application/json:
               schema:
@@ -9153,16 +9165,37 @@ paths:
   /admin/dashboard:
     get:
       tags: [Admin & Analytics]
-      summary: Admin KPI dashboard
+      summary: Admin dashboard, in one read
       operationId: adminDashboard
-      # S28: The ops scorecard.
       x-roles: [staff, admin]
+      description: >
+        Every figure the platform dashboard shows. Each section is present only when the caller
+        holds the permission its standalone read requires, and absent - never empty - otherwise:
+        `kpis`, `traffic` and `sla` need analytics, `listings` needs properties:read, `demand`
+        needs enquiries:read, `tickets` needs tickets:read (and at least one desk), `owners`
+        needs users:read.
       responses:
         '200':
-          description: KPIs
+          description: The sections the caller may see
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdminKpis' }
+              schema: { $ref: '#/components/schemas/AdminDashboard' }
+  /admin/bell:
+    get:
+      tags: [Admin & Analytics]
+      summary: Back-office bell badge and items, in one read
+      operationId: adminBell
+      x-roles: [staff, admin]
+      description: >
+        Totals and the five newest items per section. A section is present only when the caller
+        holds the permission its source read requires (properties:read for `pendingListings` and
+        `ownerReplies`, tickets:read for `openTickets`, which is scoped to the caller's desks).
+      responses:
+        '200':
+          description: The sections the caller may see
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBell' }
   /admin/analytics/traffic:
     get:
       tags: [Admin & Analytics]
@@ -9363,6 +9396,28 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/SocietyClaim' }
+  /admin/societies/summary:
+    get:
+      tags: [Admin & Analytics]
+      summary: Pending counts behind the societies console's tab labels
+      operationId: adminSocietiesSummary
+      # S28 + societies:read.
+      x-roles: [staff, admin]
+      description: >
+        One read for the four numbers the console shows above its queues, so it can fetch only the
+        tab on screen. Whole-set counts, never the length of a page.
+      responses:
+        '200':
+          description: Pending counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claims: { type: integer, format: int64, description: Pending committee claims }
+                  residents: { type: integer, format: int64, description: Pending residency requests }
+                  candidates: { type: integer, format: int64, description: Member-added societies nobody has verified }
+                  moderation: { type: integer, format: int64, description: Pending WhatsApp links and location fixes }
   /admin/society-claims/{id}:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -10163,23 +10218,26 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/BackOfficeFunction' }
-  /admin/function-catalogue:
+  /admin/team:
     get:
       tags: [Admin & Analytics]
-      summary: Every grantable back-office function
-      operationId: getFunctionCatalogue
+      summary: Every back-office account with its functions
+      operationId: listTeam
       description: >
-        Functions are the stored unit managers grant. The server derives permission atoms and desk
-        scopes from these names.
+        The Team & Access roster in one read: administrator, managers and staff, live and archived,
+        with the function names `GET /users/{id}/permissions` reports as `functions`. Mobiles are
+        masked. `functions` is filled on the same terms as that read — an administrator sees every
+        manager and staff account, a manager only staff and itself — and is empty otherwise
+        (always for the administrator, who holds every function).
       x-roles: [manager, admin]
       responses:
         '200':
-          description: The function catalogue, in render order
+          description: Accounts, newest first
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/BackOfficeFunction' }
+                items: { $ref: '#/components/schemas/TeamMember' }
   /admin/message-templates:
     get:
       tags: [Admin & Analytics]
@@ -10803,6 +10861,13 @@ components:
         totalElements: { type: integer, format: int64, example: 137 }
         totalPages: { type: integer, example: 7 }
         sort: { type: string, example: createdAt,desc }
+        counts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+          description: >
+            Whole-set totals for the tabs above the table, present only on endpoints that document
+            them (`GET /users?counts=true`, `GET /admin/support-tickets`). Counted in one grouped
+            statement, never over the rows of the page.
     SearchEnvelope:
       description: >
         A page envelope plus the one count a page cannot supply about itself. Search results carry
@@ -12121,9 +12186,10 @@ components:
       allOf:
         - $ref: '#/components/schemas/Property'
         - type: object
-          required: [signals]
+          required: [signals, ownerReplied]
           properties:
             signals: { $ref: '#/components/schemas/ListingSignals' }
+            ownerReplied: { type: boolean, description: The owner has sent a case-file message the desk has not read }
 
     ListingSignals:
       type: object
@@ -13501,6 +13567,21 @@ components:
           type: array
           items: { type: string, example: 'services:read' }
         desk: { type: [string, 'null'], example: rental }
+    TeamMember:
+      type: object
+      required: [id, role, status, archived, functions]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        mobile: { type: string, example: '90XXXXX000' }
+        email: { type: [string, 'null'] }
+        role: { type: string, enum: [staff, manager, admin] }
+        status: { type: string, enum: [active, suspended, archived] }
+        archived: { type: boolean, description: Soft-deleted; the console shows it as suspended. }
+        createdAt: { type: string, format: date-time }
+        functions:
+          type: array
+          items: { type: string, example: 'desk:rental' }
     BackOfficePermissionsRequest:
       type: object
       required: [functions]
@@ -14813,6 +14894,12 @@ components:
         withCustomer: { type: integer, format: int64 }
         closed: { type: integer, format: int64 }
         overdue: { type: integer, format: int64 }
+        openTickets:
+          type: integer
+          format: int64
+          description: >-
+            Open customer tickets for the same `team`, as `GET /tickets?status=open` would total them.
+            Omitted when the caller does not hold `tickets:read`.
     ServiceRequestDraftApproval:
       type: object
       properties:
@@ -16912,6 +16999,114 @@ components:
         answer: { type: string }
         category: { type: string }
         translations: { $ref: '#/components/schemas/ContentTranslations' }
+    AdminDashboard:
+      type: object
+      properties:
+        kpis: { $ref: '#/components/schemas/AdminKpis' }
+        traffic:
+          type: object
+          properties:
+            signupsToday: { type: integer }
+            sessionsToday: { type: integer }
+            sessions30d: { type: integer }
+        sla:
+          type: object
+          description: Rate, target and late count per track; a track with nothing measured is omitted.
+          properties:
+            listingApproval: { $ref: '#/components/schemas/AdminSlaGlanceTrack' }
+            ticketPickup: { $ref: '#/components/schemas/AdminSlaGlanceTrack' }
+            ticketDelivery: { $ref: '#/components/schemas/AdminSlaGlanceTrack' }
+            conciergeToLive: { $ref: '#/components/schemas/AdminSlaGlanceTrack' }
+        listings:
+          type: object
+          description: Whole-set counts over non-archived listings, plus the five that have waited longest.
+          properties:
+            pending: { type: integer }
+            flagged: { type: integer }
+            followUp:
+              type: integer
+              description: Pending for over 48 hours, or staff-posted and not yet confirmed by the owner.
+            oldestPending:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  locality: { type: string }
+                  price: { type: integer }
+                  owner: { type: string }
+        demand:
+          type: object
+          properties:
+            newEnquiries: { type: integer, description: Contact requests still pending. }
+            scheduledVisits: { type: integer }
+            dealsInProgress: { type: integer, description: Deals not yet closed. }
+        tickets:
+          type: object
+          properties:
+            open: { type: integer, description: Unclaimed tickets over the caller's desks. }
+            openTeam: { type: string, description: Desk of the newest unclaimed ticket. }
+            latest:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  team: { type: string }
+                  service: { type: string }
+                  customer: { type: string }
+                  detail: { type: string }
+                  status: { type: string }
+        owners: { type: integer, description: Non-archived owner accounts. }
+    AdminSlaGlanceTrack:
+      type: object
+      properties:
+        slaRatePct: { type: [integer, 'null'] }
+        targetHours: { type: integer }
+        late: { type: integer }
+    AdminBell:
+      type: object
+      properties:
+        pendingListings:
+          type: object
+          properties:
+            total: { type: integer }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  locality: { type: string }
+                  owner: { type: string }
+        openTickets:
+          type: object
+          properties:
+            total: { type: integer }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  team: { type: string }
+                  service: { type: string }
+                  customer: { type: string }
+                  mobile: { type: string }
+        ownerReplies:
+          type: object
+          properties:
+            total: { type: integer }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  propertyId: { type: string }
+                  propertyTitle: { type: string }
+                  lastMessage: { type: string }
     AdminKpis:
       type: object
       description: >
@@ -17192,6 +17387,7 @@ components:
         allowance: { type: integer, description: How many live listings this owner may hold }
         held: { type: integer, description: How many they hold now }
         overAllowance: { type: boolean, description: The single field the composer branches on }
+        pending: { type: integer, description: How many of their listings are awaiting a moderator now }
     HelpFeedbackCreate:
       type: object
       description: >
