@@ -94,6 +94,8 @@ export const decideFlatmateReview = async (id, decision, note) => (await provide
 export const listFlatmateModeration = async (params) => (await provider()).listFlatmateModeration(params);
 /** One post/room/group in full for the review popup: `{ item, room, group, post, review }`. */
 export const getFlatmateModerationDetail = async (id) => (await provider()).getFlatmateModerationDetail(id);
+/** Correct headline, description, rent, deposit, localities or move-in. Only the fields sent change; no re-review. */
+export const editFlatmateAsModerator = async (id, changes) => (await provider()).editFlatmateAsModerator(id, changes);
 /** Release or withhold one post. Returns nothing — refetch the queue. `note` is internal. */
 export const moderateFlatmatePost = async (id, modStatus, note) => (await provider()).moderateFlatmatePost(id, modStatus, note);
 

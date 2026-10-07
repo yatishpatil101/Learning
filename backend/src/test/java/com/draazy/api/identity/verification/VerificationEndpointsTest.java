@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -266,7 +267,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
                 .andExpect(status().isOk())
             .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].claims.number").value(PAN.substring(6)))
-            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].userMobile").value("98XXXXX010"));
+            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].userMobile").value("9830000010"));
 
         mvc.perform(get(reviewPath(Routes.Moderation.IDENTITY_REVIEW_BY_ID, id))
                 .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
@@ -712,5 +713,70 @@ class VerificationEndpointsTest extends AbstractApiTest {
         approve(reviewer, caseOf(second), PAN)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value(ErrorCodes.IDENTITY_ALREADY_REGISTERED));
+    }
+
+    private ResultActions kycProfile(User reviewer, User target, String body) throws Exception {
+        return mvc.perform(patch(Routes.Users.KYC_PROFILE, target.getId())
+                .header(HttpHeaders.AUTHORIZATION, bearer(reviewer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    @Test
+    void kycDeskCorrectsTheApplicantsNameAndEmail() throws Exception {
+        User u = user("9830000090");
+        User reviewer = person("9830000091", Roles.Wire.STAFF, "Kyc Desk");
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) VALUES (?, '[\"kyc\"]'::jsonb)",
+                reviewer.getId());
+        submitPan(u, PAN).andExpect(status().isAccepted());
+
+        try {
+            kycProfile(reviewer, u, "{\"name\":\"Asha R Patil\",\"email\":\"asha.kyc@example.test\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("Asha R Patil"))
+                    .andExpect(jsonPath("$.email").value("asha.kyc@example.test"));
+            mvc.perform(get(reviewPath(Routes.Moderation.IDENTITY_REVIEW_BY_ID, caseOf(u)))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.accountName").value("Asha R Patil"))
+                    .andExpect(jsonPath("$.accountEmail").value("asha.kyc@example.test"));
+            assertThat(jdbc.queryForObject(
+                    "select count(*) from audit_log where action = 'user.kycProfileUpdate' and entity_id = ? and actor = ?",
+                    Integer.class, u.getId().toString(), reviewer.getId().toString())).isEqualTo(1);
+        } finally {
+            jdbc.update("delete from audit_log where actor = ?", reviewer.getId().toString());
+        }
+    }
+
+    @Test
+    void kycProfileEditNeedsASubmittedCaseAndTheKycDesk() throws Exception {
+        User applicant = user("9830000092");
+        User bystander = user("9830000093");
+        User support = person("9830000094", Roles.Wire.STAFF, "Support Desk");
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) VALUES (?, '[\"support\"]'::jsonb)",
+                support.getId());
+        submitPan(applicant, PAN).andExpect(status().isAccepted());
+
+        kycProfile(admin("9830000095"), bystander, "{\"name\":\"Someone Else\"}")
+                .andExpect(status().isNotFound());
+        kycProfile(support, applicant, "{\"name\":\"Someone Else\"}")
+                .andExpect(status().isForbidden());
+        kycProfile(admin("9830000096"), support, "{\"name\":\"Someone Else\"}")
+                .andExpect(status().isForbidden());
+        kycProfile(admin("9830000097"), applicant, "{\"name\":\"%s\"}".formatted("x".repeat(81)))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void aVerifiedCaseLocksTheNameEvenWhenTheBadgeWasRevokedByHand() throws Exception {
+        User u = user("9830000098");
+        User reviewer = admin("9830000099");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        approve(reviewer, caseOf(u), PAN).andExpect(status().isOk());
+        jdbc.update("update users set verified = false where id = ?", u.getId());
+
+        kycProfile(reviewer, u, "{\"name\":\"Someone Else\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(ErrorCodes.NAME_LOCKED_WHILE_VERIFIED));
     }
 }

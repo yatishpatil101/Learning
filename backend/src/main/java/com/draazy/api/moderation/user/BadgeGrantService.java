@@ -6,7 +6,6 @@ import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.trust.OwnerBadgeSink;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
@@ -208,7 +207,7 @@ class BadgeGrantService {
                 request.getId().toString(),
                 request.getUserId().toString(),
                 user == null ? null : user.getName(),
-                user == null ? null : MobileMask.mask(user.getMobile()),
+                user == null ? null : user.getMobile(),
                 request.getRequestedBy().toString(),
                 maker == null ? null : maker.getName(),
                 request.getReason(),

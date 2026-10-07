@@ -88,7 +88,7 @@ export default function OpsReferrals() {
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return state.items.filter((r) => active.match(r)
-      && (!needle || `${r.id} ${r.referrer} ${r.referred}`.toLowerCase().includes(needle)));
+      && (!needle || `${r.id} ${r.referrer} ${r.referred} ${r.referrerMobile} ${r.referredMobile}`.toLowerCase().includes(needle)));
   }, [state.items, active, q]);
   const { items: pageRows, paging } = useClientPaging(rows, PAGE_SIZE, `${tab}|${q}`);
 
@@ -171,7 +171,12 @@ export default function OpsReferrals() {
               title={<>{r.referrer} <span className="font-normal text-gray-500">→</span> {r.referred}</>}
               badges={<><Badge status={r.status} /><span className={classNames(CHIP, 'capitalize', RISK_TONE[r.risk] || CHIP_TONE.neutral)}>{r.risk} risk</span></>}
               meta={<><span className="font-mono">{r.id}</span><Dot /><span>{r.channel === 'owner' ? 'Owner referral' : 'Seeker referral'}</span><Dot /><span>Redeemed {fmtDate(r.at)}</span></>}
-              facts={<FactRow label="Reward"><span className="col-span-full">{r.reward || '—'}</span></FactRow>}
+              facts={(
+                <>
+                  <FactRow label="Mobiles"><span className="col-span-full tabular-nums">{r.referrerMobile || '—'} → {r.referredMobile || '—'}</span></FactRow>
+                  <FactRow label="Reward"><span className="col-span-full">{r.reward || '—'}</span></FactRow>
+                </>
+              )}
               chips={SIGNALS.map(([key, label, goodWhenTrue]) => {
                 const good = goodWhenTrue ? !!r[key] : !r[key];
                 return (

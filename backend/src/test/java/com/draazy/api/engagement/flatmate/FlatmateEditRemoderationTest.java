@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.flatmate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -320,10 +321,8 @@ class FlatmateEditRemoderationTest extends AbstractApiTest {
                             Matchers.hasSize(1)));
         }
 
-        // The ladder reads the tier and cannot see a verdict, so on its own it would send a
-        // tenant-tier room back `live` on the host's next save. Naming the exempt states one by one
-        // is how a state gets missed, so the rule is "was it public"; `flagged` is the verdict a
-        // host can actually provoke.
+        // The ladder sees the tier, not a verdict; the rule is "was it public" so a `flagged` room isn't sent
+        // back `live` on the host's next save.
         @ParameterizedTest(name = "{0}")
         @CsvSource({
                 "removed, 9812000026, 9812000027, EditTownK, Lambda Lodge",
@@ -516,12 +515,121 @@ class FlatmateEditRemoderationTest extends AbstractApiTest {
     }
 
     @Nested
-    @DisplayName("the verification queue is not a contact list either (D7)")
+    @DisplayName("a moderator's correction is audited and stays live")
+    class ModeratorEdit {
+
+        private org.springframework.test.web.servlet.ResultActions edit(User mod, String id,
+                String body) throws Exception {
+            return mvc.perform(patch(Routes.Moderation.FLATMATE_MODERATION_DETAIL, id)
+                    .header(HttpHeaders.AUTHORIZATION, bearer(mod))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body));
+        }
+
+        @Test
+        @DisplayName("a room's core fields change without a re-check")
+        void roomCorrectionStaysLive() throws Exception {
+            String id = createRoom(host("9812000060", "Roomer"),
+                    roomBody("EditTownM", "Mu Place", "Private room", 15000,
+                            "https://cdn.example/m1.jpg", "Sunny room."));
+            jdbc.update("update flatmate_rooms set society = 'Mu Place', address_fingerprint = 'addr:mu place|edittownm'"
+                    + " where id = ?::uuid", id);
+            entityManager.clear();
+            User mod = admin("9812000061");
+
+            edit(mod, id, """
+                    {"title":"Sunny room near the park","note":"Corrected note.","rent":14500,
+                     "deposit":29000,"localities":["EditTownN"],"moveIn":"2026-10-01"}
+                    """)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.room.title").value("Sunny room near the park"))
+                    .andExpect(jsonPath("$.room.note").value("Corrected note."))
+                    .andExpect(jsonPath("$.room.budget").value(14500))
+                    .andExpect(jsonPath("$.room.deposit").value(29000))
+                    .andExpect(jsonPath("$.room.locality").value("EditTownN"))
+                    .andExpect(jsonPath("$.room.availableFrom").value("2026-10-01"))
+                    .andExpect(jsonPath("$.room.modStatus").value("approved"));
+
+            recheckBoard(mod, "room")
+                    .andExpect(jsonPath("$.content[?(@.id == '" + id + "')]", Matchers.hasSize(0)));
+            assertThat(jdbc.queryForObject(
+                    "select count(*) from audit_log where action = 'flatmate.adminUpdate' and entity_id = ?",
+                    Integer.class, id)).isEqualTo(1);
+            assertThat(fingerprint("flatmate_rooms", id)).isEqualTo("addr:mu place|edittownn");
+        }
+
+        @Test
+        @DisplayName("a seeker post takes a budget and localities, but has no deposit")
+        void seekerPostCorrection() throws Exception {
+            String id = idIn(mvc.perform(post(Routes.Flatmates.POSTS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host("9812000062", "Seeker")))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"Seeker","gender":"any","budget":18000,
+                                     "localities":["EditTownG"],"moveIn":"2026-09-01",
+                                     "flatPref":"any","roomPref":"private","tags":[],"note":"Hi"}
+                                    """))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString());
+            User mod = admin("9812000063");
+
+            edit(mod, id, "{\"rent\":20000,\"localities\":[\"EditTownG\",\"EditTownH\"],\"moveIn\":\"2026-11-01\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.post.budget").value(20000))
+                    .andExpect(jsonPath("$.post.localities", Matchers.contains("EditTownG", "EditTownH")))
+                    .andExpect(jsonPath("$.post.moveIn").value("2026-11-01"));
+            edit(mod, id, "{\"deposit\":10000}").andExpect(status().isUnprocessableEntity());
+        }
+
+        @Test
+        @DisplayName("a settled group's rent changes; a move-in date it does not have is refused")
+        void groupCorrection() throws Exception {
+            User owner = host("9812000064", "Grouper");
+            String id = approved("flatmate_groups", idIn(mvc.perform(post(Routes.Flatmates.GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(ownedEvidence(owner, """
+                                    {"title":"Three of us","locality":"EditTownQ","policy":"any",
+                                     "rent":40000,"seats":3,"seatsOpen":1,"name":"Host","tags":[],
+                                     "agreement":true,"note":"Chill flat.",%s}
+                                    """.formatted(FlatmateAgreementFixture.EVIDENCE))))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString()));
+            User mod = admin("9812000065");
+
+            edit(mod, id, "{\"title\":\"Three of us in Baner\",\"rent\":42000}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.group.title").value("Three of us in Baner"))
+                    .andExpect(jsonPath("$.group.rent").value(42000))
+                    .andExpect(jsonPath("$.group.modStatus").value("approved"));
+            assertThat(fingerprint("flatmate_groups", id)).isEqualTo("addr:three of us in baner|edittownq");
+            edit(mod, id, "{\"moveIn\":\"2026-11-01\"}").andExpect(status().isUnprocessableEntity());
+            edit(mod, id, "{\"localities\":[]}").andExpect(status().isUnprocessableEntity());
+        }
+
+        private String fingerprint(String table, String id) {
+            return jdbc.queryForObject("select address_fingerprint from " + table + " where id = ?::uuid",
+                    String.class, id);
+        }
+
+        @Test
+        @DisplayName("the post's own author cannot use the desk's route")
+        void authorIsRefused() throws Exception {
+            User owner = host("9812000066", "Roomer");
+            String id = createRoom(owner, roomBody("EditTownR", "Rho Place", "Private room", 15000,
+                    "https://cdn.example/r1.jpg", "Sunny room."));
+
+            edit(owner, id, "{\"rent\":1}").andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("the verification queue shows the host's number to the desk")
     class HostMobile {
 
         @Test
-        @DisplayName("a tenant-tier host's number leaves the server masked")
-        void theQueueMasksTheMobile() throws Exception {
+        @DisplayName("a tenant-tier host's number leaves the server in full")
+        void theQueueShowsTheMobile() throws Exception {
             createRoom(host("9812000050", "Documented"),
                     roomBody("EditTownH", "Theta Place", "Private room", 15000,
                             "https://cdn.example/h1.jpg", "Sunny room."));
@@ -529,10 +637,7 @@ class FlatmateEditRemoderationTest extends AbstractApiTest {
             mvc.perform(get(Routes.Moderation.FLATMATE_REVIEWS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(admin("9812000051"))))
                     .andExpect(status().isOk())
-                    // The desk decides against the uploaded document and rings nobody, so twenty
-                    // whole numbers a page was a bulk contact list earned for nothing.
-                    .andExpect(jsonPath("$.content[*].hostMobile",
-                            Matchers.everyItem(Matchers.matchesPattern("\\d{2}X{5}\\d{3}"))));
+                    .andExpect(jsonPath("$.content[*].hostMobile", Matchers.hasItem("9812000050")));
         }
     }
 

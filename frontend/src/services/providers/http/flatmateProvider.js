@@ -490,16 +490,22 @@ export async function listFlatmateModeration({ kind = 'post', modStatus, sort, p
   return toViewModelPage(unwrapPage(res, { page, size }), toModerationRowViewModel);
 }
 
+const toModerationDetail = (res) => ({
+  item: toModerationRowViewModel(res?.item),
+  room: res?.room ? toRoomViewModel(res.room) : null,
+  group: res?.group ? toGroupViewModel(res.group) : null,
+  post: res?.post ? toSeekerPostViewModel(res.post) : null,
+  review: res?.review ? toReviewViewModel(res.review) : null,
+});
+
 /** `GET /admin/flatmates/{id}` — one post/room/group in full, with its badge claim when it has one. */
 export async function getFlatmateModerationDetail(id) {
-  const res = await get(`/admin/flatmates/${encodeURIComponent(id)}`);
-  return {
-    item: toModerationRowViewModel(res?.item),
-    room: res?.room ? toRoomViewModel(res.room) : null,
-    group: res?.group ? toGroupViewModel(res.group) : null,
-    post: res?.post ? toSeekerPostViewModel(res.post) : null,
-    review: res?.review ? toReviewViewModel(res.review) : null,
-  };
+  return toModerationDetail(await get(`/admin/flatmates/${encodeURIComponent(id)}`));
+}
+
+/** `PATCH /admin/flatmates/{id}` — the desk's core-field correction; returns the refreshed detail. */
+export async function editFlatmateAsModerator(id, changes) {
+  return toModerationDetail(await patch(`/admin/flatmates/${encodeURIComponent(id)}`, changes));
 }
 
 export async function moderateFlatmatePost(id, modStatus, note) {

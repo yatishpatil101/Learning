@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, Eye, Unlock } from 'lucide-react';
-import { listDeals, listEnquiries, listVisits, revealDeal, revealEnquiry, revealVisit } from '../../services/enquiryBoardService.js';
+import { CheckCircle2, Download, Eye } from 'lucide-react';
+import { getDeal, getEnquiry, getVisit, listDeals, listEnquiries, listVisits } from '../../services/enquiryBoardService.js';
 import { addNote } from '../../services/noteService.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -33,8 +33,8 @@ const NOTES = {
 };
 const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
-/** Mobile numbers arrive masked; revealing one is a separate audit-logged request, so the CSV cannot leak it.
- * Read-only: `contact_requests.status` is the owner's consent, so no Close/cancel button has a server meaning. */
+/** The demand console. The board is read-only: `contact_requests.status` is the owner's decision, so "Responded" writes a listing note.
+ * Mobiles are shown in full; opening a row's detail is audited. */
 export default function AdminEnquiries() {
   const { toast } = useToast();
   const [tab, setTab] = useTabParam(['enquiries', 'visits', 'deals', 'funnel'], 'enquiries');
@@ -46,7 +46,6 @@ export default function AdminEnquiries() {
   const [visits, setVisits] = useState([]);
   const [deals, setDeals] = useState([]);
   const [detail, setDetail] = useState(null);
-  const [revealing, setRevealing] = useState('');
   const [funnelTime, setFunnelTime] = useState('');
   const [funnelDeal, setFunnelDeal] = useState('');
 
@@ -71,24 +70,16 @@ export default function AdminEnquiries() {
     }
   };
 
-  // The reply replaces the row in place, so a revealed number stays readable without a second audited request.
-  const reveal = async (r, kind) => {
-    const fetcher = kind === 'deal' ? revealDeal : kind === 'visit' ? revealVisit : revealEnquiry;
-    const setter = kind === 'deal' ? setDeals : kind === 'visit' ? setVisits : setEnquiries;
-    setRevealing(r.id);
+  const openDetail = async (r, kind) => {
+    setDetail({ ...r, _kind: kind });
+    const fetcher = kind === 'deal' ? getDeal : kind === 'visit' ? getVisit : getEnquiry;
     try {
       const full = await fetcher(r.id);
-      setter((prev) => (prev || []).map((x) => (x.id === full.id ? { ...x, ...full } : x)));
       setDetail((d) => (d && d.id === full.id ? { ...d, ...full } : d));
-      toast('Contact revealed — this was recorded');
     } catch (e) {
-      toast(e?.message || 'Could not reveal the contact', 'error');
-    } finally {
-      setRevealing('');
+      toast(e?.message || 'Could not load the latest details', 'error');
     }
   };
-
-  const stillMasked = (r) => /^\d{2}X{5}\d{3}$/.test(String(r?.mobile ?? ''));
 
   const base = tab === 'visits' ? visits : tab === 'deals' ? deals : (enquiries || []);
   const needle = q.trim().toLowerCase();
@@ -124,12 +115,7 @@ export default function AdminEnquiries() {
     else exportCsv('draazy-enquiries.csv', ['ID', 'Listing', 'Customer', 'Mobile', 'Locality', 'Date', 'Status'], rows.map((r) => [r.id, r.listing, r.customer, r.mobile, r.locality, fmtWhen(r.at), r.status]));
   };
 
-  const icons = (r) => (
-    <>
-      <IconAction label="View" icon={Eye} onClick={() => setDetail({ ...r, _kind: KIND[tab] })} />
-      {stillMasked(r) ? <IconAction label="Reveal contact" icon={Unlock} onClick={() => reveal(r, KIND[tab])} disabled={revealing === r.id} /> : null}
-    </>
-  );
+  const icons = (r) => <IconAction label="View" icon={Eye} onClick={() => openDetail(r, KIND[tab])} />;
 
   const contact = (r, label) => (r.customer || r.mobile ? (
     <FactRow label={label}>
@@ -200,38 +186,25 @@ export default function AdminEnquiries() {
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? (detail._kind === 'deal' ? `Deal · ${detail.id}` : detail._kind === 'visit' ? `Site visit · ${detail.id}` : `Enquiry · ${detail.id}`) : ''} size="md">
         {detail ? (
-          <>
-            <dl className="space-y-2 text-sm">
-              {[
-                ['Listing', detail.listing],
-                ['Locality', detail.locality],
-                ['Status', detail.status],
-                detail._kind === 'deal' ? ['Deal type', detail.deal] : null,
-                detail._kind === 'deal' ? ['Agreed value', fmtINR(detail.value)] : null,
-                detail._kind === 'visit' ? ['Visit slot', detail.when || fmtWhen(detail.slot)] : null,
-                detail._kind === 'visit' ? ['Mode', detail.mode] : null,
-                ['Customer', detail.customer],
-                ['Mobile', detail.mobile],
-                [detail._kind === 'deal' ? 'Closed' : 'Raised', fmtWhen(detail.at)],
-              ].filter(Boolean).map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-2 border-b border-white/5 py-1.5">
-                  <dt className="text-gray-400">{label}</dt>
-                  <dd className={classNames('font-medium capitalize', label === 'Mobile' ? 'tabular-nums normal-case' : '')}>{value || '—'}</dd>
-                </div>
-              ))}
-            </dl>
-            {stillMasked(detail) ? (
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                <p className="text-xs text-gray-400">This number is masked. Revealing it is recorded against your account.</p>
-                <button
-                  type="button"
-                  onClick={() => reveal(detail, detail._kind)}
-                  disabled={revealing === detail.id}
-                  className="dz-btn dz-btn-ghost shrink-0 disabled:opacity-40"
-                ><Unlock className="h-4 w-4" />{revealing === detail.id ? 'Revealing…' : 'Reveal contact'}</button>
+          <dl className="space-y-2 text-sm">
+            {[
+              ['Listing', detail.listing],
+              ['Locality', detail.locality],
+              ['Status', detail.status],
+              detail._kind === 'deal' ? ['Deal type', detail.deal] : null,
+              detail._kind === 'deal' ? ['Agreed value', fmtINR(detail.value)] : null,
+              detail._kind === 'visit' ? ['Visit slot', detail.when || fmtWhen(detail.slot)] : null,
+              detail._kind === 'visit' ? ['Mode', detail.mode] : null,
+              ['Customer', detail.customer],
+              ['Mobile', detail.mobile],
+              [detail._kind === 'deal' ? 'Closed' : 'Raised', fmtWhen(detail.at)],
+            ].filter(Boolean).map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-2 border-b border-white/5 py-1.5">
+                <dt className="text-gray-400">{label}</dt>
+                <dd className={classNames('font-medium capitalize', label === 'Mobile' ? 'tabular-nums normal-case' : '')}>{value || '—'}</dd>
               </div>
-            ) : null}
-          </>
+            ))}
+          </dl>
         ) : null}
       </Modal>
     </div>

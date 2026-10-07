@@ -234,8 +234,7 @@ test.describe('Ops → flatmate desk (live)', () => {
 
     let dialog = await review(page, society);
     await expect(dialog.locator('.flatmate-badge-section')).toContainText('tenant-tier claim');
-    // Masked, and masked on the server: `FlatmateReviewDto` masks in its only constructor rather than trusting each client.
-    await expect(page.getByText(host.mobile)).toHaveCount(0);
+    await expect(dialog.locator('.flatmate-badge-section')).toContainText(host.mobile);
 
     await dialog.locator('.approve-review-btn').click();
     await expect(dialog.locator('.flatmate-badge-section')).toContainText('approved');
@@ -323,6 +322,26 @@ test.describe('Ops → flatmate desk (live)', () => {
     await expect(card(page, marker)).toHaveCount(0);
     await openTab(page, 'Hidden & removed');
     await expect(cardFor(page, marker)).toContainText('removed');
+  });
+
+  test('the desk corrects a post\'s core fields in place', async ({ page, login }) => {
+    const marker = `Needs a corrected budget ${stamp()}`;
+    await seedSeekerPost({ mobile: uniqueMobile(), name: 'Meera Kulkarni' }, marker);
+    await openDesk(page, login);
+
+    const dialog = await review(page, marker);
+    await dialog.getByRole('button', { name: 'Edit details' }).click();
+    const form = dialog.getByTestId('flatmate-edit-form');
+    await form.getByLabel('Budget (₹/month)').fill('18000');
+    await form.getByLabel('Localities (comma-separated)').fill('Kothrud, Baner');
+    const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/admin\/flatmates\/[^/]+$/.test(new URL(r.url()).pathname));
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    expect((await saved).status()).toBe(200);
+
+    await expect(form).toHaveCount(0);
+    await expect(dialog).toContainText('18,000');
+    await expect(dialog).toContainText('Kothrud, Baner');
+    await expect(dialog.locator('.flatmate-mod-text')).toContainText(marker);
   });
 
   test('a group application can be hidden without answering for the owner', async ({ page, login }) => {

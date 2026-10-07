@@ -75,7 +75,7 @@ async function submitCase(request, { docType = 'pan', claims, liveness = 'passed
     },
   });
   expect(response.status()).toBe(202);
-  return { mobile, headers, accountName, claims: nextClaims, row: new RegExp(`${mobile.slice(0, 2)}XXXXX${mobile.slice(-3)}`) };
+  return { mobile, headers, accountName, claims: nextClaims, row: new RegExp(mobile) };
 }
 
 async function findCase(page, owner, tab) {

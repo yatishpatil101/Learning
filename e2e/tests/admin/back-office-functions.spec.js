@@ -1,17 +1,12 @@
 import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
-const masked = (mobile) => {
-  const digits = String(mobile).replace(/\D/g, '');
-  return `${digits.slice(0, 2)}XXXXX${digits.slice(-3)}`;
-};
-
 async function staffId(mobile) {
   const res = await fetch(`${API}/users?role=staff&size=100`, { headers: await authHeaders(ACTORS.admin) });
   expect(res.status).toBe(200);
   const body = await res.json();
-  const row = (body.content || body.items || []).find((u) => u.mobile === masked(mobile));
-  expect(row, `staff account ${masked(mobile)} exists`).toBeTruthy();
+  const row = (body.content || body.items || []).find((u) => u.mobile === mobile);
+  expect(row, `staff account ${mobile} exists`).toBeTruthy();
   return row.id;
 }
 

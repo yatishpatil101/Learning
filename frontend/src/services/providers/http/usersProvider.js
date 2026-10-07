@@ -25,7 +25,7 @@ const toBadgeGrant = (row) => ({
   id: row?.id,
   userId: row?.userId,
   userName: row?.userName || '',
-  userMobileMasked: row?.userMobileMasked || '',
+  userMobile: row?.userMobile || '',
   requestedBy: row?.requestedBy,
   requestedByName: row?.requestedByName || '',
   reason: row?.reason || '',

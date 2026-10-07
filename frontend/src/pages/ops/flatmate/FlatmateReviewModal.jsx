@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Users } from 'lucide-react';
+import { MapPin, Pencil, Users } from 'lucide-react';
 import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
 import Loading from '../../../components/ui/Loading.jsx';
@@ -7,6 +7,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { fmtINR } from '../../../lib/format.js';
 import {
   decideFlatmateReview,
+  editFlatmateAsModerator,
   getFlatmateModerationDetail,
   moderateFlatmatePost,
   moderateGroupApplication,
@@ -14,6 +15,7 @@ import {
 import { Block, fmtDate } from './board.jsx';
 import { entryKind, entrySummary } from './FlatmateQueueCard.jsx';
 import PostDetails from './review-modal/PostDetails.jsx';
+import EditDetails from './review-modal/EditDetails.jsx';
 import BadgeSection from './review-modal/BadgeSection.jsx';
 import DecisionSection from './review-modal/DecisionSection.jsx';
 
@@ -76,6 +78,7 @@ export default function FlatmateReviewModal({ entry, onClose, onChanged }) {
   const [detail, setDetail] = useState({ status: isApp ? 'ready' : 'loading', data: null, error: '' });
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (isApp) return undefined;
@@ -120,6 +123,21 @@ export default function FlatmateReviewModal({ entry, onClose, onChanged }) {
     false,
   );
 
+  const saveEdit = async (changes) => {
+    if (!Object.keys(changes).length) { setEditing(false); return; }
+    setBusy(true);
+    try {
+      setDetail({ status: 'ready', data: await editFlatmateAsModerator(entry.key, changes), error: '' });
+      setEditing(false);
+      toast('Details updated', 'success');
+      onChanged();
+    } catch (e) {
+      toast(e.message || 'Could not save these changes.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const summary = entrySummary(entry);
   const d = detail.data;
   const item = d?.item;
@@ -130,7 +148,12 @@ export default function FlatmateReviewModal({ entry, onClose, onChanged }) {
       onClose={onClose}
       title={isApp ? 'Review group application' : 'Review flatmate post'}
       size="lg"
-      footer={<button type="button" onClick={onClose} className="dz-btn dz-btn-ghost">Close</button>}
+      footer={(
+        <>
+          {d && !editing ? <button type="button" onClick={() => setEditing(true)} className="dz-btn dz-btn-ghost"><Pencil className="h-4 w-4" /> Edit details</button> : null}
+          <button type="button" onClick={onClose} className="dz-btn dz-btn-ghost">Close</button>
+        </>
+      )}
     >
       <div className="space-y-4" data-testid="flatmate-review-modal">
         {isApp ? (
@@ -153,13 +176,14 @@ export default function FlatmateReviewModal({ entry, onClose, onChanged }) {
                 <button type="button" onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost ml-3">Try again</button>
               </div>
             ) : null}
-            {d ? <PostDetails detail={d} /> : null}
-            {review ? <BadgeSection key={`${review.id}:${review.status}`} review={review} busy={busy} onDecide={decideBadge} /> : null}
+            {d && editing ? <EditDetails detail={d} busy={busy} onSave={saveEdit} onCancel={() => setEditing(false)} /> : null}
+            {d && !editing ? <PostDetails detail={d} /> : null}
+            {review ? <BadgeSection key={`${review.id}:${review.status}`} review={review} busy={busy || editing} onDecide={decideBadge} /> : null}
             {item ? (
               <DecisionSection
                 modStatus={item.modStatus}
                 recheck={item.recheckRequestedAt ? { at: item.recheckRequestedAt, reason: item.recheckReason } : null}
-                busy={busy}
+                busy={busy || editing}
                 onDecide={moderate(item.modStatus)}
               />
             ) : null}

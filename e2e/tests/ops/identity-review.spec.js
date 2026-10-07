@@ -69,7 +69,7 @@ async function submitCase(request, docType, claims) {
     },
   });
   expect(response.status()).toBe(202);
-  return { mobile, headers, claims: nextClaims, row: new RegExp(`${mobile.slice(0, 2)}XXXXX${mobile.slice(-3)}`) };
+  return { mobile, headers, claims: nextClaims, row: new RegExp(mobile) };
 }
 
 async function openCase(page, owner, tab) {
@@ -176,8 +176,7 @@ test('reject reasons use labels and enforce mandatory notes', async ({ page, log
   expect((await rejected).status()).toBe(200);
 });
 
-// Identity review is one back-office function (`kyc`): holding it grants viewing and deciding together,
-// and no function grants either alone, so a view-only identity staffer no longer exists.
+// Identity review is one back-office function (`kyc`): holding it grants viewing and deciding together.
 test('a staffer without the KYC function can neither view nor decide cases', async ({ page, login, request }) => {
   const owner = await submitCase(request, 'passport', { name: 'No Function Case', dob: '1990-01-01' });
   const { mobile } = await login.scopeStaff('rental', ['dashboard:read']);
@@ -214,6 +213,34 @@ test('a staffer holding the KYC function reviews cases and gets the decision con
   await page.getByLabel('Reason').selectOption('other');
   await page.getByLabel('Note').fill('Rejected by a staffer holding the KYC function.');
   const rejected = page.waitForResponse((response) => response.request().method() === 'POST' && /\/moderation\/identity-reviews\/[^/]+\/reject$/.test(new URL(response.url()).pathname));
+  await page.getByRole('button', { name: 'Reject review', exact: true }).click();
+  expect((await rejected).status()).toBe(200);
+});
+
+test('a KYC staffer corrects the applicant\'s account name and email from the case', async ({ page, login, request }) => {
+  const owner = await submitCase(request, 'passport', { name: 'Kyc Edit Case', dob: '1990-01-01' });
+  await login.scopeStaff('rental', ['dashboard:read', 'identity:read']);
+  await login.asStaff('rental');
+
+  await page.goto('/staff/kyc-review');
+  await openCase(page, owner);
+  const account = page.getByTestId('ops-identity-account');
+  await account.getByRole('button', { name: 'Edit account' }).click();
+  await account.getByLabel('Account name').fill('Kyc Edited Name');
+  await account.getByLabel('Account email').fill(`${owner.mobile}@kyc-edit.example.test`);
+  const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/users\/[^/]+\/kyc-profile$/.test(new URL(r.url()).pathname));
+  await account.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(account).toContainText('Kyc Edited Name');
+  await expect(account).toContainText(`${owner.mobile}@kyc-edit.example.test`);
+
+  const { review } = await pendingReview(request, owner);
+  expect(review.accountEmail).toBe(`${owner.mobile}@kyc-edit.example.test`);
+
+  await page.getByRole('tab', { name: 'Reject', exact: true }).click();
+  await page.getByLabel('Reason').selectOption('other');
+  await page.getByLabel('Note').fill('Cleaning up the account edit coverage.');
+  const rejected = page.waitForResponse((r) => r.request().method() === 'POST' && /\/moderation\/identity-reviews\/[^/]+\/reject$/.test(new URL(r.url()).pathname));
   await page.getByRole('button', { name: 'Reject review', exact: true }).click();
   expect((await rejected).status()).toBe(200);
 });

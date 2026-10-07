@@ -133,7 +133,7 @@ public class RentAgreementRegistration {
         Map<UUID, String> urls = documents.findAllById(docIds).stream().collect(Collectors.toMap(Document::getId, d -> documentMapper.toDto(d).url()));
         return rows.stream().map(a -> new RentAgreementRecordDto(a.getId().toString(),
                         names.get(a.getTenantMobile()),
-                        MobileMask.mask(a.getTenantMobile()),
+                        a.getTenantMobile(),
                         a.getStatus(),
                         nameOf(a.getPreparedBy()),
                         nameOf(a.getVerifiedBy()),

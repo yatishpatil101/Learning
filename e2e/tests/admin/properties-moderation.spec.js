@@ -223,3 +223,30 @@ test('cancelling the edit modal discards the change rather than quietly saving i
   expect(after.status).toBe('approved');
   expect(await publicView(id)).toBe(200);
 });
+
+test('a verifier corrects a pending listing from the review panel and lands back in it', async ({ page, login }) => {
+  const title = `Verifier correction ${Date.now()}`;
+  const { id, headers } = await freshListing(title);
+  await login.scopeStaff('rental', ['propertyVerification']);
+  await login.asStaff('rental');
+
+  await page.goto(`/admin/properties?review=${id}`);
+  const review = page.getByRole('dialog', { name: 'Verify property' });
+  await expect(review).toBeVisible();
+  await review.getByRole('button', { name: 'Edit details' }).click();
+
+  const modal = page.getByRole('dialog', { name: 'Edit listing' });
+  await expect(modal).toBeVisible();
+  // Status changes stay with the moderation desk.
+  await expect(modal.getByLabel('Status')).toHaveCount(0);
+  await modal.getByLabel(/^Price/).fill('29500');
+  await modal.getByRole('button', { name: /Save changes/i }).click();
+
+  await expect(modal).toHaveCount(0);
+  await expect(review).toBeVisible();
+  await expect(review.getByTestId('review-summary')).toContainText('29,500');
+
+  const after = await (await fetch(`${API}/me/listings/${id}`, { headers })).json();
+  expect(Number(after.price)).toBe(29500);
+  expect(after.status).toBe('pending');
+});

@@ -3,6 +3,7 @@ package com.draazy.api.services;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -293,7 +294,7 @@ class RentAgreementRegistrationTest extends ServiceFixtures {
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[?(@.tenantName=='Meera Tenant')].otpVerified").value(false))
                 .andExpect(jsonPath("$[?(@.tenantName!='Meera Tenant')].otpVerified").value(true))
-                .andExpect(jsonPath("$[0].tenantMobile").value(not(TENANT_ONE)))
+                .andExpect(jsonPath("$[*].tenantMobile", hasItem(TENANT_ONE)))
                 .andExpect(jsonPath("$[0].preparedBy").value("Rohit Desk"))
                 .andExpect(jsonPath("$[0].preparedByYou").value(false));
 

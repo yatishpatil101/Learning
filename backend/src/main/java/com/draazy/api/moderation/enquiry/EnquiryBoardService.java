@@ -65,7 +65,7 @@ public class EnquiryBoardService {
                     listing == null ? null : listing.getTitle(),
                     listing == null ? null : listing.getLocalitySlug(),
                     requester == null ? null : requester.getName(),
-                    requester == null ? null : MobileMask.mask(requester.getMobile()),
+                    requester == null ? null : requester.getMobile(),
                     row.getStatus(),
                     row.getCreatedAt());
         });
@@ -89,7 +89,7 @@ public class EnquiryBoardService {
                     listing == null ? null : listing.getTitle(),
                     listing == null ? null : listing.getLocalitySlug(),
                     visitor == null ? null : visitor.getName(),
-                    visitor == null ? null : MobileMask.mask(visitor.getMobile()),
+                    visitor == null ? null : visitor.getMobile(),
                     row.getSlot(),
                     row.getMode(),
                     row.getStatus(),
@@ -122,7 +122,7 @@ public class EnquiryBoardService {
                     listing == null ? null : listing.getLocalitySlug(),
                     row.getDeal(),
                     counterparty == null ? null : counterparty.getName(),
-                    mobile == null ? null : MobileMask.mask(mobile),
+                    mobile,
                     row.getAgreedPrice(),
                     row.getStatus(),
                     row.getClosedAt(),
@@ -130,7 +130,7 @@ public class EnquiryBoardService {
         });
     }
 
-    /** {@code GET /admin/enquiries/{id}} — one contact request, requester's mobile revealed. */
+    /** {@code GET /admin/enquiries/{id}} — one contact request; audited, as opening a row is. */
     @Transactional
     public AdminEnquiryDto enquiry(AuthPrincipal actor, String id) {
         ContactRequest row = Ids.parseUuid(id)
@@ -156,7 +156,7 @@ public class EnquiryBoardService {
                 row.getCreatedAt());
     }
 
-    /** {@code GET /admin/visits/{id}} — one site visit, visitor's mobile revealed. */
+    /** {@code GET /admin/visits/{id}} — one site visit; audited. */
     @Transactional
     public AdminVisitDto visit(AuthPrincipal actor, String id) {
         Visit row = Ids.parseUuid(id)
@@ -184,7 +184,7 @@ public class EnquiryBoardService {
                 row.getCreatedAt());
     }
 
-    // Reveals the same preferred typed number as the list, so the audit names its source.
+    // Same preferred typed number as the list; the audit names its source.
     @Transactional
     public AdminDealDto deal(AuthPrincipal actor, String id) {
         Deal row = Ids.parseUuid(id)

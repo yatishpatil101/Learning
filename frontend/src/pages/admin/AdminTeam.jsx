@@ -212,22 +212,17 @@ export default function AdminTeam() {
     const mobile = digits10(f.mobile);
     const email = f.email.trim();
     if (!name) return toast('Name is required', 'error');
-    /* Only a new account carries a mobile. An existing one shows the masked directory value
-       (`97XXXXX115`), which is five digits and would fail this check forever; and `PATCH /users/{id}`
-       does not accept the field anyway, so there is nothing to validate. */
+    // Only a new account carries a mobile: `PATCH /users/{id}` does not accept the field.
     if (!f.id) {
       if (mobile.length !== 10) return toast('Enter a valid 10-digit mobile number', 'error');
       if (!email) return toast('Email is required', 'error');
-      /* A courtesy, not the rule: the directory returns masked mobiles, so this catches only the
-         obvious case and the server's own 409 is what actually refuses a duplicate. */
+      // A courtesy, not the rule: the server's 409 is what actually refuses a duplicate.
       if (members.some((m) => digits10(m.mobile) === mobile)) return toast('Another member already uses this mobile', 'error');
     }
     const current = f.id ? members.find((m) => m.id === f.id) : null;
     const payload = {
       id: f.id,
       name,
-      // Never on an edit: it is not a field the update route accepts, and the value on screen is
-      // the mask, so sending it would put a redaction on the wire as if it were a number.
       mobile: f.id ? undefined : mobile,
       email,
       role: f.role,
@@ -383,10 +378,7 @@ export default function AdminTeam() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-gray-300">Mobile{memberModal.id ? null : <span className="text-rose-400"> *</span>}</span>
-                {/* Read-only on an existing record, for two reasons that happen to agree. There is
-                    no route that changes a back-office account's mobile — it is the sign-in
-                    credential — and the directory only ever publishes it masked (`97XXXXX115`), so
-                    an editable box would be offering to overwrite a real number with a redaction. */}
+                {/* Read-only on an existing record: it is the sign-in credential, and no route changes it. */}
                 <input
                   value={memberModal.mobile}
                   onChange={(e) => setMemberModal({ ...memberModal, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
@@ -396,7 +388,7 @@ export default function AdminTeam() {
                   placeholder="10-digit number"
                 />
                 {memberModal.id ? (
-                  <span className="mt-1 block text-[11px] text-gray-500">Partly hidden, and fixed for the life of the account — it is how they sign in.</span>
+                  <span className="mt-1 block text-[11px] text-gray-500">Fixed for the life of the account — it is how they sign in.</span>
                 ) : null}
               </label>
               <label className="block sm:col-span-2">

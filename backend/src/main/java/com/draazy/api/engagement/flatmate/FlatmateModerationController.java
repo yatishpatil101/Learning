@@ -38,11 +38,13 @@ public class FlatmateModerationController {
 
     private final FlatmateModerationService service;
     private final FlatmateModerationDetails details;
+    private final FlatmateModeratorEditService editor;
 
     public FlatmateModerationController(FlatmateModerationService service,
-            FlatmateModerationDetails details) {
+            FlatmateModerationDetails details, FlatmateModeratorEditService editor) {
         this.service = service;
         this.details = details;
+        this.editor = editor;
     }
 
     /** {@code GET /admin/flatmate-reviews} (contract {@code listFlatmateReviews}) — paged, because
@@ -76,6 +78,14 @@ public class FlatmateModerationController {
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_DETAIL)
     @PreAuthorize(FLATMATES_READ)
     public FlatmateModerationDetailDto detail(@PathVariable UUID id) {
+        return details.find(id);
+    }
+
+    @PatchMapping(Routes.Moderation.FLATMATE_MODERATION_DETAIL)
+    @PreAuthorize(FLATMATES_WRITE)
+    public FlatmateModerationDetailDto edit(@CurrentUser AuthPrincipal principal,
+            @PathVariable UUID id, @Valid @RequestBody FlatmateModeratorEdit body) {
+        editor.edit(principal, id, body);
         return details.find(id);
     }
 

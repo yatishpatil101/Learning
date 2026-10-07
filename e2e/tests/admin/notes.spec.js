@@ -236,13 +236,11 @@ test.describe('LIVE — notes on a person', () => {
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
     await page.getByPlaceholder('Search name, mobile, email…').fill(mobile);
 
-    // Searched by the raw number, found by the masked one, and the two are deliberately different strings.
-    const masked = `${mobile.slice(0, 2)}XXXXX${mobile.slice(-3)}`;
     await expect(page.getByTestId('queue-row'),
       'searching for a mobile that belongs to exactly one account did not narrow the directory to it',
     ).toHaveCount(1);
-    const row = page.getByTestId('queue-row').filter({ hasText: masked }).first();
-    await expect(row, 'the directory found the account but is not masking its number').toBeVisible();
+    const row = page.getByTestId('queue-row').filter({ hasText: mobile }).first();
+    await expect(row).toBeVisible();
     await row.getByRole('button', { name: 'View activity' }).click();
 
     const panel = page.getByTestId('user-notes');

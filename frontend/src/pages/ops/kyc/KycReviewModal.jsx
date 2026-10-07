@@ -5,6 +5,7 @@ import Badge from '../../../components/ui/Badge.jsx';
 import { classNames } from '../../../lib/format.js';
 import useKycCase from './useKycCase.js';
 import KycActionRail, { Field } from './KycActionRail.jsx';
+import KycAccountEditor from './KycAccountEditor.jsx';
 import {
   CHECKLISTS,
   DEFAULT_CHECKLIST,
@@ -131,8 +132,8 @@ function CaseBody({ detail, kase, user, canWrite, summaryRef, onSettled }) {
                   {detail.holderDobYearOnly
                     ? <Field label="Birth year" value={detail.claims?.birthYear || detail.claims?.dob?.slice(0, 4) || 'Not available'} />
                     : <Field label="Date of birth" value={detail.claims?.dob || 'Not available'} />}
-                  {detail.accountName ? <Field label="Account name" value={detail.accountName} /> : null}
                 </dl>
+                <KycAccountEditor detail={detail} canWrite={canWrite} onSaved={kase.refresh} />
               </div>
               {pending || (openQa && !isOwnQaApproval(detail)) ? (
                 <fieldset data-testid="ops-identity-checklist">

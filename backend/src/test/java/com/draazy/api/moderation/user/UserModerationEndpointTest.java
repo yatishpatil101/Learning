@@ -200,7 +200,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.userId").value(target.getId().toString()))
                 .andExpect(jsonPath("$.requestedBy").value(actor.getId().toString()))
                 .andExpect(jsonPath("$.status").value("pending"))
-                .andExpect(jsonPath("$.userMobileMasked").value("98XXXXX006"));
+                .andExpect(jsonPath("$.userMobile").value("9877000006"));
 
         flushSoRawSqlCanSeeIt();
         em.clear();

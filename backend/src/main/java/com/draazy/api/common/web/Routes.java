@@ -1022,10 +1022,12 @@ public final class Routes {
         private Users() {
         }
 
-        /** Staff/admin — paged directory. Mobile is masked here; the detail read reveals it. */
+        /** Staff/admin — paged directory, full mobiles; the detail read is the audited one. */
         public static final String BASE = "/users";
 
         public static final String BY_ID = BASE + "/{id}";
+
+        public static final String KYC_PROFILE = BY_ID + "/kyc-profile";
 
         public static final String ARCHIVE = BY_ID + "/archive";
 

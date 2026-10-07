@@ -1,13 +1,11 @@
 package com.draazy.api.engagement.flatmate;
 
-import com.draazy.api.common.trust.MobileMask;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
-/** Contract schema {@code FlatmateReview}. Masking lives in the compact constructor so no future
- * route can reach an unmasked canonical constructor. */
+/** Contract schema {@code FlatmateReview}. Back-office only, so the host's mobile is in full. */
 public record FlatmateReviewDto(
         UUID id,
         String kind,
@@ -27,10 +25,6 @@ public record FlatmateReviewDto(
         String reason,
         Instant createdAt,
         Instant updatedAt) {
-
-    public FlatmateReviewDto {
-        hostMobile = MobileMask.mask(hostMobile);
-    }
 
     static FlatmateReviewDto of(FlatmateReview review, String hostName, String hostMobile) {
         return new FlatmateReviewDto(

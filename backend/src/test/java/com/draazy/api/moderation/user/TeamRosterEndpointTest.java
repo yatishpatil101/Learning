@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -95,7 +94,7 @@ class TeamRosterEndpointTest extends AbstractApiTest {
         assertThat(this.<List<String>>field(roster, admin, "functions")).isEmpty();
         assertThat(this.<Boolean>field(roster, archived, "archived")).isTrue();
         assertThat(this.<Boolean>field(roster, scoped, "archived")).isFalse();
-        assertThat(this.<String>field(roster, scoped, "mobile")).isEqualTo(MobileMask.mask(scoped.getMobile()));
+        assertThat(this.<String>field(roster, scoped, "mobile")).isEqualTo(scoped.getMobile());
     }
 
     @Test

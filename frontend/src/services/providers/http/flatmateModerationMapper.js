@@ -18,9 +18,6 @@ const httpUrl = (v) => {
   return s && /^(https?:\/\/|\/(?![/\\]))/i.test(s) ? s : null;
 };
 
-// `hostMobile` arrives already masked from the server, so it is passed straight through — re-masking
-// a mask would render `••••• X210`. There is deliberately no "Reveal": no endpoint discloses the rest.
-
 // `agreementDoc` is free-form JSONB holding the consumer's base64 file, or `{ tooLarge: true }`
 // above 3 MB. Both shapes pass through untouched; `viewable` is the honest predicate.
 export function toReviewViewModel(row) {

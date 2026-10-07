@@ -2540,7 +2540,7 @@ paths:
       tags: [Moderation]
       summary: List all users (admin)
       operationId: listUsers
-      # S28: Ops needs to find a user to help them; mobile is masked on the list.
+      # Ops needs to find a user and call them; the back office sees full mobiles.
       x-roles: [staff, manager, admin]
       parameters:
         - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
@@ -2581,7 +2581,7 @@ paths:
       tags: [Moderation]
       summary: User detail + listings
       operationId: getUser
-      # S28: Ops needs the contact detail to act on a case; the reveal is audited.
+      # Opening one person's record is audited.
       x-roles: [staff, manager, admin]
       responses:
         '200':
@@ -2612,6 +2612,34 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /users/{id}/kyc-profile:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Correct a KYC applicant's name or email
+      description: >
+        For the KYC desk (`identity:write`): fix the account's name or email to match the document
+        under review. Only accounts that have submitted identity verification; audited as `user.update`.
+      operationId: kycUpdateUser
+      x-roles: [staff, manager, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Email already in use, or name locked while verified (`NAME_LOCKED_WHILE_VERIFIED`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /users/{id}/archive:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -4172,11 +4200,8 @@ paths:
         letting ops write the owner's decision field.
 
 
-        Requester mobiles are **masked on this list**, at every status — `ContactRequest` reveals the
-        raw number to the owner once they approve, and that reveal rests on a relationship an
-        operator does not have. No parameter unmasks them here. To reach one number, an
-        administrator opens the row: `revealEnquiryForOps` returns the same object unmasked and
-        writes an audit entry saying it did.
+        Requester mobiles are in full: the back office calls customers. Opening one row
+        (`revealEnquiryForOps`) is audited; browsing the list is not.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -4187,7 +4212,7 @@ paths:
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Paged contact requests, requester mobiles masked
+          description: Paged contact requests
           content:
             application/json:
               schema:
@@ -4203,30 +4228,13 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
       tags: [Moderation]
-      summary: One enquiry with the requester's mobile revealed, audited
+      summary: One enquiry, audited
       operationId: revealEnquiryForOps
-      description: >
-        The same object `listEnquiriesForOps` returns, with `requesterMobile` **unmasked**, and never
-        without a row in the audit log.
-
-
-        **Why a reveal exists at all.** The board masks because an operator is party to none of these
-        conversations — correct about the list, and incomplete as a rule. "Party to the conversation"
-        is the right test for a user and the wrong one for the platform's own support desk: an operator
-        working *a visit was booked and nobody came* is doing the job the product asked of them, and
-        `98XXXXX210` does not let them do it.
-
-
-        **Why this shape is safe.** One id, one row, one audit entry — never a `?reveal=true` on the
-        list, which would make "every mobile on the platform" a single request and is the shape of an
-        export rather than of a support action. **admin** only, where the list is staff-and-admin, on
-        the same `enquiries:read` atom with only the role raised. The audit write happens before the
-        response is composed, so a reveal cannot succeed unlogged, and the row stores the *masked*
-        number: the log records that a reveal happened, not a second copy of what was revealed.
-      x-roles: [admin]
+      description: The same row the list returns; writes an audit entry, as opening one person's record does.
+      x-roles: [staff, admin]
       responses:
         '200':
-          description: The enquiry, requester mobile unmasked
+          description: The enquiry
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OpsEnquiry' }
@@ -4239,8 +4247,7 @@ paths:
       operationId: listVisitsForOps
       description: >
         Every site visit on the platform, newest first. Read-only for the same reason as
-        `listEnquiriesForOps`; visitor mobiles are masked here whatever the visit's status, and
-        `revealVisitForOps` is the audited way to one of them.
+        `listEnquiriesForOps`; visitor mobiles are in full.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -4250,7 +4257,7 @@ paths:
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Paged visits, visitor mobiles masked
+          description: Paged visits
           content:
             application/json:
               schema:
@@ -4266,17 +4273,13 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
       tags: [Moderation]
-      summary: One visit with the visitor's mobile revealed, audited
+      summary: One visit, audited
       operationId: revealVisitForOps
-      description: >
-        `visitorMobile` unmasked, against an audit entry. Same rules as `revealEnquiryForOps`: admin
-        only, one row at a time, logged before the response is built. A no-show is the case where a
-        support desk most needs to reach somebody and precisely the case the relationship test cannot
-        serve.
-      x-roles: [admin]
+      description: The same row the list returns; writes an audit entry, as opening one person's record does.
+      x-roles: [staff, admin]
       responses:
         '200':
-          description: The visit, visitor mobile unmasked
+          description: The visit
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OpsVisit' }
@@ -4290,9 +4293,8 @@ paths:
       description: >
         Every deal on the platform, newest first — the funnel's floor, and the rows the board's GMV
         tile sums. `agreedPrice` is null until a deal closes, so GMV is a sum over closed deals by
-        construction. Read-only; counterparty mobiles are masked here even though `Deal` reveals them
-        to the owner, who typed the number in themselves. `revealDealForOps` is the audited way to
-        one of them.
+        construction. Read-only; counterparty mobiles are in full, preferring the number an owner
+        typed on an off-platform close.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -4302,7 +4304,7 @@ paths:
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Paged deals, counterparty mobiles masked
+          description: Paged deals
           content:
             application/json:
               schema:
@@ -4318,19 +4320,13 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
       tags: [Moderation]
-      summary: One deal with the counterparty's mobile revealed, audited
+      summary: One deal, audited
       operationId: revealDealForOps
-      description: >
-        `counterpartyMobile` unmasked, against an audit entry. Same rules as `revealEnquiryForOps`,
-        with one addition that matters only here: a deal's number has two possible sources — one
-        typed by an owner closing off-platform, one belonging to a registered account — and the audit
-        row records which. A typed number may belong to somebody who never held an account and never
-        agreed to anything, so a log that cannot tell a stranger's number from a user's is not much
-        of a log.
-      x-roles: [admin]
+      description: The same row the list returns; writes an audit entry, as opening one person's record does.
+      x-roles: [staff, admin]
       responses:
         '200':
-          description: The deal, counterparty mobile unmasked
+          description: The deal
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OpsDeal' }
@@ -4787,7 +4783,7 @@ paths:
                   description: The rung to move to. Must be reachable from the current one.
       responses:
         '200':
-          description: Moved — the row as the checker sees it (mobile masked).
+          description: Moved — the row as the checker sees it.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RentAgreementRecord' }
@@ -4877,7 +4873,7 @@ paths:
         What the desk's review popup opens. The id is resolved across seeker posts, rooms and groups,
         like `PATCH /admin/flatmates/{id}/moderation`. Exactly one of `room`, `group` or `post` is
         present, matching `item.kind`; `review` is the verification case when the post claimed a
-        tier that needs one. Every mobile number is masked.
+        tier that needs one. Mobiles are in full, except a landlord's consent number.
       operationId: getFlatmateModerationDetail
       responses:
         '200':
@@ -4887,6 +4883,42 @@ paths:
               schema: { $ref: '#/components/schemas/FlatmateModerationDetail' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Moderation]
+      summary: Correct a flatmate post's core fields from the moderation desk
+      description: >
+        `flatmates:write`. Omitted fields are left as they are. `rent` is a room's share, a group's
+        rent and a seeker's budget; `moveIn` is a room's available-from date, a hunting group's
+        move-in-by and a seeker's move-in. A field the kind does not have is 422. Audited as
+        `flatmate.adminUpdate`; the post is not sent back for review.
+      operationId: editFlatmateAsModerator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: [string, 'null'], maxLength: 120 }
+                note: { type: [string, 'null'], maxLength: 600 }
+                rent: { type: [integer, 'null'], minimum: 1, maximum: 10000000 }
+                deposit: { type: [integer, 'null'], minimum: 0, maximum: 10000000 }
+                localities:
+                  type: [array, 'null']
+                  minItems: 1
+                  maxItems: 10
+                  items: { type: string, maxLength: 80 }
+                moveIn: { type: [string, 'null'], format: date }
+      responses:
+        '200':
+          description: The post after the edit
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateModerationDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Locality of a room split from a flat (`SPLIT_ROOM`) — edit the property }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/flatmates/{id}/moderation:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -10225,8 +10257,8 @@ paths:
       operationId: listTeam
       description: >
         The Team & Access roster in one read: administrator, managers and staff, live and archived,
-        with the function names `GET /users/{id}/permissions` reports as `functions`. Mobiles are
-        masked. `functions` is filled on the same terms as that read — an administrator sees every
+        with the function names `GET /users/{id}/permissions` reports as `functions`, mobiles in
+        full. `functions` is filled on the same terms as that read — an administrator sees every
         manager and staff account, a manager only staff and itself — and is empty otherwise
         (always for the administrator, who holds every function).
       x-roles: [manager, admin]
@@ -11057,7 +11089,7 @@ components:
         id: { type: string }
         userId: { type: string }
         userName: { type: string }
-        userMobileMasked: { type: string }
+        userMobile: { type: string }
         requestedBy: { type: string }
         requestedByName: { type: string }
         reason: { type: string }
@@ -12419,27 +12451,26 @@ components:
       type: object
       description: >
         One contact request on the ops demand board. Not `ContactRequest`: that is the owner's view
-        of their own inbox and reveals the requester's raw mobile once approved. Here the mobile is
-        masked at every status — an operator is party to none of these conversations.
+        of their own inbox. Here the requester's mobile is in full at every status.
       properties:
         id: { type: string, format: uuid }
         propertyId: { type: string, format: uuid }
         propertyTitle: { type: string, nullable: true, description: Null if the listing is gone }
         locality: { type: string, nullable: true, description: Locality slug }
         requesterName: { type: string, nullable: true }
-        requesterMobile: { type: string, nullable: true, description: 'Always masked (98XXXXX210)' }
+        requesterMobile: { type: string, nullable: true }
         status: { type: string, enum: [pending, approved, declined] }
         createdAt: { type: string, format: date-time }
     OpsVisit:
       type: object
-      description: One site visit on the ops demand board. Visitor mobile always masked.
+      description: One site visit on the ops demand board.
       properties:
         id: { type: string, format: uuid }
         propertyId: { type: string, format: uuid }
         propertyTitle: { type: string, nullable: true }
         locality: { type: string, nullable: true }
         visitorName: { type: string, nullable: true }
-        visitorMobile: { type: string, nullable: true, description: 'Always masked' }
+        visitorMobile: { type: string, nullable: true }
         slot: { type: string, format: date-time }
         mode: { type: string, enum: [in-person, video] }
         status: { type: string, enum: [scheduled, confirmed, completed, cancelled] }
@@ -12459,7 +12490,7 @@ components:
           type: string
           nullable: true
           description: Null for an off-platform close against a number that belongs to no account
-        counterpartyMobile: { type: string, nullable: true, description: 'Always masked' }
+        counterpartyMobile: { type: string, nullable: true }
         agreedPrice: { type: integer, nullable: true, description: Whole INR, set on close }
         status: { type: string, enum: [active, reserved, closed] }
         closedAt: { type: string, format: date-time, nullable: true }
@@ -13573,7 +13604,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: [string, 'null'] }
-        mobile: { type: string, example: '90XXXXX000' }
+        mobile: { type: string, example: '9000000000' }
         email: { type: [string, 'null'] }
         role: { type: string, enum: [staff, manager, admin] }
         status: { type: string, enum: [active, suspended, archived] }
@@ -13685,6 +13716,7 @@ components:
         userId: { type: string, format: uuid }
         userName: { type: string }
         accountName: { type: [string, 'null'], description: Current `users.name`; approval will overwrite it with the confirmed holder name. }
+        accountEmail: { type: [string, 'null'], description: Current `users.email`; editable from the case via `kycUpdateUser`. }
         userMobile: { $ref: '#/components/schemas/Mobile' }
         userRole: { $ref: '#/components/schemas/Role' }
         status: { $ref: '#/components/schemas/IdentityVerificationStatus' }
@@ -15168,12 +15200,11 @@ components:
     RentAgreementRecord:
       type: object
       description: >
-        One tenancy row a registered copy produced, as the registration checker sees it. The mobile
-        is masked: the checker matches the name against the registered copy, not the number.
+        One tenancy row a registered copy produced, as the registration checker sees it.
       properties:
         id: { type: string }
         tenantName: { type: [string, 'null'] }
-        tenantMobile: { type: string, example: '98XXXXXX01' }
+        tenantMobile: { type: string, example: '9876543201' }
         status: { type: string, enum: [draft, e-sign-pending, registered, active, expired] }
         preparedBy: { type: [string, 'null'], description: Operator who uploaded the registered copy. }
         verifiedBy: { type: [string, 'null'], description: Operator who checked it. }
@@ -16258,12 +16289,8 @@ components:
         host: { type: string }
         hostMobile:
           type: [string, 'null']
-          example: 98XXXXX210
-          description: >
-            Always masked. The old argument for sending it whole was that ops cannot check a rent
-            agreement without ringing the uploader; the desk never took the offer, and a whole
-            number on every row of a paged `flatmates:read` queue was a bulk contact list earned
-            for nothing. Do not parse the mask for digits.
+          example: '9876543210'
+          description: In full — back-office only.
         address: { type: string }
         tier: { $ref: '#/components/schemas/VerificationTier' }
         flagForReview: { type: boolean, description: Contested address — a DIFFERENT host already claimed it. Fuzzy match, so flag-not-block. }

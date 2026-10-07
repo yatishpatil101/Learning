@@ -250,7 +250,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     await expect(shown.getByRole('note')).not.toContainText('Registration fee');
   });
 
-  test('the desk shows the deed particulars, masks mobiles, and will not share a draft until every check is ticked', async ({ page }) => {
+  test('the desk shows the deed particulars with full mobiles, and will not share a draft until every check is ticked', async ({ page }) => {
     const customer = (await apiLogin(uniqueMobile())).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
@@ -280,11 +280,10 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     };
     await expect(await section('Property')).toContainText('B-702');
     await expect(await section('Terms')).toContainText('6 months');
-    await expect(await section('Licensee')).toContainText('••••••4321');
+    await expect(await section('Licensee')).toContainText('9922054321');
     const licensor = await section('Licensor');
     await expect(licensor).toContainText('for Vinod Deshpande, reg. HVL3-889-2024 (Haveli 3, 2024-03-15)');
-    await expect(licensor).toContainText('••••••2345');
-    await expect(dialog).not.toContainText('9822012345');
+    await expect(licensor).toContainText('9822012345');
 
     await dialog.locator('#service-draft-file').setInputFiles({ name: 'draft.png', mimeType: 'image/png', buffer: PNG });
     const share = dialog.getByRole('button', { name: 'Share draft' });
@@ -522,7 +521,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     expect((await call('POST', `/service-requests/${id}/docs`, customer, planted)).status).toBe(409);
   });
 
-  test('a second operator confirms the tenancy from the desk, without seeing the full mobile', async ({ page }) => {
+  test('a second operator confirms the tenancy from the desk, seeing the full mobile', async ({ page }) => {
     const { id, admin, tenantMobile } = await completedAgreement();
 
     await signIn(page, STAFF.rental, { screen: 'staff' });
@@ -531,7 +530,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const panel = dialog.getByRole('region', { name: 'Registration check' });
     await expect(panel.getByText(TENANT_NAME)).toBeVisible();
     await expect(panel.getByText('Awaiting check')).toHaveCount(2);
-    await expect(panel).not.toContainText(tenantMobile);
+    await expect(panel).toContainText(tenantMobile);
     await expect(panel.getByRole('button', { name: 'Open the registered copy' })).toBeVisible();
 
     await panel.getByRole('button', { name: `Confirm ${TENANT_NAME} registered` }).click();

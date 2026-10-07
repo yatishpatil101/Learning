@@ -1,4 +1,4 @@
-import { del, get, post, unwrapPage } from '../../http.js';
+import { del, get, patch, post, unwrapPage } from '../../http.js';
 
 const reviewPath = (id) => `/moderation/identity-reviews/${encodeURIComponent(id)}`;
 
@@ -69,4 +69,8 @@ export async function revokeIdentityReview(id, reason) {
 
 export async function qaIdentityReview(id, payload) {
   return mapReview(await post(`${reviewPath(id)}/qa`, payload));
+}
+
+export async function updateKycProfile(userId, { name, email }) {
+  return patch(`/users/${encodeURIComponent(userId)}/kyc-profile`, { name: name || undefined, email: email || undefined });
 }

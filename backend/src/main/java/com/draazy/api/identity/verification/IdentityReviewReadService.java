@@ -1,7 +1,6 @@
 package com.draazy.api.identity.verification;
 
 import com.draazy.api.common.audit.AuditService;
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.provider.FileStorage;
@@ -109,7 +108,8 @@ public class IdentityReviewReadService {
                 v.getUserId(),
                 user == null ? null : user.getName(),
                 user == null ? null : user.getName(),
-                user == null ? null : (withDetail ? user.getMobile() : MobileMask.mask(user.getMobile())),
+                user == null ? null : user.getEmail(),
+                user == null ? null : user.getMobile(),
                 user == null ? null : user.getRole(),
                 v.getStatus(),
                 v.getDocType(),

@@ -47,6 +47,8 @@ public class UserAdminController {
             MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE;
     private static final String ADMIN_WRITE =
             ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE;
+    private static final String KYC_EDIT =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_IDENTITY_WRITE;
 
     // Admin-only because one timeline arm reads the audit log.
     private static final String TIMELINE_READ =
@@ -98,7 +100,7 @@ public class UserAdminController {
                         body.functions()));
     }
 
-    /** {@code GET /users/{id}} (contract {@code getUser}) — unmasked mobile, audited. */
+    /** {@code GET /users/{id}} (contract {@code getUser}) — audited single-user read. */
     @GetMapping(Routes.Users.BY_ID)
     @PreAuthorize(USERS_READ)
     public UserResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
@@ -126,6 +128,13 @@ public class UserAdminController {
     public UserResponse update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody UserPatchRequest body) {
         return service.update(principal, id, body.name(), body.email(), body.avatar());
+    }
+
+    @PatchMapping(Routes.Users.KYC_PROFILE)
+    @PreAuthorize(KYC_EDIT)
+    public UserResponse updateForKyc(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @Valid @RequestBody UserPatchRequest body) {
+        return service.updateForKyc(principal, id, body.name(), body.email());
     }
 
     /** {@code PATCH /users/{id}/archive} (contract {@code archiveUser}). */
@@ -215,7 +224,7 @@ public class UserAdminController {
             @NotBlank String role, List<String> functions) {
     }
 
-    public record UserPatchRequest(String name, @Email String email, String avatar) {
+    public record UserPatchRequest(@Size(max = 80) String name, @Email @Size(max = 254) String email, String avatar) {
     }
 
     public record ReasonBody(String reason) {

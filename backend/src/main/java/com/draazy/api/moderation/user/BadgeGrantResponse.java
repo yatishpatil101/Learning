@@ -6,7 +6,7 @@ public record BadgeGrantResponse(
         String id,
         String userId,
         String userName,
-        String userMobileMasked,
+        String userMobile,
         String requestedBy,
         String requestedByName,
         String reason,

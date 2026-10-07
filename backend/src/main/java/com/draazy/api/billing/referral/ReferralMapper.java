@@ -1,6 +1,5 @@
 package com.draazy.api.billing.referral;
 
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import java.util.HashMap;
@@ -12,10 +11,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
-/**
- * Entity→wire projection for the referral fraud desk; batch-loads referrer name and referee tally
- * to avoid N+1. Masking is private per api-standards §8.1.
- */
+/** Batch-loads referrer name and referee tally to avoid N+1. */
 @Component
 public class ReferralMapper {
 
@@ -56,9 +52,9 @@ public class ReferralMapper {
         return referrals.stream().map(r -> new ReferralDto(
                 r.getId().toString(),
                 names.get(r.getReferrerId()),
-                masked(r.getReferrerMobile()),
+                r.getReferrerMobile(),
                 r.getReferred(),
-                masked(r.getReferredMobile()),
+                r.getReferredMobile(),
                 channelOf(r, hasListed),
                 r.getShareChannel(),
                 r.getReward(),
@@ -77,20 +73,12 @@ public class ReferralMapper {
                 r.getHandledAt())).toList();
     }
 
-    /**
-     * Which side the referee is on, read now via the current tally. Falls back to the stored value
-     * on an unresolvable mobile. Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    /** Reads the side from the current tally, falling back to the stored value if the mobile can't be resolved. */
     private static String channelOf(Referral r, Map<String, Boolean> hasListed) {
         Boolean listed = hasListed.get(r.getReferredMobile());
         if (listed == null) {
             return r.getChannel();
         }
         return Boolean.TRUE.equals(listed) ? "owner" : "seeker";
-    }
-
-    /** See the class Javadoc for why this is private and hand-written. */
-    private static String masked(String mobile) {
-        return MobileMask.mask(mobile);
     }
 }

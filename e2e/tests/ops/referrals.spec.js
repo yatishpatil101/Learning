@@ -5,7 +5,7 @@ import { API, apiLogin } from '../../helpers/liveAuth.js';
 /** One referrer and one referee per test; referees are chosen for their identity badge, which
  * `ReferralService.approve` gates on. */
 const PAIRS = {
-  masked: {
+  shown: {
     referrer: { mobile: '9108512606', name: 'Tanvi Mehta' },
     referee: { mobile: '9122040348', name: 'Tanvi Deshpande' },
   },
@@ -34,7 +34,7 @@ const STAFF = '9733798115';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
-/** Redeem one referral through the consumer path, and hand back the referee's masked row. */
+/** Redeem one referral through the consumer path and return its code. */
 async function seedReferral({ referrer, referee }) {
   const { accessToken: referrerToken } = await apiLogin(referrer.mobile);
   const summary = await fetch(`${API}/me/referrals`, { headers: auth(referrerToken) }).then((r) => r.json());
@@ -89,22 +89,18 @@ async function openDesk(page, login) {
 }
 
 test.describe('Ops → referral fraud desk (live)', () => {
-  test('a redeemed referral reaches the desk with both numbers masked', async ({ page, login }) => {
-    const { referrer, referee } = PAIRS.masked;
-    await seedReferral(PAIRS.masked);
+  test('a redeemed referral reaches the desk with both numbers in full', async ({ page, login }) => {
+    const { referrer, referee } = PAIRS.shown;
+    await seedReferral(PAIRS.shown);
     await openDesk(page, login);
 
     const row = rowFor(page, referee.name);
     await expect(row).toContainText(referrer.name);
     await expect(statusOf(page, referee.name, 'pending')).toBeVisible();
 
-    /* The masking is the point, not a detail. A privileged list is masked platform-wide and there
-       is no unmasked single-record read for referrals to fall back on, so a checker decides on the
-       signals rather than on the parties' phone numbers. The mock handed both over in full. */
-    await expect(page.getByText(referee.mobile)).toHaveCount(0);
-    await expect(page.getByText(referrer.mobile)).toHaveCount(0);
+    await expect(row).toContainText(`${referrer.mobile} → ${referee.mobile}`);
 
-    // The signals are what the desk gets instead, and they are computed server-side.
+    // The signals are computed server-side.
     await expect(row).toContainText('Identity verified');
     await expect(row).toContainText('Same IP');
   });

@@ -162,19 +162,13 @@ export const test = base.extend({
       return res.json();
     };
 
-    // The admin directory still masks mobiles, so staff lookup must use the mask.
-    const masked = (mobile) => {
-      const digits = String(mobile).replace(/\D/g, '');
-      return `${digits.slice(0, 2)}XXXXX${digits.slice(-3)}`;
-    };
-
     const scope = async (mobile, atoms) => {
       const res = await fetch(`${API}/users?role=staff&size=100`, {
         headers: await authHeaders(ACTORS.admin),
       });
       if (!res.ok) throw new Error(`listing staff failed (${res.status})`);
       const page1 = await res.json();
-      const want = masked(mobile);
+      const want = String(mobile).replace(/\D/g, '');
       const row = (page1.content || page1.items || []).find((u) => u.mobile === want);
       if (!row) throw new Error(`no back-office account shown as ${want} — see fixtures/live.js`);
       await put(row.id, atoms);

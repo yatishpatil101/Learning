@@ -57,10 +57,10 @@ export default function BadgeApprovals({ requests, currentUser, onReload }) {
             key={request.id}
             id={request.id}
             testId="admin-badge-grant-row"
-            title={request.userName || request.userMobileMasked || request.userId}
+            title={request.userName || request.userMobile || request.userId}
             meta={(
               <>
-                <span>{request.userMobileMasked || '—'}</span>
+                <span>{request.userMobile || '—'}</span>
                 <span className="text-gray-600" aria-hidden="true">·</span>
                 <span>requested by {request.requestedByName || request.requestedBy || '—'}</span>
                 <span className="text-gray-600" aria-hidden="true">·</span>
@@ -100,7 +100,7 @@ export default function BadgeApprovals({ requests, currentUser, onReload }) {
         {decision ? (
           <div className="space-y-3">
             <p className="text-sm text-gray-400">
-              {decision.request.userName || decision.request.userMobileMasked} · requested by {decision.request.requestedByName || decision.request.requestedBy}
+              {decision.request.userName || decision.request.userMobile} · requested by {decision.request.requestedByName || decision.request.requestedBy}
             </p>
             <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-300">{decision.request.reason}</p>
             {error ? <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}

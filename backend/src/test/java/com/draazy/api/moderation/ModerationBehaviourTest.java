@@ -433,15 +433,15 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the user list masks mobiles; the detail read reveals and is audited")
-    void mobileIsMaskedOnListAndAuditedOnReveal() throws Exception {
+    @DisplayName("the user list shows full mobiles unaudited; opening one user is audited")
+    void mobileIsFullOnListAndDetailReadIsAudited() throws Exception {
         User staff = user("9800000107", "staff", "Ops");
         User subject = user("9800000108", "buyer", "Subject");
 
         mvc.perform(get("/users").param("q", "Subject")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].mobile").value(org.hamcrest.Matchers.not("9800000108")));
+                .andExpect(jsonPath("$.content[0].mobile").value("9800000108"));
 
         assertThat(auditRows("user.contact.reveal", subject.getId())).isEmpty();
 

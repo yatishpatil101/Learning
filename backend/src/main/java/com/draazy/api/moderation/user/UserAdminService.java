@@ -17,6 +17,8 @@ import com.draazy.api.identity.user.UserMapper;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.identity.user.UserResponse;
 import com.draazy.api.identity.user.UserStatuses;
+import com.draazy.api.identity.verification.IdentityVerificationService;
+import com.draazy.api.identity.verification.VerificationStatuses;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.BackOfficeFunctions;
@@ -32,7 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-// List masks mobiles; single-user read reveals and audits.
+// Back office sees full mobiles; only the single-user read is audited.
 @Service
 public class UserAdminService {
 
@@ -47,9 +49,10 @@ public class UserAdminService {
     private final BackOfficeGrantRepository grants;
     private final AccountPermissions accountPermissions;
     private final ObjectMapper objectMapper;
+    private final IdentityVerificationService identity;
     private final String baseUrl;
 
-    /** Lookup and the masked/full wire projection, shared with {@link UserModerationService}. */
+    /** Lookup and the back-office wire projection, shared with {@link UserModerationService}. */
     private final BackOfficeUserView view;
 
     public UserAdminService(UserRepository users, UserMapper mapper,
@@ -58,7 +61,7 @@ public class UserAdminService {
             StaffSignInService staffSignIn, RefreshTokenService refreshTokens,
             BackOfficeUserView view, AdminActionNotifier adminNotifications,
             BackOfficeGrantRepository grants, AccountPermissions accountPermissions,
-            ObjectMapper objectMapper,
+            ObjectMapper objectMapper, IdentityVerificationService identity,
             @Value("${draazy.app.base-url}") String baseUrl) {
         this.users = users;
         this.mapper = mapper;
@@ -72,17 +75,18 @@ public class UserAdminService {
         this.grants = grants;
         this.accountPermissions = accountPermissions;
         this.objectMapper = objectMapper;
+        this.identity = identity;
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
-    // No audit row: list pages reveal no unmasked mobile and would bury real reveal reads.
+    // No audit row: a list page is browsing, and logging it would bury the single-user reads.
     @Transactional(readOnly = true)
     public Page<UserResponse> list(String role, boolean customers, String q, String status, Boolean flagged,
             boolean archived, Pageable pageable) {
         String prefix = (q == null || q.isBlank()) ? null : likePrefix(q.trim().toLowerCase());
         String state = (status == null || status.isBlank()) ? null : status.trim();
         return users.searchForAdmin(role, customers, prefix, state, flagged, archived, pageable)
-                .map(this::masked);
+                .map(view::full);
     }
 
     // One grouped COUNT over the same role/customers/q the list uses, so every status tab says what it
@@ -129,12 +133,35 @@ public class UserAdminService {
     public UserResponse update(AuthPrincipal actor, String id, String name, String email, String avatar) {
         User user = load(id);
         refuseManagerOnNonStaff(actor, user);
+        return applyProfile(actor, "user.update", user, name, email, avatar, false);
+    }
+
+    // KYC reviewers correct a customer's account to match the document they submitted.
+    @Transactional
+    public UserResponse updateForKyc(AuthPrincipal actor, String id, String name, String email) {
+        User user = load(id);
+        if (Roles.isBackOffice(user.getRole())) {
+            throw new ForbiddenException("Back-office accounts are edited under Team & Access.");
+        }
+        String caseStatus = identity.status(user.getId()).status();
+        if (VerificationStatuses.NONE.equals(caseStatus)) {
+            throw NotFoundException.of("Identity review");
+        }
+        // A hand-revoked badge clears user.verified but leaves the case verified.
+        boolean caseVerified = VerificationStatuses.VERIFIED.equals(caseStatus);
+        return applyProfile(actor, "user.kycProfileUpdate", user, name, email, null, caseVerified);
+    }
+
+    private UserResponse applyProfile(AuthPrincipal actor, String action, User user, String name,
+            String email, String avatar, boolean nameLocked) {
+        String id = user.getId().toString();
         String previousName = user.getName();
+        String previousEmail = user.getEmail();
         boolean nameChanged = false;
         if (name != null && !name.isBlank()) {
             String nextName = name.trim();
             nameChanged = !nextName.equals(previousName);
-            if (nameChanged && user.isVerified()) {
+            if (nameChanged && (user.isVerified() || nameLocked)) {
                 throw new ConflictException(ErrorCodes.NAME_LOCKED_WHILE_VERIFIED,
                         "Verified profiles cannot change name from admin edit. Use the trust review flow.");
             }
@@ -150,13 +177,9 @@ public class UserAdminService {
         if (avatar != null && !avatar.isBlank()) {
             user.setAvatar(avatar.trim());
         }
-        if (nameChanged) {
-            audit.record(actor, "user.update", "user", id, "name", name,
-                    "previousName", previousName, "email", email, "avatar", avatar);
-        } else {
-            audit.record(actor, "user.update", "user", id, "name", name, "email", email,
-                    "avatar", avatar);
-        }
+        audit.record(actor, action, "user", id, "name", name,
+                "previousName", nameChanged ? previousName : null, "email", email,
+                "previousEmail", email == null || email.isBlank() ? null : previousEmail, "avatar", avatar);
         return view.full(user);
     }
 
@@ -261,11 +284,6 @@ public class UserAdminService {
             }
         }
         return names;
-    }
-
-    /** Mask the mobile on the wire without touching the managed entity. */
-    private UserResponse masked(User user) {
-        return view.masked(user);
     }
 
     // Lost phone: clear the authenticator and end live sessions; next sign-in enrols afresh.

@@ -24,7 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** A referral scheme is an endpoint that pays strangers: redeeming grants nothing, every refusal is
- *  identical so codes cannot be probed, the desk is staff-only and both mobiles stay masked. */
+ *  identical so codes cannot be probed, the desk is staff-only and shows both mobiles in full. */
 class ReferralEndpointsTest extends AbstractApiTest {
 
     /** {@code fees.referralContactBonus} in the seeded settings row — owner contacts, not rupees. */
@@ -173,7 +173,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void theQueueIsPagedAndMasksBothMobiles() throws Exception {
+    void theQueueIsPagedAndShowsBothMobiles() throws Exception {
         User referrer = user("9866600040", "owner");
         User referred = user("9866600041", "buyer");
         User staff = user("9866600042", "staff");
@@ -186,10 +186,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.page").exists())
                 .andExpect(jsonPath("$.content[0].status").value(ReferralStatuses.PENDING))
                 .andExpect(jsonPath("$.content[0].rewardAmount").value(REWARD))
-                .andExpect(jsonPath("$.content[0].referrerMobile",
-                        Matchers.not(Matchers.containsString(referrer.getMobile()))))
-                .andExpect(jsonPath("$.content[0].referredMobile",
-                        Matchers.not(Matchers.containsString(referred.getMobile()))))
+                .andExpect(jsonPath("$.content[0].referrerMobile").value(referrer.getMobile()))
+                .andExpect(jsonPath("$.content[0].referredMobile").value(referred.getMobile()))
                 // False because the fixture redeems from a different address than the code was
                 // minted from — see codeOf. False means "no correlation found".
                 .andExpect(jsonPath("$.content[0].sameDevice").value(false))

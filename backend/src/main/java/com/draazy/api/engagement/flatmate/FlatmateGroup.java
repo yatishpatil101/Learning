@@ -251,6 +251,15 @@ public class FlatmateGroup extends AuditedEntity implements FlatmateSupplyPost {
         moveInBy = null;
     }
 
+    void relocate(List<String> next) {
+        localities = new ArrayList<>(next);
+        locality = next.get(0);
+    }
+
+    void moveInBy(LocalDate date) {
+        moveInBy = date;
+    }
+
     public FlatmateGroupPreferences getPreferences() {
         if (!hunting) {
             return null;

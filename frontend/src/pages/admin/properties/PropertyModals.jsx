@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { Archive, ExternalLink, Flag, MapPin, Save, X, XCircle } from 'lucide-react';
+import { Archive, ExternalLink, Flag, MapPin, Save, XCircle } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
 import { fmtINR } from '../../../lib/format.js';
 import Modal from '../../../components/ui/Modal.jsx';
@@ -9,19 +9,19 @@ import InternalNote from '../../../components/ui/InternalNote.jsx';
 import { EDIT_DEAL_OPTS, EDIT_STATUS_OPTS, dealLabel, perSqftLabel, liveHref, detailKvs, fmtAgo, statusLabel } from './constants.js';
 import { REVIEW_REASONS, ownerMessagePreview } from './reviewReasons.js';
 
-export function PropertyEditModal({ edit, setEdit, onSubmit }) {
+export function PropertyEditModal({ edit, setEdit, onClose, onSubmit, saving, canSetStatus }) {
   if (!edit) return null;
   const rejected = edit._ref?.status === 'rejected';
   return (
     <Modal
       open={!!edit}
-      onClose={() => setEdit(null)}
+      onClose={onClose}
       title="Edit listing"
       size="lg"
       footer={
         <>
-          <button onClick={() => setEdit(null)} className="dz-btn dz-btn-ghost">Cancel</button>
-          <button onClick={onSubmit} className="dz-btn dz-btn-primary"><Save className="h-4 w-4" /> Save changes</button>
+          <button type="button" onClick={onClose} disabled={saving} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button type="button" onClick={onSubmit} disabled={saving} className="dz-btn dz-btn-primary disabled:opacity-40"><Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save changes'}</button>
         </>
       }
     >
@@ -57,16 +57,18 @@ export function PropertyEditModal({ edit, setEdit, onSubmit }) {
             <Select value={edit.deal} onChange={(v) => setEdit({ ...edit, deal: v })} options={EDIT_DEAL_OPTS} ariaLabel="Deal" />
           </label>
         </div>
-        <label className="block text-sm">
-          <span className="mb-1 block text-gray-300">Status</span>
-          {rejected ? (
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-300">
-              {statusLabel(edit.status)} — use Request reopen in the review panel to reverse a final rejection.
-            </div>
-          ) : (
-            <Select value={edit.status} onChange={(v) => setEdit({ ...edit, status: v })} options={EDIT_STATUS_OPTS} ariaLabel="Status" />
-          )}
-        </label>
+        {canSetStatus ? (
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-300">Status</span>
+            {rejected ? (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-300">
+                {statusLabel(edit.status)} — use Request reopen in the review panel to reverse a final rejection.
+              </div>
+            ) : (
+              <Select value={edit.status} onChange={(v) => setEdit({ ...edit, status: v })} options={EDIT_STATUS_OPTS} ariaLabel="Status" />
+            )}
+          </label>
+        ) : null}
       </div>
     </Modal>
   );

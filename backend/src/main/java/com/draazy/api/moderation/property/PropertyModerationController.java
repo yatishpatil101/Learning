@@ -66,6 +66,11 @@ public class PropertyModerationController {
     private static final String POST_ON_BEHALF_WRITE =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_POSTONBEHALF_WRITE;
 
+    // Verifiers fix what they review without also holding the moderation desk.
+    private static final String PROPERTIES_EDIT = STAFF_OR_ADMIN + " and ("
+            + BackOfficePermissions.REQUIRE_PROPERTIES_VERIFY + " or "
+            + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE + ")";
+
     private final PropertyModerationService service;
     private final ListingService listings;
     private final PropertyService propertyService;
@@ -171,7 +176,7 @@ public class PropertyModerationController {
 
     // Returns a body because field mapping lives in ListingService.
     @PatchMapping(Routes.Moderation.PROPERTY_ADMIN_UPDATE)
-    @PreAuthorize(PROPERTIES_MODERATE)
+    @PreAuthorize(PROPERTIES_EDIT)
     public PropertyResponse adminUpdate(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody ListingUpdate body) {
         Property updated = listings.updateAsModerator(principal, id, body);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
-  CheckCircle, ExternalLink, FileCheck2, HelpCircle, MapPin,
+  CheckCircle, ExternalLink, FileCheck2, HelpCircle, MapPin, Pencil,
   Send, XCircle, History, ArrowRight, AlertTriangle, TrendingDown, User,
 } from 'lucide-react';
 import {
@@ -46,7 +46,7 @@ const openingSection = (listing) => {
   return seeksOwnershipBadge(listing) && listing.status === 'approved' ? 'badge' : 'overview';
 };
 
-export default function PropertyReviewModal({ review, setReview, onRefresh }) {
+export default function PropertyReviewModal({ review, setReview, onRefresh, onEdit }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [thread, setThread] = useState(null);
@@ -445,6 +445,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
           ) : (
             <span className="mr-auto text-xs text-gray-500 italic">Not yet published</span>
           )}
+          {onEdit ? <button type="button" onClick={() => onEdit(review)} className="dz-btn dz-btn-ghost"><Pencil className="h-4 w-4" /> Edit details</button> : null}
           <button onClick={handleClose} className="dz-btn dz-btn-ghost">Close</button>
         </>
       }

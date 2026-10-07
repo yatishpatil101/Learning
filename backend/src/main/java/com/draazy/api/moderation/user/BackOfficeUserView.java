@@ -1,7 +1,6 @@
 package com.draazy.api.moderation.user;
 
 import com.draazy.api.common.error.NotFoundException;
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserMapper;
@@ -34,20 +33,9 @@ class BackOfficeUserView {
                 .orElseThrow(() -> NotFoundException.of("User"));
     }
 
-    UserResponse masked(User user) {
-        return project(user, true);
-    }
-
-    /** The single-account projection — mobile in full. Audit the reveal at the call site. */
     UserResponse full(User user) {
-        return project(user, false);
-    }
-
-    // One method because a positional copy of this record is unreadable.
-    private UserResponse project(User user, boolean maskMobile) {
         UserResponse base = mapper.toResponse(user);
-        return new UserResponse(base.id(), base.name(),
-                maskMobile ? MobileMask.mask(base.mobile()) : base.mobile(), base.email(),
+        return new UserResponse(base.id(), base.name(), base.mobile(), base.email(),
                 base.role(), base.team(), base.status(), base.verified(), base.city(),
                 base.mobileVerified(), base.verifiedContactOnly(),
                 base.hideNumber(), base.shareActivityStatus(), base.shareReadReceipts(),

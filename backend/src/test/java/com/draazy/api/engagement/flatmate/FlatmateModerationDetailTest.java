@@ -93,7 +93,7 @@ class FlatmateModerationDetailTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a room opens in full — rent, deposit and photos — with only a masked number")
+    @DisplayName("a room opens in full — rent, deposit, photos and the host's number")
     void roomDetail() throws Exception {
         String id = createRoom(user("9811100001", "Detail Host", Roles.Wire.BUYER), "Detail Heights");
         User staff = user("9811100002", "Mod", Roles.Wire.ADMIN);
@@ -108,14 +108,13 @@ class FlatmateModerationDetailTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.room.deposit").value(31000))
                 .andExpect(jsonPath("$.room.photos[0]").value("https://cdn.example/1.jpg"))
                 .andExpect(jsonPath("$.room.owner").value("Detail Host"))
-                .andExpect(jsonPath("$.room.ownerMobile",
-                        Matchers.not(Matchers.containsString("9811100001"))))
+                .andExpect(jsonPath("$.room.ownerMobile").value("9811100001"))
                 .andExpect(jsonPath("$.group").doesNotExist())
                 .andExpect(jsonPath("$.post").doesNotExist());
     }
 
     @Test
-    @DisplayName("a seeker post opens as a post, its number masked too")
+    @DisplayName("a seeker post opens as a post, with the seeker's number")
     void postDetail() throws Exception {
         String id = createPost(user("9811100003", "Detail Seeker", Roles.Wire.BUYER));
         User staff = user("9811100004", "Mod", Roles.Wire.ADMIN);
@@ -125,8 +124,7 @@ class FlatmateModerationDetailTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.item.kind").value("post"))
                 .andExpect(jsonPath("$.post.budget").value(18000))
-                .andExpect(jsonPath("$.post.mobile",
-                        Matchers.not(Matchers.containsString("9811100003"))))
+                .andExpect(jsonPath("$.post.mobile").value("9811100003"))
                 .andExpect(jsonPath("$.room").doesNotExist());
     }
 

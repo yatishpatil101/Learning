@@ -296,8 +296,6 @@ export default function AdminUsers() {
           {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className={classNames(CHIP, CHIP_TONE.amber)}>Badge pending</span> : null}
         </>
       }
-      /* Masked on purpose: the full number lives behind a route that logs the reveal, so the
-         directory does not offer it and cannot become a bulk export. */
       meta={<><span>{u.mobile}</span><Dot /><span className="capitalize">{u.role}</span>{u.city ? <><Dot /><span>{u.city}</span></> : null}</>}
       facts={
         <>

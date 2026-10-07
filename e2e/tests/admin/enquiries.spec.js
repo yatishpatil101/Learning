@@ -1,12 +1,8 @@
-/* The demand board and its audited reveal, against the live API. What is here has no mock ancestor because
- * every claim is a *negative* guarantee — "the number is not on this page" — which dies by accident.
- */
+/* Demand board against the live API: every tab shows contacts in full to the back office, and opening a row's detail
+ * is recorded against whoever opened it. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
-/** `98XXXXX210` — the shape `MobileMask` emits. */
-const MASKED = /^\d{2}X{5}\d{3}$/;
-/** A real Indian mobile. If one of these is on the board, something has gone wrong. */
 const RAW = /^[6-9]\d{9}$/;
 
 async function openBoard(page, tab) {
@@ -16,67 +12,46 @@ async function openBoard(page, tab) {
   await expect(page.getByTestId('queue-row').first()).toBeVisible();
 }
 
-test('every tab masks its own contact column, and the board lists the seeded enquiries', async ({ page, login, consoleErrors }) => {
+test('every tab shows its contact in full, and the board lists the seeded enquiries', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await openBoard(page);
 
   // Asserting the number rather than "more than zero" fails a board that silently returned an empty page.
   await expect(page.getByTestId('tab-count-enquiries')).toHaveText('8');
 
-  /* Three tabs, three different records behind them — requester, visitor, counterparty. A masking fix written
-     against `users.mobile` would pass the enquiries tab and leak on the deals one. */
+  /* Three tabs, three different records behind them — requester, visitor, counterparty. */
   for (const tab of ['enquiries', 'visits', 'deals']) {
     await openBoard(page, tab);
-
-    /* The vacuity guard: `toHaveCount(0)` on a raw number is also satisfied by a table that rendered nothing,
-       which is what a broken list call produces. The tab label carries the server's own row count. */
     const rows = Number(await page.getByTestId(`tab-count-${tab}`).innerText());
+    if (rows === 0) continue;
 
-    if (rows > 0) {
-      /* Where the number reaches a human differs by tab. The deals table has no contact column at all, so a
-         sweep over it is vacuous — that number is rendered in the row's own detail modal. */
-      if (tab === 'deals') {
-        await page.getByTestId('queue-row').first().locator('[title="View"]').click();
-        const detail = page.getByRole('dialog', { name: /^Deal · / });
-        await expect(detail).toBeVisible();
-        await expect(detail.getByText(MASKED),
-          'the deal detail shows a contact that is neither masked nor absent',
-        ).toBeVisible();
-      } else {
-        await expect(page.getByText(MASKED).first(),
-          `the ${tab} tab reports ${rows} rows but shows no masked number, so the absence of a raw one proves nothing`,
-        ).toBeVisible();
-      }
+    // The deals table has no contact column; that number is rendered in the row's detail modal.
+    if (tab === 'deals') {
+      await page.getByTestId('queue-row').first().locator('[title="View"]').click();
+      const detail = page.getByRole('dialog', { name: /^Deal · / });
+      await expect(detail).toBeVisible();
+      await expect(detail.getByText(RAW)).toBeVisible();
+    } else {
+      await expect(page.getByText(RAW).first(), `the ${tab} tab reports ${rows} rows but shows no mobile`).toBeVisible();
     }
-
-    await expect(page.getByText(RAW)).toHaveCount(0);
+    await expect(page.getByText(/X{5}/)).toHaveCount(0);
   }
 
   expect(consoleErrors).toHaveLength(0);
 });
 
-test('revealing a contact unmasks that one row and records who asked', async ({ page, login }) => {
+test('opening an enquiry shows its contact and records who opened it', async ({ page, login }) => {
   await login.asAdmin();
   await openBoard(page);
 
-  const masked = page.getByText(MASKED);
-  await expect(masked.first()).toBeVisible();
-  const before = await masked.count();
-  expect(before).toBeGreaterThan(1);
+  const opened = page.waitForResponse((r) => /\/admin\/enquiries\/[^/?]+$/.test(new URL(r.url()).pathname) && r.request().method() === 'GET');
+  await page.getByTestId('queue-row').first().locator('[title="View"]').click();
+  expect((await opened).status()).toBe(200);
+  const detail = page.getByRole('dialog', { name: /^Enquiry · / });
+  await expect(detail.getByText(RAW)).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Reveal contact' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Reveal contact' }).first().click();
-
-  /* Revealing a contact is a recorded act against the person who asked, so a desk that performs it silently
-     lets staff unmask numbers without ever being shown that a trail exists. */
-  await expect(page.getByRole('alert')).toContainText('recorded');
-
-  // One row changed, and only one. A reveal that refetched the list with a `reveal` flag would
-  // unmask all of them and still show a plausible-looking screen.
-  await expect(page.getByText(RAW)).toHaveCount(1);
-  await expect(masked).toHaveCount(before - 1);
-
-  /* The server writes the audit row before it answers, so by the time the number is on screen the record
-     exists. Searched by action, not actor, so this does not depend on which admin the fixture is. */
+  // The server writes the audit row before it answers. Searched by action, not actor.
   await page.goto('/admin/staff-activity?tab=log');
   await expect(page.getByRole('heading', { name: 'Team Activity', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search staff activity' }).fill('enquiry.contact.reveal');

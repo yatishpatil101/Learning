@@ -1,4 +1,5 @@
-/* Seed has 4 approved, 1 declined, 3 pending: the filtered set is smaller than the full set and non-empty. */
+/* Demand console shell against the live API (contact columns and the audited detail read live in `admin/enquiries.spec.js`).
+ * Filters use the server vocabulary (`Awaiting owner` = `pending`) and numeric counts (8 seeded: 4 approved, 1 declined, 3 pending) so a filter cannot pass on an empty table. */
 import { test, expect } from '../../fixtures/live.js';
 
 const rows = (page) => page.getByTestId('queue-row');

@@ -26,24 +26,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * {@code PATCH /properties/{id}/admin} — a moderator correcting somebody else's listing (slice 15).
- *
- * <p>Two things distinguish it from the owner's own {@code PATCH /me/listings/{id}}, and both are
- * tested here rather than assumed:
- *
- * <ol>
- *   <li><strong>It does not revert the listing to pending.</strong> Re-moderation exists so a
- *       change made by the owner is seen by a moderator before it goes live. Here the moderator
- *       <em>is</em> the change — reverting would push their own correction into their own queue, so
- *       fixing a typo would take the listing off the site until somebody re-approved it.</li>
- *   <li><strong>It is audited.</strong> This is a write to a row belonging to someone who will never
- *       be told it happened.</li>
- * </ol>
- *
- * <p>Everything else — which fields apply, how PATCH treats absent values, when the locality slug is
- * re-bound — is deliberately the same code as the owner path, so it is tested once, there.
- */
+/** {@code PATCH /properties/{id}/admin}: a moderator's fix must not revert the listing to pending (it would queue
+ * their own change) and must be audited, as the owner is never told. */
 @DisplayName("Moderation — admin listing correction")
 class AdminUpdatePropertyTest extends AbstractApiTest {
 
@@ -78,13 +62,8 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    /**
-     * The ruling of this endpoint. {@code price} and {@code bhk} are both foundation fields: the same
-     * edit through {@code /me/listings} costs the owner a re-review — {@code bhk} takes the listing
-     * off search, {@code price} queues a stays-live re-check (Q14). Through this one it must cost
-     * neither, or a moderator fixing a listing takes it off the site, or files themselves a ticket
-     * to re-check the correction they just made.
-     */
+    /** Foundation fields {@code price} and {@code bhk} cost an owner a re-review; here they must cost nothing, or
+     * fixing a typo would take the listing off the site or queue a re-check of the moderator's own correction. */
     @Test
     @DisplayName("a moderator's edit does NOT push an approved listing back into the queue")
     void moderatorEditDoesNotRevertToPending() throws Exception {
@@ -104,11 +83,7 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.recheckPending").value(false));
     }
 
-    /**
-     * The contrast, proved rather than asserted in prose: the owner's own path still charges for the
-     * identical body. {@code bhk} is what it fundamentally is, so that half goes off search — and
-     * because the revert supersedes the re-check, the price change rides along with it.
-     */
+    /** The contrast: the owner's path still charges for the same body; the {@code bhk} revert wins. */
     @Test
     @DisplayName("the owner's own edit of the same fields still costs a re-review")
     void ownerEditStillReverts() throws Exception {
@@ -159,15 +134,7 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.description").value("Only this changed."));
     }
 
-    /**
-     * The response carries the owner's raw number, and this test was reversed to say so.
-     *
-     * <p>It previously asserted masking. The desk that corrects somebody else's listing is the desk
-     * that then rings them about it, and a moderator denied the number here fetches it from
-     * somewhere the platform cannot log — so the mask was protecting the audit trail from the
-     * disclosure rather than the owner from staff. Reversing it was a decision, not a regression,
-     * which is why the assertion is now equally strict in the other direction.
-     */
+    /** The desk that corrects a listing is the desk that then rings the owner about it. */
     @Test
     @DisplayName("the response carries the owner's mobile, because the corrector is the caller")
     void ownerContactIsRevealed() throws Exception {
@@ -208,7 +175,6 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /** S67 — the path that edits somebody else's row had no failure documented at all. */
     @Test
     @DisplayName("an unknown listing is a 404")
     void unknownListingIsNotFound() throws Exception {
@@ -219,5 +185,41 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"price\":1}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("the verification desk may correct a listing it is reviewing")
+    void verificationDeskMayEdit() throws Exception {
+        User owner = user("9871110013", Roles.Wire.OWNER, "Owner");
+        User verifier = user("9871110014", Roles.Wire.STAFF, "Verifier");
+        grant(verifier, "[\"propertyVerification\"]");
+        Property listing = approvedListing(owner);
+
+        mvc.perform(patch(Routes.Moderation.PROPERTY_ADMIN_UPDATE, listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(verifier))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Verified title\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Verified title"));
+    }
+
+    @Test
+    @DisplayName("a staffer with neither listing desk is refused")
+    void otherDesksAreRefused() throws Exception {
+        User owner = user("9871110015", Roles.Wire.OWNER, "Owner");
+        User support = user("9871110016", Roles.Wire.STAFF, "Support");
+        grant(support, "[\"support\"]");
+        Property listing = approvedListing(owner);
+
+        mvc.perform(patch(Routes.Moderation.PROPERTY_ADMIN_UPDATE, listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(support))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Nope\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    private void grant(User account, String functionsJson) {
+        jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) VALUES (?, ?::jsonb)",
+                account.getId(), functionsJson);
     }
 }

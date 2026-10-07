@@ -126,6 +126,7 @@ export default function AdminProperties() {
   const canVerify = hasPermission(user, 'properties:verify');
   const canModerate = hasPermission(user, 'properties:moderate');
   const verifyOnly = canVerify && !canModerate;
+  const canEdit = canVerify || canModerate;
   const activeTab = tab;
 
   const [filters, setFilters] = useState(() => (activeTab === 'all' ? ALL_TAB_DEFAULTS : EMPTY_FILTERS));
@@ -149,6 +150,7 @@ export default function AdminProperties() {
 
   const [review, setReview] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [flagFor, setFlagFor] = useState(null);
   const [flagReason, setFlagReason] = useState('');
   const [archiveFor, setArchiveFor] = useState(null);
@@ -314,7 +316,11 @@ export default function AdminProperties() {
     refresh();
   };
   // `bhkNum`, not the rendered `bhk`: the label is "3 BHK", and the contract wants an integer.
-  const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
+  const openEdit = (l, fromReview = false) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l, _fromReview: fromReview }); };
+  const closeEdit = () => {
+    if (edit?._fromReview) setReview(edit._ref);
+    setEdit(null);
+  };
   // Two calls: `ListingUpdate` deliberately omits `status` so a PATCH cannot self-escalate.
   const submitEdit = async () => {
     const title = edit.title.trim();
@@ -343,17 +349,27 @@ export default function AdminProperties() {
       locality: loc !== (ref.locality || '') ? loc : undefined,
       deal: edit.deal !== (ref.deal || 'buy') ? edit.deal : undefined,
     }).filter(([, value]) => value !== undefined));
+    if (savingEdit) return;
+    setSavingEdit(true);
     try {
       // The moderator route: `/me/listings/{id}` is owner-scoped and 404s for anyone else's listing.
       if (Object.keys(nextPatch).length) await updateListingAsModerator(edit.id, nextPatch);
-      if (edit.status && edit.status !== edit._ref.status) await setListingStatus(edit.id, edit.status, { expectedStatus: edit._ref.status });
+      if (canModerate && edit.status && edit.status !== edit._ref.status) await setListingStatus(edit.id, edit.status, { expectedStatus: edit._ref.status });
     } catch (err) {
       toast(`Could not save: ${err.message}`, 'error');
       return;
+    } finally {
+      setSavingEdit(false);
     }
     setEdit(null);
     toast('Listing updated', 'success');
     refresh();
+    if (edit._fromReview) {
+      const saved = { ...ref, ...nextPatch, ...(canModerate ? { status: edit.status } : {}) };
+      const fresh = await findForReview(ref.uuid || edit.id).catch(() => null);
+      // Something opened while the read was in flight wins over this late reopen.
+      setReview((current) => current ?? (fresh || saved));
+    }
   };
 
   /* The tab is opened synchronously inside the click and navigated only once the server accepts:
@@ -386,8 +402,8 @@ export default function AdminProperties() {
     }
   };
 
+  const onEdit = canEdit ? openEdit : undefined;
   const moderateActions = canModerate ? {
-    onEdit: openEdit,
     onReminder: handleReminder,
     onConfirmReminder: handleConfirmReminder,
     onFlag: openFlag,
@@ -398,12 +414,12 @@ export default function AdminProperties() {
     onRecheckFail: openRecheckReject,
   } : {};
   const actionsFor = {
-    verify: { onView: setView, onEdit: moderateActions.onEdit, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    recheck: { onView: setView, onEdit: moderateActions.onEdit, onReview: canVerify ? openReview : null, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    badge: { onView: setView, onEdit: moderateActions.onEdit, onReview: canVerify ? openReview : null, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    followup: { onView: setView, onEdit: moderateActions.onEdit, onReminder: moderateActions.onConfirmReminder, reminderAlways: true, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    flagged: { onView: setView, onEdit: moderateActions.onEdit, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive },
-    all: { onView: setView, onEdit: moderateActions.onEdit, onFlag: moderateActions.onFlag, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive, onRestore: moderateActions.onRestore, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail },
+    verify: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    recheck: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    badge: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    followup: { onView: setView, onEdit, onReminder: moderateActions.onConfirmReminder, reminderAlways: true, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    flagged: { onView: setView, onEdit, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive },
+    all: { onView: setView, onEdit, onFlag: moderateActions.onFlag, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive, onRestore: moderateActions.onRestore, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail },
   };
 
   const activeMeta = TABS.find((t) => t.key === activeTab);
@@ -448,8 +464,8 @@ export default function AdminProperties() {
         </section>
       )}
 
-      {review && <PropertyReviewModal review={review} setReview={setReview} onRefresh={refresh} />}
-      <PropertyEditModal edit={edit} setEdit={setEdit} onSubmit={submitEdit} />
+      {review && <PropertyReviewModal review={review} setReview={setReview} onRefresh={refresh} onEdit={canEdit ? (l) => { setReview(null); openEdit(l, true); } : undefined} />}
+      <PropertyEditModal edit={edit} setEdit={setEdit} onClose={closeEdit} onSubmit={submitEdit} saving={savingEdit} canSetStatus={canModerate} />
       <PropertyFlagModal flagFor={flagFor} setFlagFor={setFlagFor} flagReason={flagReason} setFlagReason={setFlagReason} internalNote={internalNote} setInternalNote={setInternalNote} onSubmit={submitFlag} />
       <PropertyArchiveModal archiveFor={archiveFor} setArchiveFor={setArchiveFor} archiveReason={archiveReason} setArchiveReason={setArchiveReason} internalNote={internalNote} setInternalNote={setInternalNote} onSubmit={submitArchive} />
       <PropertyViewModal view={view} setView={setView} />

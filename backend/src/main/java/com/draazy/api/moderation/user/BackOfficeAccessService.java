@@ -6,7 +6,6 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
-import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -85,7 +84,7 @@ public class BackOfficeAccessService {
                         .map(User::getId).toList())
                 .stream().collect(Collectors.toMap(BackOfficeGrant::getUserId, Function.identity()));
         return accounts.stream().map(account -> new TeamMemberResponse(
-                account.getId().toString(), account.getName(), MobileMask.mask(account.getMobile()),
+                account.getId().toString(), account.getName(), account.getMobile(),
                 account.getEmail(), account.getRole(), account.getStatus(), account.isArchived(),
                 account.getCreatedAt(),
                 readable(actor, account) ? functionsOf(account, stored.get(account.getId())) : List.of()))
@@ -107,16 +106,7 @@ public class BackOfficeAccessService {
                 : List.copyOf(BackOfficeFunctions.defaultForRole(target.getRole()));
     }
 
-    /**
-     * {@code PUT /users/{id}/permissions} — replace the document wholesale.
-     *
-     * <p>Wholesale rather than incremental because the caller is describing the access this account
-     * should have. A merge could not express "take this away", which is the operation the feature
-     * exists for.
-     *
-     * @param requested the functions to store; an empty list is legal and means "dashboard only",
-     *                  which is a different statement from having no document at all
-     */
+    /** Wholesale because a merge could not express "take this away"; an empty list is legal and means "dashboard only", unlike no document at all. */
     @Transactional
     public BackOfficeAccessResponse replace(AuthPrincipal actor, String id,
             List<String> requested) {

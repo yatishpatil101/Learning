@@ -11,6 +11,7 @@ public record IdentityReviewResponse(
         UUID userId,
         String userName,
         String accountName,
+        String accountEmail,
         String userMobile,
         String userRole,
         String status,
