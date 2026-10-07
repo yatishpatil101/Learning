@@ -1,24 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-/* Home's mobile "3-second rule": a first-time visitor must see real inventory
-   without scrolling.
-
-   Before this phase the first Featured card sat at y=1406 on a Pixel 7 and
-   y=1446 on a 360x640 phone — 1.5 and 2.3 screens down — because the hero
-   carried min-h-[100dvh] plus 162px of trust chips and a 286px search panel.
-   The fix moves search behind the bottom nav, replaces the hero's marketing
-   sentence with the four proof chips, relocates the headline stats below the
-   rail, and flips Featured above Categories with CSS `order`.
-
-   The desktop half of this contract lives in desktop-noleak-guardrails.spec.js:
-   the mobile projects run with hasTouch, so nothing here can prove a desktop
-   value is unchanged. */
+/* Home's mobile "3-second rule": a first-time visitor must see real inventory without scrolling. The desktop half
+   is in desktop-noleak-guardrails.spec.js; mobile projects run with hasTouch. */
 
 const consent = { necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() };
 
-// Home is lazy-routed, so a bare goto can return before React has painted the
-// hero. Every measurement below is a layout read — waiting for the rail to be
-// present is what makes them deterministic under parallel workers.
+// Home is lazy-routed, so goto can return before the hero paints; wait for the rail for stable layout reads.
 async function gotoHome(page) {
   await page.goto('/');
   await page.locator('section.hero-bg').waitFor({ state: 'attached' });
@@ -173,5 +160,19 @@ test.describe('Home mobile — featured first', () => {
       });
       expect(leaked, `unresolved i18n keys on screen: ${leaked}`).toEqual([]);
     });
+  });
+
+  test('on the light theme the hero is light with the morning-mist glow', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('dzAppPrefs', JSON.stringify({ theme: 'light' })));
+    await gotoHome(page);
+    const hero = page.locator('section.hero-bg');
+    await expect(hero).not.toHaveClass(/theme-dark/);
+    await expect(hero.locator('.hero-mist')).toBeVisible();
+    // The dark island's headline is white; on the light hero it must be dark ink.
+    await expect(hero.locator('h1')).toHaveCSS('color', 'rgb(15, 23, 42)');
+    await expect(hero.locator('.hero-city')).toHaveCSS('color', 'rgb(234, 88, 12)');
+    await expect(hero.locator('.hero-noun [aria-hidden]').first()).toHaveCSS('color', 'rgb(15, 118, 110)');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(hero.locator('.hero-mist')).toHaveCSS('animation-name', 'none');
   });
 });

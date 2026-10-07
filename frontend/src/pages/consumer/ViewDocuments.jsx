@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
+import { cssColour } from '../../lib/themeColour';
 import {
   listMyGrantedDocuments, listSharedDocuments,
 } from '../../services/documentService.js';
@@ -12,7 +13,7 @@ import '../../styles/routes/view-documents.css';
 function drawWatermark(ctx, w, h, label) {
   ctx.save();
   ctx.globalAlpha = 0.1;
-  ctx.fillStyle = '#0d9488';
+  ctx.fillStyle = cssColour('teal-600');
   ctx.font = `bold ${Math.round(w / 22)}px Inter, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -43,9 +44,8 @@ const isPdfDoc = (doc) => /pdf/i.test(doc.mime || '') || /\.pdf$/i.test(doc.name
 const isImageDoc = (doc) => /image/i.test(doc.mime || '');
 const docTypeIcon = (doc) => (isImageDoc(doc) ? 'image' : isPdfDoc(doc) ? 'file-text' : 'file-lock-2');
 
-// Where a document's bytes are. A locally-held document carries them inline as a base64 `dataUrl`;
-// the http provider returns a signed `url` and leaves `dataUrl` null (the signed url does not
-// resolve in dev). Reading both is what lets one viewer serve either.
+// A local document carries inline base64 `dataUrl`; the http
+// provider returns a signed `url` with `dataUrl` null, so read both.
 const docSource = (doc) => doc.dataUrl || doc.url || null;
 
 // Decode a base64 data URL to bytes for pdf.js (it wants a typed array, not a URL).
@@ -123,10 +123,8 @@ function ImageViewer({ doc }) {
   );
 }
 
-// PDFs: render every page with pdf.js to a watermarked canvas. pdf.js is
-// dynamically imported so it only loads when a PDF is actually shown (this route
-// is already lazy). Canvas rendering keeps the file strictly view-only — there's
-// no native download/print UI and the watermark is baked into each page.
+// pdf.js loads dynamically only when a PDF is shown; canvas
+// rendering keeps the file view-only with the watermark baked in.
 function PdfViewer({ doc }) {
   const { t } = useTranslation();
   const scrollRef = useRef(null);
@@ -223,13 +221,11 @@ function DocumentCard({ doc }) {
   );
 }
 
-// Horizontally-scrollable strip that lets the buyer jump to any shared paper.
-// Only the selected document is rendered below, so a multi-doc share does not
-// stack every viewer at full height (big mobile scroll + memory win).
+// Only the selected document renders, so a multi-doc share doesn't stack every viewer at full height.
 function DocSwitcher({ docs, active, onSelect }) {
   const { t } = useTranslation();
   return (
-    <HScroll role="tablist" aria-label={t('viewDocs.sharedDocsAria')} fadeColor="#0f0d1a" className="flex gap-2 pb-1" wrapClassName="mb-4">
+    <HScroll role="tablist" aria-label={t('viewDocs.sharedDocsAria')} fadeColor="rgb(var(--dz-c-ink))" className="flex gap-2 pb-1" wrapClassName="mb-4">
       {docs.map((d, i) => {
         const selected = i === active;
         return (
@@ -279,18 +275,8 @@ const ERR_REVOKED = {
   textKey: 'viewDocs.errRevokedText',
   subKey: 'viewDocs.errRevokedSub',
 };
-/* The same refusal reached by the other door, and it needs its own words — but only just.
-   ERR_REVOKED says "this share link is no longer active", which is true for a forwarded token and
-   false for a signed-in buyer, who never used a link; since the grant notification now points here
-   and outlives the grant it announces, that wording would send a expired-out buyer hunting for a
-   link that never existed.
-
-   What it must *not* do is become more specific. This one state answers all four things the API
-   refuses with a 404 — pending, lapsed, unknown and foreign — deliberately, so that a stranger
-   holding a request id cannot learn from the screen what the status code declines to tell them.
-   An earlier draft read "Access has ended", which is a small confession that something was once
-   there. The title is therefore the neutral one both doors share, and the text mentions expiry
-   only as a conditional. */
+/* One neutral state answers all four 404 cases (pending, lapsed, unknown, foreign) so a stranger learns nothing
+   from the screen; ERR_REVOKED's 'share link' wording would mislead a signed-in buyer who never used a link. */
 const ERR_LAPSED = {
   titleKey: 'viewDocs.errLapsedTitle',
   textKey: 'viewDocs.errLapsedText',
@@ -312,23 +298,8 @@ const ERR_PENDING_UPLOAD = {
   subKey: 'viewDocs.errPendingSub',
 };
 
-/**
- * The share-token half of this page — `/shared-documents#<token>`.
- *
- * **Why the fragment.** The token is a bearer credential: whoever holds the string reads the
- * owner's title deeds until the grant expires. As a `?token=…` query it would go everywhere a URL
- * goes — the server's own access log, every proxy and CDN in between, and the `Referer` of the
- * next request out. A fragment is never transmitted to any server, so none of those exist for it;
- * the token reaches the API only on the `X-Share-Token` header, which no ordinary log records.
- *
- * What a fragment does *not* fix, and nothing can: this URL is the credential, so browser history,
- * a bookmark, and the recipient pasting it into a chat still carry it. That is inherent in sharing
- * by link at all, and the 7-day expiry is what bounds it.
- *
- * The fragment is deliberately left in the address bar rather than scrubbed with `replaceState`:
- * removing it buys nothing server-side (it was never sent) and costs the recipient a working
- * refresh, which for a link forwarded to a lawyer is the difference between usable and not.
- */
+/** The token rides the URL fragment, never `?token=`: a fragment isn't sent to servers, logs, proxies or Referer.
+ * It stays in the address bar, as scrubbing it would break a refresh. */
 function useSharedByToken(enabled) {
   const { hash } = useLocation();
   const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
@@ -362,8 +333,8 @@ function useSharedByToken(enabled) {
       })
       .catch((err) => {
         if (cancelled) return;
-        // 401 is every credential failure the server distinguishes between and refuses to tell us
-        // apart — unknown, declined, expired — so the copy says "no longer active", not "expired".
+        // 401 covers unknown, declined and expired without telling
+        // them apart, so the copy says 'inactive', not 'expired'.
         const errorState = err?.status === 401 ? ERR_REVOKED : ERR_LOAD;
         setState({ shared: [], sub: null, errorState, loading: false });
       });
@@ -373,11 +344,8 @@ function useSharedByToken(enabled) {
   return state;
 }
 
-/**
- * The signed-in buyer's door onto the same granted bundle. The request id is an identifier, not a
- * capability: the API also requires the JWT's user id to equal the row's requester id, and returns
- * 404 for pending, lapsed, unknown and foreign requests alike.
- */
+/** The request id is an identifier, not a capability: the API
+ * also requires the JWT user to be the requester, else 404. */
 function useSharedByRequest(requestId, enabled) {
   const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
 
@@ -437,9 +405,8 @@ export default function ViewDocuments({ shared: byToken = false }) {
     };
   }, []);
 
-  // The first paint has no documents *yet*, which is not the same as none: showing
-  // "No documents available" while the request is still in flight tells the recipient their link is
-  // broken, and they close the tab before it resolves.
+  // No documents *yet* is not none: 'No documents available'
+  // mid-request would tell the recipient their link is broken.
   const showEmpty = !loading && (errorState || shared.length === 0);
   const emptyTitle = errorState ? t(errorState.titleKey) : t('viewDocs.emptyTitle');
   const emptyText = errorState ? t(errorState.textKey) : t('viewDocs.emptyText');
@@ -455,14 +422,13 @@ export default function ViewDocuments({ shared: byToken = false }) {
   const activeDoc = shared[idx];
 
   return (
-    <div className="vd-page min-h-[100dvh]" style={{ background: '#0f0d1a' }}>
+    <div className="vd-page min-h-[100dvh]" style={{ background: 'rgb(var(--dz-c-ink))' }}>
       {/* Top bar */}
       <nav className="glass-nav sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg,#0d9488,#14b8a6)' }}
+              className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 flex items-center justify-center"
             >
               <Icon name="home" className="w-5 h-5 text-white" />
             </div>
@@ -497,7 +463,7 @@ export default function ViewDocuments({ shared: byToken = false }) {
 
         <div
           className="glass-card rounded-2xl px-5 py-3.5 mb-6 flex items-start gap-3 border border-amber-500/20"
-          style={{ background: 'rgba(245,158,11,.07)' }}
+          style={{ background: 'rgb(var(--dz-c-amber-500) / .07)' }}
         >
           <Icon name="shield-alert" className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-amber-100/90">

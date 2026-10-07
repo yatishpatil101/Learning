@@ -287,7 +287,7 @@ export default function Notifications() {
       </div>
 
       {undo && (
-        <div role="status" className="fixed inset-x-4 bottom-[calc(1rem+var(--dz-safe-b))] z-[1600] mx-auto flex max-w-sm items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#15122a] px-4 py-3 shadow-2xl shadow-black/40">
+        <div role="status" className="fixed inset-x-4 bottom-[calc(1rem+var(--dz-safe-b))] z-[1600] mx-auto flex max-w-sm items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-card px-4 py-3 shadow-2xl shadow-black/40">
           <span className="text-sm text-gray-200">{t('notifications.cleared')}</span>
           <button type="button" onClick={undoClear} className="min-h-[44px] rounded-xl px-3 text-sm font-semibold text-teal-300 hover:bg-white/5">{t('notifications.undo')}</button>
         </div>

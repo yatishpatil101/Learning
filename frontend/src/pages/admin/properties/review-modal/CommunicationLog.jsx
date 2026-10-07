@@ -20,7 +20,7 @@ export default function CommunicationLog({ commsOpen, setCommsOpen, commsLog }) 
                 const typeStyle = { status: { dot: 'bg-emerald-400', label: 'text-emerald-300' }, outreach: { dot: 'bg-teal-400', label: 'text-teal-300' }, 'owner-action': { dot: 'bg-amber-400', label: 'text-amber-300' }, note: { dot: 'bg-indigo-400', label: 'text-indigo-300' } }[entry.type] || { dot: 'bg-gray-400', label: 'text-gray-300' };
                 return (
                   <div key={entry.id} data-testid="comms-entry" className="relative mb-4 last:mb-0">
-                    <div className={`absolute -left-[22px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-ink ${typeStyle.dot}`} />
+                    <div className={`absolute -left-[22px] top-1.5 h-2.5 w-2.5 rounded-full ${typeStyle.dot}`} />
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <span className={`text-xs font-semibold ${typeStyle.label}`}>{entry.action}</span>

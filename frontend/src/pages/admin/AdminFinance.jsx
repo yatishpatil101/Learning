@@ -11,6 +11,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { BarChart, LineChart, DoughnutChart, PALETTE } from '../../components/charts/index.jsx';
+import { cssColour, useIsLightTheme } from '../../lib/themeColour';
 import {
   BTN, Chips, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
 } from '../../components/admin/WorkQueue.jsx';
@@ -86,6 +87,8 @@ function FlowRow({ label, amount, neg, pos, total, note, noteLabel }) {
 }
 
 export default function AdminFinance() {
+  /* Chart options below read cssColour at render, so a theme flip must re-render them. */
+  useIsLightTheme();
   const { t } = useTranslation();
   const [finance, setFinance] = useState(null);
   const [series, setSeries] = useState(null);
@@ -277,7 +280,7 @@ export default function AdminFinance() {
               { label: 'Services', data: slicedSeries.map((m) => m.services), stack: 's', color: PALETTE[1] },
             ]}
             height={280}
-            options={{ scales: { x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { stacked: true, ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
+            options={{ scales: { x: { stacked: true, ticks: { color: cssColour('slate-400') }, grid: { color: cssColour('white', 0.05) } }, y: { stacked: true, ticks: { color: cssColour('slate-400'), callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: cssColour('white', 0.05) } } } }}
           />
           {!serviceOrdersCounted && <NotMeasured>{t('adminFinance.servicesQuoted')}</NotMeasured>}
         </div>
@@ -298,7 +301,7 @@ export default function AdminFinance() {
           <LineChart
             labels={slicedSeries.map((m) => monthLabel(m.month))}
             datasets={[{ label: 'MRR', data: slicedSeries.map((m) => m.subscriptions), fill: true }]}
-            options={{ scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
+            options={{ scales: { x: { ticks: { color: cssColour('slate-400') }, grid: { color: cssColour('white', 0.05) } }, y: { ticks: { color: cssColour('slate-400'), callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: cssColour('white', 0.05) } } } }}
           />
           <p className="mt-2 text-xs text-gray-500">{t('adminFinance.mrrChartBasis')}</p>
         </div>

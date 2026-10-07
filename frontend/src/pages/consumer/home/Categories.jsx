@@ -60,10 +60,7 @@ export default function Categories({ navigate }) {
     };
   }, []);
 
-  // Reflect the strip's scroll position in the arrow enabled-state and the
-  // edge fades. Arrows track whether there is more to scroll; the fades track
-  // whether a card is actually clipped by that edge, so a card sitting flush
-  // (fully visible) never gets a fade over it.
+  // Arrows track more-to-scroll; fades show only when a card is actually clipped by that edge.
   const updateArrows = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -140,9 +137,7 @@ export default function Categories({ navigate }) {
           </div>
         </div>
 
-        {/* horizontal scroll strip — pt-3 gives the hover lift (-8px) clip room,
-           since overflow-x-auto also clips vertical overflow. The arrows above
-           and the right-edge fade both signal there is more to scroll. */}
+        {/* pt-3 gives the -8px hover lift room: overflow-x-auto also clips vertical overflow. */}
         <div className="relative -mx-4 sm:-mx-6 lg:mx-0">
           <div ref={scrollRef} className="cat-scroll flex gap-3 overflow-x-auto pt-3 pb-3 px-4 sm:px-6 lg:px-0 scroll-px-4 sm:scroll-px-6 lg:scroll-px-0 reveal" style={{ scrollSnapType: 'x mandatory' }}>
             {CATEGORIES.map((c) => {
@@ -157,14 +152,14 @@ export default function Categories({ navigate }) {
                 >
                   <div
                     className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110"
-                    style={{ background: `${c.color}18` }}
+                    style={{ background: `rgb(${c.tone} / .09)` }}
                   >
-                    <Icon name={c.icon} className="w-6 h-6" style={{ color: c.color }} />
+                    <Icon name={c.icon} className="w-6 h-6" style={{ color: `rgb(${c.tone})` }} />
                   </div>
                   <div className="text-left min-w-0">
                     <p className="font-semibold text-sm text-white leading-tight">{c.title}</p>
                     {count === null ? null : (
-                      <p className="text-xs mt-0.5 tabular-nums" style={{ color: c.color }}>{formatCount(count)} {t('home.categories.properties')}</p>
+                      <p className="text-xs mt-0.5 tabular-nums" style={{ color: `rgb(${c.tone})` }}>{formatCount(count)} {t('home.categories.properties')}</p>
                     )}
                   </div>
                 </Link>
@@ -175,9 +170,7 @@ export default function Categories({ navigate }) {
           <div className="cat-fade cat-fade--right" aria-hidden="true" style={{ opacity: fadeRight ? 1 : 0, transition: 'opacity .3s ease' }} />
         </div>
 
-        {/* Mobile keeps an in-section path to the full catalogue (the header
-           "View All" is desktop-only to avoid crowding the heading row) —
-           mirrors the same affordance in Featured. */}
+        {/* The header "View All" is desktop-only to avoid crowding the heading, so mobile needs this path. */}
         <button
           onClick={() => navigate('/listings')}
           className="sm:hidden mt-4 w-full inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-teal-400 hover:bg-white/10 hover:text-teal-300 transition-all"

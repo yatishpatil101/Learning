@@ -424,6 +424,9 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       </CollapsibleCard>
 
       <CollapsibleCard icon="palette" iconCls="text-violet-400" title="Appearance" sub="How the interface feels.">
+        <PrefRow title="Light mode" desc="Use a light background on this device.">
+          <Switch checked={app.theme === 'light'} onChange={(v) => changeApp({ theme: v ? 'light' : 'dark' })} label="Light mode" />
+        </PrefRow>
         <PrefRow title="Reduce motion" desc="Minimise animations and transitions across the app.">
           <Switch checked={!!app.reduceMotion} onChange={(v) => changeApp({ reduceMotion: v })} label="Reduce motion" />
         </PrefRow>

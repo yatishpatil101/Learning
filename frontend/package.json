@@ -18,13 +18,13 @@
     "check:routes": "node scripts/check-route-patterns.mjs",
     "check:enums": "node scripts/check-enum-vocabulary.mjs",
     "check:csp": "node scripts/check-csp.mjs",
+    "check:colours": "node scripts/check-colours.mjs",
     "check:size": "node scripts/check-bundle-size.mjs",
-    "check": "npm run lint && npm run check:i18n && npm run check:help && npm run check:finance && npm run check:listing && npm run check:cycle && npm run check:routes && npm run check:enums && npm run check:csp",
+    "check": "npm run lint && npm run check:i18n && npm run check:help && npm run check:finance && npm run check:listing && npm run check:cycle && npm run check:routes && npm run check:enums && npm run check:csp && npm run check:colours",
     "e2e": "npm --prefix ../e2e test",
     "e2e:ui": "npm --prefix ../e2e test -- --ui",
     "e2e:report": "npm --prefix ../e2e run report",
     "preview": "vite preview",
-    "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },
   "dependencies": {

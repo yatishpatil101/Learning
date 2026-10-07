@@ -1,0 +1,173 @@
+/* Every colour the app paints is declared here; scripts/check-colours.mjs fails the build on a literal elsewhere. Dark is the default and
+   `html.light` swaps the palette; channels are bare `R G B` so callers add alpha: rgb(var(--dz-c-teal-500) / 0.2). */
+
+/* Dark islands keep the dark palette in light mode so `text-white` over a photo or fill stays white; keep this list identical to the island `color` rule at the end of the file. */
+:root,
+.theme-dark, .btn-teal, .dz-lightbox, .pc-lightbox, .reels-page, .bg-black, [class*="from-black/"],
+.badge-seeker, .sf-match-great, .ba-knob, .ba-tag,
+[class~="bg-black/40"]:not(.fixed), [class~="bg-black/50"]:not(.fixed), [class~="bg-black/60"]:not(.fixed),
+[class~="bg-black/70"]:not(.fixed), [class~="bg-black/75"]:not(.fixed), [class~="bg-black/80"]:not(.fixed),
+[class~="bg-black/90"]:not(.fixed),
+[class~="bg-teal-400"], [class~="bg-teal-500"], [class~="bg-teal-600"], [class~="bg-teal-700"],
+[class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-rose-500"], [class~="bg-rose-600"],
+[class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-violet-500"], [class~="bg-indigo-500"],
+[class~="bg-indigo-600"], [class~="bg-sky-500"], [class~="bg-amber-500"], [class~="bg-orange-500"],
+[class~="bg-brand-teal"], [class~="bg-brand-teal-1"], [class~="bg-brand-teal-2"],
+[class~="from-teal-400"], [class~="from-teal-500"], [class~="from-teal-600"], [class~="from-brand-teal"],
+[class~="from-brand-teal-1"], [class~="from-brand-teal-2"], [class~="from-pink-500"], [class~="from-blue-500"],
+[class~="from-orange-500"], [class~="from-orange-400"], [class~="from-indigo-500"] {
+  --dz-c-white: 255 255 255;
+  --dz-c-ink: 15 13 26;
+  --dz-c-ink-2: 22 19 37;
+  --dz-c-ink-card: 27 23 48;
+  --dz-c-gray-50: 249 250 251; --dz-c-gray-100: 243 244 246; --dz-c-gray-200: 229 231 235; --dz-c-gray-300: 209 213 219; --dz-c-gray-400: 156 163 175; --dz-c-gray-500: 107 114 128; --dz-c-gray-600: 75 85 99; --dz-c-gray-700: 55 65 81; --dz-c-gray-800: 31 41 55; --dz-c-gray-900: 17 24 39; --dz-c-gray-950: 3 7 18;
+  --dz-c-slate-50: 248 250 252; --dz-c-slate-100: 241 245 249; --dz-c-slate-200: 226 232 240; --dz-c-slate-300: 203 213 225; --dz-c-slate-400: 148 163 184; --dz-c-slate-500: 100 116 139; --dz-c-slate-600: 71 85 105; --dz-c-slate-700: 51 65 85; --dz-c-slate-800: 30 41 59; --dz-c-slate-900: 15 23 42; --dz-c-slate-950: 2 6 23;
+  --dz-c-teal-50: 240 253 250; --dz-c-teal-100: 204 251 241; --dz-c-teal-200: 153 246 228; --dz-c-teal-300: 94 234 212; --dz-c-teal-400: 45 212 191; --dz-c-teal-500: 20 184 166; --dz-c-teal-600: 13 148 136; --dz-c-teal-700: 15 118 110; --dz-c-teal-800: 17 94 89; --dz-c-teal-900: 19 78 74; --dz-c-teal-950: 4 47 46;
+  --dz-c-emerald-50: 236 253 245; --dz-c-emerald-100: 209 250 229; --dz-c-emerald-200: 167 243 208; --dz-c-emerald-300: 110 231 183; --dz-c-emerald-400: 52 211 153; --dz-c-emerald-500: 16 185 129; --dz-c-emerald-600: 5 150 105; --dz-c-emerald-700: 4 120 87; --dz-c-emerald-800: 6 95 70; --dz-c-emerald-900: 6 78 59; --dz-c-emerald-950: 2 44 34;
+  --dz-c-green-50: 240 253 244; --dz-c-green-100: 220 252 231; --dz-c-green-200: 187 247 208; --dz-c-green-300: 134 239 172; --dz-c-green-400: 74 222 128; --dz-c-green-500: 34 197 94; --dz-c-green-600: 22 163 74; --dz-c-green-700: 21 128 61; --dz-c-green-800: 22 101 52; --dz-c-green-900: 20 83 45; --dz-c-green-950: 5 46 22;
+  --dz-c-cyan-50: 236 254 255; --dz-c-cyan-100: 207 250 254; --dz-c-cyan-200: 165 243 252; --dz-c-cyan-300: 103 232 249; --dz-c-cyan-400: 34 211 238; --dz-c-cyan-500: 6 182 212; --dz-c-cyan-600: 8 145 178; --dz-c-cyan-700: 14 116 144; --dz-c-cyan-800: 21 94 117; --dz-c-cyan-900: 22 78 99; --dz-c-cyan-950: 8 51 68;
+  --dz-c-sky-50: 240 249 255; --dz-c-sky-100: 224 242 254; --dz-c-sky-200: 186 230 253; --dz-c-sky-300: 125 211 252; --dz-c-sky-400: 56 189 248; --dz-c-sky-500: 14 165 233; --dz-c-sky-600: 2 132 199; --dz-c-sky-700: 3 105 161; --dz-c-sky-800: 7 89 133; --dz-c-sky-900: 12 74 110; --dz-c-sky-950: 8 47 73;
+  --dz-c-blue-50: 239 246 255; --dz-c-blue-100: 219 234 254; --dz-c-blue-200: 191 219 254; --dz-c-blue-300: 147 197 253; --dz-c-blue-400: 96 165 250; --dz-c-blue-500: 59 130 246; --dz-c-blue-600: 37 99 235; --dz-c-blue-700: 29 78 216; --dz-c-blue-800: 30 64 175; --dz-c-blue-900: 30 58 138; --dz-c-blue-950: 23 37 84;
+  --dz-c-indigo-50: 238 242 255; --dz-c-indigo-100: 224 231 255; --dz-c-indigo-200: 199 210 254; --dz-c-indigo-300: 165 180 252; --dz-c-indigo-400: 129 140 248; --dz-c-indigo-500: 99 102 241; --dz-c-indigo-600: 79 70 229; --dz-c-indigo-700: 67 56 202; --dz-c-indigo-800: 55 48 163; --dz-c-indigo-900: 49 46 129; --dz-c-indigo-950: 30 27 75;
+  --dz-c-violet-50: 245 243 255; --dz-c-violet-100: 237 233 254; --dz-c-violet-200: 221 214 254; --dz-c-violet-300: 196 181 253; --dz-c-violet-400: 167 139 250; --dz-c-violet-500: 139 92 246; --dz-c-violet-600: 124 58 237; --dz-c-violet-700: 109 40 217; --dz-c-violet-800: 91 33 182; --dz-c-violet-900: 76 29 149; --dz-c-violet-950: 46 16 101;
+  --dz-c-purple-50: 250 245 255; --dz-c-purple-100: 243 232 255; --dz-c-purple-200: 233 213 255; --dz-c-purple-300: 216 180 254; --dz-c-purple-400: 192 132 252; --dz-c-purple-500: 168 85 247; --dz-c-purple-600: 147 51 234; --dz-c-purple-700: 126 34 206; --dz-c-purple-800: 107 33 168; --dz-c-purple-900: 88 28 135; --dz-c-purple-950: 59 7 100;
+  --dz-c-pink-50: 253 242 248; --dz-c-pink-100: 252 231 243; --dz-c-pink-200: 251 207 232; --dz-c-pink-300: 249 168 212; --dz-c-pink-400: 244 114 182; --dz-c-pink-500: 236 72 153; --dz-c-pink-600: 219 39 119; --dz-c-pink-700: 190 24 93; --dz-c-pink-800: 157 23 77; --dz-c-pink-900: 131 24 67; --dz-c-pink-950: 80 7 36;
+  --dz-c-rose-50: 255 241 242; --dz-c-rose-100: 255 228 230; --dz-c-rose-200: 254 205 211; --dz-c-rose-300: 253 164 175; --dz-c-rose-400: 251 113 133; --dz-c-rose-500: 244 63 94; --dz-c-rose-600: 225 29 72; --dz-c-rose-700: 190 18 60; --dz-c-rose-800: 159 18 57; --dz-c-rose-900: 136 19 55; --dz-c-rose-950: 76 5 25;
+  --dz-c-red-50: 254 242 242; --dz-c-red-100: 254 226 226; --dz-c-red-200: 254 202 202; --dz-c-red-300: 252 165 165; --dz-c-red-400: 248 113 113; --dz-c-red-500: 239 68 68; --dz-c-red-600: 220 38 38; --dz-c-red-700: 185 28 28; --dz-c-red-800: 153 27 27; --dz-c-red-900: 127 29 29; --dz-c-red-950: 69 10 10;
+  --dz-c-orange-50: 255 247 237; --dz-c-orange-100: 255 237 213; --dz-c-orange-200: 254 215 170; --dz-c-orange-300: 253 186 116; --dz-c-orange-400: 251 146 60; --dz-c-orange-500: 249 115 22; --dz-c-orange-600: 234 88 12; --dz-c-orange-700: 194 65 12; --dz-c-orange-800: 154 52 18; --dz-c-orange-900: 124 45 18; --dz-c-orange-950: 67 20 7;
+  --dz-c-amber-50: 255 251 235; --dz-c-amber-100: 254 243 199; --dz-c-amber-200: 253 230 138; --dz-c-amber-300: 252 211 77; --dz-c-amber-400: 251 191 36; --dz-c-amber-500: 245 158 11; --dz-c-amber-600: 217 119 6; --dz-c-amber-700: 180 83 9; --dz-c-amber-800: 146 64 14; --dz-c-amber-900: 120 53 15; --dz-c-amber-950: 69 26 3;
+  --dz-c-yellow-50: 254 252 232; --dz-c-yellow-100: 254 249 195; --dz-c-yellow-200: 254 240 138; --dz-c-yellow-300: 253 224 71; --dz-c-yellow-400: 250 204 21; --dz-c-yellow-500: 234 179 8; --dz-c-yellow-600: 202 138 4; --dz-c-yellow-700: 161 98 7; --dz-c-yellow-800: 133 77 14; --dz-c-yellow-900: 113 63 18; --dz-c-yellow-950: 66 32 6;
+  --dz-t-teal-500: var(--dz-c-teal-500); --dz-t-emerald-500: var(--dz-c-emerald-500); --dz-t-green-500: var(--dz-c-green-500); --dz-t-cyan-500: var(--dz-c-cyan-500); --dz-t-sky-500: var(--dz-c-sky-500); --dz-t-blue-500: var(--dz-c-blue-500); --dz-t-indigo-500: var(--dz-c-indigo-500); --dz-t-violet-500: var(--dz-c-violet-500); --dz-t-purple-500: var(--dz-c-purple-500); --dz-t-pink-500: var(--dz-c-pink-500); --dz-t-rose-500: var(--dz-c-rose-500); --dz-t-red-500: var(--dz-c-red-500); --dz-t-orange-500: var(--dz-c-orange-500); --dz-t-amber-500: var(--dz-c-amber-500); --dz-t-yellow-500: var(--dz-c-yellow-500);
+
+  --teal-1: rgb(var(--dz-c-teal-600));
+  --teal-2: rgb(var(--dz-c-teal-500));
+  --teal-3: rgb(var(--dz-c-teal-400));
+  --coral-1: rgb(var(--dz-c-orange-500));
+  --emerald: rgb(var(--dz-c-emerald-500));
+  --rose: rgb(var(--dz-c-rose-500));
+  --amber: rgb(var(--dz-c-amber-500));
+  --brand-gradient: linear-gradient(135deg, var(--teal-1), var(--teal-2));
+  --hero-gradient: linear-gradient(135deg, rgb(var(--dz-c-slate-900)) 0%, rgb(var(--dz-c-teal-900)) 35%, var(--teal-1) 100%);
+
+  --brand-dark: rgb(var(--dz-c-ink));
+  --brand-card: rgb(var(--dz-c-ink-card));
+  --surface: rgb(var(--dz-c-white) / 0.05);
+  --text: rgb(var(--dz-c-white));
+  --text-muted: rgb(var(--dz-c-slate-400));
+  --text-subtle: rgb(var(--dz-c-slate-500));
+  /* Hairlines on a light page need about twice the alpha to read as well as on a dark one. */
+  --dz-line-boost: 1;
+  --glass: rgb(var(--dz-c-white) / 0.05);
+  --glass-strong: rgb(var(--dz-c-white) / 0.08);
+  --glass-solid: rgb(20 18 40 / 0.92);
+  --glass-solid-strong: rgb(20 18 40 / 0.95);
+  --tile-shadow: none;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --select-chevron-active: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2314b8a6' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+
+  --control-border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
+  --control-bg: rgb(var(--dz-c-white) / 0.05);
+  --control-bg-hover: rgb(var(--dz-c-white) / 0.08);
+  --control-text: rgb(var(--dz-c-gray-200));
+  --control-bg-active: rgb(var(--dz-c-teal-500) / 0.15);
+  --control-border-active: var(--teal-2);
+  --btn-primary-grad: linear-gradient(135deg, var(--teal-1), var(--teal-2));
+  --btn-primary-shadow: 0 4px 14px rgb(var(--dz-c-teal-500) / 0.25);
+  --btn-primary-shadow-hover: 0 6px 20px rgb(var(--dz-c-teal-500) / 0.35);
+
+  --dd-bg: rgb(var(--dz-c-white) / 0.05);
+  --dd-bg-hover: rgb(var(--dz-c-white) / 0.08);
+  --dd-border: rgb(var(--dz-c-white) / calc(0.12 * var(--dz-line-boost)));
+  --dd-border-hover: rgb(var(--dz-c-white) / calc(0.24 * var(--dz-line-boost)));
+  --dd-text: rgb(var(--dz-c-gray-200));
+  --dd-muted: rgb(var(--dz-c-slate-400));
+  --dd-placeholder: rgb(var(--dz-c-gray-400));
+  --dd-shadow: 0 24px 60px rgb(var(--dz-c-black) / 0.55), 0 2px 10px rgb(var(--dz-c-black) / 0.4), 0 0 0 1px rgb(var(--dz-c-white) / 0.07);
+  --dd-menu-solid: rgb(28 26 43);
+
+  /* Tinted with the app's own indigo/teal: a gallery or reel can put near-white imagery behind the bar. */
+  --bottom-nav-bg: linear-gradient(180deg, rgb(45 41 120 / 0.74), rgb(14 12 24 / 0.86));
+  --bottom-nav-shadow: 0 12px 36px rgb(var(--dz-c-black) / 0.52), 0 2px 8px rgb(var(--dz-c-teal-600) / 0.18);
+  --bottom-nav-solid: rgb(23 20 43);
+
+  --cta-bg: linear-gradient(135deg, rgb(var(--dz-c-slate-900)) 0%, rgb(var(--dz-c-teal-900)) 30%, rgb(var(--dz-c-teal-800)) 70%, rgb(var(--dz-c-teal-600)) 100%);
+  --cta-bg-alt: linear-gradient(135deg, rgb(var(--dz-c-teal-900)) 0%, rgb(var(--dz-c-slate-900)) 45%, rgb(var(--dz-c-teal-800)) 100%);
+  --cta-btn: var(--dz-c-pure-white);
+  --cta-btn-text: var(--dz-c-slate-900);
+  --section-alt: rgb(18 16 31);
+}
+
+/* Never flips, and never re-declared by an island. */
+:root {
+  --dz-c-pure-white: 255 255 255;
+  --dz-c-black: 0 0 0;
+  /* The real page colour, so a fade at the foot of a dark island lands on the page behind it. */
+  --dz-c-page: 15 13 26;
+}
+
+html.light {
+  color-scheme: light;
+  --dz-c-page: 243 247 246;
+  --dz-c-white: 15 23 42;
+  --dz-c-ink: 243 247 246;
+  --dz-c-ink-2: 232 239 238;
+  --dz-c-ink-card: 255 255 255;
+  --dz-c-gray-50: 3 7 18; --dz-c-gray-100: 17 24 39; --dz-c-gray-200: 31 41 55; --dz-c-gray-300: 55 65 81; --dz-c-gray-400: 75 85 99; --dz-c-gray-500: 107 114 128; --dz-c-gray-600: 107 114 128; --dz-c-gray-700: 209 213 219; --dz-c-gray-800: 229 231 235; --dz-c-gray-900: 243 244 246; --dz-c-gray-950: 249 250 251;
+  --dz-c-slate-50: 2 6 23; --dz-c-slate-100: 15 23 42; --dz-c-slate-200: 30 41 59; --dz-c-slate-300: 51 65 85; --dz-c-slate-400: 71 85 105; --dz-c-slate-500: 100 116 139; --dz-c-slate-600: 100 116 139; --dz-c-slate-700: 203 213 225; --dz-c-slate-800: 226 232 240; --dz-c-slate-900: 241 245 249; --dz-c-slate-950: 248 250 252;
+  --dz-c-teal-50: 4 47 46; --dz-c-teal-100: 19 78 74; --dz-c-teal-200: 17 94 89; --dz-c-teal-300: 17 94 89; --dz-c-teal-400: 15 118 110;
+  --dz-c-emerald-50: 2 44 34; --dz-c-emerald-100: 6 78 59; --dz-c-emerald-200: 6 95 70; --dz-c-emerald-300: 6 95 70; --dz-c-emerald-400: 4 120 87;
+  --dz-c-green-50: 5 46 22; --dz-c-green-100: 20 83 45; --dz-c-green-200: 22 101 52; --dz-c-green-300: 22 101 52; --dz-c-green-400: 21 128 61;
+  --dz-c-cyan-50: 8 51 68; --dz-c-cyan-100: 22 78 99; --dz-c-cyan-200: 21 94 117; --dz-c-cyan-300: 21 94 117; --dz-c-cyan-400: 14 116 144;
+  --dz-c-sky-50: 8 47 73; --dz-c-sky-100: 12 74 110; --dz-c-sky-200: 7 89 133; --dz-c-sky-300: 7 89 133; --dz-c-sky-400: 3 105 161;
+  --dz-c-blue-50: 23 37 84; --dz-c-blue-100: 30 58 138; --dz-c-blue-200: 30 64 175; --dz-c-blue-300: 30 64 175; --dz-c-blue-400: 29 78 216;
+  --dz-c-indigo-50: 30 27 75; --dz-c-indigo-100: 49 46 129; --dz-c-indigo-200: 55 48 163; --dz-c-indigo-300: 55 48 163; --dz-c-indigo-400: 67 56 202;
+  --dz-c-violet-50: 46 16 101; --dz-c-violet-100: 76 29 149; --dz-c-violet-200: 91 33 182; --dz-c-violet-300: 91 33 182; --dz-c-violet-400: 109 40 217;
+  --dz-c-purple-50: 59 7 100; --dz-c-purple-100: 88 28 135; --dz-c-purple-200: 107 33 168; --dz-c-purple-300: 107 33 168; --dz-c-purple-400: 126 34 206;
+  --dz-c-pink-50: 80 7 36; --dz-c-pink-100: 131 24 67; --dz-c-pink-200: 157 23 77; --dz-c-pink-300: 157 23 77; --dz-c-pink-400: 190 24 93;
+  --dz-c-rose-50: 76 5 25; --dz-c-rose-100: 136 19 55; --dz-c-rose-200: 159 18 57; --dz-c-rose-300: 159 18 57; --dz-c-rose-400: 190 18 60;
+  --dz-c-red-50: 69 10 10; --dz-c-red-100: 127 29 29; --dz-c-red-200: 153 27 27; --dz-c-red-300: 153 27 27; --dz-c-red-400: 185 28 28;
+  --dz-c-orange-50: 67 20 7; --dz-c-orange-100: 124 45 18; --dz-c-orange-200: 154 52 18; --dz-c-orange-300: 154 52 18; --dz-c-orange-400: 194 65 12;
+  --dz-c-amber-50: 69 26 3; --dz-c-amber-100: 120 53 15; --dz-c-amber-200: 146 64 14; --dz-c-amber-300: 146 64 14; --dz-c-amber-400: 180 83 9;
+  --dz-c-yellow-50: 66 32 6; --dz-c-yellow-100: 113 63 18; --dz-c-yellow-200: 133 77 14; --dz-c-yellow-300: 133 77 14; --dz-c-yellow-400: 161 98 7;
+  --dz-t-teal-500: var(--dz-c-teal-700); --dz-t-emerald-500: var(--dz-c-emerald-700); --dz-t-green-500: var(--dz-c-green-700); --dz-t-cyan-500: var(--dz-c-cyan-700); --dz-t-sky-500: var(--dz-c-sky-700); --dz-t-blue-500: var(--dz-c-blue-700); --dz-t-indigo-500: var(--dz-c-indigo-700); --dz-t-violet-500: var(--dz-c-violet-700); --dz-t-purple-500: var(--dz-c-purple-700); --dz-t-pink-500: var(--dz-c-pink-700); --dz-t-rose-500: var(--dz-c-rose-700); --dz-t-red-500: var(--dz-c-red-700); --dz-t-orange-500: var(--dz-c-orange-700); --dz-t-amber-500: var(--dz-c-amber-700); --dz-t-yellow-500: var(--dz-c-yellow-700);
+
+  --dz-line-boost: 2;
+  /* Tiles (`--glass`, a navy tint here) sit a shade darker than the page; the shadow lifts them off it. */
+  --glass-strong: rgb(255 255 255 / 0.9);
+  --glass-solid: rgb(231 236 236);
+  --glass-solid-strong: rgb(255 255 255);
+  --tile-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 14px rgb(15 23 42 / 0.05);
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --select-chevron-active: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --control-bg: rgb(var(--dz-c-ink-card));
+  --dd-menu-solid: rgb(255 255 255);
+  --dd-shadow: 0 24px 60px rgb(15 23 42 / 0.14), 0 2px 10px rgb(15 23 42 / 0.08), 0 0 0 1px rgb(15 23 42 / 0.06);
+  --bottom-nav-bg: linear-gradient(180deg, rgb(255 255 255 / 0.78), rgb(240 253 250 / 0.9));
+  --bottom-nav-shadow: 0 12px 36px rgb(15 23 42 / 0.16), 0 2px 8px rgb(13 148 136 / 0.14);
+  --bottom-nav-solid: rgb(255 255 255);
+  --cta-bg: linear-gradient(135deg, rgb(240 253 250) 0%, rgb(255 255 255) 45%, rgb(204 251 241) 100%);
+  --cta-bg-alt: linear-gradient(135deg, rgb(204 251 241) 0%, rgb(255 255 255) 50%, rgb(240 253 250) 100%);
+  --cta-btn: var(--dz-c-teal-600);
+  --cta-btn-text: var(--dz-c-pure-white);
+  --section-alt: rgb(232 239 238);
+}
+
+/* Text inherited from <body> was resolved there, so an island re-states it. Specificity (0,0,1):
+   beats preflight's `button, a { color: inherit }` (this file loads later), loses to any `text-*` class. */
+html:where(.light) :where(
+  .theme-dark, .btn-teal, .dz-lightbox, .pc-lightbox, .reels-page, .bg-black, [class*="from-black/"],
+  .badge-seeker, .sf-match-great, .ba-knob, .ba-tag,
+  [class~="bg-black/40"]:not(.fixed), [class~="bg-black/50"]:not(.fixed), [class~="bg-black/60"]:not(.fixed),
+  [class~="bg-black/70"]:not(.fixed), [class~="bg-black/75"]:not(.fixed), [class~="bg-black/80"]:not(.fixed),
+  [class~="bg-black/90"]:not(.fixed),
+  [class~="bg-teal-400"], [class~="bg-teal-500"], [class~="bg-teal-600"], [class~="bg-teal-700"],
+  [class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-rose-500"], [class~="bg-rose-600"],
+  [class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-violet-500"], [class~="bg-indigo-500"],
+  [class~="bg-indigo-600"], [class~="bg-sky-500"], [class~="bg-amber-500"], [class~="bg-orange-500"],
+  [class~="bg-brand-teal"], [class~="bg-brand-teal-1"], [class~="bg-brand-teal-2"],
+  [class~="from-teal-400"], [class~="from-teal-500"], [class~="from-teal-600"], [class~="from-brand-teal"],
+  [class~="from-brand-teal-1"], [class~="from-brand-teal-2"], [class~="from-pink-500"], [class~="from-blue-500"],
+  [class~="from-orange-500"], [class~="from-orange-400"], [class~="from-indigo-500"]
+) {
+  color: rgb(var(--dz-c-white));
+}

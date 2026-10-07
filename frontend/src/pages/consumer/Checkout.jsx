@@ -110,7 +110,7 @@ export default function Checkout() {
 
       {alreadyOnThisPlan ? (
         <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
-          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(16,185,129,.15)' }}><Icon name="badge-check" className="w-9 h-9 text-emerald-400" /></div>
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgb(var(--dz-c-emerald-500) / .15)' }}><Icon name="badge-check" className="w-9 h-9 text-emerald-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coAlreadyActiveTitle')}</h2>
           <p className="text-gray-400 text-sm mb-6">{t('misc.coAlreadyActiveBody', { plan: P.nameLabel })}</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -120,7 +120,7 @@ export default function Checkout() {
         </div>
       ) : paused ? (
         <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
-          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(245,158,11,.15)' }}><Icon name="pause-circle" className="w-9 h-9 text-amber-400" /></div>
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgb(var(--dz-c-amber-500) / .15)' }}><Icon name="pause-circle" className="w-9 h-9 text-amber-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coPausedTitle')}</h2>
           <p className="text-gray-400 text-sm mb-6">{t('misc.coPausedBody')}</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -130,7 +130,7 @@ export default function Checkout() {
         </div>
       ) : pending ? (
         <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
-          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(245,158,11,.15)' }}><Icon name="clock" className="w-9 h-9 text-amber-400" /></div>
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgb(var(--dz-c-amber-500) / .15)' }}><Icon name="clock" className="w-9 h-9 text-amber-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coPaymentPending')}</h2>
           <p className="text-gray-400 text-sm mb-1">{P.done.title} · {inr(P.price)} {t('misc.coPaidVia')} {method}</p>
           <p className="text-gray-400 text-sm mb-2">{t('misc.coPaymentPendingBody')}</p>
@@ -142,7 +142,7 @@ export default function Checkout() {
         </div>
       ) : paid ? (
         <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
-          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(16,185,129,.15)' }}><Icon name="check-circle-2" className="w-9 h-9 text-emerald-400" /></div>
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgb(var(--dz-c-emerald-500) / .15)' }}><Icon name="check-circle-2" className="w-9 h-9 text-emerald-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coPaymentSuccess')}</h2>
           <p className="text-gray-400 text-sm mb-1">{P.done.title} · {inr(P.price)} {t('misc.coPaidVia')} {method}</p>
           <p className="text-gray-400 text-sm mb-2">{P.done.body}</p>
@@ -160,7 +160,7 @@ export default function Checkout() {
           <div className="glass rounded-2xl p-5 sm:p-6">
             <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-4">{t('misc.coOrderSummary')}</h2>
             <div className="flex items-start gap-3 mb-4">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(20,184,166,.14)' }}><Icon name={P.icon} className="w-5 h-5 text-teal-400" /></div>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgb(var(--dz-c-teal-500) / .14)' }}><Icon name={P.icon} className="w-5 h-5 text-teal-400" /></div>
               <div><h3 className="text-lg font-extrabold leading-tight">{P.nameLabel}</h3><p className="text-teal-300 text-sm font-medium">{P.tagline}</p></div>
             </div>
             <ul className="space-y-2.5 mb-5">
@@ -193,7 +193,7 @@ export default function Checkout() {
 
         {/* Mobile sticky pay bar — keeps the total and pay action reachable without
             scrolling. In-flow (sticky, not fixed) so it releases naturally at the footer. */}
-        <div className="md:hidden sticky bottom-0 z-30 -mx-4 sm:-mx-6 mt-6 border-t border-white/10 bg-[#0f0d1a]/95 backdrop-blur-xl px-4 sm:px-6 py-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}>
+        <div className="md:hidden sticky bottom-0 z-30 -mx-4 sm:-mx-6 mt-6 border-t border-white/10 bg-ink/95 backdrop-blur-xl px-4 sm:px-6 py-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}>
           <div className="flex items-center gap-4">
             <div className="shrink-0">
               <p className="text-[11px] text-gray-500 leading-none mb-1">{t('misc.coTotal')}</p>

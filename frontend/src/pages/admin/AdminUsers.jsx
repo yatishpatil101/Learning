@@ -479,7 +479,7 @@ export default function AdminUsers() {
                   const Icon = styles.icon;
                   return (
                     <div key={`${entry.kind}-${entry.entityId}-${entry.at}-${i}`} className="relative">
-                      <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-ink ${styles.dot}`} />
+                      <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full ${styles.dot}`} />
                       <div className="flex items-start gap-3">
                         <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 ${styles.color}`}>
                           <Icon className="h-4 w-4" />

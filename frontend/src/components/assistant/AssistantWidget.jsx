@@ -222,9 +222,11 @@ export default function AssistantWidget() {
     || pathname.startsWith('/society/')
     || pathname === '/contact';
   const cityBar = !isLive(city);
+  const wizardBar = pathname.startsWith('/list-property');
   let anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
   if (detailBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
   else if (cityBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+9rem)] sm:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
+  else if (wizardBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+5.75rem)] sm:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
@@ -270,13 +272,13 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
   return (
     <div className="flex flex-col items-end gap-2">
       {showNudge ? (
-        <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
+        <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-ink-card/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
           <button
             onClick={onDismissNudge}
             /* A 44px circle would be bigger than the bubble it closes, so `.tap-extend` puts the target back under
                the finger while the glyph stays 20px. */
             aria-label="Dismiss"
-            className="tap-extend pointer-events-auto absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
+            className="tap-extend pointer-events-auto absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-ink-card text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
           >
             <Icon name="x" className="h-3 w-3" />
           </button>
@@ -286,7 +288,7 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
       <button
         onClick={onOpen}
         aria-label="Open Draaz, the Draazy help assistant"
-        className="group pointer-events-auto flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
+        className="group pointer-events-auto flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-teal-600 to-teal-500 font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
       >
         <Icon name="sparkles" weight="fill" className="h-5 w-5" />
         <span className="hidden text-sm sm:inline">Ask Draaz</span>
@@ -304,7 +306,7 @@ function Panel({
     <div
       role="dialog"
       aria-label="Draaz help assistant"
-      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-full max-w-[384px] sm:w-[384px] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
+      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-full max-w-[384px] sm:w-[384px] flex-col overflow-hidden rounded-3xl bg-ink-card/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
     >
       {/* Signature: a soft teal aurora — clipped to the header so it never bleeds into the chat thread. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 overflow-hidden">
@@ -313,14 +315,14 @@ function Panel({
       {/* Header */}
 
       <header className="relative z-10 flex items-center gap-3 bg-gradient-to-b from-white/[0.06] to-transparent px-4 py-3.5">
-        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] shadow-lg shadow-teal-500/30 ring-1 ring-white/20">
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-teal-500 shadow-lg shadow-teal-500/30">
           <Icon name="sparkles" weight="fill" className="h-5 w-5 text-white" />
-          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 ring-2 ring-[#141020]" />
+          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 shadow-md shadow-emerald-500/40" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold leading-tight text-white">{ASSISTANT.name}</p>
           <p className="flex items-center gap-1.5 text-[11px] leading-tight text-gray-400">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgb(var(--dz-c-emerald-400)/0.7)]" />
             {ASSISTANT.tagline} · online
           </p>
         </div>
@@ -374,7 +376,7 @@ function Panel({
           type="submit"
           disabled={!input.trim()}
           aria-label="Send"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0d9488] to-[#14b8a6] text-white shadow-lg shadow-teal-500/25 transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none cursor-pointer disabled:cursor-default"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 text-white shadow-lg shadow-teal-500/25 transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none cursor-pointer disabled:cursor-default"
         >
           <Icon name="send" weight="fill" className="h-5 w-5" />
         </button>
@@ -391,8 +393,8 @@ function Bubble({ m, onAction }) {
       <div
         className={
           isUser
-            ? 'max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-[#0d9488] to-[#14b8a6] px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white shadow-lg shadow-teal-950/40'
-            : 'max-w-[92%] rounded-2xl rounded-bl-md bg-white/[0.06] px-3.5 py-2.5 text-[13.5px] leading-relaxed text-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.06)]'
+            ? 'max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-teal-600 to-teal-500 px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white shadow-lg shadow-teal-950/40'
+            : 'max-w-[92%] rounded-2xl rounded-bl-md bg-white/[0.06] px-3.5 py-2.5 text-[13.5px] leading-relaxed text-gray-100 shadow-[0_1px_2px_rgb(var(--dz-c-black)/0.25),inset_0_1px_0_rgb(var(--dz-c-white)/0.06)]'
         }
       >
         {m.text}
@@ -442,7 +444,7 @@ function ActionChip({ a, onAction, subtle }) {
         'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ' +
         (subtle
           ? 'bg-white/[0.05] text-gray-300 hover:bg-white/10 hover:text-white'
-          : 'bg-teal-400/[0.14] text-teal-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-teal-400/25')
+          : 'bg-teal-400/[0.14] text-teal-100 shadow-[inset_0_1px_0_rgb(var(--dz-c-white)/0.08)] hover:bg-teal-400/25')
       }
     >
       {a.icon ? <Icon name={a.icon} className="h-3.5 w-3.5" /> : null}

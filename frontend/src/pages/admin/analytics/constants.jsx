@@ -1,18 +1,22 @@
 import { Children, cloneElement, isValidElement } from 'react';
+import { cssColour } from '../../../lib/themeColour';
 
 export const C = {
-  teal: '#14b8a6',
-  indigo: '#6366f1',
-  coral: '#fb923c',
-  emerald: '#10b981',
-  rose: '#f43f5e',
-  amber: '#f59e0b',
-  slate: '#64748b',
-  violet: '#a78bfa',
+  get teal() { return cssColour('teal-500'); },
+  get indigo() { return cssColour('indigo-500'); },
+  get coral() { return cssColour('orange-400'); },
+  get emerald() { return cssColour('emerald-500'); },
+  get rose() { return cssColour('rose-500'); },
+  get amber() { return cssColour('amber-500'); },
+  get slate() { return cssColour('slate-500'); },
+  get violet() { return cssColour('violet-400'); },
 };
 
-export const AX = { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } };
-export const axis = (extra = {}) => ({ ...AX, ...extra, ticks: { color: '#94a3b8', ...(extra.ticks || {}) } });
+export const AX = {
+  get ticks() { return { color: cssColour('slate-400') }; },
+  get grid() { return { color: cssColour('white', 0.05) }; },
+};
+export const axis = (extra = {}) => ({ ...AX, ...extra, ticks: { color: cssColour('slate-400'), ...(extra.ticks || {}) } });
 
 export const RANGE_OPTIONS = [
   { value: '30', label: 'Last 30 days' },

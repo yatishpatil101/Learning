@@ -49,7 +49,7 @@ function StatTile({ tile }) {
         className={`text-xs font-semibold ${
           tile.attention ? (has ? 'text-amber-300' : 'text-gray-500') : ''
         }`}
-        style={tile.attention ? undefined : { color: '#94a3b8' }}
+        style={tile.attention ? undefined : { color: 'rgb(var(--dz-c-slate-400))' }}
       >
         {tile.attention ? (has ? tile.cta : 'All clear') : tile.sub}
       </div>

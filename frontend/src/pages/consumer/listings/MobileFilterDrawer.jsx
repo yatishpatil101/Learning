@@ -49,7 +49,7 @@ export default function MobileFilterDrawer({ drawer, setDrawer, f, set, localiti
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pb-6 filter-scroll">
           <Filters f={f} set={set} localities={localities} onAddLocality={onAddLocality} clearAll={clearAll} idp="m-" showClear={false} />
         </div>
-        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: '#1a1730' }}>
+        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: 'rgb(var(--dz-c-ink-card))' }}>
           <span className="sr-only" aria-live="polite">
             {total === 0 ? t('listings.noMatchesSr') : t('listings.resultsMatch', { count: total })}
           </span>

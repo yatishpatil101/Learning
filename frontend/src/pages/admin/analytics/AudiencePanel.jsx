@@ -1,5 +1,6 @@
 import { BarChart } from '../../../components/charts/index.jsx';
 import { pageLabel } from '../../../lib/telemetry/pageLabels.js';
+import { fmtNum } from '../../../lib/format.js';
 import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
 
 // How much of the audience browses without an account, and where it leaves.
@@ -17,11 +18,8 @@ export default function AudiencePanel({ report, failed, days }) {
     totalSessions, anonSessions, signups, anonSharePct, conversionRatePct, pages, dropOff,
   } = report;
 
-  // A rate with no denominator is not zero, it is unknown, and every one of these arrives nullable
-  // for that reason. `—` is the same mark the Pricing tab uses for an unmeasurable figure; a count
-  // of 0 still prints as 0, because no sessions is a measurement.
+  // Rates arrive nullable because a missing denominator is unknown, not zero; `—` matches the Pricing tab, while a 0 count still prints 0.
   const pct = (v) => (v == null ? '—' : `${v}%`);
-  const num = (v) => v.toLocaleString('en-IN');
 
   return (
     <div>
@@ -29,8 +27,8 @@ export default function AudiencePanel({ report, failed, days }) {
         {[
           [pct(anonSharePct), 'Anonymous share', 'Portion of sessions that never signed in'],
           [pct(conversionRatePct), 'Session \u2192 Signup rate', 'Signups over sessions in this window'],
-          [num(anonSessions), 'Anonymous sessions', `Out of ${num(totalSessions)} total sessions`],
-          [num(signups), 'Signups in period', `Last ${days} days`],
+          [fmtNum(anonSessions), 'Anonymous sessions', `Out of ${fmtNum(totalSessions)} total sessions`],
+          [fmtNum(signups), 'Signups in period', `Last ${days} days`],
         ].map(([val, label, sub]) => (
           <div key={label + sub} className="dz-card p-4 text-center">
             <p className="text-2xl font-extrabold text-teal-400">{val}</p>
@@ -41,14 +39,10 @@ export default function AudiencePanel({ report, failed, days }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/*
-          `sharePct` is a share of the exits *shown*, not of all exits, because the list is capped.
-          The card says "top exit points" for that reason: reading a bar as "38% of everyone who
-          left, left here" would be wrong by however long the tail is.
-        */}
+        {/* `sharePct` is a share of the exits shown (the list is capped), not of all exits. */}
         <Card title="Where visitors leave" desc="Share of the top exit points" height={260}>
           {dropOff.length ? (
-            <BarChart horizontal labels={dropOff.map((d) => pageLabel(d.path))} datasets={[{ label: '% of shown exits', data: dropOff.map((d) => d.sharePct), color: C.rose }]} options={{ scales: { x: axis({ ticks: { color: '#94a3b8', callback: (v) => `${v}%` } }), y: AX } }} />
+            <BarChart horizontal labels={dropOff.map((d) => pageLabel(d.path))} datasets={[{ label: '% of shown exits', data: dropOff.map((d) => d.sharePct), color: C.rose }]} options={{ scales: { x: axis({ ticks: { callback: (v) => `${v}%` } }), y: AX } }} />
           ) : (
             <p className="py-10 text-center text-sm text-gray-500">No exits recorded in this window.</p>
           )}
@@ -56,7 +50,7 @@ export default function AudiencePanel({ report, failed, days }) {
 
         <Card title="Pages visited by anonymous users" desc="Anonymous views against total views per page" height={260}>
           {pages.length ? (
-            <BarChart labels={pages.map((p) => pageLabel(p.path))} datasets={[{ label: 'Anonymous views', data: pages.map((p) => p.anonViews), color: C.slate }, { label: 'All views', data: pages.map((p) => p.views), color: C.emerald }]} options={{ scales: { x: AX, y: axis({ ticks: { color: '#94a3b8', callback: (v) => (v >= 1000 ? `${v / 1000}k` : v) } }) } }} />
+            <BarChart labels={pages.map((p) => pageLabel(p.path))} datasets={[{ label: 'Anonymous views', data: pages.map((p) => p.anonViews), color: C.slate }, { label: 'All views', data: pages.map((p) => p.views), color: C.emerald }]} options={{ scales: { x: AX, y: axis({ ticks: { callback: (v) => (v >= 1000 ? `${v / 1000}k` : v) } }) } }} />
           ) : (
             <p className="py-10 text-center text-sm text-gray-500">No page views in this window.</p>
           )}

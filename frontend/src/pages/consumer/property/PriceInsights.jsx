@@ -216,7 +216,7 @@ export function PriceInsights({ p }) {
             ? costTile('percent', t('property.gstPct', { pct: Math.round(gstRate * 100) }), fmtINR(gst), 'price.gst')
             : costTile('badge-check', t('property.gst'), isLand ? t('property.gstNotApplicable') : t('property.gstNoneReady', { kind: isCommercial ? t('property.readyProperty') : t('property.readyHome') }), 'price.gst')}
         </div>
-        <div className="mt-3 rounded-xl border border-emerald-500/25 p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'rgba(16,185,129,.07)' }}>
+        <div className="mt-3 rounded-xl border border-emerald-500/25 p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'rgb(var(--dz-c-emerald-500) / .07)' }}>
           <div>
             <p className="text-xs text-slate-400">{t('property.allInAcquisition')}</p>
             <p className="text-2xl font-extrabold text-white leading-tight">{fmtINR(allIn)}</p>

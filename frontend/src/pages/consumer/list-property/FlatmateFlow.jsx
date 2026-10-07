@@ -53,7 +53,7 @@ const FlatmateFlow = ({
               placeholder={t('listProperty.ph.areaSearch')}
             />
           </div>
-          <div style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${errors.location ? 'rgba(248,113,113,.6)' : 'rgba(255,255,255,.1)'}` }}>
+          <div style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${errors.location ? 'rgb(var(--dz-c-red-400) / .6)' : 'rgb(var(--dz-c-white) / .1)'}` }}>
             <LocationPicker lat={form.propLat} lng={form.propLng} flyTo={flyTo} onMove={(la, ln) => onPinMove(la, ln)} />
           </div>
           {locationSet ? (

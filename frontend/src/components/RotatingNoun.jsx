@@ -1,18 +1,11 @@
 import { useEffect, useState } from 'react';
 
-/* Hero noun that rotates through the full spread of inventory (residential +
-   commercial + land) so a "Find Your ___ in {city}" headline speaks to every seeker,
-   not just home-buyers. Shared by the home hero and the auth marketing panel so the
-   two stay in lock-step.
-
-   The visible cycling spans are decorative and hidden from assistive tech; a single
-   sr-only label carries the full accessible name ("Home, Office, Shop or Plot") so
-   screen-reader users hear the marketplace's breadth without a 2.4s live-region
-   interruption. Honors prefers-reduced-motion by holding on the first word. */
+/* Cycling spans are aria-hidden; one sr-only label carries the full name so screen readers get no live-region
+   churn. Holds on the first word under prefers-reduced-motion. */
 const HERO_NOUNS = ['Home', 'Office', 'Shop', 'Plot'];
 
 const DEFAULT_WORD_CLASS =
-  'bg-gradient-to-r from-[#2dd4bf] to-[#14b8a6] bg-clip-text text-transparent';
+  'bg-gradient-to-r from-teal-400 to-teal-500 bg-clip-text text-transparent';
 
 // "Home, Office, Shop or Plot" — the visible spread read as a single phrase.
 const srPhrase = (words) =>

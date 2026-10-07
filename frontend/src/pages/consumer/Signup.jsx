@@ -258,7 +258,7 @@ export default function Signup() {
                 </div>
               </div>
 
-              <button type="submit" disabled={creating || done || otpSpent} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+              <button type="submit" disabled={creating || done || otpSpent} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-600)),rgb(var(--dz-c-emerald-500)))' } : undefined}>
                 {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
                   : creating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.creatingAccount')}</>
                   : <>{t('auth.createAccount')} <ArrowRight className="w-4 h-4" /></>}

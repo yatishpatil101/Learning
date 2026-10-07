@@ -31,7 +31,7 @@ function ProgressBar({ status }) {
         <span className={'text-[11px] font-semibold ' + (done ? 'text-emerald-300' : 'text-teal-300')}>{pct}% complete</span>
       </div>
       <div className="h-2 rounded-full bg-white/15 overflow-hidden ring-1 ring-inset ring-white/5" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Request progress">
-        <div className="h-full rounded-full transition-[width] duration-500" style={{ width: (pct > 0 ? Math.max(pct, 4) : 0) + '%', background: done ? 'linear-gradient(to right,#10b981,#34d399)' : 'var(--brand-gradient)' }} />
+        <div className="h-full rounded-full transition-[width] duration-500" style={{ width: (pct > 0 ? Math.max(pct, 4) : 0) + '%', background: done ? 'linear-gradient(to right,rgb(var(--dz-c-emerald-500)),rgb(var(--dz-c-emerald-400)))' : 'var(--brand-gradient)' }} />
       </div>
     </div>
   );
@@ -40,7 +40,7 @@ function ProgressBar({ status }) {
 function Stepper({ status }) {
   const states = stepStates(status);
   return (
-    <HScroll wrapClassName="mb-4" className="flex items-center gap-1 pb-1" fadeColor="#211f2b">
+    <HScroll wrapClassName="mb-4" className="flex items-center gap-1 pb-1" fadeColor="rgb(var(--dz-c-ink-card))">
       {STEPS.map((lab, i) => {
         const st = states[i];
         const dot = st === 'done' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'

@@ -82,7 +82,7 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation,
     <Modal open onClose={close} title="Lead details" size="sm">
       <div className="space-y-5 pb-[var(--dz-safe-b)]">
         <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-teal to-emerald-500 text-sm font-bold text-white ring-1 ring-white/10">{avatarFor(lead.name)}</div>
+          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-teal to-emerald-500 text-sm font-bold text-white">{avatarFor(lead.name)}</div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-bold text-white">{lead.name}</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400">

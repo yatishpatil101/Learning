@@ -180,7 +180,7 @@ export default function Plans() {
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="text-center mb-8 sm:mb-12">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-emerald-300 mb-3" style={{ background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.25)' }}><Icon name="hand-coins" className="w-3.5 h-3.5" /> {t('misc1.plansBadge')}</span>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-emerald-300 mb-3" style={{ background: 'rgb(var(--dz-c-emerald-500) / .12)', border: '1px solid rgb(var(--dz-c-emerald-500) / .25)' }}><Icon name="hand-coins" className="w-3.5 h-3.5" /> {t('misc1.plansBadge')}</span>
         <h1 className="text-3xl sm:text-4xl font-extrabold">{t('misc1.plansTitle')}</h1>
         <p className="text-gray-400 mt-2">{t('misc1.plansSubtitle')}</p>
       </div>
@@ -221,7 +221,7 @@ export default function Plans() {
       </div>
 
       <section className="glass rounded-2xl p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5 mb-10">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(20,184,166,.14)' }}><Icon name="file-signature" className="w-6 h-6 text-teal-400" /></div>
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgb(var(--dz-c-teal-500) / .14)' }}><Icon name="file-signature" className="w-6 h-6 text-teal-400" /></div>
         <div className="flex-1">
           <h2 className="text-lg font-bold">{t('misc1.plansRentAgreement')}</h2>
           <p className="text-gray-400 text-sm mt-1">{t('misc1.plansRentAgreementBody1')}<span className="text-white font-semibold">{RENT_FEE}</span> <span className="text-white font-semibold">{t('misc1.plansPlatformFee')}</span>{t('misc1.plansRentAgreementBody2')}<span className="text-white font-semibold">{t('misc1.plansGovtCharges')}</span>{t('misc1.plansRentAgreementBody3')}</p>

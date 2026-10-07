@@ -71,6 +71,17 @@ test.describe('Mobile listing wizard', () => {
       const box = await primary.boundingBox();
       expect(box.width, 'compact, not a full-width bar').toBeLessThan(vw * 0.6);
       expect(box.height).toBeGreaterThanOrEqual(44);
+
+      // A self-contained floating bar: rounded on every corner and solid, so neither its
+      // corners nor the fields behind it leak out where it docks at the end of the card.
+      expect(await actions.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return [s.borderBottomLeftRadius, s.backgroundColor.startsWith('rgba') ? 'translucent' : 'solid'];
+      })).toEqual(['16px', 'solid']);
+
+      // The Ask Draaz launcher must clear the bar rather than sit on its Next button.
+      const launcher = await page.locator('.dz-assistant-layer').boundingBox();
+      if (launcher) expect(launcher.y + launcher.height, 'the launcher sits above the bar').toBeLessThanOrEqual(actionsBox.y);
     });
 
     expect(errors, 'the wizard logs no console errors on a phone').toEqual([]);

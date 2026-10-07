@@ -3,19 +3,19 @@
 
 /* ===== Rent Agreement wizard (scoped to .ra-page) ===== */
 .ra-page .field {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgb(var(--dz-c-white) / .05);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.1 * var(--dz-line-boost)));
   transition: all .25s ease;
 }
 
 .ra-page .field:focus {
   border-color: var(--teal-2) !important;
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / .15);
   outline: none;
 }
 
 .ra-page select.field option {
-  background: #1a1730;
+  background: rgb(var(--dz-c-ink-card));
 }
 
 .ra-page .hero {
@@ -23,8 +23,8 @@
 }
 
 .ra-page .step-dot {
-  border: 2px solid rgba(255, 255, 255, .15);
-  color: #64748b;
+  border: 2px solid rgb(var(--dz-c-white) / calc(.15 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-slate-500));
   background: transparent;
   transition: all .3s ease;
 }
@@ -32,32 +32,32 @@
 .ra-page .step-dot.active {
   border-color: var(--teal-2);
   background: var(--brand-gradient);
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   box-shadow: none;
 }
 
 .ra-page .step-dot.done {
   border-color: var(--teal-2);
   background: var(--teal-2);
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .ra-page .step-dot.pending {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, .14);
-  color: #fbbf24;
+  border-color: rgb(var(--dz-c-amber-500));
+  background: rgb(var(--dz-c-amber-500) / .14);
+  color: rgb(var(--dz-c-amber-400));
 }
 
 /* Signed out — this step is behind the sign-in line (see LAST_PUBLIC_STEP). Deliberately the
    quietest variant: an accent colour would read as something owed rather than as "not yet". */
 .ra-page .step-dot.locked {
-  border-color: rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .03);
-  color: #475569;
+  border-color: rgb(var(--dz-c-white) / calc(.08 * var(--dz-line-boost)));
+  background: rgb(var(--dz-c-white) / .03);
+  color: rgb(var(--dz-c-slate-600));
 }
 
 .ra-page .step-line {
-  background: rgba(255, 255, 255, .08);
+  background: rgb(var(--dz-c-white) / .08);
 }
 
 .ra-page .step-line.done {
@@ -86,45 +86,45 @@
 }
 
 .ra-page .opt-pill {
-  border: 1px solid rgba(255, 255, 255, .1);
-  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.1 * var(--dz-line-boost)));
+  background: rgb(var(--dz-c-white) / .03);
   cursor: pointer;
   transition: all .25s ease;
 }
 
 .ra-page .opt-pill.sel {
   border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .12);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-  color: #fff;
+  background: rgb(var(--dz-c-teal-500) / .12);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / .12);
+  color: rgb(var(--dz-c-white));
 }
 
 .ra-page .ra-mode {
-  border: 1px solid rgba(255, 255, 255, .1);
-  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.1 * var(--dz-line-boost)));
+  background: rgb(var(--dz-c-white) / .03);
   cursor: pointer;
   transition: all .25s ease;
 }
 
 .ra-page .ra-mode.sel {
   border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .1);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
+  background: rgb(var(--dz-c-teal-500) / .1);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / .12);
 }
 
 .ra-page .furn-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, .03);
-  border: 1px solid rgba(255, 255, 255, .08);
+  background: rgb(var(--dz-c-white) / .03);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.08 * var(--dz-line-boost)));
   border-radius: 12px;
   padding: 8px 10px;
 }
 
 .ra-page .furn-row .fr-name {
   font-size: .82rem;
-  color: #e5e7eb;
+  color: rgb(var(--dz-c-gray-200));
   font-weight: 500;
   flex: 1;
   min-width: 0;
@@ -137,9 +137,9 @@
   font-size: .58rem;
   text-transform: uppercase;
   letter-spacing: .04em;
-  color: #5eead4;
-  background: rgba(20, 184, 166, .12);
-  border: 1px solid rgba(20, 184, 166, .25);
+  color: rgb(var(--dz-c-teal-300));
+  background: rgb(var(--dz-c-teal-500) / .12);
+  border: 1px solid rgb(var(--dz-c-teal-500) / .25);
   padding: 1px 6px;
   border-radius: 999px;
   flex-shrink: 0;
@@ -148,8 +148,8 @@
 .ra-page .qty-step {
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgb(var(--dz-c-white) / .05);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.12 * var(--dz-line-boost)));
   border-radius: 9px;
   overflow: hidden;
   flex-shrink: 0;
@@ -161,7 +161,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9ca3af;
+  color: rgb(var(--dz-c-gray-400));
   cursor: pointer;
   transition: all .15s;
 }
@@ -171,7 +171,7 @@
   text-align: center;
   font-size: .82rem;
   font-weight: 600;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
 }
 
 .ra-page .fr-remove {
@@ -180,7 +180,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9ca3af;
+  color: rgb(var(--dz-c-gray-400));
   border-radius: 8px;
   cursor: pointer;
   transition: all .15s;
@@ -191,29 +191,29 @@
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: #cbd5e1;
+  color: rgb(var(--dz-c-slate-300));
   margin-bottom: 8px;
 }
 
 .ra-page .req::after {
   content: ' *';
-  color: #fb7185;
+  color: rgb(var(--dz-c-rose-400));
 }
 
 .ra-page .upload-box {
-  border: 1.5px dashed rgba(255, 255, 255, .15);
-  background: rgba(255, 255, 255, .03);
+  border: 1.5px dashed rgb(var(--dz-c-white) / calc(.15 * var(--dz-line-boost)));
+  background: rgb(var(--dz-c-white) / .03);
   transition: all .25s ease;
 }
 
 .ra-page .upload-box.has-file {
   border-style: solid;
-  border-color: rgba(20, 184, 166, .5);
-  background: rgba(20, 184, 166, .08);
+  border-color: rgb(var(--dz-c-teal-500) / .5);
+  background: rgb(var(--dz-c-teal-500) / .08);
 }
 
 .ra-page .upload-box.has-file .upload-name {
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .ra-page .tenant-block {
@@ -234,29 +234,29 @@
 }
 
 .ra-page .field.err {
-  border-color: #fb7185 !important;
-  box-shadow: 0 0 0 3px rgba(251, 113, 133, .15);
+  border-color: rgb(var(--dz-c-rose-400)) !important;
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-rose-400) / .15);
 }
 
 @media (hover: hover) {
   /* Gated so touch does not leave the last tapped option highlighted. */
 
   .ra-page .opt-pill:hover,
-  .ra-page .ra-mode:hover { border-color: rgba(20, 184, 166, .4); }
+  .ra-page .ra-mode:hover { border-color: rgb(var(--dz-c-teal-500) / .4); }
 
   .ra-page .qty-btn:hover {
-    background: rgba(20, 184, 166, .15);
-    color: #5eead4;
+    background: rgb(var(--dz-c-teal-500) / .15);
+    color: rgb(var(--dz-c-teal-300));
   }
 
   .ra-page .fr-remove:hover {
-    background: rgba(244, 63, 94, .12);
-    color: #fda4af;
+    background: rgb(var(--dz-c-rose-500) / .12);
+    color: rgb(var(--dz-c-rose-300));
   }
 
   .ra-page .upload-box:hover {
-    border-color: rgba(20, 184, 166, .5);
-    background: rgba(20, 184, 166, .05);
+    border-color: rgb(var(--dz-c-teal-500) / .5);
+    background: rgb(var(--dz-c-teal-500) / .05);
   }
 }
 

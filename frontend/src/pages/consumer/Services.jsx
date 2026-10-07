@@ -45,9 +45,9 @@ const STEPS = [
   ['Move In', 'key-round', 'Close with loans, legal, movers & interiors — all sorted.', 'moveIn'],
 ];
 const TESTI = [
-  ['Aarti & Rohan', 'Bought a 3 BHK in Baner', 'AR', 'We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress.', '#fb923c'],
-  ['Sandeep Kulkarni', 'Rented in Wakad', 'SK', 'Chatted directly with the owner, signed the rent agreement online. The whole thing took two days.', '#14b8a6'],
-  ['Meera Joshi', 'Sold & relocated', 'MJ', 'The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully.', '#6366f1'],
+  ['Aarti & Rohan', 'Bought a 3 BHK in Baner', 'AR', 'We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress.', 'rgb(var(--dz-c-orange-400))'],
+  ['Sandeep Kulkarni', 'Rented in Wakad', 'SK', 'Chatted directly with the owner, signed the rent agreement online. The whole thing took two days.', 'rgb(var(--dz-c-teal-500))'],
+  ['Meera Joshi', 'Sold & relocated', 'MJ', 'The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully.', 'rgb(var(--dz-c-indigo-500))'],
 ];
 const PACK = [
   { id: 'movers', icon: 'truck' },
@@ -250,10 +250,10 @@ export default function Services() {
   return (
     <div ref={rootRef}>
       <div>
-        <section className="relative overflow-hidden">
+        <section className="theme-dark relative overflow-hidden">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1600&q=80')" }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgba(15,13,26,.97) 0%,rgba(30,27,75,.88) 45%,rgba(13,148,136,.5) 100%)' }} />
-          <div className="absolute -top-20 -right-20 w-96 h-96 rounded-full bg-[#14b8a6]/20 blur-3xl" />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgb(var(--dz-c-ink) / .97) 0%,rgb(var(--dz-c-indigo-950) / .88) 45%,rgb(var(--dz-c-teal-600) / .5) 100%)' }} />
+          <div className="absolute -top-20 -right-20 w-96 h-96 rounded-full bg-teal-500/20 blur-3xl" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 sm:py-20 lg:py-28">
             <div className="max-w-2xl reveal">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs text-teal-200 font-medium mb-4 sm:mb-5"><Icon name="sparkles" className="w-3.5 h-3.5" /> {tr('services.hub.heroBadge')}</span>
@@ -270,11 +270,11 @@ export default function Services() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 sm:-mt-10 relative z-10">
           <Link to="/services/rent-agreement" className="ra-spot glass-card block rounded-2xl p-3.5 sm:p-6 reveal">
             <div className="ra-spot-row">
-              <span className="w-9 h-9 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#14b8a6] flex items-center justify-center shrink-0 shadow-lg shadow-teal-500/30">
+              <span className="w-9 h-9 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 flex items-center justify-center shrink-0 shadow-lg shadow-teal-500/30">
                 <Icon name="file-signature" className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
               </span>
               <div className="ra-spot-body min-w-0 flex-1">
-                <span className="ra-spot-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-teal-200" style={{ background: 'rgba(20,184,166,.16)' }}>
+                <span className="ra-spot-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-teal-200" style={{ background: 'rgb(var(--dz-c-teal-500) / .16)' }}>
                   <Icon name="sparkles" className="w-3 h-3" /> {tr('services.hub.spotlight.badge')}
                 </span>
                 <h2 className="text-[19px] sm:text-2xl font-extrabold text-white mt-2.5 sm:mt-2 leading-tight">{tr('services.hub.spotlight.title')}</h2>
@@ -297,7 +297,7 @@ export default function Services() {
 
         <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-y">
           {showFinalizeBanner && (
-            <div className="glass-card rounded-2xl p-5 mb-8 flex items-center gap-4 border border-emerald-500/25 reveal" style={{ background: 'rgba(16,185,129,.08)' }}>
+            <div className="glass-card rounded-2xl p-5 mb-8 flex items-center gap-4 border border-emerald-500/25 reveal" style={{ background: 'rgb(var(--dz-c-emerald-500) / .08)' }}>
               <div className="w-12 h-12 rounded-xl bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
                 <Icon name="party-popper" className="w-6 h-6 text-emerald-400" />
               </div>
@@ -325,11 +325,11 @@ export default function Services() {
               const featured = slug === FEATURED_SLUG;
               const Inner = (
                 <>
-                  <div className="zoom relative h-40 sm:h-44">
+                  <div className="zoom theme-dark relative h-40 sm:h-44">
                     <img src={IMG(img)} srcSet={srcSetFor(IMG(img))} sizes={CARD_SIZES} alt={cardName} className="w-full h-full object-cover" loading="lazy" />
-                    <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(8,7,16,.1) 40%,rgba(8,7,16,.65) 100%)' }} />
-                    <div className="absolute inset-0 sm:hidden" style={{ background: 'linear-gradient(180deg,rgba(8,7,16,0) 34%,rgba(8,7,16,.55) 62%,rgba(8,7,16,.9) 100%)' }} />
-                    <div className="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#14b8a6] flex items-center justify-center shadow-lg shadow-teal-500/30"><Icon name={ic} className="w-4 h-4 sm:w-5 sm:h-5 text-white" /></div>
+                    <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgb(var(--dz-c-ink) / .1) 40%,rgb(var(--dz-c-ink) / .65) 100%)' }} />
+                    <div className="absolute inset-0 sm:hidden" style={{ background: 'linear-gradient(180deg,rgb(var(--dz-c-ink) / 0) 34%,rgb(var(--dz-c-ink) / .55) 62%,rgb(var(--dz-c-ink) / .9) 100%)' }} />
+                    <div className="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 flex items-center justify-center shadow-lg shadow-teal-500/30"><Icon name={ic} className="w-4 h-4 sm:w-5 sm:h-5 text-white" /></div>
                     <span className={'absolute top-2.5 right-2.5 sm:top-3 sm:right-3 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full backdrop-blur ' + (featured ? 'svc-ribbon text-white' : 'bg-black/45 text-teal-100')}>{featured ? tr('services.hub.mostBooked') : tr('services.hub.catBadge.' + c)}</span>
                     <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between gap-2 sm:hidden">
                       <h3 className="text-white font-bold text-sm leading-tight line-clamp-2 drop-shadow-sm">{cardName}</h3>
@@ -380,10 +380,10 @@ export default function Services() {
           <HScroll wrapClassName="-mx-4 sm:mx-0 reveal" className="testi-rail flex md:grid md:grid-cols-3 gap-4 sm:gap-5 px-4 sm:px-0 md:overflow-visible" fadeWidth="1.5rem">
             {TESTI.map(([n, _r, av, _q, col], i) => (
               <div key={n} className="glass-card rounded-2xl p-5 sm:p-6 shrink-0 w-[82%] sm:w-auto md:w-full">
-                <div className="flex gap-0.5 mb-3">{Array.from({ length: 5 }).map((_, si) => <Icon key={si} name="star" className="w-4 h-4" style={{ color: '#fbbf24', fill: '#fbbf24' }} />)}</div>
+                <div className="flex gap-0.5 mb-3">{Array.from({ length: 5 }).map((_, si) => <Icon key={si} name="star" className="w-4 h-4" style={{ color: 'rgb(var(--dz-c-amber-400))', fill: 'rgb(var(--dz-c-amber-400))' }} />)}</div>
                 <p className="text-gray-300 text-sm leading-relaxed">&ldquo;{tr('services.hub.testi.' + i + '.quote')}&rdquo;</p>
                 <div className="flex items-center gap-3 mt-5">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: col }}>{av}</div>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-pure-white font-bold text-sm" style={{ background: col }}>{av}</div>
                   <div><p className="text-white font-semibold text-sm">{n}</p><p className="text-gray-500 text-xs">{tr('services.hub.testi.' + i + '.role')}</p></div>
                 </div>
               </div>
@@ -392,13 +392,13 @@ export default function Services() {
         </section>
 
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-          <div className="rounded-2xl p-6 sm:p-8 glass-card reveal" style={{ background: 'linear-gradient(135deg,rgba(13,148,136,.1),rgba(79,70,229,.08))', border: '1px solid rgba(20,184,166,.25)' }}>
+          <div className="rounded-2xl p-6 sm:p-8 glass-card reveal" style={{ background: 'linear-gradient(135deg,rgb(var(--dz-c-teal-600) / .1),rgb(var(--dz-c-indigo-600) / .08))', border: '1px solid rgb(var(--dz-c-teal-500) / .25)' }}>
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-teal-300" style={{ background: 'rgba(20,184,166,.15)' }}><Icon name="package" className="w-3.5 h-3.5" /> {tr('services.hub.packBadge')}</span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-teal-300" style={{ background: 'rgb(var(--dz-c-teal-500) / .15)' }}><Icon name="package" className="w-3.5 h-3.5" /> {tr('services.hub.packBadge')}</span>
                   {!packLive && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-amber-300" style={{ background: 'rgba(245,158,11,.15)' }}><Icon name="clock" className="w-3.5 h-3.5" /> {tr('services.hub.packComingSoon')}</span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-amber-300" style={{ background: 'rgb(var(--dz-c-amber-500) / .15)' }}><Icon name="clock" className="w-3.5 h-3.5" /> {tr('services.hub.packComingSoon')}</span>
                   )}
                 </div>
                 <h2 className="text-2xl font-bold text-white">{tr('services.hub.packTitle')}</h2>
@@ -459,9 +459,9 @@ export default function Services() {
         </section>
 
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-          <div className="rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
+          <div className="theme-dark rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
             <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1400&q=80')" }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgba(15,13,26,.95),rgba(49,46,129,.72),rgba(13,148,136,.55))' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgb(var(--dz-c-ink) / .95),rgb(var(--dz-c-indigo-900) / .72),rgb(var(--dz-c-teal-600) / .55))' }} />
             <div className="relative">
               <h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.ctaTitle')}</h2>
               <p className="text-gray-200 mt-3 mb-7">{tr('services.hub.ctaSub')}</p>

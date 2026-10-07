@@ -43,7 +43,7 @@ const FooterCol = ({ title, children }) => {
 
 export default function Footer() {
   return (
-    <footer className="pt-10 sm:pt-14 pb-6 sm:pb-8 relative" style={{ background: '#12101f' }}>
+    <footer className="pt-10 sm:pt-14 pb-6 sm:pb-8 relative" style={{ background: 'var(--section-alt)' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 sm:gap-10 lg:gap-8 mb-0 sm:mb-12">
@@ -62,7 +62,7 @@ export default function Footer() {
               <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp?stkn=dGl6eWQ3cGQ4YzQ%3D&utm_source=qr" hover="hover:bg-pink-500/10 hover:text-pink-400" />
               <Soc k="x" label="Draazy on X" href="https://x.com/draazyapp?s=11" hover="hover:bg-teal-500/10 hover:text-teal-400" />
               <Soc k="linkedin" label="Draazy on LinkedIn" href="http://www.linkedin.com/in/draazy-app-4a3195435" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
+              <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-orange-500/10 hover:text-orange-400" />
             </div>
           </div>
           {/* Column 2 — Explore links */}

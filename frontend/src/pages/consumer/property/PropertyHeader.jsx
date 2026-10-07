@@ -140,7 +140,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
 
               {/* Every claim in here is a *platform* promise and is byte-for-byte identical on every listing, so it
                  carries no information that helps a buyer choose between two homes. */}
-              <div className="mt-5 rounded-2xl border border-emerald-500/20 px-3.5 py-[5px] lg:p-4" style={{ background: 'linear-gradient(135deg,rgba(16,185,129,.08),rgba(20,184,166,.06))' }}>
+              <div className="mt-5 rounded-2xl border border-emerald-500/20 px-3.5 py-[5px] lg:p-4" style={{ background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-500) / .08),rgb(var(--dz-c-teal-500) / .06))' }}>
                 <MobileCollapse
                   label={tr('property.assuredTitle')}
                   header={(

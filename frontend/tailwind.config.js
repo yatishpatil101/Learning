@@ -1,27 +1,52 @@
+/* Colour values live in src/styles/theme.css; this file only names them. */
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+const SHADES = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'];
+const ACCENTS = ['teal', 'emerald', 'green', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'pink', 'rose', 'red', 'orange', 'amber', 'yellow'];
+const ramp = (hue) => Object.fromEntries(SHADES.map((s) => [s, v(`dz-c-${hue}-${s}`)]));
+
+const colors = {
+  white: v('dz-c-white'),
+  'pure-white': v('dz-c-pure-white'),
+  black: v('dz-c-black'),
+  ink: v('dz-c-ink'),
+  'ink-2': v('dz-c-ink-2'),
+  'ink-card': v('dz-c-ink-card'),
+  page: v('dz-c-page'),
+  ...Object.fromEntries(['gray', 'slate', ...ACCENTS].map((hue) => [hue, ramp(hue)])),
+  brand: {
+    teal: v('dz-c-teal-500'),
+    indigo: v('dz-c-indigo-600'),
+    'teal-1': v('dz-c-teal-600'),
+    'teal-2': v('dz-c-teal-500'),
+    'teal-3': v('dz-c-teal-400'),
+    'indigo-4': v('dz-c-indigo-600'),
+    'coral-2': v('dz-c-orange-400'),
+    'coral-3': v('dz-c-orange-300'),
+  },
+  cta: { btn: v('cta-btn'), 'btn-text': v('cta-btn-text') },
+};
+
+/* Mid-tone text darkens in light mode for contrast; the same shade as a fill does not. */
+const textColors = {
+  ...Object.fromEntries(ACCENTS.map((hue) => [hue, { 500: v(`dz-t-${hue}-500`) }])),
+  brand: { teal: v('dz-t-teal-500'), 'teal-2': v('dz-t-teal-500') },
+};
+
+/* `border-white/10` is a hairline in either theme: theme.css raises --dz-line-boost in light mode. */
+const line = { white: 'rgb(var(--dz-c-white) / calc(<alpha-value> * var(--dz-line-boost)))' };
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
-  /* Compiles every `hover:` utility inside `@media (hover: hover)`. Without it a touch browser
-     applies the hover state on tap and leaves it there until the next tap elsewhere — so a card
-     tapped on a phone stays lifted and glowing. Default in Tailwind v4; opt-in on v3. */
+  /* Without hover-only media a touch browser keeps the hover state after tap, so a tapped card stays lifted. */
   future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
-      colors: {
-        ink: '#0f0d1a',
-        'ink-2': '#161325',
-        'ink-card': '#1b1730',
-        brand: {
-          teal: '#14b8a6',
-          indigo: '#4f46e5',
-          'teal-1': '#0d9488',
-          'teal-2': '#14b8a6',
-          'teal-3': '#2dd4bf',
-          'indigo-4': '#4f46e5',
-          'coral-2': '#fb923c',
-          'coral-3': '#fdba74',
-        },
-      },
+      colors,
+      textColor: textColors,
+      borderColor: line,
+      divideColor: line,
+      ringColor: line,
       fontFamily: {
         sans: ['Outfit', 'system-ui', 'sans-serif'],
       },
@@ -49,5 +74,4 @@ export default {
       },
     },
   },
-  plugins: [],
 };

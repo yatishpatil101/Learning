@@ -134,7 +134,7 @@ Specs are routed to projects by **folder**, not by filename or tag: `tests/mobil
 everything else is desktop-only unless a config opts it into a second viewport.
 
 - **Default config** — `chromium` runs everything except `tests/mobile/**`; `mobile-small` runs all of
-  `tests/mobile/**` at 360×640. `mobile` (Pixel 7) runs only `tests/mobile/live-home-featured-first` and
+  `tests/mobile/**` at 360×640. `mobile` (Pixel 7) runs only `tests/mobile/home-featured-first` and
   `live-home-flatmates-tile`, whose fold and wrapping checks differ at 412×915, plus an explicit
   cross-viewport `testMatch` list (`referral-rewards`, `help/live-centre`, `help/help-urls`, `platform/i18n`).
 - **No-backend config** — one `chromium` project. Its `CROSS_VIEWPORT` list and `mobile` project

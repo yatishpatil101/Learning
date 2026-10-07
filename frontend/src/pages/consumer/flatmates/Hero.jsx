@@ -7,10 +7,10 @@ const HERO_IMG = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w
 export default function Hero({ user, isVerified, openVerify }) {
   const { t } = useTranslation();
   return (
-    <div className="sf-hero rounded-2xl px-4 py-5 sm:p-6 mb-3 sm:mb-4 reveal relative overflow-hidden">
+    <div className="sf-hero theme-dark rounded-2xl px-4 py-5 sm:p-6 mb-3 sm:mb-4 reveal relative overflow-hidden">
       <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${HERO_IMG}')` }} />
 
-      <div aria-hidden="true" className="absolute inset-0" style={{ background: 'linear-gradient(90deg,rgba(15,13,26,.94) 0%,rgba(15,13,26,.78) 55%,rgba(15,13,26,.25) 100%)' }} />
+      <div aria-hidden="true" className="absolute inset-0" style={{ background: 'linear-gradient(90deg,rgb(var(--dz-c-ink) / .94) 0%,rgb(var(--dz-c-ink) / .78) 55%,rgb(var(--dz-c-ink) / .25) 100%)' }} />
       <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-5">
         <div className="max-w-2xl">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/20 text-teal-200 text-xs font-semibold mb-2.5"><Icon name="users-round" className="w-3.5 h-3.5" /> {t('flatmates.heroBadge')}</span>

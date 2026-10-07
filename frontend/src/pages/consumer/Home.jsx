@@ -40,39 +40,30 @@ export default function Home() {
 
   return (
     <div ref={rootRef}>
-      {/* HERO — on mobile this is deliberately just the headline, the inventory
-          count and the live ticker. min-h-[100dvh] is restored at lg: on a phone
-          it guaranteed a full empty screen before any stock could appear, which
-          no amount of content trimming could beat.
-
-          Home is selfPadded in ConsumerLayout, so it reserves the fixed navbar itself:
-          --dz-nav-h plus this section's own gap. The gaps are chosen so that ≥768px
-          resolves to exactly the 109px this used to hardcode — desktop is unchanged —
-          while phones inherit the shorter bar and gain the difference. */}
-      <section className="hero-bg relative lg:min-h-[100dvh] flex items-center justify-center pt-[calc(var(--dz-nav-h)+28px)] sm:pt-[calc(var(--dz-nav-h)+37px)] pb-7 sm:pb-16">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {/* HERO: on mobile just the headline, inventory count and live ticker; `min-h-[100dvh]` applies only at lg. Home is selfPadded, so it reserves
+         the navbar itself. `theme-dark` keeps the desktop hero dark in light mode (index.css `.hero-bg:not(.theme-dark)`). */}
+      <section className={'hero-bg ' + (wide ? 'theme-dark ' : '') + 'relative lg:min-h-[100dvh] flex items-center justify-center pt-[calc(var(--dz-nav-h)+28px)] sm:pt-[calc(var(--dz-nav-h)+37px)] pb-7 sm:pb-16'}>
+        <div className="absolute inset-0 overflow-hidden rounded-[inherit] pointer-events-none">
           <div className="shape shape-1" />
           <div className="shape shape-2" />
           <div className="shape shape-3" />
           <div className="shape shape-4" />
           <div className="shape shape-5" />
+          {wide ? null : <div className="hero-mist" />}
         </div>
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%224%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
+        <div className="absolute inset-0 rounded-[inherit] opacity-[0.03] pointer-events-none" style={{ backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%224%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')        " }} />
 
-        <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 text-center">
+                <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 text-center">
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold leading-tight mb-3 sm:mb-5">
             <span className="hero-word">Find</span>{' '}
             <span className="hero-word">Your</span>{' '}
             <span className="hero-word">Dream</span>{' '}
-            <span className="hero-word align-baseline"><RotatingNoun /></span>{' '}
+            <span className="hero-word hero-noun align-baseline"><RotatingNoun /></span>{' '}
             <span className="hero-word">in</span>{' '}
-            <span className="hero-word bg-gradient-to-r from-[#fb923c] to-[#f97316] bg-clip-text text-transparent">{city}</span>
+            <span className="hero-word hero-city bg-gradient-to-r from-orange-400 to-orange-500 bg-clip-text text-transparent">{city}</span>
           </h1>
 
-          {/* On mobile the four proof chips replace this sentence — a phone
-              visitor gets the objections answered instead of a marketing line.
-              Restored at lg. A city with no stock has no chips to show, so it
-              keeps the "just launched" sentence at every width. */}
+          {/* On mobile the four proof chips replace this sentence; a city with no stock has no chips, so it keeps the "just launched" sentence at every width. */}
           <p className={'hero-sub text-base sm:text-lg md:text-xl text-gray-300 max-w-4xl lg:whitespace-nowrap mx-auto mb-6 leading-relaxed ' + (hasData ? 'hidden lg:block' : '')}>
             {hasData ? (
               <>{t('home.hero.discoverLead')} <span className="text-white font-semibold">{STATS.properties}</span> {t('home.hero.discoverTail', { city })}</>
@@ -96,15 +87,8 @@ export default function Home() {
           {hasData ? <ActivityTicker /> : null}
         </div>
 
-        {/* Scrim that lands the animated hero gradient on the page colour.
-
-            It overhangs the section by 1px on purpose. The gradient underneath
-            runs through teal (#0d9488), and at fractional zoom / DPR the section
-            box and this absolutely-positioned child round to different device
-            pixels — leaving a bright teal hairline along the seam with the
-            section below. Overhanging guarantees the scrim always covers the
-            last row, and the 1px it spills is the same colour as the page. */}
-        <div className="absolute -bottom-px left-0 w-full h-[calc(8rem+1px)] bg-gradient-to-t from-[#0f0d1a] to-transparent" />
+        {/* Scrim onto the page colour; it overhangs 1px because at fractional zoom/DPR it and the section round to different pixels, leaving a teal hairline. */}
+        <div className="hero-scrim absolute -bottom-px left-0 w-full h-[calc(8rem+1px)] bg-gradient-to-t from-page to-transparent" />
       </section>
 
       {hasData ? (

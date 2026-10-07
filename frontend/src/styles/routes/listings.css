@@ -4,7 +4,7 @@
 @media (hover: hover) {
   .card-hover:hover {
     transform: translateY(-6px);
-    box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+    box-shadow: 0 20px 40px rgb(var(--dz-c-indigo-600) / 0.15);
   }
 
   .card-hover:hover .card-img {
@@ -15,8 +15,8 @@
 /* Base .card-img { transition } is SHARED with property SimilarProperties.jsx -> kept global in index.css. */
 
 .heart-btn.active svg {
-  fill: #f43f5e;
-  color: #f43f5e;
+  fill: rgb(var(--dz-c-rose-500));
+  color: rgb(var(--dz-c-rose-500));
 }
 
 .heart-btn:active {
@@ -27,7 +27,7 @@
   width: 40px;
   height: 22px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgb(var(--dz-c-white) / 0.12);
   position: relative;
   transition: all 0.3s ease;
   flex-shrink: 0;
@@ -42,7 +42,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: rgb(var(--dz-c-pure-white));
   transition: all 0.3s ease;
 }
 
@@ -55,9 +55,9 @@
 }
 
 .view-btn.active {
-  background: rgba(79, 70, 229, 0.3);
-  color: #fff;
-  border-color: rgba(79, 70, 229, 0.5);
+  background: rgb(var(--dz-c-indigo-600) / 0.3);
+  color: rgb(var(--dz-c-white));
+  border-color: rgb(var(--dz-c-indigo-600) / 0.5);
 }
 
 /* .filter-overlay/.filter-panel/.filter-fab* are shared with flatmates FilterBar.jsx and stay
@@ -81,7 +81,7 @@
 }
 
 .badge-premium {
-  background: linear-gradient(135deg, #f97316, #fb923c);
+  background: linear-gradient(135deg, rgb(var(--dz-c-orange-500)), rgb(var(--dz-c-orange-400)));
 }
 
 .badge-new {
@@ -89,9 +89,9 @@
 }
 
 .badge-furnished {
-  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  background: linear-gradient(135deg, rgb(var(--dz-c-violet-500)), rgb(var(--dz-c-violet-400)));
 }
 
 .badge-rera {
-  background: linear-gradient(135deg, #059669, #10b981);
+  background: linear-gradient(135deg, rgb(var(--dz-c-emerald-600)), rgb(var(--dz-c-emerald-500)));
 }

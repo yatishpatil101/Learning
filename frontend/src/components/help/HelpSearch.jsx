@@ -104,7 +104,7 @@ export default function HelpSearch({ variant = 'bar', initialQuery = '' }) {
         <div
           id="help-search-suggestions"
           role="listbox"
-          className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-white/10 bg-[#15122a] shadow-2xl shadow-black/50"
+          className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-white/10 bg-ink-card shadow-2xl shadow-black/50"
         >
           {results.length === 0 ? (
             <p className="px-4 py-5 text-sm text-gray-500">

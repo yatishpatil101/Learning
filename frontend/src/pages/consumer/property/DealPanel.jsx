@@ -191,7 +191,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
     if (closed && !isOwner) return null;
     if (closed) {
       return (
-        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgba(16,185,129,.06)' }}>
+        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
           <div className="flex items-center gap-2 mb-1.5"><Icon name="badge-check" className="w-5 h-5 text-emerald-400" /><h3 className="text-white font-bold text-sm">{t('property.dealFinalizedTitle')}</h3></div>
           <p className="text-slate-400 text-xs mb-3">{t('property.markedWord', { word: dealWord })}{isOwner ? '' : t('property.closedForEnquiries')}</p>
           <div className="flex gap-2">
@@ -205,7 +205,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       if (isOwner) {
         const parties = state.parties;
         return (
-          <div className={cardCls + ' border border-amber-500/20'} style={{ background: 'rgba(245,158,11,.06)' }}>
+          <div className={cardCls + ' border border-amber-500/20'} style={{ background: 'rgb(var(--dz-c-amber-500) / .06)' }}>
             <div className="flex items-center gap-2 mb-1.5"><Icon name="handshake" className="w-5 h-5 text-amber-400" /><h3 className="text-white font-bold text-sm">{t('property.underOffer')}</h3></div>
             <p className="text-slate-400 text-xs mb-3">{parties.length ? t('property.finalizingParties', { count: parties.length }) : ''}{t('property.underOfferTokenNote')}</p>
             <div className="flex gap-2">
@@ -217,7 +217,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       }
       const stR = isIn ? (state.myFinalize ? state.myFinalize.status : 'none') : 'none';
       return (
-        <div className={cardCls + ' border border-amber-500/20'} style={{ background: 'rgba(245,158,11,.06)' }}>
+        <div className={cardCls + ' border border-amber-500/20'} style={{ background: 'rgb(var(--dz-c-amber-500) / .06)' }}>
           <div className="flex items-center gap-2 mb-1.5"><Icon name="handshake" className="w-5 h-5 text-amber-400" /><h3 className="text-white font-bold text-sm">{t('property.underOfferRegisterTitle')}</h3></div>
           <p className="text-slate-400 text-xs mb-3">{stR === 'pending' ? t('property.interestRegistered') : t('property.someoneFinalizing')}</p>
           {stR === 'pending'
@@ -230,7 +230,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       const pend = state.pending;
       if (pend.length) {
         return (
-          <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgba(16,185,129,.06)' }}>
+          <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
             <div className="flex items-center gap-2 mb-1.5"><Icon name="user-check" className="w-5 h-5 text-amber-400" /><h3 className="text-white font-bold text-sm">{t('property.finalizeRequests', { count: pend.length })}</h3></div>
             <p className="text-slate-400 text-xs mb-3">{isRent ? t('property.finalizeAskedTenant', { count: pend.length }) : t('property.finalizeAskedBuyer', { count: pend.length })}</p>
             {pend.map((r) => (
@@ -247,7 +247,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
         );
       }
       return (
-        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgba(16,185,129,.06)' }}>
+        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
           <div className="flex items-center gap-2 mb-1.5"><Icon name="handshake" className="w-5 h-5 text-emerald-400" /><h3 className="text-white font-bold text-sm">{t('property.closedDealQ')}</h3></div>
           <p className="text-slate-400 text-xs mb-3">{t('property.closedDealBodyPre')}<b className="text-amber-300">{t('property.underOffer')}</b>{t('property.closedDealBodyPost')}</p>
           <button type="button" onClick={doFinalize} className="btn-teal w-full flex items-center justify-center gap-2 py-2.5 px-4 text-sm"><Icon name="badge-check" className="w-4 h-4" /> {t('property.finalizeDeal')}</button>
@@ -258,7 +258,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
     const st = isIn ? (state.myFinalize ? state.myFinalize.status : 'none') : 'none';
     if (st === 'pending') {
       return (
-        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgba(16,185,129,.06)' }}>
+        <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
           <div className="flex items-center gap-2 mb-1.5"><Icon name="hourglass" className="w-5 h-5 text-amber-400" /><h3 className="text-white font-bold text-sm">{t('property.finalizeRequested')}</h3></div>
           <p className="text-slate-400 text-xs mb-3">{t('property.waitingOwnerConfirm')}</p>
           <button type="button" onClick={cancelReq} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-white/10 text-slate-300 text-xs font-medium hover:bg-white/5"><Icon name="x" className="w-3.5 h-3.5" /> {t('property.withdrawRequest')}</button>
@@ -270,7 +270,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
     // have engaged (contact approved) or already tried and were turned down.
     if (!declined && !contactApproved) return null;
     return (
-      <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgba(16,185,129,.06)' }}>
+      <div className={cardCls + ' border border-emerald-500/20'} style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
         <div className="flex items-center gap-2 mb-1.5"><Icon name="handshake" className="w-5 h-5 text-emerald-400" /><h3 className="text-white font-bold text-sm">{t('property.closingDealQ')}</h3></div>
         <p className="text-slate-400 text-xs mb-3">{declined ? t('property.ownerNotConfirmed') : t('property.agreedSendRequest')}</p>
         <button type="button" onClick={doFinalize} className="btn-teal w-full flex items-center justify-center gap-2 py-2.5 px-4 text-sm"><Icon name="badge-check" className="w-4 h-4" /> {t('property.requestToFinalize')}</button>
@@ -305,7 +305,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
                         : <span className="text-slate-300">{t('property.statusPending')}</span>}
                     </span>
                   </div>
-                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isVerifiedTenant(o) ? <span style={{ color: '#6ee7b7', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: isoToDisplay(o.moveIn) || o.moveIn }) : ''}</p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isVerifiedTenant(o) ? <span style={{ color: 'rgb(var(--dz-c-emerald-300))', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: isoToDisplay(o.moveIn) || o.moveIn }) : ''}</p>
                   {o.status !== 'accepted' ? (
                     <div className="flex gap-1.5 mt-2">
                       <button onClick={() => ownerOfferAct(o.id, 'accept')} className="btn-teal text-[11px] px-2.5 py-1 rounded-lg shadow-none">{t('property.accept')}</button>
@@ -355,7 +355,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   return (
     <>
       {closed ? (
-        <div className="rounded-2xl px-5 py-4 flex items-center gap-3 border border-rose-500/25" style={{ background: 'rgba(244,63,94,.08)' }}>
+        <div className="rounded-2xl px-5 py-4 flex items-center gap-3 border border-rose-500/25" style={{ background: 'rgb(var(--dz-c-rose-500) / .08)' }}>
           <div className="w-10 h-10 rounded-xl bg-rose-500/15 flex items-center justify-center flex-shrink-0"><Icon name="lock" className="w-5 h-5 text-rose-300" /></div>
           <div>
             <p className="text-white font-semibold text-sm">{isOwner ? t('property.youFinalizedDeal') : t('property.noLongerAvailable')}</p>
@@ -363,7 +363,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
           </div>
         </div>
       ) : reserved ? (
-        <div className="rounded-2xl px-5 py-4 flex items-center gap-3 border border-amber-500/30" style={{ background: 'rgba(245,158,11,.08)' }}>
+        <div className="rounded-2xl px-5 py-4 flex items-center gap-3 border border-amber-500/30" style={{ background: 'rgb(var(--dz-c-amber-500) / .08)' }}>
           <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0"><Icon name="handshake" className="w-5 h-5 text-amber-300" /></div>
           <div>
             <p className="text-white font-semibold text-sm">{isOwner ? t('property.yourPropertyUnderOffer') : t('property.thisPropertyUnderOffer')}</p>
@@ -375,7 +375,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       {renderOffers()}
 
       {offerOpen ? createPortal(
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setOfferOpen(false)}>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ background: 'rgb(var(--dz-c-black) / .6)', backdropFilter: 'blur(4px)' }} onClick={() => setOfferOpen(false)}>
           <div className="glass-strong rounded-2xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-white mb-1">{state.myOffer ? t('property.updateYourOffer') : t('property.makeOffer')}</h3>
             <p className="text-slate-400 text-xs mb-3">{t('property.offerModalSub')}</p>

@@ -6,9 +6,9 @@
   display: flex;
   flex-direction: column;
   background: var(--brand-card);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-white));
+  box-shadow: 0 24px 60px rgb(var(--dz-c-black) / 0.55);
   overflow: hidden;
 }
 
@@ -73,16 +73,13 @@
     width: 40px;
     height: 4px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.22);
+    background: rgb(var(--dz-c-white) / 0.22);
     margin: 8px auto 2px;
     flex: none;
   }
 
-  /* The sheet is fixed over the map, so a one-finger drag anywhere in its chrome must move the
-     sheet or nothing — never the listings page behind it. Scrolling is handed back to the one
-     element that actually scrolls. `pinch-zoom` rather than `none`, on both: this sheet is the
-     whole listing on a phone, and `touch-action` governs zooming as well as panning, so `none`
-     would leave the price and address un-magnifiable. Taps are unaffected either way. */
+  /* A one-finger drag in the fixed sheet must move the sheet or nothing, never the page behind;
+     `pinch-zoom` not `none` so the price and address stay magnifiable. */
   .dz-mdp { touch-action: pinch-zoom; }
   .dz-mdp-scroll { touch-action: pan-y pinch-zoom; }
 }
@@ -93,7 +90,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
   flex: none;
 }
 
@@ -103,7 +100,7 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #e5e7eb;
+  color: rgb(var(--dz-c-gray-200));
 }
 
 .dz-mdp-step i {
@@ -119,15 +116,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e5e7eb;
+  background: rgb(var(--dz-c-white) / 0.06);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-gray-200));
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .dz-mdp-step button:hover:not(:disabled) {
-  background: rgba(13, 148, 136, 0.22);
+  background: rgb(var(--dz-c-teal-600) / 0.22);
 }
 
 .dz-mdp-step button:disabled {
@@ -147,15 +144,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: rgb(var(--dz-c-white) / 0.06);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-white));
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .dz-mdp-close:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgb(var(--dz-c-white) / 0.14);
 }
 
 .dz-mdp-close svg {
@@ -174,7 +171,7 @@
 }
 
 .dz-mdp-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgb(var(--dz-c-white) / 0.14);
   border-radius: 999px;
 }
 
@@ -182,7 +179,7 @@
   position: relative;
   height: 208px;
   flex: none;
-  background: #0b0a14;
+  background: rgb(var(--dz-c-ink));
 }
 
 .dz-mdp-media img,
@@ -206,13 +203,13 @@
 }
 
 .dz-mdp-deal.is-rent {
-  background: rgba(13, 148, 136, 0.72);
-  color: #ccfbf1;
+  background: rgb(var(--dz-c-teal-600) / 0.72);
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .dz-mdp-deal.is-sale {
-  background: rgba(5, 150, 105, 0.72);
-  color: #d1fae5;
+  background: rgb(var(--dz-c-emerald-600) / 0.72);
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .dz-mdp-heart {
@@ -221,29 +218,23 @@
   right: 10px;
   width: 34px;
   height: 34px;
-  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: none;
   border: none;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: background 0.15s ease;
-}
-
-.dz-mdp-heart:hover {
-  background: rgba(0, 0, 0, 0.62);
+  filter: drop-shadow(0 1px 2px rgb(var(--dz-c-black) / 0.6));
 }
 
 .dz-mdp-heart svg {
-  width: 17px;
-  height: 17px;
+  width: 26px;
+  height: 26px;
 }
 
 .dz-mdp-heart.is-on {
-  background: rgba(244, 63, 94, 0.9);
+  color: rgb(var(--dz-c-rose-500));
 }
 
 .dz-mdp-nav {
@@ -256,16 +247,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
+  background: rgb(var(--dz-c-black) / 0.42);
   border: none;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   cursor: pointer;
   backdrop-filter: blur(4px);
   transition: background 0.15s ease;
 }
 
 .dz-mdp-nav:hover {
-  background: rgba(0, 0, 0, 0.62);
+  background: rgb(var(--dz-c-black) / 0.62);
 }
 
 .dz-mdp-nav.is-prev {
@@ -287,10 +278,10 @@
   right: 12px;
   padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgb(var(--dz-c-black) / 0.5);
   font-size: 11px;
   font-weight: 600;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   backdrop-filter: blur(4px);
 }
 
@@ -314,33 +305,33 @@
 }
 
 .dz-mdp-tag.is-teal {
-  background: rgba(13, 148, 136, 0.16);
-  border: 1px solid rgba(13, 148, 136, 0.32);
-  color: #99f6e4;
+  background: rgb(var(--dz-c-teal-600) / 0.16);
+  border: 1px solid rgb(var(--dz-c-teal-600) / 0.32);
+  color: rgb(var(--dz-c-teal-200));
 }
 
 .dz-mdp-tag.is-indigo {
-  background: rgba(99, 102, 241, 0.16);
-  border: 1px solid rgba(99, 102, 241, 0.32);
-  color: #c7d2fe;
+  background: rgb(var(--dz-c-indigo-500) / 0.16);
+  border: 1px solid rgb(var(--dz-c-indigo-500) / 0.32);
+  color: rgb(var(--dz-c-indigo-200));
 }
 
 .dz-mdp-tag.is-emerald {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.32);
-  color: #a7f3d0;
+  background: rgb(var(--dz-c-emerald-500) / 0.16);
+  border: 1px solid rgb(var(--dz-c-emerald-500) / 0.32);
+  color: rgb(var(--dz-c-emerald-200));
 }
 
 .dz-mdp-tag.is-coral {
-  background: rgba(244, 114, 94, 0.16);
-  border: 1px solid rgba(244, 114, 94, 0.32);
-  color: #fecdd3;
+  background: rgb(var(--dz-c-red-400) / 0.16);
+  border: 1px solid rgb(var(--dz-c-red-400) / 0.32);
+  color: rgb(var(--dz-c-rose-200));
 }
 
 .dz-mdp-price {
   font-size: 26px;
   font-weight: 800;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   line-height: 1.05;
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
@@ -356,7 +347,7 @@
 .dz-mdp-emi {
   margin-top: 4px;
   font-size: 11.5px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   font-weight: 600;
 }
 
@@ -364,7 +355,7 @@
   margin-top: 10px;
   font-size: 17px;
   font-weight: 700;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   line-height: 1.25;
 }
 
@@ -374,13 +365,13 @@
   gap: 5px;
   margin-top: 5px;
   font-size: 12.5px;
-  color: #9ca3af;
+  color: rgb(var(--dz-c-gray-400));
 }
 
 .dz-mdp-loc svg {
   width: 14px;
   height: 14px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   flex-shrink: 0;
 }
 
@@ -390,7 +381,7 @@
   gap: 10px 12px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
 }
 
 .dz-mdp-fact {
@@ -403,7 +394,7 @@
 .dz-mdp-fact>svg {
   width: 17px;
   height: 17px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   flex-shrink: 0;
 }
 
@@ -416,7 +407,7 @@
   display: block;
   font-size: 12.5px;
   font-weight: 700;
-  color: #e5e7eb;
+  color: rgb(var(--dz-c-gray-200));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -425,7 +416,7 @@
 .dz-mdp-fact span {
   display: block;
   font-size: 10px;
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -439,7 +430,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
   margin-bottom: 8px;
 }
 
@@ -455,29 +446,29 @@
   gap: 5px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(13, 148, 136, 0.12);
-  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: rgb(var(--dz-c-teal-600) / 0.12);
+  border: 1px solid rgb(var(--dz-c-teal-600) / 0.28);
   font-size: 11px;
   font-weight: 600;
-  color: #ccfbf1;
+  color: rgb(var(--dz-c-teal-100));
 }
 
 .dz-mdp-chip svg {
   width: 12px;
   height: 12px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-mdp-desc {
   font-size: 12.5px;
   line-height: 1.6;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
 }
 
 .dz-mdp-actions {
   flex: none;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgb(var(--dz-c-white) / calc(0.08 * var(--dz-line-boost)));
   background: var(--brand-card);
 }
 
@@ -511,7 +502,7 @@
 
 .dz-mdp-btn.is-primary {
   background: var(--teal-2);
-  color: #04221d;
+  color: rgb(var(--dz-c-emerald-950));
   border: none;
 }
 
@@ -520,13 +511,13 @@
 }
 
 .dz-mdp-btn.is-ghost {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e5e7eb;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgb(var(--dz-c-white) / 0.06);
+  color: rgb(var(--dz-c-gray-200));
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.12 * var(--dz-line-boost)));
 }
 
 .dz-mdp-btn.is-ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgb(var(--dz-c-white) / 0.1);
 }
 
 .dz-mdp-full {
@@ -539,12 +530,12 @@
   border-radius: 11px;
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   text-decoration: none;
 }
 
 .dz-mdp-full:hover {
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .dz-mdp-full svg {

@@ -114,6 +114,14 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     });
   });
 
+  test('on the light theme the desktop hero stays the dark island', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('dzAppPrefs', JSON.stringify({ theme: 'light' })));
+    await page.goto('/');
+    const hero = page.locator('section.hero-bg');
+    await expect(hero).toHaveClass(/theme-dark/, { timeout: 20_000 });
+    await expect(hero.locator('.hero-mist')).toHaveCount(0);
+  });
+
   test('the home hero and Featured block keep their desktop structure', async ({ page }) => {
     test.slow();
     await page.goto('/');

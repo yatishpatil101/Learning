@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { APIProvider, Map, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import { Search, X, Loader2 } from 'lucide-react';
-import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, GOOGLE_MAPS_HAS_DDS } from '../../../lib/mapsConfig.js';
+import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, GOOGLE_MAPS_HAS_DDS, mapColorScheme } from '../../../lib/mapsConfig.js';
 import { fetchAdminSuggestions, fetchPlaceViewport, newAutocompleteSession } from '../../../lib/places.js';
+import { cssColour } from '../../../lib/themeColour';
 
-/* Visual boundary editor for the admin Maps panel. Instead of typing four latitudes,
-   an operator drags/resizes a rectangle on a real map, or searches a city/locality and
-   drops its Google "viewport" straight into the box. It edits the SAME center/bounds the
-   numeric inputs do (controlled), so the two stay in sync. Fail-soft: with no Maps key it
-   renders a hint and the numeric inputs remain the way to edit. */
+/* Edits the SAME center/bounds as the numeric inputs (controlled) so
+   they stay in sync; with no Maps key only the numeric inputs remain. */
 
 const r5 = (n) => Math.round(n * 1e5) / 1e5;
 const validBounds = (b) => b && [b.north, b.south, b.east, b.west].every((n) => Number.isFinite(n));
@@ -30,9 +28,9 @@ function EditableRectangle({ bounds, onBoundsChange }) {
       map,
       editable: true,
       draggable: true,
-      strokeColor: '#14b8a6',
+      strokeColor: cssColour('teal-500'),
       strokeWeight: 2,
-      fillColor: '#14b8a6',
+      fillColor: cssColour('teal-500'),
       fillOpacity: 0.08,
     });
     rectRef.current = rect;
@@ -75,25 +73,21 @@ function EditableRectangle({ bounds, onBoundsChange }) {
   return null;
 }
 
-// Google "data-driven styling" boundary highlight — renders the REAL administrative /
-// locality polygon for the searched place (matched by placeId) in teal, the way native
-// Google Maps outlines an area. Purely a visual aid: the saved constraint stays the
-// rectangle the fields hold (Places restriction is rectangle/circle-only). Fail-soft —
-// only attempted with a data-driven Map ID, and every Google call is wrapped so a map
-// without these feature layers (e.g. DEMO_MAP_ID) simply shows no outline.
+// Purely visual: the saved constraint stays the rectangle (Places restriction is rectangle/circle-only); Google
+// calls are wrapped so a map without data-driven feature layers shows no outline.
 const BOUNDARY_LAYER_TYPES = [
   'LOCALITY',
   'ADMINISTRATIVE_AREA_LEVEL_3',
   'ADMINISTRATIVE_AREA_LEVEL_2',
   'ADMINISTRATIVE_AREA_LEVEL_1',
 ];
-const HIGHLIGHT_STYLE = {
-  strokeColor: '#14b8a6',
+const highlightStyle = () => ({
+  strokeColor: cssColour('teal-500'),
   strokeWeight: 2,
   strokeOpacity: 1,
-  fillColor: '#14b8a6',
+  fillColor: cssColour('teal-500'),
   fillOpacity: 0.12,
-};
+});
 
 function BoundaryHighlight({ placeId }) {
   const map = useMap();
@@ -102,7 +96,7 @@ function BoundaryHighlight({ placeId }) {
     if (!map || !GOOGLE_MAPS_HAS_DDS || typeof map.getFeatureLayer !== 'function') return undefined;
     // Only the layer that actually contains this placeId paints; the rest never match.
     const styleFn = (opts) =>
-      placeId && opts.feature?.placeId === placeId ? HIGHLIGHT_STYLE : null;
+      placeId && opts.feature?.placeId === placeId ? highlightStyle() : null;
     const layers = [];
     for (const type of BOUNDARY_LAYER_TYPES) {
       try {
@@ -233,7 +227,7 @@ export default function MapBoundaryEditor({ center, bounds, onChange }) {
       <div className="relative overflow-hidden rounded-xl border border-white/10" style={{ height: 360 }}>
         <Map
           mapId={GOOGLE_MAPS_MAP_ID}
-          colorScheme="DARK"
+          colorScheme={mapColorScheme()}
           defaultCenter={fallbackCenter}
           defaultZoom={11}
           gestureHandling="greedy"

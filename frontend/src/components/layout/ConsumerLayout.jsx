@@ -20,7 +20,7 @@ import { isInternal as isInternalUser } from '../../lib/auth.js';
 function MaintenanceOverlay() {
   const { t } = useTranslation();
   return (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center text-center p-6" style={{ background: '#0f0d1a', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center text-center p-6" style={{ background: 'rgb(var(--dz-c-ink))', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ maxWidth: 440 }}>
         <div className="text-5xl mb-2">🛠️</div>
         <h1 className="text-2xl font-extrabold mb-2.5 gradient-text">{t('chrome.maintenanceTitle')}</h1>

@@ -40,7 +40,7 @@ export default function HelpLayout({ children, wide = false, title }) {
 
   return (
     <div className="min-h-[60dvh]">
-      <div className="sticky top-[var(--dz-nav-h)] z-30 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0f0d1a]/80">
+      <div className="sticky top-[var(--dz-nav-h)] z-30 border-b border-white/10 bg-ink/95 backdrop-blur supports-[backdrop-filter]:bg-ink/80">
         <div className="mx-auto flex max-w-[88rem] items-center gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
@@ -107,7 +107,7 @@ export default function HelpLayout({ children, wide = false, title }) {
             role="dialog"
             aria-modal="true"
             aria-label={t('help.helpTopics')}
-            className="absolute inset-y-0 left-0 flex w-[85vw] max-w-sm flex-col border-r border-white/10 bg-[#15122a] outline-none"
+            className="absolute inset-y-0 left-0 flex w-[85vw] max-w-sm flex-col border-r border-white/10 bg-ink-card outline-none"
           >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <span className="flex items-center gap-2 text-sm font-bold text-white">

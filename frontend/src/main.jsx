@@ -35,6 +35,8 @@ import './styles/components/surfaces.css';
 import './styles/components/date-time-fields.css';
 // The shared <Select>/<MultiSelect>/<Menu> dropdown skin (.dz-dropdown), used on every route.
 import './styles/components/dropdown.css';
+// Last: its island `color` rule must follow preflight's `button, a { color: inherit }`.
+import './styles/theme.css';
 
 // Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
 initPmf();

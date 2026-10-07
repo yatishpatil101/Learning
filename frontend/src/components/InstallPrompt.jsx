@@ -5,38 +5,17 @@ import Icon from './Icon.jsx';
 import LogoMark from './brand/LogoMark.jsx';
 import { getCookieConsent } from './CookieConsent.jsx';
 
-/* "Add Draazy to your home screen" — the in-app install nudge.
- *
- * Two mechanisms, because the platforms genuinely differ and no amount of code
- * hides that:
- *   · Chromium (Android Chrome / Samsung Internet / Edge) fires
- *     `beforeinstallprompt`. We stash it and call prompt() from a click, which
- *     opens the browser's own install dialog. That is as automatic as the web
- *     platform allows — prompt() throws outside a user gesture, by design, so a
- *     silent "install on page load" is impossible everywhere.
- *   · iOS/WebKit has no install API at all, in any browser. The only honest
- *     option is to point at Share → Add to Home Screen.
- * Anything else (Firefox Android, desktop) simply never sees this component.
- *
- * Mobile only: `lg:hidden` matches BottomNav's breakpoint, so the nudge lives
- * exactly where a home-screen icon is worth having.
- */
+/* Chromium: stash beforeinstallprompt and call prompt() from a click (it throws outside a gesture). iOS/WebKit has
+   no install API, so we can only point at Share → Add to Home Screen. */
 
 const KEY = 'dz_install_prompt_v1';
 const VERSION = 1;
 const DAY = 24 * 60 * 60 * 1000;
 
-/* Escalating silence, then permanent. A user who said "not now" twice has
-   answered the question; a third ask is nagging, not marketing. Index is the
-   dismissal count, so the last entry is also the terminal state. */
+/* Index is the dismissal count: two 'not now' answers settle it, so the last entry is terminal. */
 const COOLDOWNS = [7 * DAY, 14 * DAY, Infinity];
 
-/* Ask only once someone is actually *using* Draazy, not on arrival.
-   Counted in page views rather than seconds because a timer measures patience,
-   not interest — 30s of a stranger reading the hero is not intent, while three
-   pages in is someone who came here to look at homes. The count persists, so a
-   returning visitor who browsed a page per visit still qualifies; it is the
-   accumulated behaviour that earns the ask, not one long session. */
+/* Page views, not seconds: a timer measures patience, not interest, and the count persists across visits. */
 const MIN_VIEWS = 3;
 
 function read() {
@@ -53,9 +32,7 @@ function write(value) {
   } catch { /* ignore */ }
 }
 
-/* Already installed: either launched from the home screen (both spellings —
-   `navigator.standalone` is the iOS one and predates the media query), or we
-   recorded an install earlier in a browser tab. */
+/* `navigator.standalone` is the iOS spelling of standalone mode and predates the media query. */
 function isInstalled(state) {
   if (state.installed) return true;
   if (typeof window === 'undefined') return false;
@@ -106,12 +83,7 @@ export default function InstallPrompt() {
     };
   }, []);
 
-  /* One view per route. ConsumerLayout owns this component and stays mounted
-     across navigations, so client-side route changes and full page loads both
-     land here exactly once — except under StrictMode, which deliberately runs
-     effects twice to surface exactly this kind of non-idempotent write. The ref
-     makes the increment idempotent per path; without it dev counted every view
-     twice and the gate opened at half the intended engagement. */
+  /* The ref makes the per-path increment idempotent: StrictMode runs effects twice and would double-count. */
   const counted = useRef(null);
   useEffect(() => {
     if (counted.current === pathname) return;
@@ -150,12 +122,11 @@ export default function InstallPrompt() {
       <div
         role="dialog"
         aria-label={t('install.title')}
-        className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/10 bg-[#15122a]/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] p-3.5"
+        className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/10 bg-ink-card/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgb(var(--dz-c-black)/0.7)] p-3.5"
       >
         <div className="flex items-start gap-3">
-          {/* The tinted tile stays here (unlike the navbar): this row previews what
-             lands on the home screen, so showing the mark inside a rounded square
-             mirrors the real app-icon shape the user is about to install. */}
+          {/* Tinted tile kept (unlike the navbar): this row previews the
+              rounded-square home-screen icon the user is about to install. */}
           <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center shrink-0">
             <LogoMark className="w-6 h-6 text-teal-400" />
           </div>
@@ -182,7 +153,7 @@ export default function InstallPrompt() {
             <button
               type="button"
               onClick={install}
-              className="tap-target flex-1 rounded-xl bg-teal-500 px-4 text-[13px] font-semibold text-[#0f0d1a] hover:bg-teal-400 transition-colors"
+              className="tap-target flex-1 rounded-xl bg-teal-500 px-4 text-[13px] font-semibold text-ink hover:bg-teal-400 transition-colors"
             >
               {t('install.cta')}
             </button>

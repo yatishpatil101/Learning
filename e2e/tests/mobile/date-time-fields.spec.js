@@ -1,27 +1,7 @@
 import { test, expect } from '../../fixtures/live.js';
 
-/* Date & time pickers on a phone — the bottom-sheet docking.
- *
- * Below 640px both DatePickerDialog and TimePickerDialog stop being anchored
- * dropdowns and dock to the bottom edge as full-width sheets. That is not
- * cosmetic: ScheduleVisitModal is itself a sheet at this width, and an anchored
- * popup floating over a sheet is a dialog inside a dialog — the classic mobile
- * failure the review flagged as P0.
- *
- * The mechanism is split across two files that must stay in step, which is
- * exactly why it needs a test:
- *   - the CSS docks `.dz-cal` at `max-width: 639.98px`;
- *   - `place()` in each dialog bails out at the SAME breakpoint and clears the
- *     inline left/top it writes on wider screens (inline styles would otherwise
- *     beat the stylesheet and leave the sheet floating mid-screen).
- * If either side drifts, the sheet lands in the wrong place. Asserting the
- * rendered box catches that; asserting a class name would not.
- *
- * Measurement note: `boundingBox()` is DOCUMENT-relative, so on a scrolled page
- * it reports a fixed element hundreds of pixels below the fold and the assertion
- * fails against correct CSS. Read `getBoundingClientRect()` instead — it is
- * viewport-relative, which is the frame a fixed sheet actually lives in.
- */
+/* Below 640px the pickers dock as bottom sheets; the CSS (`.dz-cal`, 639.98px) and `place()` must share the
+   breakpoint. Use `getBoundingClientRect()`: `boundingBox()` is document-relative, wrong for fixed elements. */
 
 const dateField = (page) => page.locator('.dz-datefield').first();
 const rect = (locator) => locator.evaluate((el) => {
@@ -29,9 +9,7 @@ const rect = (locator) => locator.evaluate((el) => {
   return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
 });
 
-/* The sheet slides up from `translateY(100%)`, so a rect read the moment it
-   becomes visible reports it a full sheet-height below the fold. Poll until the
-   bottom edge settles on the viewport edge rather than sleeping a fixed amount. */
+/* The sheet slides up from `translateY(100%)`, so poll until its bottom edge settles, not a fixed sleep. */
 async function expectDockedToBottom(page, cal) {
   const viewport = page.viewportSize();
   await expect.poll(async () => Math.round((await rect(cal)).bottom)).toBe(viewport.height);
@@ -75,9 +53,13 @@ test.describe('Mobile date & time pickers', () => {
       const last = await rect(cal.locator('.dz-cal__day').last());
       expect(last.bottom).toBeLessThanOrEqual(viewport.height);
 
-      // Tapping above the sheet (the backdrop) closes it.
+      // Tapping above the sheet lands on the backdrop, not the page underneath, and closes it.
+      const backdrop = page.locator('.dz-cal-backdrop');
+      expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className, [viewport.width / 2, 20]))
+        .toBe('dz-cal-backdrop');
       await page.mouse.click(viewport.width / 2, 20);
       await expect(cal).toBeHidden();
+      await expect(backdrop).toHaveCount(0);
     });
   });
 
@@ -97,10 +79,7 @@ test.describe('Mobile date & time pickers', () => {
       await expect(time).toBeVisible({ timeout: 20_000 });
       await time.click();
 
-      /* `.dz-timepicker` reuses the `.dz-cal` shell, so the sheet rules are supposed
-         to convert both dialogs. Its own `width` declaration sits later in the
-         stylesheet at equal specificity and used to beat the full-bleed rule, docking
-         a 250px stub against the left edge — hence the explicit width assertion. */
+      /* .dz-timepicker reuses the .dz-cal shell, but its later width can beat the full-bleed rule. */
       const picker = page.locator('.dz-cal');
       await expect(picker).toBeVisible();
       await expect(page.locator('.dz-timepicker')).toBeVisible();

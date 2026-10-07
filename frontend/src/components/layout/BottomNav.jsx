@@ -130,7 +130,7 @@ export default function BottomNav() {
         aria-expanded={postChooserOpen}
         className="dz-bottom-nav__tab flex flex-1 flex-col items-center justify-center min-w-[52px]"
       >
-        <span className="dz-bottom-nav__fab grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] text-white">
+        <span className="dz-bottom-nav__fab grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-teal-600 to-teal-500 text-white">
           <Icon name="plus" className="w-6 h-6 stroke-[2.5]" />
         </span>
       </button>

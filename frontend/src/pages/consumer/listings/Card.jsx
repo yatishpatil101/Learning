@@ -105,8 +105,8 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
               )}
             </div>
-            <span className={'heart-btn absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-              <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
+            <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+              <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-6 h-6" />
             </span>
           </div>
           <div className="lr-body">
@@ -155,8 +155,8 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
             <Icon name="shield-check" />
           </span>
         ) : null}
-        <span className={'heart-btn absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-          <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
+        <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+          <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-6 h-6" />
         </span>
         <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
           {p.featured && (

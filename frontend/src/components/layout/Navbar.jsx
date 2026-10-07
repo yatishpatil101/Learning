@@ -89,7 +89,7 @@ export default function Navbar() {
       title="Go back"
       className="dz-topbar__icon-box tap-extend relative lg:hidden grid place-items-center h-9 w-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
     >
-      <Icon name="chevron-left" className="w-4 h-4 text-[#14b8a6]" />
+      <Icon name="chevron-left" className="w-4 h-4 text-teal-500" />
     </button>
   );
   // Shared account-menu building blocks, reused by the desktop dropdown (lg+) and
@@ -159,9 +159,9 @@ export default function Navbar() {
       ticking = true;
       requestAnimationFrame(() => {
         const y = window.scrollY;
-        nav.style.background = `rgba(15,13,26,${Math.min(0.95, 0.6 + y / 400)})`;
-        nav.style.boxShadow = y > 50 ? '0 4px 30px rgba(0,0,0,0.3)' : 'none';
-        nav.style.borderBottomColor = y > 50 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.06)';
+        nav.style.background = `rgb(var(--dz-c-ink) / ${Math.min(0.95, 0.6 + y / 400)})`;
+        nav.style.boxShadow = y > 50 ? '0 4px 30px rgb(var(--dz-c-black) / 0.3)' : 'none';
+        nav.style.borderBottomColor = y > 50 ? 'rgb(var(--dz-c-white) / 0.08)' : 'rgb(var(--dz-c-white) / 0.06)';
 
         const moved = y - lastY;
         if (Math.abs(moved) > DELTA) {
@@ -229,7 +229,7 @@ export default function Navbar() {
     <nav
       ref={navRef}
       className="dz-topbar dz-safe-x fixed top-0 left-0 right-0 z-50 transition-all duration-500"
-      style={{ background: 'rgba(15,13,26,0.6)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+      style={{ background: 'rgb(var(--dz-c-ink) / 0.6)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgb(var(--dz-c-white) / calc(0.06 * var(--dz-line-boost)))' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="dz-topbar__row flex items-center justify-between gap-2">
@@ -249,20 +249,20 @@ export default function Navbar() {
                 aria-label={`City: ${city}`}
                 className="dz-topbar__pill tap-extend relative flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300 min-w-0"
               >
-                <Icon name="map-pin" className="w-4 h-4 text-[#14b8a6] shrink-0" />
+                <Icon name="map-pin" className="w-4 h-4 text-teal-500 shrink-0" />
                 <span className="text-sm font-semibold text-gray-200 truncate">{city}</span>
                 <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400 transition-transform duration-300 shrink-0" style={{ transform: cityOpen ? 'rotate(180deg)' : '' }} />
               </button>
               {cityOpen ? (
-                <div role="listbox" aria-label="Select city" className="absolute left-0 mt-2 w-56 rounded-2xl bg-[#15122a] border border-white/10 shadow-2xl shadow-black/50 p-1.5 z-[60]">
+                <div role="listbox" aria-label="Select city" className="absolute left-0 mt-2 w-56 rounded-2xl bg-ink-card border border-white/10 shadow-2xl shadow-black/50 p-1.5 z-[60]">
                   {cities.filter((c) => c.live).map((c) => (
                     <button
                       key={c.name}
                       className={'w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-sm transition-all ' + (city === c.name ? 'text-white bg-white/5 border border-teal-400/30' : 'text-gray-300 hover:bg-white/5')}
                       onClick={() => { setCity(c.name); setCityOpen(false); }}
                     >
-                      <span className="flex items-center gap-2.5"><Icon name="map-pin" className="w-4 h-4 text-[#14b8a6]" /> {c.name}</span>
-                      {city === c.name ? <Icon name="check" className="w-4 h-4 text-[#14b8a6]" /> : null}
+                      <span className="flex items-center gap-2.5"><Icon name="map-pin" className="w-4 h-4 text-teal-500" /> {c.name}</span>
+                      {city === c.name ? <Icon name="check" className="w-4 h-4 text-teal-500" /> : null}
                     </button>
                   ))}
                   {cities.some((c) => !c.live) ? (
@@ -275,11 +275,11 @@ export default function Navbar() {
                       onClick={() => { setCity(c.name); setCityOpen(false); }}
                     >
                       <span className="flex items-center gap-2.5"><Icon name="building-2" className="w-4 h-4 text-gray-400" /> {c.name}</span>
-                      {city === c.name ? <Icon name="check" className="w-4 h-4 text-[#14b8a6]" /> : <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Soon</span>}
+                      {city === c.name ? <Icon name="check" className="w-4 h-4 text-teal-500" /> : <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300">Soon</span>}
                     </button>
                   ))}
                   <div className="border-t border-white/10 mt-1.5 pt-1.5">
-                    <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-[#14b8a6] hover:bg-white/5 transition-all" onClick={() => { openRequest(); setCityOpen(false); }}>
+                    <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-teal-500 hover:bg-white/5 transition-all" onClick={() => { openRequest(); setCityOpen(false); }}>
                       <Icon name="bell-plus" className="w-4 h-4" /> Request your city
                     </button>
                   </div>
@@ -302,7 +302,7 @@ export default function Navbar() {
             {/* Desktop-only. Below lg the bottom tab bar owns Post — it has the raised centre slot in the thumb arc,
                which is a better home for the primary supply-side CTA than the top-right corner. */}
           <div className="flex items-center gap-3 shrink-0">
-            <Link to="/list-property" className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
+            <Link to="/list-property" className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-teal-600 to-teal-500 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
               <Icon name="plus-circle" className="w-4 h-4" />
               {postLabel}
             </Link>
@@ -317,7 +317,7 @@ export default function Navbar() {
               <>
                 <Link to="/saved" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
                   <Icon name="heart" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
-                  {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
+                  {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-orange-500 to-orange-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
                 </Link>
                 <NotificationBell />
                 {flagEnabled('inAppMessaging') && (
@@ -325,7 +325,7 @@ export default function Navbar() {
                     <Icon name="message-square" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                     {chatBadge > 0
                       ? <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{chatBadge}</span>
-                      : <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-400 ring-2 ring-[#0f0d1a]" />}
+                      : <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-teal-500 shadow-md shadow-teal-500/40" />}
                   </Link>
                 )}
                 <div className="relative -mr-4 sm:mr-0" ref={acctRef}>
@@ -336,7 +336,7 @@ export default function Navbar() {
                   {/* Desktop (lg+): anchored dropdown. */}
                   </button>
                   {acctOpen ? (
-                    <div className="hidden lg:block absolute right-0 mt-2 w-64 rounded-2xl bg-[#15122a] border border-white/10 shadow-2xl shadow-black/50 p-2 z-[60] max-h-[80vh] overflow-y-auto">
+                    <div className="hidden lg:block absolute right-0 mt-2 w-64 rounded-2xl bg-ink-card border border-white/10 shadow-2xl shadow-black/50 p-2 z-[60] max-h-[80vh] overflow-y-auto">
                       <div className="py-1">{acctIdentity}</div>
                       <div className="border-t border-white/10 my-1.5" />
                       {acctItems(() => setAcctOpen(false))}
@@ -373,7 +373,7 @@ export default function Navbar() {
           role="dialog"
           aria-modal="true"
           aria-label="Account"
-          className={'absolute top-0 right-0 h-full w-[300px] max-w-[85vw] bg-[#15122a] border-l border-white/10 shadow-2xl shadow-black/50 flex flex-col transition-transform duration-300 ease-out ' + (acctOpen ? 'translate-x-0' : 'translate-x-full')}
+          className={'absolute top-0 right-0 h-full w-[300px] max-w-[85vw] bg-ink-card border-l border-white/10 shadow-2xl shadow-black/50 flex flex-col transition-transform duration-300 ease-out ' + (acctOpen ? 'translate-x-0' : 'translate-x-full')}
         >
           <div className="flex items-center justify-between gap-2 px-4 h-16 border-b border-white/5 shrink-0">
             {acctIdentity}

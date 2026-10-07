@@ -8,7 +8,7 @@ import { fmtArea, fmtINR } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { propLatLng } from '../../pages/consumer/listings/geo.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
-import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../lib/mapsConfig.js';
+import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../lib/mapsConfig.js';
 import { getActiveCityGeo, cityLabelFor } from '../../lib/geoConfig.js';
 import MapUnavailable from './MapUnavailable.jsx';
 
@@ -165,7 +165,7 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
       <div className="w-full rounded-2xl overflow-hidden border border-white/10 isolate relative" style={wrapStyle}>
         <Map
           mapId={GOOGLE_MAPS_MAP_ID}
-          colorScheme="DARK"
+          colorScheme={mapColorScheme()}
           defaultCenter={initialCenter}
           defaultZoom={initialZoom}
           gestureHandling={gestureHandling}

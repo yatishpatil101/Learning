@@ -1,10 +1,4 @@
-/**
- * Pure presentation helpers for service-request status.
- *
- * The request data lives behind `serviceRequestService.js`; this file deliberately has no storage,
- * network, or user-state dependency so the tracker can render a server response without importing
- * the retired localStorage workflow engine.
- */
+/** No storage, network or user-state dependency, so the tracker can render a server response with it. */
 export const STEPS = ['Submitted', 'Documents', 'Draft & approval', 'Registration', 'Ready'];
 
 const ACTIVE = {
@@ -21,16 +15,16 @@ const ACTIVE = {
 };
 
 const STATUS_META = {
-  awaiting_payment: { label: 'Unpaid · not submitted', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'clock' },
-  awaiting_party: { label: 'Waiting for the other party', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'hourglass' },
-  submitted: { label: 'Submitted', color: '#a5b4fc', bg: 'rgba(99,102,241,.2)', icon: 'inbox' },
-  docs_review: { label: 'Documents under review', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'folder-check' },
-  draft_shared: { label: 'Draft ready for your review', color: '#5eead4', bg: 'rgba(20,184,166,.2)', icon: 'file-pen-line' },
-  changes_requested: { label: 'Changes requested', color: '#fda4af', bg: 'rgba(244,63,94,.2)', icon: 'rotate-ccw' },
-  approved: { label: 'Approved — awaiting registration', color: '#5eead4', bg: 'rgba(20,184,166,.2)', icon: 'check' },
-  registration: { label: 'In government registration', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'landmark' },
-  completed: { label: 'Registered & ready', color: '#6ee7b7', bg: 'rgba(16,185,129,.2)', icon: 'badge-check' },
-  cancelled: { label: 'Cancelled', color: '#9ca3af', bg: 'rgba(148,163,184,.2)', icon: 'x-circle' },
+  awaiting_payment: { label: 'Unpaid · not submitted', color: 'rgb(var(--dz-c-amber-300))', bg: 'rgb(var(--dz-c-amber-500) / .2)', icon: 'clock' },
+  awaiting_party: { label: 'Waiting for the other party', color: 'rgb(var(--dz-c-amber-300))', bg: 'rgb(var(--dz-c-amber-500) / .2)', icon: 'hourglass' },
+  submitted: { label: 'Submitted', color: 'rgb(var(--dz-c-indigo-300))', bg: 'rgb(var(--dz-c-indigo-500) / .2)', icon: 'inbox' },
+  docs_review: { label: 'Documents under review', color: 'rgb(var(--dz-c-amber-300))', bg: 'rgb(var(--dz-c-amber-500) / .2)', icon: 'folder-check' },
+  draft_shared: { label: 'Draft ready for your review', color: 'rgb(var(--dz-c-teal-300))', bg: 'rgb(var(--dz-c-teal-500) / .2)', icon: 'file-pen-line' },
+  changes_requested: { label: 'Changes requested', color: 'rgb(var(--dz-c-rose-300))', bg: 'rgb(var(--dz-c-rose-500) / .2)', icon: 'rotate-ccw' },
+  approved: { label: 'Approved — awaiting registration', color: 'rgb(var(--dz-c-teal-300))', bg: 'rgb(var(--dz-c-teal-500) / .2)', icon: 'check' },
+  registration: { label: 'In government registration', color: 'rgb(var(--dz-c-amber-300))', bg: 'rgb(var(--dz-c-amber-500) / .2)', icon: 'landmark' },
+  completed: { label: 'Registered & ready', color: 'rgb(var(--dz-c-emerald-300))', bg: 'rgb(var(--dz-c-emerald-500) / .2)', icon: 'badge-check' },
+  cancelled: { label: 'Cancelled', color: 'rgb(var(--dz-c-gray-400))', bg: 'rgb(var(--dz-c-slate-400) / .2)', icon: 'x-circle' },
 };
 
 const activeStep = (status) => (ACTIVE[status] == null ? 0 : ACTIVE[status]);
@@ -52,7 +46,7 @@ export const progressPct = (status) => {
 };
 
 export const statusMeta = (status) =>
-  STATUS_META[status] || { label: 'In progress', color: '#d1d5db', bg: 'rgba(255,255,255,.1)', icon: 'loader' };
+  STATUS_META[status] || { label: 'In progress', color: 'rgb(var(--dz-c-gray-300))', bg: 'rgb(var(--dz-c-white) / .1)', icon: 'loader' };
 
 /** Route a legacy invite token to the rent-agreement entry point. */
 export const invitePath = (inviteId) =>

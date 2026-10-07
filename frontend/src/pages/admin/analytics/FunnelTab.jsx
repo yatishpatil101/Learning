@@ -3,11 +3,11 @@ import { fmtNum } from '../../../lib/format.js';
 import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
 
 const STAGES = [
-  { key: 'posted', label: 'Listings posted', color: C.slate },
-  { key: 'approved', label: 'Approved', color: C.teal },
-  { key: 'contacts', label: 'Contact requests', color: C.indigo },
-  { key: 'visits', label: 'Visits booked', color: C.amber },
-  { key: 'deals', label: 'Deals closed', color: C.emerald },
+  { key: 'posted', label: 'Listings posted', get color() { return C.slate; } },
+  { key: 'approved', label: 'Approved', get color() { return C.teal; } },
+  { key: 'contacts', label: 'Contact requests', get color() { return C.indigo; } },
+  { key: 'visits', label: 'Visits booked', get color() { return C.amber; } },
+  { key: 'deals', label: 'Deals closed', get color() { return C.emerald; } },
 ];
 
 /** Share of the previous stage, or null when there was nothing to convert. */
@@ -58,7 +58,7 @@ export default function FunnelTab({ report, failed, days }) {
         <LineChart
           labels={weeks.map((w) => w.week)}
           datasets={STAGES.map((s) => ({ label: s.label, data: weeks.map((w) => w[s.key]), color: s.color, fill: false }))}
-          options={{ scales: { x: AX, y: axis({ beginAtZero: true, ticks: { color: '#94a3b8', precision: 0 } }) } }}
+          options={{ scales: { x: AX, y: axis({ beginAtZero: true, ticks: { precision: 0 } }) } }}
         />
       </Card>
     </div>

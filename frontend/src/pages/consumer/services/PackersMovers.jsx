@@ -25,9 +25,9 @@ export default function PackersMovers() {
       flowType="packers"
       draftKey="dzDraft:packers-movers"
       trackerTitle={t('services.packers.trackerTitle')}
-      heroGradient="linear-gradient(140deg,#0a1120 0%,#0b2530 46%,#123a4a 100%)"
+      heroGradient="linear-gradient(140deg,rgb(var(--dz-c-slate-950)) 0%,rgb(var(--dz-c-teal-950)) 46%,rgb(var(--dz-c-teal-900)) 100%)"
       heroImage="https://images.unsplash.com/photo-1600518464441-9154a4dea21b?w=1600&q=80"
-      heroOverlay="linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(11,37,48,.87) 46%,rgba(18,58,74,.9) 100%)"
+      heroOverlay="linear-gradient(140deg,rgb(var(--dz-c-slate-950) / .93) 0%,rgb(var(--dz-c-teal-950) / .87) 46%,rgb(var(--dz-c-teal-900) / .9) 100%)"
 
       badge={t('services.packers.badge')}
       titleTop={t('services.packers.titleTop')}

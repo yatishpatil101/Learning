@@ -92,7 +92,7 @@ export default function CookieConsent() {
         role="dialog"
         aria-modal="false"
         aria-label="Cookie preferences"
-        className="pointer-events-auto w-full max-w-4xl rounded-2xl border border-white/10 bg-[#15122a]/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden"
+        className="pointer-events-auto w-full max-w-4xl rounded-2xl border border-white/10 bg-ink-card/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgb(var(--dz-c-black)/0.7)] overflow-hidden"
       >
         {mode === 'banner' ? (
           /* ── Sleek landscape bar: message left, actions right ── */

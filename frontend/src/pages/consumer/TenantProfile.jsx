@@ -126,7 +126,7 @@ export default function TenantProfile() {
   ];
   const pending = factors.filter((f) => !f.done);
   // Rendered twice: the mobile progress header and the desktop aside show the same meter.
-  const scoreBar = <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>;
+  const scoreBar = <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,rgb(var(--dz-c-teal-600)),rgb(var(--dz-c-teal-500)))' }} /></div>;
   const boostSub = pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone');
 
   const verificationStale = verificationStatus === 'rejected';
@@ -218,7 +218,7 @@ export default function TenantProfile() {
           </div>
           <div><label className="lbl" htmlFor="tp-about">{t('misc.tpAbout')}</label><textarea id="tp-about" value={form.about} onChange={(e) => set('about', e.target.value)} rows={3} className="fld" placeholder={t('misc.tpAboutPlaceholder')} /></div>
 
-          <div className="rounded-xl border border-emerald-500/25 p-4" style={{ background: 'rgba(16,185,129,.06)' }}>
+          <div className="rounded-xl border border-emerald-500/25 p-4" style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Icon name="shield-check" className="w-5 h-5 text-emerald-400 flex-shrink-0" />

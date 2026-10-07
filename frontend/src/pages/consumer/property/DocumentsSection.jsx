@@ -9,9 +9,7 @@ import { docsFor, commercialProfileFromType } from '../list-property/constants.j
 import { propertyKind } from './derivations.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 
-/* Documents tab. Papers are never openly viewable — the owner personally approves which documents
-   each buyer or tenant may see. The set is deal + type aware via `docsFor`, so a tenant is never
-   shown sale-only papers that were never collected. */
+/* Papers are never openly viewable: the owner approves which documents each buyer or tenant may see. */
 
 // Sale (built-property) checklist, framed as buyer due-diligence.
 const SALE_DOCS = [
@@ -83,9 +81,7 @@ const ACCESS = {
   none: { labelKey: 'accessNone', icon: 'lock', cls: 'text-slate-400' },
 };
 
-/* `ACCESS` as a total function: an unmapped status must not throw inside the `.map` below and take
-   the whole documents card down with the request button. `Object.hasOwn` rather than `||`, since
-   `constructor` and `toString` are truthy; warned once because the caller re-runs on every render. */
+/* Total function: an unmapped status must not throw in the .map below; Object.hasOwn: `constructor` is truthy. */
 const warnedStatuses = new Set();
 function accessFor(status) {
   if (Object.hasOwn(ACCESS, status)) return ACCESS[status];
@@ -143,18 +139,14 @@ export function DocumentsSection({ p, user, isIn, toast }) {
   // expired one for the same category — that ordering is load-bearing.
   const statusOf = (name) => myReqs.find((request) =>
     (request.categories || [request.docType]).includes(name))?.status || 'none';
-  /* Expired rows are history, not a request in flight. Counting them keeps `requested` true, which
-     gates the ask affordance away — so the buyer reads "the owner is reviewing" forever beside a
-     chip saying the window closed, with no way to ask again. */
+  /* Expired rows are history: counting them keeps `requested` true and hides the ask affordance forever. */
   const liveReqs = myReqs.filter((request) => request.status !== 'expired');
   const requested = liveReqs.length > 0;
   const lapsed = myReqs.length > 0 && liveReqs.length === 0;
   const grantedReqs = myReqs.filter((r) => r.status === 'granted');
   const grantedCount = docs.filter((document) => statusOf(document.name) === 'granted').length;
-  /* "The owner is reviewing" is only true while something is pending; a declined request must not
-     fall through to it. The button stays hidden for a decline even though the server permits asking
-     again — re-offering it one click from a refusal is an owner-harassment path, so that affordance
-     is a product decision filed in tasks/todo.md. */
+  /* "Reviewing" is only true while pending. Re-offering the button right after a decline is an
+     owner-harassment path, so it stays hidden even though the server permits asking again. */
   const declined = requested && liveReqs.every((request) => request.status === 'declined');
   // Requester-scoped rather than owner-mobile scoped: possession of an id buys nothing; the API
   // also requires the JWT to identify the buyer who wrote this exact request.
@@ -208,7 +200,7 @@ export function DocumentsSection({ p, user, isIn, toast }) {
         </div>
 
         {/* Persistent notice: rent is verification-only; sale is owner-gated document sharing. */}
-        <div className="rounded-xl border border-brand-teal-2/20 p-3.5 flex items-start gap-2.5 mb-5" style={{ background: 'rgba(20,184,166,.06)' }}>
+        <div className="rounded-xl border border-brand-teal-2/20 p-3.5 flex items-start gap-2.5 mb-5" style={{ background: 'rgb(var(--dz-c-teal-500) / .06)' }}>
           <Icon name={isRent ? 'shield-check' : 'user-check'} className="w-4 h-4 text-brand-teal-3 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-slate-300 leading-relaxed">{isRent
             ? (<><span className="font-semibold text-white">{t('property.noticeRentBold')}</span>{t('property.noticeRentBody')}</>)
@@ -258,7 +250,7 @@ export function DocumentsSection({ p, user, isIn, toast }) {
               <p className="text-sm text-slate-400">{t('property.docsRequestLoading')}</p>
             ) : requested ? (
               <div className="flex flex-col gap-3">
-                <div className="inline-flex items-center gap-2 text-sm rounded-xl border border-brand-teal-2/30 px-4 py-3 self-start" style={{ background: 'rgba(20,184,166,.06)' }}>
+                <div className="inline-flex items-center gap-2 text-sm rounded-xl border border-brand-teal-2/30 px-4 py-3 self-start" style={{ background: 'rgb(var(--dz-c-teal-500) / .06)' }}>
                   <Icon name={grantedCount > 0 ? 'badge-check' : (declined ? 'x-circle' : 'clock')} className={'w-4 h-4 ' + (grantedCount > 0 ? 'text-emerald-300' : (declined ? 'text-slate-400' : 'text-brand-teal-3'))} />
                   <span className="text-slate-200 font-medium">{grantedCount > 0 ? t('property.ownerApprovedOf', { granted: grantedCount, total: docs.length }) : (declined ? t('property.requestDeclined') : t('property.requestSentReviewing'))}</span>
                 </div>

@@ -6,8 +6,8 @@ export default function Hero() {
   return (
     <>
       {/* Hero */}
-      <section className="hero relative overflow-hidden">
-        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 80% 70%,rgba(20,184,166,.5) 0,transparent 40%)' }} />
+      <section className="hero theme-dark relative overflow-hidden">
+        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%,rgb(var(--dz-c-pure-white) / .3) 0,transparent 40%),radial-gradient(circle at 80% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 40%)' }} />
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-teal-200 text-sm font-medium mb-5"><Icon name="file-signature" className="w-4 h-4" /> {t('services.ra.hero.badge')}</div>
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white leading-tight">{t('services.ra.hero.title1')}<br /><span className="gradient-text">{t('services.ra.hero.titleAccent')}</span></h1>

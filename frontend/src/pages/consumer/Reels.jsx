@@ -343,7 +343,7 @@ export default function Reels() {
                 {r.deal === 'rent'
                   ? <span className="reels-badge bg-teal-600/70 text-teal-50">{t('reels.badgeRent')}</span>
                   : <span className="reels-badge bg-emerald-600/70 text-emerald-50">{t('reels.badgeSale')}</span>}
-                <span className="reels-badge text-white" style={{ background: 'rgba(16,185,129,.85)' }}>{t('reels.zeroBrokerage')}</span>
+                <span className="reels-badge text-white" style={{ background: 'rgb(var(--dz-c-emerald-500) / .85)' }}>{t('reels.zeroBrokerage')}</span>
                 <span className="reels-tag"><Icon name="camera" className="w-3 h-3" /> {t('reels.photoCount', { count: r.photos.length })}</span>
                 <span className="reels-tag"><Icon name="eye" className="w-3 h-3" /> {compact(r.views)}</span>
               </div>

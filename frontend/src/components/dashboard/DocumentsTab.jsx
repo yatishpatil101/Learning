@@ -51,15 +51,15 @@ function Ring({ done, total, size = 72, stroke = 7, loading = false }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const complete = total > 0 && done === total;
-  const col = complete ? '#34d399' : done > 0 ? '#2dd4bf' : 'rgba(255,255,255,0.18)';
+  const col = complete ? 'stroke-emerald-400' : done > 0 ? 'stroke-teal-400' : 'stroke-white/20';
   // While the vault is still loading its first read the count is unknown, so show a muted,
   // indeterminate ring — painting 0 and then snapping is a reflow.
   if (loading) {
     return (
       <div className="relative flex-shrink-0 animate-pulse" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} fill="none" />
-          <circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.18)" strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * 0.75} />
+          <circle cx={size / 2} cy={size / 2} r={r} className="stroke-white/[0.08]" strokeWidth={stroke} fill="none" />
+          <circle cx={size / 2} cy={size / 2} r={r} className="stroke-white/[0.18]" strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * 0.75} />
         </svg>
       </div>
     );
@@ -67,8 +67,8 @@ function Ring({ done, total, size = 72, stroke = 7, loading = false }) {
   return (
     <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} fill="none" />
-        <circle cx={size / 2} cy={size / 2} r={r} stroke={col} strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} style={{ transition: 'stroke-dashoffset .6s ease' }} />
+        <circle cx={size / 2} cy={size / 2} r={r} className="stroke-white/[0.08]" strokeWidth={stroke} fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={r} className={col} strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} style={{ transition: 'stroke-dashoffset .6s ease' }} />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="text-white text-sm font-bold leading-none">{done}<span className="text-gray-500 text-[10px] font-semibold">/{total}</span></span>

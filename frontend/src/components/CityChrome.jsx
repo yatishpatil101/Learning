@@ -43,7 +43,7 @@ export default function CityChrome() {
         <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--dz-bottom-inset)+18px)] z-[1200] w-[min(680px,calc(100%-24px))]">
           {/* Phones stack (copy row, then a full-width button row) because the copy
               collapsed to a 1-word column when everything shared one flex line. */}
-          <div className="relative flex flex-col gap-2.5 rounded-2xl border border-white/12 bg-[#15122a]/95 px-4 py-3 pr-10 shadow-2xl shadow-black/50 backdrop-blur sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:pr-4">
+          <div className="relative flex flex-col gap-2.5 rounded-2xl border border-white/12 bg-ink-card/95 px-4 py-3 pr-10 shadow-2xl shadow-black/50 backdrop-blur sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:pr-4">
             <div className="flex items-start gap-2.5 sm:flex-1 sm:min-w-0 sm:items-center">
               <span className="text-lg leading-none">🚧</span>
               <span className="text-[12.5px] leading-snug text-gray-300">
@@ -144,7 +144,7 @@ function CityModal({ modal, user, onClose, onSubmit }) {
   return (
     <div className="fixed inset-0 z-[1500] flex items-center justify-center p-4" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[20px] border border-white/12 bg-[#14121f] shadow-2xl">
+      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[20px] border border-white/12 bg-ink-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/8 px-[18px] py-4">
           <h3 className="text-base font-bold text-white">{isWaitlist ? `Join the ${cityName} waitlist` : 'Request your city'}</h3>
           <button onClick={requestClose} disabled={busy} aria-label="Close" className="text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>

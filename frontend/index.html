@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0f0d1a" />
+    <!-- Before first paint, or a light-theme visitor sees a dark flash. Mirrors applyAppPrefs in src/lib/localPrefs.js. -->
+    <script>try { if (JSON.parse(localStorage.getItem('dzAppPrefs') || '{}').theme === 'light') { document.documentElement.classList.add('light'); document.querySelector('meta[name="color-scheme"]').content = 'light'; document.querySelector('meta[name="theme-color"]').content = '#f3f7f6'; } } catch (e) {}</script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Cashfree hosted checkout: the SDK is a loader, and the modal POSTs a form from THIS
          document into an iframe on the checkout host. Keep in step with public/_headers. -->

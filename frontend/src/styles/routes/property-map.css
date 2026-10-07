@@ -1,7 +1,3 @@
-/* property-map — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Property map InfoWindow popups. Loaded with whichever chunk pulls in
-   components/property/PropertyMap.jsx. */
 
 /* Listings map — dark popup content (rendered inside Google InfoWindow). */
 /* Property tile popup: a full-bleed compact clone of the standard Card tile. */
@@ -9,10 +5,10 @@
   display: flex;
   flex-direction: column;
   background: var(--brand-card);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.08 * var(--dz-line-boost)));
   border-radius: 16px;
   overflow: hidden;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   text-decoration: none;
 }
 
@@ -43,13 +39,13 @@
 }
 
 .dz-mp-deal.is-rent {
-  background: rgba(13, 148, 136, 0.6);
-  color: #ccfbf1;
+  background: rgb(var(--dz-c-teal-600) / 0.6);
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .dz-mp-deal.is-sale {
-  background: rgba(5, 150, 105, 0.6);
-  color: #d1fae5;
+  background: rgb(var(--dz-c-emerald-600) / 0.6);
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .dz-mp-verified {
@@ -59,11 +55,11 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: rgba(13, 148, 136, 0.92);
+  background: rgb(var(--dz-c-teal-600) / 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
 }
 
 .dz-mp-verified svg {
@@ -79,7 +75,7 @@
 .dz-mp-title {
   font-size: 11.5px;
   font-weight: 600;
-  color: #e5e7eb;
+  color: rgb(var(--dz-c-gray-200));
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -90,7 +86,7 @@
   margin-top: 3px;
   font-size: 16px;
   font-weight: 800;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   line-height: 1.05;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -109,13 +105,13 @@
   gap: 4px;
   margin-top: 5px;
   font-size: 11px;
-  color: #9ca3af;
+  color: rgb(var(--dz-c-gray-400));
 }
 
 .dz-mp-loc svg {
   width: 12px;
   height: 12px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   flex-shrink: 0;
 }
 
@@ -125,7 +121,7 @@
   gap: 7px 10px;
   margin-top: 9px;
   padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
 }
 
 .dz-mp-fact {
@@ -138,7 +134,7 @@
 .dz-mp-fact>svg {
   width: 14px;
   height: 14px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
   flex-shrink: 0;
 }
 
@@ -151,7 +147,7 @@
   display: block;
   font-size: 11px;
   font-weight: 700;
-  color: #e5e7eb;
+  color: rgb(var(--dz-c-gray-200));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -160,7 +156,7 @@
 .dz-mp-fact span {
   display: block;
   font-size: 9px;
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -168,7 +164,7 @@
 .dz-mp-amen {
   margin-top: 9px;
   padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
 }
 
 .dz-mp-amen-hd {
@@ -176,7 +172,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
   margin-bottom: 6px;
 }
 
@@ -192,23 +188,23 @@
   gap: 4px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(13, 148, 136, 0.12);
-  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: rgb(var(--dz-c-teal-600) / 0.12);
+  border: 1px solid rgb(var(--dz-c-teal-600) / 0.28);
   font-size: 10px;
   font-weight: 600;
-  color: #ccfbf1;
+  color: rgb(var(--dz-c-teal-100));
 }
 
 .dz-mp-chip svg {
   width: 11px;
   height: 11px;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-mp-chip.is-more {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #9ca3af;
+  background: rgb(var(--dz-c-white) / 0.06);
+  border-color: rgb(var(--dz-c-white) / calc(0.12 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-gray-400));
 }
 
 .dz-mp-cta {
@@ -218,7 +214,7 @@
   margin-top: 10px;
   font-size: 11px;
   font-weight: 700;
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-mp-cta svg {

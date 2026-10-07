@@ -47,7 +47,7 @@ export default function HomeLoans() {
   return (
     <ServiceLanding
       desk="loans"
-      heroGradient="linear-gradient(140deg,#0a1120 0%,#0c2321 48%,#0e3a2c 100%)"
+      heroGradient="linear-gradient(140deg,rgb(var(--dz-c-slate-950)) 0%,rgb(var(--dz-c-teal-950)) 48%,rgb(var(--dz-c-emerald-950)) 100%)"
       heroImage="https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=1600&q=80"
 
       badge={t('services.homeLoans.badge')}

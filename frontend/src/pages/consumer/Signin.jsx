@@ -240,7 +240,7 @@ export default function Signin() {
 
             {saveError ? <p role="alert" className="text-red-400 text-xs text-center">{saveError}</p> : null}
 
-            <button type="submit" disabled={saving || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+            <button type="submit" disabled={saving || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-600)),rgb(var(--dz-c-emerald-500)))' } : undefined}>
               {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
                 : saving ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.savingProfile')}</>
                 : <>{t('auth.completeProfileCta')} <ArrowRight className="w-4 h-4" /></>}
@@ -311,7 +311,7 @@ export default function Signin() {
           </div>
 
           {otp.otpSent ? (
-            <button type="submit" disabled={verifying || done || otpSpent} aria-describedby={otpSpent ? 'signin-otp-status' : undefined} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+            <button type="submit" disabled={verifying || done || otpSpent} aria-describedby={otpSpent ? 'signin-otp-status' : undefined} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-600)),rgb(var(--dz-c-emerald-500)))' } : undefined}>
               {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.verifiedRedirecting')}</>
                 : verifying ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.verifying')}</>
                 : <>{t('auth.verifyAndSignIn')} <ArrowRight className="w-4 h-4" /></>}

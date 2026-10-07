@@ -91,7 +91,7 @@ export default function NotificationBell() {
     <span ref={rootRef} className="relative inline-flex">
       <Link to="/notifications" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center rounded-xl p-2 transition-all duration-300 hover:bg-white/5 sm:hidden" title="Notifications" aria-label={label}>
         <Icon name="bell" className="h-5 w-5 text-gray-300 transition-colors" />
-        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#f97316] to-[#fb923c] px-1 text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{badgeText(unread)}</span>}
+        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-400 px-1 text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{badgeText(unread)}</span>}
       </Link>
       <button
         ref={buttonRef}
@@ -104,7 +104,7 @@ export default function NotificationBell() {
         aria-expanded={open}
       >
         <Icon name="bell" className="h-5 w-5 text-gray-300 transition-colors" />
-        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#f97316] to-[#fb923c] px-1 text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{badgeText(unread)}</span>}
+        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-400 px-1 text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{badgeText(unread)}</span>}
       </button>
       {open && (
         <div
@@ -112,7 +112,7 @@ export default function NotificationBell() {
           tabIndex={-1}
           role="dialog"
           aria-label={t('notifications.title')}
-          className="absolute right-0 top-full z-[70] mt-2 hidden w-96 max-w-[calc(100vw-2rem)] rounded-3xl border border-white/10 bg-[#15122a] p-3 shadow-2xl shadow-black/50 outline-none sm:block"
+          className="absolute right-0 top-full z-[70] mt-2 hidden w-96 max-w-[calc(100vw-2rem)] rounded-3xl border border-white/10 bg-ink-card p-3 shadow-2xl shadow-black/50 outline-none sm:block"
         >
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <p className="text-sm font-semibold text-white">{t('notifications.title')}</p>

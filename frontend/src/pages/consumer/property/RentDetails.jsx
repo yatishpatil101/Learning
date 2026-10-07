@@ -122,7 +122,7 @@ export function RentDetails({ p }) {
             {tile('landmark', tr('property.deposit'), deposit == null ? tr('property.askOwner') : '₹' + fmtNum(deposit), 'rent.deposit')}
           </div>
 
-          <div className="mt-3 rounded-xl border border-emerald-500/25 p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'rgba(16,185,129,.07)' }}>
+          <div className="mt-3 rounded-xl border border-emerald-500/25 p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'rgb(var(--dz-c-emerald-500) / .07)' }}>
             <div>
               <p className="text-xs text-slate-400">{tr('property.allInMonthly')}</p>
               <p className="text-2xl font-extrabold text-white leading-tight">₹{fmtNum(allIn)}</p>
@@ -215,7 +215,7 @@ export function RentDetails({ p }) {
             </div>
           )}
 
-          <div className="rounded-xl border border-emerald-500/20 px-3.5 py-3 mb-4 flex items-center gap-2" style={{ background: 'rgba(16,185,129,.06)' }}>
+          <div className="rounded-xl border border-emerald-500/20 px-3.5 py-3 mb-4 flex items-center gap-2" style={{ background: 'rgb(var(--dz-c-emerald-500) / .06)' }}>
             <Icon name="hand-coins" className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <p className="text-xs text-slate-300">{tr('property.zeroBrokerageOwner')}</p>
           </div>

@@ -1,20 +1,5 @@
-/* ============================================================================
-   Button system — Tier 0 (shared across routes)
-   Hoisted out of index.css, where it sat under the "Property page" heading even
-   though .btn-* / .dz-btn* are used by components/auth, components/dashboard,
-   components/society, pages/admin, CityChrome.jsx and ServiceTracker.jsx.
-   Loaded from main.jsx after index.css. Note the radius-hierarchy override in
-   index.css ("Radius hierarchy") uses !important, so it still wins from there.
-   ============================================================================ */
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   BUTTON SYSTEM — single source of truth. Three tiers:
-     .btn-primary   → the one main action per view (teal gradient)
-     .btn-secondary → supporting actions (outline/ghost)
-     .btn-icon      → compact square icon-only utility button
-   Sizes: .btn-sm (32px) · default (40px) · .btn-lg (48px).
-   Legacy classes (.btn-teal/.btn-outline/.dz-btn*) are folded in below so the
-   long tail of existing buttons inherits this system without per-file edits.
-   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+/* Shared across routes; index.css's radius-hierarchy override uses !important, so it still wins over these. */
+/* Legacy .btn-teal/.btn-outline/.dz-btn* are folded in so existing buttons inherit this system unedited. */
 .btn,
 .btn-teal,
 .btn-outline,
@@ -34,7 +19,7 @@
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   box-sizing: border-box;
   user-select: none;
   text-decoration: none;
@@ -69,7 +54,7 @@
 .btn-teal,
 .dz-btn-primary {
   background: var(--btn-primary-grad);
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   border-color: transparent;
   box-shadow: var(--btn-primary-shadow);
 }
@@ -93,17 +78,17 @@
 .btn-outline,
 .dz-btn-ghost {
   background: var(--control-bg);
-  color: #e5e7eb;
-  border-color: rgba(255, 255, 255, .14);
+  color: rgb(var(--dz-c-gray-200));
+  border-color: rgb(var(--dz-c-white) / calc(.14 * var(--dz-line-boost)));
   box-shadow: none;
 }
 
 .btn-secondary:hover,
 .btn-outline:hover,
 .dz-btn-ghost:hover {
-  border-color: rgba(20, 184, 166, .5);
-  color: #fff;
-  background: rgba(20, 184, 166, .08);
+  border-color: rgb(var(--dz-c-teal-500) / .5);
+  color: rgb(var(--dz-c-white));
+  background: rgb(var(--dz-c-teal-500) / .08);
 }
 
 .btn-secondary:active,
@@ -120,14 +105,14 @@
   gap: 0;
   flex: none;
   background: var(--control-bg);
-  border-color: rgba(255, 255, 255, .1);
-  color: #cbd5e1;
+  border-color: rgb(var(--dz-c-white) / calc(.1 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-slate-300));
 }
 
 .btn-icon:hover {
   background: var(--control-bg-hover);
-  border-color: rgba(255, 255, 255, .2);
-  color: #fff;
+  border-color: rgb(var(--dz-c-white) / calc(.2 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-white));
 }
 
 /* Sizes */
@@ -156,8 +141,8 @@
 /* Color modifiers (apply on primary) */
 .btn-success,
 .dz-btn-success {
-  background: #10b981;
-  color: #052018;
+  background: rgb(var(--dz-c-emerald-500));
+  color: rgb(var(--dz-c-green-950));
   border-color: transparent;
   box-shadow: none;
 }
@@ -169,13 +154,13 @@
 
 .btn-danger,
 .dz-btn-danger {
-  background: rgba(244, 63, 94, .15);
-  color: #fda4af;
-  border-color: rgba(244, 63, 94, .3);
+  background: rgb(var(--dz-c-rose-500) / .15);
+  color: rgb(var(--dz-c-rose-300));
+  border-color: rgb(var(--dz-c-rose-500) / .3);
   box-shadow: none;
 }
 
 .btn-danger:hover,
 .dz-btn-danger:hover {
-  background: rgba(244, 63, 94, .25);
+  background: rgb(var(--dz-c-rose-500) / .25);
 }

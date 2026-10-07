@@ -129,9 +129,9 @@ export default function InteriorRenovation() {
     <div ref={rootRef}>
       <div>
         {/* Hero */}
-        <section className="relative overflow-hidden">
+        <section className="theme-dark relative overflow-hidden">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1600&q=80')" }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgba(15,13,26,.96) 0%,rgba(15,13,26,.82) 45%,rgba(13,148,136,.45) 100%)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgb(var(--dz-c-ink) / .96) 0%,rgb(var(--dz-c-ink) / .82) 45%,rgb(var(--dz-c-teal-600) / .45) 100%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="max-w-2xl reveal">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs text-teal-200 font-medium mb-5"><Icon name="sparkles" className="w-3.5 h-3.5" /> {tr('services.interior.heroBadge')}</span>
@@ -170,9 +170,9 @@ export default function InteriorRenovation() {
           <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">{tr('services.interior.stylesTitle')}</h2><p className="text-gray-400 text-sm mt-2 max-w-2xl mx-auto">{tr('services.interior.stylesSub')}</p></div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {STYLES.map(([t, id], i) => (
-              <div key={t} className="zoom tile rounded-2xl relative h-40 sm:h-44" onClick={() => setLightbox(IMG(id, 1400))}>
+              <div key={t} className="zoom tile theme-dark rounded-2xl relative h-40 sm:h-44" onClick={() => setLightbox(IMG(id, 1400))}>
                 <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.style.' + i)} className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,transparent 45%,rgba(8,7,16,.85) 100%)' }} />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,transparent 45%,rgb(var(--dz-c-ink) / .85) 100%)' }} />
                 <span className="absolute bottom-3 left-3 text-white font-semibold text-sm">{tr('services.interior.style.' + i)}</span>
               </div>
             ))}
@@ -197,9 +197,9 @@ export default function InteriorRenovation() {
           <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">{tr('services.interior.projectsTitle')}</h2><p className="text-gray-400 text-sm mt-2 max-w-2xl mx-auto">{tr('services.interior.projectsSub')}</p></div>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROJECTS.map(([t, id], i) => (
-              <div key={t} className="zoom tile rounded-2xl relative h-48 sm:h-60 group" onClick={() => setLightbox(IMG(id, 1400))}>
+              <div key={t} className="zoom tile theme-dark rounded-2xl relative h-48 sm:h-60 group" onClick={() => setLightbox(IMG(id, 1400))}>
                 <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.project.' + i)} className="w-full h-full object-cover" loading="lazy" />
-                <div className="reveal-on-hover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(8,7,16,.88) 100%)' }} />
+                <div className="reveal-on-hover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(180deg,transparent 40%,rgb(var(--dz-c-ink) / .88) 100%)' }} />
                 <div className="reveal-on-hover absolute bottom-0 left-0 right-0 p-4 translate-y-2 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
                   <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="maximize-2" className="w-4 h-4 text-teal-300" /> {tr('services.interior.project.' + i)}</p>
                 </div>
@@ -243,9 +243,9 @@ export default function InteriorRenovation() {
         {/* Book consultation */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-            <div className="zoom rounded-2xl relative min-h-[320px] hidden lg:block">
+            <div className="zoom theme-dark rounded-2xl relative min-h-[320px] hidden lg:block">
               <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80" srcSet={srcSetFor('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80')} sizes="(min-width: 1024px) 50vw, 100vw" alt="Designed living room" className="w-full h-full object-cover rounded-2xl" />
-              <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(15,13,26,.85) 100%)' }} />
+              <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(180deg,transparent 40%,rgb(var(--dz-c-ink) / .85) 100%)' }} />
               <div className="absolute bottom-6 left-6 right-6">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="flex items-center gap-1.5 text-xs text-white bg-white/10 border border-white/20 rounded-full px-3 py-1.5"><Icon name="shield-check" className="w-3.5 h-3.5 text-teal-300" /> {tr('services.interior.consultBadge1')}</span>
@@ -322,9 +322,9 @@ export default function InteriorRenovation() {
 
         {/* CTA */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-          <div className="rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
+          <div className="theme-dark rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
             <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?w=1400&q=80')" }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgba(15,13,26,.94),rgba(49,46,129,.7),rgba(13,148,136,.55))' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgb(var(--dz-c-ink) / .94),rgb(var(--dz-c-indigo-900) / .7),rgb(var(--dz-c-teal-600) / .55))' }} />
             <div className="relative">
               <h2 className="text-2xl sm:text-3xl font-bold text-white">{tr('services.interior.ctaTitle')}</h2>
               <p className="text-gray-200 mt-3 mb-7">{tr('services.interior.ctaSub')}</p>
@@ -340,8 +340,8 @@ export default function InteriorRenovation() {
       {lightbox ? (
         /* 1500 = the "blocking modals" rung, which keeps the lightbox below the toast layer (1600).
            See the ladder in index.css. */
-        <div className="fixed inset-0 z-[1500] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt={tr('services.interior.lightboxAlt')} className="rounded-2xl" style={{ maxWidth: '92vw', maxHeight: '86vh', boxShadow: '0 24px 80px rgba(0,0,0,.6)' }} />
+        <div className="fixed inset-0 z-[1500] flex items-center justify-center p-6" style={{ background: 'rgb(var(--dz-c-black) / .92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt={tr('services.interior.lightboxAlt')} className="rounded-2xl" style={{ maxWidth: '92vw', maxHeight: '86vh', boxShadow: '0 24px 80px rgb(var(--dz-c-black) / .6)' }} />
         </div>
       ) : null}
     </div>

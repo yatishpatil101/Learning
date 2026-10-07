@@ -1,16 +1,12 @@
 import Icon from '../Icon.jsx';
 import { Link } from 'react-router';
 
-/* Verification scope + due-diligence disclaimer.
-   Legal purpose: keep the "Verified by Draazy" claim honest and non-relied-upon.
-   It sits RIGHT NEXT TO every verification/document claim (not just the /disclaimer page)
-   so a user cannot reasonably treat our badge as a certification of clear title. Wording is
-   deal-aware — a sale needs full title due-diligence language, a rental needs agreement-check
-   language — and always points to the full Disclaimer. */
+/* Sits next to every verification claim so the badge can't
+   be read as a title certification; wording is deal-aware. */
 export default function VerificationDisclaimer({ deal }) {
   const isRent = deal === 'rent';
   return (
-    <div className="rounded-xl border border-amber-500/25 p-4 flex items-start gap-3" style={{ background: 'rgba(245,158,11,.06)' }}>
+    <div className="rounded-xl border border-amber-500/25 p-4 flex items-start gap-3" style={{ background: 'rgb(var(--dz-c-amber-500) / .06)' }}>
       <Icon name="shield-alert" className="w-4 h-4 text-amber-300 flex-shrink-0 mt-0.5" />
       <div className="min-w-0">
         <p className="text-sm font-semibold text-white mb-1">What “Verified by Draazy” means — and what you must still check</p>

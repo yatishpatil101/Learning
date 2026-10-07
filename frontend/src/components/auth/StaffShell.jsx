@@ -10,7 +10,7 @@ export default function StaffShell({ title, subtitle, children }) {
     <div className="flex min-h-[100dvh] items-center justify-center p-5">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#6366f1] to-[#14b8a6]">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-teal-500">
             <Home className="h-6 w-6 text-white" />
           </div>
           <div>

@@ -183,8 +183,7 @@ export default function Saved() {
     pendingRef.current = next;
     setPendingRemoval(next);
   };
-  // Never leave a commit timer running after the page unmounts — it would remove a
-  // card the user can no longer see, let alone undo.
+  // A pending commit timer would remove a card the user cannot see, let alone undo.
 
   useEffect(() => {
     const timers = undoTimers.current;
@@ -339,7 +338,7 @@ export default function Saved() {
                     <Icon name="sliders-horizontal" className="w-4 h-4 text-teal-400" />
                     <span className="hidden sm:inline">{tr('saved.sortBy')}</span>
                     <select value={sort} onChange={(e) => setSort(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-400/50">
-                      {SORTS.map(([v, label, tk]) => <option key={v} value={v} className="bg-[#0f0d1a]">{tr('saved.' + tk, { defaultValue: label })}</option>)}
+                      {SORTS.map(([v, label, tk]) => <option key={v} value={v} className="bg-ink">{tr('saved.' + tk, { defaultValue: label })}</option>)}
                     </select>
                   </label>
                 </div>

@@ -50,7 +50,7 @@ export default function ConnectivityBanner({ zClass = 'z-[1450]' }) {
       aria-atomic="true"
     >
       {showing && (
-        <div className="dz-connectivity-card pointer-events-auto mt-2 mx-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#15122a]/95 px-3.5 py-2 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+        <div className="dz-connectivity-card pointer-events-auto mt-2 mx-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-ink-card/95 px-3.5 py-2 shadow-[0_12px_32px_-12px_rgb(var(--dz-c-black)/0.7)] backdrop-blur-xl">
           <Icon name={icon} className={`w-4 h-4 shrink-0 ${tone}`} />
           <p className="text-[13px] leading-snug text-gray-300 min-w-0">
             <span className="font-semibold text-white">{title}</span>{' '}{body}

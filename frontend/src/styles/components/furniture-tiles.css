@@ -1,7 +1,7 @@
 .furn-tile {
   position: relative;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--dz-c-white) / 0.04);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
   border-radius: 14px;
   padding: 14px 8px 12px;
   display: flex;
@@ -17,8 +17,8 @@
 @media (hover: hover) and (pointer: fine) {
   /* Hover is gated so touch does not leave one tile looking selected after a tap. */
   .furn-tile:hover {
-    border-color: rgba(20, 184, 166, 0.4);
-    background: rgba(20, 184, 166, 0.06);
+    border-color: rgb(var(--dz-c-teal-500) / 0.4);
+    background: rgb(var(--dz-c-teal-500) / 0.06);
     transform: translateY(-1px);
   }
 }
@@ -27,7 +27,7 @@
 .furn-tile:focus-visible {
   outline: none;
   border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / 0.2);
 }
 
 .furn-tile .furn-icon {
@@ -37,8 +37,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: #5eead4;
+  background: rgb(var(--dz-c-white) / 0.05);
+  color: rgb(var(--dz-c-teal-300));
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -46,22 +46,22 @@
   font-size: 0.72rem;
   line-height: 1.15;
   font-weight: 500;
-  color: #9ca3af;
+  color: rgb(var(--dz-c-gray-400));
 }
 
 .furn-tile.checked {
   border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.12);
-  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.3), 0 6px 18px rgba(20, 184, 166, 0.12);
+  background: rgb(var(--dz-c-teal-500) / 0.12);
+  box-shadow: 0 0 0 1px rgb(var(--dz-c-teal-500) / 0.3), 0 6px 18px rgb(var(--dz-c-teal-500) / 0.12);
 }
 
 .furn-tile.checked .furn-icon {
-  background: rgba(20, 184, 166, 0.2);
-  color: #2dd4bf;
+  background: rgb(var(--dz-c-teal-500) / 0.2);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .furn-tile.checked .furn-label {
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .furn-check {
@@ -72,7 +72,7 @@
   height: 18px;
   border-radius: 50%;
   background: var(--teal-2);
-  color: #04221d;
+  color: rgb(var(--dz-c-emerald-950));
   display: flex;
   align-items: center;
   justify-content: center;

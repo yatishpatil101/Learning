@@ -211,7 +211,7 @@ export function ReviewScreen({
         </div>
         <p className="text-xs leading-5 text-[var(--text-subtle)]">{t('verifyIdentity.review.nameHint')}</p>
         {duplicateConflict && <DuplicateState reportRef={reportRef} conflict={duplicateConflict} onOpenDispute={onOpenDispute} />}
-        {reviewError && <div role="alert" className="rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[#fda4af]">{reviewError}</div>}
+        {reviewError && <div role="alert" className="rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-4 py-3 text-sm text-rose-300">{reviewError}</div>}
       </div>
       <StickyAction>
         <button
@@ -410,7 +410,7 @@ function DisputeSheet({ note, busy, error, onNoteChange, onClose, onSubmit, rest
           placeholder={t('verifyIdentity.dispute.notePlaceholder')}
         />
         <p className="mt-1 text-right text-[0.68rem] text-[var(--text-subtle)]">{note.length}/500</p>
-        {error && <div role="alert" className="mt-3 rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-3 py-2 text-sm text-[#fda4af]">{error}</div>}
+        {error && <div role="alert" className="mt-3 rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-3 py-2 text-sm text-rose-300">{error}</div>}
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button ref={cancelRef} type="button" disabled={busy} onClick={onClose} className="btn btn-secondary">{t('verifyIdentity.actions.cancel')}</button>
           <button ref={submitRef} type="button" disabled={busy} onClick={onSubmit} className="btn btn-primary">{busy ? t('verifyIdentity.dispute.sending') : t('verifyIdentity.dispute.send')}</button>

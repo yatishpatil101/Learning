@@ -23,22 +23,7 @@ const addMonths = (y, m, delta) => {
 
 const MONTH_COUNT = 12;
 
-/**
- * DatePickerDialog — the app-wide custom calendar, shown as a dropdown anchored
- * below its field (portaled to <body>, no page backdrop). Light "Select Date"
- * card with teal accents; month/year use the shared <Select> so they match the
- * app's dropdown theme. Selecting a day commits immediately (no Confirm button).
- *
- * @param {object} props
- * @param {boolean} props.open
- * @param {string} props.value - Current ISO value (yyyy-mm-dd) or ''.
- * @param {React.RefObject} props.anchorRef - The field element to anchor under.
- * @param {string} [props.min] - ISO lower bound (inclusive).
- * @param {string} [props.max] - ISO upper bound (inclusive).
- * @param {() => void} props.onClose - Dismiss without committing.
- * @param {(iso: string) => void} props.onConfirm - Commit the chosen ISO date.
- * @param {string} [props.ariaLabel] - Defaults to the translated "Select date".
- */
+/** Portaled dropdown anchored below the field; selecting a day commits immediately (no Confirm button). */
 export default function DatePickerDialog({ open, value, anchorRef, min, max, onClose, onConfirm, ariaLabel }) {
   const { t, i18n } = useTranslation();
   const dialogLabel = ariaLabel || t('ui.selectDate');
@@ -84,9 +69,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
 
   const monthOptions = useMemo(() => MONTHS.map((name, i) => ({ value: String(i), label: name })), [MONTHS]);
 
-  // Weekly grid with leading/trailing days from adjacent months. Only render the
-  // weeks that actually contain a day of the current month, so a trailing row made
-  // up entirely of next-month days is never shown.
+  // Only weeks containing a day of the current month render, so an all-next-month trailing row never shows.
   const cells = useMemo(() => {
     const lead = firstWeekday(view.y, view.m);
     const weeks = Math.ceil((lead + daysInMonth(view.y, view.m)) / 7);
@@ -124,9 +107,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
     const anchor = anchorRef?.current;
     const panel = panelRef.current;
     if (!anchor || !panel) return;
-    // Below 640px the stylesheet docks this panel as a bottom sheet. Anchoring it
-    // to the field there would fight those rules (inline styles win), so stand
-    // down and clear anything a previous wider layout left behind.
+    // Below 640px the stylesheet docks this as a bottom sheet; inline anchoring would win over it, so clear it.
     if (window.matchMedia('(max-width: 639.98px)').matches) {
       panel.style.left = '';
       panel.style.top = '';
@@ -201,78 +182,81 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
   const goMonth = (delta) => setView((v) => addMonths(v.y, v.m, delta));
 
   return createPortal(
-    <div
-      ref={panelRef}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="false"
-      aria-label={dialogLabel}
-      className={`dz-cal${shown ? ' is-open' : ''}`}
-    >
-      <div className="dz-cal__head">
-        <h3 className="dz-cal__title">{t('ui.selectDateTitle')}</h3>
-        <span className="dz-cal__badge" aria-hidden="true">
-          <span className="dz-cal__badge-tab" /><span className="dz-cal__badge-tab" />
-          <span className="dz-cal__badge-num">{pad(badgeDay)}</span>
-        </span>
-      </div>
+    <>
+      <div className="dz-cal-backdrop" aria-hidden="true" />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="false"
+        aria-label={dialogLabel}
+        className={`dz-cal${shown ? ' is-open' : ''}`}
+      >
+        <div className="dz-cal__head">
+          <h3 className="dz-cal__title">{t('ui.selectDateTitle')}</h3>
+          <span className="dz-cal__badge" aria-hidden="true">
+            <span className="dz-cal__badge-tab" /><span className="dz-cal__badge-tab" />
+            <span className="dz-cal__badge-num">{pad(badgeDay)}</span>
+          </span>
+        </div>
 
-      <div className="dz-cal__selectors">
-        <button type="button" className="dz-cal__nav" aria-label={t('ui.prevMonth')} onClick={() => goMonth(-1)}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-        </button>
-        <Select
-          className="dz-cal__dd"
-          value={String(view.m)}
-          options={monthOptions}
-          searchable={false}
-          ariaLabel={t('ui.month')}
-          onChange={(v) => setView((s) => ({ ...s, m: +v }))}
-        />
-        <Select
-          className="dz-cal__dd dz-cal__dd--year"
-          value={String(view.y)}
-          options={yearOptions}
-          searchable={false}
-          ariaLabel={t('ui.year')}
-          onChange={(v) => setView((s) => ({ ...s, y: +v }))}
-        />
-        <button type="button" className="dz-cal__nav" aria-label={t('ui.nextMonth')} onClick={() => goMonth(1)}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
-        </button>
-      </div>
+        <div className="dz-cal__selectors">
+          <button type="button" className="dz-cal__nav" aria-label={t('ui.prevMonth')} onClick={() => goMonth(-1)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+          <Select
+            className="dz-cal__dd"
+            value={String(view.m)}
+            options={monthOptions}
+            searchable={false}
+            ariaLabel={t('ui.month')}
+            onChange={(v) => setView((s) => ({ ...s, m: +v }))}
+          />
+          <Select
+            className="dz-cal__dd dz-cal__dd--year"
+            value={String(view.y)}
+            options={yearOptions}
+            searchable={false}
+            ariaLabel={t('ui.year')}
+            onChange={(v) => setView((s) => ({ ...s, y: +v }))}
+          />
+          <button type="button" className="dz-cal__nav" aria-label={t('ui.nextMonth')} onClick={() => goMonth(1)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </div>
 
-      <div className="dz-cal__grid dz-cal__grid--head" aria-hidden="true">
-        {WEEKDAYS.map((w, i) => (
-          <span key={w} className={`dz-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
-        ))}
-      </div>
+        <div className="dz-cal__grid dz-cal__grid--head" aria-hidden="true">
+          {WEEKDAYS.map((w, i) => (
+            <span key={w} className={`dz-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
+          ))}
+        </div>
 
-      <div className="dz-cal__grid" role="grid">
-        {cells.map((c, i) => {
-          const blocked = isBlocked(c.iso);
-          const selected = c.iso === draft;
-          const cls = ['dz-cal__day'];
-          if (!c.inMonth) cls.push('is-muted');
-          if (c.sunday) cls.push('is-sun');
-          if (c.iso === today) cls.push('is-today');
-          if (selected) cls.push('is-selected');
-          return (
-            <button
-              type="button"
-              key={`${c.iso}-${i}`}
-              className={cls.join(' ')}
-              disabled={blocked}
-              aria-pressed={selected}
-              aria-label={c.iso}
-              onClick={() => onConfirm?.(c.iso)}
-            >
-              {pad(c.d)}
-            </button>
-          );
-        })}
+        <div className="dz-cal__grid" role="grid">
+          {cells.map((c, i) => {
+            const blocked = isBlocked(c.iso);
+            const selected = c.iso === draft;
+            const cls = ['dz-cal__day'];
+            if (!c.inMonth) cls.push('is-muted');
+            if (c.sunday) cls.push('is-sun');
+            if (c.iso === today) cls.push('is-today');
+            if (selected) cls.push('is-selected');
+            return (
+              <button
+                type="button"
+                key={`${c.iso}-${i}`}
+                className={cls.join(' ')}
+                disabled={blocked}
+                aria-pressed={selected}
+                aria-label={c.iso}
+                onClick={() => onConfirm?.(c.iso)}
+              >
+                {pad(c.d)}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>,
+    </>,
     document.body,
   );
 }

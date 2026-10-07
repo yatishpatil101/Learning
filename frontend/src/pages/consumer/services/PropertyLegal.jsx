@@ -49,9 +49,9 @@ export default function PropertyLegal() {
       flowType="legal"
       draftKey="dzDraft:property-legal"
       trackerTitle={t('services.legal.trackerTitle')}
-      heroGradient="linear-gradient(140deg,#0a1022 0%,#111a33 50%,#1a2445 100%)"
+      heroGradient="linear-gradient(140deg,rgb(var(--dz-c-slate-950)) 0%,rgb(var(--dz-c-slate-900)) 50%,rgb(var(--dz-c-indigo-950)) 100%)"
       heroImage="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=1600&q=80"
-      heroOverlay="linear-gradient(140deg,rgba(10,16,34,.93) 0%,rgba(17,26,51,.88) 50%,rgba(26,36,69,.9) 100%)"
+      heroOverlay="linear-gradient(140deg,rgb(var(--dz-c-slate-950) / .93) 0%,rgb(var(--dz-c-slate-900) / .88) 50%,rgb(var(--dz-c-indigo-950) / .9) 100%)"
 
       badge={t('services.legal.badge')}
       badgeIcon="scale"

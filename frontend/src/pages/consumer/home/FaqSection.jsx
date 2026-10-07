@@ -5,7 +5,7 @@ import { FAQS } from './constants.js';
 export default function FaqSection() {
   const { t } = useTranslation();
   return (
-    <section className="section-y-m py-16 sm:py-20 relative" style={{ background: '#12101f' }} aria-labelledby="faqHeading">
+    <section className="section-y-m py-16 sm:py-20 relative" style={{ background: 'var(--section-alt)' }} aria-labelledby="faqHeading">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="section-head text-center sm:mb-10">
           <h2 id="faqHeading" className="text-3xl sm:text-4xl font-extrabold text-white">{t('home.faq.title')}</h2>

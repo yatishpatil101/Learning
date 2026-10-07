@@ -121,7 +121,7 @@ const PhotoUploader = ({
                   {(p.url || p.previewUrl) && <img src={p.url || p.previewUrl} alt="" draggable={false} className="w-full h-full object-cover pointer-events-none" />}
                   {i === 0 && !p.error && <span className="absolute top-2 left-2 text-[9px] font-bold px-2 py-0.5 rounded-full bg-teal-500 text-white">{t('listProperty.photoUploader.cover')}</span>}
                   {p.uploading && (
-                    <div className="absolute inset-0 bg-black/45 flex items-center justify-center text-white text-xs gap-2">
+                    <div className="absolute inset-0 bg-black/45 flex items-center justify-center text-pure-white text-xs gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" /> {t('listProperty.photoUx.uploading')}
                     </div>
                   )}
@@ -133,7 +133,7 @@ const PhotoUploader = ({
                     aria-label={t('listProperty.photoUploader.remove')}
                     className="absolute top-0 right-0 sm:top-1 sm:right-1 w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center group/rm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
-                    <span className="w-[22px] h-[22px] sm:w-5 sm:h-5 rounded-full bg-red-500/40 backdrop-blur-[2px] flex items-center justify-center text-white group-hover/rm:bg-red-500/70 transition-colors">
+                    <span className="w-[22px] h-[22px] sm:w-5 sm:h-5 rounded-full bg-red-500/40 backdrop-blur-[2px] flex items-center justify-center text-pure-white group-hover/rm:bg-red-500/70 transition-colors">
                       <X className="w-3 h-3" />
                     </span>
                   </button>
@@ -143,7 +143,7 @@ const PhotoUploader = ({
                       disabled={isMediaBusy}
                       onClick={() => setPhotoCategory('__cover', i)}
                       aria-label={t('listProperty.photoUx.setAsCover')}
-                      className="absolute top-0 left-0 w-11 h-11 flex items-center justify-center text-white"
+                      className="absolute top-0 left-0 w-11 h-11 flex items-center justify-center text-pure-white"
                     >
                       <span className="w-7 h-7 rounded-full bg-black/55 flex items-center justify-center"><Star className="w-3.5 h-3.5" /></span>
                     </button>

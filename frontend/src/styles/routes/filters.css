@@ -21,7 +21,7 @@
   right: 0;
   height: 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgb(var(--dz-c-white) / 0.12);
 }
 
 .rng-fill {
@@ -64,15 +64,15 @@
   height: 16px;
   border-radius: 50%;
   background: var(--teal-2);
-  border: 2px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
+  border: 0;
+  box-shadow: 0 2px 6px rgb(var(--dz-c-teal-500) / 0.45);
   cursor: pointer;
   transition: transform 0.15s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .rng-val:hover {
-    text-decoration-color: rgb(94 234 212);
+    text-decoration-color: rgb(var(--dz-c-teal-300));
   }
 
   .rng input[type=range]::-webkit-slider-thumb:hover {
@@ -94,7 +94,8 @@
   height: 16px;
   border-radius: 50%;
   background: var(--teal-2);
-  border: 2px solid #0f0d1a;
+  border: 0;
+  box-shadow: 0 2px 6px rgb(var(--dz-c-teal-500) / 0.45);
   cursor: pointer;
   transition: transform 0.15s ease;
 }
@@ -156,7 +157,7 @@
   position: relative;
   padding-left: 26px;
   cursor: pointer;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
   transition: color 0.2s;
   font-size: 13px;
 }
@@ -169,7 +170,7 @@
   transform: translateY(-50%);
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid rgb(var(--dz-c-white) / calc(0.15 * var(--dz-line-boost)));
   border-radius: 4px;
   transition: all 0.2s;
 }
@@ -182,13 +183,13 @@
   transform: translateY(-50%) rotate(45deg) scale(0);
   width: 5px;
   height: 10px;
-  border: solid #0f0d1a;
+  border: solid rgb(var(--dz-c-ink));
   border-width: 0 2px 2px 0;
   transition: transform 0.2s;
 }
 
 .custom-cb:checked+label {
-  color: #fff;
+  color: rgb(var(--dz-c-white));
 }
 
 .custom-cb:checked+label::before {
@@ -219,7 +220,7 @@
   position: relative;
   padding-left: 26px;
   cursor: pointer;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
   transition: color 0.2s;
   font-size: 13px;
 }
@@ -232,7 +233,7 @@
   transform: translateY(-50%);
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid rgb(var(--dz-c-white) / calc(0.15 * var(--dz-line-boost)));
   border-radius: 50%;
   transition: all 0.2s;
 }
@@ -245,13 +246,13 @@
   transform: translateY(-50%) scale(0);
   width: 8px;
   height: 8px;
-  background: #0f0d1a;
+  background: rgb(var(--dz-c-ink));
   border-radius: 50%;
   transition: transform 0.2s;
 }
 
 .custom-radio:checked+label {
-  color: #fff;
+  color: rgb(var(--dz-c-white));
 }
 
 .custom-radio:checked+label::before {
@@ -282,7 +283,7 @@
   margin-left: auto;
   font-size: 11px;
   font-weight: 500;
-  color: #64748b;
+  color: rgb(var(--dz-c-slate-500));
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -291,13 +292,13 @@
 }
 
 .fg-summary.active {
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .fg-chev {
   width: 16px;
   height: 16px;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
   transition: transform 0.3s ease;
   flex-shrink: 0;
   margin-left: 6px;
@@ -337,7 +338,7 @@
 .sf-filter-sheet .filter-group+.filter-group {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgb(var(--dz-c-white) / calc(0.05 * var(--dz-line-boost)));
 }
 
 /* --- Pager ---------------------------------------------------------------- */
@@ -357,8 +358,8 @@
 }
 
 .page-btn:hover {
-  background: rgba(79, 70, 229, 0.2);
-  color: #fff;
+  background: rgb(var(--dz-c-indigo-600) / 0.2);
+  color: rgb(var(--dz-c-white));
 }
 
 /* Every pager button sits beside another fingertip target, and landing on "3" when you meant "4"
@@ -372,23 +373,5 @@
 
 .page-btn.active {
   background: var(--brand-gradient);
-  color: #fff;
-}
-
-.badge-verified-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-}
-
-.badge-verified-icon svg {
-  width: 16px;
-  height: 16px;
+  color: rgb(var(--dz-c-pure-white));
 }

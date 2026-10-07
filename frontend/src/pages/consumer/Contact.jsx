@@ -246,8 +246,8 @@ export default function Contact() {
       {/* Sticky mobile quick-contact bar — Draazy support (not the gated owner number). */}
 
       <div className="dz-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
-        <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
-        <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>
+        <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
+        <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>
       </div>
     </div>
   );

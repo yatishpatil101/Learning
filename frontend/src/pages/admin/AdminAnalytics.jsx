@@ -21,6 +21,7 @@ import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
 import FunnelTab from './analytics/FunnelTab.jsx';
 import { RANGE_OPTIONS } from './analytics/constants.jsx';
+import { useIsLightTheme } from '../../lib/themeColour';
 
 const POSTHOG_APP_URL = import.meta.env.VITE_POSTHOG_APP_URL || '';
 
@@ -46,6 +47,8 @@ function useTabReport(load, shown, key) {
 }
 
 export default function AdminAnalytics() {
+  /* Chart options below read cssColour at render, so a theme flip must re-render them. */
+  useIsLightTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const [days, setDays] = useState(90);

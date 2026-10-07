@@ -6,6 +6,7 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import { DoughnutChart, BarChart, PALETTE } from '../../components/charts/index.jsx';
+import { cssColour, useIsLightTheme } from '../../lib/themeColour';
 
 function resolvedSeries(done) {
   let s = 7;
@@ -17,6 +18,8 @@ function resolvedSeries(done) {
 }
 
 export default function OpsDashboard() {
+  /* Chart options below read cssColour at render, so a theme flip must re-render them. */
+  useIsLightTheme();
   const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0 }));
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export default function OpsDashboard() {
           <DoughnutChart
             labels={['Open', 'In Progress', 'Waiting', 'Resolved', 'Closed']}
             values={[counts.open, counts['in-progress'], counts.waiting, counts.resolved, counts.closed]}
-            colors={[PALETTE[1], PALETTE[3], PALETTE[2], '#10b981', '#64748b']}
+            colors={[PALETTE[1], PALETTE[3], PALETTE[2], cssColour('emerald-500'), cssColour('slate-500')]}
           />
         </div>
         <div className="dz-card p-4">
@@ -94,7 +97,7 @@ export default function OpsDashboard() {
           <BarChart
             labels={['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8']}
             datasets={[{ label: 'Resolved', data: weeks, color: PALETTE[0] }]}
-            options={{ scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
+            options={{ scales: { x: { ticks: { color: cssColour('slate-400') }, grid: { color: cssColour('white', 0.05) } }, y: { ticks: { color: cssColour('slate-400') }, grid: { color: cssColour('white', 0.05) } } } }}
           />
         </div>
       </div>

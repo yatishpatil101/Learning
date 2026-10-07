@@ -28,7 +28,7 @@ export default function HelpChangelog() {
           <ol className="mt-10 space-y-10">
             {changelog.map((entry) => (
               <li key={entry.version} className="relative border-l border-white/10 pl-6">
-                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-teal-400 ring-4 ring-[#0f0d1a]" />
+                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-teal-500 shadow-md shadow-teal-500/40" />
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h2 className="text-base font-bold text-white">{entry.version}</h2>
                   {entry.date && (

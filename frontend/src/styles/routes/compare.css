@@ -1,10 +1,4 @@
-/* compare — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Compare page. Loaded with the /compare route chunk (pages/consumer/Compare.jsx). */
 
-/* ============================================================================
-   Compare page (ported from compare.html <style>)
-   ============================================================================ */
 .cmp-table {
   border-collapse: separate;
   border-spacing: 0;
@@ -19,13 +13,13 @@
   position: sticky;
   left: 0;
   z-index: 20;
-  background: #12101f;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgb(var(--dz-c-ink));
+  border-right: 1px solid rgb(var(--dz-c-white) / calc(0.08 * var(--dz-line-boost)));
 }
 
 .row-label {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
   font-weight: 600;
   white-space: nowrap;
   padding: 1rem 1.25rem;
@@ -36,26 +30,26 @@
 
 .cmp-cell {
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgb(var(--dz-c-white) / calc(0.05 * var(--dz-line-boost)));
   min-width: 220px;
 }
 
 .feature-col.cmp-cell {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgb(var(--dz-c-white) / calc(0.05 * var(--dz-line-boost)));
 }
 
 .cmp-row:hover .cmp-cell {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgb(var(--dz-c-white) / 0.02);
 }
 
 .col-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgb(var(--dz-c-white) / 0.04);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
   transition: all 0.3s ease;
 }
 
 .col-card:hover {
-  border-color: rgba(20, 184, 166, 0.25);
+  border-color: rgb(var(--dz-c-teal-500) / 0.25);
 }
 
 .col-card img {
@@ -67,51 +61,51 @@
 }
 
 .best {
-  color: #34d399 !important;
+  color: rgb(var(--dz-c-emerald-400)) !important;
   font-weight: 700;
 }
 
 .best-tag {
   font-size: 0.6rem;
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  background: rgb(var(--dz-c-emerald-500) / 0.15);
+  color: rgb(var(--dz-c-emerald-400));
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  border: 1px solid rgb(var(--dz-c-emerald-500) / 0.25);
   margin-left: 6px;
 }
 
 .chk {
-  color: #34d399;
+  color: rgb(var(--dz-c-emerald-400));
 }
 
 .crs {
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
 }
 
 .add-slot {
-  border: 1.5px dashed rgba(255, 255, 255, 0.15);
+  border: 1.5px dashed rgb(var(--dz-c-white) / calc(0.15 * var(--dz-line-boost)));
   transition: all 0.3s ease;
 }
 
 .add-slot:hover {
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.05);
+  border-color: rgb(var(--dz-c-teal-500) / 0.5);
+  background: rgb(var(--dz-c-teal-500) / 0.05);
 }
 
 .modal-overlay {
-  background: rgba(5, 4, 12, 0.75);
+  background: rgb(var(--dz-c-gray-950) / 0.75);
   backdrop-filter: blur(8px);
 }
 
 .modal-pick {
   transition: all 0.25s ease;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.07 * var(--dz-line-boost)));
 }
 
 .modal-pick:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.06);
+  border-color: rgb(var(--dz-c-teal-500) / 0.4);
+  background: rgb(var(--dz-c-teal-500) / 0.06);
 }
 
 /* Desktop label column keeps its original width (was an inline min-width). */
@@ -119,9 +113,6 @@
   min-width: 180px;
 }
 
-/* Mobile compare: a genuine 2-up side-by-side instead of one-column-at-a-time.
-   Slim the sticky label column + data columns so two properties fit in a phone
-   viewport and wrap long amenity labels. */
 @media (max-width: 640px) {
   .cmp-cell {
     min-width: 128px;

@@ -54,7 +54,7 @@ function GroupCard({ g, i, saved, onSave, anchorId, myPost }) {
           </h3>
           <p className="flex items-center gap-1 text-xs text-gray-400 mt-1"><Icon name="map-pin" className="w-3 h-3 text-teal-400 shrink-0" /><span className="truncate">{groupLocalities(g).join(', ')}</span></p>
         </div>
-        <SaveBtn k={'g:' + g.id} saved={saved} onSave={onSave} className="relative z-[1] shrink-0 -mt-1 -mr-1 bg-white/5 border border-white/10 text-gray-400" />
+        <SaveBtn k={'g:' + g.id} saved={saved} onSave={onSave} className="relative z-[1] shrink-0 -mt-1 -mr-1 text-gray-400" />
       </div>
       <p className="sf-price mt-3 text-lg font-extrabold text-white leading-tight">
         {g.hunting ? moneyRange(shareFloor(g), perHead(g), tr) : inr(perHead(g))}<span className="text-sm font-normal text-gray-400">{tr('flatmates.perMonth')}</span>

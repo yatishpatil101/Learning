@@ -30,7 +30,7 @@ function SeekerCard({ r, i, saved, onSave, anchorId, myPost }) {
           <h3 className="text-[15px] font-bold text-white leading-snug line-clamp-2"><Link to={href} data-tap-exempt className="relative z-[1]">{seekerTitle(r)}</Link></h3>
           <p className="text-xs text-gray-400 mt-1 truncate">{[r.title && r.name, seekerSubtitle(r)].filter(Boolean).join(' · ')}</p>
         </div>
-        <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} className="relative z-[1] shrink-0 -mt-1 -mr-1 bg-white/5 border border-white/10 text-gray-400" />
+        <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} className="relative z-[1] shrink-0 -mt-1 -mr-1 text-gray-400" />
       </div>
       <p className="sf-price mt-3 text-lg font-extrabold text-white leading-tight">
         {seekerBudget(r)}<span className="text-sm font-normal text-gray-400">{tr('flatmates.perMonth')}</span>

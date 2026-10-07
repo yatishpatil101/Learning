@@ -1,34 +1,24 @@
-/* ── Custom dropdown (.dz-dropdown) — ported verbatim from the HTML dropdowns.css
-   so the React <Select> matches the enhanced native selects exactly. ── */
+/* Colour tokens (--dd-bg, --dd-text, --dd-menu-solid…) live in styles/theme.css. */
 :root {
-  --dd-bg: rgba(255, 255, 255, 0.05);
-  --dd-bg-hover: rgba(255, 255, 255, 0.08);
-  --dd-border: rgba(255, 255, 255, 0.12);
-  --dd-border-hover: rgba(255, 255, 255, 0.24);
-  --dd-text: #e5e7eb;
-  --dd-muted: #94a3b8;
-  --dd-placeholder: #9ca3af;
   --dd-accent: var(--teal-2);
-  --dd-accent-soft: rgba(20, 184, 166, 0.15);
-  --dd-accent-line: rgba(20, 184, 166, 0.45);
-  --dd-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --dd-accent-soft: rgb(var(--dz-c-teal-500) / 0.15);
+  --dd-accent-line: rgb(var(--dz-c-teal-500) / 0.45);
   --dd-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --dd-speed: 0.22s;
   --dd-radius-sm: 0.6rem;
   --dd-trigger-radius: 999px;
   --dd-trigger-pad: 0 var(--control-px);
   --dd-trigger-height: var(--control-h);
-  --dd-trigger-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-  --dd-trigger-shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.30);
-  --dd-trigger-shadow-open: 0 0 0 3px var(--dd-accent-soft), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --dd-menu-solid: #1c1a2b;
+  --dd-trigger-shadow: 0 4px 14px rgb(var(--dz-c-black) / 0.25);
+  --dd-trigger-shadow-hover: 0 6px 20px rgb(var(--dz-c-black) / 0.30);
+  --dd-trigger-shadow-open: 0 0 0 3px var(--dd-accent-soft), 0 8px 24px rgb(var(--dz-c-black) / 0.35);
   --dd-menu-radius: 1.1rem;
   --dd-menu-pad: 0.5rem;
   --dd-menu-gap: 0.4rem;
   --dd-option-radius: 0.8rem;
   --dd-option-pad: 0.55rem 1rem;
   --dd-option-slide: 2px;
-  --dd-option-hover: rgba(20, 184, 166, 0.14);
+  --dd-option-hover: rgb(var(--dz-c-teal-500) / 0.14);
 }
 
 .dz-dropdown {
@@ -78,16 +68,16 @@
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  color: rgb(var(--dz-c-pure-white));
+  text-shadow: 0 1px 2px rgb(var(--dz-c-black) / 0.6);
 }
 
 .dz-dd-photocat .dz-dropdown__chev {
-  color: rgba(255, 255, 255, 0.9);
+  color: rgb(var(--dz-c-pure-white) / 0.9);
 }
 
 .dz-dd-photocat .dz-dropdown__trigger:hover {
-  background: rgba(0, 0, 0, 0.35);
+  background: rgb(var(--dz-c-black) / 0.35);
 }
 
 .dz-dropdown__trigger {
@@ -170,7 +160,7 @@
   background-image: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.18 * var(--dz-line-boost)));
   border-radius: var(--dd-menu-radius);
   box-shadow: var(--dd-shadow);
   max-height: 17rem;
@@ -205,7 +195,7 @@
   position: fixed;
   inset: 0;
   z-index: 9998;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgb(var(--dz-c-black) / 0.6);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
@@ -274,7 +264,7 @@
   height: 0.25rem;
   margin: 0.625rem 0 0.5rem;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgb(var(--dz-c-white) / 0.18);
 }
 
 .dz-dropdown__menu--sheet .dz-dropdown__option {
@@ -314,7 +304,7 @@
   height: 0.25rem;
   margin: 0.375rem 0 0.5rem;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgb(var(--dz-c-white) / 0.18);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -343,8 +333,8 @@
 .dz-dropdown__search input {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgb(var(--dz-c-white) / 0.05);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.12 * var(--dz-line-boost)));
   border-radius: var(--dd-radius-sm);
   color: var(--dd-text);
   font: inherit;
@@ -372,7 +362,7 @@
   background: transparent;
   border: 0;
   border-radius: var(--dd-option-radius);
-  color: #cbd5e1;
+  color: rgb(var(--dz-c-slate-300));
   font: inherit;
   font-size: 0.875rem;
   text-align: left;
@@ -428,7 +418,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgb(var(--dz-c-white) / 0.08);
   color: var(--dd-muted);
   font-size: 0.72rem;
   font-weight: 700;
@@ -439,7 +429,7 @@
 .dz-dropdown__option.is-active .opt-badge,
 .dz-dropdown__option[aria-selected="true"] .opt-badge {
   background: var(--dd-accent);
-  color: #04231e;
+  color: rgb(var(--dz-c-emerald-950));
 }
 
 .dz-dropdown__option .opt-sub {
@@ -460,12 +450,12 @@
 .dz-dropdown__option:hover,
 .dz-dropdown__option.is-active {
   background: var(--dd-option-hover);
-  color: #ffffff;
+  color: rgb(var(--dz-c-white));
   transform: translateX(var(--dd-option-slide));
 }
 
 .dz-dropdown__option[aria-selected="true"] {
-  color: #ffffff;
+  color: rgb(var(--dz-c-white));
 }
 
 .dz-dropdown__option[aria-selected="true"] .opt-check {

@@ -57,10 +57,10 @@ function Member({ m, policy, label, onRemove }) {
     <li className="w-16 flex flex-col items-center gap-1.5 text-center" data-testid="group-member">
       <div className="relative">
         <div className={'w-12 h-12 rounded-full bg-gradient-to-br ' + policyAvatar(policy) + ' flex items-center justify-center text-white text-sm font-bold'}>{m.initials || <Icon name="user" className="w-5 h-5 opacity-80" />}</div>
-        {m.verified && <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 ring-2 ring-[#0f0d1a] flex items-center justify-center"><Icon name="check" className="w-2.5 h-2.5 text-white" /></span>}
+        {m.verified && <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/40 flex items-center justify-center"><Icon name="check" className="w-2.5 h-2.5 text-white" /></span>}
         {onRemove && (
           <button type="button" onClick={() => onRemove(m)} aria-label={t('flatmates.removeMember', { name })} data-testid="group-member-remove"
-            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#1c1930] ring-1 ring-white/20 flex items-center justify-center text-gray-300 hover:text-rose-300 before:absolute before:-inset-3 before:content-['']">
+            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-ink-card ring-1 ring-white/20 flex items-center justify-center text-gray-300 hover:text-rose-300 before:absolute before:-inset-3 before:content-['']">
             <Icon name="x" className="w-3 h-3" />
           </button>
         )}

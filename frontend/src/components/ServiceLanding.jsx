@@ -24,8 +24,8 @@ const HERO_WIDTHS = [640, 960, 1280, 1600];
 /* Shared shell for every service landing page (packers, legal, home-loans, interior, valuation). */
 
 export default function ServiceLanding({
-  desk, heroGradient = 'linear-gradient(140deg,#0a1120 0%,#0c2321 52%,#0e332f 100%)',
-  heroImage, heroOverlay = 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(12,35,33,.87) 52%,rgba(14,51,47,.9) 100%)',
+  desk, heroGradient = 'linear-gradient(140deg,rgb(var(--dz-c-slate-950)) 0%,rgb(var(--dz-c-teal-950)) 52%,rgb(var(--dz-c-teal-900)) 100%)',
+  heroImage, heroOverlay = 'linear-gradient(140deg,rgb(var(--dz-c-slate-950) / .93) 0%,rgb(var(--dz-c-teal-950) / .87) 52%,rgb(var(--dz-c-teal-900) / .9) 100%)',
   badge, badgeIcon = 'badge-check', titleTop, titleAccent, subtitle,
   features = [], quote, stats = [], services = [], trust = [], steps = [], faqs = [],
   cta, extra, flowType, trackerTitle, draftKey,
@@ -116,7 +116,7 @@ export default function ServiceLanding({
     <div ref={rootRef}>
       <div>
           {/* A real <img>, not a CSS background — a srcset has no effect on one. */}
-        <section className="relative overflow-hidden" style={{ background: heroGradient }}>
+        <section className="theme-dark relative overflow-hidden" style={{ background: heroGradient }}>
           {heroImage && (
             <img
               src={heroImage} srcSet={srcSetFor(heroImage, HERO_WIDTHS)} sizes="100vw"
@@ -125,7 +125,7 @@ export default function ServiceLanding({
             />
           )}
           {heroImage && <div className="absolute inset-0" style={{ background: heroOverlay }} />}
-          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgba(20,184,166,.5) 0,transparent 42%)' }} />
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgb(var(--dz-c-white) / .3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="reveal">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs text-teal-200 font-medium mb-5"><Icon name={badgeIcon} className="w-3.5 h-3.5" /> {badge}</span>
@@ -281,7 +281,7 @@ export default function ServiceLanding({
         {cta ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
             <div className="glass-card rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
-              <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 50%,#14b8a6 0,transparent 40%),radial-gradient(circle at 70% 50%,#0d9488 0,transparent 40%)' }} />
+              <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 50%,rgb(var(--dz-c-teal-500)) 0,transparent 40%),radial-gradient(circle at 70% 50%,rgb(var(--dz-c-teal-600)) 0,transparent 40%)' }} />
               <div className="relative">
                 <h2 className="text-2xl sm:text-3xl font-bold text-white">{cta.title}</h2>
                 <p className="text-gray-400 mt-3 mb-7">{cta.sub}</p>

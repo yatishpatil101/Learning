@@ -6,11 +6,8 @@ import { fetchAdminSuggestions, newAutocompleteSession } from '../../../lib/plac
 import Switch from '../../../components/ui/Switch.jsx';
 import MapBoundaryEditor from './MapBoundaryEditor.jsx';
 
-/* Admin control for the Google Places geo policy (persisted to settings.geo) plus the curated
-   city roster's launch state (persisted through the city catalogue). Mirrors lib/geoConfig.js:
-   an app-wide "city limit" toggle, per-city map centre + bounding box overrides, and a blacklist
-   of localities/societies to hide from every Places suggestion box across the app. Consumer
-   autocomplete reads this live. */
+/* Mirrors lib/geoConfig.js; consumer autocomplete reads this
+   live to hide blacklisted places from every suggestion box. */
 
 const num = (v) => (v === '' || v == null ? '' : String(v));
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
@@ -24,9 +21,8 @@ function cityValues(geo, city) {
 
 const BOUND_FIELDS = [['north', 'North'], ['south', 'South'], ['east', 'East'], ['west', 'West']];
 
-/* Exact-place blacklist search. Reuses the admin (unrestricted, un-fenced) Places search
-   so an operator can pick a SPECIFIC place — the entry stores its placeId, which
-   isBlacklisted matches exactly, avoiding the false positives a short free-text term causes. */
+/* Entries store a placeId, which isBlacklisted matches exactly,
+   avoiding the false positives of short free-text terms. */
 function BlacklistPlaceSearch({ onPick }) {
   const [q, setQ] = useState('');
   const [suggs, setSuggs] = useState([]);
@@ -114,10 +110,7 @@ export default function MapsGeoPanel({
   const [term, setTerm] = useState('');
   const [note, setNote] = useState('');
 
-  // No client-side stand-in for the roster. The server owns it, and `slug` — which the write path
-  // uses as the key — cannot be derived from a display name without guessing. An empty list renders
-  // the "roster unavailable" notice below instead of a row of pills whose toggles would silently
-  // do nothing.
+  // No client-side stand-in: the write key `slug` can't be derived from a display name without guessing.
   const cityRows = cities;
   const enforce = geo.enforceCityLimit !== false;
   const blacklist = Array.isArray(geo.blacklist) ? geo.blacklist : [];
@@ -180,9 +173,8 @@ export default function MapsGeoPanel({
 
   const toggleEnforce = () => onSave({ ...geo, enforceCityLimit: !enforce }, `City limit ${!enforce ? 'enabled' : 'disabled'}`);
 
-  // Per-city launch status. Flipping "live" flows to the navbar dropdown + waitlist chrome.
-  // Keyed by the server's `slug`, never by the display name, so this cannot fire against a row the
-  // roster does not actually contain.
+  // Keyed by the server's `slug`, never the display name, so
+  // it cannot fire against a row the roster doesn't contain.
   const toggleLive = (name) => {
     const target = cityRows.find((row) => row.name === name);
     if (!target || !onToggleCityLive || togglePending) return;
@@ -383,7 +375,7 @@ export default function MapsGeoPanel({
                 <div className="min-w-0">
                   <span className="text-sm font-medium text-gray-200">{b.term}</span>
                   {b.placeId ? (
-                    <span className="ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-brand-teal" style={{ background: 'rgba(20,184,166,0.12)' }}>
+                    <span className="ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-brand-teal" style={{ background: 'rgb(var(--dz-c-teal-500) / 0.12)' }}>
                       <MapPin className="h-3 w-3" /> exact place
                     </span>
                   ) : null}

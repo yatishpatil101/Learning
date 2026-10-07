@@ -155,7 +155,7 @@ export default function HeroSearch({ idPrefix = '' }) {
               <div className="absolute left-0 top-full mt-2 flex flex-col w-max min-w-full max-w-[calc(100vw-2rem)] max-h-[min(13rem,55vh)] search-dd-scroll rounded-xl search-dropdown shadow-2xl shadow-black/40 p-1.5 z-[60] text-left">
                 {TYPE_OPTS[tab].map(([key, label, icon]) => (
                   <button key={key} className="search-dd-opt" onClick={() => pickType(key)}>
-                    <Icon name={icon} className="w-4 h-4 text-[#14b8a6] flex-shrink-0" /> {label}
+                    <Icon name={icon} className="w-4 h-4 text-teal-500 flex-shrink-0" /> {label}
                   </button>
                 ))}
               </div>

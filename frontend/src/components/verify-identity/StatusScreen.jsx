@@ -73,7 +73,7 @@ export default function StatusScreen({ status, verifiedName, withdrawing, withdr
             {status.retryAfter && <MetaRow label={t('verifyIdentity.status.retryAfter')} value={new Date(status.retryAfter).toLocaleString(i18n.language)} />}
           </dl>
         )}
-        {withdrawError && <div role="alert" className="mt-5 rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[#fda4af]">{withdrawError}</div>}
+        {withdrawError && <div role="alert" className="mt-5 rounded-xl border border-[var(--rose)]/30 bg-[var(--rose)]/10 px-4 py-3 text-sm text-rose-300">{withdrawError}</div>}
       </div>
       <StickyAction>
         <button type="button" onClick={retryable ? onRetry : onDone} className="btn btn-primary btn-lg w-full">
@@ -155,7 +155,7 @@ function Timeline({ status }) {
               {isCurrent && <span aria-hidden="true" className="absolute inset-0 rounded-full bg-[var(--amber)]/40 motion-safe:animate-ping" />}
               <span
                 className="relative grid h-8 w-8 place-items-center rounded-full border-2 bg-[var(--brand-card)]"
-                style={isCurrent ? { borderColor: 'var(--amber)', color: 'var(--amber)' } : color ? { borderColor: color, background: color, color: 'var(--brand-card)' } : { borderColor: 'rgb(255 255 255 / 0.15)' }}
+                style={isCurrent ? { borderColor: 'var(--amber)', color: 'var(--amber)' } : color ? { borderColor: color, background: color, color: 'var(--brand-card)' } : { borderColor: 'rgb(var(--dz-c-white) / calc(0.15 * var(--dz-line-boost)))' }}
               >
                 {isCurrent ? <Icon name="clock" className="h-4 w-4" /> : icon && <Icon name={icon} className="h-4 w-4" />}
               </span>

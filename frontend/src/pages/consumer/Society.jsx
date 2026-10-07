@@ -27,29 +27,23 @@ export default function Society() {
     sugRec, openSuggest, stats, tabs, current, selectTab,
   } = hub;
 
-  /* A society page is the most forwarded thing on the site — "look at this
-     building" is how a flat hunt actually gets discussed with family. The page
-     URL is the whole payload, so there is no deep-link contract to invent here. */
+  /* The page URL is the whole share payload (family discussing
+     a flat), so there is no deep-link contract to invent. */
   const shareSociety = async () => {
     const status = await shareOrCopy({ title: soc.name });
     if (status === 'copied') toast(t('property.shareCopied'), 'success');
     if (status === 'failed') toast(t('property.shareCopyFail'), 'error');
   };
 
-  /* The same skeleton the route's `Suspense` shows while this chunk downloads, for the wait that
-     follows it: the building is now read from the seam, so until that settles the only thing this
-     page could draw is `genericSociety` — the slug title-cased, with the "we don't have this
-     building yet" panel under it. Showing that for a building that exists, on every single load,
-     is worse than showing nothing, so the two waits are made to look like one. */
+  /* Same skeleton as the route's Suspense: until the seam read settles the page could only draw a generic
+     not-found society, so the two waits are made to look like one. */
   if (socLoading) return <SocietySkeleton />;
 
   return (
     <div ref={rootRef} className="soc-page">
       <div className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Breadcrumb links are their own tap targets, not a line of prose: each sits
-            alone between chevrons, so WCAG 2.5.8's inline-text exemption does not
-            apply and a 55x20 box is simply undersized. `tap-target` grows the hit
-            area without changing the type or the row's look. */}
+        {/* Breadcrumb links are standalone targets between chevrons, so the WCAG 2.5.8 inline-text exemption
+            doesn't apply; `tap-target` grows the hit area. */}
         <nav className="flex items-center gap-2 text-sm text-gray-400 mb-5 reveal" aria-label="Breadcrumb">
           <Link to="/societies" className="tap-target inline-flex items-center hover:text-white">{t('society.breadcrumb')}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
           <Link to={`/locality/${soc.localitySlug}`} className="tap-target inline-flex items-center hover:text-white capitalize">{locName}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
@@ -57,21 +51,16 @@ export default function Society() {
         </nav>
 
         {/* Hero */}
-        <section className="rounded-3xl overflow-hidden relative mb-6 glass reveal">
+        <section className="theme-dark rounded-3xl overflow-hidden relative mb-6 glass reveal">
           <img src={hero} alt={soc.name} className="w-full h-56 sm:h-72 object-cover" />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(15,13,26,.1),rgba(15,13,26,.88))' }} />
-          {/* !h-11 below sm: these three float over the hero photo, so a taller pill
-              reflows nothing, and the row is 256px of a 360px screen even at its
-              widest — there is room. Back to 36px from sm up, where the hero is
-              taller and the pills read as chips rather than buttons. */}
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgb(var(--dz-c-ink) / .1),rgb(var(--dz-c-ink) / .88))' }} />
+          {/* !h-11 below sm: these float over the hero photo so a taller pill
+              reflows nothing; 36px from sm up, where pills read as chips. */}
           <div className="absolute top-4 right-4 flex gap-2">
             <button onClick={onFollow} className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-9 !px-3 text-sm'}><Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('society.following') : t('society.follow')}</button>
             <button onClick={() => setRateOpen((v) => !v)} className="btn-outline !h-11 sm:!h-9 !px-3 text-sm"><Icon name="star" className="w-4 h-4 mr-1.5" /> {t('society.review')}</button>
-            {/* Label collapses below sm: three labelled pills overflow a 360px hero.
-                aria-label carries the name in the icon-only state — and because the
-                label is gone, px-3 around a 16px glyph leaves the pill 42px wide, so
-                it also needs an explicit min-width that the other two get from their
-                text. */}
+            {/* Label collapses below sm (three pills overflow 360px); aria-label
+                names it, and min-width stands in for the missing text width. */}
             <button onClick={shareSociety} aria-label={t('society.share')} className="btn-outline !h-11 sm:!h-9 !px-3 !min-w-[44px] sm:!min-w-0 justify-center text-sm"><Icon name="share-2" className="w-4 h-4 sm:mr-1.5" /> <span className="hidden sm:inline">{t('society.share')}</span></button>
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
@@ -85,9 +74,8 @@ export default function Society() {
             <p className="text-gray-300 mt-1 flex items-center gap-3 flex-wrap">
               {soc.builder ? <span className="flex items-center gap-1.5"><Icon name="hard-hat" className="w-4 h-4 text-teal-400" /> {soc.builder}</span> : null}
               <span className="flex items-center gap-1.5"><Icon name="map-pin" className="w-4 h-4 text-teal-400" /> {locName}, Pune</span>
-              {/* Loading and failure are distinct from "nobody has rated it": the hero star strip is
-                  the most quotable number on the page, so it stays blank until the summary read
-                  settles rather than briefly asserting a number it may be about to contradict. */}
+              {/* Stays blank until the summary read settles: the hero star strip is the most quotable number and
+                  must not assert one it may contradict. */}
               {rating.loading ? (
                 <span className="skeleton inline-block h-4 w-24 rounded" aria-hidden="true" />
               ) : rating.failed ? (
@@ -111,11 +99,8 @@ export default function Society() {
               </span>
             </div>
             <textarea value={revText} onChange={(e) => setRevText(e.target.value)} rows={3} placeholder={t('society.reviewPlaceholder')} className={inp} />
-            {/* Per-aspect rows, the ones the Reviews tab draws bars for. Optional and independent:
-                an untouched row sends no key at all, so "did not rate Connectivity" reaches the
-                column as absent rather than as a 1 that would drag the aspect's average down.
-                Each button names its aspect so the five rows do not collide with the overall
-                star strip above — or with each other — for a screen reader or a test. */}
+            {/* An untouched row sends no key, so 'did not rate' is absent rather than a 1 dragging the average
+                down; each button names its aspect so the rows don't collide for a screen reader or test. */}
             <div className="mt-3">
               <p className="text-sm font-medium text-gray-300 mb-2">{t('society.rateByCategory')}</p>
               <div className="space-y-2">

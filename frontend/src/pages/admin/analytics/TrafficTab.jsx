@@ -48,7 +48,7 @@ export default function TrafficTab({ report, failed, audience, audienceFailed, d
                 { label: 'Sessions', data: series.map((x) => x.sessions), color: C.teal, fill: true },
                 { label: 'Page views', data: series.map((x) => x.pageviews), color: C.indigo, fill: false },
               ]}
-              options={{ scales: { x: AX, y: axis({ ticks: { color: '#94a3b8', callback: (v) => (v >= 1000 ? `${v / 1000}k` : v) } }) } }}
+              options={{ scales: { x: AX, y: axis({ ticks: { callback: (v) => (v >= 1000 ? `${v / 1000}k` : v) } }) } }}
             />
           </Card>
         </div>

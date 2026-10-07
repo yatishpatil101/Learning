@@ -124,7 +124,7 @@ export default function Refer() {
   return (
     <div className="pt-6 pb-14 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="text-center mb-6">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-amber-300 mb-3" style={{ background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.25)' }}><Icon name="gift" className="w-3.5 h-3.5" /> {t('misc1.referBadge')}</span>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-amber-300 mb-3" style={{ background: 'rgb(var(--dz-c-amber-500) / .12)', border: '1px solid rgb(var(--dz-c-amber-500) / .25)' }}><Icon name="gift" className="w-3.5 h-3.5" /> {t('misc1.referBadge')}</span>
         <h1 className="text-3xl sm:text-4xl font-extrabold">{t('misc1.referTitle')}</h1>
         <p className="text-gray-400 mt-2 max-w-2xl mx-auto">{t('misc1.referSub1')}<b className="text-gray-200">{t('misc1.referSubListHome')}</b>{t('misc1.referSub2')}<b className="text-gray-200">{t('misc1.referSubFindOne')}</b>{t('misc1.referSub3')}</p>
         <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
@@ -240,11 +240,11 @@ export default function Refer() {
               <span className="text-xs font-bold text-teal-300">{listed % L_TARGET} / {L_TARGET}</span>
             </div>
             <div className="h-2.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: Math.round(((listed % L_TARGET) / L_TARGET) * 100) + '%', background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} />
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: Math.round(((listed % L_TARGET) / L_TARGET) * 100) + '%', background: 'linear-gradient(90deg,rgb(var(--dz-c-teal-600)),rgb(var(--dz-c-teal-500)))' }} />
             </div>
             <p className="text-xs text-gray-500 mt-2">{listed === 0 ? t('misc1.referProgress0') : listed % L_TARGET === 0 ? t('misc1.referProgressNice', { count: listed }) : t('misc1.referProgressMore', { count: L_TARGET - (listed % L_TARGET) })}</p>
             {free > 0 && (
-              <div className="mt-3 rounded-lg px-3 py-2 flex items-center gap-2 text-xs text-emerald-200" style={{ background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.3)' }}>
+              <div className="mt-3 rounded-lg px-3 py-2 flex items-center gap-2 text-xs text-emerald-200" style={{ background: 'rgb(var(--dz-c-emerald-500) / .12)', border: '1px solid rgb(var(--dz-c-emerald-500) / .3)' }}>
                 <Icon name="party-popper" className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                 <span><b>{free}</b> {t('misc1.referFreeAgreementsUnlocked', { count: free })}</span>
               </div>
@@ -299,7 +299,7 @@ export default function Refer() {
       </section>
 
       {/* Move-in guarantee */}
-      <section className="glass rounded-2xl p-5 sm:p-7" style={{ borderColor: 'rgba(16,185,129,.3)', background: 'linear-gradient(135deg,rgba(16,185,129,.08),rgba(20,184,166,.05))' }}>
+      <section className="glass rounded-2xl p-5 sm:p-7" style={{ borderColor: 'rgb(var(--dz-c-emerald-500) / .3)', background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-500) / .08),rgb(var(--dz-c-teal-500) / .05))' }}>
         <div className="flex flex-col sm:flex-row items-start gap-5">
           <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 flex items-center justify-center flex-shrink-0"><Icon name="shield-check" className="w-7 h-7 text-emerald-400" /></div>
           <div>

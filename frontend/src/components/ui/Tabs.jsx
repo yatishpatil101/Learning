@@ -17,7 +17,7 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
   if (variant === 'underline') {
     return (
       <div>
-        <HScroll role="tablist" fadeColor="var(--brand-bg, #0e0c1a)" className="flex gap-1 sm:gap-2 border-b border-white/10">
+        <HScroll role="tablist" fadeColor="var(--brand-dark)" className="flex gap-1 sm:gap-2 border-b border-white/10">
           {items.map((i) => (
             <button
               key={i.key}
@@ -47,7 +47,7 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
     <div>
       <HScroll
         role="tablist"
-        fadeColor="var(--brand-card, #1a1730)"
+        fadeColor="var(--brand-card)"
         // The phone axis lock in index.css would turn this back into a scroll container, because
         // `overflow-x: visible` beside `overflow-y: hidden` computes to `auto`.
         data-axis-free={wrapOnMobile ? '' : undefined}

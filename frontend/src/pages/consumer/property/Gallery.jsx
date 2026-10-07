@@ -73,7 +73,7 @@ export function Gallery({ gallery, active, setActive, title, p, setLightbox, req
         <div className="relative main-image-wrapper -mx-4 sm:mx-0 rounded-none sm:rounded-2xl overflow-hidden" style={{ maxHeight: 400 }}>
           <PropertyImage src="" alt="" className="w-full aspect-[4/3] sm:h-[320px] lg:h-[360px]" />
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-8 text-center">
-            <p className="text-white text-base font-bold leading-snug [text-shadow:0_1px_8px_rgba(0,0,0,.6)]">{t('property.requestPhotosSlideTitle')}</p>
+            <p className="text-white text-base font-bold leading-snug [text-shadow:0_1px_8px_rgb(var(--dz-c-black)/.6)]">{t('property.requestPhotosSlideTitle')}</p>
             <button
               type="button"
               onClick={requestPhotos}
@@ -85,7 +85,7 @@ export function Gallery({ gallery, active, setActive, title, p, setLightbox, req
           {priceStr ? (
             <>
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
-              <p data-testid="property-price" className="pointer-events-none absolute bottom-4 left-4 text-3xl font-extrabold text-white [text-shadow:0_1px_12px_rgba(0,0,0,.55)]">{priceStr}</p>
+              <p data-testid="property-price" className="pointer-events-none absolute bottom-4 left-4 text-3xl font-extrabold text-pure-white [text-shadow:0_1px_12px_rgb(var(--dz-c-black)/.55)]">{priceStr}</p>
             </>
           ) : null}
         </div>
@@ -172,7 +172,7 @@ export function Gallery({ gallery, active, setActive, title, p, setLightbox, req
             <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
             <p
               data-testid="property-price"
-              className="pointer-events-none absolute bottom-4 left-4 text-3xl font-extrabold text-white [text-shadow:0_1px_12px_rgba(0,0,0,.55)]"
+              className="pointer-events-none absolute bottom-4 left-4 text-3xl font-extrabold text-pure-white [text-shadow:0_1px_12px_rgb(var(--dz-c-black)/.55)]"
             >
               {priceStr}
             </p>

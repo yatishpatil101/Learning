@@ -16,25 +16,25 @@
 
 .loc-page .kpi:hover {
   transform: translateY(-4px);
-  border-color: rgba(20, 184, 166, .3);
+  border-color: rgb(var(--dz-c-teal-500) / .3);
 }
 
 .loc-page .chip {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgb(var(--dz-c-white) / .05);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.1 * var(--dz-line-boost)));
   transition: all .2s ease;
   cursor: pointer;
 }
 
 .loc-page .chip:hover {
-  border-color: rgba(20, 184, 166, .4);
-  color: #fff;
+  border-color: rgb(var(--dz-c-teal-500) / .4);
+  color: rgb(var(--dz-c-white));
 }
 
 .loc-page .chip.on {
-  background: rgba(20, 184, 166, .18);
+  background: rgb(var(--dz-c-teal-500) / .18);
   border-color: var(--teal-2);
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .loc-page .lb-row {
@@ -43,11 +43,11 @@
 }
 
 .loc-page .lb-row:hover {
-  background: rgba(20, 184, 166, .06);
+  background: rgb(var(--dz-c-teal-500) / .06);
 }
 
 .loc-page .lb-row.active {
-  background: rgba(20, 184, 166, .1);
+  background: rgb(var(--dz-c-teal-500) / .1);
 }
 
 .loc-page th.sortable {
@@ -56,5 +56,5 @@
 }
 
 .loc-page th.sortable:hover {
-  color: #5eead4;
+  color: rgb(var(--dz-c-teal-300));
 }

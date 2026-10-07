@@ -285,7 +285,7 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
             <FilterControls {...fieldProps} variant="sheet" />
           </div>
         </div>
-        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: '#1a1730' }}>
+        <div data-testid="filter-drawer-actions" className="shrink-0 flex items-center gap-2 border-t border-white/10 px-3 pt-3 pb-[calc(0.75rem+var(--dz-safe-b))]" style={{ background: 'rgb(var(--dz-c-ink-card))' }}>
           <span className="sr-only" aria-live="polite">
             {loaded ? (total === 0 ? t('flatmates.noMatchesSr') : t('flatmates.resultsMatch', { count: total })) : ''}
           </span>

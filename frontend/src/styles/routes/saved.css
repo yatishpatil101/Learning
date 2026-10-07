@@ -1,14 +1,14 @@
 .saved-page .property-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgb(var(--dz-c-white) / 0.04);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.06 * var(--dz-line-boost)));
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .saved-page .property-card:hover {
     transform: translateY(-6px);
-    border-color: rgba(20, 184, 166, 0.2);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 40px rgba(20, 184, 166, 0.05);
+    border-color: rgb(var(--dz-c-teal-500) / 0.2);
+    box-shadow: 0 20px 60px rgb(var(--dz-c-black) / 0.3), 0 0 40px rgb(var(--dz-c-teal-500) / 0.05);
   }
 
   .saved-page .property-card:hover .card-image img {
@@ -16,9 +16,9 @@
   }
 
   .saved-page .remove-btn:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: #f87171;
-    border-color: rgba(239, 68, 68, 0.3);
+    background: rgb(var(--dz-c-red-500) / 0.15);
+    color: rgb(var(--dz-c-red-400));
+    border-color: rgb(var(--dz-c-red-500) / 0.3);
   }
 }
 
@@ -61,20 +61,20 @@
 }
 
 .saved-page .type-badge {
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(79, 70, 229, 0.15));
-  border: 1px solid rgba(20, 184, 166, 0.2);
+  background: linear-gradient(135deg, rgb(var(--dz-c-teal-500) / 0.15), rgb(var(--dz-c-indigo-600) / 0.15));
+  border: 1px solid rgb(var(--dz-c-teal-500) / 0.2);
 }
 
 .saved-page .tab-count {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
+  background: rgb(var(--dz-c-white) / 0.08);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.12 * var(--dz-line-boost)));
+  color: rgb(var(--dz-c-slate-300));
 }
 
 .saved-page .saved-tab.active .tab-count {
-  background: rgba(20, 184, 166, 0.2);
-  border-color: rgba(20, 184, 166, 0.4);
-  color: #5eead4;
+  background: rgb(var(--dz-c-teal-500) / 0.2);
+  border-color: rgb(var(--dz-c-teal-500) / 0.4);
+  color: rgb(var(--dz-c-teal-300));
 }
 
 .saved-page .empty-state {

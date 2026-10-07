@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { DoughnutChart } from '../../components/charts/index.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { cssColour } from '../../lib/themeColour';
 
 const fmt = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
 const fmtShort = (n) => (n >= 1e7 ? '₹' + (n / 1e7).toFixed(2) + ' Cr' : n >= 1e5 ? '₹' + (n / 1e5).toFixed(2) + ' L' : '₹' + Math.round(n).toLocaleString('en-IN'));
@@ -17,12 +18,8 @@ const DEFAULTS = { amt: 8000000, rate: 8.5, ten: 20 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const pctOf = (v, { min, max }) => (clamp(+v || 0, min, max) - min) / (max - min) * 100;
-/* Only the fill percentage crosses from JS to CSS; the gradient itself lives in
-   index.css. It used to be an inline `background:` shorthand built here, which
-   made the rail impossible to restyle from a media query — an inline shorthand
-   resets background-size/position/repeat and outranks any stylesheet rule short
-   of !important. The touch-target rule for these sliders needs exactly those
-   sub-properties, so the percentage became a variable instead. */
+/* Only the fill percentage crosses to CSS: an inline `background:` shorthand resets size/position/repeat and
+   outranks stylesheet rules, which the touch-target rule needs to override. */
 const trackPct = (p) => ({ '--emi-pct': `${p}%` });
 
 export default function EmiCalculator() {
@@ -84,7 +81,7 @@ export default function EmiCalculator() {
           </div>
 
           {/* Mobile-only sticky result: keeps the primary answer in view while sliders change. */}
-          <div className="dz-docks-under-nav lg:hidden sticky top-[var(--dz-nav-h)] z-30 -mx-4 sm:-mx-6 mb-6 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur-xl">
+          <div className="dz-docks-under-nav lg:hidden sticky top-[var(--dz-nav-h)] z-30 -mx-4 sm:-mx-6 mb-6 border-b border-white/10 bg-ink/95 backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-[11px] text-gray-400 leading-none mb-1.5">{t('misc1.emiMonthlyEmi')}</p>
@@ -109,15 +106,8 @@ export default function EmiCalculator() {
             <div className="glass-card rounded-2xl p-5 sm:p-8 reveal">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-sm font-semibold text-gray-200">{t('misc1.emiAdjust')}</h2>
-                {/* Reset sits at the right end of a justify-between header row, so
-                    growing it to 44px would push the "Adjust" heading and every
-                    slider under it down by 20px on the smallest screens. The drawn
-                    size is doing work here — it is a quiet secondary action next to
-                    a heading — so this takes the .tap-extend route the codebase
-                    already uses for exactly this case: a transparent 44px region
-                    centred on the button, overhanging into the card's own padding
-                    and the row's mb-6, while the label stays 12px. `relative` gives
-                    the pseudo its positioning context. */}
+                {/* .tap-extend, not a 44px box: growing Reset would push the heading and sliders down 20px on the
+                    smallest screens; `relative` anchors the pseudo. */}
                 <button type="button" onClick={reset} className="tap-extend relative inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-teal-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/40 rounded-md px-1.5 py-1">
                   <Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('misc1.emiReset')}
                 </button>
@@ -168,11 +158,11 @@ export default function EmiCalculator() {
               <p className="text-sm text-gray-400 text-center mb-1 hidden lg:block">{t('misc1.emiMonthlyEmi')}</p>
               <p className="text-4xl font-extrabold gradient-text text-center mb-6 hidden lg:block" aria-live="polite" aria-atomic="true">{fmt(out.emi)} {t('misc1.emiPerMo')}</p>
               <div className="relative mx-auto" style={{ width: '200px', height: '200px' }}>
-                <DoughnutChart labels={[t('misc1.emiPrincipal'), t('misc1.emiInterest')]} values={[out.P, out.interest]} colors={['#14b8a6', '#f59e0b']} height={200} options={{ cutout: '72%', plugins: { legend: { display: false } } }} />
+                <DoughnutChart labels={[t('misc1.emiPrincipal'), t('misc1.emiInterest')]} values={[out.P, out.interest]} colors={[cssColour('teal-500'), cssColour('amber-500')]} height={200} options={{ cutout: '72%', plugins: { legend: { display: false } } }} />
               </div>
               <div className="mt-6 space-y-2">
-                <div className="flex items-center justify-between text-sm"><span className="flex items-center gap-2 text-gray-400"><span className="w-3 h-3 rounded-full bg-[#14b8a6]" /> {t('misc1.emiPrincipal')}</span><span className="text-white font-medium">{fmtShort(out.P)}</span></div>
-                <div className="flex items-center justify-between text-sm"><span className="flex items-center gap-2 text-gray-400"><span className="w-3 h-3 rounded-full bg-[#f59e0b]" /> {t('misc1.emiInterest')}</span><span className="text-white font-medium">{fmtShort(out.interest)}</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="flex items-center gap-2 text-gray-400"><span className="w-3 h-3 rounded-full bg-teal-500" /> {t('misc1.emiPrincipal')}</span><span className="text-white font-medium">{fmtShort(out.P)}</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="flex items-center gap-2 text-gray-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> {t('misc1.emiInterest')}</span><span className="text-white font-medium">{fmtShort(out.interest)}</span></div>
               </div>
               <Link to="/contact?subject=Home%20Loan%20Assistance" className="btn-teal mt-7 py-3 rounded-xl text-white text-sm font-semibold text-center flex items-center justify-center gap-2"><Icon name="badge-percent" className="w-4 h-4" /> {t('misc1.emiCheckEligibility')}</Link>
             </div>
@@ -190,7 +180,7 @@ export default function EmiCalculator() {
                   <div className="overflow-auto max-h-[26rem]">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-white/10 sticky top-0 bg-[#141221]">
+                        <tr className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-white/10 sticky top-0 bg-ink-2">
                           <th className="text-left font-medium px-4 py-3">{t('misc1.emiYear')}</th>
                           <th className="text-right font-medium px-4 py-3">{t('misc1.emiPrincipalPaid')}</th>
                           <th className="text-right font-medium px-4 py-3">{t('misc1.emiInterestPaid')}</th>
@@ -232,7 +222,7 @@ export default function EmiCalculator() {
                   >
                     <div className="w-10 h-10 mx-auto mb-2 rounded-lg bg-gradient-to-br from-teal-400/20 to-teal-600/20 flex items-center justify-center relative">
                       <Icon name="landmark" className="w-5 h-5 text-teal-400" />
-                      {active && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-teal-400 flex items-center justify-center"><Icon name="check" className="w-2.5 h-2.5 text-[#0f0d1a]" /></span>}
+                      {active && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-teal-400 flex items-center justify-center"><Icon name="check" className="w-2.5 h-2.5 text-ink" /></span>}
                     </div>
                     <p className="text-white font-semibold text-sm">{l.n}</p>
                     <p className="text-teal-400 text-xs mt-0.5">{l.r.toFixed(2)}% {t('misc1.emiOnwards')}</p>

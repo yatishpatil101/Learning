@@ -5,7 +5,7 @@ import Icon from '../../../components/Icon.jsx';
 import { LOCALITY_COORDS } from './constants.js';
 import { inr, seekerBudget, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel, roomTitle, seekerTitle, FLATMATE_IMG } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
-import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../../lib/mapsConfig.js';
+import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../../lib/mapsConfig.js';
 import { getActiveCityGeo } from '../../../lib/geoConfig.js';
 import MapUnavailable from '../../../components/property/MapUnavailable.jsx';
 
@@ -121,7 +121,7 @@ function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin,
         <Map
           {...frame}
           mapId={GOOGLE_MAPS_MAP_ID}
-          colorScheme="DARK"
+          colorScheme={mapColorScheme()}
           /* Not greedy: this map is 460px inside a scrolling page, so a greedy map would
            * swallow every one-finger drag. */
           gestureHandling="cooperative"

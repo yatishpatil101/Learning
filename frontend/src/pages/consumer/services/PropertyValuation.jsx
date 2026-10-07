@@ -133,10 +133,10 @@ export default function PropertyValuation() {
       <div>
         {/* A dark valuation-specific gradient, because the shared bright-teal --hero-gradient washes
             the translucent estimator controls out. */}
-        <section className="relative overflow-hidden" style={{ background: 'linear-gradient(140deg,#0a1120 0%,#0d2b24 55%,#0f3d31 100%)' }}>
+        <section className="theme-dark relative overflow-hidden" style={{ background: 'linear-gradient(140deg,rgb(var(--dz-c-slate-950)) 0%,rgb(var(--dz-c-teal-950)) 55%,rgb(var(--dz-c-teal-900)) 100%)' }}>
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1600&q=80')" }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(13,43,36,.9) 55%,rgba(15,61,49,.92) 100%)' }} />
-          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgba(20,184,166,.5) 0,transparent 42%)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(140deg,rgb(var(--dz-c-slate-950) / .93) 0%,rgb(var(--dz-c-teal-950) / .9) 55%,rgb(var(--dz-c-teal-900) / .92) 100%)' }} />
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgb(var(--dz-c-pure-white) / .3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="reveal">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs text-teal-200 font-medium mb-5"><Icon name="trending-up" className="w-3.5 h-3.5" /> {tr('services.valuation.heroBadge')}</span>
@@ -343,7 +343,7 @@ export default function PropertyValuation() {
         {/* CTA */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="glass-card rounded-2xl p-8 sm:p-12 text-center relative overflow-hidden reveal">
-            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 50%,#14b8a6 0,transparent 40%),radial-gradient(circle at 70% 50%,#0d9488 0,transparent 40%)' }} />
+            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 50%,rgb(var(--dz-c-teal-500)) 0,transparent 40%),radial-gradient(circle at 70% 50%,rgb(var(--dz-c-teal-600)) 0,transparent 40%)' }} />
             <div className="relative">
               <h2 className="text-2xl sm:text-3xl font-bold text-white">{tr('services.valuation.ctaTitle')}</h2>
               <p className="text-gray-400 mt-3 mb-7">{tr('services.valuation.ctaSub')}</p>

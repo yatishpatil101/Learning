@@ -11,19 +11,16 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
-/* SEAM NOTE: four reads, for four reasons. The card is a fixed seven fields, not a spread user row
-   — a page that receives a field eventually shows one. The listings are a facet on the public
-   search, inheriting its approved-and-unarchived floor. The rating is its own read because reducing
-   rows on hand passes page one of twenty off as the whole; the cards are therefore a second read. */
+/* The card is a fixed seven fields, not a spread user row; the
+   rating is its own read since rows on hand are only page one. */
 import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal from '../../components/ReportModal.jsx';
 import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
 
-/* One review, in the card's vocabulary. The relative label is derived at render time rather than
-   carried on the record: "2 days ago" is only true on the day it is computed, so a stored label
-   would be wrong for every visitor after the first. */
+/* The relative label is derived at render: '2 days ago' is only
+   true on the day it's computed, so a stored one goes stale. */
 const toCard = (r) => ({
   id: r.id,
   n: r.user || 'User',
@@ -44,10 +41,8 @@ function Stars({ r, cls = 'w-3.5 h-3.5' }) {
 }
 
 function ReviewCard({ v }) {
-  /* The body and the date are rendered verbatim, never through the translator. A review is the
-     author's own words about a stranger they dealt with; passing it through `t()` would either
-     silently fall through to the raw string or, worse, resolve some other key that happened to
-     match and put words in their mouth. */
+  /* Rendered verbatim, never through t(): that would fall
+     through to the raw string or resolve an unrelated key. / */
   return (
     <div className="border-b border-white/5 pb-4 last:border-0">
       <div className="flex items-center gap-3 mb-2">
@@ -137,25 +132,20 @@ export default function Owner() {
   // A year, computed server-side: a signup minute published on a public page is a correlation
   // handle nobody gains anything from.
   const memberSince = owner.memberSince ?? '\u2014';
-  /* A percentage over a subset is a different claim wearing the same label: `ownerListings` is one
-     page of the catalogue while `owner.listingCount` is counted over all of it, and a failed rail
-     read leaves `[]`, indistinguishable from an owner with none. Anything short of the full set
-     renders an em-dash rather than a number nobody can source. */
+  /* A percentage over a subset is a different claim: ownerListings
+     is one page and a failed rail read is [], so show an em-dash. */
   const verifiedPct = owner.listingCount > 0 && listings.length === owner.listingCount
     ? `${Math.round((listings.filter((l) => l.verified).length / listings.length) * 100)}%`
     : '\u2014';
   const masked = maskPhone(owner.mobile);
-  /* Revealed only to the owner themselves. The contact gate is per-listing — approval on a Baner
-     2BHK says nothing about the same owner's Kothrud shop — and this is the one surface with no
-     listing in context, so it has no gate to ask about and no "approved for this owner in general"
-     permission exists. `isOwnerViewer` is a local identity comparison, not a round trip. */
+  /* Owner-only: the contact gate is per listing and this surface has
+     no listing in context; isOwnerViewer is a local comparison. */
   const revealed = isOwnerViewer(owner.mobile);
 
   const latestListing = listings.length ? [...listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
-  /* Every figure here comes from the summary read, never `reviews`. `revAvg` stays `null` rather
-     than 0 so an unrated owner is not shown as one rated badly, and `dist` arrives ascending while
-     the bars read downwards, hence the reverse. */
+  /* Figures come from the summary read, never `reviews`; `revAvg` stays null so an unrated owner isn't shown as
+     rated badly; `dist` arrives ascending but the bars read downwards. */
   const revLoading = !summary && !summaryFailed;
   const revCount = summary ? summary.count : 0;
   const revAvg = summary && Number.isFinite(summary.avg) ? summary.avg : null;
@@ -170,14 +160,11 @@ export default function Owner() {
     setPosting(true);
     createEntityReview('owner', id, { rating: picked, text: revText.trim() })
       .then((saved) => {
-        /* A signed-out write answers with the string `'login'` rather than throwing, because "we
-           know who you are not" is an answer, not a failure. The check above is not enough on its
-           own: a session can expire between the page loading and the review being submitted. */
+        /* A signed-out write answers 'login' rather than throwing; the
+           check above isn't enough as a session can expire mid-page. */
         if (saved === 'login') { sendToSignIn('review'); return; }
-        /* Both figures are re-read, together, rather than the card being prepended locally and the
-           count incremented: the aggregate is the server's to compute, and a browser that adds its
-           own row to one and its own +1 to the other is how the headline and the list start
-           disagreeing. Read as a pair so the page can never show a card the average excludes. */
+        /* Re-read both figures as a pair: the aggregate is the server's
+           to compute, so the headline and list can't disagree. */
         return Promise.all([
           listEntityReviews('owner', id).catch(() => null),
           getEntityReviewSummary('owner', id).catch(() => 'error'),
@@ -215,7 +202,7 @@ export default function Owner() {
     <div>
       <div className="pb-24 lg:pb-20 min-h-[100dvh]">
         <div className="cover h-44 sm:h-52 relative">
-          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 80% 60%,rgba(20,184,166,.4) 0,transparent 40%)' }} />
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%,rgb(var(--dz-c-pure-white) / .3) 0,transparent 40%),radial-gradient(circle at 80% 60%,rgb(var(--dz-c-teal-500) / .4) 0,transparent 40%)' }} />
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -223,14 +210,12 @@ export default function Owner() {
           <div className="glass-card rounded-2xl p-6 -mt-16 relative">
             <button onClick={() => setReported(true)} type="button" aria-label={t('owner.reportAria')} className="sm:hidden absolute top-4 right-4 w-9 h-9 rounded-xl border border-white/10 text-gray-400 flex items-center justify-center hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/30 transition-all"><Icon name="flag" className="w-4 h-4" /></button>
             <div className="flex flex-col sm:flex-row sm:items-end gap-5">
-              <div className="w-28 h-28 rounded-2xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white text-4xl font-bold border-4 border-[#0f0d1a] -mt-16 sm:-mt-20 flex-shrink-0">{initials}</div>
+              <div className="w-28 h-28 rounded-2xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white text-4xl font-bold shadow-xl shadow-teal-500/25 -mt-16 sm:-mt-20 flex-shrink-0">{initials}</div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold text-white">{owner.name}</h1>
-                  {/* Gated on the server's boolean. This pill used to render for everyone, so the
-                      badge that is supposed to distinguish a verified seller from an unverified one
-                      was shown to every anonymous visitor on every profile — including sellers the
-                      platform had *not* verified, which is the only case it exists to mark. */}
+                  {/* Gated on the server's boolean: the badge must only
+                      mark sellers the platform has verified. /} */}
                   {owner.verified ? <span data-testid="owner-verified-pill" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-500/15 border border-teal-500/25 text-teal-300 text-xs font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('owner.verifiedOwner')}</span> : null}
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="hand-coins" className="w-3.5 h-3.5" /> {t('owner.zeroBrokerage')}</span>
                 </div>
@@ -247,22 +232,18 @@ export default function Owner() {
                     <a href={`https://wa.me/91${digits(owner.mobile)}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 rounded-xl border border-emerald-500/20 text-emerald-400 text-sm font-medium hover:bg-emerald-500/10 flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4" /> {t('owner.whatsapp')}</a>
                   </>
                 ) : (
-                  /* No Call/WhatsApp here for visitors: the number is granted per listing, so the
-                     honest affordance is to send them to one. Message is unaffected — in-app chat
-                     is L1 and needs no number. */
+                  /* No Call/WhatsApp for visitors: the number is granted per
+                     listing, so send them to one; in-app Message needs no number. */
                   <a href="#owner-listings" className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-200 text-sm font-medium hover:bg-white/5 flex items-center gap-2"><Icon name="lock-keyhole" className="w-4 h-4 text-teal-400" /> {t('owner.contactViaListing')}</a>
                 )}
                 <button onClick={messageOwner} type="button" className="btn-teal px-4 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center gap-2"><Icon name="send" className="w-4 h-4" /> {t('owner.message')}</button>
                 <button onClick={() => setReported(true)} type="button" className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/30 flex items-center gap-2 transition-all"><Icon name="flag" className="w-4 h-4" /> {t('owner.report')}</button>
               </div>
             </div>
-            {/* Three tiles, not four. The fourth was "Avg. Response Time: ~2 hrs", hard-coded — no
-                response time is recorded anywhere on the server, so there was nothing to read and
-                no honest value to fall back to. An em-dash would have claimed the platform measures
-                this and happens not to know it for this seller, which is also untrue. */}
-            {/* Two columns on a phone, three from `sm`. Three across at 360px leaves ~83px a tile,
-                which English absorbs by wrapping but Devanagari cannot: `नोंदवलेल्या` and
-                `पडताळलेल्या` are single unbreakable words and would overflow the tile. */}
+            {/* No response-time tile: the server records none, and an
+                em-dash would falsely imply it is measured but unknown. */}
+            {/* Two columns below `sm`: at 360px three tiles leave ~83px,
+                and unbreakable Devanagari words would overflow. */}
             <div id="owner-header-stats" className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/10">
               <div><p className="text-2xl font-bold gradient-text">{owner.listingCount ?? listings.length}</p><p className="text-gray-500 text-xs">{t('owner.statListed')}</p></div>
               <div><p className="text-2xl font-bold gradient-text">{memberSince}</p><p className="text-gray-500 text-xs">{t('owner.statMemberSince')}</p></div>
@@ -275,24 +256,15 @@ export default function Owner() {
               {/* About */}
               <div className="glass-card rounded-2xl p-6">
                 <h2 className="text-lg font-bold text-white mb-3">{t('owner.aboutTitle')}</h2>
-                {/* The prose made the same claim as the pill, in a sentence: "{{name}} is a verified
-                    property owner" — for every seller, in all three locales. Gating only the badges
-                    would have left the assertion standing in text two lines below them. The
-                    unverified variant keeps everything still true of the seller (direct, no broker,
-                    no commission) and drops the one word the server does not support. */}
+                {/* The unverified variant keeps what's still true (direct, no broker, no commission) and drops the
+                    'verified' claim the server cannot support. */}
                 <p className="text-gray-400 text-sm leading-relaxed">{t(owner.verified ? 'owner.aboutBody' : 'owner.aboutBodyUnverified', { name: owner.name })}</p>
                 <div className="flex flex-wrap gap-2 mt-4">
-                  {/* Second home of the header pill's claim, and it was printed unconditionally, so
-                      gating the header alone changed nothing a visitor sees for exactly the sellers
-                      the gate exists to protect — the emerald badge asserted "Verified Owner" in the
-                      same viewport the teal one had just been withheld from. */}
+                  {/* Gated like the header pill, or the emerald badge would
+                      assert 'Verified Owner' where the teal one was withheld. */}
                   {owner.verified ? <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="user-check" className="w-3.5 h-3.5" /> {t('owner.badgeVerifiedOwner')}</span> : null}
-                  {/* "Ownership Verified" is gone rather than gated. It is a stronger claim than the
-                      one beside it — that the seller's title paperwork was checked — and there is no
-                      owner-level field for it: the platform models it strictly per listing
-                      (`PropertySummary.ownershipVerified`, whose own docblock calls it a separate
-                      axis from `ownerVerified`, either true alone). Aggregating it to the person is
-                      a claim the server does not make at any level, so there is nothing to read. */}
+                  {/* No 'Ownership Verified' pill: that is modelled per listing
+                      (PropertySummary.ownershipVerified), with no owner-level claim to read. */}
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 text-gray-300 text-xs font-medium"><Icon name="phone-off" className="w-3.5 h-3.5" /> {t('owner.badgeNumberProtected')}</span>
                 </div>
               </div>
@@ -333,9 +305,8 @@ export default function Owner() {
                       <p className="text-5xl font-extrabold gradient-text">{revAvg == null ? '—' : revAvg.toFixed(1)}</p>
                     )}
                     <div className="flex justify-center gap-0.5 my-2"><Stars r={Math.round(revAvg || 0)} cls="w-4 h-4" /></div>
-                    {/* Three outcomes. Folding the failure into `noReviews` would make an outage
-                        indistinguishable from an owner nobody has reviewed — and the second reads as
-                        a fact about the owner. */}
+                    {/* Three outcomes: folding failure into `noReviews` would
+                        make an outage read as a fact about the owner. */}
                     <p className="text-gray-500 text-xs">
                       {revLoading ? <span className="skeleton inline-block h-3 w-24 rounded" aria-hidden="true" />
                         : summaryFailed ? <span className="text-amber-300/80" data-testid="owner-rating-unavailable">{t('owner.ratingUnavailable')}</span>
@@ -364,9 +335,8 @@ export default function Owner() {
                   <textarea rows={2} value={revText} onChange={(e) => setRevText(e.target.value)} placeholder={t('owner.reviewPlaceholder')} className="field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500 resize-none mb-3" />
                   <button onClick={postReview} disabled={posting} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-60">{t('owner.postReview')}</button>
                 </div>
-                {/* The same three outcomes the headline distinguishes, for the same reason: an
-                    owner with no reviews and an owner whose reviews could not be fetched are
-                    different situations, and only one of them is a statement about the owner. */}
+                {/* Same three outcomes as the headline: an unfetched review
+                    list must not read as a statement about the owner. */}
                 <div className="space-y-4">
                   {reviewsFailed ? (
                     <p className="text-amber-300/80 text-sm" data-testid="owner-reviews-unavailable">{t('common.somethingWentWrong')}</p>

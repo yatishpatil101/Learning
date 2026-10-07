@@ -3,15 +3,8 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 
-/* The whole of /pay-rent. Online rent payment and deposit financing are not built: there is no
-   backend, no fee, no payout account and no flag that reveals a real flow — the rail was withdrawn
-   rather than hidden. Instead of bouncing tenants to home, this gives the feature an honest,
-   on-brand "coming soon" home that explains what's coming and points to what already works (browse
-   rentals, rent agreement, the rental hub).
-
-   Deliberately static: it calls nothing. A tenant who wants their rent reflected on the dashboard
-   today enters it themselves in the Finances tab, which is a record of what they pay elsewhere and
-   never claims the platform collected it. */
+/* Deliberately static: it calls nothing. Rent entered in Finances is a record of payments made elsewhere, never
+   claimed as collected by the platform. */
 
 const STEPS = [
   { icon: 'wallet', key: 'prCsStep1' },
@@ -37,7 +30,7 @@ export default function PayRentComingSoon() {
         <span
           aria-hidden="true"
           className="pointer-events-none absolute -right-16 -top-16 w-52 h-52 rounded-full blur-3xl"
-          style={{ background: 'rgba(20,184,166,.16)' }}
+          style={{ background: 'rgb(var(--dz-c-teal-500) / .16)' }}
         />
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/25 text-amber-300 text-xs font-semibold">
           <Icon name="calendar-clock" className="w-3.5 h-3.5" /> {tr('misc.prCsBadge')}

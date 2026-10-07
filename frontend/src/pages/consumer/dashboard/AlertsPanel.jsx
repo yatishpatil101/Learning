@@ -114,7 +114,7 @@ export default function AlertsPanel() {
                       className="min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-gray-200 focus:border-teal-400/50 focus:outline-none"
                     >
                       {ALERT_FREQUENCIES.map((f) => (
-                        <option key={f} value={f} className="bg-[#0f0d1a]">{FREQ_LABEL[f]}</option>
+                        <option key={f} value={f} className="bg-ink">{FREQ_LABEL[f]}</option>
                       ))}
                     </select>
                   </label>

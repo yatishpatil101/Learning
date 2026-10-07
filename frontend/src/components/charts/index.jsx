@@ -13,14 +13,14 @@ import {
   Filler,
 } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { cssColour, useIsLightTheme } from '../../lib/themeColour';
 
-/* ------------------------------------------------------------------ *
- * Colour helpers — derive 3D face shades from each series' base hex.
- * No new deps; only solid #rgb / #rrggbb inputs get the 3D treatment.
- * ------------------------------------------------------------------ */
-function hexToRgb(c) {
+/* Colour helpers: derive 3D face shades from a series' base colour; only solid hex / rgb() inputs get the 3D treatment. */
+function toRgb(c) {
   if (typeof c !== 'string') return null;
   let h = c.trim();
+  const fn = h.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (fn) return { r: +fn[1], g: +fn[2], b: +fn[3] };
   if (h[0] !== '#') return null;
   h = h.slice(1);
   if (h.length === 3) h = h.split('').map((x) => x + x).join('');
@@ -30,6 +30,10 @@ function hexToRgb(c) {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+function withAlpha(c, a) {
+  const rgb = toRgb(c);
+  return rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},${a})` : c;
+}
 function shade(rgb, amt, a = 1) {
   // amt > 0 lightens toward white, amt < 0 darkens toward black.
   const t = amt < 0 ? 0 : 255;
@@ -40,11 +44,7 @@ function shade(rgb, amt, a = 1) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-/* ------------------------------------------------------------------ *
- * bar3d — isometric extrusion (gradient front + light top cap + dark
- * side). Stack-aware: only the outermost segment of a stack gets the
- * cap so stacked bars read as clean layered blocks.
- * ------------------------------------------------------------------ */
+/* Only the outermost segment of a stack gets the top cap, so stacked bars read as layered blocks. */
 const bar3d = {
   id: 'bar3d',
   afterDatasetsDraw(chart, _args, opts) {
@@ -84,7 +84,7 @@ const bar3d = {
 
       meta.data.forEach((bar, i) => {
         const rawI = rawIsString ? raw : raw[i];
-        const base = hexToRgb(typeof rawI === 'string' ? rawI : null);
+        const base = toRgb(typeof rawI === 'string' ? rawI : null);
         if (!base) return; // this bar keeps default rendering
         const top = shade(base, 0.16);
         const side = shade(base, -0.28);
@@ -158,12 +158,8 @@ const bar3d = {
   },
 };
 
-/* ------------------------------------------------------------------ *
- * doughnut3d — tilted perspective 3D donut. Chart.js still paints the
- * top faces (so legend, tooltips, borders, cutout keep working); we
- * squash them into an ellipse via a vertical-scale transform and draw
- * layered per-segment coloured side walls + a soft ground shadow below.
- * ------------------------------------------------------------------ */
+/* Chart.js still paints the top faces (legend, tooltips keep working); we
+   squash them into an ellipse and draw per-segment side walls below. */
 const doughnut3d = {
   id: 'doughnut3d',
   beforeDatasetsDraw(chart, _args, opts) {
@@ -183,16 +179,14 @@ const doughnut3d = {
     // Ground shadow.
     ctx.save();
     const g = ctx.createRadialGradient(cx, cy + depth, p0.outerRadius * 0.25, cx, cy + depth, p0.outerRadius * 1.25);
-    g.addColorStop(0, 'rgba(0,0,0,0.28)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, cssColour('black', 0.28));
+    g.addColorStop(1, cssColour('black', 0));
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.ellipse(cx, cy + depth * 0.9, p0.outerRadius * 1.12, p0.outerRadius * tilt * 0.85, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Layered colored side walls (bottom-up) → clean, same-hue coloured 3D edge
-    // per slice. Kept gently darker than the top (not toward black) so each
-    // slice reads as its true palette colour instead of a muddy brown.
+    // Side walls stay gently darker than the top, not near black, so each slice keeps its palette colour.
     for (let z = depth; z >= 1; z--) {
       const t = z / depth; // 1 at bottom → subtle roundness on the lift
       meta.data.forEach((arc, i) => {
@@ -200,8 +194,8 @@ const doughnut3d = {
           ['innerRadius', 'outerRadius', 'startAngle', 'endAngle'],
           true,
         );
-        const base = hexToRgb(colors[i % colors.length]);
-        ctx.fillStyle = base ? shade(base, -0.14 - 0.12 * t) : 'rgba(20,20,28,1)';
+        const base = toRgb(colors[i % colors.length]);
+        ctx.fillStyle = base ? shade(base, -0.14 - 0.12 * t) : cssColour('ink-2');
         ctx.beginPath();
         ctx.ellipse(cx, cy + z, outerRadius, outerRadius * tilt, 0, startAngle, endAngle, false);
         ctx.ellipse(cx, cy + z, innerRadius, innerRadius * tilt, 0, endAngle, startAngle, true);
@@ -227,22 +221,29 @@ const doughnut3d = {
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, BarElement, ArcElement, RadarController, Tooltip, Legend, Filler, bar3d, doughnut3d);
 
-export const PALETTE = ['#e6482e', '#2e86de', '#22c55e', '#f7b731', '#8854d0', '#0fb9b1'];
+const PALETTE_NAMES = ['red-500', 'blue-500', 'green-500', 'amber-400', 'violet-500', 'teal-500'];
 
-const BASE = {
+// Index getters resolve at read time so the palette follows the live theme.
+export const PALETTE = Object.defineProperties(
+  new Array(PALETTE_NAMES.length),
+  Object.fromEntries(PALETTE_NAMES.map((name, i) => [i, { enumerable: true, get: () => cssColour(name) }])),
+);
+
+const base = () => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
-    legend: { labels: { color: '#cbd5e1', font: { family: 'Inter' }, boxWidth: 12 } },
-    tooltip: { titleColor: '#fff', bodyColor: '#cbd5e1', backgroundColor: 'rgba(15,13,26,.95)', borderColor: 'rgba(255,255,255,.1)', borderWidth: 1 },
+    legend: { labels: { color: cssColour('slate-300'), font: { family: 'Inter' }, boxWidth: 12 } },
+    tooltip: { titleColor: cssColour('white'), bodyColor: cssColour('slate-300'), backgroundColor: cssColour('ink', 0.95), borderColor: cssColour('white', 0.1), borderWidth: 1 },
   },
   scales: {
-    x: { ticks: { color: '#94a3b8', font: { family: 'Inter' } }, grid: { color: 'rgba(255,255,255,.05)' } },
-    y: { ticks: { color: '#94a3b8', font: { family: 'Inter' } }, grid: { color: 'rgba(255,255,255,.05)' } },
+    x: { ticks: { color: cssColour('slate-400'), font: { family: 'Inter' } }, grid: { color: cssColour('white', 0.05) } },
+    y: { ticks: { color: cssColour('slate-400'), font: { family: 'Inter' } }, grid: { color: cssColour('white', 0.05) } },
   },
-};
+});
 
 function merge(extra) {
+  const BASE = base();
   const out = {
     ...BASE,
     ...extra,
@@ -254,12 +255,13 @@ function merge(extra) {
 }
 
 export function LineChart({ labels, datasets, height = 240, options }) {
+  const theme = useIsLightTheme() ? 'light' : 'dark';
   const data = {
     labels,
     datasets: datasets.map((d, i) => ({
       tension: 0.35,
       borderColor: d.color || PALETTE[i % PALETTE.length],
-      backgroundColor: (d.color || PALETTE[i % PALETTE.length]) + '33',
+      backgroundColor: withAlpha(d.color || PALETTE[i % PALETTE.length], 0.2),
       pointRadius: 0,
       borderWidth: 2,
       fill: d.fill ?? true,
@@ -268,12 +270,13 @@ export function LineChart({ labels, datasets, height = 240, options }) {
   };
   return (
     <div style={{ position: 'relative', height }}>
-      <Line data={data} options={merge(options)} />
+      <Line key={theme} data={data} options={merge(options)} />
     </div>
   );
 }
 
 export function BarChart({ labels, datasets, height = 240, options, horizontal, flat }) {
+  const theme = useIsLightTheme() ? 'light' : 'dark';
   const data = {
     labels,
     datasets: datasets.map((d, i) => ({
@@ -286,20 +289,21 @@ export function BarChart({ labels, datasets, height = 240, options, horizontal, 
   const three = flat ? { bar3d: { enabled: false } } : { bar3d: { enabled: true } };
   return (
     <div style={{ position: 'relative', height }}>
-      <Bar data={data} options={merge({ indexAxis: horizontal ? 'y' : 'x', ...options, plugins: { ...three, ...(options?.plugins || {}) } })} />
+      <Bar key={theme} data={data} options={merge({ indexAxis: horizontal ? 'y' : 'x', ...options, plugins: { ...three, ...(options?.plugins || {}) } })} />
     </div>
   );
 }
 
 export function DoughnutChart({ labels, values, height = 240, colors, options, flat }) {
+  const theme = useIsLightTheme() ? 'light' : 'dark';
   const data = {
     labels,
-    datasets: [{ data: values, backgroundColor: colors || PALETTE, borderWidth: 0, spacing: 0 }],
+    datasets: [{ data: values, backgroundColor: Array.from(colors || PALETTE), borderWidth: 0, spacing: 0 }],
   };
   const three = flat ? { doughnut3d: { enabled: false } } : { doughnut3d: { enabled: true } };
   return (
     <div style={{ position: 'relative', height }}>
-      <Doughnut data={data} options={merge({ cutout: '58%', scales: {}, ...options, plugins: { ...three, ...(options?.plugins || {}) } })} />
+      <Doughnut key={theme} data={data} options={merge({ cutout: '58%', scales: {}, ...options, plugins: { ...three, ...(options?.plugins || {}) } })} />
     </div>
   );
 }

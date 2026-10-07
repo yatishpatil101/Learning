@@ -52,7 +52,7 @@ export default defineConfig({
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testMatch: [
-        '**/mobile/live-home-featured-first.spec.js',
+        '**/mobile/home-featured-first.spec.js',
         '**/mobile/live-home-flatmates-tile.spec.js',
         // Which contact-box copy answers `Request number` is layout; the exhausted upsell is likeliest to break narrow.
         '**/consumer/services/referral-rewards.spec.js',

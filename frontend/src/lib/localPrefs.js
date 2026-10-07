@@ -27,7 +27,7 @@ const write = (key, value) => {
 /* reduceMotion must be on <html> before first paint, which a server answer would arrive too late to honour. */
 const APP_PREF_KEY = 'dzAppPrefs';
 
-export const getAppPrefs = () => ({ reduceMotion: false, ...(read(APP_PREF_KEY, {}) || {}) });
+export const getAppPrefs = () => ({ reduceMotion: false, theme: 'dark', ...(read(APP_PREF_KEY, {}) || {}) });
 
 export const setAppPrefs = (patch) => {
   const next = { ...getAppPrefs(), ...patch };
@@ -36,10 +36,15 @@ export const setAppPrefs = (patch) => {
   return next;
 };
 
-/* Reflect appearance prefs onto `<html>` so CSS can react. Safe to call repeatedly. */
+/* Reflect appearance prefs onto `<html>` so CSS can react. Safe to call repeatedly. index.html
+   applies `light` before first paint; keep the two in step. */
 export const applyAppPrefs = (prefs = getAppPrefs()) => {
   if (typeof document === 'undefined') return prefs;
-  document.documentElement.classList.toggle('dz-reduce-motion', !!prefs.reduceMotion);
+  const root = document.documentElement;
+  root.classList.toggle('dz-reduce-motion', !!prefs.reduceMotion);
+  root.classList.toggle('light', prefs.theme === 'light');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', prefs.theme === 'light' ? '#f3f7f6' : '#0f0d1a');
+  document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', prefs.theme === 'light' ? 'light' : 'dark');
   return prefs;
 };
 

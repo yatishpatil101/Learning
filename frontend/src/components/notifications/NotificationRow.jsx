@@ -112,7 +112,7 @@ export default function NotificationRow({
       {sheetOpen && (
         <div className="fixed inset-0 z-[1700] flex items-end px-4 pb-[calc(1rem+var(--dz-safe-b))] pt-20 sm:hidden">
           <button type="button" aria-label="Close notification actions" className="absolute inset-0 bg-black/40" onClick={() => setSheetOpen(false)} />
-          <div className="dz-action-sheet relative mx-auto mt-auto max-w-sm rounded-3xl border border-white/10 bg-[#15122a] p-2 shadow-2xl shadow-black/50">
+          <div className="dz-action-sheet relative mx-auto mt-auto max-w-sm rounded-3xl border border-white/10 bg-ink-card p-2 shadow-2xl shadow-black/50">
             {!item.read && (
               <button type="button" onClick={markRead} className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl px-4 text-left text-sm font-semibold text-gray-100 hover:bg-white/5">
                 <Icon name="check-check" className="h-4 w-4 text-teal-300" /> {t('notifications.markRead')}

@@ -1,30 +1,19 @@
-/* reels — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Reels. All rules are scoped to .reels-page. Loaded with the /reels route
-   chunk (pages/consumer/Reels.jsx). NOTE: the global .sr-only utility that used
-   to sit inside this block stays in index.css — it is used app-wide. */
 
 /* Reels (vertical snap-scroll walkthroughs) */
 .reels-page {
   position: relative;
-  background: #12101f;
+  background: rgb(var(--dz-c-ink));
 }
 
-/* A reel is exactly one viewport minus the top bar. It deliberately does NOT subtract
-   --dz-bottom-inset: the floating tab bar is a capsule sitting *on* the media, and the
-   whole point of that material is that content passes under it — reserving a strip for
-   it here is what cut the photo off with a dead band, and cost the reel a sixth of the
-   screen. ConsumerLayout's matching `padding-bottom` is dropped by `.route-fullbleed`
-   (styles/index.css); the caption below still clears the bar via its own padding.
-   --dz-nav-h already changes at its own breakpoint, so this needs no media query. */
+/* Deliberately not minus --dz-bottom-inset: the floating tab bar is a capsule over the media, so reserving
+   a strip would cut the photo off. `.route-fullbleed` drops ConsumerLayout's padding-bottom. */
 .reels-page .reel-wrap {
   height: calc(100vh - var(--dz-nav-h));
   height: calc(100dvh - var(--dz-nav-h));
   overflow-y: auto;
   scroll-snap-type: y mandatory;
-  /* html already blocks chaining out to browser UI; this stops a flick past the first or last
-     reel from rubber-banding the document behind the feed, which exposes the page background
-     under a surface that is meant to be edge-to-edge media. The feed keeps its own bounce. */
+  /* Stops a flick past the first or last reel from rubber-banding the document and exposing the page
+     background behind edge-to-edge media. */
   overscroll-behavior-y: contain;
 }
 
@@ -91,7 +80,7 @@
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(10, 8, 24, .15) 30%, rgba(10, 8, 24, .92));
+  background: linear-gradient(180deg, rgb(var(--dz-c-ink) / .15) 30%, rgb(var(--dz-c-ink) / .92));
 }
 
 /* Purely an indicator — the tap it reports is handled by `.reel-gallery` underneath, which is
@@ -104,7 +93,7 @@
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, .45);
+  background: rgb(var(--dz-c-black) / .45);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -114,9 +103,7 @@
   transition: opacity .3s ease, transform .3s ease;
 }
 
-/* The action rail carries five items now (like / save / share / view / contact), so it
-   is anchored off --dz-bottom-inset — it must clear the floating tab bar the media now
-   runs under — plus the height of the caption block beneath it. */
+/* Anchored off --dz-bottom-inset to clear the floating tab bar the media runs under, plus the caption height. */
 .reels-page .rail {
   position: absolute;
   /* `viewport-fit=cover` puts the page under the sensor housing, which in landscape sits over
@@ -142,7 +129,7 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
@@ -152,8 +139,8 @@
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, .34);
-  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgb(var(--dz-c-black) / .34);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.22 * var(--dz-line-boost)));
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -161,17 +148,8 @@
   transition: transform .18s ease, background .18s ease, color .18s ease;
 }
 
-/* Short viewports (the 360x640 Android baseline). Five rail items with labels are
-   taller than the gap between the top overlay and the caption, so the rail grew up
-   into the filter chips. The labels are the part that can go: every item already
-   carries an aria-label, and the icons are the same ones the user knows from the
-   feed. The like *count* stays — it is data, not a label — which is why the two are
-   separate spans rather than one text node.
-
-   Declared AFTER the base `.rail .ic` rule, not beside its siblings above: a media query
-   contributes no specificity, so an equal-specificity override that precedes the rule it
-   overrides loses on source order and silently does nothing. The icon shrink here had
-   never once applied. */
+/* Declared after the base `.rail .ic` rule: a media query adds no specificity, so an equal-specificity
+   override placed earlier loses on source order. */
 @media (max-height: 700px) {
   .reels-page .rail {
     bottom: calc(var(--dz-bottom-inset) + 138px);
@@ -182,8 +160,7 @@
     display: none;
   }
 
-  /* 44px, not the 42px this block used to ask for: below that a thumb starts missing, and
-     dropping the labels has already bought the breakpoint the height it needed. */
+  /* 44px: below that a thumb starts missing. */
   .reels-page .rail .ic {
     width: 44px;
     height: 44px;
@@ -193,9 +170,9 @@
 /* The primary action still has to read as the primary action once it is a rail icon
    rather than a filled pill — brand fill plus its glow is what carries that. */
 .reels-page .rail .is-cta .ic {
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  background: linear-gradient(135deg, rgb(var(--dz-c-teal-600)), rgb(var(--dz-c-teal-500)));
   border-color: transparent;
-  box-shadow: 0 8px 22px rgba(20, 184, 166, .42);
+  box-shadow: 0 8px 22px rgb(var(--dz-c-teal-500) / .42);
 }
 
 /* Property caption. Its own bottom padding is what keeps the text clear of the floating
@@ -219,12 +196,12 @@
   gap: 8px;
   padding: 24px 32px calc(var(--dz-bottom-inset) + 24px);
   text-align: center;
-  color: #94a3b8;
+  color: rgb(var(--dz-c-slate-400));
   font-size: 14px;
 }
 
 .reels-page .reel-note__title {
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   font-size: 17px;
   font-weight: 700;
 }
@@ -236,14 +213,14 @@
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   font-weight: 700;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
-  box-shadow: 0 10px 26px rgba(20, 184, 166, .32);
+  background: linear-gradient(135deg, rgb(var(--dz-c-teal-600)), rgb(var(--dz-c-teal-500)));
+  box-shadow: 0 10px 26px rgb(var(--dz-c-teal-500) / .32);
 }
 
 .reels-page .reel-note__cta:focus-visible {
-  outline: 2px solid #2dd4bf;
+  outline: 2px solid rgb(var(--dz-c-teal-400));
   outline-offset: 2px;
 }
 
@@ -258,13 +235,13 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .4);
+  background: rgb(var(--dz-c-white) / .4);
   transition: width .2s ease, background .2s ease;
 }
 
 .reels-page .reel-dot.is-on {
   width: 18px;
-  background: #fff;
+  background: rgb(var(--dz-c-pure-white));
 }
 
 
@@ -275,12 +252,12 @@
 }
 
 .reels-page .rail .is-liked {
-  color: #f43f5e;
+  color: rgb(var(--dz-c-rose-500));
 }
 
 .reels-page .rail .is-liked .ic {
-  background: rgba(244, 63, 94, .22);
-  border-color: rgba(244, 63, 94, .5);
+  background: rgb(var(--dz-c-rose-500) / .22);
+  border-color: rgb(var(--dz-c-rose-500) / .5);
 }
 
 .reels-page .rail .is-liked .ic svg {
@@ -288,17 +265,17 @@
 }
 
 .reels-page .rail .is-saved {
-  color: #2dd4bf;
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .reels-page .rail .is-saved .ic {
-  background: rgba(20, 184, 166, .22);
-  border-color: rgba(20, 184, 166, .5);
+  background: rgb(var(--dz-c-teal-500) / .22);
+  border-color: rgb(var(--dz-c-teal-500) / .5);
 }
 
 .reels-page .rail button:focus-visible .ic,
 .reels-page .rail a:focus-visible .ic {
-  outline: 2px solid #2dd4bf;
+  outline: 2px solid rgb(var(--dz-c-teal-400));
   outline-offset: 2px;
 }
 
@@ -325,9 +302,9 @@
   left: 50%;
   z-index: 6;
   transform: translate(-50%, -50%);
-  color: #f43f5e;
+  color: rgb(var(--dz-c-rose-500));
   pointer-events: none;
-  filter: drop-shadow(0 8px 24px rgba(244, 63, 94, .5));
+  filter: drop-shadow(0 8px 24px rgb(var(--dz-c-rose-500) / .5));
   animation: reelBurst .8s cubic-bezier(.2, .8, .2, 1) forwards;
 }
 
@@ -353,9 +330,6 @@
   }
 }
 
-/* Top overlay: brand + intent filters. The segmented story progress bar that used to
-   sit above them is gone — it read as a stray line on a feed you scroll rather than
-   tap through, and its removal is what lets this row sit at the top edge. */
 .reels-page .reels-top {
   position: absolute;
   top: 0;
@@ -363,13 +337,11 @@
   right: 0;
   z-index: 7;
   padding: 8px calc(env(safe-area-inset-right, 0px) + 14px) 18px calc(env(safe-area-inset-left, 0px) + 14px);
-  background: linear-gradient(180deg, rgba(10, 8, 24, .75), rgba(10, 8, 24, 0));
+  background: linear-gradient(180deg, rgb(var(--dz-c-ink) / .75), rgb(var(--dz-c-ink) / 0));
   pointer-events: none;
 }
 
-/* Only the controls, not the whole row: `.reels-topbar` is full-width with a
-   `space-between` gutter, so granting it the taps makes that empty gutter swallow presses
-   meant for the play/pause toggle on the media underneath. */
+/* Only the controls take taps: the full-width topbar's empty gutter would swallow presses meant for play/pause. */
 .reels-page .reels-filters {
   pointer-events: auto;
 }
@@ -385,7 +357,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #fff;
+  color: rgb(var(--dz-c-white));
   font-weight: 700;
   font-size: 15px;
 }
@@ -393,7 +365,7 @@
 .reels-page .reels-hint {
   font-size: 10.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, .62);
+  color: rgb(var(--dz-c-white) / .62);
 }
 
 @media (max-width: 639px) {
@@ -416,9 +388,9 @@
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, .82);
-  background: rgba(255, 255, 255, .1);
-  border: 1px solid rgba(255, 255, 255, .14);
+  color: rgb(var(--dz-c-white) / .82);
+  background: rgb(var(--dz-c-white) / .1);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.14 * var(--dz-line-boost)));
   backdrop-filter: blur(6px);
   cursor: pointer;
   transition: background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .1s ease;
@@ -428,7 +400,7 @@
    selected when it is not. */
 @media (hover: hover) and (pointer: fine) {
   .reels-page .reels-chip:hover {
-    background: rgba(255, 255, 255, .18);
+    background: rgb(var(--dz-c-white) / .18);
   }
 }
 
@@ -437,14 +409,14 @@
 }
 
 .reels-page .reels-chip.is-on {
-  color: #fff;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  color: rgb(var(--dz-c-pure-white));
+  background: linear-gradient(135deg, rgb(var(--dz-c-teal-600)), rgb(var(--dz-c-teal-500)));
   border-color: transparent;
-  box-shadow: 0 6px 18px rgba(20, 184, 166, .35);
+  box-shadow: 0 6px 18px rgb(var(--dz-c-teal-500) / .35);
 }
 
 .reels-page .reels-chip:focus-visible {
-  outline: 2px solid #2dd4bf;
+  outline: 2px solid rgb(var(--dz-c-teal-400));
   outline-offset: 2px;
 }
 
@@ -468,9 +440,9 @@
   letter-spacing: .04em;
   padding: 2px 8px;
   border-radius: 6px;
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, .14);
-  border: 1px solid rgba(255, 255, 255, .16);
+  color: rgb(var(--dz-c-slate-200));
+  background: rgb(var(--dz-c-white) / .14);
+  border: 1px solid rgb(var(--dz-c-white) / calc(.16 * var(--dz-line-boost)));
 }
 
 @media (prefers-reduced-motion: reduce) {

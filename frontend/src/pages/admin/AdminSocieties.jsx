@@ -525,7 +525,7 @@ export default function AdminSocieties() {
       {tab === 'moderation' ? <ModerationTab note={NOTES.moderation} waPending={waPending} locFixes={locFixes} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
 
       {edit && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgb(var(--dz-c-black) / .6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>
           <div role="dialog" aria-modal="true" aria-label="Edit society" className="dz-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1">{edit.name}</h3>
             <p className="text-gray-400 text-sm mb-4">Overlay edits — override the catalogue without touching source data.</p>
@@ -552,7 +552,7 @@ export default function AdminSocieties() {
       )}
 
       {merge && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setMerge(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgb(var(--dz-c-black) / .6)', backdropFilter: 'blur(4px)' }} onClick={() => setMerge(null)}>
           <div role="dialog" aria-modal="true" aria-label="Merge society" className="dz-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><GitMerge className="h-5 w-5 text-brand-teal" />Merge duplicate</h3>
             <p className="text-gray-400 text-sm mb-4">Fold <span className="text-white font-semibold">“{merge.cand.name}”</span> into a canonical society. Its listings, follows and reviews will read on that society instead; nothing is deleted, and the merge can be undone.</p>

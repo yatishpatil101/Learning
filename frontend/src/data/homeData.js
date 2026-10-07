@@ -54,9 +54,9 @@ export const STATS = {
 };
 
 export const CATEGORIES = [
-  { icon: 'building', color: '#14b8a6', title: 'Flats', types: ['flat'], defaultDeal: 'buy' },
-  { href: '/flatmates', icon: 'user-plus', color: '#f59e0b', title: 'Flatmates' },
-  { icon: 'briefcase', color: '#a78bfa', title: 'Commercial', types: ['commercial'], defaultDeal: 'rent', dealFromStock: true },
-  { icon: 'map', color: '#f472b6', title: 'Plots / Land', types: ['plot', 'farmland'], defaultDeal: 'buy' },
-  { icon: 'home', color: '#34d399', title: 'Villas & Houses', types: ['house', 'villa'], defaultDeal: 'buy' },
+  { icon: 'building', tone: 'var(--dz-t-teal-500)', title: 'Flats', types: ['flat'], defaultDeal: 'buy' },
+  { href: '/flatmates', icon: 'user-plus', tone: 'var(--dz-t-amber-500)', title: 'Flatmates' },
+  { icon: 'briefcase', tone: 'var(--dz-c-violet-400)', title: 'Commercial', types: ['commercial'], defaultDeal: 'rent', dealFromStock: true },
+  { icon: 'map', tone: 'var(--dz-c-pink-400)', title: 'Plots / Land', types: ['plot', 'farmland'], defaultDeal: 'buy' },
+  { icon: 'home', tone: 'var(--dz-c-emerald-400)', title: 'Villas & Houses', types: ['house', 'villa'], defaultDeal: 'buy' },
 ];

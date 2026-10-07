@@ -9,7 +9,7 @@
   height: 6px;
   border-radius: 999px;
   outline: none;
-  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
+  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgb(var(--dz-c-white) / 0.1) var(--emi-pct, 0%));
 }
 
 .emi-page input[type=range]::-webkit-slider-thumb {
@@ -19,8 +19,8 @@
   border-radius: 50%;
   background: var(--teal-2);
   cursor: pointer;
-  border: 3px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
+  border: 0;
+  box-shadow: 0 2px 8px rgb(var(--dz-c-teal-500) / 0.45);
   transition: transform .15s;
 }
 
@@ -34,12 +34,12 @@
   border-radius: 50%;
   background: var(--teal-2);
   cursor: pointer;
-  border: 3px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
+  border: 0;
+  box-shadow: 0 2px 8px rgb(var(--dz-c-teal-500) / 0.45);
 }
 
 .emi-page input[type=range]:focus-visible {
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / .25);
 }
 
 /* Extend the target, not the drawing (docs/system/design-system.md, tap-extend): the rail stays
@@ -55,6 +55,6 @@
 
 .num-field:focus {
   border-color: var(--teal-2) !important;
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / .15);
   outline: none;
 }

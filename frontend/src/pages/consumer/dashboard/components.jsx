@@ -60,7 +60,7 @@ export function SubNav({ items, active, onChange, variant = 'pill' }) {
 
   if (variant === 'underline') {
     return (
-      <HScroll role="tablist" fadeColor="var(--brand-bg, #0e0c1a)" wrapClassName="mb-5" className="flex gap-1 sm:gap-2 border-b border-white/10">
+      <HScroll role="tablist" fadeColor="var(--brand-dark)" wrapClassName="mb-5" className="flex gap-1 sm:gap-2 border-b border-white/10">
         {items.map((it) => (
           <button
             key={it.key}
@@ -141,7 +141,7 @@ export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, ti
   const identity = (
     <>
       {avatar != null ? (
-        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-teal to-emerald-500 text-xs font-bold text-white ring-1 ring-white/10">{avatar}</span>
+        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-teal to-emerald-500 text-xs font-bold text-white">{avatar}</span>
       ) : (
         <span className={'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ' + chip}>
           <Icon name={icon} className="h-5 w-5" />

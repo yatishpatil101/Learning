@@ -4,13 +4,15 @@ import { useTranslation } from 'react-i18next';
 import {
   ExternalLink, LogOut, Menu,
   X, UserPlus,
-  BookOpen,
+  BookOpen, Moon, Sun,
 } from 'lucide-react';
 import LogoMark from '../brand/LogoMark.jsx';
 import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
+import { setAppPrefs } from '../../lib/localPrefs.js';
+import { useIsLightTheme } from '../../lib/themeColour.js';
 import { ADMIN_MODULES, canAccessModule, hasPermission, portalBase, portalPath } from '../../lib/adminModules.js';
 import { AdminFlagsProvider, useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import AdminTopbarTools from './AdminTopbarTools.jsx';
@@ -35,6 +37,7 @@ function AdminLayoutInner() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const light = useIsLightTheme();
 
   const doLogout = () => {
     logout();
@@ -115,6 +118,17 @@ function AdminLayoutInner() {
                 </button>
               </div>
             ) : <div className="flex-1" />}
+
+            <button
+              type="button"
+              onClick={() => setAppPrefs({ theme: light ? 'dark' : 'light' })}
+              aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'}
+              aria-pressed={light}
+              title={light ? 'Dark mode' : 'Light mode'}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-white/10 bg-white/5 p-1.5 text-gray-300 transition hover:bg-white/10 hover:text-white sm:min-h-0 sm:min-w-0"
+            >
+              {light ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+            </button>
 
             {/* New tab so checking an SLA mid-queue doesn't lose the
                 queue; AdminTopbarTools is flex-1, so no margin here. */}

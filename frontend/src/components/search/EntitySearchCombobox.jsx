@@ -245,10 +245,10 @@ export default function EntitySearchCombobox({
   return (
     <div ref={wrapRef} className={'entity-search-combobox relative ' + className}>
       <div onClick={focusInput} className="flex items-center flex-wrap gap-1.5 bg-white/5 rounded-xl px-3 py-2 min-h-[48px] cursor-text">
-        <Icon name="search" className="w-5 h-5 text-[#14b8a6] flex-shrink-0" />
+        <Icon name="search" className="w-5 h-5 text-teal-500 flex-shrink-0" />
         {tokens.map((token) => (
           <span key={`${token.kind}:${token.id}`} className="loc-chip">
-            <Icon name={KIND_ICON[token.kind] || 'map-pin'} className="w-3 h-3 text-[#14b8a6]" />
+            <Icon name={KIND_ICON[token.kind] || 'map-pin'} className="w-3 h-3 text-teal-500" />
             {token.label}
             <button type="button" aria-label={tr('home.search.removeArea', { label: token.label })} onClick={(e) => { e.stopPropagation(); removeToken(token); }}>
               <Icon name="x" className="w-3 h-3" />
@@ -275,7 +275,7 @@ export default function EntitySearchCombobox({
           placeholder={tokens.length ? tr('home.search.placeholderAdd') : hasData ? tr('home.search.placeholderTry') : tr('home.search.placeholderCity', { city })}
           className={'flex-1 min-w-[140px] bg-transparent text-base sm:text-sm text-white placeholder-gray-500 outline-none ' + inputClassName}
         />
-        {resolving ? <Icon name="loader" className="w-4 h-4 text-[#14b8a6] flex-shrink-0 animate-spin" /> : null}
+        {resolving ? <Icon name="loader" className="w-4 h-4 text-teal-500 flex-shrink-0 animate-spin" /> : null}
       </div>
       {hasListbox ? (
         <div className="absolute left-0 top-full mt-2 w-[22rem] max-w-full rounded-xl search-dropdown p-1.5 z-[70] flex flex-col         max-h-[min(18rem,60vh)]">
@@ -292,7 +292,7 @@ export default function EntitySearchCombobox({
                   onClick={(ev) => { ev.stopPropagation(); pickRow(row); }}
                 >
                   <span className="flex items-center gap-2.5 min-w-0">
-                    <Icon name={KIND_ICON[row.kind] || 'map-pin'} className="w-4 h-4 text-[#14b8a6] flex-shrink-0" />
+                    <Icon name={KIND_ICON[row.kind] || 'map-pin'} className="w-4 h-4 text-teal-500 flex-shrink-0" />
                     <span className="flex flex-col min-w-0">
                       <span className="truncate">{row.label}</span>
                       {row.kind === 'place' && row.sublabel ? <span className="loc-sugg-sub truncate">{row.sublabel}</span> : null}

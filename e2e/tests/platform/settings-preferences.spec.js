@@ -35,6 +35,60 @@ test.describe('Dashboard settings', () => {
     });
   });
 
+  test('Light mode repaints the page, keeps teal fills, and persists on this device', async ({ page, login }) => {
+    await login.asBuyer();
+    await page.goto('/dashboard#profile');
+    const html = page.locator('html');
+    const lightMode = page.getByRole('switch', { name: 'Light mode' });
+    const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+    await expect(html).not.toHaveClass(/\blight\b/);
+    await lightMode.click();
+    await expect(html).toHaveClass(/\blight\b/);
+    expect(await bodyBg()).toBe('rgb(243, 247, 246)');
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f3f7f6');
+
+    await page.reload();
+    await expect(html).toHaveClass(/\blight\b/);
+    await expect(lightMode).toHaveAttribute('aria-checked', 'true');
+    const tealFill = await page.evaluate(() => {
+      const probe = Object.assign(document.createElement('div'), { className: 'bg-teal-500 text-white' });
+      document.body.append(probe);
+      const s = getComputedStyle(probe);
+      const out = [s.backgroundColor, s.color];
+      probe.remove();
+      return out;
+    });
+    expect(tealFill).toEqual(['rgb(20, 184, 166)', 'rgb(255, 255, 255)']);
+
+    await lightMode.click();
+    await expect(html).not.toHaveClass(/\blight\b/);
+    expect(await bodyBg()).not.toBe('rgb(243, 247, 246)');
+  });
+
+  test('the admin header toggles light mode, and tiles stand off the light page', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin');
+    const html = page.locator('html');
+    const tile = page.locator('.dz-card').first();
+    await expect(tile).toBeVisible();
+
+    await page.getByRole('button', { name: 'Switch to light mode' }).click();
+    await expect(html).toHaveClass(/\blight\b/);
+    const [pageBg, tileBg] = await page.evaluate(() => [
+      getComputedStyle(document.body).backgroundColor,
+      getComputedStyle(document.querySelector('.dz-card')).backgroundColor,
+    ]);
+    expect(pageBg).toBe('rgb(243, 247, 246)');
+    expect(tileBg).not.toBe(pageBg);
+    expect(tileBg).not.toMatch(/^rgba?\(255, 255, 255/);
+
+    await page.reload();
+    await expect(html).toHaveClass(/\blight\b/);
+    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await expect(html).not.toHaveClass(/\blight\b/);
+  });
+
   test('a notification channel toggle is a server write, not a localStorage write', async ({ page, login, request }) => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');

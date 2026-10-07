@@ -70,7 +70,7 @@ export function FloorPlan({ p }) {
           {planImg ? (
             <div className="lg:col-span-3">
               <div className="main-image-wrapper rounded-2xl overflow-hidden bg-white/[0.03] border border-white/8">
-                <img src={planImg} alt={t('property.floorPlanAlt')} loading="lazy" onClick={() => setZoom(true)} className="w-full h-72 sm:h-96 object-contain bg-[#f8fafc] cursor-zoom-in" />
+                <img src={planImg} alt={t('property.floorPlanAlt')} loading="lazy" onClick={() => setZoom(true)} className="w-full h-72 sm:h-96 object-contain bg-pure-white cursor-zoom-in" />
               </div>
             </div>
           ) : null}

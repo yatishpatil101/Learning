@@ -437,7 +437,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
               const hasVisit = dayVisits.length > 0;
               return (
                 <button type="button" key={day} onClick={() => openWeek(day)} className={'relative min-h-[76px] cursor-pointer border-b border-r border-white/[0.04] p-1.5 text-left transition focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-teal-400/50 outline-none ' + (isToday ? 'bg-teal-500/[0.12]' : hasVisit ? 'bg-white/[0.02] hover:bg-white/[0.05]' : 'hover:bg-white/[0.03]')}>
-                  <span className={'inline-flex items-center justify-center mb-1 text-xs font-bold ' + (isToday ? 'w-6 h-6 rounded-full bg-teal-500 text-white shadow-[0_2px_8px_rgba(20,184,166,0.5)]' : 'text-gray-300')}>{day}</span>
+                  <span className={'inline-flex items-center justify-center mb-1 text-xs font-bold ' + (isToday ? 'w-6 h-6 rounded-full bg-teal-500 text-white shadow-[0_2px_8px_rgb(var(--dz-c-teal-500)/0.5)]' : 'text-gray-300')}>{day}</span>
                   <div className="hidden sm:block space-y-0.5">
                     {dayVisits.slice(0, 2).map((v) => {
                       const { chip, dot } = visitChip(v.status);

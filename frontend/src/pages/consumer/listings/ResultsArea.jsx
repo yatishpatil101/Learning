@@ -99,7 +99,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
 
               {/* `.dz-docks-under-nav` owns the offset below lg (it tracks the hide-on-scroll top bar); no `top-*` here. */}
-              <div className="dz-docks-under-nav sm:hidden sticky z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+              <div className="dz-docks-under-nav sm:hidden sticky z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-ink/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}
               </div>

@@ -48,7 +48,7 @@ function RoomCard({ r, i, saved, onSave, anchorId, myPost }) {
 
         <PropertyImage src={r.img || r.cover || FLATMATE_IMG} sizes={CARD_SIZES} alt={title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
         {trust && <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={trust} title={trust}><Icon name="shield-check" /></span>}
-        <SaveBtn k={'r:' + r.id} saved={saved} onSave={onSave} className="absolute top-3 right-3 z-[1] bg-black/40 backdrop-blur text-gray-200" />
+        <SaveBtn k={'r:' + r.id} saved={saved} onSave={onSave} className="heart-on-photo absolute top-3 right-3 z-[1]" />
         <span className="absolute bottom-3 left-3 flex gap-1.5">{match ? <MatchPill match={match} /> : <Fresh item={r} />}</span>
       </div>
       <div className="p-4">

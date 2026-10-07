@@ -1,19 +1,7 @@
-/* Date & time field styling — shared UI components, NOT a route.
+/* Shared by ~20 surfaces and imported by DateField/TimeField, so every route gets styled pickers
+   and a calendar that floats over the page. */
 
-   DateField / TimeField / DatePickerDialog / TimePickerDialog are used on ~20
-   surfaces (the listing wizard, rent-agreement, tenant profile, schedule-visit,
-   the dashboard visits tab, the flatmates filter bar, admin enquiries, the
-   post-on-behalf wizard). These rules used to live in routes/list-property.css,
-   which only ListProperty.jsx imports — so every other route rendered the field
-   as an unstyled block and the calendar as a static, unlayered element that
-   reflowed the page instead of floating over it.
-
-   Imported by DateField.jsx and TimeField.jsx so it ships with whichever chunk
-   actually renders a picker. */
-
-/* DateField — guaranteed DD/MM/YYYY display over a native date picker.
-   The wrapper carries the caller's field classes (form-input / field / …) so it
-   looks identical to sibling inputs; the native control sits on top, invisible. */
+/* The wrapper carries the caller's field classes to match sibling inputs; the native control sits on top. */
 .dz-datefield {
   position: relative;
   display: flex;
@@ -36,7 +24,7 @@
 }
 
 .dz-datefield__text.is-placeholder {
-  color: #6b7280;
+  color: rgb(var(--dz-c-gray-500));
 }
 
 .dz-datefield__icon {
@@ -52,7 +40,7 @@
 .dz-datefield:focus-within,
 .dz-datefield:focus {
   border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+  box-shadow: 0 0 0 3px rgb(var(--dz-c-teal-500) / 0.15);
   outline: none;
 }
 
@@ -61,9 +49,6 @@
   cursor: not-allowed;
 }
 
-/* ── Custom calendar (DatePickerDialog) — light "Select Date" card, teal accents,
-   shown as a dropdown anchored under its field (position set inline by JS).
-   Centrally used by every DateField, so the picker looks identical app-wide. ── */
 .dz-cal {
   position: fixed;
   z-index: 2000;
@@ -74,10 +59,10 @@
   box-sizing: border-box;
   background: var(--brand-card);
   color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.08 * var(--dz-line-boost)));
   border-radius: 20px;
   padding: 16px 14px 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 24px 60px rgb(var(--dz-c-black) / 0.5), 0 2px 10px rgb(var(--dz-c-black) / 0.35);
   font-family: var(--font-sans);
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
@@ -99,19 +84,12 @@
   outline: none;
 }
 
-/* Date / time pickers become bottom sheets on phones.
+.dz-cal-backdrop {
+  display: none;
+}
 
-   Both DatePickerDialog and TimePickerDialog render `.dz-cal`, so this one block
-   converts both. It matters most inside ScheduleVisitModal, which is itself a
-   sheet below 640px: an anchored popup floating over a sheet is a dialog inside a
-   dialog, the classic mobile failure point the review flags as P0.
-
-   The pickers stay custom rather than falling back to <input type="date">, because
-   they encode the available-slot rules; only their presentation changes.
-
-   Both dialogs write inline left/top from their place() helper, which would beat
-   these rules — each bails out at this same breakpoint and clears those inline
-   values. Keep the two in sync. */
+/* Both pickers render `.dz-cal`; their JS place() writes inline left/top and bails out at this same breakpoint
+   to clear them, or they would beat these rules. Keep the two in sync. */
 @media (max-width: 639.98px) {
 
   .dz-cal {
@@ -128,18 +106,18 @@
     transform-origin: bottom center;
   }
 
-  .dz-cal.is-open {
-    transform: translateY(0);
-  }
-
-  /* Backdrop without extra markup: a fixed pseudo-element behind the panel, which
-     also gives the sheet something to read against on a busy page. */
-  .dz-cal::before {
-    content: '';
+  /* A real element, not a shadow or pseudo, so a tap on the dimmed page lands here and only
+     closes the picker instead of also hitting whatever sits underneath. */
+  .dz-cal-backdrop {
+    display: block;
     position: fixed;
     inset: 0;
-    z-index: -1;
-    background: rgba(0, 0, 0, 0.5);
+    z-index: 1999;
+    background: rgb(var(--dz-c-black) / 0.5);
+  }
+
+  .dz-cal.is-open {
+    transform: translateY(0);
   }
 
   /* Grab handle, matching the modal sheets. */
@@ -151,7 +129,7 @@
     width: 2.25rem;
     height: 0.25rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgb(var(--dz-c-white) / 0.15);
     transform: translateX(-50%);
   }
 }
@@ -187,7 +165,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 18px rgba(13, 148, 136, 0.35);
+  box-shadow: 0 8px 18px rgb(var(--dz-c-teal-600) / 0.35);
 }
 
 .dz-cal__badge-tab {
@@ -210,7 +188,7 @@
 .dz-cal__badge-num {
   font-size: 1.22rem;
   font-weight: 800;
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   line-height: 1;
   margin-top: 4px;
 }
@@ -238,8 +216,8 @@
 }
 
 .dz-cal__nav:hover {
-  background: rgba(20, 184, 166, 0.16);
-  color: var(--teal-3);
+  background: rgb(var(--dz-c-teal-500) / 0.16);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 /* Year is fixed-narrow (only 4 digits) so month gets the room full names need. */
@@ -283,7 +261,7 @@
 }
 
 .dz-cal__wd.is-sun {
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-cal__day {
@@ -302,16 +280,16 @@
 }
 
 .dz-cal__day.is-sun {
-  color: var(--teal-3);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-cal__day.is-muted {
-  color: rgba(255, 255, 255, 0.22);
+  color: rgb(var(--dz-c-white) / 0.22);
   font-weight: 500;
 }
 
 .dz-cal__day:hover:not(:disabled):not(.is-selected) {
-  background: rgba(20, 184, 166, 0.16);
+  background: rgb(var(--dz-c-teal-500) / 0.16);
 }
 
 .dz-cal__day.is-today:not(.is-selected)::after {
@@ -327,14 +305,14 @@
 }
 
 .dz-cal__day.is-selected {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
+  background: rgb(var(--dz-c-teal-500) / 0.2);
+  color: rgb(var(--dz-c-teal-400));
   font-weight: 800;
   box-shadow: inset 0 0 0 1.5px var(--teal-2);
 }
 
 .dz-cal__day:disabled {
-  color: rgba(255, 255, 255, 0.18);
+  color: rgb(var(--dz-c-white) / 0.18);
   cursor: not-allowed;
 }
 
@@ -350,13 +328,13 @@
   border: none;
   border-radius: 13px;
   background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  color: #fff;
+  color: rgb(var(--dz-c-pure-white));
   font-family: var(--font-sans);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
-  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.32);
+  box-shadow: 0 12px 24px rgb(var(--dz-c-teal-600) / 0.32);
   transition: filter 0.18s ease, transform 0.08s ease;
 }
 
@@ -380,15 +358,8 @@
   }
 }
 
-/* ── Custom time picker (TimePickerDialog) — reuses the .dz-cal card shell so it
-   looks identical to the calendar; swaps the day grid for hour/minute selects +
-   an AM/PM toggle. Centrally used by every TimeField. ── */
-/* The card is narrower than the calendar on a desktop dropdown, but NOT on a
-   phone: the bottom-sheet block above gives `.dz-cal` a full-bleed `width: 100%`,
-   and an unguarded `.dz-timepicker { width: 250px }` later in this file has equal
-   specificity, so it would win and dock a 250px stub against the left edge while
-   the calendar next to it goes full width. Guarding by the same breakpoint keeps
-   the two dialogs behaving identically, which is what the sheet block claims. */
+/* Guarded by the breakpoint: an unguarded `.dz-timepicker { width: 250px }` has equal specificity
+   and would beat the sheet's full width. */
 @media (min-width: 640px) {
   .dz-timepicker {
     width: 250px;
@@ -399,8 +370,8 @@
   font-size: 0.95rem;
   font-weight: 800;
   letter-spacing: 0.01em;
-  color: var(--teal-3);
-  background: rgba(20, 184, 166, 0.14);
+  color: rgb(var(--dz-c-teal-400));
+  background: rgb(var(--dz-c-teal-500) / 0.14);
   border-radius: 11px;
   padding: 6px 12px;
 }
@@ -429,7 +400,7 @@
   display: flex;
   border-radius: 9px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
 }
 
 .dz-timepicker__mer button {
@@ -446,15 +417,15 @@
 }
 
 .dz-timepicker__mer button+button {
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 1px solid rgb(var(--dz-c-white) / calc(0.1 * var(--dz-line-boost)));
 }
 
 .dz-timepicker__mer button:hover:not(.is-on) {
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--teal-3);
+  background: rgb(var(--dz-c-teal-500) / 0.12);
+  color: rgb(var(--dz-c-teal-400));
 }
 
 .dz-timepicker__mer button.is-on {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
+  background: rgb(var(--dz-c-teal-500) / 0.2);
+  color: rgb(var(--dz-c-teal-400));
 }

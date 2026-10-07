@@ -4,23 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Select from './Select.jsx';
 import { parseTime, formatTime, to12h, HOUR_OPTIONS, minuteOptions } from '../../lib/timeOfDay.js';
 
-/**
- * TimePickerDialog — the app-wide custom time selector, styled to match
- * DatePickerDialog (same portaled card, teal accents, Confirm button). Instead of
- * a fixed slot list it lets the user pick any hour/minute/meridiem, so a single
- * control works for visit times and any other "time of day" field. Caller commits
- * on Confirm; the emitted string honours `format` ('12h' → "10:30 AM", '24h' → "22:00").
- *
- * @param {object} props
- * @param {boolean} props.open
- * @param {string} props.value - Current value ("10:30 AM" or "22:00") or ''.
- * @param {React.RefObject} props.anchorRef - The field element to anchor under.
- * @param {'12h'|'24h'} [props.format='12h'] - Output/display convention.
- * @param {number} [props.minuteStep=5] - Minute granularity.
- * @param {() => void} props.onClose
- * @param {(value: string) => void} props.onConfirm
- * @param {string} [props.ariaLabel] - Defaults to the translated "Select time".
- */
+/** Any hour/minute/meridiem rather than fixed slots, so one control serves every time-of-day field. */
 export default function TimePickerDialog({ open, value, anchorRef, format = '12h', minuteStep = 5, onClose, onConfirm, ariaLabel }) {
   const { t } = useTranslation();
   const dialogLabel = ariaLabel || t('ui.selectTime');
@@ -123,56 +107,59 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
   if (!open) return null;
 
   return createPortal(
-    <div
-      ref={panelRef}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="false"
-      aria-label={dialogLabel}
-      className={`dz-cal dz-timepicker${shown ? ' is-open' : ''}`}
-    >
-      <div className="dz-cal__head">
-        <h3 className="dz-cal__title">{t('ui.selectTimeTitle')}</h3>
-        <span className="dz-timepicker__readout" aria-hidden="true">{to12h(draft)}</span>
-      </div>
-
-      <div className="dz-timepicker__row">
-        <Select
-          className="dz-cal__dd dz-timepicker__unit"
-          value={String(hour12)}
-          options={HOUR_OPTIONS}
-          searchable={false}
-          ariaLabel={t('ui.hour')}
-          onChange={(v) => setHour12(+v)}
-        />
-        <span className="dz-timepicker__colon" aria-hidden="true">:</span>
-        <Select
-          className="dz-cal__dd dz-timepicker__unit"
-          value={String(draft.min - (draft.min % minuteStep))}
-          options={minuteOptions(minuteStep)}
-          searchable={false}
-          ariaLabel={t('ui.minute')}
-          onChange={(v) => setMinute(+v)}
-        />
-        <div className="dz-timepicker__mer" role="group" aria-label={t('ui.amOrPm')}>
-          {['AM', 'PM'].map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={mer === m ? 'is-on' : ''}
-              aria-pressed={mer === m}
-              onClick={() => setMeridiem(m)}
-            >
-              {m}
-            </button>
-          ))}
+    <>
+      <div className="dz-cal-backdrop" aria-hidden="true" />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="false"
+        aria-label={dialogLabel}
+        className={`dz-cal dz-timepicker${shown ? ' is-open' : ''}`}
+      >
+        <div className="dz-cal__head">
+          <h3 className="dz-cal__title">{t('ui.selectTimeTitle')}</h3>
+          <span className="dz-timepicker__readout" aria-hidden="true">{to12h(draft)}</span>
         </div>
-      </div>
 
-      <button type="button" className="dz-cal__confirm" onClick={() => onConfirm?.(formatTime(draft, format))}>
-        {t('ui.confirm')}
-      </button>
-    </div>,
+        <div className="dz-timepicker__row">
+          <Select
+            className="dz-cal__dd dz-timepicker__unit"
+            value={String(hour12)}
+            options={HOUR_OPTIONS}
+            searchable={false}
+            ariaLabel={t('ui.hour')}
+            onChange={(v) => setHour12(+v)}
+          />
+          <span className="dz-timepicker__colon" aria-hidden="true">:</span>
+          <Select
+            className="dz-cal__dd dz-timepicker__unit"
+            value={String(draft.min - (draft.min % minuteStep))}
+            options={minuteOptions(minuteStep)}
+            searchable={false}
+            ariaLabel={t('ui.minute')}
+            onChange={(v) => setMinute(+v)}
+          />
+          <div className="dz-timepicker__mer" role="group" aria-label={t('ui.amOrPm')}>
+            {['AM', 'PM'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={mer === m ? 'is-on' : ''}
+                aria-pressed={mer === m}
+                onClick={() => setMeridiem(m)}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button type="button" className="dz-cal__confirm" onClick={() => onConfirm?.(formatTime(draft, format))}>
+          {t('ui.confirm')}
+        </button>
+      </div>
+    </>,
     document.body,
   );
 }

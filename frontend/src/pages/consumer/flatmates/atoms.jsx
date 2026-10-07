@@ -5,10 +5,10 @@ import { isFresh } from './helpers.js';
 import ReviewChip from './ReviewChip.jsx';
 
 const Chip = ({ children }) => <span className="chip px-2 py-0.5 rounded-md text-[10px] text-gray-300">{children}</span>;
-const SaveBtn = ({ k, saved, onSave, className = 'bg-white/5 border border-white/10 text-gray-400' }) => {
+const SaveBtn = ({ k, saved, onSave, className }) => {
   const { t } = useTranslation();
   return (
-    <button onClick={() => onSave(k)} className={'save-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full inline-flex items-center justify-center ' + className + (saved ? ' saved' : '')} aria-pressed={saved} aria-label={saved ? t('flatmates.saved') : t('flatmates.save')}>    <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" /></button>
+    <button onClick={() => onSave(k)} className={'save-btn w-11 h-11 sm:w-9 sm:h-9 inline-flex items-center justify-center ' + className + (saved ? ' saved' : '')} aria-pressed={saved} aria-label={saved ? t('flatmates.saved') : t('flatmates.save')}><Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-6 h-6" /></button>
   );
 };
 const TileChip = ({ icon, children }) => <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-gray-300"><Icon name={icon} className="w-3 h-3 text-teal-400" /> {children}</span>;

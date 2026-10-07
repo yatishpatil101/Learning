@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { APIProvider, Map, AdvancedMarker, useMap, MapControl, ControlPosition } from '@vis.gl/react-google-maps';
 import { useTranslation } from 'react-i18next';
-import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../../lib/mapsConfig.js';
+import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../../lib/mapsConfig.js';
 import MapUnavailable from '../../../components/property/MapUnavailable.jsx';
 
 function readLatLng(e) {
@@ -73,7 +73,7 @@ export default function LocationPicker({
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
       <Map
         mapId={GOOGLE_MAPS_MAP_ID}
-        colorScheme="DARK"
+        colorScheme={mapColorScheme()}
         defaultCenter={markerPosition || DEFAULT_CENTER}
         defaultZoom={defaultZoom}
         gestureHandling={gestureHandling}
