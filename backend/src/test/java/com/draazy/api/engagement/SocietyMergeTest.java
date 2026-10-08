@@ -28,20 +28,14 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
-/**
- * A merge is a shared, reversible fact on the server, not one operator's browser storage.
- * Semantics: docs/flows/consumer/societies.md §9.1.
- */
+/** A merge is a shared, reversible fact on the server; semantics: docs/flows/consumer/societies.md §9.1. */
 @DisplayName("Societies — merging duplicates")
 class SocietyMergeTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
     @Autowired PropertyRepository properties;
 
-    /**
-     * Audit rows commit {@code REQUIRES_NEW} and outlive this class's rollback. Static, and run
-     * before as well as after, because a killed build leaves rows that fail the next clean run.
-     */
+    /** Audit rows commit {@code REQUIRES_NEW} past the rollback; static and run before too for killed builds. */
     @BeforeAll
     static void removeAuditRowsLeftByAnEarlierRun(@Autowired JdbcTemplate jdbc) {
         sweepOwnAuditRows(jdbc);
@@ -77,7 +71,7 @@ class SocietyMergeTest extends AbstractApiTest {
         ResultActions minted = mvc.perform(post("/societies")
                         .header(HttpHeaders.AUTHORIZATION, bearer(author))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"" + name + "\"}"))
+                        .content("{\"placeId\":\"test-" + name.trim().toLowerCase().replaceAll("\\s+", "-") + "\",\"name\":\"" + name + "\"}"))
                 .andExpect(status().isCreated());
         String json = minted.andReturn().getResponse().getContentAsString();
         int at = json.indexOf("\"slug\":\"") + 8;
@@ -390,7 +384,7 @@ class SocietyMergeTest extends AbstractApiTest {
 
     @Test
     @DisplayName("a merged-away society leaves the candidates queue")
-    void theDuplicateStopsAskingToBeVerified() throws Exception {
+    void theDuplicateLeavesTheQueue() throws Exception {
         User author = user("9868000023", "Leela Merge");
         String ops = staff("9868000024");
 
@@ -403,18 +397,12 @@ class SocietyMergeTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        // Confirming a society an operator has already judged not to be a separate building is work
-        // that cannot produce a right answer.
         assertThat(queue).doesNotContain("\"slug\":\"" + duplicate + "\"")
                 .contains("\"slug\":\"" + keep + "\"");
-
-        mvc.perform(post("/admin/society-candidates/" + duplicate + "/verify")
-                        .header(HttpHeaders.AUTHORIZATION, ops))
-                .andExpect(status().isConflict());
     }
 
     @Test
-    @DisplayName("adding the duplicate's name again returns the society it was merged into")
+    @DisplayName("adding the duplicate's place again returns the society it was merged into")
     void mintingTheOldNameLandsOnTheSurvivor() throws Exception {
         User author = user("9868000025", "Manav Merge");
         User member = user("9868000026", "Nisha Merge");
@@ -429,7 +417,7 @@ class SocietyMergeTest extends AbstractApiTest {
         mvc.perform(post("/societies")
                         .header(HttpHeaders.AUTHORIZATION, bearer(member))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Astar Vale D243\"}"))
+                        .content("{\"placeId\":\"test-astar-vale-d243\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slug").value(keep));
     }

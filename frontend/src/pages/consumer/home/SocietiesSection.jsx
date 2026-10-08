@@ -43,21 +43,15 @@ export default function SocietiesSection() {
   }, [inView]);
 
   const top = useMemo(() => (societies || [])
-    .map((soc) => {
-      /* `source`, not `tier` — the vocabulary the directory uses, so an ops-confirmed society is
-         badged on what it is now rather than on what it was minted with. */
-      const community = soc.source === 'community';
-      const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
-      return {
-        slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-        /* The server's count: summed over the merge family and correct for listings this screen
-           never sees. The "New" branch is unreachable here, kept because the card is generic. */
-        verified, homes: soc.listingCount,
-      };
-    })
+    .map((soc) => ({
+      slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
+      /* The server's count: summed over the merge family and correct for listings this screen
+         never sees. The "New" branch is unreachable here, kept because the card is generic. */
+      homes: soc.listingCount,
+    }))
     /* No rating tie-break between `homes` and `name`: adding one is a product decision about what
        "strongest" means, and an arbitrary sort key reads as intentional. */
-    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || a.name.localeCompare(b.name))
+    .sort((a, b) => (b.homes - a.homes) || a.name.localeCompare(b.name))
     .slice(0, 8), [societies]);
 
   // Arrows track whether there is more to scroll; the fades track whether a card is actually
@@ -173,9 +167,8 @@ export default function SocietiesSection() {
                     <Icon name="building-2" className="w-6 h-6 text-brand-teal-3" />
                   </div>
                   <div className="text-left min-w-0">
-                    <p className="font-semibold text-sm text-white leading-tight flex items-center gap-1.5">
+                    <p className="font-semibold text-sm text-white leading-tight">
                       <span className="truncate">{s.name}</span>
-                      {s.verified ? <Icon name="badge-check" className="w-3.5 h-3.5 text-brand-teal-3 shrink-0" /> : null}
                     </p>
                     <p className="text-xs mt-0.5 text-brand-teal-3 truncate">
                       {loc ? `${loc} · ` : ''}{homesTxt}

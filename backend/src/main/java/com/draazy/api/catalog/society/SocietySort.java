@@ -7,8 +7,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-/** Whitelist: an unrestricted {@code ?sort=} on a public endpoint lets anonymous callers probe the schema
- * and force unindexed scans. Computed orderings are ranked by the service ({@link SocietyRanking}). */
+/** An unrestricted {@code ?sort=} on a public endpoint probes the schema and can force a full scan, so anything outside this
+ * whitelist falls back to alphabetical; {@code relevance}, {@code rating} and {@code homes} are computed orderings. */
 public final class SocietySort {
 
     static final String RELEVANCE = "relevance";

@@ -33,7 +33,7 @@ const ListPropertyForm = () => {
     flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
     isMediaBusy, mediaStatus,
-    submitProperty, submitFlatmate, posting, postAnother, amenityPrefillRef,
+    submitProperty, submitFlatmate, posting, postAnother,
     needsAuthForMedia, requestAuthPrompt,
   } = vm;
   const editSavedApproved = /approved|verified|live/i.test(String(savedListingStatus || ''));
@@ -210,6 +210,7 @@ const ListPropertyForm = () => {
                   prevStep={prevStep}
                   nextStep={nextStep}
                   nextPending={dupPending}
+                  onRequireAuth={requestAuthPrompt}
                   onReset={openResetConfirm}
                 />
               )}
@@ -247,8 +248,6 @@ const ListPropertyForm = () => {
                   posting={posting}
                   onReset={openResetConfirm}
                   onJump={jumpTo}
-                  isEditing={!!editId}
-                  amenityPrefillRef={amenityPrefillRef}
                   needsAuthForMedia={needsAuthForMedia}
                   onRequireAuth={requestAuthPrompt}
                 />

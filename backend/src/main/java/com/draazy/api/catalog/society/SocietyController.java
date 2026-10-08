@@ -24,24 +24,26 @@ public class SocietyController {
 
     private final SocietyService societyService;
     private final SocietyMintService mintService;
+    private final SocietyResolveService resolveService;
 
-    public SocietyController(SocietyService societyService, SocietyMintService mintService) {
+    public SocietyController(SocietyService societyService, SocietyMintService mintService,
+            SocietyResolveService resolveService) {
         this.societyService = societyService;
         this.mintService = mintService;
+        this.resolveService = resolveService;
     }
 
-    /** {@code sort} is clamped to {@link SocietySort}'s whitelist; {@code hasListings} and
-     *  {@code verified} narrow to societies with a live listing / a verified badge. */
+    /** {@code sort} is clamped to {@link SocietySort}'s whitelist;
+     *  {@code hasListings=true} narrows to societies with a live listing. */
     @GetMapping(Routes.Societies.BASE)
     public PageResponse<SocietyResponse> browse(
             @CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String locality,
             @RequestParam(required = false) Boolean hasListings,
-            @RequestParam(required = false) Boolean verified,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                societyService.browse(q, locality, hasListings, verified, pageable, viewerId(principal)),
+                societyService.browse(q, locality, hasListings, pageable, viewerId(principal)),
                 Function.identity());
     }
 
@@ -52,14 +54,21 @@ public class SocietyController {
         return societyService.get(slug, viewerId(principal));
     }
 
-    /**
-     * {@code POST /societies} - add a society the catalogue lacks. <strong>201 for a new row, 200
-     * when the name already matches one</strong>, so the screen can tell the two apart (societies.md 9.6).
-     */
+    /** {@code GET /societies/resolve}: the place's society, or similar ones within 250 m; anonymous-readable like the directory. */
+    @GetMapping(Routes.Societies.RESOLVE)
+    public SocietyResolveResponse resolve(@CurrentUser AuthPrincipal principal,
+            @RequestParam String placeId,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng) {
+        return resolveService.resolve(placeId, name, lat, lng, viewerId(principal));
+    }
+
+    /** {@code POST /societies}: 201 for a new row, 200 when the place already has one, so the screen can tell them apart. */
     @PostMapping(Routes.Societies.BASE)
     public ResponseEntity<SocietyResponse> mint(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody SocietyMintRequest request) {
-        SocietyMintService.MintedSociety result = mintService.mint(request, principal.userId());
+        SocietyMintService.MintedSociety result = mintService.mint(request, principal);
         return ResponseEntity
                 .status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(result.society());

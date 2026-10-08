@@ -1,6 +1,6 @@
 // `GET /societies` carries `avgRating`/`reviewCount`/`listingCount` per row, so a directory page
 // needs no second read for its ratings or home counts.
-import { ApiError, del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
+import { del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toRatingIndex, toSociety } from './societyMapper.js';
 
@@ -12,15 +12,15 @@ const LISTED_CANDIDATES = MAX_PAGE_SIZE;
 // shorter list but societies the directory draws as unfollowed.
 const FOLLOW_PAGE_SIZE = 500;
 
-// `sort` and `verified` are applied server-side; ratings are slug-keyed so an unrated `null` is not zero.
+// One server page of the directory, filtered and ordered there; ratings are a slug-keyed index so an unrated `null` stays distinct from zero.
+// `total` is the whole filtered set, not this page.
 export async function listSocietiesPage({
-  q = '', locality = '', sort = 'relevance', verified = false, page = 0, size = 24,
+  q = '', locality = '', sort = 'relevance', page = 0, size = 24,
 } = {}) {
   const res = await get('/societies', {
     q: q || undefined,
     locality: locality || undefined,
     sort,
-    verified: verified || undefined,
     page,
     size,
   });
@@ -50,9 +50,7 @@ export async function listSocietiesWithListings() {
   return { rows };
 }
 
-// More than the 20 the picker shows: the service re-ranks verified societies to the top, so asking
-// for exactly 20 would let the server's own sort decide which 20 were eligible for that re-rank.
-const SEARCH_CANDIDATES = 60;
+const SEARCH_CANDIDATES = 20;
 
 // **The locality is deliberately not sent** — docs/flows/consumer/societies.md
 export async function searchSocieties(query) {
@@ -62,27 +60,7 @@ export async function searchSocieties(query) {
     size: SEARCH_CANDIDATES,
   });
   const rows = Array.isArray(res?.content) ? res.content : [];
-  return rows.filter((s) => s?.slug).map((s) => {
-    const community = s.source === 'community';
-    return {
-      // The listing wizard still binds a `societyId` into the form; the slug is the key everything
-      // else joins on.
-      id: s.id,
-      slug: s.slug,
-      name: s.name || '',
-      localitySlug: s.localitySlug || '',
-      pincode: s.pincode || s.pinCode || s.postalCode || '',
-      // The registry already knows where the society is, which is the whole reason a host who has
-      // named one should not also be made to drag a map pin onto it.
-      lat: s.lat == null ? null : Number(s.lat),
-      lng: s.lng == null ? null : Number(s.lng),
-      builder: s.builder || '',
-      year: s.year ?? null,
-      rera: s.rera || '',
-      verified: !community && !!(s.registration && s.conveyance),
-      community,
-    };
-  });
+  return rows.map(toSociety).filter(Boolean);
 }
 
 // `/societies/{slug}`, not a `q=` search, which would answer with a *near* society. A 404 becomes
@@ -131,208 +109,35 @@ export async function unfollowSociety(slug) {
   await del(`/me/societies/${encodeURIComponent(slug)}/follow`);
 }
 
-// A committee's queue is bounded by the flats in the building, so one page is the honest read;
-// `unwrapFullPage` complains if a society ever exceeds it rather than truncating silently.
-const RESIDENT_PAGE_SIZE = 500;
-
-const societyPath = (slug, suffix) => `/societies/${encodeURIComponent(slug)}${suffix}`;
-
-// The hub renders questions and the board in full — there is no "load more" — so a short read is a
-// question nobody answers. `unwrapFullPage` flags a society that outgrows this.
-const COMMUNITY_PAGE_SIZE = 200;
-
-// The five reads share one server response, so identical queries share one request;
-// the short `ttl` lets staggered reads land on it, and any write clears it.
-function readHub(slug, extra) {
-  return get(
-    societyPath(slug, '/hub'),
-    { page: 0, size: COMMUNITY_PAGE_SIZE, ...extra },
-    { ttl: 3_000 },
-  );
-}
-
-// A null section is one the server could not read, which the five old endpoints each reported as
-// their own failure; callers isolate failures per section, so it is thrown rather than returned.
-async function hubSection(slug, name, extra) {
-  const section = (await readHub(slug, extra))?.[name];
-  if (section == null) {
-    throw new ApiError({ code: 'SOCIETY_SECTION_UNAVAILABLE', status: 500, message: `Society ${name} could not be read.` });
-  }
-  return section;
-}
-
-// Public and caller-aware, so the hub renders the "claim this society" invitation on first paint
-// without waiting on a sign-in check.
-export async function getSocietyMembership(slug) {
-  return hubSection(slug, 'membership');
-}
-
-// The server amends the standing request rather than queueing a second, so calling twice leaves
-// one row.
-export async function requestResidency(slug, body) {
-  return post(societyPath(slug, '/residents'), body);
-}
-
-/** Committee or staff — a resident gets a 403, by design. */
-export async function listSocietyResidents(slug, { status } = {}) {
-  const res = await get(societyPath(slug, '/residents'), {
-    page: 0,
-    size: RESIDENT_PAGE_SIZE,
-    ...(status ? { status } : {}),
+// `society` is the row already bound to that Place ID; without one, `candidates` are nearby rows
+// that may be the same building. Public, so a signed-out owner can still bind an existing society.
+export async function resolveSociety({ placeId, name, lat, lng }) {
+  const res = await get('/societies/resolve', {
+    placeId,
+    name: name || undefined,
+    lat: lat == null ? undefined : lat,
+    lng: lng == null ? undefined : lng,
   });
-  return unwrapFullPage(res, 'society residents');
-}
-
-// A 409 is the flat already having a verified resident — a real answer, not a transport failure.
-export async function decideResidency(slug, residentId, body) {
-  return patch(societyPath(slug, `/residents/${encodeURIComponent(residentId)}`), body);
-}
-
-/** Claim the society for its committee. 409 when somebody else already has a live claim. */
-export async function claimSociety(slug, body) {
-  return post(societyPath(slug, '/claim'), body);
-}
-
-// Public, because the person with the most to ask about a building has not moved into it yet.
-export async function listSocietyQuestions(slug) {
-  return unwrapFullPage(await hubSection(slug, 'questions'), 'society questions');
-}
-
-/** Any signed-in caller; 401 otherwise. */
-export async function askSocietyQuestion(slug, body) {
-  return post(societyPath(slug, '/questions'), { body });
-}
-
-/** The server checks the question really belongs to this society — 404 if not. */
-export async function answerSocietyQuestion(slug, questionId, body) {
-  return post(societyPath(slug, `/questions/${encodeURIComponent(questionId)}/answers`), { body });
-}
-
-// `kind` narrows to one; the hub omits it and draws both columns from one read rather than paying
-// two round trips.
-export async function listSocietyBoard(slug, { kind } = {}) {
-  return unwrapFullPage(await hubSection(slug, 'board', kind ? { kind } : undefined), 'society board');
-}
-
-// A 403 means the caller has not verified a flat here — the rule, not an error to retry.
-export async function postBoardItem(slug, body) {
-  return post(societyPath(slug, '/board'), body);
-}
-
-/** Take one down. Author, committee or staff; 403 otherwise, 204 on success. */
-export async function removeBoardItem(slug, itemId) {
-  await del(societyPath(slug, `/board/${encodeURIComponent(itemId)}`));
-}
-
-// Deliberately unfiltered: the chips count every kind, so a filtered read could not draw the page
-// and two fetches could disagree. Public — a recommended person's phone is the withheld field.
-export async function listSocietyContributions(slug) {
-  return unwrapFullPage(await hubSection(slug, 'contributions'), 'society contributions');
-}
-
-// `photoUrl` must already be a URL — upload through `POST /me/photos` first, or the photo is
-// visible only on the device that shared it.
-export async function addSocietyContribution(slug, body) {
-  return post(societyPath(slug, '/contributions'), body);
-}
-
-/** Author, committee or staff; its replies and votes go with it. */
-export async function removeSocietyContribution(slug, contributionId) {
-  await del(societyPath(slug, `/contributions/${encodeURIComponent(contributionId)}`));
-}
-
-// Two verbs rather than one toggle, so a request retried after a dropped connection produces the
-// state the tap intended.
-export async function setContributionHelpful(slug, contributionId, helpful) {
-  const path = societyPath(slug, `/contributions/${encodeURIComponent(contributionId)}/helpful`);
-  return helpful ? put(path) : del(path);
-}
-
-/** Any signed-in caller. */
-export async function addContributionReply(slug, contributionId, body) {
-  return post(societyPath(slug, `/contributions/${encodeURIComponent(contributionId)}/replies`), {
-    body,
-  });
-}
-
-/** Its own author, the committee or staff — not the contribution's author. */
-export async function removeContributionReply(slug, contributionId, replyId) {
-  await del(
-    societyPath(
-      slug,
-      `/contributions/${encodeURIComponent(contributionId)}/replies/${encodeURIComponent(replyId)}`,
-    ),
-  );
-}
-
-// One read, so the page cannot render half a state. `whatsappJoinUrl` is null without a verified
-// flat here; `whatsappAvailable` is not.
-export async function getSocietyProposals(slug) {
-  return hubSection(slug, 'proposals');
-}
-
-// One endpoint for detail, WhatsApp-link and map-pin proposals — one lifecycle wearing three names.
-export async function proposeSocietyChange(slug, payload) {
-  return post(societyPath(slug, '/proposals'), payload);
-}
-
-// `size` defaults to the server's ceiling, not its `@PageableDefault(20)`: this screen has no pager
-// and its heading counts are computed over whatever comes back, so a silent cap would understate.
-export async function listSocietyProposalQueue({ status, kind, page, size = MAX_PAGE_SIZE } = {}) {
-  const res = await get('/admin/society-proposals', { status, kind, page, size });
-  return unwrapFullPage(res, 'society proposals');
-}
-
-// Approving writes the value onto the society in the same transaction, so there is no separate
-// apply step to fail in between. An already-decided proposal answers 409.
-export async function decideSocietyProposal(id, decision) {
-  return patch(`/admin/society-proposals/${encodeURIComponent(id)}`, decision);
-}
-
-// Full-ceiling `size` because this screen has no pager; deciding stays on `decideResidency`, which
-// already owns the one-resident-per-flat rule.
-export async function listSocietyResidentQueue({ status, page, size = MAX_PAGE_SIZE } = {}) {
-  const res = await get('/admin/society-residents', { status, page, size });
-  return unwrapFullPage(res, 'society residents');
-}
-
-/** Staff with `societies:read`. */
-export async function listSocietyClaimQueue({ status, page, size = MAX_PAGE_SIZE } = {}) {
-  const res = await get('/admin/society-claims', { status, page, size });
-  return unwrapFullPage(res, 'society claims');
-}
-
-// By claim id, not society slug — the server keeps every claim ever filed. Approving grants
-// committee authority in the same transaction; an already-decided claim answers 409.
-export async function decideSocietyClaim(id, decision) {
-  return patch(`/admin/society-claims/${encodeURIComponent(id)}`, decision);
-}
-
-// Addressed by claim rather than by document, one request per certificate actually opened — the
-// queue read is deliberately left alone.
-export async function getSocietyClaimCertificate(claimId) {
-  return get(`/admin/society-claims/${encodeURIComponent(claimId)}/certificate`);
+  const candidates = (Array.isArray(res?.candidates) ? res.candidates : []).map(toSociety).filter(Boolean);
+  return { society: toSociety(res?.society), candidates };
 }
 
 // Answers the canonical society either way, so the caller's next move works against the real row
 // rather than a duplicate they did not know they made.
-export async function mintSociety(body) {
+export async function mintSociety({
+  placeId, name, lat, lng, localityLabel, localitySlug, mintOrigin = 'listing',
+}) {
   // `withStatus`, because here the code *is* the answer: 201 minted, 200 matched an existing row.
-  // Nothing in the body distinguishes the two.
-  const { data, status } = await post('/societies', body, { withStatus: true });
-  return { society: data, created: status === 201 };
+  const { data, status } = await post('/societies', {
+    placeId, name, lat, lng, localityLabel, localitySlug, mintOrigin,
+  }, { withStatus: true });
+  return { society: toSociety(data), created: status === 201 };
 }
 
 /** Staff with `societies:read`. */
-export async function listSocietyCandidates({ page, size } = {}) {
+export async function listSocietyCandidates({ page, size = MAX_PAGE_SIZE } = {}) {
   const res = await get('/admin/society-candidates', { page, size });
   return unwrapFullPage(res, 'society candidates');
-}
-
-// 409 once verified: the record of who did it is the only thing that says who to ask about the
-// society later, so it is never silently overwritten.
-export async function verifySocietyCandidate(slug) {
-  return post(`/admin/society-candidates/${encodeURIComponent(slug)}/verify`);
 }
 
 // A plain array, because the endpoint answers a handful by construction. One request per candidate
@@ -342,8 +147,6 @@ export async function listSocietyCandidateDuplicates(slug, { limit } = {}) {
   return Array.isArray(rows) ? rows : [];
 }
 
-// `unwrapFullPage` rather than a silent `.content`: a console that shows the first twenty merges
-// and calls it the list is worse than one that says so.
 export async function getSocietiesSummary() {
   return get('/admin/societies/summary');
 }

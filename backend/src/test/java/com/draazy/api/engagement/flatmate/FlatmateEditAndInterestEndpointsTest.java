@@ -59,15 +59,15 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
         return saved;
     }
 
-    private static String roomBody(String locality, String society, long rentShare) {
-        return """
+    private String roomBody(String locality, String society, long rentShare) {
+        return withSocietyIds("""
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"%s","society":"%s","rentShare":%d,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
                  "foodPref":"any","photos":["https://cdn.example/1.jpg"],
                  "hostRole":"owner",
                  "note":"Sunny room, quiet building."}
-                """.formatted(locality, society, rentShare);
+                """.formatted(locality, society, rentShare));
     }
 
     private String liveRoomBody(User host, String locality, String society, long rentShare) {

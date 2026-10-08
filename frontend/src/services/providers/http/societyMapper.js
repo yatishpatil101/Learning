@@ -1,4 +1,6 @@
 
+import { toViewModel } from './propertyMapper.js';
+
 export function toRatingIndex(rows) {
   const index = {};
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -43,12 +45,9 @@ export function toSociety(row) {
     conveyance: !!row.conveyance,
     amenities: Array.isArray(row.amenities) ? row.amenities : [],
     source: row.source || '',
-    // Kept as the timestamp the server sent, not narrowed to a boolean: answering `true` would make
-    // the day ops confirmed it unrecoverable downstream.
-    verifiedAt: row.verifiedAt || null,
-    claimStatus: row.claimStatus || 'unclaimed',
     // The server's count of live listings across the merge family; `0` is a real zero, so it is
     // always projected.
     listingCount: Number(row.listingCount) || 0,
+    homes: Array.isArray(row.homes) ? row.homes.map(toViewModel) : [],
   };
 }

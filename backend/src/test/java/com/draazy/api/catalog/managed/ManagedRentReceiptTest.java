@@ -21,19 +21,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * Manual rent receipts on an owner's managed property — {@code GET}/{@code POST}
- * {@code /me/managed-properties/{id}/rent-receipts} (V120).
- *
- * <p>These replace a {@code localStorage} ledger, so the invariants under test are the ones the
- * browser could never enforce: that the receipt is a <em>snapshot the server composed</em> rather
- * than figures the client sent, that a month can be receipted exactly once, that a foreign id is
- * indistinguishable from an unknown one, and that deleting the property takes its receipts with it.
- *
- * <p>The receipt is the owner's own assertion that rent arrived outside Draazy. The platform
- * collects no rent and has no rail that could, so nothing here is evidence that money moved through
- * us.
- */
+/** Manual rent receipts ({@code /me/managed-properties/{id}/rent-receipts}): server-composed snapshots, one per
+ * month. The receipt is the owner's own assertion; the platform collects no rent. */
 @DisplayName("Managed property — manual rent receipts")
 class ManagedRentReceiptTest extends AbstractApiTest {
 
@@ -42,10 +31,8 @@ class ManagedRentReceiptTest extends AbstractApiTest {
     @Autowired
     ManagedPropertyRepository managed;
 
-    /* Months are computed, never written down. A receipt may only be recorded for a month that has
-     * already happened and is within five years, so a literal `2026-03` would quietly become
-     * un-receiptable in 2031 and this suite would fail for a reason that has nothing to do with the
-     * code. Three recent months, newest first: MONTH_1 > MONTH_2 > MONTH_3. */
+    /* Months are computed: receipts accept only past months within five years, so a literal like 2026-03
+     * would eventually fail for a reason unrelated to the code. */
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final String MONTH_1 = YearMonth.now(IST).minusMonths(1).toString();
     private static final String MONTH_2 = YearMonth.now(IST).minusMonths(2).toString();
@@ -79,7 +66,7 @@ class ManagedRentReceiptTest extends AbstractApiTest {
     /** A property in the one state that can produce a receipt: rented, priced, with a tenant. */
     private String rentedFlat(User o) throws Exception {
         String id = register(o, "{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
-                + "\"price\":26000,\"locality\":\"Baner\",\"society\":\"Vista Heights\"}");
+                + "\"price\":26000,\"locality\":\"Baner\",\"societyId\":\"" + societyNamed("Vista Heights") + "\"}");
         patchProperty(o, id, "{\"rented\":true,\"tenantName\":\"Rohit Kulkarni\",\"monthlyRent\":26000}");
         return id;
     }
@@ -294,9 +281,7 @@ class ManagedRentReceiptTest extends AbstractApiTest {
                     .andExpect(status().isUnprocessableEntity());
         }
 
-        // The two edges that are in range, so the four above are refused for being out of range and
-        // not because the endpoint refuses everything: the month that just ended, and the oldest
-        // month still inside the five-year window.
+        // In-range edges (month just ended, oldest in the window), so the refusals above are about range alone.
         recordMonth(o, id, now.minusMonths(1).toString());
         recordMonth(o, id, now.minusYears(5).toString());
         mvc.perform(get(receipts(id)).param("months", "24")

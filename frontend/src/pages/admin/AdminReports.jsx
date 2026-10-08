@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { AlertTriangle, Ban, CheckCircle2, Download, Eye, Flag, XCircle } from 'lucide-react';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
-import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS, SOCIETY_REPORT_REASONS } from '../../lib/reportReasons.js';
+import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -38,34 +38,14 @@ const REASON_OPTS = {
   listings: [{ value: '', label: 'All reasons' }, ...LISTING_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
   users: [{ value: '', label: 'All reasons' }, ...OWNER_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
   posts: [{ value: '', label: 'All reasons' }, ...SHARE_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
-  // One vocabulary for all five society kinds, because they are the same object seen through five
-  // widgets: abuse in an answer and abuse on the noticeboard are the same abuse.
-  society: [{ value: '', label: 'All reasons' }, ...SOCIETY_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
 };
 
-/**
- * Which `kind` each tab is responsible for.
- *
- * There are three because the wire has three. `toViewModel` maps `targetType: 'post'` to
- * `kind: 'share'`, and every flatmate report — room, group or seeker — is filed as one. Miss a
- * kind here and its rows render in no tab at all: filed correctly, stored correctly, and invisible
- * to the moderators whose job they are.
- *
- * `review` is deliberately absent as a tab of its own. `ReportReasons` knows the target type and
- * society reviews are filed under it, but they are moderated through the reviews queue and its own
- * `PATCH /reviews/{id}/status` — a tab here with no takedown behind it would be furniture.
- *
- * The fourth tab collects **five** kinds, which is why this maps to an array. A society hub's
- * recommendations, replies, questions, answers and noticeboard posts stay five distinct target
- * types on the wire, because a moderator upholding a complaint has to know which table the id
- * indexes — but to the person working the queue they are one thing: something a neighbour wrote.
- * Five tabs would have split one small queue five ways.
- */
+/** Which `kind` each tab owns; a kind missing here renders in no tab. `review` is absent on purpose:
+ * reviews are moderated through `PATCH /reviews/{id}/status`. */
 const TAB_KIND = {
   listings: ['listing'],
   users: ['user'],
   posts: ['share'],
-  society: ['contribution', 'reply', 'question', 'answer', 'board'],
 };
 const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
 
@@ -73,18 +53,16 @@ const TABS = [
   { key: 'listings', label: 'Properties' },
   { key: 'users', label: 'Users & owners' },
   { key: 'posts', label: 'Flatmate posts' },
-  { key: 'society', label: 'Society posts' },
 ];
 
 const NOTES = {
   listings: 'Complaints about listings. Take down hides the listing from search; Resolve keeps it up. Tab count = reports still undecided.',
   users: 'Complaints about people. Suspend blocks the account; Resolve keeps it active. The reporter is withheld on purpose.',
   posts: 'Complaints about flatmate rooms, groups and seeker posts. Take down hides the post; its author is not suspended.',
-  society: 'Complaints about society recommendations, Q&A and noticeboard posts. Remove takes the post down for everyone.',
 };
 
 const KIND_LABEL = {
-  listing: 'Property', user: 'User', share: 'Flatmate post', contribution: 'Recommendation', reply: 'Reply', question: 'Question', answer: 'Answer', board: 'Noticeboard post',
+  listing: 'Property', user: 'User', share: 'Flatmate post',
 };
 
 const PAGE_SIZE = 10;
@@ -95,7 +73,7 @@ export default function AdminReports() {
   const canSeeReviews = hasPermission(user, 'properties:read');
   const [searchParams] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', 'society', ...(canSeeReviews ? ['reviews'] : [])], 'listings');
+  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', ...(canSeeReviews ? ['reviews'] : [])], 'listings');
   const [statusF, setStatusF] = useState('');
   const [reasonF, setReasonF] = useState('');
   const [dateRange, setDateRange] = useState('');
@@ -103,14 +81,7 @@ export default function AdminReports() {
   const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState(new Set());
 
-  /**
-   * Read the queue.
-   *
-   * Unfiltered: the tabs, the status filter and the repeat-offender badge are all computed over the
-   * whole set client-side, so filtering server-side here would make those counts describe a subset
-   * while looking like totals. The provider warns when the queue outgrows one page — at which point
-   * this needs real paging, not a bigger page.
-   */
+  /** Reads the queue unfiltered: tabs, status filter and repeat-offender badge are computed client-side, so server filtering would make counts describe a subset. */
   const load = () => listReports().then((res) => setAll(res.items)).catch(() => setAll([]));
   useEffect(() => { let alive = true; load().then(() => !alive); return () => { alive = false; }; }, []); // eslint-disable-line
 
@@ -236,10 +207,7 @@ export default function AdminReports() {
         : inTab(r, 'posts')
           /* `hide_content`, not `suspend_account`: a flatmate post is content, and suspending its author is a heavier decision. */
           ? <button type="button" onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Take down</button>
-          : inTab(r, 'society')
-            /* Upholding removes the post for everybody: a `personal` report is often a leaked mobile number. */
-            ? <button type="button" onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Remove</button>
-            : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Suspend</button>}
+          : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Suspend</button>}
       <button type="button" onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="dz-btn dz-btn-primary dz-btn-sm"><CheckCircle2 className="h-3.5 w-3.5" />Resolve</button>
       <button type="button" onClick={() => act(r.id, 'dismissed')} className="dz-btn dz-btn-ghost dz-btn-sm"><XCircle className="h-3.5 w-3.5" />Dismiss</button>
     </>

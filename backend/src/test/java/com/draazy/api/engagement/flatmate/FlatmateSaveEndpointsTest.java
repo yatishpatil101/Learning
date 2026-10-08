@@ -58,12 +58,12 @@ class FlatmateSaveEndpointsTest extends AbstractApiTest {
     }
 
     private String createRoom(User host, String society) throws Exception {
-        String body = """
+        String body = withSocietyIds("""
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"Baner","society":"%s","rentShare":15000,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
                  "foodPref":"any","hostRole":"owner","photos":["https://cdn.example/1.jpg"]}
-                """.formatted(society);
+                """.formatted(society));
         String json = mvc.perform(post(Routes.Flatmates.ROOMS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(host))
                         .contentType(MediaType.APPLICATION_JSON)

@@ -5,7 +5,6 @@ import com.draazy.api.catalog.property.PropertyStatus;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
-import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -20,31 +19,38 @@ public final class SocietySpecs {
     private SocietySpecs() {
     }
 
-    /** <strong>{@code findAll} only, never delete-by-Specification</strong> - societies.md section 9.5. */
+    /** {@code findAll} only, never delete-by-Specification (societies.md section 9.5). */
     public static Specification<Society> browse(
-            String q, String localitySlug, Boolean hasListings, Boolean verified) {
+            String q, String localitySlug, Boolean hasListings) {
         return (root, query, cb) -> {
             List<Predicate> where = new ArrayList<>();
 
             // Merged-away duplicates are not results, and not a caller-supplied flag: listing both
             // splits one building's listings, followers and reviews across two cards.
             where.add(cb.isNull(root.get("mergedInto")));
+            where.add(cb.isNull(root.get("archivedAt")));
 
-            if (q != null && !q.isBlank()) {
-                String like = "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
-                where.add(cb.like(cb.lower(searchText(root, cb)), like));
+            if (likePattern(q) != null) {
+                where.add(cb.like(cb.lower(searchText(root, cb)), likePattern(q)));
             }
-            if (localitySlug != null && !localitySlug.isBlank()) {
-                where.add(cb.equal(root.get("localitySlug"), localitySlug.trim()));
+            if (trimmed(localitySlug) != null) {
+                where.add(cb.equal(root.get("localitySlug"), trimmed(localitySlug)));
             }
             if (Boolean.TRUE.equals(hasListings)) {
                 where.add(cb.exists(hasLiveListing(root, query, cb)));
             }
-            if (Boolean.TRUE.equals(verified)) {
-                where.add(isVerified(root, cb));
-            }
             return cb.and(where.toArray(new Predicate[0]));
         };
+    }
+
+    /** The lower-cased {@code LIKE} pattern for a free-text query, or null when there is none. */
+    public static String likePattern(String q) {
+        return q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+    }
+
+    /** The locality filter value, or null when blank. */
+    public static String trimmed(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /** Name, builder and the locality as words ("baner-road" is "baner road"), so a typed query finds all three. */
@@ -55,28 +61,7 @@ public final class SocietySpecs {
         return cb.concat(cb.concat(cb.concat(cb.concat(root.<String>get("name"), " "), builder), " "), locality);
     }
 
-    /** Ops confirmed it, or it came from a source that is not member-typed and carries both documents. */
-    private static Predicate isVerified(Root<Society> root, CriteriaBuilder cb) {
-        Path<String> source = root.get("source");
-        return cb.or(
-                cb.isNotNull(root.get("verifiedAt")),
-                cb.and(
-                        cb.or(cb.isNull(source), cb.notEqual(source, SocietySources.COMMUNITY)),
-                        cb.isTrue(root.get("registration")),
-                        cb.isTrue(root.get("conveyance"))));
-    }
-
-    /** In-memory twin of {@link #isVerified}, for orderings that run over loaded rows; keep the two in step. */
-    public static boolean isVerified(Society society) {
-        return society.getVerifiedAt() != null
-                || (!SocietySources.COMMUNITY.equals(society.getSource())
-                        && society.isRegistration() && society.isConveyance());
-    }
-
-    /**
-     * "Does this society have at least one live listing?", as a correlated {@code EXISTS}. <strong>The
-     * second root is the merge family, and it is load-bearing</strong>: societies.md section 9.4.
-     */
+    /** The second root is the merge family, and it is load-bearing: societies.md section 9.4. */
     private static Subquery<Integer> hasLiveListing(
             Root<Society> society, CriteriaQuery<?> query, CriteriaBuilder cb) {
         Subquery<Integer> sub = query.subquery(Integer.class);

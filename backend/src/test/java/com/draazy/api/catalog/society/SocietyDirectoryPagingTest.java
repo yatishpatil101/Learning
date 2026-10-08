@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MvcResult;
 
-/** Each filter and sort must hold over the whole set, since the directory pages one page at a time. */
+/** The directory asks for one page at a time, so each filter and ordering must hold over the whole set. */
 @DisplayName("Societies — the paged directory read")
 class SocietyDirectoryPagingTest extends AbstractApiTest {
 
@@ -39,20 +39,20 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
 
     private User user;
 
-    /** Names sort after every seeded society, so a sort that only ordered a page could never put them first. */
+    /** Names sort after every seeded one, so a sort that only ordered a page could never put them first. */
     private void fixtures() {
         user = new User("9865200001", "owner");
         user.setName("Asha Patil");
         user.setMobileVerified(true);
         user = users.saveAndFlush(user);
 
-        society("alpha", "rera", true, false);
-        UUID bravo = society("bravo", "rera", false, false);
-        UUID charlie = society("charlie", "community", false, false);
-        UUID delta = society("delta", "rera", true, false);
-        UUID echo = society("echo", "community", false, true);
-        society("foxtrot", "community", true, false);
-        UUID annexe = society("delta-annexe", "rera", false, false);
+        society("alpha");
+        UUID bravo = society("bravo");
+        UUID charlie = society("charlie");
+        UUID delta = society("delta");
+        UUID echo = society("echo");
+        society("foxtrot");
+        UUID annexe = society("delta-annexe");
         jdbc.update("update societies set merged_into = ?, merged_at = now(), merged_by = ? where id = ?",
                 delta, user.getId(), annexe);
 
@@ -67,15 +67,10 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
         reviews(echo, 5);
     }
 
-    private UUID society(String key, String source, boolean documents, boolean opsVerified) {
+    private UUID society(String key) {
         String slug = "zz-socpage-" + key;
-        jdbc.update("insert into societies (slug, name, locality_slug, source, registration, conveyance) "
-                + "values (?, ?, 'kharadi', ?, ?, ?)",
-                slug, "Zz Socpage " + key.replace('-', ' '), source, documents, documents);
-        if (opsVerified) {
-            jdbc.update("update societies set verified_at = now(), verified_by = ? where slug = ?",
-                    user.getId(), slug);
-        }
+        jdbc.update("insert into societies (slug, name, locality_slug, source) values (?, ?, 'kharadi', 'rera')",
+                slug, "Zz Socpage " + key.replace('-', ' '));
         return jdbc.queryForObject("select id from societies where slug = ?", UUID.class, slug);
     }
 
@@ -142,15 +137,15 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
     void homesSortsTheWholeSetAcrossPages() throws Exception {
         fixtures();
 
-        // Delta (3 with its annexe, verified) ties Bravo (3) and wins on the badge, then Charlie (2);
-        // the rest have none and fall back to verified-first, then name.
+        // Delta (3 with its annexe) ties Bravo (3) and loses on name, then Charlie (2); the rest
+        // have none and fall back to name.
         assertThat(walk(FIXTURES + "&sort=homes", 2)).containsExactly(
-                slugs("delta", "bravo", "charlie", "alpha", "echo", "foxtrot"));
+                slugs("bravo", "delta", "charlie", "alpha", "echo", "foxtrot"));
 
         // None of them is on the first page of an alphabetical read of the whole directory.
         mvc.perform(get("/societies?sort=homes&size=2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[*].slug").value(contains(slugs("delta", "bravo"))))
+                .andExpect(jsonPath("$.content[*].slug").value(contains(slugs("bravo", "delta"))))
                 .andExpect(jsonPath("$.content[0].listingCount").value(3))
                 .andExpect(jsonPath("$.sort").value("homes,desc"))
                 .andExpect(jsonPath("$.totalElements").value(count("true")));
@@ -170,16 +165,32 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("relevance is verified*4 + min(homes,3) + average/5, name breaking ties")
+    @DisplayName("relevance is min(homes,3) + average/5, name breaking ties")
     void relevanceSortsTheWholeSetAcrossPages() throws Exception {
         fixtures();
 
-        // Delta 4+3+1, Echo 4+0+1, Alpha 4, Bravo 0+3+.8, Charlie 0+2+1, Foxtrot 0.
+        // Delta 3+1, Bravo 3+.8, Charlie 2+1, Echo 0+1, Alpha 0, Foxtrot 0.
         assertThat(walk(FIXTURES + "&sort=relevance", 2)).containsExactly(
-                slugs("delta", "echo", "alpha", "bravo", "charlie", "foxtrot"));
+                slugs("delta", "bravo", "charlie", "echo", "alpha", "foxtrot"));
 
         mvc.perform(get("/societies?sort=relevance&size=1"))
                 .andExpect(jsonPath("$.content[0].slug").value("zz-socpage-delta"));
+    }
+
+    @Test
+    @DisplayName("page 2 of a ranked sort continues page 1, with the total unchanged")
+    void secondPageContinuesTheFirst() throws Exception {
+        fixtures();
+
+        for (String sort : List.of("relevance", "rating", "homes")) {
+            List<String> whole = walk(FIXTURES + "&sort=" + sort, 6);
+            mvc.perform(get("/societies?" + FIXTURES + "&sort=" + sort + "&size=2&page=0"))
+                    .andExpect(jsonPath("$.content[*].slug").value(contains(whole.subList(0, 2).toArray())))
+                    .andExpect(jsonPath("$.totalElements").value(6));
+            mvc.perform(get("/societies?" + FIXTURES + "&sort=" + sort + "&size=2&page=1"))
+                    .andExpect(jsonPath("$.content[*].slug").value(contains(whole.subList(2, 4).toArray())))
+                    .andExpect(jsonPath("$.totalElements").value(6));
+        }
     }
 
     @Test
@@ -187,8 +198,8 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
     void rankedSortsComposeWithFilters() throws Exception {
         fixtures();
 
-        assertThat(walk(FIXTURES + "&verified=true&sort=relevance", 2)).containsExactly(
-                slugs("delta", "echo", "alpha"));
+        assertThat(walk(FIXTURES + "&hasListings=true&sort=relevance", 2)).containsExactly(
+                slugs("delta", "bravo", "charlie"));
 
         mvc.perform(get("/societies?locality=kharadi&sort=homes&size=100"))
                 .andExpect(status().isOk())
@@ -197,18 +208,13 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("verified=true keeps what the card badges verified: ops-confirmed, or non-community with both documents")
-    void verifiedFilterMatchesTheBadge() throws Exception {
+    @DisplayName("hasListings=true keeps societies with a live home, counting a merged-away duplicate's")
+    void hasListingsFilterKeepsSocietiesWithHomes() throws Exception {
         fixtures();
 
-        mvc.perform(get("/societies?" + FIXTURES + "&verified=true"))
+        mvc.perform(get("/societies?" + FIXTURES + "&hasListings=true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[*].slug").value(contains(slugs("alpha", "delta", "echo"))));
-
-        mvc.perform(get("/societies?verified=true&size=100"))
-                .andExpect(jsonPath("$.totalElements").value(count(
-                        "(verified_at is not null or (coalesce(source, '') <> 'community' "
-                                + "and registration and conveyance))")));
+                .andExpect(jsonPath("$.content[*].slug").value(contains(slugs("bravo", "charlie", "delta"))));
     }
 
     @Test
@@ -220,11 +226,9 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
         mvc.perform(get("/societies"))
                 .andExpect(jsonPath("$.totalElements").value(total))
                 .andExpect(jsonPath("$.sort").value("name,asc"));
-        mvc.perform(get("/societies?verified=false"))
-                .andExpect(jsonPath("$.totalElements").value(total));
         mvc.perform(get("/societies?sort=name&size=100"))
                 .andExpect(jsonPath("$.sort").value("name,asc"));
-        mvc.perform(get("/societies?sort=claimStatus,desc"))
+        mvc.perform(get("/societies?sort=nonsense,desc"))
                 .andExpect(jsonPath("$.sort").value("name,asc"));
     }
 

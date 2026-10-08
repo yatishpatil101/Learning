@@ -5,7 +5,7 @@ category: search-visits
 audience: tenant
 order: 5
 updated: 2026-10-04
-summary: Research a building or a neighbourhood before you shortlist a flat in it, and contribute what you know if you live there.
+summary: Research a building or a neighbourhood before you shortlist a flat in it.
 tags: [society, locality, area, research, reviews, follow]
 ---
 
@@ -23,14 +23,13 @@ From any locality page you can jump straight into [search](/listings) restricted
 
 [Explore societies](/societies) lists Pune housing societies. Search, filter by locality, and follow the ones you are interested in.
 
-Each society has a hub with five tabs:
+Each society has a page with these tabs:
 
 | Tab | What is on it |
 | --- | --- |
 | Overview | Specs, amenities, age, and a summary rating |
 | Homes | Flats currently on sale or on rent in that building, on Draazy |
-| Reviews & Q&A | Ratings, questions and answers, with resident badges on Q&A where we can confirm the author lives there |
-| Community | Tips, resident picks, photos, notices and events |
+| Reviews | Ratings and reviews, shown once a society has three |
 | Location | Map, connectivity and what is nearby |
 
 > [!TIP]
@@ -38,21 +37,11 @@ Each society has a hub with five tabs:
 
 ## Contributing
 
-Anyone signed in can follow a society, leave a review, ask a question, answer one, or contribute tips, picks and photos. Resident confirmation is separate from identity verification — see [How we verify](/help/a/how-we-verify).
-
-## If you actually live there
-
-Confirming you are a resident of that building — your flat, confirmed by OTP or by the committee — is separate from identity verification, and it unlocks more:
-
-- Your Q&A posts can carry a **resident** badge
-- You can post notices and events to the community tab
-- You can propose a correction to the building's details, its location pin or its WhatsApp group link
-
-Proposals are read by our team before they go live, because a building's page is shared by everyone who lives in it.
+Anyone signed in can follow a society and leave a review.
 
 ## If your society is missing
 
-Add it from [Explore societies](/societies). A society added this way is marked community-added until it is confirmed, and it works normally in the meantime — you can follow it, review it and list a flat in it.
+Search for it on Google Maps from [Explore societies](/societies) or while listing a home. Societies are always picked from Google Maps, so each one matches a real place. Once added, you can follow it, review it and list a flat in it.
 
 ## Related
 

@@ -18,7 +18,7 @@ Most portals sell your phone number to agents. We do the opposite — owners lis
 
 - **Zero brokerage.** You never pay us a commission on rent or sale.
 - **Owner-only supply.** Owners, or a family member listing for them, can post. Agents and brokers cannot.
-- **Badges where checks are complete.** Identity, ownership, RERA and society badges are shown separately so you know what has been checked.
+- **Badges where checks are complete.** Identity, ownership and RERA badges are shown separately so you know what has been checked.
 - **Real availability.** Owners confirm availability regularly; stale listings are pulled down.
 - **Local depth.** Smart search, live filter counts, locality guides, commute times and society-level data for Pune specifically.
 

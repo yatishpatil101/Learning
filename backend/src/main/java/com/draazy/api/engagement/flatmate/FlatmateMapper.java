@@ -132,7 +132,6 @@ public interface FlatmateMapper {
     @Mapping(target = "lockInMonths", source = "lockInMonths")
     @Mapping(target = "maintenanceBilling", source = "maintenanceBilling", qualifiedByName = "billingOrNull")
     @Mapping(target = "electricityBilling", source = "electricityBilling", qualifiedByName = "billingOrNull")
-    @Mapping(target = "society", source = "society", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "societyId", source = "societyId", qualifiedByName = "uuidOrNull")
     @Mapping(target = "flatNumber", source = "flatNumber", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "availableFrom", source = "availableFrom")

@@ -4,6 +4,10 @@ import { myFlatmateGroups, myFlatmatePosts, myFlatmateRooms } from '../../servic
 const SHARE_REQ_IMG = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
 
+// Flatmate moderation states (FlatmateVocabulary.MOD_STATUS) onto the listing card's status vocabulary.
+const CARD_STATUS = { live: 'approved', approved: 'approved', pending: 'pending', flagged: 'pending', removed: 'rejected', rejected: 'rejected', expired: 'expired' };
+const cardStatus = (modStatus) => CARD_STATUS[modStatus] || 'pending';
+
 export function flatmatePostToListing(r) {
   const locality = (r.localities && r.localities[0]) || 'Pune';
   return {
@@ -12,7 +16,7 @@ export function flatmatePostToListing(r) {
     locality,
     price: r.budget,
     deal: 'rent',
-    status: r.modStatus === 'expired' ? 'expired' : 'approved',
+    status: cardStatus(r.modStatus),
     image: SHARE_REQ_IMG,
     img: SHARE_REQ_IMG,
     views: 0,
@@ -39,7 +43,7 @@ export function flatmateGroupToListing(g) {
     locality: g.locality || 'Pune',
     price: perHead,
     deal: 'rent',
-    status: g.modStatus === 'expired' ? 'expired' : 'approved',
+    status: cardStatus(g.modStatus),
     image: FLATMATE_GROUP_IMG,
     img: FLATMATE_GROUP_IMG,
     views: 0,
@@ -69,7 +73,7 @@ export function roomToListing(room) {
     locality,
     price: room.price ?? room.budget ?? 0,
     deal: 'rent',
-    status: room.modStatus === 'expired' ? 'expired' : (room.status || 'pending'),
+    status: cardStatus(room.modStatus),
     image,
     img: image,
     views: room.views || 0,

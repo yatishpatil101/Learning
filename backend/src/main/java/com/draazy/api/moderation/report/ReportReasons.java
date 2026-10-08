@@ -30,16 +30,8 @@ public final class ReportReasons {
      * than useless ({@code brokerage} says nothing about a review). */
     private static final Set<String> FOR_REVIEW = Set.of("fake", "abuse", OTHER);
 
-    /** One set across all five society-hub kinds: the complaint does not change with the widget.
-     * {@code personal} is unique to it — a recommendation naming a real tradesman's mobile number. */
-    private static final Set<String> FOR_SOCIETY_CONTENT =
-            Set.of("abuse", "spam", "fake", "personal", OTHER);
-
     /** @return the permitted reason codes, or an empty set for an unknown target type */
     public static Set<String> forTarget(String targetType) {
-        if (ReportTargetTypes.isSocietyContent(targetType)) {
-            return FOR_SOCIETY_CONTENT;
-        }
         return switch (targetType == null ? "" : targetType) {
             case ReportTargetTypes.PROPERTY -> FOR_PROPERTY;
             case ReportTargetTypes.USER -> FOR_USER;
@@ -62,7 +54,7 @@ public final class ReportReasons {
 
     /** Every reason code the platform recognises, across all four target types. */
     private static final Set<String> ANY =
-            Stream.of(FOR_PROPERTY, FOR_USER, FOR_POST, FOR_REVIEW, FOR_SOCIETY_CONTENT)
+            Stream.of(FOR_PROPERTY, FOR_USER, FOR_POST, FOR_REVIEW)
                     .flatMap(Set::stream)
                     .collect(Collectors.toUnmodifiableSet());
 }

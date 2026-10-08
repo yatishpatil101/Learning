@@ -10,7 +10,7 @@ summary: Identity, listing, ownership and flatmate verification badges - what ea
 tags: [verification, trust, kyc, badge, rera, ownership]
 ---
 
-Draazy uses separate badges for separate checks. A listing can be live with no badge, or carry identity, ownership, RERA and society signals together. Each badge is a meaningful signal, but none is a guarantee of ownership, condition or final terms - read on for exactly where the line is.
+Draazy uses separate badges for separate checks. A listing can be live with no badge, or carry identity, ownership and RERA signals together. Each badge is a meaningful signal, but none is a guarantee of ownership, condition or final terms - read on for exactly where the line is.
 
 ## Verification is a badge, not a gate
 
@@ -60,7 +60,6 @@ For a sale, always run an independent title check before paying anything. We off
 | ID verified owner | The poster's ID and live selfie were reviewed and accepted |
 | Verified property | Ownership evidence was accepted and is still current |
 | RERA registered | The project carries a valid MahaRERA registration number |
-| Society verified | The building or society was confirmed against our Pune/PCMC dataset |
 | No badge | Nobody has submitted anything yet. Common and not suspicious - treat with normal caution. |
 
 A listing can carry several of these at once, and the search filters let you require any of them.

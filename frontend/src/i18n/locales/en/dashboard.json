@@ -1,5 +1,10 @@
 {
   "dash": {
+    "societyFinder": {
+      "title": "Track a society",
+      "hint": "Pick it from Google Maps and we'll alert you when a home is listed.",
+      "placeholder": "Search your society on Google Maps"
+    },
     "badge": {
       "title": "Verified property badge",
       "notRequested": "Not requested",

@@ -219,6 +219,11 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String societySlug;
 
+    /** Server-derived, so a listing bound to an archived society still names it in the owner's edit form. */
+    @Formula("(select s.name from societies s where s.id = society_id)")
+    @Setter
+    private String societyName;
+
     @Column(name = "city", nullable = false)
     @Setter
     private String city = "Pune";
@@ -462,14 +467,6 @@ public class Property extends SoftDeleteEntity {
         this.lastConfirmedAt = at;
         // JPA
     }
-
-    @Column(name = "society_verified", nullable = false)
-    @Setter
-    private boolean societyVerified = false;
-
-    @Column(name = "conveyance_done", nullable = false)
-    @Setter
-    private boolean conveyanceDone = false;
 
     @Column(name = "docs_count", nullable = false)
     @Setter

@@ -309,7 +309,7 @@ covers the whole sweep rather than only the part a regex found.
 ### The four ways a column stops carrying personal data
 
 `CLEARED` reads back null (or false for a NOT NULL boolean). `REPLACED` keeps a value that is no
-longer the subject's — `users.mobile` and `society_claims.name` are both NOT NULL, so substitution is
+longer the subject's — `users.mobile` is NOT NULL, so substitution is
 the only option the schema leaves. `ROW_REMOVED` deletes the whole row. `DETACHED` keeps the row and
 nulls its link to the subject, and is separate from the other two for a reason in each direction:
 it cannot be `CLEARED` because the nulled column is also the only way to find the row, so a read-back
@@ -338,11 +338,8 @@ as completely.
 - **`outbound_message` goes whole** because the column that matched the vocabulary is not the hard
   one: `body` holds the rendered message, and a row with a nulled mobile and an intact "Hi Ramesh,
   about your flat in Kothrud" is not erased in any sense a subject would accept.
-- **`society_claims` is swept but the row is kept.** A claim is why a society reads as claimed,
-  pending or rejected to every other resident, so deleting it would let one person's erasure change a
-  shared fact about a building and hand a claimed society to whoever asked next. It is swept rather
-  than left to `users` because the claim form asks a different question — who on the committee is
-  claiming this — and routinely holds a fuller name and a personal address the profile does not.
+- **Society claims and residents are not swept: they no longer exist.** V94 emptied those tables when
+  the society community features were retired, and the contract migration drops them.
 - **`identity_verifications.identity_hash` is cleared** precisely because it is the part most easily
   argued into staying: it is the irreversible "one document, one account" dedup key, and keeping it
   would let the platform recognise the same human on their return — the exact capability erasure

@@ -289,25 +289,17 @@ const javaReasonSet = (name) => {
   return new Set([...body.matchAll(/"([^"]+)"/g)].map(([, v]) => v));
 };
 
-const { LISTING_REPORT_REASONS, SHARE_REPORT_REASONS, OWNER_REPORT_REASONS, SOCIETY_REPORT_REASONS } =
+const { LISTING_REPORT_REASONS, SHARE_REPORT_REASONS, OWNER_REPORT_REASONS, REVIEW_REPORT_REASONS } =
   await import('../src/lib/reportReasons.js');
 
 for (const [js, java, what] of [
   [LISTING_REPORT_REASONS, 'FOR_PROPERTY', 'LISTING_REPORT_REASONS vs FOR_PROPERTY'],
   [SHARE_REPORT_REASONS, 'FOR_POST', 'SHARE_REPORT_REASONS vs FOR_POST'],
   [OWNER_REPORT_REASONS, 'FOR_USER', 'OWNER_REPORT_REASONS vs FOR_USER'],
-  [SOCIETY_REPORT_REASONS, 'FOR_SOCIETY_CONTENT', 'SOCIETY_REPORT_REASONS vs FOR_SOCIETY_CONTENT'],
+  [REVIEW_REPORT_REASONS, 'FOR_REVIEW', 'REVIEW_REPORT_REASONS vs FOR_REVIEW'],
 ]) {
   sameSet(new Set(keysOf(js)), javaReasonSet(java), `reportReasons.js ${what}`);
 }
-
-/* `FOR_REVIEW` is deliberately unpaired — asserted rather than skipped, so building a review reason
-   picker makes this line fail and sends you to the pairs above. */
-ok(
-  javaReasonSet('FOR_REVIEW').size === 3,
-  'FOR_REVIEW changed. It is the one set with no frontend list; if a review reason picker now exists,'
-  + ' add it to the pairs above instead of widening this check.',
-);
 
 if (failures.length) {
   console.error(`\n  x ${failures.length} of ${checks} checks failed\n`);

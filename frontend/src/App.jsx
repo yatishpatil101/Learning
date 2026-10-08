@@ -32,7 +32,7 @@ const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'listin
 const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
 const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
 const Compare = lazyPage(() => import('./pages/consumer/Compare.jsx'), 'compare-saved');
-const Dashboard = lazyPage(() => import('./pages/consumer/Dashboard.jsx'), 'dashboard', 'flatmates', 'listings', 'locality', 'owner', 'owner-hub', 'verify');
+const Dashboard = lazyPage(() => import('./pages/consumer/Dashboard.jsx'), 'dashboard', 'flatmates', 'list-property', 'listings', 'locality', 'owner', 'owner-hub', 'verify');
 const Services = lazyPage(() => import('./pages/consumer/Services.jsx'), 'services');
 const ListProperty = lazyPage(() => import('./pages/consumer/ListProperty.jsx'), 'flatmates', 'list-property', 'owner', 'verify');
 const PropertyPassport = lazyPage(() => import('./pages/consumer/PropertyPassport.jsx'), 'locality', 'owner-hub');
@@ -53,7 +53,7 @@ const VerifyIdentity = lazyPage(() => import('./pages/consumer/VerifyIdentity.js
 const Checkout = lazyPage(() => import('./pages/consumer/Checkout.jsx'), 'misc2');
 const ScheduleVisit = lazy(() => import('./pages/consumer/ScheduleVisit.jsx'));
 const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-property', 'property', 'society');
-const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'society');
+const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'list-property', 'society');
 const Reels = lazyPage(() => import('./pages/consumer/Reels.jsx'), 'compare-saved', 'reels-docs');
 const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-saved', 'flatmates', 'listings');
 // Static teaser only: keep this route free of payment calls until the rail is live.
@@ -258,7 +258,6 @@ export default function App() {
           <Route path="/societies" element={<Societies />} />
           {/* Own boundary so the outer centred spinner never covers this route: the society page
               opens on a 224–288px hero, so the swap would shunt everything below it downward. */}
-          <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Suspense fallback={<SocietySkeleton />}><Society /></Suspense></AppFlagRoute>} />
           <Route path="/society/:slug" element={<Suspense fallback={<SocietySkeleton />}><Society /></Suspense>} />
           <Route path="/reels" element={<Reels />} />
           {/* No auth wall: saves live in localStorage and several surfaces write them while signed

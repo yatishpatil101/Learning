@@ -29,7 +29,6 @@ const consumer = [
   ['Tenant Profile', '/tenant-profile', 'Profile edit/save, auth-gated'],
   ['Checkout', '/checkout', 'Order summary, pay flow (mock), auth-gated'],
   ['Schedule Visit', '/schedule-visit', 'Date/time picker, submit, flag+auth-gated'],
-  ['Society', '/society', 'Society SaaS landing, flag-gated'],
   ['Reels', '/reels', 'Video/reel scroll, autoplay, controls'],
   ['Saved', '/saved', 'Saved list, remove, empty state, flag+auth-gated'],
   ['Pay Rent', '/pay-rent', 'Static coming-soon page; no payment rail behind it'],

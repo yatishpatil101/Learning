@@ -65,10 +65,9 @@ USER app
 # insecure configuration has to be asked for by name. Override it (e.g. `sandbox`) deliberately.
 ENV SPRING_PROFILES_ACTIVE=prod
 
-# The JVM sees the container's limit, not the host's, but its default heap ceiling of 25% wastes
-# most of a small Cloud Run instance. 75% leaves room for metaspace, thread stacks and the direct
-# buffers the S3 client uses.
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+# Heap at 70% of the container limit (the 25% default wastes a small Cloud Run instance); the rest
+# covers metaspace, thread stacks, malloc arenas and the S3 client's direct buffers.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError"
 
 # Documentation only — the platform injects PORT and the app reads it (see the header note).
 EXPOSE 8080

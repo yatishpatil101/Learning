@@ -70,7 +70,6 @@ export const ROUTE_PATTERNS = [
   '/signin',
   '/signup',
   '/societies',
-  '/society',
   '/society/:slug',
   '/staff-invite',
   '/staff/*',

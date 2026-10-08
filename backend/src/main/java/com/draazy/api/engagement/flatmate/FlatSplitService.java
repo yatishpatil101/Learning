@@ -5,6 +5,8 @@ import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyPublished;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
+import com.draazy.api.catalog.society.Society;
+import com.draazy.api.catalog.society.SocietyRepository;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
@@ -39,16 +41,18 @@ public class FlatSplitService {
     private final FlatmateMapper mapper;
     private final UserRepository users;
     private final AuditService audit;
+    private final SocietyRepository societies;
 
     public FlatSplitService(PropertyRepository properties, FlatmateRoomRepository rooms,
             FlatmateGuardrails guardrails, FlatmateMapper mapper, UserRepository users,
-            AuditService audit) {
+            AuditService audit, SocietyRepository societies) {
         this.properties = properties;
         this.rooms = rooms;
         this.guardrails = guardrails;
         this.mapper = mapper;
         this.users = users;
         this.audit = audit;
+        this.societies = societies;
     }
 
     /** {@code POST /properties/{id}/split} — owner-only, rent-only, once-only. */
@@ -170,6 +174,8 @@ public class FlatSplitService {
         room.setHostRole(FlatmateVocabulary.ROLE_OWNER);
         room.setVerificationTier(tier);
         room.setSocietyId(parent.getSocietyId());
+        room.setSociety(parent.getSocietyId() == null ? null
+                : societies.findById(parent.getSocietyId()).map(Society::getName).orElse(null));
         room.setLocalities(List.of(parent.getLocality()));
         room.setLat(parent.getLat());
         room.setLng(parent.getLng());

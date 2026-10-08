@@ -43,7 +43,7 @@ Furnishing, parking, pet-friendly, lift, power backup, security, food preference
 
 - **Available from** — narrows rentals by when the owner says they are available
 - **Near a place** — uses a real place and a radius, instead of trusting locality boundaries
-- **Verification** — narrows to specific current [verification badges](/help/a/how-we-verify), such as ID verified owner, ownership verified, RERA or society verification
+- **Verification** — narrows to specific current [verification badges](/help/a/how-we-verify), such as ID verified owner, ownership verified or RERA
 - **Security deposit** — filters rentals by stated deposit while keeping homes where the owner has not stated one
 
 The result count above the listings and the phone filter sheet update for the current search. If it falls to zero, remove the last constraint you added.

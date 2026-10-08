@@ -208,18 +208,6 @@ public class ErasureService {
                 .setParameter("mobile", oldMobile)
                 .executeUpdate());
 
-        // 6. Society claim contact fields. Row stays — deleting one person's claim would
-        //    change a shared building's status — but `name` (NOT NULL) is substituted, `email` nulled.
-        erased.put("society_claims", entityManager
-                .createNativeQuery("""
-                        update society_claims
-                           set name = 'Erased account',
-                               email = null
-                         where claimed_by = :id
-                        """)
-                .setParameter("id", subjectId)
-                .executeUpdate());
-
         erased.put("page_views", entityManager
                 .createNativeQuery("""
                         update page_views

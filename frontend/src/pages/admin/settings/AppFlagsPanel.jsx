@@ -21,12 +21,11 @@ const APP_FLAG_SECTIONS = [
   },
   {
     section: 'trust',
-    title: 'Trust & Communities',
+    title: 'Trust',
     desc: 'Flows that depend on review capacity or a staged launch',
     icon: Building2,
     flags: [
       { key: 'kycBadgeEnabled', label: 'Verified badge (identity review)', desc: 'The opt-in identity verification flow; a trust signal, not a posting or contact gate' },
-      { key: 'societySaaS', label: 'Society SaaS', desc: 'Society management module (maintenance, notices)' },
     ],
   },
   {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, CheckCircle2, ArrowLeft, Eye, Plus, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import StepHeader from './StepHeader.jsx';
@@ -6,18 +6,13 @@ import { FieldError, Pill } from './controls.jsx';
 import PhotoUploader from './PhotoUploader.jsx';
 import ListingPreview from './ListingPreview.jsx';
 import { fld, lbl3 } from './styles.js';
-import { amenitiesFor, isResidentialType, SOCIETY_AMENITY_LABELS } from './constants.js';
+import { amenitiesFor, isResidentialType } from './constants.js';
 import { describeListing } from './describe.js';
 import { listingLabels } from './submit.js';
 import HeadlineField from '../../../components/ui/HeadlineField.jsx';
 import VideoLinkField from './VideoLinkField.jsx';
-import { ensureSocietyCatalogue, societyById } from '../../../data/societies.js';
 
 const BEST_TIMES = ['anytime', 'morning', 'afternoon', 'evening'];
-const SOCIETY_AMENITY_BY_KEY = {
-  pool: 'Swimming Pool', gym: 'Gym', clubhouse: 'Club House', garden: 'Garden', kids: 'Kids Play Zone',
-  security: 'Smart Security', jogging: 'Jogging Track', sports: 'Sports Court', lift: 'Lift', power: 'Power Backup',
-};
 
 const AmenityGroup = ({ title, options, values, onToggle }) => options.length ? (
   <div>
@@ -42,20 +37,14 @@ const PhotosDocumentsStep = ({
   photos, handlePhotoUpload, removePhoto, setPhotoCategory,
   isMediaBusy, mediaStatus,
   prevStep, submitProperty, onReset, posting, onJump,
-  isEditing = false, amenityPrefillRef, needsAuthForMedia = false, onRequireAuth,
+  needsAuthForMedia = false, onRequireAuth,
 }) => {
   const { t } = useTranslation();
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [prefill, setPrefill] = useState('');
   const [draftAmenity, setDraftAmenity] = useState('');
   const [amenityStatus, setAmenityStatus] = useState(null);
-  const setRef = useRef(set);
-  useEffect(() => { setRef.current = set; }, [set]);
   const allAmenities = useMemo(() => amenitiesFor(form.propertyType, form.commercialType), [form.propertyType, form.commercialType]);
-  const toggleAmenity = (label) => {
-    if (amenityPrefillRef?.current) amenityPrefillRef.current.touchedFor = form.societyId || '__manual';
-    toggleInArray('amenities', label);
-  };
+  const toggleAmenity = (label) => toggleInArray('amenities', label);
   const optionLabels = allAmenities.map((a) => a.label.toLowerCase());
   const customAmenities = (form.amenities || []).filter((v) => !optionLabels.includes(String(v).toLowerCase()));
   const addAmenity = () => {
@@ -77,25 +66,6 @@ const PhotosDocumentsStep = ({
     if (String(form.description || '').trim() && !window.confirm(t('listProperty.content.describe.replaceConfirm'))) return;
     set('description', next);
   };
-  useEffect(() => {
-    setPrefill('');
-  }, [form.societyId]);
-  useEffect(() => {
-    const marker = amenityPrefillRef?.current;
-    if (isEditing || !form.societyId || form.amenities?.length
-      || marker?.touchedFor === form.societyId || marker?.prefilledFor === form.societyId) return;
-    let alive = true;
-    ensureSocietyCatalogue().catch(() => {}).finally(() => {
-      if (!alive) return;
-      const society = societyById(form.societyId);
-      const labels = (society?.amenities || []).map((key) => SOCIETY_AMENITY_BY_KEY[key]).filter((label) => SOCIETY_AMENITY_LABELS.includes(label));
-      if (!labels.length) return;
-      if (marker) marker.prefilledFor = form.societyId;
-      setRef.current('amenities', [...new Set(labels)]);
-      setPrefill(t('listProperty.content.amenities.prefilled', { society: society.name }));
-    });
-    return () => { alive = false; };
-  }, [amenityPrefillRef, form.amenities?.length, form.societyId, isEditing, t]);
   const submitLabel = t(needsAuthForMedia ? 'listProperty.deferredLogin.submitCta' : 'listProperty.photosDocs.submitProperty');
   return (
     <div className="lp-step">
@@ -164,7 +134,6 @@ const PhotosDocumentsStep = ({
       {allAmenities.length > 0 && (
         <div className="mb-8">
           <label className={lbl3}>{t('listProperty.fields.amenities')}</label>
-          {prefill ? <p className="mb-3 text-xs text-teal-300">{prefill}</p> : null}
           <AmenityGroup title={t(isResidentialType(form.propertyType) ? 'listProperty.content.amenities.society' : 'listProperty.content.amenities.all')} options={allAmenities} values={form.amenities} onToggle={toggleAmenity} />
           {customAmenities.length ? (
             <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3">

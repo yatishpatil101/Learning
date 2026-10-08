@@ -22,8 +22,6 @@ public record ListingFacets(
         Boolean ownerVerified,
         Boolean ownershipVerified,
         Boolean rera,
-        Boolean societyVerified,
-        Boolean conveyanceDone,
         String food,
         List<String> shell,
         Boolean preLeased,
@@ -47,13 +45,13 @@ public record ListingFacets(
             List<String> furnishings, List<String> localities, List<String> societies,
             List<String> amenities, List<String> landUse, List<String> room, List<String> tenants,
             List<String> construction, String availableFrom, Boolean pets, Boolean ownerVerified,
-            Boolean ownershipVerified, Boolean rera, Boolean societyVerified, Boolean conveyanceDone,
+            Boolean ownershipVerified, Boolean rera,
             BigDecimal minArea, BigDecimal maxArea, Integer minAge, Integer maxAge,
             Integer minFloor, Integer maxFloor, Long minDeposit, Long maxDeposit, Double nearLat,
             Double nearLng, Double nearRadiusKm) {
         this(types, commercialUses, bhks, furnishings, localities, societies, amenities, null,
                 landUse, room, tenants, construction, availableFrom, pets, ownerVerified, ownershipVerified,
-                rera, societyVerified, conveyanceDone, null, null, null, null,
+                rera, null, null, null, null,
                 minArea, maxArea, null, minAge, maxAge, minFloor, maxFloor, minDeposit,
                 maxDeposit, nearLat, nearLng, nearRadiusKm, null, null);
     }
@@ -61,7 +59,7 @@ public record ListingFacets(
     public static final ListingFacets NONE = new ListingFacets(
             null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
     /** Widest-first, or empty when unfiltered; kept here so the cumulative rule sits next to the field. */
     public List<String> availableFromBuckets() {

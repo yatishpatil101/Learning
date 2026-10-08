@@ -2,31 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { societyForListing } from '../../../data/societies.js';
 import { getSociety } from '../../../services/societyService.js';
 import { getEntityReviewSummary } from '../../../services/reviewService.js';
 import { Stars } from './Stars.jsx';
 
 export function SocietySection({ p }) {
   const { t } = useTranslation();
-  /* Which building this listing names, from the seam.
-   *
-   * The slug comes from the listing itself where the server put it, and only falls back to
-   * `societyForListing` for records that carry the synthetic `societyId` instead — community
-   * societies still key on `S01`. Preferring the slug is not tidiness: `societyForListing`
-   * resolves against the bundled catalogue, so a listing bound to a society **minted through the
-   * API** finds nothing and this whole section vanishes, which on a property page reads as "this
-   * home is not in a society" about a home that is.
-   *
-   * There is deliberately no `useSocietyCatalogue()` re-render subscription here. 320 of the 348
-   * bundled slugs arrive in a lazy chunk, so a synchronous read answers null for them on first
-   * paint. Awaiting the catalogue is the seam's job; this component is told once.
-   *
-   * `null` is left as `null` — no `genericSociety` here. The section's whole contract is that its
-   * absence means "we do not know this home's building", and inventing a row to fill it would put
-   * a registration tile and a conveyance tile under a name nobody checked. */
   const [soc, setSoc] = useState(null);
-  const socSlug = p?.societySlug || societyForListing(p)?.slug || null;
+  const socSlug = p?.societySlug || null;
   useEffect(() => {
     if (!socSlug) { setSoc(null); return undefined; }
     let alive = true;
@@ -35,28 +18,8 @@ export function SocietySection({ p }) {
       .catch(() => { if (alive) setSoc(null); });
     return () => { alive = false; };
   }, [socSlug]);
-  const verified = !!(soc && soc.registration && soc.conveyance);
-  const claimed = !!(soc && soc.claimStatus === 'claimed');
-  /* SEAM NOTE: one society's aggregate, from the seam, keyed on the **slug**.
-
-     The society itself comes from `data/societies.js`, so `soc.id` is a synthetic `S01` the server
-     has never seen; the reviews the hub writes are keyed on `soc.slug`. This used to reduce the
-     `entityRating` localStorage bucket, which a live session never writes — so against the real API
-     it was permanently empty, and the empty branch rendered a hard-coded `4.2` as a real star
-     rating. That is the fabricated-`registration: true` defect in a more quantitative costume: a
-     reader had no way to tell 4.2-because-people-said-so from 4.2-because-a-developer-typed-it.
-
-     `getEntityReviewSummary` is one request, already live, and already what the society hub uses.
-     `services/societyService.js` indexes `avgRating`/`reviewCount` off `GET /societies` for the
-     *directory*; that read is deliberately not used here, because it walks four pages / 348 rows to
-     draw one star.
-
-     Three states, not two: `null` = we have not been told yet (or the read failed), which renders
-     the builder alone and claims nothing; `count === 0` = the server says nobody has rated it, which
-     is the only branch entitled to say "Not rated yet"; `count > 0` = a real average. The server is
-     careful about this distinction — `SocietyResponse` returns `avgRating: null` for an unrated
-     society and its docblock says "no rating is not a rating of zero" — and the client's job is to
-     stop undoing it. */
+  /* `null` = not told yet or the read failed (builder only); `count === 0` is the only branch
+     entitled to say "Not rated yet". */
   const [rating, setRating] = useState(null);
   const slug = soc ? soc.slug : null;
   useEffect(() => {
@@ -69,41 +32,15 @@ export function SocietySection({ p }) {
     return () => { alive = false; };
   }, [slug]);
 
-  /* No binding, no section. Every hook above still runs, so this early return is safe.
-
-     `societyForListing` answers null for a listing that carries no `societySlug`, which is most of
-     them: an owner is not obliged to name a building, and `properties.society_id` is null for the
-     majority of real rows.
-
-     The tempting half-measure — keep the heading, drop the details — is worse than nothing. A
-     "Society Information" heading over a generic "Building" name, a registration tile and a
-     conveyance tile still asserts that this home belongs to a society and that someone checked its
-     paperwork. Those tiles are fed by `p.ownershipVerified`, which is a claim about the *seller's*
-     title and says nothing at all about a society's registration or conveyance deed. Absent is the
-     only honest rendering of unknown. */
+  /* No binding, no section: a heading over a generic name would still assert a society that was never picked. */
   if (!soc) return null;
 
   const quick = [
-    ['home', t('property.homesCount', { count: soc.units })],
-    ['building-2', t('property.towersCount', { count: soc.towers })],
-    ['calendar', t('property.builtYear', { year: soc.year })],
-    ['users', t('property.occupied', { occupancy: soc.occupancy })],
-  ];
-
-  const card = (ok, icon, title, okLabel, noLabel, okDesc, noDesc) => (
-    <div className={'rounded-xl border p-5 flex items-start gap-3 ' + (ok ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-white/10 bg-white/5')}>
-      <div className={'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ' + (ok ? 'bg-emerald-500/15' : 'bg-white/10')}>
-        <Icon name={icon} className={'w-5 h-5 ' + (ok ? 'text-emerald-400' : 'text-slate-400')} />
-      </div>
-      <div>
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <p className="font-semibold text-white text-sm">{title}</p>
-          <span className={'text-[11px] font-semibold px-2 py-0.5 rounded-full ' + (ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-slate-400')}>{ok ? okLabel : noLabel}</span>
-        </div>
-        <p className="text-xs text-slate-400 leading-relaxed">{ok ? okDesc : noDesc}</p>
-      </div>
-    </div>
-  );
+    ['home', soc.units != null ? t('property.homesCount', { count: soc.units }) : null],
+    ['building-2', soc.towers != null ? t('property.towersCount', { count: soc.towers }) : null],
+    ['calendar', soc.year ? t('property.builtYear', { year: soc.year }) : null],
+    ['users', soc.occupancy != null ? t('property.occupied', { occupancy: soc.occupancy }) : null],
+  ].filter(([, val]) => val);
 
   return (
     <section className="fade-in section-mb">
@@ -122,31 +59,25 @@ export function SocietySection({ p }) {
                     <span className="text-xs text-slate-500" data-testid="property-society-rating">{`${Number(rating.avg).toFixed(1)} · ${t('property.societyReviewCount', { count: rating.count })}`}</span>
                   </>
                 ) : (
-                  <span className="text-xs text-slate-500">{rating ? `${t('property.societyNotRated')} · ${soc.builder}` : soc.builder}</span>
+                  <span className="text-xs text-slate-500">{rating ? [t('property.societyNotRated'), soc.builder].filter(Boolean).join(' · ') : soc.builder}</span>
                 )}
               </div>
             </div>
           </div>
-          {verified ? <span className="tag tag-emerald flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.verifiedSociety')}</span> : null}
-          {claimed ? <span className="tag flex items-center gap-1.5" style={{ background: 'rgba(37,99,235,.15)', color: '#93c5fd', border: '1px solid rgba(37,99,235,.3)' }}><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.managedOnDraazy')}</span> : null}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
-          {quick.map(([icon, val]) => (
-            <div key={val} className="rd-cell flex items-center gap-2">
-              <Icon name={icon} className="w-4 h-4 text-brand-teal-3 flex-shrink-0" />
-              <span className="text-sm font-semibold text-white truncate">{val}</span>
-            </div>
-          ))}
-        </div>
+        {quick.length ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
+            {quick.map(([icon, val]) => (
+              <div key={val} className="rd-cell flex items-center gap-2">
+                <Icon name={icon} className="w-4 h-4 text-brand-teal-3 flex-shrink-0" />
+                <span className="text-sm font-semibold text-white truncate">{val}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {card(verified, 'badge-check', t('property.societyRegistration'), t('property.verified'), t('property.pending'), t('property.societyRegYes'), t('property.societyRegNo'))}
-          {card(soc.conveyance, 'file-text', t('property.conveyanceDeed'), t('property.done'), t('property.pending'), t('property.conveyanceYes'), t('property.conveyanceNo'))}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 mt-5">
-          <p className="text-slate-500 text-xs flex items-center gap-1.5"><Icon name="info" className="w-3.5 h-3.5 flex-shrink-0" /> {t('property.societyFooter')}</p>
+        <div className="flex justify-end mt-5">
           <Link to={`/society/${soc.slug}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:underline flex-shrink-0">
             {t('property.viewSocietyProfile', { name: soc.name })} <Icon name="arrow-right" className="w-4 h-4" />
           </Link>

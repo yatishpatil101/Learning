@@ -37,13 +37,10 @@ public record PropertySummary(
         String availableFrom,
         Boolean pets,
 
-        /** Legal facts about a named society, not opinions about a listing. Narrow-only filters
-         * server-side, so a false is safe and a fabricated true is not. */
-        boolean societyVerified,
-        boolean conveyanceDone,
         String locality,
         String localitySlug,
         String societySlug,
+        String societyName,
         String city,
         Double lat,
         Double lng,

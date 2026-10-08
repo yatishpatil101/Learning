@@ -195,8 +195,7 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" \
 
 # ---------------------------------------------------------------------------------------------
 say "Secret Manager"
-# ---------------------------------------------------------------------------------------------
-# All eleven must exist before the first `services replace`, and `printf '%s'` — a trailing newline
+# All twelve must exist before the first `services replace`; use printf '%s', as a trailing newline
 # joins the value and reads later as a bad password.
 SECRETS=(
   "draazy-sandbox-db-password:Supabase database password"
@@ -210,6 +209,7 @@ SECRETS=(
   "draazy-sandbox-cashfree-secret-key:Cashfree sandbox Secret Key (cfsk_…) — also the webhook signing key, so a placeholder 401s every order and breaks the HMAC"
   "draazy-sandbox-r2-access-key-id:R2 access key id, from a token scoped to the two sandbox buckets"
   "draazy-sandbox-r2-secret-access-key:R2 secret access key (shown once at token creation)"
+  "draazy-sandbox-google-places-server-key:Google Places API (New) server key, restricted to that API"
 )
 
 for entry in "${SECRETS[@]}"; do

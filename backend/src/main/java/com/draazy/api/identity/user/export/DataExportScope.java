@@ -240,7 +240,7 @@ public final class DataExportScope {
                        locality, locality_slug, society_id, city, lat, lng, address, pincode, form_details,
                        rera_id, description, amenities, images, cover_image, floor_plan, video,
                        status, verified, owner_verified,
-                       ownership_verified, society_verified, conveyance_done, docs_count, views,
+                       ownership_verified, docs_count, views,
                        enquiries, archived, archived_at, deal_status,
                        ownership_verified_at, ownership_verified_until, electricity_meter_no,
                        address_key, last_confirmed_at, owner_confirmed_at, quality_score, land_use,

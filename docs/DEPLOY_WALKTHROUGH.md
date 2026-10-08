@@ -447,7 +447,7 @@ Five of those deserve a note:
 ### 3.5 Read the log — three specific lines
 
 ```
-Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 ...
+Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0 ...
 The following 2 profiles are active: "prod", "sandbox"      ← both, in that order
 Flyway ... Successfully applied N migrations                 ← the FLYWAY_DB_URL proof
 Tomcat started on port 8080 (http) with context path '/api'  ← note the context path
@@ -723,7 +723,7 @@ function Add-DraazySecret {
 }
 ```
 
-The seven values:
+The eight values:
 
 | Secret | Value |
 |---|---|
@@ -734,6 +734,7 @@ The seven values:
 | `draazy-sandbox-cashfree-app-id` | the sandbox App ID (`TEST…`) from Dashboard → Developers → API Keys |
 | `draazy-sandbox-cashfree-secret-key` | the sandbox Secret Key (`cfsk_…`) from the same page. Read **twice** — as the API credential and as `CASHFREE_WEBHOOK_SECRET`. Sandbox deploys with `CASHFREE_ENABLED=true`, so a `placeholder` here boots cleanly and 401s on the first order |
 | `draazy-sandbox-origin-shared-secret` | `openssl rand -base64 48`, ≥ 32 characters. **Keep a copy**: §8 puts the identical value on the Pages project. A mismatch 403s every `/api` call while health stays green — `DEPLOY.md` §4 |
+| `draazy-sandbox-google-places-server-key` | a Google Cloud API key restricted to **Places API (New)** only, with no referrer restriction (it is called server-side) and a daily quota cap. Mint verifies every new society against Place Details with it; blank, members get "Adding societies is temporarily unavailable" |
 
 Nothing else about Cashfree needs a decision here. `CASHFREE_NOTIFY_URL` — the address Cashfree
 POSTs settlements to — is a **literal** in `cloudrun-sandbox.yaml`
@@ -894,7 +895,8 @@ curl -fsS "$(gcloud run services describe "$SERVICE" --region="$REGION" --format
 
 If the revision fails to start, in order of likelihood: wrong `FLYWAY_DB_URL` port (hangs, no Flyway
 in the log); an arm64 image if you pushed one by hand rather than via CI; a memory limit below `1Gi`,
-which OOMs *during* startup because `MaxRAMPercentage=75` on 512 MiB leaves 128 MiB non-heap.
+which OOMs *during* startup because `MaxRAMPercentage=70` on 512 MiB leaves ~154 MiB for a ~250 MiB
+non-heap.
 
 ### 6.5 Deploying without CI — the manual path
 

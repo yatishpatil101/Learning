@@ -117,9 +117,6 @@ class ErasureCoverageTest extends AbstractApiTest {
 
         map.put("tenant_profiles.about", Outcome.CLEARED);
 
-        map.put("society_claims.name", Outcome.REPLACED);
-        map.put("society_claims.email", Outcome.CLEARED);
-
         map.put("service_request_identities.party_name", Outcome.CLEARED);
         map.put("service_request_identities.pan", Outcome.CLEARED);
         map.put("service_request_identities.aadhaar", Outcome.CLEARED);
@@ -294,41 +291,14 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("flatmate_seeker_posts.lng",
                 "The area the poster is searching in, not where they live. No identity on its own.");
 
-        map.put("society_proposals.lat",
-                "A corrected pin for a society's front gate, proposed by a resident who walked to it "
-                        + "(V104, D241 C4). The coordinates of a building, on the same limb as "
-                        + "properties.lat: they say where a block of flats stands, which is a "
-                        + "published fact about the block and not a fact about the person who "
-                        + "reported it. The proposer de-identifies through author_id -> users.name, "
-                        + "which erasure clears, and once ops apply the fix the pin is the "
-                        + "society's own anyway.");
-        map.put("society_proposals.lng", "As society_proposals.lat — the same pin, second half.");
-        map.put("society_contributions.photo_url",
-                "A photograph shared on a society's community tab — the lobby after the monsoon, the "
-                        + "new gate, the garden (V103, D240 C3). Matched on the 'photo' token, which "
-                        + "is warning about a likeness; this is a picture of a place, on a post whose "
-                        + "byline is users.name and therefore goes anonymous with the account. Where "
-                        + "a photograph does capture somebody who did not agree to it, the remedy is "
-                        + "not this sweep — it is the moderation route added in D242 C6, which any "
-                        + "reader can trigger with the 'personal' reason and which stamps removed_at "
-                        + "on the post itself. Erasing the photographer would have left such a "
-                        + "photograph up.");
-        map.put("society_contributions.referral_name",
-                "The name of a plumber, a maid or an electrician a neighbour recommends (V103, D240 "
-                        + "C3). Personal data — and not the subject's. It describes a third party who "
-                        + "never had an account, so erasing the neighbour who wrote it neither "
-                        + "removes the tradesman's interest in it nor is the mechanism by which he "
-                        + "would assert one. That mechanism is the report queue added in D242 C6: "
-                        + "'personal' is a reason code that exists for exactly this row, and "
-                        + "upholding it stamps removed_at on the recommendation. Sweeping it with "
-                        + "the author instead would have made a tradesman's takedown depend on "
-                        + "whoever happened to post about him closing their account.");
-        map.put("society_contributions.referral_contact",
-                "The tradesman's phone number on the same recommendation. As "
-                        + "society_contributions.referral_name — a third party's contact detail, "
-                        + "removable through the C6 report route and not through the account "
-                        + "holder's erasure. It is already withheld from readers who are not signed "
-                        + "in, which is the narrower protection the open web needs.");
+        String retired = "Retired society community feature; V94 emptied the table and the contract "
+                + "migration drops it, so no row exists and no code path writes one.";
+        for (String column : List.of("society_claims.name", "society_claims.email",
+                "society_proposals.lat", "society_proposals.lng",
+                "society_contributions.photo_url", "society_contributions.referral_name",
+                "society_contributions.referral_contact")) {
+            map.put(column, retired);
+        }
 
         map.put("flatmate_rooms.gender",
                 "A preference vocabulary — 'any' / 'male' / 'female', defaulting to 'any' (V27). Who "
@@ -767,7 +737,6 @@ class ErasureCoverageTest extends AbstractApiTest {
             Map.entry("outbound_message", "recipient_id = ?"),
             Map.entry("notifications", "user_id = ?"),
             Map.entry("page_views", "user_id = ?"),
-            Map.entry("society_claims", "claimed_by = ?"),
             Map.entry("service_request_parties", "mobile = ?"),
             Map.entry("tenant_rentals", "tenant_id = ?"),
             Map.entry("help_article_feedback", "user_id = ?"),
@@ -920,15 +889,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         jdbc.update("""
                 insert into rent_agreement_tenant_consents (granted_to, tenant_mobile)
                 values (?, '9876500001')
-                """, subjectId);
-
-        jdbc.update("""
-                insert into society_claims (society_id, claimed_by, name, role, email, status)
-                select id, ?, 'Committee Secretary Erasable Person', 'secretary',
-                       'secretary.personal@example.com', 'pending'
-                  from societies
-                 order by slug desc
-                 limit 1
                 """, subjectId);
     }
 

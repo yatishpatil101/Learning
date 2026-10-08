@@ -5,6 +5,7 @@ const TYPE_PREFIXES = [
   /** A saved-search alert is the server's counterpart to the inbox's "New Matches" chip, and it is spelled two
    * different ways by two writers that both reach a real inbox. */
   ['match.saved-search', 'match'],
+  ['match.society-listing', 'match'],
   ['saved.search', 'match'],
   // Someone wants to team up as a flatmate — the "users" family.
   ['flatmate.interest', 'share'],

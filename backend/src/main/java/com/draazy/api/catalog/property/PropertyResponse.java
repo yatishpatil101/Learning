@@ -27,6 +27,7 @@ public record PropertyResponse(
         /** The society this home is in, keyed by slug because that is its public key; null when the
          * owner named none, and the client then renders no Society section rather than an empty one. */
         String societySlug,
+        String societyName,
         String city,
         Double lat,
         Double lng,
@@ -131,8 +132,6 @@ public record PropertyResponse(
         boolean archived,
         boolean ownerVerified,
         boolean ownershipVerified,
-        boolean societyVerified,
-        boolean conveyanceDone,
         int docsCount,
         Owner owner,
 

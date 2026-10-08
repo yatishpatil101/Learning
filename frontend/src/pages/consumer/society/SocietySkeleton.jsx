@@ -1,21 +1,5 @@
-/* Loading placeholder for the /society and /society/:slug route chunk.
- *
- * Replaces the app-wide centred spinner, which lives in a `min-h-[60vh]` box and
- * therefore collapses into a much taller page the moment the chunk resolves. The
- * hero alone is 224px on a phone and 288px from sm up, so the jump is large and
- * lands right where a reader has just started looking — and anything asserting
- * against the tab row has to race that reflow.
- *
- * Measurements come from Society.jsx and the components it renders:
- *   - wrapper     `pt-8 sm:pt-10 pb-24`, `max-w-6xl`
- *   - hero        `rounded-3xl overflow-hidden mb-6 glass`, image `h-56 sm:h-72`
- *   - stats       `grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-8` of `.rd-cell`
- *   - tab strip   `.dz-detail-tab` — .85rem block padding around a .875rem line, ≈48px
- *   - body        `grid lg:grid-cols-3 gap-8`, content spans 2 with the sidebar beside it
- *
- * `.rd-cell` and `.glass` are defined in the global stylesheet, not in a route
- * chunk, so they are already applied while this renders.
- */
+/* Mirrors the hero/stats/tab/body heights of Society.jsx so the chunk resolving doesn't reflow the page
+   * (the app-wide spinner's min-h-[60vh] box collapses into a much taller page). */
 export default function SocietySkeleton() {
   return (
     <div
@@ -44,10 +28,9 @@ export default function SocietySkeleton() {
         ))}
       </div>
 
-      {/* Section tabs. Five, matching the overview/homes/reviews/community/location
-          strip; the bottom rule is real so the line does not appear from nowhere. */}
+      {/* Section tabs; the bottom rule is real so the line does not appear from nowhere. */}
       <div className="flex gap-1 sm:gap-2 border-b border-white/10 mb-6 overflow-hidden">
-        {[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-12 w-24 skeleton rounded-t-lg flex-shrink-0" />)}
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-12 w-24 skeleton rounded-t-lg flex-shrink-0" />)}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-8">

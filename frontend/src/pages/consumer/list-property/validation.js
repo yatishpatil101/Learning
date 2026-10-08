@@ -121,7 +121,7 @@ export const validateStep1 = (form, original) => {
 export const validateLocationStep = (form, original) => {
   const err = {};
   const land = isLandType(form.propertyType);
-  if (!form.locality) err.locality = true;
+  if (!form.locality || !form.localitySlug) err.locality = true;
   // Indian PIN codes are six digits and never start with 0.
   if (!/^[1-9]\d{5}$/.test(form.pincode)) err.pincode = true;
   const validated = keepChangedErrors(err, form, original);
@@ -135,7 +135,7 @@ export const validateLocationStep = (form, original) => {
      project are answerable: a farm sits on a gat number, and an old plot often has no layout name. */
   if (!addressUnchanged && !land && !isIndustrial(form)) {
     if (!hasText(form.flatNumber)) validated.flatNumber = true;
-    if (!hasText(form.society)) validated.society = true;
+    if (!form.societyId && !form.societyNotOnMaps) validated.society = true;
   }
   if (!addressUnchanged) {
     ADDRESS_PARTS.forEach((key) => {
@@ -205,10 +205,12 @@ export const validateFlatmateStep1 = (form) => {
   }
   return err;
 };
-export const validateFlatmateLocation = (form) => {
+export const validateFlatmateLocation = (form, original) => {
   const err = {};
-  if (!form.locality) err.locality = true;
-  if (!hasText(form.society)) err.society = true;
+  if (!form.locality || (!form.localitySlug && !original)) err.locality = true;
+  // A room saved before societies were Google-bound has no id to carry forward, so editing it is not blocked.
+  const legacyRoom = !!original && !original.societyId;
+  if (!form.societyId && !form.societyNotOnMaps && !legacyRoom) err.society = true;
   if (!form.pinPlaced) err.location = true;
   return err;
 };

@@ -1,74 +1,13 @@
-/**
- * `Report` (wire) ↔ the view models the report modal and the ops queue use.
- *
- * Three vocabularies to reconcile, and each one has a wrong answer that ships silently.
- *
- * ## 1. `kind` → `targetType`, and the flatmates trap
- *
- * The client says "kind", the wire says "targetType", and they are not just renamed:
- *
- * | Client `kind` | Wire `targetType` | Reason set |
- * |---|---|---|
- * | `listing` | `property` | `LISTING_REPORT_REASONS` |
- * | `user` | `user` | `OWNER_REPORT_REASONS` |
- * | `share` | **`post`** | `SHARE_REPORT_REASONS` |
- *
- * The server validates the reason *against* the target type — `FOR_USER` is
- * `impersonation|fraud|brokerage|abuse|spam|fakelistings|other`, and `filled` is not something you
- * can say about a person — so pairing a flatmate reason set with `kind='user'` is a 400 on every
- * report. The mapping table is what makes that mistake impossible to make silently, because an
- * unknown kind warns.
- *
- * ## 2. Status
- *
- * | Queue | Server | |
- * |---|---|---|
- * | `open` | `open` | ✅ |
- * | — | `reviewing` | ops picked it up; the queue has no such state |
- * | `resolved` | — | **does not exist server-side** |
- * | `actioned` | `actioned` | ✅ |
- * | `dismissed` | `dismissed` | ✅ |
- *
- * `resolved` is the queue's word for "reviewed, no action needed", which is what `dismissed`
- * means. It is translated on the way *out* (a triage of `resolved` sends `dismissed`) rather than
- * on the way in, so the queue never displays a status the server did not actually record.
- *
- * **Terminal is terminal.** `actioned` and `dismissed` cannot move. The queue's "Reopen" button
- * would 409, so `canTriage` exists to let the UI stop offering it rather than fail on click.
- *
- * ## 3. There are no denormalised display fields
- *
- * The contract declares no `targetTitle`, `targetOwner`, `ownerMobile`, `reportedBy` or `url`,
- * deliberately: three are joins the admin UI can make for itself, and **`reporterId` is withheld on
- * purpose** — "the queue tells a moderator what was complained about and why, not who complained:
- * naming the reporter to every member of ops is how a complaint becomes a reprisal".
- *
- * So they degrade rather than being invented:
- *
- * - `targetTitle` → the bare `targetId`. A moderator can click through; a fabricated title would be
- *   a *stale* title, which is worse than an id — the listing may have been edited since.
- * - `targetOwner`, `reportedBy` → empty. Not unknown-and-fetchable: deliberately not sent.
- * - `reasonLabel` → resolved locally from `REASON_LABELS`, because it is presentation text that
- *   belongs with the vocabulary the client already ships.
- */
+/** Kind maps to targetType (share → `post`, listing → `property`) and the server validates reason against it;
+ * `resolved` is sent as `dismissed`; `reporterId` is withheld so a complaint can't become a reprisal. */
 import {
   LISTING_REPORT_REASONS,
   SHARE_REPORT_REASONS,
   OWNER_REPORT_REASONS,
-  SOCIETY_REPORT_REASONS,
+  REVIEW_REPORT_REASONS,
 } from '../../../lib/reportReasons.js';
 
-/**
- * Client `kind` → wire `targetType`.
- *
- * The five `society_*` entries are the society hub's five UGC surfaces. The client calls them by
- * the bare word — `societyMod.js` ships `REPORT_TYPES` as
- * `contribution|reply|review|question|answer|board` — so the bare
- * word is what arrives here, and the prefixed form is what the wire wants.
- *
- * `review` is in that client list and is deliberately **not** prefixed: a society review is
- * reported as an ordinary `review` and taken down through `PATCH /reviews/{id}/status`.
- */
+/** Client `kind` → wire `targetType`; a society review is reported as an ordinary `review`. */
 const KIND_TO_TARGET = {
   listing: 'property',
   property: 'property',
@@ -76,16 +15,6 @@ const KIND_TO_TARGET = {
   review: 'review',
   share: 'post',
   post: 'post',
-  contribution: 'society_contribution',
-  reply: 'society_reply',
-  question: 'society_question',
-  answer: 'society_answer',
-  board: 'society_board',
-  society_contribution: 'society_contribution',
-  society_reply: 'society_reply',
-  society_question: 'society_question',
-  society_answer: 'society_answer',
-  society_board: 'society_board',
 };
 
 /** Wire `targetType` → client `kind`, for rendering the queue's tabs. */
@@ -94,22 +23,11 @@ const TARGET_TO_KIND = {
   user: 'user',
   review: 'review',
   post: 'share',
-  society_contribution: 'contribution',
-  society_reply: 'reply',
-  society_question: 'question',
-  society_answer: 'answer',
-  society_board: 'board',
 };
 
 const warned = new Set();
 
-/**
- * Map a client kind onto a wire target type.
- *
- * An unknown kind warns once and falls through to `property` rather than throwing: a report is a
- * safety signal and losing one to a client-side typo is worse than filing it under the wrong tab.
- * The warning is what stops that being permanent.
- */
+/** Unknown kind warns and files under `property` rather than throwing: losing a safety report is worse. */
 export function toTargetType(kind) {
   const mapped = KIND_TO_TARGET[kind];
   if (!mapped) {
@@ -126,68 +44,17 @@ export function toTargetType(kind) {
   return mapped;
 }
 
-/**
- * Reason code → the words the reporter actually read, indexed by what they were reporting.
- *
- * Not one flat table keyed on the code alone, for two reasons.
- *
- * *Drift:* a second hand-copied vocabulary means a moderator filtering the queue and a reporter
- * filing the complaint read different words for one code.
- *
- * *Collision:* four codes are shared across vocabularies **under different wording**, because they
- * describe different things. `spam` from an owner is a stream of irrelevant messages, on a listing
- * a duplicate listing, on a flatmate post a duplicate post. A flat table has to pick one, so a
- * spammy flatmate post reads as "Spam or duplicate listing" — the wrong noun for what the reporter
- * clicked. Same for `fake`, `broker` and `unavailable`.
- *
- * The label is therefore a function of `(reason, targetType)`, exactly as validity is — see
- * `ReportReasons.java`, which rejects a reason that is not legal for the target type. `toViewModel`
- * has the target type in hand, so there is no reason to resolve on the code alone.
- *
- * Derived from `lib/reportReasons.js`. It cannot drift from the modal, because it *is* the
- * modal's data.
- */
+/** Labels are keyed on (reason, targetType): four codes share names across vocabularies with different wording.
+ * Derived from lib/reportReasons.js so it can't drift from the modal. */
 const LABELS_BY_TARGET = {
   property: Object.fromEntries(LISTING_REPORT_REASONS),
   post: Object.fromEntries(SHARE_REPORT_REASONS),
   user: Object.fromEntries(OWNER_REPORT_REASONS),
-  /* Spelled out rather than left to the flattened fallback below. `ReportReasons.FOR_REVIEW` is
-     `fake`/`abuse`/`other`, and all three collide with vocabularies whose wording is about a
-     listing or a person: a review reported as `fake` would otherwise read "Fake photos or
-     misleading info", which is the wrong noun for a review and the exact class of mislabelling
-     this table exists to prevent. There is no modal to derive these from — reviews are
-     reported from the review card, not a picker — so they are written out here. */
-  review: {
-    fake: 'Fake or dishonest review',
-    abuse: 'Abusive or offensive review',
-    other: 'Something else',
-  },
-  /* One vocabulary, five entries. The wire keeps the kinds apart so a moderator knows which table
-     the id indexes; the words a reporter picked are the same either way, so pointing all five at
-     the one list is the honest mapping rather than a shortcut. Spelling them out beats a prefix
-     test here because this object is also read by key. */
-  society_contribution: Object.fromEntries(SOCIETY_REPORT_REASONS),
-  society_reply: Object.fromEntries(SOCIETY_REPORT_REASONS),
-  society_question: Object.fromEntries(SOCIETY_REPORT_REASONS),
-  society_answer: Object.fromEntries(SOCIETY_REPORT_REASONS),
-  society_board: Object.fromEntries(SOCIETY_REPORT_REASONS),
+  review: Object.fromEntries(REVIEW_REPORT_REASONS),
 };
 
-/**
- * Every label, flattened — the fallback only, never the first choice.
- *
- * One caller needs it: an unrecognised target type — a code shipped by a newer server than this
- * bundle — lands here rather than rendering a raw code at a moderator. Every target type the
- * client knows about has its own entry above.
- *
- * Listing wording wins the collisions, because listings are the overwhelming majority of the queue
- * and it is the least surprising default. Society wording is spread first, so it loses every
- * collision but still contributes the one code it holds alone — `personal`, which no other
- * vocabulary has a word for and which would otherwise render as the bare code. Anything that can
- * name its target type should not be reading this.
- */
+/** Every label flattened, as a fallback for target types from a newer server; listing wording wins collisions. */
 export const REASON_LABELS = {
-  ...LABELS_BY_TARGET.society_contribution,
   ...LABELS_BY_TARGET.post,
   ...LABELS_BY_TARGET.user,
   ...LABELS_BY_TARGET.property,
@@ -246,14 +113,7 @@ export function toViewModelPage(res, fallback = {}) {
   };
 }
 
-/**
- * The modal's report → `ReportCreate`.
- *
- * Note what is absent: the reporter. The contract does not carry one — identity comes from the
- * principal, because "a body field naming the reporter would let anyone file a complaint under
- * somebody else's name, which turns an abuse queue into an abuse vector". Also absent are the
- * denormalised target fields and `url`, none of which the schema declares.
- */
+/** The reporter is absent: identity comes from the principal, or anyone could file under another's name. */
 export function toReportCreate(report) {
   const out = {
     targetType: toTargetType(report?.kind),
@@ -265,19 +125,7 @@ export function toReportCreate(report) {
   return out;
 }
 
-/**
- * A queue decision → `ReportTriage`.
- *
- * `resolved` is the queue's word for "reviewed, no action needed", which is what the server calls
- * `dismissed`. Translated here rather than displayed, so the queue never shows a state the server
- * did not record.
- *
- * `enforcement` is the verb the server actually executes — `hide_content` takes the listing down,
- * `suspend_account` archives the user. Omitting it is not a neutral default: the report closes as
- * `actioned` while the reported thing stays up, which is the worst of both outcomes, because the
- * queue then *reads* as handled. Absent means `none` on the server, so it is only ever sent when
- * the moderator picked an action.
- */
+/** `enforcement` is only sent when chosen: without it the report closes `actioned` with the content still up. */
 export function toReportTriage(decision) {
   const status = decision?.status === 'resolved' ? 'dismissed' : decision?.status;
   const out = { status };

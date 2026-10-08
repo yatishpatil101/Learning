@@ -52,17 +52,14 @@ public class SocietyService {
         this.ratings = ratings;
     }
 
-    /**
-     * Browse the directory: six queries for any page size, never one per row (societies.md 9.2).
-     * {@code hasListings} is {@code TRUE} only from the home rail - see {@link SocietySpecs#browse}.
-     */
+    /** A handful of queries for any page size, never one per row; {@code hasListings} is {@code TRUE} only from the home rail. */
     @Transactional(readOnly = true)
     public Page<SocietyResponse> browse(String q, String localitySlug, Boolean hasListings,
-            Boolean verified, Pageable pageable, UUID viewerId) {
-        Specification<Society> spec = SocietySpecs.browse(q, localitySlug, hasListings, verified);
+            Pageable pageable, UUID viewerId) {
+        Specification<Society> spec = SocietySpecs.browse(q, localitySlug, hasListings);
         Optional<String> ranking = SocietySort.ranking(pageable);
         if (ranking.isPresent()) {
-            return ranked(spec, ranking.get(), pageable, viewerId);
+            return ranked(spec, q, localitySlug, hasListings, ranking.get(), pageable, viewerId);
         }
         Pageable safe = SocietySort.sanitize(pageable);
         Page<Society> page = societies.findAll(spec, SocietySort.tieBroken(safe));
@@ -70,33 +67,25 @@ public class SocietyService {
         return new PageImpl<>(rows, safe, page.getTotalElements());
     }
 
-    /** Ranks the whole filtered set (aggregates are computed on read) and pages it so page 2 follows page 1. */
-    private Page<SocietyResponse> ranked(Specification<Society> spec, String mode, Pageable pageable,
-            UUID viewerId) {
-        List<Society> all = societies.findAll(spec);
-        Tallies tallies = tallies(all.stream().map(Society::getId).toList());
-        List<Society> ordered = all.stream()
-                .map(s -> {
-                    RatingLookup.Rating rating = tallies.rating(s.getId());
-                    return new SocietyRanking.Row(s, SocietySpecs.isVerified(s), tallies.homes(s.getId()),
-                            rating == null ? null : rating.average(),
-                            rating == null ? 0L : rating.reviewCount());
-                })
-                .sorted(SocietyRanking.by(mode))
-                .map(SocietyRanking.Row::society)
-                .toList();
-        int from = (int) Math.min(pageable.getOffset(), ordered.size());
-        int to = Math.min(from + pageable.getPageSize(), ordered.size());
-        List<SocietyResponse> rows = summarise(ordered.subList(from, to), viewerId, tallies);
+    /** The database ranks the filtered set and returns only the page's ids, so page 2 continues page 1. */
+    private Page<SocietyResponse> ranked(Specification<Society> spec, String q, String localitySlug,
+            Boolean hasListings, String mode, Pageable pageable, UUID viewerId) {
+        List<Object[]> rows = societies.rankedIds(SocietySpecs.likePattern(q), SocietySpecs.trimmed(localitySlug),
+                Boolean.TRUE.equals(hasListings), mode, pageable.getPageSize(), pageable.getOffset());
+        List<UUID> ids = rows.stream().map(r -> (UUID) r[0]).toList();
+        // A page past the end carries no window total, so only that case pays for a count.
+        long total = rows.isEmpty()
+                ? (pageable.getPageNumber() == 0 ? 0 : societies.count(spec))
+                : ((Number) rows.get(0)[1]).longValue();
+        Map<UUID, Society> byId = societies.findAllById(ids).stream()
+                .collect(Collectors.toMap(Society::getId, s -> s));
+        List<Society> ordered = ids.stream().map(byId::get).toList();
         Pageable echoed = PageRequest.of(
                 pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, mode));
-        return new PageImpl<>(rows, echoed, ordered.size());
+        return new PageImpl<>(summarise(ordered, viewerId), echoed, total);
     }
 
-    /**
-     * Turn a page's worth of societies into cards, in the order given - shared with the follow list
-     * so the two cannot drift. Every aggregate covers the whole merge family (societies.md 9.1).
-     */
+    /** Shared with the follow list so the two cannot drift; every aggregate covers the whole merge family (societies.md 9.1). */
     @Transactional(readOnly = true)
     public List<SocietyResponse> summarise(List<Society> page, UUID viewerId) {
         return summarise(page, viewerId, tallies(page.stream().map(Society::getId).toList()));
@@ -142,14 +131,14 @@ public class SocietyService {
         return new Tallies(families, listingCounts.bySocietyId(), ratings.forSocieties(reach));
     }
 
-    /**
-     * One society hub by slug. {@code homes} is capped at {@value #MAX_HOMES}, {@code reviews} stays
-     * empty (it is paged elsewhere), and <strong>a merged-away slug resolves rather than 404s</strong>.
-     */
+    /** {@code homes} is capped at {@value #MAX_HOMES}, {@code reviews} stays empty (paged elsewhere), and a merged-away slug resolves rather than 404s. */
     @Transactional(readOnly = true)
     public SocietyDetailResponse get(String slug, UUID viewerId) {
         Society society = SocietyMergePointer.survivor(societies, societies.findBySlug(slug)
                 .orElseThrow(() -> NotFoundException.of("Society")));
+        if (society.getArchivedAt() != null) {
+            throw NotFoundException.of("Society");
+        }
 
         List<UUID> family = families(List.of(society.getId())).get(society.getId());
         List<PropertySummary> homes = properties

@@ -16,61 +16,88 @@ public interface SocietyRepository
     /** One society by its public URL key. */
     Optional<Society> findBySlug(String slug);
 
-    /**
-     * A society whose name matches, ignoring case and surrounding space.
-     *
-     * <p>The duplicate guard the mint needs, and deliberately not a slug lookup. The slug folds the
-     * locality in, so "Kumar Pinnacle" typed without one produces a different slug from the RERA
-     * row's "kumar-pinnacle-wakad" and the slug check alone would happily mint a second copy of a
-     * society we already hold verified. That duplicate is unrecoverable without an operator finding
-     * and merging it by hand.
-     */
-    @Query("select s from Society s where lower(trim(s.name)) = lower(trim(:name))")
-    List<Society> findByNameIgnoringCase(@Param("name") String name);
+    /** The society, its merge survivor and everything merged into that survivor. */
+    @Query("""
+            select s.id from Society s
+            where s.id = :id or s.mergedInto = :id
+               or s.id = (select m.mergedInto from Society m where m.id = :id)
+               or s.mergedInto = (select m.mergedInto from Society m where m.id = :id)""")
+    List<UUID> familyIds(@Param("id") UUID id);
 
-    /**
-     * Community societies nobody has checked yet, oldest first.
-     *
-     * <p>The ops "Candidates" queue. Curated and RERA rows are verified by construction and are
-     * excluded by the {@code source} filter rather than by a backfilled timestamp -- see V105.
-     *
-     * <p>Merged-away rows are excluded too (V111). A duplicate an operator has already dealt with
-     * must not come back asking to be dealt with again -- that is the loop the browser-local merge
-     * left every operator in, and putting a resolved duplicate back in the queue is how the second
-     * operator merges the same pair in the opposite direction.
-     */
-    @Query("select s from Society s where s.source = 'community' and s.verifiedAt is null"
-            + " and s.mergedInto is null order by s.createdAt asc")
+    /** A society still in the public catalogue; archived rows answer empty. */
+    Optional<Society> findBySlugAndArchivedAtIsNull(String slug);
+
+    /** The society a Google Place ID names; at most one row, by the unique index. */
+    Optional<Society> findByPlaceId(String placeId);
+
+    /** Live societies whose pin falls in a lat/lng box, for the caller to narrow to an exact radius. */
+    @Query("""
+            select s from Society s
+            where s.archivedAt is null and s.mergedInto is null
+              and s.lat between :minLat and :maxLat and s.lng between :minLng and :maxLng""")
+    List<Society> withinBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
+            @Param("minLng") double minLng, @Param("maxLng") double maxLng);
+
+    /** Ranked in the database; homes and rating total over the whole merge family, and ties fall to name then slug so offset paging stays stable. */
+    @Query(value = """
+            with base as (
+                select s.id from societies s
+                where s.merged_into is null and s.archived_at is null
+                  and (cast(:locality as text) is null or s.locality_slug = cast(:locality as text))
+                  and (cast(:like as text) is null or lower(s.name || ' ' || coalesce(s.builder, '')
+                       || ' ' || replace(coalesce(s.locality_slug, ''), '-', ' ')) like cast(:like as text))
+            ), fam as (
+                select b.id as sid, b.id as fid from base b
+                union all
+                select b.id, f.id from base b join societies f on f.merged_into = b.id
+            ), homes as (
+                select fam.sid, count(*) as n
+                from fam join properties p on p.society_id = fam.fid
+                where p.status = 'approved' and p.archived = false
+                group by fam.sid
+            ), rated as (
+                select fam.sid, sum(r.avg_rating * r.cnt) as weighted, sum(r.cnt) as cnt
+                from fam join (
+                    select target_id, round(avg(rating), 1) as avg_rating, count(*) as cnt
+                    from reviews
+                    where target_type = 'society' and status = 'published'
+                      and target_id in (select cast(fid as text) from fam)
+                    group by target_id
+                ) r on r.target_id = cast(fam.fid as text)
+                group by fam.sid
+            )
+            select s.id, count(*) over () as total
+            from base b
+            join societies s on s.id = b.id
+            left join homes h on h.sid = b.id
+            left join rated r on r.sid = b.id
+            where (not :hasListings or coalesce(h.n, 0) > 0)
+            order by
+                case cast(:mode as text)
+                    when 'homes' then cast(coalesce(h.n, 0) as numeric)
+                    when 'rating' then coalesce(round(r.weighted / r.cnt, 2), 0)
+                    else least(coalesce(h.n, 0), 3) + coalesce(round(r.weighted / r.cnt, 2), 0) / 5
+                end desc,
+                case when cast(:mode as text) = 'rating' then coalesce(r.cnt, 0) else 0 end desc,
+                lower(s.name), s.slug
+            limit :limit offset :offset""", nativeQuery = true)
+    List<Object[]> rankedIds(@Param("like") String like, @Param("locality") String locality,
+            @Param("hasListings") boolean hasListings, @Param("mode") String mode,
+            @Param("limit") int limit, @Param("offset") long offset);
+
+    /** Merged-away rows are excluded, so a duplicate an operator has dealt with does not come back. */
+    @Query("select s from Society s where s.source = 'community' and s.mergedInto is null"
+            + " and s.archivedAt is null order by s.createdAt desc")
     org.springframework.data.domain.Page<Society> candidates(org.springframework.data.domain.Pageable pageable);
 
-    /**
-     * Every society a candidate could be a duplicate of, as the four columns the scan reads.
-     *
-     * <p>A projection rather than the entity, and unpaged, because "does this candidate resemble any
-     * existing society" has no page — a duplicate that fell on page 2 is a duplicate that does not
-     * get found. Four columns over the whole table is a cheap sequential scan on a staff-only route;
-     * loading the entity would drag the amenities jsonb and twenty other columns per row to compare
-     * two strings.
-     *
-     * <p><strong>Merged-away rows are excluded, and that is the load-bearing filter.</strong> A
-     * society an operator has already merged still holds its slug and its name — nothing is deleted
-     * — so a naive scan keeps proposing it. Suggesting a merge into a row that is itself merged away
-     * would build a chain, and the operator would be told the pair they resolved last week is
-     * unresolved.
-     *
-     * @param excludeId the candidate itself, which is otherwise a perfect match for itself
-     */
+    /** Unpaged projection, as a duplicate on page 2 would never be found; merged-away rows are excluded, or the scan would propose chains. */
     @Query("""
-            select s.slug, s.name, s.localitySlug, s.verifiedAt, s.source
+            select s.slug, s.name, s.localitySlug, s.lat, s.lng
             from Society s
-            where s.mergedInto is null and s.id <> :excludeId""")
+            where s.mergedInto is null and s.archivedAt is null and s.id <> :excludeId""")
     List<Object[]> duplicateScan(@Param("excludeId") UUID excludeId);
 
-    /**
-     * Follower counts for the societies on this page.
-     *
-     * @return rows of {@code [societyId, count]}; societies with no followers are absent
-     */
+    /** Rows of {@code [societyId, count]}; societies with no followers are absent. */
     @Query(value = """
             select society_id, count(*)
             from society_follows
@@ -78,12 +105,7 @@ public interface SocietyRepository
             group by society_id""", nativeQuery = true)
     List<Object[]> countFollowersFor(@Param("societyIds") Collection<UUID> societyIds);
 
-    /**
-     * Which of these societies the given user follows.
-     *
-     * <p>Answers {@code followedByMe} for a whole page in one query. The obvious alternative — an
-     * {@code exists} check per row — is an N+1 on a public endpoint.
-     */
+    /** Which of these societies the user follows: {@code followedByMe} for a page in one query, not an N+1 {@code exists} per row on a public endpoint. */
     @Query(value = """
             select society_id
             from society_follows
@@ -91,77 +113,14 @@ public interface SocietyRepository
     List<UUID> findFollowedAmong(@Param("userId") UUID userId,
             @Param("societyIds") Collection<UUID> societyIds);
 
-    /**
-     * Move a society between {@code unclaimed} / {@code pending} / {@code claimed}.
-     *
-     * <p>A write on a deliberately setter-less entity, and so deliberately a query rather than a
-     * mapped field. {@link Society}'s own documentation says it is read-only because rows are
-     * seeded and provenance is not ours to edit — that is still true of every other column, and
-     * widening the entity to make one of them mutable would quietly withdraw the guarantee for all
-     * of them. The claim decision in {@code engagement.society} is the only caller.
-     *
-     * <p>{@code updated_at} is set here too: the {@code trg_set_updated_at} trigger covers raw SQL,
-     * but naming it makes the intent readable at the call site rather than depending on a migration
-     * three years old.
-     */
-    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = "update societies set claim_status = :status, updated_at = now() where id = :societyId",
-            nativeQuery = true)
-    int updateClaimStatus(@Param("societyId") UUID societyId, @Param("status") String status);
-
-    /**
-     * Write an approved community detail suggestion onto the society.
-     *
-     * <p>Every parameter is coalesced, so a suggestion that offers a builder and nothing else
-     * leaves the other five columns exactly as they were. A resident correcting one fact must not
-     * blank the four somebody else corrected last month, and a null-overwriting update is the
-     * commonest way that happens — silently, because the row still exists and still looks fine.
-     *
-     * <p>The amenities cast is explicit because the parameter arrives as a JSON string: Postgres
-     * will not infer {@code jsonb} for an untyped bind, and an inferred {@code text} against a
-     * {@code jsonb} column is an operator-does-not-exist error at runtime rather than at compile
-     * time.
-     */
-    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            update societies set
-                builder = coalesce(cast(:builder as text), builder),
-                year = coalesce(cast(:buildYear as integer), year),
-                towers = coalesce(cast(:towers as integer), towers),
-                units = coalesce(cast(:units as integer), units),
-                maintenance_per_sqft = coalesce(cast(:maintenance as numeric), maintenance_per_sqft),
-                amenities = coalesce(cast(:amenities as jsonb), amenities),
-                updated_at = now()
-            where id = :societyId""", nativeQuery = true)
-    int applyDetailSuggestion(@Param("societyId") UUID societyId,
-            @Param("builder") String builder,
-            @Param("buildYear") Integer buildYear,
-            @Param("towers") Integer towers,
-            @Param("units") Integer units,
-            @Param("maintenance") java.math.BigDecimal maintenance,
-            @Param("amenities") String amenities);
-
-    /**
-     * Write an operator's back-office edit onto the society.
-     *
-     * <p>Coalesced for the reason {@link #applyDetailSuggestion} is: this is a {@code PATCH}, and an
-     * operator who came to fix the conveyance box must not blank the maintenance figure somebody
-     * else researched. The casts are explicit for the same reason too — Postgres infers nothing for
-     * an untyped bind, and an inferred {@code text} against {@code boolean} or {@code numeric} fails
-     * at runtime rather than at compile time.
-     *
-     * <p><strong>{@code admin_note} is the one column coalesce cannot serve</strong>, because
-     * clearing the note is a thing an operator does and {@code coalesce(null, admin_note)} would
-     * make it the one edit the form silently refuses. So the caller says whether the note was in the
-     * request at all, and the value itself is then free to be null and mean "erase it".
-     */
+    /** Coalesced for PATCH, with explicit casts as Postgres infers nothing for an untyped bind; {@code admin_note} is the
+     * exception, as {@code coalesce} could not clear it, so the caller says whether it was in the request. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
                 registration = coalesce(cast(:registration as boolean), registration),
                 conveyance = coalesce(cast(:conveyance as boolean), conveyance),
                 maintenance_per_sqft = coalesce(cast(:maintenance as numeric), maintenance_per_sqft),
-                claim_status = coalesce(cast(:claimStatus as text), claim_status),
                 admin_note = case when cast(:noteGiven as boolean)
                                   then cast(:adminNote as text) else admin_note end,
                 updated_at = now()
@@ -170,113 +129,33 @@ public interface SocietyRepository
             @Param("registration") Boolean registration,
             @Param("conveyance") Boolean conveyance,
             @Param("maintenance") java.math.BigDecimal maintenance,
-            @Param("claimStatus") String claimStatus,
             @Param("noteGiven") boolean noteGiven,
             @Param("adminNote") String adminNote);
 
-    /**
-     * Write an approved resident location correction onto the society.
-     *
-     * <p>{@code loc_source} is stamped in the same statement as the coordinates rather than left to
-     * a later write. Coordinates whose provenance is a separate update can be observed without it,
-     * and the hub renders that state as "imported from a RERA filing" beside a pin a neighbour
-     * walked to — the exact confusion the column exists to prevent.
-     */
-    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            update societies set
-                lat = :lat,
-                lng = :lng,
-                place_id = coalesce(cast(:placeId as text), place_id),
-                loc_source = 'community',
-                updated_at = now()
-            where id = :societyId""", nativeQuery = true)
-    int applyLocationFix(@Param("societyId") UUID societyId,
-            @Param("lat") Double lat,
-            @Param("lng") Double lng,
-            @Param("placeId") String placeId);
-
-    /**
-     * Mint a community society.
-     *
-     * <p>A write on a deliberately setter-less entity, for the reason {@link #updateClaimStatus}
-     * gives: every other column really is read-only, and widening the entity to make four of them
-     * mutable would withdraw that guarantee for all thirty.
-     *
-     * <p>{@code amenities} is seeded to an empty array rather than left null because the column is
-     * {@code not null} and the entity maps it as a list -- a null there is a
-     * {@code NullPointerException} on the first read of the row that was just created.
-     *
-     * <p>{@code on conflict (slug) do nothing} rather than a check-then-insert: two people adding
-     * the same missing society within the same second is not a rare case, it is what happens the
-     * day a new tower gets possession. The caller re-reads by slug afterwards and hands back
-     * whichever row won, so the loser is told their society exists rather than shown an error about
-     * a race they were not part of.
-     *
-     * <p>{@code mint_origin} is written in the insert rather than patched afterwards. A follow-up
-     * update would be skipped by exactly the caller that loses the {@code on conflict} race — and
-     * the queue would then show the winner's surface as though it were the only one, which is the
-     * distinction this column exists to keep.
-     */
+    /** {@code on conflict do nothing} with no target covers both the slug and the unique {@code place_id}, so a same-second race loses
+     * cleanly; {@code mint_origin} is in the insert so the loser's surface cannot overwrite the winner's. Returns 1 if created. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             insert into societies
-                (id, slug, name, locality_slug, lat, lng, registration, conveyance,
-                 amenities, source, mint_origin, claim_status, created_by, created_at, updated_at)
+                (id, slug, name, place_id, locality_slug, lat, lng, registration, conveyance,
+                 amenities, source, mint_origin, created_by, created_at, updated_at)
             values
-                (gen_random_uuid(), :slug, :name, cast(:localitySlug as text),
+                (gen_random_uuid(), :slug, :name, :placeId, cast(:localitySlug as text),
                  cast(:lat as double precision), cast(:lng as double precision),
                  false, false, '[]'::jsonb, 'community', cast(:mintOrigin as text),
-                 'unclaimed', :createdBy, now(), now())
-            on conflict (slug) do nothing""", nativeQuery = true)
+                 :createdBy, now(), now())
+            on conflict do nothing""", nativeQuery = true)
     int mintCommunity(@Param("slug") String slug,
             @Param("name") String name,
+            @Param("placeId") String placeId,
             @Param("localitySlug") String localitySlug,
             @Param("lat") Double lat,
             @Param("lng") Double lng,
             @Param("mintOrigin") String mintOrigin,
             @Param("createdBy") UUID createdBy);
 
-    /**
-     * Stamp a community society as checked by ops.
-     *
-     * <p>Guarded on {@code verified_at is null} in the statement itself rather than by reading the
-     * row first, so two operators clearing the same queue cannot both claim the verification. The
-     * second gets zero rows back and a 409, which is the truth: somebody already did this.
-     *
-     * <p>{@code registration} and {@code conveyance} are untouched on purpose. They describe the
-     * building's legal state, not our confidence in the record, and conflating the two is how a
-     * community-minted row would start telling a buyer its conveyance deed is done because an
-     * operator confirmed the society exists.
-     */
-    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            update societies set
-                verified_at = now(),
-                verified_by = :operatorId,
-                updated_at = now()
-            where id = :societyId and verified_at is null""", nativeQuery = true)
-    int markVerified(@Param("societyId") UUID societyId, @Param("operatorId") UUID operatorId);
-
-    /**
-     * Point a duplicate society at the one that survives it.
-     *
-     * <p>Guarded on {@code merged_into is null} in the statement rather than by reading the row
-     * first, exactly as {@link #markVerified} is. Two operators working the same duplicate pair is
-     * the case this whole feature exists for, and the loser of that race must be told somebody
-     * already decided -- and, crucially, which way. Silently overwriting the pointer would let the
-     * second operator reverse the first one's judgement without either of them ever knowing.
-     *
-     * <p>All three merge columns move in one statement because {@code ck_society_merged_trio}
-     * requires it, and the constraint requires it because a merge with no operator and no timestamp
-     * is a decision nobody signed.
-     *
-     * <p>Nothing is moved off the losing society. Its listings, follows, reviews and residency
-     * records stay on it and are unioned in on read -- see {@link Society#getMergedInto()} for why
-     * rewriting them would make this irreversible.
-     *
-     * @return 1 when the merge was recorded, 0 when the society was already merged into something
-     */
+    /** Guarded on {@code merged_into is null} in the statement, so the loser of a two-operator race is told and cannot silently
+     * reverse the first judgement; all three merge columns move together because of {@code ck_society_merged_trio}. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
@@ -289,20 +168,8 @@ public interface SocietyRepository
             @Param("survivorId") UUID survivorId,
             @Param("operatorId") UUID operatorId);
 
-    /**
-     * Undo a merge, restoring a society to standing on its own.
-     *
-     * <p>One statement, and it can be one statement only because nothing was moved when the merge
-     * was recorded. That is the entire argument for the pointer: an operator merging the wrong pair
-     * is a realistic mistake -- they are looking at two rows that differ by a typo -- and this is
-     * the difference between a mistake that costs a click and one that costs a data recovery.
-     *
-     * <p>The three columns are cleared together for the same reason they are set together. Guarded
-     * on {@code merged_into is not null} so an undo racing another undo reports honestly rather than
-     * claiming to have reversed something that was already reversed.
-     *
-     * @return 1 when a merge was undone, 0 when the society was not merged into anything
-     */
+    /** One statement, as a merge moves nothing, so a wrong-pair merge costs a click, not a recovery; the three columns clear together and
+     * {@code merged_into is not null} guards so a racing undo returns 0. Returns 1 when a merge was undone. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
@@ -313,58 +180,22 @@ public interface SocietyRepository
             where id = :societyId and merged_into is not null""", nativeQuery = true)
     int undoMerge(@Param("societyId") UUID societyId);
 
-    /**
-     * The societies merged into any of these, for the page being rendered.
-     *
-     * <p>The read side of the pointer, and page-scoped for the reason every aggregate in
-     * {@link SocietyService} is: {@code GET /societies} is unauthenticated, so a question asked once
-     * per row is a denial-of-service a client can trigger for free. One query answers it for the
-     * whole page, and {@code idx_society_merged_into} is partial, so it is a lookup into tens of
-     * rows however large the catalogue grows.
-     *
-     * @return rows of {@code [survivorId, mergedAwaySocietyId]}; survivors that absorbed nothing are
-     *     absent, which is almost all of them
-     */
+    /** Page-scoped, as {@code GET /societies} is unauthenticated and a per-row query would be a free denial of service; rows are
+     * {@code [survivorId, mergedAwaySocietyId]}, and the partial {@code idx_society_merged_into} keeps it a lookup into tens of rows. */
     @Query(value = """
             select merged_into, id
             from societies
             where merged_into in (:survivorIds)""", nativeQuery = true)
     List<Object[]> findMergedInto(@Param("survivorIds") Collection<UUID> survivorIds);
 
-    /**
-     * Every merge currently in force, most recent first -- the ops merge list.
-     *
-     * <p>The screen an operator needs before they can undo anything. Without it a merge is
-     * technically reversible and practically not: you cannot undo a decision you cannot find, and
-     * the merged-away society is by design absent from the directory and unreachable by its own
-     * slug.
-     *
-     * <p>Sorted in the database rather than by {@link org.springframework.data.domain.Pageable} so
-     * the order is a property of the queue and not of whatever the caller happened to send -- the
-     * same choice {@link #candidates} makes.
-     */
+    /** Most recent first, sorted in the database like {@link #candidates} so the order belongs to the queue; the only place a merge can be found to undo. */
     @Query("select s from Society s where s.mergedInto is not null order by s.mergedAt desc")
     org.springframework.data.domain.Page<Society> merged(org.springframework.data.domain.Pageable pageable);
 
-    /**
-     * The societies that have been merged into this one, most recently merged first.
-     *
-     * <p>Asked before merging a society away. This was a {@code count} until a live run showed what
-     * that cost the operator: the refusal could say "already has 1 society(s) merged into it" and
-     * nothing more, so the person told to undo a merge first had no way to know <em>which</em> one
-     * without going to the merge list and reading it. That is an investigation standing in for a
-     * sentence, and it made this branch strictly less useful than the forward-chain branch beside
-     * it, which has always named the real survivor and its slug so the operator can correct the
-     * request in one go. Returning the rows makes the two symmetrical.
-     *
-     * <p>Unbounded on purpose. The caller names only the first few and counts the rest, but the
-     * bound belongs to the sentence rather than to the query: a survivor with fifty duplicates
-     * behind it is a fact an operator should be able to discover, and a {@code LIMIT} here would
-     * quietly turn "and 47 more" into a smaller number that reads as the truth.
-     */
+    /** The societies merged into this one, newest first, so the refusal can name them; unbounded because a {@code LIMIT} would turn "and 47 more" into a smaller number. */
     List<Society> findByMergedIntoOrderByMergedAtDesc(UUID survivorId);
 
-    @Query("select count(s) from Society s where s.source = 'community' and s.verifiedAt is null"
-            + " and s.mergedInto is null")
+    @Query("select count(s) from Society s where s.source = 'community' and s.mergedInto is null"
+            + " and s.archivedAt is null")
     long countCandidates();
 }

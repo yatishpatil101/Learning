@@ -248,10 +248,10 @@ is a trial; pricing a platform against an expiring credit is how the surprise ar
 | Dev database, 512 MiB | $7.00/mo | App Platform only, no backups — **not for production data** |
 | Spaces | $5.00/mo | 250 GiB + 1 TiB egress, then $0.01/GiB |
 
-**Why the $5 tier is a trap, specifically here.** It is the same arithmetic as the `memory: 1Gi` limit
-in `backend/deploy/cloudrun-sandbox.yaml`: `-XX:MaxRAMPercentage=75.0` on 512 MiB leaves a 384 MB heap
-and 128 MB for everything else, and Spring Boot 4 plus Hibernate across ~99 repositories spends more
-than that on metaspace alone. It does not OOM under load — it OOMs *during startup*, after the health
+**Why the $5 tier is a trap, specifically here.** It is the same arithmetic as the `memory` limit
+in `backend/deploy/cloudrun-sandbox.yaml`: `-XX:MaxRAMPercentage=70.0` on 512 MiB leaves a ~358 MB heap
+and ~154 MB for everything else, and Spring Boot 4 plus Hibernate across ~99 repositories spends
+~250 MB outside the heap (metaspace ~100 MB, code cache, symbols, threads). It does not OOM under load — it OOMs *during startup*, after the health
 check has begun waiting, which reads as a failed deploy rather than an undersized plan.
 
 **The comparison that matters is not free-vs-paid, it is working-vs-working.**

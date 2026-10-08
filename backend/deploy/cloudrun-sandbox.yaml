@@ -57,8 +57,9 @@ spec:
           resources:
             limits:
               cpu: '1'
-              # 2Gi leaves room for heap, metaspace and class definitions across 105 entities.
-              memory: 2Gi
+              # Measured peak is ~650 MB under 40 concurrent requests; MaxRAMPercentage=70 leaves
+              # ~300 Mi for non-heap, which must fit or startup is OOM-killed — docs/DEPLOY.md §5.
+              memory: 1Gi
 
           env:
             # `sandbox` alone — a standalone profile that adds the demo seed, overriding the
@@ -201,7 +202,16 @@ spec:
                   name: draazy-sandbox-r2-secret-access-key
                   key: latest
 
+            # Server-side Place Details key, separate from the browser's referrer-restricted one. Blank
+            # would wire the dev lookup that trusts the client, so the secret must exist before deploy.
+            - name: GOOGLE_PLACES_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-google-places-server-key
+                  key: latest
+
           # HTTP, not TCP: a TCP probe passes the moment Tomcat binds, before the context is ready.
+          # 60 × 5s covers a cold JVM that also has a long Flyway backlog to apply.
           startupProbe:
             httpGet:
               path: /api/actuator/health/readiness

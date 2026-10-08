@@ -79,7 +79,7 @@ class SavedSearchMatcher {
                 facetList(filters, "construction"),
                 null,
                 trueOrNull(filters, "pets"),
-                null, null, null, null, null,
+                null, null, null,
                 food(filters),
                 facetList(filters, "shell"),
                 trueOrNull(filters, "preLeased"),

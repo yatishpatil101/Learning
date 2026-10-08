@@ -17,7 +17,7 @@ tags: [ops, reports, takedowns, internal]
 
 Use **Admin → Reports** (`/admin/reports`) for Trust & Safety triage. It is an admin-portal desk: you need an `admin` account holding `reports:read` to view and `reports:write` to decide.
 
-Users can file listing reports, user reports and society-content reports. Chat can open a **Report user** modal for one-to-one conversations; group conversations do not expose user blocking or reporting.
+Users can file listing reports, user reports and review reports. Chat can open a **Report user** modal for one-to-one conversations; group conversations do not expose user blocking or reporting.
 
 ## Queue tabs and filters
 
@@ -26,7 +26,6 @@ Users can file listing reports, user reports and society-content reports. Chat c
 | **Listings** | Property listings | **Take down** with `hide_content` |
 | **Users** | User or owner account reports | **Suspend** with `suspend_account` |
 | **Flatmate posts** | Share posts | Decide the report; share-flat posts have no report-queue takedown verb |
-| **Society** | Contributions, replies, questions, answers and board posts | **Remove** with `hide_content` |
 
 Filter by status, reason and date range. Search only after checking whether an old tab or reason filter is hiding rows.
 
@@ -58,7 +57,6 @@ Reporter identity is withheld from the queue and export. Use **Withheld** in not
 | --- | --- |
 | **Take down** on listing | Flags the listing and removes it from public search |
 | **Suspend** on user | Suspends or archives the user through admin user enforcement |
-| **Remove** on society content | Hides the society hub content |
 | **Resolve** | Stores a dismissed report with reviewed-no-action wording |
 | **Dismiss** | Stores a dismissed report without enforcement |
 

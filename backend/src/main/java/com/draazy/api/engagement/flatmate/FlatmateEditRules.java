@@ -14,16 +14,16 @@ import org.springframework.stereotype.Component;
 @Component
 class FlatmateEditRules {
 
-    /** A room's {@code ownerConsentMobile} is silent because the room does not store it — it is read
-     * once on the way past; {@code occupants}/{@code maxOccupants} are not in the mapper allowlist. */
+    /* Silent fields: {@code ownerConsentMobile} is not stored, {@code occupants}/{@code maxOccupants} are not in the mapper allowlist,
+       {@code society} derives from {@code societyId}, and {@code localitySlug} folds into the compared canonical locality name. */
     static final Map<Class<?>, Set<String>> SILENT = Map.of(
             FlatmateRoomCreateRequest.class,
             Set.of("attachedBath", "lookingFor", "foodPref", "hostRole", "propertyId",
                     "agreementDeclared", "agreementDoc", "ownerConsentMobile", "ownerConsent",
-                    "occupants", "maxOccupants", "gatedCommunity", "details"),
+                    "occupants", "maxOccupants", "gatedCommunity", "details", "society", "localitySlug"),
             FlatmateGroupCreateRequest.class,
             Set.of("policy", "seatsOpen", "name", "role", "propertyId", "agreement",
-                    "agreementDoc"),
+                    "agreementDoc", "localitySlug"),
             FlatmateSeekerPostCreateRequest.class,
             Set.of("gender", "age", "flatPref", "roomPref", "verifiedContactOnly"));
 
@@ -45,9 +45,9 @@ class FlatmateEditRules {
 
         /** The address is what the guardrail fingerprints. The society *reference* counts too:
          * `societyReference.require` proves the id names *a* society, not this host's. */
-        if (!same(room.getSociety(), in.society())
-                || !same(room.getFlatNumber(), in.flatNumber())
-                || !Objects.equals(room.getSocietyId(), Ids.parseUuid(in.societyId()).orElse(null))) {
+        if (!same(room.getFlatNumber(), in.flatNumber())
+                || in.societyId() != null
+                && !Objects.equals(room.getSocietyId(), Ids.parseUuid(in.societyId().trim()).orElse(null))) {
             rechecked.add("address");
         }
 

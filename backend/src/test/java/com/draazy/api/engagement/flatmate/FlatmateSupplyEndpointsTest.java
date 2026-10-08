@@ -79,23 +79,23 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
         return saved;
     }
 
-    private static String roomBody(String locality, String society) {
-        return """
+    private String roomBody(String locality, String society) {
+        return withSocietyIds("""
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"%s","society":"%s","rentShare":15000,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
                  "foodPref":"any","photos":["https://cdn.example/1.jpg"],
                  "hostRole":"owner","note":"Sunny room, quiet building."}
-                """.formatted(locality, society);
+                """.formatted(locality, society));
     }
 
-    private static String roomBodyWithFlatNumber(String locality, String society, String flatNumber) {
+    private String roomBodyWithFlatNumber(String locality, String society, String flatNumber) {
         return roomBody(locality, society).replace("\"furnishing\"", "\"flatNumber\":\"%s\",\"furnishing\""
                 .formatted(flatNumber));
     }
 
-    private static String declaredRoomBody(String agreementDoc, String ownerConsent) {
-        return """
+    private String declaredRoomBody(String agreementDoc, String ownerConsent) {
+        return withSocietyIds("""
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"Baner","society":"Tenant Heights","rentShare":15000,
                  "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"any",
@@ -104,7 +104,7 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                  "agreementDoc":%s,
                  "ownerConsent":%s,"photos":["https://cdn.example/1.jpg"],
                  "note":"Sunny room, quiet building."}
-                """.formatted(agreementDoc, ownerConsent);
+                """.formatted(agreementDoc, ownerConsent));
     }
 
     private String agreementEvidence(User host) {
@@ -409,12 +409,12 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
             return mvc.perform(post(Routes.Flatmates.ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
+                            .content(withSocietyIds("""
                                     {"roomType":"Private room","locality":"Baner",
                                      "society":"%s","rentShare":15000,"hostRole":"owner",
                                      "propertyId":"%s",
                                      "photos":["https://cdn.example/1.jpg"]}
-                                    """.formatted(society, propertyId)))
+                                    """.formatted(society, propertyId))))
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString();
         }
@@ -1072,12 +1072,12 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
             String json = mvc.perform(post(Routes.Flatmates.ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
+                            .content(withSocietyIds("""
                                     {"roomType":"Private room","locality":"Baner",
                                      "society":"%s","rentShare":15000,
                                      "hostRole":"tenant","agreementDeclared":true,%s,
                                      "photos":["https://cdn.example/1.jpg"]%s}
-                                    """.formatted(society, agreementEvidence(host), consent)))
+                                    """.formatted(society, agreementEvidence(host), consent))))
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString();
             return publish("flatmate_rooms", idOf(json));
@@ -1562,13 +1562,13 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
 
         private String facetRoomBody(String locality, String society, String lookingFor,
                 String foodPref, long rentShare, String bhk) {
-            return """
+            return withSocietyIds("""
                     {"bhk":"%s","roomType":"Private room","attachedBath":"attached",
                      "furnishing":"semi","locality":"%s","society":"%s","rentShare":%d,
                      "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"%s",
                      "foodPref":"%s","hostRole":"owner",
                      "photos":["https://cdn.example/1.jpg"],"note":"Room."}
-                    """.formatted(bhk, locality, society, rentShare, lookingFor, foodPref);
+                    """.formatted(bhk, locality, society, rentShare, lookingFor, foodPref));
         }
 
         private void createFacetRoom(User host, String locality, String society, String lookingFor,

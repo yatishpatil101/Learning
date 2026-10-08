@@ -53,7 +53,7 @@ export default function FollowedSocietiesPanel() {
             </div>
             <p className="text-sm font-semibold text-white">No societies followed yet</p>
             <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">
-              Track the exact buildings you want — we’ll alert you when a home is listed, prices move, or residents review.
+              Track the exact buildings you want — we’ll alert you when a home is listed or prices move.
             </p>
           </div>
           <SocietyFinder />
@@ -66,9 +66,6 @@ export default function FollowedSocietiesPanel() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Link to={`/society/${slug}`} className="truncate text-sm font-semibold text-white hover:text-teal-300">{name}</Link>
-                  {soc && soc.claimStatus === 'claimed' ? (
-                    <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-300">Managed</span>
-                  ) : null}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {soc ? (

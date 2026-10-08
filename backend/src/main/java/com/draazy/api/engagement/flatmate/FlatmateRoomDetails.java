@@ -1,5 +1,8 @@
 package com.draazy.api.engagement.flatmate;
 
+import static com.draazy.api.engagement.flatmate.FlatmateVocabulary.NO_CONTACT;
+
+import com.draazy.api.catalog.listing.NoContactDetails;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -15,7 +18,7 @@ public record FlatmateRoomDetails(
         @Min(0) @Max(3) Integer balconies,
         @Size(max = 40) List<@NotBlank @Size(max = 60) String> furniture,
         @Size(max = 30) String tower,
-        @Size(max = 60) String street,
-        @Size(max = 60) String landmark,
+        @Size(max = 60) @NoContactDetails(message = NO_CONTACT) String street,
+        @Size(max = 60) @NoContactDetails(message = NO_CONTACT) String landmark,
         @Pattern(regexp = "[0-9]{6}") String pincode) {
 }

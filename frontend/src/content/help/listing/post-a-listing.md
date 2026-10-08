@@ -35,7 +35,7 @@ Draazy is owner-only: owners and family of owners can list; agents and brokers c
 
 If it is a rental of a residential property, you also choose here whether you are letting the **whole place** or looking for a **flatmate**. The flatmate route is a different flow — see [Finding flatmates](/help/a/finding-flatmates).
 
-**Step 2 — Location.** Locality, society, flat number and pincode, and you must **place the property on the map** — a listing is never left on a default pin. Pick the society from our Pune and PCMC dataset if it is there; that fills in the locality, commute data and amenities for you.
+**Step 2 — Location.** Locality, society, flat number and pincode, and you must **place the property on the map** — a listing is never left on a default pin. Pick the society from Google Maps suggestions if it is there; choose "Not on Google Maps" to continue with the address and map pin only.
 
 **Step 3 — Pricing.** For a rental: monthly rent, deposit and the available-from date. For a sale: price, possession and ownership type. Pet policy can be left unstated if you have not decided.
 

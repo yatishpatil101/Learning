@@ -147,9 +147,12 @@ export async function myListing(id) {
   if (!id) return null;
   try {
     const vm = toViewModel(await get(`/me/listings/${encodeURIComponent(id)}`));
+    if (!vm) return vm;
+    const form = toEditForm(vm);
+    if (vm.societyId && vm.societyName) form.society = vm.societyName;
     /* Synthesise the `form` snapshot the caller reads: a server row carries the contract's field
        names, so the wizard's `listing.form || listing` fallback would prefill from keys that do not exist. */
-    return vm && { ...vm, form: toEditForm(vm) };
+    return { ...vm, form };
   } catch (err) {
     if (err?.status === 404) return null;
     throw err;

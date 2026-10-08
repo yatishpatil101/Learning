@@ -46,7 +46,6 @@ class TestDatabaseIsolationTest {
                 "settings",
                 "cities",
                 "localities",
-                "societies",
                 "reels",
                 "plans",
                 "service_offerings"
