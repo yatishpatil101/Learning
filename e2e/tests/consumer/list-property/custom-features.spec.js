@@ -1,5 +1,5 @@
 // No identity badge is granted: the wizard has no identity gate, and granting one here would
-// quietly assert the opposite of what `live-no-gate` proves.
+// quietly assert the opposite of what `no-gate` proves.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';

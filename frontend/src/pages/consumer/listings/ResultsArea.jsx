@@ -83,7 +83,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                     <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) smartSearch(); }} enterKeyHint="search" aria-label={t('listings.smartSearch')} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="lst-search-field w-full pl-9 pr-[88px] sm:pr-3 h-11 sm:h-10 rounded-full glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
 
-                    {/* `live-search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
+                    {/* `search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
                     <div className="sm:hidden absolute inset-y-0 right-1 flex items-center gap-1">
                       <button type="button" onClick={saveSearch} disabled={savingSearch} aria-busy={savingSearch || undefined} aria-label={t('listings.saveSearch')} className="lst-search-bell w-11 self-stretch flex items-center justify-center text-gray-400 hover:text-teal-300 disabled:opacity-50 disabled:pointer-events-none t-all"><Icon name={savingSearch ? 'loader' : 'bell-plus'} className={'w-4 h-4' + (savingSearch ? ' animate-spin' : '')} /></button>
                       <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="lst-search-go tap-extend relative w-9 h-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
@@ -98,7 +98,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
 
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
 
-              {/* `.dz-docks-under-nav` owns the offset below lg (it tracks the hide-on-scroll top bar); no `top-*` here. */}
+              {/* `.dz-docks-under-nav` sets the offset below lg (tracks the hide-on-scroll bar); no `top-*`. */}
               <div className="dz-docks-under-nav sm:hidden sticky z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-ink/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}

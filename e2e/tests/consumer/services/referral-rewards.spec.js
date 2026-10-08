@@ -1,5 +1,5 @@
-/* The screen half only — quota arithmetic is `consumer/live-entitlements`, the /refer code and share
- * link are `live-refer`. Withdrawal of already-earned bonuses is filed in `tasks/DECISIONS-NEEDED.md`. */
+/* The screen half only — quota arithmetic is `consumer/entitlements`, the /refer code and share
+ * link are `refer`. Withdrawal of already-earned bonuses is filed in `tasks/DECISIONS-NEEDED.md`. */
 import { expect, test, ACTORS } from '../../../fixtures/live.js';
 import { API, apiLogin, signedInAs, signIn, uniqueMobile } from '../../../helpers/liveAuth.js';
 

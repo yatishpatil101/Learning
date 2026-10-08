@@ -1,5 +1,5 @@
-/* Service landings against the live backend: `ServiceLanding` (packers, home loans, legal) shares one gate, prefill and hero so each is asserted once;
-   valuation and interior are bespoke and keep their own. Packers submit: `live-service-landing-ticket.spec.js`; interior: `interior-lead.spec.js`. */
+/* ServiceLanding (packers, home loans, legal) shares one gate, prefill and hero, so each is asserted once;
+   valuation and interior are bespoke. Submits: service-landing-ticket.spec.js, interior-lead.spec.js. */
 import { expect, test, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, signIn, signedInAs } from '../../../helpers/liveAuth.js';
 import { appReady } from '../../../helpers/app.js';
@@ -298,7 +298,7 @@ test.describe('home loans landing, live', () => {
     expect(arrived, 'a signed-out press files no enquiry').toHaveLength(0);
   });
 
-  // Pinned against `/auth/me` because the form initialises once while AuthContext can replace the cached user after first render.
+  // Pin against /auth/me: the form initialises once, but AuthContext may replace the cached user afterwards.
   test('the quote form already knows a signed-in customer, without being told', async ({ page }) => {
     await withConsent(page);
     await signedInAs(page, ACTORS.buyer);

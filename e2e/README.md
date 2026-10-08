@@ -135,8 +135,8 @@ everything else is desktop-only unless a config opts it into a second viewport.
 
 - **Default config** — `chromium` runs everything except `tests/mobile/**`; `mobile-small` runs all of
   `tests/mobile/**` at 360×640. `mobile` (Pixel 7) runs only `tests/mobile/home-featured-first` and
-  `live-home-flatmates-tile`, whose fold and wrapping checks differ at 412×915, plus an explicit
-  cross-viewport `testMatch` list (`referral-rewards`, `help/live-centre`, `help/help-urls`, `platform/i18n`).
+  `home-flatmates-tile`, whose fold and wrapping checks differ at 412×915, plus an explicit
+  cross-viewport `testMatch` list (`referral-rewards`, `help/centre`, `help/help-urls`, `platform/i18n`).
 - **No-backend config** — one `chromium` project. Its `CROSS_VIEWPORT` list and `mobile` project
   are gone: every entry had been *moved* to the live config as its spec converted, exactly as the
   rule required, and the list emptied itself. `testMatch: []` matches nothing, so that project was
@@ -195,8 +195,9 @@ e2e/
 ## Writing a new spec
 
 Put it in the folder that matches its audience and feature area — that is what
-routes it to a viewport project. Import depth follows the nesting (`../../../`
-from `tests/consumer/flatmates/`).
+routes it to a viewport project. Name it for the feature (`alerts-card.spec.js`); every spec runs
+against the live API, so a `live-` prefix is rejected by `playwright.config.js`. Import depth follows
+the nesting (`../../../` from `tests/consumer/flatmates/`).
 
 ```js
 import { test, expect } from '../../../fixtures/base.js';

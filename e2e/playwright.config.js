@@ -1,5 +1,12 @@
+import fs from 'node:fs';
 import { defineConfig, devices } from '@playwright/test';
 import { NO_BACKEND } from './no-backend-specs.js';
+
+// Every spec runs against the live API, so a `live-` prefix carries no meaning and only breeds copies.
+const prefixed = fs
+  .readdirSync(new URL('./tests', import.meta.url), { recursive: true })
+  .filter((f) => /(^|[\\/])live-[^\\/]*\.spec\.js$/.test(f));
+if (prefixed.length) throw new Error(`Drop the "live-" prefix from: ${prefixed.join(', ')}`);
 
 // **It resets a database**: prefer the `run-live-*.ps1` lanes, which pin port, database and app URL together.
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
@@ -53,16 +60,16 @@ export default defineConfig({
       use: { ...devices['Pixel 7'] },
       testMatch: [
         '**/mobile/home-featured-first.spec.js',
-        '**/mobile/live-home-flatmates-tile.spec.js',
+        '**/mobile/home-flatmates-tile.spec.js',
         // Which contact-box copy answers `Request number` is layout; the exhausted upsell is likeliest to break narrow.
         '**/consumer/services/referral-rewards.spec.js',
-        '**/platform/help/live-centre.spec.js',
+        '**/platform/help/centre.spec.js',
         '**/platform/help/help-urls.spec.js',
         '**/platform/i18n.spec.js',
       ],
     },
     {
-      // Low-end Android baseline, where bottom chrome and tap targets break first; the only run of most `tests/mobile/**`.
+      // Low-end Android baseline, where bottom chrome and tap targets break first; most mobile specs run here.
       name: 'mobile-small',
       use: {
         ...devices['Pixel 7'],

@@ -75,8 +75,8 @@ const UNDOCUMENTED = [
   'consumer/services/interior-lead',
   'admin-content',
   'admin-services',
-  'live-demand-signals',
-  'live-service-landing-ticket',
+  'demand-signals',
+  'service-landing-ticket',
 ];
 
 const globPrefixes = [...cited].filter((n) => n.endsWith('*')).map((n) => n.replace(/\/?\*+$/, ''));

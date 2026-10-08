@@ -2,7 +2,7 @@ import { expect, test } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { isolatedPin, pickGoogleSociety } from '../../../helpers/places.js';
 
-/* Covers what `live-society-follow.spec.js` does not: the hub (own server-computed follower count) and the tile
+/* Covers what `society-follow.spec.js` does not: the hub (own server-computed follower count) and the tile
    that counts follows, which is a different reader from the panel that lists them. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';

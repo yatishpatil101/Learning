@@ -2,7 +2,7 @@
 import { test, expect } from '../../../fixtures/live.js';
 
 /* The hub's job is routing people to the nine services; a broken category filter or dead-route card surfaces only
-   as "nobody reaches the paid services". `live-move-in-pack.spec.js` covers the Move-in Pack. */
+   as "nobody reaches the paid services". `move-in-pack.spec.js` covers the Move-in Pack. */
 
 const cards = (page) => page.locator('a.svc-card');
 
@@ -64,7 +64,7 @@ test.describe('LIVE: the services hub routes people to the nine services', () =>
       const proof = PROOF[href] ? PROOF[href](page) : page.locator('h1').first();
       await expect(proof, `${href} rendered no content`).toBeVisible({ timeout: 20_000 });
       await expect(proof, `${href} content is empty`).toHaveText(/\S/);
-      // A provider missing from `VITE_API_DOMAINS` produces a heading and an apology, which the checks above would pass.
+      // A provider missing from VITE_API_DOMAINS renders a heading and an apology the checks above would pass.
       await expect(
         page.getByText(/something went wrong|couldn't load|failed to load/i),
         `${href} rendered an error surface`,

@@ -4,7 +4,7 @@ import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/li
 /* This drives the owner's actual grant screen and verifies the write outside the browser, so a
    dashboard-only local copy cannot pass as a database grant. */
 
-/** Not `Sale Deed` (live-property-integration) and not `Society NOC` (live-buyer-document-access). */
+/** Not `Sale Deed` (property-integration) and not `Society NOC` (buyer-document-access). */
 const CATEGORIES = ['Index II', 'Encumbrance Certificate'];
 
 const BUYER_NAME = 'Priya Docseeker';
