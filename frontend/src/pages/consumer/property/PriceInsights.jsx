@@ -7,23 +7,17 @@ import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
+import { useLocalityStats } from './useLocalityStats.js';
 
 /* Answers the two questions a serious buyer has on a sale: is this price fair (benchmark
- * ₹/sq.ft plus trend), and what will it actually cost (EMI plus the stamp duty. */
+ * ₹/sq.ft against the locality's live listings), and what will it actually cost (EMI plus the stamp duty. */
 export function PriceInsights({ p }) {
   const { t } = useTranslation();
   const [dp, setDp] = useState(20);
   const [tenure, setTenure] = useState(20);
 
-  const bench = valueBenchmark(p);
+  const bench = valueBenchmark(p, useLocalityStats(p));
   const perSqft = bench.perSqft;
-  // Real appreciation from the curated locality YoY (falls back to a neutral
-  // market figure when we have no verified locality data — never a made-up number).
-  const yoy = bench.yoy || 0;
-  const g = 1 + (yoy || 8) / 100;
-  const trendIdx = [1 / g ** 3, 1 / g ** 2, 1 / g, 1];
-  const trendMin = trendIdx[0];
-  const trendBars = trendIdx.map((v) => Math.round(45 + ((v - trendMin) / (1 - trendMin || 1)) * 55));
   const TONE = {
     good: { text: 'text-emerald-400', arrow: 'arrow-down', note: t('property.toneBetter') },
     fair: { text: 'text-brand-teal-3', arrow: 'minus', note: t('property.toneAtMarket') },
@@ -109,18 +103,6 @@ export function PriceInsights({ p }) {
                 <span className={'font-semibold flex items-center gap-1 ' + TONE.text}><Icon name={TONE.arrow} className="w-3.5 h-3.5" /> {TONE.note}</span>
               </div>
               <div className="insight-bar"><span style={{ width: `${bench.pct}%` }} /></div>
-              <div className="mt-6 pt-5 border-t border-white/5">
-                <p className="text-xs text-slate-400 mb-3 flex items-center gap-1.5"><Icon name="trending-up" className="w-3.5 h-3.5 text-brand-teal-2" /> {t('property.priceTrend', { locality: p.locality })}</p>
-                <div className="flex items-end gap-2.5 h-20">
-                  {trendBars.map((h, i) => (
-                    <div key={i} className="flex-1 h-full flex flex-col items-center justify-end gap-1">
-                      <div className={'w-full bar3d ' + (i === 3 ? 'bar3d--teal bg-gradient-to-t from-brand-teal-2 to-brand-teal-3' : 'bar3d--muted bg-gradient-to-t from-brand-indigo-3/40 to-brand-teal-1/60')} style={{ height: `${h}%` }} />
-                      <span className={'text-[10px] ' + (i === 3 ? 'text-brand-teal-3 font-semibold' : 'text-slate-500')}>&apos;{22 + i}</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-emerald-400 mt-3 flex items-center gap-1.5"><Icon name="trending-up" className="w-3.5 h-3.5" /> {t('property.appreciation', { pct: yoy.toFixed(1) })}</p>
-              </div>
             </>
           ) : (
             <div className="rd-cell">

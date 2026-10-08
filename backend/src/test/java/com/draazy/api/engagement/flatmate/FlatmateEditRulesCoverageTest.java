@@ -240,7 +240,7 @@ class FlatmateEditRulesCoverageTest {
 
     private static FlatmateRoomCreateRequest roomRequest() {
         return new FlatmateRoomCreateRequest("Flat", "2", "Private room", "attached", "semi",
-                "East", "Garden", "Baner", UUID.randomUUID().toString(), "Alpha Heights", "B-402",
+                "East", "Garden", "Baner", null, UUID.randomUUID().toString(), "Alpha Heights", "B-402",
                 15000L, 30000L, 2, 3, 30, 6, "included", "separate",
                 LocalDate.of(2026, 9, 1), "any", "any",
                 List.of("non-smoker"), "tenant", UUID.randomUUID().toString(), true,
@@ -283,7 +283,7 @@ class FlatmateEditRulesCoverageTest {
     }
 
     private static FlatmateGroupCreateRequest groupRequest() {
-        return new FlatmateGroupCreateRequest("Four of us in Baner", "Baner", "mixed",
+        return new FlatmateGroupCreateRequest("Four of us in Baner", "Baner", null, "mixed",
                 48000L, 96000L, 30, 6, "shared", "separate", 4, 1,
                 "Asha", "tenant", UUID.randomUUID().toString(), true,
                 Map.of("url", "https://cdn.example/b.pdf"),
@@ -298,7 +298,7 @@ class FlatmateEditRulesCoverageTest {
 
     private static FlatmateGroupCreateRequest huntingRequest(FlatmateGroupPreferences prefs) {
         FlatmateGroupCreateRequest b = groupRequest();
-        return new FlatmateGroupCreateRequest(b.title(), null, b.policy(), null, null, null, null,
+        return new FlatmateGroupCreateRequest(b.title(), null, null, b.policy(), null, null, null, null,
                 null, null, b.seats(), b.seatsOpen(), b.name(), null, null, null, null, null,
                 b.tags(), b.note(), prefs);
     }

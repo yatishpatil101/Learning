@@ -316,7 +316,7 @@ export default function AdminProperties() {
     refresh();
   };
   // `bhkNum`, not the rendered `bhk`: the label is "3 BHK", and the contract wants an integer.
-  const openEdit = (l, fromReview = false) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l, _fromReview: fromReview }); };
+  const openEdit = (l, fromReview = false) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', localitySlug: l.localitySlug || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l, _fromReview: fromReview }); };
   const closeEdit = () => {
     if (edit?._fromReview) setReview(edit._ref);
     setEdit(null);
@@ -326,7 +326,9 @@ export default function AdminProperties() {
     const title = edit.title.trim();
     const price = +edit.price;
     const area = edit.area === '' ? '' : +edit.area;
+    const ref = edit._ref || {};
     const loc = edit.locality.trim();
+    const locChanged = loc !== (ref.locality || '') || (edit.localitySlug && edit.localitySlug !== (ref.localitySlug || ''));
     if (!title) return toast('Title is required', 'error');
     if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error');
     if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error');
@@ -339,14 +341,14 @@ export default function AdminProperties() {
     if (edit._ref.status === 'rejected' && edit.status !== edit._ref.status) {
       return toast('Use Request reopen in the review panel to reverse a final rejection', 'error');
     }
-    const ref = edit._ref || {};
     const nextPatch = Object.fromEntries(Object.entries({
       title: title !== (ref.title || '') ? title : undefined,
       price: price !== Number(ref.price) ? price : undefined,
       area: area !== '' && area !== Number(ref.area) ? area : undefined,
       bhk: bhkNum !== undefined && bhkNum !== ref.bhkNum ? bhkNum : undefined,
       type: edit.type.trim() !== (ref.type || '') ? edit.type.trim() : undefined,
-      locality: loc !== (ref.locality || '') ? loc : undefined,
+      locality: locChanged ? loc : undefined,
+      localitySlug: locChanged && edit.localitySlug ? edit.localitySlug : undefined,
       deal: edit.deal !== (ref.deal || 'buy') ? edit.deal : undefined,
     }).filter(([, value]) => value !== undefined));
     if (savingEdit) return;

@@ -6,10 +6,7 @@ import {
   Briefcase, Goal, Blocks, Armchair,
   Bike, Car
 } from 'lucide-react';
-import { localityNames, localityCoordMap } from '../../../data/localities.js';
 
-export const localities = localityNames();
-export const localityCoords = localityCoordMap();
 export const facingOptions = ['East', 'West', 'North', 'South'];
 export const overlookingOptions = ['Garden', 'Amenity', 'Parking', 'Main Road'];
 export const ageOptions = [

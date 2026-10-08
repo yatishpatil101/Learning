@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -9,7 +9,6 @@ import AgreementUpload from './AgreementUpload.jsx';
 import FlatmateTerms from './FlatmateTerms.jsx';
 import GroupPreferencesFields from './GroupPreferencesFields.jsx';
 import AmountInput from './AmountInput.jsx';
-import { LOCALITIES } from './constants.js';
 import { inr, MAX_GROUP_SEATS } from './helpers.js';
 import isTopDialog from '../../../lib/isTopDialog.js';
 import useScrollLock from '../../../hooks/useScrollLock.js';
@@ -18,6 +17,7 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
   const { t: tr } = useTranslation();
   const title = tr(editing ? 'flatmates.groupEditTitle' : 'flatmates.groupModalTitle');
   const panelRef = useRef(null);
+  const [localityBusy, setLocalityBusy] = useState(false);
   useScrollLock();
   useEffect(() => {
     const onKey = (e) => {
@@ -49,12 +49,12 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
           {grp.hunting ? (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{policyField}{seatsField}</div>
-              <GroupPreferencesFields grp={grp} setGrp={setGrp} grpErr={grpErr} />
+              <GroupPreferencesFields grp={grp} setGrp={setGrp} grpErr={grpErr} onLocalityBusy={setLocalityBusy} />
             </>
           ) : (<>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.fLocality')} <span className="text-rose-400">*</span></label><LocalitySelect value={grp.locality} onChange={(v) => setGrp({ ...grp, locality: v, consentVerified: false })} options={LOCALITIES} placeholder={tr('flatmates.selectLocality')} ariaLabel={tr('flatmates.fLocality')} className="w-full" /></div>
+            <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.fLocality')} <span className="text-rose-400">*</span></label><LocalitySelect value={grp.locality} onChange={(v) => setGrp({ ...grp, locality: v, localitySlug: '', consentVerified: false })} onSelect={(sel) => setGrp((g) => ({ ...g, localitySlug: sel.slug || '' }))} onBusyChange={setLocalityBusy} placeholder={tr('flatmates.selectLocality')} ariaLabel={tr('flatmates.fLocality')} className="w-full" /></div>
             {policyField}
           </div>
 
@@ -152,7 +152,7 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
           </div>}
           <div className="flex items-center justify-end gap-3 pt-1">
             <button type="button" onClick={() => setGroupOpen(false)} className="btn-ghost text-sm font-medium text-gray-300 px-5 py-2.5 rounded-xl">{tr('flatmates.cancel')}</button>
-            <button type="submit" className="btn-teal text-sm font-semibold text-white px-6 py-2.5 rounded-xl inline-flex items-center gap-2"><Icon name={editing ? 'check' : 'users-round'} className="w-4 h-4" /> {tr(editing ? 'flatmates.saveChanges' : 'flatmates.createGroupSubmit')}</button>
+            <button type="submit" disabled={localityBusy} className="btn-teal text-sm font-semibold text-white px-6 py-2.5 rounded-xl inline-flex items-center gap-2 disabled:opacity-70"><Icon name={editing ? 'check' : 'users-round'} className="w-4 h-4" /> {tr(editing ? 'flatmates.saveChanges' : 'flatmates.createGroupSubmit')}</button>
           </div>
         </form>
       </div>

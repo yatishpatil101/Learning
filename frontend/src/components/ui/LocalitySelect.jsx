@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Select from './Select.jsx';
 import MultiSelect from './MultiSelect.jsx';
 import { getActiveCity } from '../../lib/geoConfig.js';
@@ -7,49 +8,43 @@ import {
   fetchLocalitySuggestions,
   fetchPlaceDetails,
 } from '../../lib/places.js';
+import { resolveLocality, searchLocalities } from '../../services/localityService.js';
 
-/**
- * Locality picker backed by Google Places (New), so users can choose ANY Pune
- * locality — not just a hardcoded shortlist. It's a thin skin over the themed
- * Select / MultiSelect: it passes the static `options` as an offline fallback and
- * layers live, Pune-biased locality suggestions on top while typing. If Google is
- * unavailable (no key, quota exhausted, offline) the search returns nothing and the
- * control silently degrades to filtering the static list — never a regression.
- *
- * The stored value stays the locality NAME string (backward compatible with every
- * existing `form.locality`). On selecting a live suggestion, `onSelect` fires with
- * `{ name, lat, lng }` (coords resolved from the place) so callers can recenter a map.
- *
- * @param {object} props
- * @param {boolean} [props.multi] - Multi-select variant (returns/accepts an array of names).
- * @param {boolean} [props.unrestricted] - Skip the active-city hard-fence for genuinely
- *   cross-city fields (e.g. an intercity move's origin/destination). The admin blacklist
- *   still applies. Defaults to false (city-scoped).
- * @param {string} [props.value] - Selected name (single).
- * @param {string[]} [props.values] - Selected names (multi).
- * @param {(value: string) => void} [props.onChange] - Name change (single).
- * @param {(values: string[]) => void} [props.onChange] - Names change (multi).
- * @param {(sel: {name: string, lat: number|null, lng: number|null, details?: object}) => void} [props.onSelect]
- *   - Fired after a pick with resolved coords (null when picked from the static list).
- * @param {Array<string|{value,label}>} [props.options] - Static fallback options.
- *   (All other props pass through to the underlying Select / MultiSelect.)
- */
+const dbOption = (l) => ({ value: l.name, label: l.name, meta: { locality: l } });
+
+/** A locality is only chosen from a Google suggestion (or a saved one when Google is down) and resolved server-side, so the stored name is canonical.
+ * `nameOnly` / `unrestricted` skip the resolve and report `{ name, lat, lng }`; typed text is never committed. */
 export default function LocalitySelect({
   multi = false,
   unrestricted = false,
+  nameOnly = false,
   value,
   values,
   onChange,
   onSelect,
-  options = [],
+  onBusyChange,
+  disabled,
+  invalid,
   ...rest
 }) {
-  // One session token per typing burst groups the suggestion calls with the final
-  // details fetch into a single billable Places session; reset after each resolve.
+  const { t } = useTranslation();
+  const resolves = !unrestricted && !nameOnly;
   const tokenRef = useRef(null);
-  // The details fetch is async and this control often lives in a modal (Flatmates)
-  // that can close mid-resolve — don't fire onSelect into an unmounted parent.
+  const reqRef = useRef(0);
   const mountedRef = useRef(true);
+  const live = useRef({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const errorId = useId();
+
+  useEffect(() => {
+    live.current = { onChange, onSelect, values, onBusyChange };
+  });
+  useEffect(() => {
+    const report = live.current.onBusyChange;
+    if (report) report(busy);
+    return () => { if (busy && report) report(false); };
+  }, [busy]);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -58,61 +53,102 @@ export default function LocalitySelect({
   const asyncSearch = useCallback(async (q) => {
     if (!tokenRef.current) tokenRef.current = newAutocompleteSession();
     const preds = await fetchLocalitySuggestions(q, tokenRef.current, { crossCity: unrestricted });
-    return preds.map((p) => ({
-      value: p.mainText,
-      label: p.mainText,
-      sublabel: p.secondaryText,
-      meta: { _p: p._p, placeId: p.placeId },
-    }));
-  }, [unrestricted]);
+    if (preds.length) {
+      return preds.map((p) => ({
+        value: p.mainText,
+        label: p.mainText,
+        sublabel: p.secondaryText,
+        deferChange: resolves,
+        meta: { _p: p._p, placeId: p.placeId },
+      }));
+    }
+    try {
+      return (await searchLocalities(q)).map(dbOption);
+    } catch {
+      return [];
+    }
+  }, [unrestricted, resolves]);
+
+  const commit = useCallback((name, extra) => {
+    const { onChange: change, onSelect: select, values: current } = live.current;
+    if (multi) {
+      const list = Array.isArray(current) ? current : [];
+      if (!list.includes(name)) change([...list, name]);
+    } else {
+      change(name);
+    }
+    if (select) select({ name, ...extra });
+  }, [multi]);
 
   const onPick = useCallback(async (option) => {
-    // Picked from the static fallback list — no Place to resolve; report name only.
-    if (!option || !option.meta) {
-      if (onSelect) onSelect({ name: option ? option.value : '', lat: null, lng: null });
+    const meta = option?.meta;
+    if (!meta) return;
+    if (meta.locality) {
+      reqRef.current += 1;
+      setError(null);
+      setBusy(false);
+      const { slug, name, lat, lng } = meta.locality;
+      if (live.current.onSelect) live.current.onSelect({ slug, name, lat, lng });
       return;
     }
+    const token = ++reqRef.current;
+    setError(null);
+    if (resolves) setBusy(true);
     let details = null;
     try {
-      details = await fetchPlaceDetails(option.meta);
+      details = await fetchPlaceDetails(meta);
     } catch {
       details = null;
     }
     tokenRef.current = null;
-    if (!mountedRef.current) return;
-    if (onSelect) {
-      onSelect({
-        name: option.value,
-        lat: details ? details.lat : null,
-        lng: details ? details.lng : null,
-        details: details || undefined,
-      });
+    if (token !== reqRef.current || !mountedRef.current) return;
+    if (!resolves) {
+      if (live.current.onSelect) {
+        live.current.onSelect({
+          name: option.value,
+          lat: details ? details.lat : null,
+          lng: details ? details.lng : null,
+          details: details || undefined,
+        });
+      }
+      return;
     }
-  }, [onSelect]);
+    try {
+      if (!details || details.lat == null || details.lng == null) throw new Error('no place');
+      const loc = await resolveLocality({
+        placeId: details.placeId || meta.placeId,
+        name: details.name || option.value,
+        lat: details.lat,
+        lng: details.lng,
+        types: details.types,
+      });
+      if (token !== reqRef.current || !mountedRef.current) return;
+      commit(loc.name, { slug: loc.slug, lat: loc.lat ?? details.lat, lng: loc.lng ?? details.lng, details });
+    } catch (e) {
+      if (token === reqRef.current && mountedRef.current) setError(e?.status === 422 ? (e.message && !/^HTTP \d+$/.test(e.message) ? e.message : t('ui.localityPick')) : t('ui.localityFailed'));
+    } finally {
+      if (token === reqRef.current && mountedRef.current) setBusy(false);
+    }
+  }, [resolves, commit, t]);
 
-  if (multi) {
-    return (
-      <MultiSelect
-        values={values}
-        onChange={onChange}
-        options={options}
-        asyncSearch={asyncSearch}
-        onPick={onPick}
-        noResultsText={unrestricted ? 'No matches' : `No matches in ${getActiveCity()}`}
-        {...rest}
-      />
-    );
-  }
+  const shared = {
+    anchored: true,
+    asyncSearch,
+    onPick,
+    disabled: disabled || busy,
+    invalid: invalid || !!error,
+    ariaDescribedBy: error ? errorId : undefined,
+    noResultsText: unrestricted ? t('ui.noMatches') : `${t('ui.noMatches')} in ${getActiveCity()}`,
+    ...rest,
+  };
 
   return (
-    <Select
-      value={value}
-      onChange={onChange}
-      options={options}
-      asyncSearch={asyncSearch}
-      onPick={onPick}
-      noResultsText={unrestricted ? 'No matches' : `No matches in ${getActiveCity()}`}
-      {...rest}
-    />
+    <>
+      {multi
+        ? <MultiSelect values={values} onChange={onChange} {...shared} />
+        : <Select value={value} onChange={onChange} {...shared} />}
+      <p className="mt-1 text-xs text-gray-400 empty:hidden" role="status">{busy ? t('ui.localityAdding') : ''}</p>
+      {error ? <p id={errorId} className="mt-1 text-xs text-red-400" role="alert" data-testid="locality-error">{error}</p> : null}
+    </>
   );
 }

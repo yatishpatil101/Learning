@@ -1,9 +1,10 @@
 package com.draazy.api.catalog.listing;
 
-import com.draazy.api.catalog.locality.LocalityResolver;
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyPossession;
+import com.draazy.api.catalog.society.Society;
 import com.draazy.api.catalog.society.SocietyRepository;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
@@ -27,10 +28,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class ListingEditRules {
 
-    private final LocalityResolver localities;
+    private final LocalityBinding localities;
     private final SocietyRepository societies;
 
-    public ListingEditRules(LocalityResolver localities, SocietyRepository societies) {
+    public ListingEditRules(LocalityBinding localities, SocietyRepository societies) {
         this.localities = localities;
         this.societies = societies;
     }
@@ -75,7 +76,6 @@ public class ListingEditRules {
         boolean remoderationRequired = false;
         boolean recheckOnly = false;
         List<String> rechecked = new ArrayList<>();
-        boolean localityChanged = false;
 
         // ── Foundation, OFF SEARCH: these change what the listing fundamentally *is*, so a stale
         // index entry is a wrong answer rather than a late one. ───────────────────────────────
@@ -103,10 +103,13 @@ public class ListingEditRules {
             p.setLandUse(in.landUse());
             remoderationRequired = true;
         }
-        if (in.locality() != null && !in.locality().equals(p.getLocality())) {
-            p.setLocality(in.locality());
+        boolean pickedLocality = in.localitySlug() != null && !in.localitySlug().equals(p.getLocalitySlug());
+        if (in.locality() != null && !in.locality().equals(p.getLocality()) || pickedLocality) {
+            LocalityBinding.Bound bound = localities.require(in.localitySlug(),
+                    in.locality() != null ? in.locality() : p.getLocality(), p.getLocalitySlug());
+            p.setLocality(bound.name());
+            p.setLocalitySlug(bound.slug());
             remoderationRequired = true;
-            localityChanged = true;
         }
         if (in.deal() != null && !in.deal().equals(p.getDeal())) {
             p.setDeal(in.deal());
@@ -145,9 +148,10 @@ public class ListingEditRules {
             recheckOnly = true;
             rechecked.add("address");
         }
-        if (in.societyId() != null && !Objects.equals(in.societyId(), p.getSocietyId())) {
-            p.setSocietySlug(requireSociety(in.societyId()));
-            p.setSocietyId(in.societyId());
+        UUID wantedSociety = in.societyId() == null ? p.getSocietyId() : societyOf(in.societyId());
+        if (in.societyId() != null && !Objects.equals(wantedSociety, p.getSocietyId())) {
+            stampSociety(p, wantedSociety, true);
+            p.setSocietyId(wantedSociety);
             p.revokeOwnershipVerification();
             recheckOnly = true;
             rechecked.add("societyId");
@@ -288,19 +292,13 @@ public class ListingEditRules {
         if (in.ageYears() != null) {
             p.setAgeYears(in.ageYears());
         }
-        if (in.societyId() != null && Objects.equals(in.societyId(), p.getSocietyId())) {
-            p.setSocietySlug(requireSociety(in.societyId()));
-            p.setSocietyId(in.societyId());
+        if (wantedSociety != null && Objects.equals(wantedSociety, p.getSocietyId())) {
+            stampSociety(p, wantedSociety, false);
         }
         if (in.electricityMeterNo() != null && Objects.equals(in.electricityMeterNo(), p.getElectricityMeterNo())) {
             p.setElectricityMeterNo(in.electricityMeterNo());
         }
 
-        // Re-bind the curated slug only when the display locality changed, never on a lat/lng-only
-        // edit — that would silently move an approved listing into another market's results.
-        if (localityChanged) {
-            p.setLocalitySlug(localities.resolve(p.getLocality(), p.getLat(), p.getLng()));
-        }
         clearReadyToMoveSaleAvailableDate(p);
 
         return new EditImpact(remoderationRequired, recheckOnly && !remoderationRequired, rechecked);
@@ -502,15 +500,25 @@ public class ListingEditRules {
         }
     }
 
-    /** Refuse a society id that names nothing, so a stale id is a {@code 404} rather than an FK
-     * violation surfacing as a {@code 409}. Returns the slug so the writer can stamp the formula. */
-    String requireSociety(UUID societyId) {
+    /** The PATCH {@code societyId}: blank clears the binding, which is {@code null}. */
+    private static UUID societyOf(String societyId) {
+        return societyId.isBlank() ? null : UUID.fromString(societyId);
+    }
+
+    /** A stale society id is a {@code 404} rather than an FK {@code 409}; an archived society is refused only for a new binding.
+     * Stamps the slug and name formulas so the writer's own response carries them. */
+    void stampSociety(Property p, UUID societyId, boolean newBinding) {
         if (societyId == null) {
-            return null;
+            p.setSocietySlug(null);
+            p.setSocietyName(null);
+            return;
         }
-        return societies.findById(societyId)
-                .orElseThrow(() -> NotFoundException.of("Society"))
-                .getSlug();
+        Society society = societies.findById(societyId).orElseThrow(() -> NotFoundException.of("Society"));
+        if (newBinding && society.getArchivedAt() != null) {
+            throw NotFoundException.of("Society");
+        }
+        p.setSocietySlug(society.getSlug());
+        p.setSocietyName(society.getName());
     }
 
     private static boolean numericEquals(BigDecimal a, BigDecimal b) {

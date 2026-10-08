@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.flatmate;
 
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
@@ -75,6 +76,7 @@ public class FlatmateSupplyService {
     private final FlatmateEditRules editRules;
     private final OwnedDocumentLookup ownedDocuments;
     private final FlatmateMembershipService membership;
+    private final LocalityBinding localities;
 
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
             FlatmateRequestRepository requests,
@@ -85,7 +87,8 @@ public class FlatmateSupplyService {
             Notifier notifier, AuditService audit,
             RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference,
             FlatmateReviewStatuses reviewStatuses, FlatmateEditRules editRules,
-            OwnedDocumentLookup ownedDocuments, FlatmateMembershipService membership) {
+            OwnedDocumentLookup ownedDocuments, FlatmateMembershipService membership,
+            LocalityBinding localities) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
@@ -104,6 +107,7 @@ public class FlatmateSupplyService {
         this.editRules = editRules;
         this.ownedDocuments = ownedDocuments;
         this.membership = membership;
+        this.localities = localities;
     }
 
     @Transactional
@@ -115,8 +119,10 @@ public class FlatmateSupplyService {
 
         String tier = deriveTier(caller, hostRole, claimedFlat, declared);
         requireTenantRoomProof(hostRole, tier, body);
+        String societyName = societyReference.nameOf(body.societyId());
+        String locality = localities.canonicalName(body.localitySlug(), body.locality());
         var address = new FlatmateGuardrails.Address(
-                ownedFlat(tier, claimedFlat), body.society(), body.locality(), null);
+                ownedFlat(tier, claimedFlat), societyName, locality, null);
         var eligibility = guardrails.evaluate(caller.userId(), tier, address);
         if (eligibility.blocked()) {
             throw new HostBlockedException(eligibility);
@@ -125,14 +131,14 @@ public class FlatmateSupplyService {
         FlatmateRoom room = new FlatmateRoom(
                 caller.userId(),
                 FlatmateVocabulary.require(body.roomType(), FlatmateVocabulary.ROOM_TYPE, "room type"),
-                body.locality().strip(),
+                locality,
                 body.rentShare());
 
-        // Checked before the mapper binds it, because the mapper cannot refuse anything: it turns a
-        // malformed id into null and files the room attached to nothing. See SocietyReference.
-        societyReference.require(body.societyId());
-
+        // nameOf above refused a bad id before the mapper could turn it into null and file the room
+        // attached to nothing. See SocietyReference.
         mapper.applyTo(body, room);
+        room.setLocalities(List.of(locality));
+        room.setSociety(societyName);
 
         // Everything the client is not. These four are the trust decision, kept here rather than in
         // the mapper so they stay reviewable as a block (api-standards 8.1).
@@ -214,7 +220,8 @@ public class FlatmateSupplyService {
     @Transactional
     public FlatmateGroupDto createGroup(AuthPrincipal caller, FlatmateGroupCreateRequest body) {
         FlatmateGroupClaim claim = FlatmateGroupClaim.of(body,
-                () -> declaresAgreement(caller.userId(), body.agreement(), body.agreementDoc()));
+                () -> declaresAgreement(caller.userId(), body.agreement(), body.agreementDoc()),
+                localities::canonicalNames, localities::canonicalName);
         String hostRole = claim.hostRole();
         boolean declared = claim.declared();
         UUID propertyId = claim.propertyId();
@@ -290,23 +297,29 @@ public class FlatmateSupplyService {
         String tier = deriveTier(caller, hostRole, claimedFlat, declared);
         requireTenantRoomProof(hostRole, tier, body);
 
-        societyReference.require(body.societyId());
+        SocietyReference.Binding society = societyReference.rebind(
+                room.getSocietyId(), room.getSociety(), body.societyId());
+        String societyName = society.name();
+        String locality = localities.canonicalName(body.localitySlug(), body.locality().strip(), List.of(room.getLocality()));
 
         // Before applyTo, which is the only moment the stored values still exist to compare against.
         FlatmateEditImpact impact = editRules.classify(room, body);
         mapper.applyTo(body, room);
+        room.setSocietyId(society.id());
+        room.setSociety(societyName);
 
         // Constructor invariants, editable here because a wrong locality is the commonest fix.
         room.setRoomType(FlatmateVocabulary.require(
                 body.roomType(), FlatmateVocabulary.ROOM_TYPE, "room type"));
-        room.setLocality(body.locality().strip());
+        room.setLocality(locality);
+        room.setLocalities(List.of(locality));
 
         room.setBudget(body.rentShare());
         applyRoomPlaces(room);
 
         publication.reapplyAfterEdit(caller, tier, impact, room,
-                new FlatmateGuardrails.Address(ownedFlat(tier, claimedFlat), body.society(),
-                        body.locality(), null));
+                new FlatmateGuardrails.Address(ownedFlat(tier, claimedFlat), societyName,
+                        locality, null));
         room.setHostRole(hostRole);
         room.setAgreementDeclared(declared);
         room.setVerificationTier(tier);
@@ -352,7 +365,9 @@ public class FlatmateSupplyService {
         }
 
         FlatmateGroupClaim claim = FlatmateGroupClaim.of(body,
-                () -> declaresAgreement(caller.userId(), body.agreement(), body.agreementDoc()));
+                () -> declaresAgreement(caller.userId(), body.agreement(), body.agreementDoc()),
+                names -> localities.canonicalNames(names, group.getLocalities()),
+                (slug, name) -> localities.canonicalName(slug, name, group.getLocalities()));
         String hostRole = claim.hostRole();
         boolean declared = claim.declared();
         UUID propertyId = claim.propertyId();

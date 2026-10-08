@@ -485,19 +485,17 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void createListingResolvesLocalitySlug_andBecomesFindableByTheLocalityFacet() throws Exception {
-        jdbc.update("INSERT INTO localities (slug, name) VALUES ('kothrud', 'Kothrud') "
-                + "ON CONFLICT (slug) DO NOTHING");
+    void createListingBindsTheLocalitySlug_andBecomesFindableByTheLocalityFacet() throws Exception {
         User o = owner("9810000021");
 
         String body = "{\"title\":\"Owner Typed\",\"deal\":\"rent\",\"propertyType\":\"apartment\","
-                + "\"price\":31000,\"locality\":\"kothrud depot\",\"city\":\"Pune\",\"bhk\":2}";
+                + "\"price\":31000,\"locality\":\"kothrud\",\"city\":\"Pune\",\"bhk\":2}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
 
-                .andExpect(jsonPath("$.locality").value("kothrud depot"))
+                .andExpect(jsonPath("$.locality").value("Kothrud"))
                 .andExpect(jsonPath("$.localitySlug").value("kothrud"));
 
         // Approve it, then prove the facet actually finds it — the slug is only worth setting if it
@@ -515,16 +513,15 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void createListingWithUnknownLocalitySucceedsWithoutASlug() throws Exception {
+    void createListingWithATypedLocalityThatIsNotLiveIsRefused() throws Exception {
         User o = owner("9810000022");
         String body = "{\"title\":\"Unknown Area\",\"deal\":\"rent\",\"propertyType\":\"apartment\","
                 + "\"price\":31000,\"locality\":\"Completely Made Up Area\",\"city\":\"Pune\",\"bhk\":2}";
 
         mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.locality").value("Completely Made Up Area"))
-                .andExpect(jsonPath("$.localitySlug").doesNotExist());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value("Pick the locality from the suggestions."));
     }
 
     /** Editing the display locality must re-bind the key, or the listing stays in the old market. */

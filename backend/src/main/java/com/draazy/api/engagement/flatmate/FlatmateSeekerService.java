@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.flatmate;
 
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.common.PlatformTime;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
@@ -64,12 +65,13 @@ public class FlatmateSeekerService {
     private final RateLimitLock locks;
     private final FlatmateEditRules editRules;
     private final FlatmateAcceptance acceptance;
+    private final LocalityBinding localities;
 
     public FlatmateSeekerService(FlatmateSeekerPostRepository posts,
             FlatmateRequestRepository requests, FlatmateRequestHydrator hydrator,
             FlatmateMapper mapper, UserRepository users,
             Notifier notifier, AuditService audit, RateLimitLock locks,
-            FlatmateEditRules editRules, FlatmateAcceptance acceptance) {
+            FlatmateEditRules editRules, FlatmateAcceptance acceptance, LocalityBinding localities) {
         this.posts = posts;
         this.requests = requests;
         this.hydrator = hydrator;
@@ -80,6 +82,7 @@ public class FlatmateSeekerService {
         this.locks = locks;
         this.editRules = editRules;
         this.acceptance = acceptance;
+        this.localities = localities;
     }
 
     /** One live post per identity; the partial unique index enforces it, the pre-check only turns
@@ -309,7 +312,7 @@ public class FlatmateSeekerService {
         post.setOccupation(FlatmateVocabulary.blankToNull(body.occupation()));
         post.setNote(FlatmateVocabulary.blankToNull(body.note()));
         post.setTitle(FlatmateVocabulary.blankToNull(body.title()));
-        post.setLocalities(clean(body.localities()));
+        post.setLocalities(localities.canonicalNames(clean(body.localities()), post.getLocalities()));
         post.setTags(clean(body.tags()));
         post.setMoveIn(FlatmateVocabulary.blankToNull(body.moveIn()));
         post.setMoveInAt(parseMoveIn(body.moveIn()));

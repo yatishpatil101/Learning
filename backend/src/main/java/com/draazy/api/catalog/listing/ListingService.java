@@ -1,6 +1,6 @@
 package com.draazy.api.catalog.listing;
 
-import com.draazy.api.catalog.locality.LocalityResolver;
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.catalog.property.AddressKey;
 import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.MeterKey;
@@ -46,7 +46,7 @@ public class ListingService {
 
     private final PropertyRepository properties;
     private final UserRepository users;
-    private final LocalityResolver localities;
+    private final LocalityBinding localities;
     private final ListingEditRules editRules;
     private final PropertyMapper propertyMapper;
     private final PropertyLifecycle propertyLifecycle;
@@ -59,7 +59,7 @@ public class ListingService {
     private final PhotoLimit photoLimit;
 
     public ListingService(PropertyRepository properties, UserRepository users,
-            LocalityResolver localities, ListingEditRules editRules, PropertyMapper propertyMapper,
+            LocalityBinding localities, ListingEditRules editRules, PropertyMapper propertyMapper,
             PropertyLifecycle propertyLifecycle, ListingCaseNotes caseNotes, ListingDuplicateProbe duplicates, AuditService audit,
             ListingQuota quota, RateLimitLock locks, ListingPhotoSources photoSources,
             PhotoLimit photoLimit) {
@@ -148,6 +148,12 @@ public class ListingService {
 
     @Transactional
     public Property createOnBehalf(UUID userId, ListingCreate in, UUID... uploadOwnerIds) {
+        return createOnBehalf(userId, in, null, uploadOwnerIds);
+    }
+
+    /** {@code existingLocalitySlug} is a binding the source record already holds, kept even when that locality is not live. */
+    @Transactional
+    public Property createOnBehalf(UUID userId, ListingCreate in, String existingLocalitySlug, UUID... uploadOwnerIds) {
         photoLimit.require("A listing", in.images());
         List<UUID> allowedUploadOwners = Arrays.stream(uploadOwnerIds).filter(Objects::nonNull).distinct().toList();
         photoSources.requireUploaded(in.images(), List.of(), allowedUploadOwners);
@@ -155,14 +161,15 @@ public class ListingService {
                 List.of(), allowedUploadOwners);
         User owner = users.findById(userId)
                 .orElseThrow(() -> NotFoundException.of("Owner"));
+        LocalityBinding.Bound locality = localities.require(in.localitySlug(), in.locality(), existingLocalitySlug);
         Property p = new Property(owner, in.title(), in.deal(), in.propertyType(),
-                in.price(), in.locality(), in.city());
+                in.price(), locality.name(), in.city());
 
         // PropertyMapper's allowlist decides what the client may say, so ListingCreate's
         // "deliberately absent" set is enforced rather than described.
         propertyMapper.applyTo(in, p);
         ListingEditRules.clearReadyToMoveSaleAvailableDate(p);
-        p.setSocietySlug(editRules.requireSociety(in.societyId()));
+        editRules.stampSociety(p, in.societyId(), true);
 
         // The poster type records who was on the other end of the call, so it is the caller's to
         // state and never the request body's.
@@ -173,9 +180,7 @@ public class ListingService {
         // listings and this stamps new ones. See list-property-wizard.md section 9.1.
         p.setOwnerVerified(owner.isVerified());
 
-        // After the mapper: the resolver's geo fallback needs the lat/lng it has just set. A null
-        // slug simply leaves the listing out of locality facets until curated.
-        p.setLocalitySlug(localities.resolve(in.locality(), in.lat(), in.lng()));
+        p.setLocalitySlug(locality.slug());
         duplicates.reindex(p);
         properties.saveAndFlush(p);
 
@@ -191,7 +196,7 @@ public class ListingService {
     /** The key is derived on the same path a create takes, so the pre-check and the write cannot disagree. */
     @Transactional(readOnly = true)
     public ListingDuplicateVerdict duplicateCheck(UUID userId, ListingDuplicateCheck in) {
-        String localitySlug = localities.resolve(in.locality(), in.lat(), in.lng());
+        String localitySlug = localities.slugOrNull(in.localitySlug(), in.locality());
         String addressKey = AddressKey.of(in.address(), in.city(), in.locality());
         return duplicates.ownDuplicate(userId,
 

@@ -90,6 +90,9 @@ final class RentAgreementDetailsRules {
         if (isStated(pincode) && !MH_PINCODE.matcher(pincode.toString().trim()).matches()) {
             problems.add("_state.prop.pincode must be a Maharashtra pincode");
         }
+        if (prop.get("gramPanchayat") != null && !(prop.get("gramPanchayat") instanceof Boolean)) {
+            problems.add("_state.prop.gramPanchayat must be true or false");
+        }
         decimal(prop.get("area"), "_state.prop.area", BigDecimal.ONE, BigDecimal.valueOf(MAX_AREA), problems);
         oneOf(prop.get("areaBasis"), "_state.prop.areaBasis", AREA_BASES, problems);
         oneOf(prop.get("areaUnit"), "_state.prop.areaUnit", AREA_UNITS, problems);

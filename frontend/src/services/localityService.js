@@ -6,9 +6,11 @@ const provider = createProvider('locality');
 /* Locality pages are public landing pages: no token and no session short-circuit. */
 export const listLocalities = async () => (await provider()).listLocalities();
 
-/** `total` is separate from `listings.length` because the array is capped at 200 server-side. Render `total`, or a
- * console clearing 200 rows a day out of 900 shows a number that never moves. */
-export const getLocalityQueue = async () => (await provider()).getLocalityQueue();
+/** One locality (`GET /localities/{slug}`); throws on 404. */
+export const getLocality = async (slug) => (await provider()).getLocality(slug);
 
-export const assignLocality = async (propertyId, slug) =>
-  (await provider()).assignLocality(propertyId, slug);
+/** A Google place becomes a locality row (found, adopted or minted server-side). Throws 422 for a place that is not a locality. */
+export const resolveLocality = async (place) => (await provider()).resolveLocality(place);
+
+/** Active localities matching `q`; the picker's fallback when Google has nothing. */
+export const searchLocalities = async (q) => (await provider()).searchLocalities(q);

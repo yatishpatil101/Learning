@@ -139,7 +139,6 @@ export default function useListProperty() {
   const [form, setForm] = useState(() => initialForEntry(searchParams, flatmateMode, editId));
   // Async geocodes must read the latest form rather than an older render closure.
   const formRef = useRef(form);
-  const amenityPrefillRef = useRef({ touchedFor: '', prefilledFor: '' });
   const skipLeaveGuard = useRef(false);
   const pendingLeave = useRef(null);
   const latestWizardUrl = useRef('/list-property');
@@ -228,7 +227,7 @@ export default function useListProperty() {
     if (roomDraft) setRentMode('flatmate');
     const step = Math.min(parseStep(savedStep), LISTING_STEPS.length);
     if (step > 1) writeStepParam(step, { replace: true });
-    return fields;
+    return fields.locality && !fields.localitySlug ? { ...fields, locality: '', localitySlug: '' } : fields;
   }, [editId, flatmateMode, ownerId, setPhotos, writeStepParam]);
   const draftForm = useMemo(() => ({
     ...form,
@@ -314,6 +313,11 @@ export default function useListProperty() {
   const editKey = JSON.stringify([editId, ownerId, ownerMobile]);
   const editRequest = useRef(null);
   const roomEdit = useRoomEdit({ roomId: editRoomId, canLoad: !authLoading, setForm, setPhotos });
+  const roomBaseline = editRoomId ? roomEdit.baseline : undefined;
+  // A room PATCH leaves the binding alone unless it changed, so a room on an archived society can still be saved.
+  const roomSocietyField = !editRoomId ? { societyId: form.societyId || '' }
+    : form.societyId === (roomBaseline?.societyId || '') ? {}
+      : form.societyId ? { societyId: form.societyId } : { clearSociety: true };
   const editReady = (!editId || (!authLoading && !!ownerMobile && editLoad?.key === editKey
     && editLoad.status === 'ready' && !!editListing)) && (!editRoomId || roomEdit.status === 'ready');
   const editLoadError = (!!editId && !authLoading && (!ownerMobile
@@ -554,12 +558,12 @@ export default function useListProperty() {
     const original = editListing?.form;
     const first = isFlatmateMode ? validateFlatmateStep1(form) : validateStep1(form, original);
     if (Object.keys(first).length) return 1;
-    const locationErrors = isFlatmateMode ? validateFlatmateLocation(form) : validateLocationStep(form, original);
+    const locationErrors = isFlatmateMode ? validateFlatmateLocation(form, roomBaseline) : validateLocationStep(form, original);
     if (!editId && !locationSet && !editListing) locationErrors.location = true;
     if (Object.keys(locationErrors).length) return 2;
     const priceErrors = isFlatmateMode ? validateFlatmatePrice(form) : validatePricingStep(form, original);
     return Object.keys(priceErrors).length ? 3 : lastStep;
-  }, [editId, editListing, form, isFlatmateMode, lastStep, locationSet]);
+  }, [editId, editListing, form, isFlatmateMode, lastStep, locationSet, roomBaseline]);
   const goToStep = useCallback((step, { replace = false } = {}) => {
     if (!editReady) return;
     dupSeq.current += 1;
@@ -584,7 +588,7 @@ export default function useListProperty() {
     if (!editReady) return;
     const err = isFlatmateMode
       ? (currentStep === 1 ? validateFlatmateStep1(form)
-        : currentStep === 2 ? validateFlatmateLocation(form)
+        : currentStep === 2 ? validateFlatmateLocation(form, roomBaseline)
           : currentStep === 3 ? validateFlatmatePrice(form) : {})
       : (currentStep === 1 ? validateStep1(form, editListing?.form)
         : currentStep === 2 ? validateLocationStep(form, editListing?.form)
@@ -737,8 +741,8 @@ export default function useListProperty() {
       if (!hasAgreementEvidence(form.agreementDoc)) err.agreementDoc = true;
       if (!form.ownerConsent) err.ownerConsent = true;
     }
-    if (!form.locality) err.locality = true;
-    if (!form.society.trim()) err.society = true;
+    if (!form.locality || (!form.localitySlug && !editRoomId)) err.locality = true;
+    if (!form.societyId && !form.societyNotOnMaps && !(editRoomId && !roomEdit.baseline?.societyId)) err.society = true;
     if (!form.pinPlaced) err.location = true;
     if (!(Number(form.rentShare) > 0)) err.rentShare = true;
     if (!form.availableFrom) err.availableFrom = true;
@@ -760,8 +764,8 @@ export default function useListProperty() {
         ...terms(form),
         furnishing: form.furnishing,
         locality: form.locality,
-        societyId: house ? '' : (form.societyId || ''),
-        society: form.society,
+        localitySlug: form.localitySlug,
+        ...roomSocietyField,
         flatNumber: form.flatNumber,
         rentShare: form.rentShare,
         deposit: parseAmount(form.deposit),
@@ -847,7 +851,6 @@ export default function useListProperty() {
     editApproved, editChanges, showIdentityGuard, setShowIdentityGuard,
     showDupGuard, setShowDupGuard, dupExistingId, dupPending, canPost,
     form, progressState,
-    amenityPrefillRef,
     toggleInArray, toggleTenant, changePropertyType, changeCommercialType,
     isResidential, isLand, isCommercial, isHouse,
     money, setDepositMonths,

@@ -50,8 +50,14 @@ final class PropertySpecs {
     }
 
     static Specification<Property> publicSearch(PropertySearchQuery filters, ListingFacets extra) {
+        return publicSearch(filters, extra, null);
+    }
+
+    /** A locality filter also admits pins within {@link #LOCALITY_RADIUS_KM} of {@code localityCenter}, when given. */
+    static Specification<Property> publicSearch(PropertySearchQuery filters, ListingFacets extra,
+            LocalityPoint localityCenter) {
         return (root, query, cb) -> {
-            List<Predicate> where = facets(filters, root, cb);
+            List<Predicate> where = facets(filters, root, cb, localityCenter);
             publicTextSearch(filters, root, cb, where);
             listingFacets(extra, root, cb, where);
 
@@ -142,7 +148,7 @@ final class PropertySpecs {
                 // Lapsed ownership verification stops earning its 200 points: the facet, the
                 // count and the card badge all read `ownershipLive`, and ranking must agree.
                 weight(ownershipLive(root, cb, now), 200, cb)),
-                weight(cb.isNotNull(root.get("reraId")), 80, cb)),
+                weight(hasRera(root, cb), 80, cb)),
                 freshness),
 
                 // A listing written but not yet read back has no generated score; count it
@@ -169,7 +175,7 @@ final class PropertySpecs {
             if (query != null && !Long.class.equals(query.getResultType())) {
                 root.fetch("owner", JoinType.LEFT);
             }
-            List<Predicate> where = facets(filters, root, cb);
+            List<Predicate> where = facets(filters, root, cb, null);
             adminTextSearch(filters, root, cb, where);
             if (filters.status() != null) {
                 where.add(cb.equal(root.get("status"), filters.status()));
@@ -235,7 +241,7 @@ final class PropertySpecs {
 
     /** Status, {@code q} and the {@link ModerationFacets} axes stay at the call sites: that is where the two reads must differ. */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
-            CriteriaBuilder cb) {
+            CriteriaBuilder cb, LocalityPoint localityCenter) {
         List<Predicate> where = new ArrayList<>();
         if (filters.deal() != null) {
             where.add(cb.equal(root.get("deal"), filters.deal()));
@@ -244,7 +250,9 @@ final class PropertySpecs {
             where.add(cb.equal(cb.lower(root.get("propertyType")), filters.type().toLowerCase()));
         }
         if (StringUtils.hasText(filters.locality())) {
-            where.add(cb.equal(root.get("localitySlug"), filters.locality()));
+            Predicate bound = cb.equal(root.get("localitySlug"), filters.locality());
+            where.add(localityCenter == null ? bound : cb.or(bound,
+                    withinRadius(root, cb, localityCenter.lat(), localityCenter.lng(), LOCALITY_RADIUS_KM)));
         }
         if (filters.bhk() != null) {
             where.add(cb.equal(root.get("bhk"), BigDecimal.valueOf(filters.bhk())));
@@ -427,19 +435,13 @@ final class PropertySpecs {
         if (Boolean.TRUE.equals(f.ownershipVerified())) {
             where.add(ownershipLive(root, cb, Instant.now()));
         }
-        if (Boolean.TRUE.equals(f.societyVerified())) {
-            where.add(cb.isTrue(root.get("societyVerified")));
-        }
-        if (Boolean.TRUE.equals(f.conveyanceDone())) {
-            where.add(cb.isTrue(root.get("conveyanceDone")));
-        }
         if (Boolean.TRUE.equals(f.pets())) {
             where.add(cb.isTrue(root.get("pets")));
         }
 
         // The column holds the registration number; the filter only ever asked the yes/no.
         if (Boolean.TRUE.equals(f.rera())) {
-            where.add(cb.isNotNull(root.get("reraId")));
+            where.add(hasRera(root, cb));
         }
 
         // A bare bound, which SQL evaluates as false against NULL, would delete every listing silent
@@ -512,6 +514,11 @@ final class PropertySpecs {
 
     private static final double EARTH_RADIUS_KM = 6371.0;
 
+    static final double LOCALITY_RADIUS_KM = 2.0;
+
+    record LocalityPoint(double lat, double lng) {
+    }
+
     private static Expression<Double> radians(Expression<?> degrees, CriteriaBuilder cb) {
         return cb.function("radians", Double.class, degrees);
     }
@@ -560,6 +567,11 @@ final class PropertySpecs {
         any.add(cb.isNull(column));
         any.add(cb.equal(cb.function("jsonb_array_length", Integer.class, column), 0));
         where.add(cb.or(any.toArray(Predicate[]::new)));
+    }
+
+    /** The wizard posts an empty string for a listing with no registration; that is not a registration. */
+    private static Predicate hasRera(Root<Property> root, CriteriaBuilder cb) {
+        return cb.and(cb.isNotNull(root.get("reraId")), cb.notEqual(root.get("reraId"), ""));
     }
 
     /** A null expiry means "does not lapse"; the bare column would let the facet and the card badge disagree. */

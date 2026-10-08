@@ -21,40 +21,27 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.UriUtils;
 
-/**
- * Caps how many mutating requests one caller may make in a window. Keying, budgets, exempt reads and
- * the path-normalisation bypasses it closes: docs/system/cross-cutting.md §8.5.
- */
+/** Caps mutating requests per caller per window; details: docs/system/cross-cutting.md §8.5. */
 public class WriteRateLimitFilter extends OncePerRequestFilter {
 
     /** Shared with {@link MaintenanceModeFilter}: one answer to "can this request change state". */
     static final Set<String> MUTATING = Set.of("POST", "PUT", "PATCH", "DELETE");
 
-    /**
-     * Reads limited anyway (enumeration defence, and one very expensive export). The export path is
-     * a literal, so a rename fails open — {@code WriteRateLimitTest.dataExportIsLimited} catches it.
-     */
+    /** Reads limited anyway; the export path is a literal, so a rename fails open ({@code
+     * WriteRateLimitTest.dataExportIsLimited}). */
     private static final Set<String> LIMITED_READS = Set.of(
             Routes.Documents.SHARED,
+            Routes.Societies.RESOLVE,
             "/me/data-export");
 
-    /**
-     * Provider callbacks, which get their own budget rather than an exemption: they cannot share a
-     * bucket with users, and they are {@code permitAll} so they cannot be exempt either.
-     */
+    /** Callbacks get their own budget: they can't share a user bucket and are {@code permitAll}, so not exempt. */
     private static final Set<String> PROVIDER_CALLBACKS =
             Set.of(Routes.Webhooks.CASHFREE_PAYMENT);
 
-    /**
-     * How much more of the window a provider callback may use. Sized for a provider replaying a
-     * backlog after an outage, all from one address, while still bounding an anonymous flood.
-     */
+    /** Extra window for provider callbacks replaying a backlog after an outage from one address. */
     private static final int CALLBACK_BUDGET_MULTIPLIER = 50;
 
-    /**
-     * Ceiling on a provider callback body: nothing else bounds JSON in this stack. {@code 64L} keeps
-     * the expression out of int overflow, where the bound would invert.
-     */
+    /** Ceiling on a callback body, as nothing else bounds JSON here; {@code 64L} avoids int overflow. */
     private static final long MAX_CALLBACK_BODY_BYTES = 64L * 1024;
 
     private static final Logger log = LoggerFactory.getLogger(WriteRateLimitFilter.class);
@@ -63,22 +50,16 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
 
     private final WriteRateLimitStore limiter;
     private final WriteRateLimitStore callbackLimiter;
+    private final WriteRateLimitStore localityResolveLimiter;
     private final Duration window;
     private final boolean proxyAware;
     private volatile boolean misconfigurationLogged;
 
-    /** Counts in this instance's memory — the default, and what every test uses. */
-    public WriteRateLimitFilter(int budget, Duration window, boolean proxyAware) {
-        this(budget, window, proxyAware, InMemoryWriteRateLimitStore::new);
-    }
-
-    /**
-     * @param stores where the counters live. The two families get separate namespaces because they
-     *               must never share a counter — load-bearing for a shared backend
-     */
+    /** The two counter families need separate namespaces; they must never share a counter on a shared backend. */
     public WriteRateLimitFilter(int budget, Duration window, boolean proxyAware,
-            WriteRateLimitStore.Factory stores) {
+            WriteRateLimitStore.Factory stores, int localityResolveBudget) {
         this.limiter = stores.create("w", budget, window);
+        this.localityResolveLimiter = stores.create("loc", localityResolveBudget, window);
         // Computed as a long and clamped: at int width this wraps above 42,949,672 and would hand
         // the callbacks a *smaller* budget than everyone else.
         long callbackBudget = (long) budget * CALLBACK_BUDGET_MULTIPLIER;
@@ -110,6 +91,10 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
+        if (isLocalityResolve(request, path) && !allow(localityResolveLimiter, request, response)) {
+            return;
+        }
+
         if (!isLimited(request, path) || allow(limiter, request, response)) {
             chain.doFilter(request, response);
         }
@@ -134,6 +119,10 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return MUTATING.contains(request.getMethod()) && PROVIDER_CALLBACKS.contains(path);
     }
 
+    private static boolean isLocalityResolve(HttpServletRequest request, String path) {
+        return "POST".equals(request.getMethod()) && Routes.Localities.RESOLVE.equals(path);
+    }
+
     private static boolean isLimited(HttpServletRequest request, String path) {
         if (MUTATING.contains(request.getMethod())) {
             return true;
@@ -143,10 +132,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return LIMITED_READS.contains(path);
     }
 
-    /**
-     * The request path in the form {@link Routes} declares it: context path removed, path parameters
-     * dropped, percent escapes decoded. Each step closes a bypass — cross-cutting.md §8.5.
-     */
+    /** The path as {@link Routes} declares it: context path removed, path parameters dropped, escapes decoded; each step closes a bypass (cross-cutting.md section 8.5). */
     private static String path(HttpServletRequest request) {
         return normalisedPath(request.getContextPath(), request.getRequestURI());
     }
@@ -163,10 +149,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return params < 0 ? decoded : decoded.substring(0, params);
     }
 
-    /**
-     * The bucket this request counts against. Prefixed by kind so a user id can never collide with
-     * an address — they are different namespaces and an unprefixed key silently merges them.
-     */
+    /** Prefixed by kind so a user id can never collide with an address. */
     private String callerKey(HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof AuthPrincipal principal) {
@@ -176,10 +159,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return "ip:" + anonymousKey(request.getRemoteAddr());
     }
 
-    /**
-     * Collapses an address to the smallest unit one party can be assumed to control: the address
-     * itself for IPv4, the /64 for IPv6, which a single host is routinely assigned whole.
-     */
+    /** The smallest unit one party controls: the IPv4 address, or the /64 for IPv6 (assigned to a host whole). */
     static String anonymousKey(String address) {
         if (address == null || address.indexOf(':') < 0 || !isNumericIpv6(address)) {
             return address == null ? "unknown" : address;
@@ -204,10 +184,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         }
     }
 
-    /**
-     * Whether a string is safe to hand to {@link InetAddress#getByName}, which resolves anything not
-     * a literal — a non-numeric argument would mean a blocking DNS lookup on the request thread.
-     */
+    /** {@link InetAddress#getByName} resolves non-literals, so a non-numeric input would block on DNS. */
     private static boolean isNumericIpv6(String address) {
         for (int i = 0; i < address.length(); i++) {
             char c = address.charAt(i);
@@ -220,10 +197,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return true;
     }
 
-    /**
-     * Notices from traffic that the topology is declared wrongly — without it the failure is
-     * silent. Logged once: a line per request would be an unauthenticated log-amplification tap.
-     */
+    /** Logged once: a line per request would be an unauthenticated log-amplification tap. */
     private void warnIfProxied(HttpServletRequest request) {
         if (proxyAware || misconfigurationLogged || request.getHeader(FORWARDED_FOR) == null) {
             return;

@@ -2,7 +2,6 @@ package com.draazy.api.catalog;
 
 import com.draazy.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -149,46 +148,6 @@ class CatalogEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void localitiesListIsAlphabeticalAndCarriesComputedCounts() throws Exception {
-        User o = owner("9840000001");
-        listing(o, "In Aundh", "aundh", null, "approved");
-        listing(o, "Archived in Aundh", "aundh", null, "approved").archive("test");
-        properties.flush();
-
-        // Data-driven so a catalogue regeneration cannot red this: the seed's size and its
-        // alphabetically-first row are read from the same rows the endpoint serves.
-        int activeLocalities = jdbc.queryForObject(
-                "select count(*) from localities where active", Integer.class);
-        String firstByName = jdbc.queryForObject(
-                "select name from localities where active order by name asc limit 1", String.class);
-
-        mvc.perform(get("/localities"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(activeLocalities))
-                .andExpect(jsonPath("$[0].name").value(firstByName))
-                .andExpect(jsonPath("$[0].city").value("Pune"))
-                .andExpect(jsonPath("$[?(@.slug=='aundh')].listingCount", contains(1)));
-    }
-
-    /** The stored column is poisoned with an impossible 999, so a pass cannot be coincidence:
-     *  trusting the column gives 999, dropping the live predicate gives 2, computing it gives 1. */
-    /** Every seeded row has {@code '[]'} there, so without writing a real value "the mapping works"
-     *  would only fail the day somebody authors content. */
-    @Test
-    void aRetiredLocalityDropsOffTheList() throws Exception {
-
-    /** A retired locality is gone from the site, not merely delisted — otherwise search keeps it. */
-        int activeBefore = jdbc.queryForObject(
-                "select count(*) from localities where active", Integer.class);
-        String slug = jdbc.queryForObject(
-                "select slug from localities where active order by slug asc limit 1", String.class);
-        jdbc.update("update localities set active = false where slug = ?", slug);
-
-        mvc.perform(get("/localities"))
-                .andExpect(jsonPath("$.length()").value(activeBefore - 1));
-    }
-
-    @Test
     void societiesBrowseIsPagedAndAlphabeticalByDefault() throws Exception {
 
         int totalSocieties = jdbc.queryForObject(
@@ -204,7 +163,8 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.sort").value("name,asc"))
                 .andExpect(jsonPath("$.content[0].name").value(firstByName))
                 .andExpect(jsonPath("$.content[0].source").isString())
-                .andExpect(jsonPath("$.content[0].claimStatus").isString());
+                .andExpect(jsonPath("$.content[0].claimStatus").doesNotExist())
+                .andExpect(jsonPath("$.content[0].verifiedAt").doesNotExist());
     }
 
     @Test
@@ -233,7 +193,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
 
     @Test
     void societiesBrowseIgnoresASortFieldOutsideTheWhitelist() throws Exception {
-        mvc.perform(get("/societies?sort=claimStatus,desc"))
+        mvc.perform(get("/societies?sort=nonsense,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sort").value("name,asc"));
     }

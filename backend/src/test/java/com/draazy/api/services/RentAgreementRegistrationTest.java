@@ -59,7 +59,11 @@ class RentAgreementRegistrationTest extends ServiceFixtures {
         String propertyId = property == null ? "" : "\"propertyId\":\"" + property.getId() + "\",";
         return "{\"type\":\"rent-agreement\"," + propertyId
                 + "\"details\":{\"rent\":25000,\"deposit\":100000,\"months\":11,"
-                + "\"startDate\":\"2026-04-01\",\"_state\":" + stateJson + "}}";
+                + "\"startDate\":\"2026-04-01\",\"_state\":" + withGramPanchayat(stateJson) + "}}";
+    }
+
+    private static String withGramPanchayat(String stateJson) {
+        return stateJson.replaceFirst("^\\{", "{\"prop\":{\"gramPanchayat\":false},");
     }
 
     private String raise(User caller, Property property, String stateJson) throws Exception {

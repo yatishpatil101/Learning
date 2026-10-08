@@ -65,8 +65,8 @@ class ModerationBehaviourTest extends AbstractApiTest {
         p.setArea(new BigDecimal("950"));
         p.setStatus(PropertyStatus.PENDING);
 
-        // Filed under a curated area, since saving through the repository skips LocalityResolver and approval
-        // refuses an unfiled listing — a fixture tripping a guard it never mentions gets "fixed" by weakening it.
+        // Filed, because approval refuses an unfiled listing — a fixture tripping a guard it never mentions
+        // gets "fixed" by weakening it.
         p.setLocalitySlug("baner");
         return properties.saveAndFlush(p);
     }

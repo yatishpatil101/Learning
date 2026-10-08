@@ -31,7 +31,7 @@ class RentAgreementOverlapTest extends ServiceFixtures {
                                 + "\"details\":{\"rent\":25000,\"deposit\":100000,\"months\":11,"
                                 + "\"startDate\":\"" + startDate + "\",\"_state\":{"
                                 + "\"owner\":{\"oName\":\"" + licensor + "\"},"
-                                + "\"prop\":{\"flatNo\":\"" + flatNo + "\",\"society\":\"" + society
+                                + "\"prop\":{\"gramPanchayat\":false,\"flatNo\":\"" + flatNo + "\",\"society\":\"" + society
                                 + "\",\"pincode\":\"411045\"}}}}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

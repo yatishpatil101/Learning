@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { MapPin, Users, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
@@ -8,17 +9,17 @@ import LocationPicker from './LocationPicker.jsx';
 import AreaSearch from './AreaSearch.jsx';
 import PhotoUploader from './PhotoUploader.jsx';
 import { fld, lbl, lbl3 } from './styles.js';
-import { localities, isHouseType } from './constants.js';
+import { isHouseType } from './constants.js';
 import { cleanText } from './sanitize.js';
 import { moneyWords } from './format.js';
 import SocietySelect from './SocietySelect.jsx';
 import { roomHeadline } from './submit.js';
 import HeadlineField from '../../../components/ui/HeadlineField.jsx';
 
-const StepActions = ({ prevStep, nextStep, t }) => (
+const StepActions = ({ prevStep, nextStep, t, disabled }) => (
   <div className="flex justify-between lp-step-actions">
     <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
-    <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
+    <button onClick={nextStep} disabled={disabled} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-70">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
   </div>
 );
 
@@ -34,6 +35,7 @@ const FlatmateFlow = ({
   needsAuthForMedia = false, onRequireAuth,
 }) => {
   const { t } = useTranslation();
+  const [localityBusy, setLocalityBusy] = useState(false);
   const isHouse = isHouseType(form.propertyType);
   if (currentStep === 2) {
     return (
@@ -73,16 +75,12 @@ const FlatmateFlow = ({
         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={lbl}>{t('listProperty.fields.locality')}</label>
-            <LocalitySelect value={form.locality} onChange={(v) => onLocalityChange(v)} onSelect={(sel) => onLocalityChange(sel.name, sel)} placeholder={t('listProperty.ph.selectLocality')} options={localities} dataErr="locality" invalid={!!errors.locality} />
+            <LocalitySelect value={form.locality} onChange={(v) => onLocalityChange(v)} onSelect={(sel) => onLocalityChange(sel.name, sel)} onBusyChange={setLocalityBusy} placeholder={t('listProperty.ph.selectLocality')} dataErr="locality" invalid={!!errors.locality} />
             <FieldError show={!!errors.locality}>{t('listProperty.err.locality')}</FieldError>
           </div>
           <div>
             <label className={lbl}>{isHouse ? t('listProperty.fields.houseBuildingName') : t('listProperty.fields.societyBuilding')}</label>
-            {isHouse ? (
-              <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'dz-invalid' : ''}`} />
-            ) : (
-              <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.pinPlaced ? form.propLat : null} lng={form.pinPlaced ? form.propLng : null} invalid={!!errors.society} onChange={onSocietyPick} />
-            )}
+            <SocietySelect value={form.societyId} name={form.society} notOnMaps={form.societyNotOnMaps} localityLabel={form.locality} lat={form.pinPlaced ? form.propLat : null} lng={form.pinPlaced ? form.propLng : null} invalid={!!errors.society} onChange={onSocietyPick} onRequireAuth={onRequireAuth} />
             <FieldError show={!!errors.society}>{isHouse ? t('listProperty.err.house') : t('listProperty.err.society')}</FieldError>
           </div>
           <div>
@@ -107,7 +105,7 @@ const FlatmateFlow = ({
           </div>
         </div>
 
-        <StepActions prevStep={prevStep} nextStep={nextStep} t={t} />
+        <StepActions prevStep={prevStep} nextStep={nextStep} t={t} disabled={localityBusy} />
       </div>
     );
   }

@@ -15,7 +15,6 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /** Partial listing update, PATCH semantics: {@code null} means "leave unchanged". Cross-field coherence sees
  * only what this body states, so a pair split across two PATCHes is caught only when submitted together. */
@@ -40,6 +39,7 @@ public record ListingUpdate(
         @Pattern(regexp = Furnishing.PATTERN,
                 message = Furnishing.PATTERN_MESSAGE) String furnishing,
         String locality,
+        String localitySlug,
         String city,
         Double lat,
         Double lng,
@@ -60,7 +60,7 @@ public record ListingUpdate(
 
         @Size(max = 300) @NoContactDetails String address,
         Integer floor,
-        UUID societyId,
+        @Pattern(regexp = "^$|^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$") String societyId,
         @Size(max = 64) String electricityMeterNo,
 
         // Match ListingCreate's bounds to preserve legacy values rather than enforce picker options.

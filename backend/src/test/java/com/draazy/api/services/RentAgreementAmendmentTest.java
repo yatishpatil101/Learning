@@ -30,7 +30,7 @@ import org.springframework.test.web.servlet.ResultActions;
 class RentAgreementAmendmentTest extends ServiceFixtures {
 
     private static final String TERMS = "{\"type\":\"rent-agreement\",\"details\":{\"rent\":20000,"
-            + "\"deposit\":60000,\"months\":11,\"_state\":{\"terms\":{\"rent\":\"20000\",\"deposit\":\"60000\","
+            + "\"deposit\":60000,\"months\":11,\"_state\":{\"prop\":{\"gramPanchayat\":false},\"terms\":{\"rent\":\"20000\",\"deposit\":\"60000\","
             + "\"months\":\"11\"}}}}";
 
     @Autowired

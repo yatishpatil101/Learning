@@ -28,6 +28,7 @@ export default function AdminPostOnBehalf() {
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [localityBusy, setLocalityBusy] = useState(false);
   const [success, setSuccess] = useState(false);
   const [createdId, setCreatedId] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -134,10 +135,12 @@ export default function AdminPostOnBehalf() {
       const typeLabel = (isCommercial && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
       const titlePrefix = bhkNum ? bhkNum + ' BHK ' : '';
       const title = titlePrefix + typeLabel + ' in ' + (form.locality || 'Pune');
+      const society = form.societyId ? form.society : '';
       /* Only keys `toListingCreate` reads travel; everything else the owner adds after claiming. */
       const listing = {
         title, type: typeLabel, bhkNum, deal: form.deal,
         locality: form.locality || 'Pune',
+        localitySlug: form.localitySlug || undefined,
         area: Number(form.carpetArea) || 0,
         floor: land || !form.floor ? undefined : parseInt(form.floor, 10) || 0,
         totalFloors: land ? undefined : form.totalFloors,
@@ -150,16 +153,15 @@ export default function AdminPostOnBehalf() {
            states nothing rather than claiming "ready to move". `writePossession` omits the key. */
         construction: sale && !land ? (form.possession || 'ready') : undefined,
         available: availableFrom,
-        society: form.society || '',
-        // A society id or pin left over from an earlier residential type choice must not travel.
-        societyId: residentialHome ? form.societyId || undefined : undefined,
-        lat: residentialHome ? form.lat ?? undefined : undefined,
-        lng: residentialHome ? form.lng ?? undefined : undefined,
-        pincode: residentialHome ? form.pincode || undefined : undefined,
+        society,
+        societyId: form.societyId || undefined,
+        lat: form.lat ?? undefined,
+        lng: form.lng ?? undefined,
+        pincode: form.pincode || undefined,
         address: form.address || '',
         deposit: sale ? 0 : parseAmount(form.deposit),
         formDetails: {
-          society: form.society || '',
+          society,
           availableFrom,
           ...(isCommercial && {
             commercialType: form.commercialType || '',
@@ -219,7 +221,7 @@ export default function AdminPostOnBehalf() {
           <div className="border-t border-white/10 pt-6"><PropertyStep form={form} set={set} errors={errors} /></div>
         </div>
       );
-      case 2: return <LocationStep form={form} set={set} errors={errors} />;
+      case 2: return <LocationStep form={form} set={set} errors={errors} onLocalityBusy={setLocalityBusy} />;
       case 3: return <PricingStep form={form} set={set} errors={errors} />;
       case 4: return (
         <div className="space-y-6">
@@ -275,7 +277,7 @@ export default function AdminPostOnBehalf() {
         <div className="mt-8 flex items-center justify-between">
           {step > 1 ? <button onClick={prev} className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium hover:bg-white/10 transition"><ArrowLeft className="h-4 w-4" /> Back</button> : <div />}
           {step < LAST_STEP ? (
-            <button onClick={next} className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition">Next <ArrowRight className="h-4 w-4" /></button>
+            <button onClick={next} disabled={localityBusy} className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition disabled:opacity-50">Next <ArrowRight className="h-4 w-4" /></button>
           ) : (
             <button onClick={handleSubmit} disabled={submitting} className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition disabled:opacity-50">{submitting ? 'Saving...' : 'Send to Owner'} <Send className="h-4 w-4" /></button>
           )}

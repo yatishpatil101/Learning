@@ -61,9 +61,6 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REVIEW_STATUS), "staff"),
                 new Guarded(HttpMethod.GET, notesFor("property"), "staff"),
                 new Guarded(HttpMethod.POST, notesFor("property"), "staff"),
-                new Guarded(HttpMethod.GET, Routes.LocalityQueue.BASE, "staff"),
-                new Guarded(HttpMethod.PATCH,
-                        Routes.LocalityQueue.BY_PROPERTY.replace("{propertyId}", ANY_ID), "staff"),
                 new Guarded(HttpMethod.GET, Routes.Users.BASE, "staff"),
                 new Guarded(HttpMethod.GET, id(Routes.Users.BY_ID), "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.BY_ID), "admin"),
@@ -144,10 +141,6 @@ class RoleGuardSweepTest extends AbstractApiTest {
     // Bodies must satisfy @NotBlank/validation: Spring binds and validates before @PreAuthorize runs,
     // so a required-field route with a stub body 422s instead of 403 and fails the sweep.
     private static String bodyFor(String path) {
-        if (path.startsWith(Routes.LocalityQueue.BASE)) {
-            return "{\"slug\":\"baner\"}";
-        }
-
         if (path.startsWith("/admin/notes")) {
             return "{\"text\":\"Guard probe\"}";
         }

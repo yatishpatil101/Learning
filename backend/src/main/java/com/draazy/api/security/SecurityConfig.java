@@ -36,6 +36,7 @@ public class SecurityConfig {
     private final WriteRateLimitStore.Factory rateLimitStores;
     private final boolean rateLimitEnabled;
     private final int writeBudget;
+    private final int localityResolveBudget;
     private final Duration rateLimitWindow;
     private final boolean proxyAware;
     private final Optional<OriginGateFilter> originGate;
@@ -45,6 +46,7 @@ public class SecurityConfig {
             WriteRateLimitStore.Factory rateLimitStores,
             @Value("${draazy.security.rate-limit.enabled:true}") boolean rateLimitEnabled,
             @Value("${draazy.security.rate-limit.writes-per-window:120}") int writeBudget,
+            @Value("${draazy.security.rate-limit.locality-resolves-per-window:10}") int localityResolveBudget,
             @Value("${draazy.security.rate-limit.window-seconds:60}") long windowSeconds,
             @Value("${draazy.security.trusted-proxies:none}") String trustedProxies,
             @Value("${draazy.security.origin-secret}") String originSecret) {
@@ -59,6 +61,7 @@ public class SecurityConfig {
         this.rateLimitStores = rateLimitStores;
         this.rateLimitEnabled = rateLimitEnabled;
         this.writeBudget = writeBudget;
+        this.localityResolveBudget = localityResolveBudget;
         this.rateLimitWindow = Duration.ofSeconds(windowSeconds);
 
         this.proxyAware = !TrustedProxyConfig.NO_PROXY.equalsIgnoreCase(trustedProxies.trim());
@@ -102,12 +105,8 @@ public class SecurityConfig {
                         // Public reference catalogue: the pages a visitor sees before deciding
                         // whether to sign up at all. Why each is public: cross-cutting.md §8.4.
                         .requestMatchers(HttpMethod.GET,
-                                Routes.Localities.BASE,
+                                Routes.Localities.BASE, Routes.Localities.ANY_SINGLE,
                                 Routes.Societies.BASE, Routes.Societies.ANY_SINGLE,
-
-                                // The public two-segment society read, named individually
-                                // because ANY_SINGLE does not cover it and its siblings are writes.
-                                Routes.Societies.HUB,
                                 Routes.Fees.BASE,
 
                                 // Flags, geo, cities, prices and plans: what a logged-out visitor's
@@ -115,6 +114,9 @@ public class SecurityConfig {
                                 Routes.Bootstrap.BASE).permitAll()
 
                         .requestMatchers(HttpMethod.POST, Routes.Cities.WAITLIST).permitAll()
+
+                        // The locality picker runs before sign-in; WriteRateLimitFilter budgets every POST.
+                        .requestMatchers(HttpMethod.POST, Routes.Localities.RESOLVE).permitAll()
 
                         // "Tell me when this launches". POST-only and no read at all; rate-limited
                         // in TicketService.joinWaitlist and challenged in BotDefenceFilter.
@@ -166,7 +168,7 @@ public class SecurityConfig {
             // ~700 MockMvc tests share one anonymous bucket; WriteRateLimitTest turns it back on.
             http.addFilterAfter(
                     new WriteRateLimitFilter(writeBudget, rateLimitWindow, proxyAware,
-                            rateLimitStores),
+                            rateLimitStores, localityResolveBudget),
                     JwtAuthFilter.class);
         }
 

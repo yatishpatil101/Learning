@@ -85,6 +85,9 @@ public final class ErrorCodes {
 
     public static final String METHOD_NOT_ALLOWED = "method_not_allowed";
 
+    /** 503 — an outside service we depend on is down; retrying later can succeed. */
+    public static final String SERVICE_UNAVAILABLE = "service_unavailable";
+
     /** 500 — catch-all. The message is deliberately generic: never leak internals to the client. */
     public static final String INTERNAL = "internal";
 

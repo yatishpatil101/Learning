@@ -97,7 +97,7 @@ class ListingSanityLimitsTest {
     private static ListingCreate create(String deal, String propertyType, Long price, Long deposit,
             String carpetArea, String builtUpArea, String superBuiltUpArea) {
         return new ListingCreate("Boundary listing", deal, propertyType, BigDecimal.TWO, price,
-                deposit, null, null, bd(carpetArea), "sqft", null, "Baner", "Pune",
+                deposit, null, null, bd(carpetArea), "sqft", null, "Baner", null, "Pune",
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, bd(carpetArea),
                 bd(builtUpArea), bd(superBuiltUpArea), null, null, null, null);
@@ -107,7 +107,7 @@ class ListingSanityLimitsTest {
             String carpetArea, String builtUpArea, String superBuiltUpArea, String reraId,
             Map<String, Object> formDetails) {
         return new ListingCreate("Boundary listing", deal, propertyType, BigDecimal.TWO, price,
-                deposit, null, null, bd(carpetArea), "sqft", null, "Baner", "Pune",
+                deposit, null, null, bd(carpetArea), "sqft", null, "Baner", null, "Pune",
                 null, null, reraId, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, bd(carpetArea),
                 bd(builtUpArea), bd(superBuiltUpArea), null, null, formDetails, null);
@@ -115,7 +115,7 @@ class ListingSanityLimitsTest {
 
     private static ListingCreate plottedProject(String reraId) {
         return new ListingCreate("Boundary listing", "buy", "Open Plot", BigDecimal.TWO, 100_000L,
-                null, null, null, bd("50"), "sqft", null, "Baner", "Pune",
+                null, null, null, bd("50"), "sqft", null, "Baner", null, "Pune",
                 null, null, reraId, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, bd("50"),
                 null, null, null, null, Map.of("plottedProject", "yes"), null);
@@ -124,6 +124,7 @@ class ListingSanityLimitsTest {
     private static ListingUpdate update(String deal, String propertyType, Long price, Long deposit,
             String carpetArea, String builtUpArea, String superBuiltUpArea) {
         return new ListingUpdate(null, deal, propertyType, null, price, deposit, null, null,
+                null,
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, bd(carpetArea), bd(builtUpArea), bd(superBuiltUpArea), null,

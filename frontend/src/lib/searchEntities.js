@@ -1,12 +1,5 @@
-/* Unified entity search — the single typed-token resolver behind the homepage hero
-   (and, later, the Listings top bar). Given a query it returns locality / society /
-   landmark tokens, each tagged with a live-listing `count`. Societies and landmarks
-   are GATED to count > 0 (using the exact same match math the Listings filters use:
-   `societyForListing` and per-listing coords) so a suggestion can never dead-end.
-   Localities always appear (registry-backed). Google's long-tail is layered on by the
-   caller; this module is pure/synchronous and dependency-light so it's easy to test. */
-import { allLocalities, localityBySlug, nearestLocality } from '../data/localities.js';
-import { allSocieties, societyForListing } from '../data/societies.js';
+/* Typed-token resolver behind the hero search: locality, society and landmark tokens each carry a live-listing `count` and are
+   gated to count > 0 so a suggestion never dead-ends. Pure and synchronous; the caller layers Google's long tail on top. */
 import { LANDMARKS } from '../pages/consumer/listings/constants.js';
 import { propLatLng } from '../pages/consumer/listings/geo.js';
 import { nearToParams } from './nearParams.js';
@@ -23,17 +16,25 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Precompute live-listing counts per locality / society / landmark from the listing
-// set the caller considers "in play" (typically approved stock for the current deal).
-// Building this once and reusing it across keystrokes keeps typing cheap.
-export function buildEntityIndex(listings) {
+// Prefers the slug a listing already carries for this name; slugifies (as the server does) only when none is known, e.g. the editorial "popular" chips.
+export const slugOfName = (name, index) => {
+  const lower = String(name || '').trim().toLowerCase();
+  for (const [slug, known] of index?.locNames || []) if (known.toLowerCase() === lower) return slug;
+  return lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+};
+
+// Precomputes live-listing counts per locality / society / landmark once per "in play" listing set, so keystrokes stay cheap.
+export function buildEntityIndex(listings, societies = []) {
   const arr = Array.isArray(listings) ? listings : [];
   const locCount = new Map();
+  const locNames = new Map();
   const socCount = new Map();
   for (const p of arr) {
-    if (p && p.localitySlug) locCount.set(p.localitySlug, (locCount.get(p.localitySlug) || 0) + 1);
-    const soc = societyForListing(p);
-    if (soc) socCount.set(soc.slug, (socCount.get(soc.slug) || 0) + 1);
+    if (p && p.localitySlug) {
+      locCount.set(p.localitySlug, (locCount.get(p.localitySlug) || 0) + 1);
+      if (p.locality && !locNames.has(p.localitySlug)) locNames.set(p.localitySlug, p.locality);
+    }
+    if (p?.societySlug) socCount.set(p.societySlug, (socCount.get(p.societySlug) || 0) + 1);
   }
   const lmCount = new Map();
   for (const lm of LANDMARKS) {
@@ -46,17 +47,15 @@ export function buildEntityIndex(listings) {
     }
     lmCount.set(lm.value, n);
   }
-  return { locCount, socCount, lmCount, size: arr.length };
+  return { locCount, locNames, socCount, lmCount, societies, size: arr.length };
 }
 
-const socSublabel = (s) => {
-  const loc = s.localitySlug ? localityBySlug(s.localitySlug) : null;
-  return loc ? `Society · ${loc.name}` : 'Society';
+const socSublabel = (s, index) => {
+  const name = s.localitySlug ? index?.locNames?.get(s.localitySlug) : null;
+  return name ? `Society · ${name}` : 'Society';
 };
 
-// Resolve a typed query into ordered, typed tokens:
-//   { kind: 'locality'|'society'|'landmark', id, label, sublabel, count, slug?/value? }
-// Localities are always offered; societies/landmarks only when they have live stock.
+// Resolves a query into ordered typed tokens (locality | society | landmark), each offered only with live stock.
 export function searchEntities(query, index, { limit = 8, perKind = 4 } = {}) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return [];
@@ -65,44 +64,29 @@ export function searchEntities(query, index, { limit = 8, perKind = 4 } = {}) {
   const lmCount = index?.lmCount;
   const byCount = (a, b) => b.count - a.count || a.label.localeCompare(b.label);
 
-  const localities = allLocalities()
-    .filter((l) => l.name.toLowerCase().includes(q))
-    .map((l) => ({ kind: 'locality', id: l.slug, slug: l.slug, label: l.name, sublabel: 'Locality', count: locCount?.get(l.slug) || 0 }))
+  const localities = [...(index?.locNames || [])]
+    .filter(([, name]) => name.toLowerCase().includes(q))
+    .map(([slug, name]) => ({ kind: 'locality', id: slug, slug, label: name, sublabel: 'Locality', count: locCount?.get(slug) || 0 }))
     .sort(byCount)
     .slice(0, perKind);
 
-  const societies = allSocieties()
+  const societies = (index?.societies || [])
     .filter((s) => s.name.toLowerCase().includes(q) && (socCount?.get(s.slug) || 0) > 0)
-    .map((s) => ({ kind: 'society', id: s.slug, slug: s.slug, label: s.name, sublabel: socSublabel(s), count: socCount.get(s.slug), loc: s.localitySlug || null }))
+    .map((s) => ({ kind: 'society', id: s.slug, slug: s.slug, label: s.name, sublabel: socSublabel(s, index), count: socCount.get(s.slug), loc: s.localitySlug || null }))
     .sort(byCount)
     .slice(0, perKind);
 
   const landmarks = LANDMARKS
     .filter((l) => l.value && l.label.toLowerCase().includes(q) && (lmCount?.get(l.value) || 0) > 0)
-    .map((l) => {
-      const [la, lo] = l.value.split(',').map(Number);
-      // Attach the confident parent locality (tight radius) so a landmark pick also
-      // scopes results to a real area — not just a proximity radius.
-      const parent = nearestLocality(la, lo, 3);
-      return { kind: 'landmark', id: l.value, value: l.value, label: l.label, sublabel: l.group || 'Landmark', count: lmCount.get(l.value), loc: parent ? parent.slug : null };
-    })
+    .map((l) => ({ kind: 'landmark', id: l.value, value: l.value, label: l.label, sublabel: l.group || 'Landmark', count: lmCount.get(l.value) }))
     .sort(byCount)
     .slice(0, perKind);
 
   return [...localities, ...societies, ...landmarks].slice(0, limit);
 }
 
-// Fold chosen tokens into the Listings URL contract. Localities and societies are
-// multi-valued (CSV); landmark/place proximity is single-valued (last pick wins),
-// matching the Listings `near` filter which holds one point. A society ALSO
-// contributes its verified parent locality (`t.loc`) to the locality CSV — a
-// society genuinely sits inside its slug, so scoping to that slug is always correct
-// and can never dead-end. Landmarks/places DELIBERATELY do NOT emit a locality:
-// they are scoped by their proximity radius alone (same as the Listings Near-a-Place
-// filter). Emitting a parent slug here ANDs with `near` and dead-ends a gated
-// landmark whose slug holds no stock while nearby slugs do — the exact QA bug this
-// fixes. This keeps the gate (proximity count) and the emission (proximity-only) in
-// lockstep.
+// Folds tokens into the Listings URL: localities and societies are CSV, landmark/place proximity is single-valued. A society also emits its parent locality;
+// landmarks and places must not, because ANDing a parent slug with `near` dead-ends a gated landmark whose slug holds no stock.
 export function paramsFromTokens(tokens) {
   const loc = [];
   const soc = [];
@@ -113,9 +97,7 @@ export function paramsFromTokens(tokens) {
     if (t.kind === 'locality') addLoc(t.slug);
     else if (t.kind === 'society') { soc.push(t.slug); addLoc(t.loc); }
     else if (t.kind === 'landmark') { near = t.value; nearLabel = t.label || ''; }
-    // A Google-resolved place that didn't snap to a known locality routes as a
-    // proximity search (nearest listings) — single-valued, last pick wins. Like a
-    // landmark, it is scoped by radius only, never by a parent slug.
+    // A Google place that is not a locality routes as a proximity search: single-valued, last pick wins, scoped by radius only.
     else if (t.kind === 'place' && t.near) { near = t.near; nearLabel = t.nearLabel || t.label || ''; }
   }
   const p = {};

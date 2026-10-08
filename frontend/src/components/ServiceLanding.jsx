@@ -1,6 +1,5 @@
 import NativeSelect from './ui/NativeSelect.jsx';
 import LocalitySelect from './ui/LocalitySelect.jsx';
-import { localityNames } from '../data/localities.js';
 import FieldError from './ui/FieldError.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
@@ -167,7 +166,7 @@ export default function ServiceLanding({
                               {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
                             </NativeSelect>
                           ) : f.type === 'locality' ? (
-                            <LocalitySelect value={form[f.name]} onChange={(v) => { set(f.name, v); err.clear(f.name); }} options={localityNames()} unrestricted={f.unrestricted} placeholder={f.placeholder || 'Select locality'} ariaLabel={f.label} dataErr={f.name} invalid={err.has(f.name)} className="w-full" />
+                            <LocalitySelect value={form[f.name]} onChange={(v) => { set(f.name, v); err.clear(f.name); }} nameOnly unrestricted={f.unrestricted} placeholder={f.placeholder || 'Select locality'} ariaLabel={f.label} dataErr={f.name} invalid={err.has(f.name)} className="w-full" />
                           ) : f.type === 'textarea' ? (
                             <textarea rows={2} value={form[f.name]} onChange={(e) => { set(f.name, e.target.value); err.clear(f.name); }} placeholder={f.placeholder} className={'field w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500 resize-none' + err.cx(f.name)} />
                           ) : f.type === 'money' ? (

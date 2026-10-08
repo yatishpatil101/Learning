@@ -6,14 +6,25 @@ import { digits } from '../../../lib/contact.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { evaluateHostEligibility, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
-import { initials, hasAgreementEvidence, inr, perHead, numeric, terms, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle, detailPath, seekerHeadline, moveInByForm, moveInByWire } from './helpers.js';
+import { getLocality } from '../../../services/localityService.js';
+import { initials, hasAgreementEvidence, inr, perHead, numeric, terms, FLATMATE_GROUP_IMG, replacementTitle, detailPath, seekerHeadline, moveInByForm, moveInByWire } from './helpers.js';
 import { groupOpener } from './openers.js';
 import { hasContactDetails } from '../list-property/contactDetails.js';
 import { headlineOf } from '../../../lib/headline.js';
 
 const leaksContact = (...texts) => texts.some(hasContactDetails);
 
-const BLANK_GROUP = { hunting: true, localities: [], bhk: [], rentMin: '', rentMax: '', depositMin: '', depositMax: '', gatedOnly: false, bachelors: false, furnishing: '', moveInBy: '', moveInByStored: '', title: '', locality: 'Baner', policy: 'women', rent: '', deposit: '', noticePeriodDays: '', lockInMonths: '', maintenanceBilling: '', electricityBilling: '', seats: '2', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false };
+const liveLocality = async (slug) => {
+  if (!slug) return null;
+  try {
+    const row = await getLocality(slug);
+    return row.archived ? null : row;
+  } catch {
+    return null;
+  }
+};
+
+const BLANK_GROUP = { hunting: true, localities: [], bhk: [], rentMin: '', rentMax: '', depositMin: '', depositMax: '', gatedOnly: false, bachelors: false, furnishing: '', moveInBy: '', moveInByStored: '', title: '', locality: '', localitySlug: '', policy: 'women', rent: '', deposit: '', noticePeriodDays: '', lockInMonths: '', maintenanceBilling: '', electricityBilling: '', seats: '2', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false };
 
 const formMoney = (v) => (v == null ? '' : String(v));
 const preferencesForm = (p) => ({
@@ -131,7 +142,8 @@ export function useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: n
         ...BLANK_GROUP,
         ...(g.preferences ? preferencesForm(g.preferences) : { hunting: false }),
         title: g.title,
-        locality: g.locality || BLANK_GROUP.locality,
+        locality: g.locality || '',
+        localitySlug: g.localitySlug || '',
         policy: g.policy,
         rent: g.rent ? String(g.rent) : '',
         deposit: g.deposit ? String(g.deposit) : '',
@@ -225,9 +237,10 @@ export function useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: n
     setPost({ name: '', gender: 'female', age: '', occupation: '', budget: '', budgetMax: '', moveIn: 'now', flatPref: 'any', roomPref: 'any', localities: [], tags: [], note: '', title: '', verifiedContactOnly: false });
     toast(editingId ? t('flatmates.requestUpdated') : t('flatmates.requestLive'));
   };
-  const prefillGroupFromListing = (listing) => {
+  const prefillGroupFromListing = async (listing) => {
     if (!listing) return;
-    const loc = deriveLocality(listing.locality, listing.title, listing.loc);
+    const live = await liveLocality(listing.localitySlug);
+    const loc = live?.name || '';
     const rent = listing.deal === 'rent' && listing.price ? String(listing.price) : '';
     setGrp((g) => {
       const title = g.title || replacementTitle({ bhk: listing.bhk, locality: loc || listing.locality });
@@ -239,6 +252,7 @@ export function useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: n
         propertyId: listing.id,
         title,
         locality,
+        ...(live && locality !== g.locality ? { localitySlug: live.slug } : {}),
         ...(rent && !g.rent ? { rent } : {}),
         ...(moved ? { consentVerified: false } : {}),
       };
@@ -247,16 +261,17 @@ export function useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: n
   };
   // Seeds the owner-consent number too, making the consent-OTP step one tap. The number is only
   // pre-filled, never marked verified — the owner's OTP is still required.
-  const prefillGroupFromTenancy = (t) => {
+  const prefillGroupFromTenancy = async (t) => {
     if (!t) return;
-    const loc = deriveLocality(t.title, t.address);
+    const live = await liveLocality(t.localitySlug);
+    const loc = live?.name || '';
     setGrp((g) => ({
       ...g,
       hunting: false,
       role: 'tenant',
       propertyId: t.propertyId || t.propId || g.propertyId,
       title: g.title || replacementTitle({ locality: loc }),
-      ...(loc ? { locality: loc } : {}),
+      ...(live ? { locality: loc, localitySlug: live.slug } : {}),
       ...(t.rent && !g.rent ? { rent: String(t.rent) } : {}),
       consentMobile: g.consentMobile || digits(t.ownerMobile).slice(-10),
       consentVerified: false,
@@ -325,7 +340,7 @@ export function useFlatmateSupply({ refresh, user, authLoading, toast, t, nav: n
     });
     if (guard.blocked) { toast(guard.reason, 'error'); return; }
     const ownerConsent = role === 'tenant' ? !!grp.consentVerified : false;
-    await saveGroup({ title: grp.title.trim(), locality: grp.locality, policy: grp.policy, rent: +grp.rent, ...numeric('deposit', grp.deposit), ...terms(grp), seatsTotal: seats, ...seatsOpenAfterEdit(seats), members: members(), tags: grp.tags, note: grp.note, time: 'Just now', ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, agreementDoc, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview });
+    await saveGroup({ title: grp.title.trim(), locality: grp.locality, localitySlug: grp.localitySlug || '', policy: grp.policy, rent: +grp.rent, ...numeric('deposit', grp.deposit), ...terms(grp), seatsTotal: seats, ...seatsOpenAfterEdit(seats), members: members(), tags: grp.tags, note: grp.note, time: 'Just now', ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, agreementDoc, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview });
   };
   const saveGroup = async (group) => {
     const editedId = editingGroupId;

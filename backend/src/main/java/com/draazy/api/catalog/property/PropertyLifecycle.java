@@ -47,8 +47,8 @@ public class PropertyLifecycle {
         if (property.getLocalitySlug() == null || property.getLocalitySlug().isBlank()) {
             throw new ConflictException("This listing has no locality, so approving it would"
                     + " publish it out of locality search, its locality page, saved-search alerts"
-                    + " and the society join. Assign one from the locality queue first"
-                    + " (the owner typed '" + property.getLocality() + "').");
+                    + " and the society join. Ask the owner to pick the locality from the"
+                    + " suggestions (they typed '" + property.getLocality() + "').");
         }
     }
 

@@ -5,7 +5,6 @@ import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { listProperties } from '../../../services/propertyService.js';
-import { localityBySlug } from '../../../data/localities.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 import { CARD_SIZES } from '../../../lib/imgSrcSet.js';
@@ -17,12 +16,9 @@ const BHK_TOL = 1;
 const PRICE_LOW = 0.6;
 const PRICE_HIGH = 1.6;
 
-// Resolve a listing's coordinates: its own pin first, else the centre of its
-// canonical locality (seeded from Google). Null when neither is known.
+// A listing's own pin, or null when it has none.
 function coordsOf(x) {
   if (typeof x.lat === 'number' && typeof x.lng === 'number') return [x.lat, x.lng];
-  const loc = localityBySlug(x.localitySlug);
-  if (loc && loc.lat != null && loc.lng != null) return [loc.lat, loc.lng];
   return null;
 }
 

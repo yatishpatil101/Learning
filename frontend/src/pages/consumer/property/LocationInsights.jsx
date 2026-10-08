@@ -1,16 +1,15 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
-import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
-import { commuteInfo, connectivityFor, livabilityFor } from './locationIntel.js';
+import { commuteInfo } from './locationIntel.js';
 import { propertyKind } from './derivations.js';
-import { LOC } from '../../../data/localityIntel.js';
-import { countProperties } from '../../../services/propertyService.js';
+import { useLocalityStats, localitySlugOf } from './useLocalityStats.js';
+import { fmtNum } from '../../../lib/format.js';
 
 // Commute is served from the cache-at-write flow (traffic-aware "live" times when available; a free-flow estimate
-// otherwise).
+// otherwise). The locality line is listing-derived and each figure is hidden when the server has none.
 export default function LocationInsights({ p, lat, lng }) {
   const { t } = useTranslation();
   const agoLabel = (ts) => {
@@ -18,23 +17,11 @@ export default function LocationInsights({ p, lat, lng }) {
     return h < 24 ? t('property.agoHours', { count: h }) : t('property.agoDays', { count: Math.round(h / 24) });
   };
   const commute = useMemo(() => commuteInfo(lat, lng), [lat, lng]);
-  const nearby = useMemo(() => connectivityFor(p), [p]);
-  const liv = useMemo(() => livabilityFor(p), [p]);
-  const slug = p.localitySlug || (p.locality || '').toLowerCase().replace(/\s+/g, '-');
-  // Locality snapshot: curated price/appreciation (when the area has a dashboard)
-  // plus live supply — so the number is on the tab, not one click away.
-  const li = LOC[p.locality] || null;
-  const [homes, setHomes] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    // Only the number is rendered, so ask the server to count rather than shipping the catalogue
-    // here to measure it — `countProperties` stays exact once Pune outgrows a single page.
-    countProperties({ locality: slug }).then((n) => { if (alive) setHomes(n); });
-    return () => { alive = false; };
-  }, [slug]);
+  const slug = localitySlugOf(p);
+  const loc = useLocalityStats(p);
   const isCommercial = propertyKind(p) === 'commercial';
 
-  if (!commute.legs.length && !nearby.length && !liv) return null;
+  if (!commute.legs.length && !loc) return null;
 
   return (
     <div className="mt-4 space-y-4">
@@ -67,75 +54,11 @@ export default function LocationInsights({ p, lat, lng }) {
         </div>
       ) : null}
 
-      {nearby.length ? (
-        <MobileCollapse
-
-          label={t('property.whatsNearby')}
-          header={(
-            <Tip k="location.nearby">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Icon name="map-pinned" className="w-4 h-4 text-brand-teal-3" /> {t('property.whatsNearby')}
-              </h3>
-            </Tip>
-          )}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {nearby.map((n) => (
-              <div key={n.name} className="detail-card">
-                <span className="w-8 h-8 rounded-lg bg-brand-teal/10 flex items-center justify-center flex-shrink-0">
-                  <Icon name={n.icon} className="w-4 h-4 text-brand-teal-3" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-white truncate">{n.name}</div>
-                  <div className="text-[11px] text-slate-500">{n.cat}</div>
-                </div>
-                <span className="text-xs font-semibold text-brand-teal-3 flex-shrink-0">{n.dist}</span>
-              </div>
-            ))}
-          </div>
-        </MobileCollapse>
-      ) : null}
-
-      {/* LIVABILITY — collapsed on phones; the score chip in the header is the summary, so the six bars only render
-         when the user asks for them. */}
-      {liv ? (
-        <MobileCollapse
-
-          label={t('property.livability')}
-          header={(
-            <>
-              <Tip k="location.livability">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Icon name="star" className="w-4 h-4 text-brand-teal-3" /> {t('property.livability')}
-                </h3>
-              </Tip>
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-teal-3">
-                <span className="text-white font-bold">{liv.score}</span>/10 · {liv.scoreLabel}
-              </span>
-            </>
-          )}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {liv.bars.map((b) => (
-              <div key={b.label} className="rd-cell">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-medium text-slate-300">{b.label}</span>
-                  <span className="text-xs font-bold text-white">{b.value}</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div className="h-full rounded-full bg-brand-teal-2" style={{ width: `${b.value * 10}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </MobileCollapse>
-      ) : null}
-
-      {li || homes ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
-          {li ? <span className="inline-flex items-center gap-1.5"><Icon name="ruler" className="w-3.5 h-3.5 text-brand-teal-3" /> Avg <span className="font-semibold text-white">₹{li.price.toLocaleString('en-IN')}</span>/sq.ft.</span> : null}
-          {li ? <span className="inline-flex items-center gap-1.5"><Icon name="trending-up" className="w-3.5 h-3.5 text-emerald-400" /> <span className="font-semibold text-emerald-400">+{li.yoy}%</span> YoY</span> : null}
-          {homes ? <span className="inline-flex items-center gap-1.5"><Icon name="home" className="w-3.5 h-3.5 text-brand-teal-3" /> <span className="font-semibold text-white">{homes}</span> {homes > 1 ? 'homes' : 'home'} listed</span> : null}
+      {loc && (loc.avgRent != null || loc.ratePerSqft != null || loc.liveListings > 0) ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400" data-testid="location-locality-stats">
+          {loc.ratePerSqft != null ? <span className="inline-flex items-center gap-1.5"><Icon name="ruler" className="w-3.5 h-3.5 text-brand-teal-3" /> Avg <span className="font-semibold text-white">₹{fmtNum(loc.ratePerSqft)}</span>/sq.ft.</span> : null}
+          {loc.avgRent != null ? <span className="inline-flex items-center gap-1.5"><Icon name="indian-rupee" className="w-3.5 h-3.5 text-brand-teal-3" /> Avg rent <span className="font-semibold text-white">₹{fmtNum(loc.avgRent)}</span>/mo</span> : null}
+          {loc.liveListings > 0 ? <span className="inline-flex items-center gap-1.5"><Icon name="home" className="w-3.5 h-3.5 text-brand-teal-3" /> <span className="font-semibold text-white">{loc.liveListings}</span> {loc.liveListings > 1 ? 'homes' : 'home'} listed</span> : null}
         </div>
       ) : null}
       <Link to={`/locality/${slug}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-teal-3 hover:underline">

@@ -61,7 +61,7 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
         mvc.perform(post(Routes.ServiceRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(located(p, "Baner", "Rural")))
+                        .content(located(p, "false", "Rural")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.amount").value(PLATFORM_HALF + 1000 + 1000 + 300))
                 .andExpect(jsonPath("$.details.regArea").value("Municipal / Urban"))
@@ -70,18 +70,50 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
 
     /** A blank term is eleven months — the wizard's own default, so the two cannot diverge. */
     @Test
-    @DisplayName("a Gram Panchayat locality is charged ₹500, whatever the customer said")
-    void gramPanchayatLocalityIsRural() throws Exception {
+    @DisplayName("a property the customer says is under a gram panchayat is charged ₹500, whatever regArea says")
+    void gramPanchayatAnswerIsRural() throws Exception {
         User buyer = customer("9820000911");
         Property p = listing(buyer);
 
         mvc.perform(post(Routes.ServiceRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(located(p, "Hinjawadi Phase 2", "Municipal / Urban")))
+                        .content(located(p, "true", "Municipal / Urban")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.amount").value(PLATFORM_HALF + 1000 + 500 + 300))
-                .andExpect(jsonPath("$.details.regArea").value("Rural"));
+                .andExpect(jsonPath("$.details.regArea").value("Rural"))
+                .andExpect(jsonPath("$.details._state.regArea").value("rural"));
+    }
+
+    @Test
+    @DisplayName("a stated rent with no gram panchayat answer is a 422, not a guessed fee")
+    void missingGramPanchayatAnswerIsRefused() throws Exception {
+        User buyer = customer("9820000913");
+        Property p = listing(buyer);
+        String body = "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
+                + "\"details\":{\"rent\":32000,\"deposit\":150000,\"months\":\"11\","
+                + "\"_state\":{\"prop\":{\"locality\":\"Baner\"}}}}";
+
+        mvc.perform(post(Routes.ServiceRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("under a gram panchayat")));
+    }
+
+    @Test
+    @DisplayName("a gram panchayat answer that is not a boolean is a 422")
+    void nonBooleanGramPanchayatAnswerIsRefused() throws Exception {
+        User buyer = customer("9820000914");
+        Property p = listing(buyer);
+
+        mvc.perform(post(Routes.ServiceRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(located(p, "\"yes\"", "Municipal / Urban")))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     // Silently clamping it to the ceiling would bill a number the customer never asked for.
@@ -92,7 +124,7 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
         Property p = listing(buyer);
         String body = "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                 + "\"details\":{\"rent\":32000,\"deposit\":150000,\"months\":\"11\","
-                + "\"_state\":{\"prop\":{\"locality\":\"Baner\"},\"terms\":{\"regArea\":\"Rural\"}}}}";
+                + "\"_state\":{\"prop\":{\"gramPanchayat\":false},\"terms\":{\"regArea\":\"Rural\"}}}}";
 
         mvc.perform(post(Routes.ServiceRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
@@ -110,7 +142,7 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
         String body = "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                 + "\"details\":{\"rent\":32000,\"deposit\":150000,\"months\":\"11\","
                 + "\"regArea\":\"Municipal / Urban\","
-                + "\"_state\":{\"terms\":{\"nrDeposit\":\"50000\"}}}}";
+                + "\"_state\":{\"prop\":{\"gramPanchayat\":false},\"terms\":{\"nrDeposit\":\"50000\"}}}}";
 
         mvc.perform(post(Routes.ServiceRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
@@ -172,7 +204,7 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                                 + "\"details\":{\"rent\":32000,\"months\":61,"
-                                + "\"_state\":{\"terms\":{\"months\":\"61\"}}}}"))
+                                + "\"_state\":{\"prop\":{\"gramPanchayat\":false},\"terms\":{\"months\":\"61\"}}}}"))
                 .andExpect(status().isUnprocessableEntity());
     }
 
@@ -221,18 +253,19 @@ class ServiceRequestRentPricingTest extends ServiceFixtures {
         return "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                 + "\"details\":{\"rent\":20000,\"deposit\":100000,\"months\":\"22\","
                 + "\"regArea\":\"Municipal / Urban\","
-                + "\"_state\":{\"terms\":{\"months\":\"22\"," + escalation + "}}}}";
+                + "\"_state\":{\"prop\":{\"gramPanchayat\":false},\"terms\":{\"months\":\"22\"," + escalation + "}}}}";
     }
 
-    private static String located(Property p, String locality, String regArea) {
+    private static String located(Property p, String gramPanchayatJson, String regArea) {
         return "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                 + "\"details\":{\"rent\":32000,\"deposit\":150000,\"months\":\"11\",\"regArea\":\""
-                + regArea + "\",\"_state\":{\"prop\":{\"locality\":\"" + locality + "\"}}}}";
+                + regArea + "\",\"_state\":{\"prop\":{\"gramPanchayat\":" + gramPanchayatJson + "}}}}";
     }
 
     private static String terms(Property p, long rent, long deposit, String months, String regArea) {
         return "{\"type\":\"rent-agreement\",\"propertyId\":\"" + p.getId() + "\","
                 + "\"details\":{\"rent\":" + rent + ",\"deposit\":" + deposit
-                + ",\"months\":\"" + months + "\",\"regArea\":\"" + regArea + "\"}}";
+                + ",\"months\":\"" + months + "\",\"regArea\":\"" + regArea + "\","
+                + "\"_state\":{\"prop\":{\"gramPanchayat\":false}}}}";
     }
 }

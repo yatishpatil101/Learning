@@ -8,7 +8,7 @@ import SocietySelect from '../../consumer/list-property/SocietySelect.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import {
-  localities, floorOptions, totalFloorsOptions,
+  floorOptions, totalFloorsOptions,
   typeOptions, commercialSubtypeOptions, commercialLabelOf, NONRES_TYPES, isLandType,
   bhkOptions, furnishingOptions, shellTypeOptions,
   naStatusOptions, otherRightsOptions, buyerEligibilityOptions,
@@ -111,23 +111,20 @@ export function PropertyStep({ form, set, errors }) {
   );
 }
 
-export function LocationStep({ form, set, errors }) {
-  // Only a residential unit sits inside a society; land and commercial name a project as plain text.
-  const residential = !NONRES_TYPES.includes(form.propertyType);
-  // A pick binds the listing to the society record (dedup) and its Google pin; typing unbinds both.
+export function LocationStep({ form, set, errors, onLocalityBusy }) {
+  // A pick binds the listing to the society record and its Google pin; typing unbinds both.
   const onSocietyChange = (s) => {
-    set('society', s.name || '');
-    set('societyId', s.id || '');
-    set('lat', s.lat ?? null);
-    set('lng', s.lng ?? null);
-    set('pincode', s.pincode || '');
+    set('society', s?.name || '');
+    set('societyId', s?.id || '');
+    set('lat', s?.lat ?? null);
+    set('lng', s?.lng ?? null);
+    set('pincode', s?.pincode || '');
   };
   return (
     <div className="space-y-5">
-      <div><label className={label}>Locality *</label><LocalitySelect value={form.locality} onChange={(v) => set('locality', v)} options={localities} placeholder="Select locality" ariaLabel="Locality" invalid={!!errors.locality} /><FieldError show={!!errors.locality}>Select a locality.</FieldError></div>
-      <div><label htmlFor="pob-society" className={label}>Society / Building Name</label>{residential
-        ? <SocietySelect id="pob-society" value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.lat} lng={form.lng} placeholder="Search society or building" inputClassName={fld} onChange={onSocietyChange} />
-        : <input id="pob-society" value={form.society} maxLength={60} onChange={(e) => set('society', e.target.value)} placeholder="e.g. Blue Ridge Business Park" className={fld} />}</div>
+      <div><label className={label}>Locality *</label><LocalitySelect value={form.locality} onChange={(v) => { set('locality', v); set('localitySlug', ''); }} onSelect={(sel) => { set('locality', sel.name); set('localitySlug', sel.slug || ''); }} onBusyChange={onLocalityBusy} placeholder="Select locality" ariaLabel="Locality" invalid={!!errors.locality} /><FieldError show={!!errors.locality}>Select a locality.</FieldError></div>
+      <div><label htmlFor="pob-society" className={label}>Society / Building Name</label>
+        <SocietySelect id="pob-society" value={form.societyId} name={form.society} allowNotOnMaps={false} localityLabel={form.locality} lat={form.lat} lng={form.lng} placeholder="Search society or building on Google Maps" inputClassName={fld} onChange={onSocietyChange} /></div>
       <div><label htmlFor="pob-address" className={label}>Full Address</label><textarea id="pob-address" value={form.address} maxLength={300} onChange={(e) => set('address', e.target.value)} placeholder="Flat no, wing, street..." rows={2} className={fld} /></div>
     </div>
   );

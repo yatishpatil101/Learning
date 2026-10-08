@@ -24,6 +24,7 @@ export function toRentalCard(row, listing) {
     title: listing?.title || 'Rented home',
     address: listing?.address || listing?.locality || 'Pune',
     locality: listing?.locality || '',
+    localitySlug: listing?.localitySlug || '',
     bhk: listing?.bhk || '',
     image: listing?.image || listing?.img || null,
     ownerName: row?.ownerName || 'Your landlord',

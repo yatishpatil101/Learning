@@ -5,19 +5,18 @@ import PoweredByGoogle from '../ui/PoweredByGoogle.jsx';
 import Button from '../ui/Button.jsx';
 import { NEARBY, popularFor } from '../../data/homeData.js';
 import { listProperties } from '../../services/propertyService.js';
-import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../data/localities.js';
-import { buildEntityIndex, searchEntities, KIND_ICON } from '../../lib/searchEntities.js';
-import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
-import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails } from '../../lib/places.js';
+import { buildEntityIndex, searchEntities, slugOfName, KIND_ICON } from '../../lib/searchEntities.js';
+import { listSocietiesWithListings, resolveSociety } from '../../services/societyService.js';
+import { resolveLocality } from '../../services/localityService.js';
+import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails, LOCALITY_TYPES } from '../../lib/places.js';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 
 const EMPTY = [];
 
 function localityTokenFromName(name, index) {
-  const l = localityByName(name);
-  const slug = l ? l.slug : slugifyLocality(name);
-  return { kind: 'locality', id: slug, slug, label: l ? l.name : name, sublabel: 'Locality', count: index?.locCount?.get(slug) || 0 };
+  const slug = slugOfName(name, index);
+  return { kind: 'locality', id: slug, slug, label: index?.locNames?.get(slug) || name, sublabel: 'Locality', count: index?.locCount?.get(slug) || 0 };
 }
 
 export default function EntitySearchCombobox({
@@ -47,7 +46,9 @@ export default function EntitySearchCombobox({
   const [activeIdx, setActiveIdx] = useState(-1);
   const [gsug, setGsug] = useState([]);
   const [resolving, setResolving] = useState(false);
+  const [pickFailed, setPickFailed] = useState(false);
   const [listings, setListings] = useState([]);
+  const [societies, setSocieties] = useState(EMPTY);
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
@@ -55,6 +56,7 @@ export default function EntitySearchCombobox({
   const sessionRef = useRef(null);
   const debounceRef = useRef(null);
   const reqIdRef = useRef(0);
+  const pickRef = useRef(0);
 
   const countLabel = (n) => (n > 0 ? tr('home.search.listings', { count: n }) : tr('home.search.noListings'));
 
@@ -77,13 +79,15 @@ export default function EntitySearchCombobox({
     listProperties({}, 'newest')
       .then((rows) => { if (alive) setListings(Array.isArray(rows) ? rows : []); })
       .catch(() => {});
+    listSocietiesWithListings()
+      .then((res) => { if (alive) setSocieties(res?.rows || EMPTY); })
+      .catch(() => {});
     return () => { alive = false; };
   }, [hasData, indexWanted]);
 
-  const catalogueReady = useSocietyCatalogue();
   const index = useMemo(
-    () => buildEntityIndex(hasData ? listings.filter((p) => p.status === 'approved' && p.deal === deal) : []),
-    [listings, deal, hasData, catalogueReady],
+    () => buildEntityIndex(hasData ? listings.filter((p) => p.status === 'approved' && p.deal === deal) : [], societies),
+    [listings, deal, hasData, societies],
   );
 
   useEffect(() => {
@@ -145,8 +149,15 @@ export default function EntitySearchCombobox({
     onRowsChange?.(rows);
   }, [rows, onRowsChange]);
 
+  const cancelPick = () => { pickRef.current += 1; setResolving(false); };
+
+  const tokenKey = tokens.map((t) => `${t.kind}:${t.id}`).join('|');
+  // Any token change from outside, or unmount, invalidates an in-flight place pick.
+  useEffect(() => () => { pickRef.current += 1; setResolving(false); }, [tokenKey]);
+
   const addToken = (token) => {
     if (!token) return;
+    cancelPick();
     let nextTokens = tokensRef.current.some((t) => t.kind === token.kind && t.id === token.id) ? tokensRef.current : [...tokensRef.current, token];
     if (onTokensChange) {
       onTokensChange((prev = EMPTY) => {
@@ -163,6 +174,7 @@ export default function EntitySearchCombobox({
   };
 
   const removeToken = (token) => {
+    cancelPick();
     let nextTokens = tokensRef.current.filter((t) => !(t.kind === token.kind && t.id === token.id));
     if (onTokensChange) {
       onTokensChange((prev = EMPTY) => {
@@ -178,30 +190,44 @@ export default function EntitySearchCombobox({
   };
 
   const pickPlace = async (row) => {
+    const pick = ++pickRef.current;
     onQueryChange?.('');
     setGsug([]);
     setOpen(false);
+    setPickFailed(false);
     setResolving(true);
     let details = null;
     try { details = await fetchPlaceDetails(row); } catch { details = null; }
     sessionRef.current = null;
-    setResolving(false);
+    if (pick !== pickRef.current) return;
     const lat = details ? details.lat : null;
     const lng = details ? details.lng : null;
     const selfName = details ? details.name : row.label;
-    const selfLoc = selfName ? localityByName(selfName) : null;
-    if (selfLoc) {
-      addToken({ kind: 'locality', id: selfLoc.slug, slug: selfLoc.slug, label: selfLoc.name, sublabel: 'Locality', count: index.locCount.get(selfLoc.slug) || 0 });
-      return;
+    if (details?.isNamedPlace && details.placeId) {
+      let society = null;
+      try { ({ society } = await resolveSociety({ placeId: details.placeId, name: selfName, lat, lng })); } catch { society = null; }
+      if (pick !== pickRef.current) return;
+      const homes = society ? index.socCount.get(society.slug) || 0 : 0;
+      if (society && homes > 0) {
+        addToken({ kind: 'society', id: society.slug, slug: society.slug, label: society.name, sublabel: 'Society', count: homes, loc: society.localitySlug || null });
+        return;
+      }
     }
+    if (lat != null && lng != null && details.types?.some((ty) => LOCALITY_TYPES.includes(ty))) {
+      let loc = null;
+      try { loc = await resolveLocality({ placeId: details.placeId, name: selfName, lat, lng, types: details.types }); } catch { loc = null; }
+      if (pick !== pickRef.current) return;
+      if (loc?.slug) {
+        addToken({ kind: 'locality', id: loc.slug, slug: loc.slug, label: loc.name, sublabel: 'Locality', count: index.locCount.get(loc.slug) || 0 });
+        return;
+      }
+    }
+    setResolving(false);
     if (lat != null && lng != null) {
-      const parent = matchLocalityToCanonical(details.localityRaw || details.name, lat, lng) || nearestLocality(lat, lng, 6);
-      addToken({ kind: 'place', id: row.id, label: row.label, sublabel: row.sublabel, near: `${lat},${lng}`, nearLabel: row.label, loc: parent ? parent.slug : null });
-      return;
+      addToken({ kind: 'place', id: row.id, label: row.label, sublabel: row.sublabel, near: `${lat},${lng}`, nearLabel: row.label });
+    } else {
+      setPickFailed(true);
     }
-    const canon = matchLocalityToCanonical(row.label);
-    const slug = canon ? canon.slug : slugifyLocality(row.label);
-    addToken({ kind: 'locality', id: slug, slug, label: canon ? canon.name : row.label, sublabel: 'Locality', count: index.locCount.get(slug) || 0 });
   };
 
   const pickRow = (row) => { if (row?.kind === 'place') pickPlace(row); else addToken(row); };
@@ -224,6 +250,7 @@ export default function EntitySearchCombobox({
       if (rows.length) setActiveIdx((i) => (i <= 0 ? rows.length - 1 : i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (resolving) return;
       if (listOpen && activeIdx >= 0) pickRow(rows[activeIdx]);
       else if (query.trim() && rows.length) pickRow(rows[0]);
       else onSubmit?.();
@@ -259,7 +286,7 @@ export default function EntitySearchCombobox({
           ref={inputRef}
           id={inputId}
           value={query}
-          onChange={(e) => { onQueryChange?.(e.target.value); setOpen(true); }}
+          onChange={(e) => { onQueryChange?.(e.target.value); setPickFailed(false); setOpen(true); }}
           onFocus={focusInput}
           onKeyDown={onKeyDown}
           type="text"
@@ -271,12 +298,14 @@ export default function EntitySearchCombobox({
           aria-autocomplete="list"
           aria-haspopup="listbox"
           aria-expanded={hasListbox}
+          aria-busy={resolving || undefined}
           aria-activedescendant={hasListbox && activeIdx >= 0 ? optId(activeIdx) : undefined}
           placeholder={tokens.length ? tr('home.search.placeholderAdd') : hasData ? tr('home.search.placeholderTry') : tr('home.search.placeholderCity', { city })}
           className={'flex-1 min-w-[140px] bg-transparent text-base sm:text-sm text-white placeholder-gray-500 outline-none ' + inputClassName}
         />
         {resolving ? <Icon name="loader" className="w-4 h-4 text-teal-500 flex-shrink-0 animate-spin" /> : null}
       </div>
+      {pickFailed ? <p role="alert" data-testid="place-pick-error" className="mt-1 px-1 text-xs text-red-400">{tr('home.search.placeFailed')}</p> : null}
       {hasListbox ? (
         <div className="absolute left-0 top-full mt-2 w-[22rem] max-w-full rounded-xl search-dropdown p-1.5 z-[70] flex flex-col         max-h-[min(18rem,60vh)]">
                   <div id={listboxId} ref={listRef} role="listbox" aria-label={heading} className="min-h-0 flex-1 overflow-y-auto search-dd-scroll">
@@ -313,7 +342,7 @@ export default function EntitySearchCombobox({
               <button type="button" onClick={(ev) => { ev.stopPropagation(); setOpen(false); }} className="btn btn-secondary btn-sm">
                 {tr('home.search.done')}
               </button>
-              <Button type="button" onClick={(ev) => { ev.stopPropagation(); onSubmit?.(); }} variant="primary" size="sm" icon="search" className="flex-1">
+              <Button type="button" onClick={(ev) => { ev.stopPropagation(); onSubmit?.(); }} disabled={resolving} variant="primary" size="sm" icon="search" className="flex-1">
                 {tr('home.search.searchAreas', { count: tokens.length })}
               </Button>
             </div>

@@ -9,15 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code GET /admin/analytics/pricing} — asking prices against the curated market rate, per locality.
- *
- * <p>Ops needs it, but only after receiving the {@code analytics:read} function grant.
- *
- * <p>Lives on its own controller rather than as a fourth method on {@code AdminMetricsController},
- * whose docblock opens "the three back-office reporting reads" — a claim worth keeping true, and the
- * same reason {@code AdminSupplyGapController} stands alone.
- */
+/** {@code GET /admin/analytics/pricing}; ops only with the {@code analytics:read} function grant. */
 @RestController
 public class AdminPricingController {
 

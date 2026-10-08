@@ -427,7 +427,7 @@ paths:
       parameters:
         - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
         - { name: type, in: query, schema: { type: string } }
-        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug* (matches PropertySummary.localitySlug, not the display name)' }
+        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug* (matches PropertySummary.localitySlug, not the display name). Also matches listings within 2 km of the locality''s pin.' }
         - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
         - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
@@ -586,14 +586,6 @@ paths:
           description: >
             Restrict to RERA-registered listings. A boolean even though the column holds the
             registration number itself, because the yes/no is the only question the filter asks.
-          schema: { type: boolean }
-        - name: societyVerified
-          in: query
-          description: Restrict to listings in a verified society.
-          schema: { type: boolean }
-        - name: conveyanceDone
-          in: query
-          description: Restrict to societies whose conveyance is complete.
           schema: { type: boolean }
         - name: food
           in: query
@@ -770,9 +762,12 @@ paths:
   /localities:
     get:
       tags: [Catalog & Search]
-      summary: All localities
+      summary: Localities with a live presence
       security: []
       operationId: listLocalities
+      description: >
+        Localities someone has picked from Google Places and still stand, plus retired ones that
+        still have live listings. Counts and averages come from live listings only.
       responses:
         '200':
           description: Localities
@@ -781,15 +776,91 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Locality' }
+  /localities/{slug}:
+    get:
+      tags: [Catalog & Search]
+      summary: One locality
+      security: []
+      operationId: getLocality
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The locality, retired ones included (so an old link still opens)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locality' }
+        '404':
+          description: No such locality
+  /localities/resolve:
+    post:
+      tags: [Catalog & Search]
+      summary: The locality a Google place pick is
+      security: []
+      operationId: resolveLocality
+      description: >
+        A locality exists because someone picked it from Google Places, never because it was typed.
+        Found by Place ID when we already hold it; otherwise the place is verified server-side, and a
+        retired curated row of the same name within 2.5 km is brought back (taking Google's name),
+        or a new row is minted (slug is the name, suffixed -2, -3 on a clash). The place must be a
+        locality, sub-locality or neighbourhood inside the Pune Metropolitan Region (lat 18.25-18.95,
+        lng 73.30-74.35), and not the city itself. A same-named live row within 2.5 km is returned
+        rather than duplicated. Public, with its own per-IP limit (10/min) ahead of the general
+        write budget.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalityResolve' }
+      responses:
+        '200':
+          description: The locality, now live
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalitySummary' }
+        '422':
+          description: Not a locality Google knows ("Pick the locality from the suggestions.") or outside the served area ("Pick a locality in Pune.")
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: The place lookup is down; retrying later can succeed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /localities/search:
+    get:
+      tags: [Catalog & Search]
+      summary: Search live localities by name
+      security: []
+      operationId: searchLocalities
+      description: >
+        For the picker when Google suggestions are unavailable. Only live localities (never retired
+        ones); names starting with `q` come first. An empty `q` returns an empty list.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Part of the locality name }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 20, default: 10 } }
+      responses:
+        '200':
+          description: Matching localities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LocalitySummary' }
   /societies:
     get:
       tags: [Catalog & Search]
-      summary: Browse societies (curated + MahaRERA + community)
+      summary: Browse societies (each one a Google place; retired catalogue rows are excluded)
       security: []
       operationId: listSocieties
       parameters:
         - { name: q, in: query, schema: { type: string }, description: Free-text search over name, builder and the locality's words (baner-road is "baner road") }
-        - { name: locality, in: query, schema: { type: string }, description: Filter by locality slug }
+        - { name: locality, in: query, schema: { type: string }, description: Filter by locality slug (or within 2 km of its pin) }
         - name: hasListings
           in: query
           schema: { type: boolean }
@@ -797,21 +868,14 @@ paths:
             When true, keep only societies with at least one live (approved, unarchived) listing.
             Omitted or false returns the whole directory — false is not the inverse, because
             "societies with nothing listed" is an ops question rather than a public one.
-        - name: verified
-          in: query
-          schema: { type: boolean }
-          description: >
-            When true, keep only societies the card badges as verified: ops-confirmed (`verifiedAt`
-            set), or not member-added (`source` is not `community`) with both `registration` and
-            `conveyance` on file. Omitted or false returns the whole directory.
         - name: sort
           in: query
           schema: { type: string }
           description: >
             A column, e.g. `occupancy,desc` (`name`, `occupancy`, `year`, `units`; anything else
             falls back to `name,asc`), or one of three computed orderings, best first, direction
-            ignored: `relevance` (verified x4 + min(homes, 3) + average/5), `rating` (average, then
-            review count) and `homes` (live listings, then verified). Name breaks ties. Computed
+            ignored: `relevance` (min(homes, 3) + average/5), `rating` (average, then
+            review count) and `homes` (live listings). Name breaks ties. Computed
             orderings rank the whole filtered set before paging, so page 2 continues page 1.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -833,13 +897,14 @@ paths:
       summary: Add a society the catalogue does not have
       operationId: mintSociety
       description: >
-        The escape hatch behind every society picker on the platform. A curated directory is always
-        behind the city: somebody is listing a flat in a building that finished last quarter, and a
-        picker that cannot admit that is a picker that stops the listing.
+        The only way a society enters the catalogue: a Google Place pick. The `placeId` is the
+        society's identity and is verified server-side (name, pin and place types come from Google,
+        never from the client), so there are no typed names and no look-alike duplicates. A place
+        that is an area rather than a building, or that Google does not know, is a `422`.
 
 
         **Two success codes, and the difference is the point.** `201` for a society that did not
-        exist, `200` when the name already resolves to one -- both hand back the same canonical row,
+        exist, `200` when the place already has one -- both hand back the same canonical row,
         so a client that ignores the distinction still behaves correctly. But collapsing them would
         make the screen say "Added" to somebody who has just re-found a society that has been on
         Draazy for two years, which is both wrong and quietly alarming: it suggests the catalogue
@@ -851,10 +916,7 @@ paths:
         and what makes one account minting fifty societies a visible pattern rather than a suspicion.
 
 
-        What arrives here is a *candidate*, not a verified building: it carries `source` marking its
-        provenance and no `verifiedAt` until an operator confirms it. Everything downstream that
-        cares -- the hub's trust badge, the directory's ordering -- reads those two fields rather
-        than assuming a row's existence means somebody checked it.
+        What arrives here is a live `community` society, public at once; ops merges duplicates later.
       requestBody:
         required: true
         content:
@@ -867,11 +929,56 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Society' }
         '201':
-          description: Added as a candidate, awaiting an operator's check
+          description: Added as a live society
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Society' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: >-
+            `placeId` missing, blank or not a Place ID (letters, digits, `-` and `_`, at most 255),
+            `lat`/`lng` out of range, `name` carrying contact details, unknown to Google, an area (neighbourhood, city, ...) rather
+            than a building ("Pick your building, not an area."), a shop, restaurant, bank or office
+            ("Pick your building, not a shop or office."), a pin or Google location outside the cities
+            we serve ("We only list societies in cities we serve."), an unknown `mintOrigin`, or
+            Google could not be reached or is not configured ("Adding societies is temporarily
+            unavailable.").
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: >-
+            The member has used today's 20 Google lookups. Only a place Draazy does not already hold
+            costs one, so re-adding a known society never hits this. Back-office accounts are exempt.
+          headers:
+            Retry-After: { schema: { type: integer }, description: Seconds until the budget frees up }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /societies/resolve:
+    get:
+      tags: [Catalog & Search]
+      summary: The society a Google place already has, or similar ones nearby
+      security: []
+      operationId: resolveSociety
+      description: >
+        Called after a Google Place pick, before offering to add it. `society` is the live row whose
+        `placeId` matches, following a merge to its survivor; retired (archived) rows never match.
+        When there is no match and `lat`/`lng` are given, `candidates` lists up to three societies
+        within 250 m whose name resembles `name`, so the member can bind an existing one instead of
+        minting a duplicate. A hit has no candidates.
+      parameters:
+        - { name: placeId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9_-]+$' } }
+        - { name: name, in: query, schema: { type: string, maxLength: 160 }, description: The picked place's name, used to rank candidates }
+        - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: lng, in: query, schema: { type: number, minimum: -180, maximum: 180 } }
+      responses:
+        '200':
+          description: The match and/or nearby candidates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyResolve' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /societies/{slug}:
     get:
       tags: [Catalog & Search]
@@ -887,521 +994,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /societies/{slug}/hub:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: The society page's community sections in one read
-      security: []
-      operationId: getSocietyHub
-      description: >
-        Membership, questions, noticeboard, contributions and proposals for the caller, in one
-        response. Each section is exactly what that section's own read answered before they were
-        merged, computed for the same caller.
-
-
-        Public and caller-aware: `permitAll` does not reject a bearer token, so a signed-in reader
-        gets their standing, per-row delete controls and votes, and an anonymous one gets the
-        public facts with the personal parts null or withheld (a recommended person's phone, the
-        WhatsApp invite).
-
-
-        **Sections are isolated.** One that cannot be read -- a refusal, or a bad `kind` -- is
-        `null` and does not blank the others. An unknown society is a `404` for the whole read.
-
-
-        `page` and `size` apply to the three paged sections, clamped to the platform ceiling; when
-        absent each keeps its own default (questions 20, board 20, contributions 50). `kind`
-        narrows the board only. Not shared-cacheable: every section depends on who is asking.
-      parameters:
-        - { name: kind, in: query, schema: { type: string }, description: Narrow the board to one notice kind; omit for all }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: The sections, each null when it could not be read
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  membership:
-                    oneOf:
-                      - $ref: '#/components/schemas/SocietyMembership'
-                      - type: 'null'
-                  questions:
-                    oneOf:
-                      - allOf:
-                          - $ref: '#/components/schemas/PageEnvelope'
-                          - type: object
-                            properties:
-                              content:
-                                type: array
-                                items: { $ref: '#/components/schemas/SocietyQuestion' }
-                      - type: 'null'
-                  board:
-                    oneOf:
-                      - allOf:
-                          - $ref: '#/components/schemas/PageEnvelope'
-                          - type: object
-                            properties:
-                              content:
-                                type: array
-                                items: { $ref: '#/components/schemas/SocietyBoardItem' }
-                      - type: 'null'
-                  contributions:
-                    oneOf:
-                      - allOf:
-                          - $ref: '#/components/schemas/PageEnvelope'
-                          - type: object
-                            properties:
-                              content:
-                                type: array
-                                items: { $ref: '#/components/schemas/SocietyContribution' }
-                      - type: 'null'
-                  proposals:
-                    oneOf:
-                      - $ref: '#/components/schemas/SocietyProposals'
-                      - type: 'null'
-        '404': { $ref: '#/components/responses/NotFound' }
-  /societies/{slug}/residents:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [Engagement]
-      summary: The residency review queue (committee or staff)
-      operationId: listSocietyResidents
-      description: >
-        What the committee works through: everybody who has asked to be recognised as living here.
-
-
-        The reviewer is "platform staff, **or** the person whose claim on this society was
-        approved", and the second half of that cannot be written as a role -- it is a fact about a
-        row in `society_claims`. So this is not an `x-roles` route, and a staff token is sufficient
-        but not necessary.
-
-
-        Sort is fixed to newest-first in the query and a client `sort` is ignored rather than
-        honoured, because the underlying projection cannot satisfy an arbitrary order and a second
-        `order by` would fail at the database rather than at the boundary.
-      parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, verified, rejected] }, description: Narrow the queue; omit for everything }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: The queue, newest first
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyResident' }
-        '403':
-          description: Signed in, but neither staff nor this society's committee
-        '404': { $ref: '#/components/responses/NotFound' }
-    post:
-      tags: [Engagement]
-      summary: Ask to be recognised as a resident of one flat
-      operationId: requestSocietyResidency
-      description: >
-        The request that turns an account into a verified neighbour -- which is what the noticeboard
-        gate, the WhatsApp invite and the `authorIsResident` badge all read.
-
-
-        **200, not 201, and deliberately so.** A person has at most one standing request per
-        society, so a second call amends the first rather than creating a second row. A `201` with a
-        `Location` would be a lie the second time and would teach a client to expect two rows where
-        the unique index guarantees one. Correcting a mistyped flat number is the common case, not
-        the exception.
-
-
-        The resource is created under the society rather than under `/me` because it belongs to the
-        society's register, not to the caller's account: the committee reads it, the committee
-        decides it, and its uniqueness rule is scoped to the building.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyResidentRequest' }
-      responses:
-        '200':
-          description: >
-            The caller's standing request, created or amended. `status` is `pending` until the
-            committee decides; `mobile` is the caller's own, so it is not masked back to them.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyResident' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/residents/{residentId}:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: residentId, in: path, required: true, schema: { type: string, format: uuid } }
-    patch:
-      tags: [Engagement]
-      summary: Verify or reject one residency request (committee or staff)
-      operationId: decideSocietyResidency
-      description: >
-        The decision that grants or withholds resident standing in this building.
-
-
-        `PATCH` rather than two verbs (`.../verify`, `.../reject`) because approve and reject are one
-        field's value, and splitting them would put the vocabulary in the URL where it cannot be
-        enumerated or extended without a new route. The same reasoning the moderation queues use.
-
-
-        Guarded by the same "staff or this society's approved claimant" rule as the queue read, and
-        for the same reason it is not an `x-roles`: half of it is a row, not a role. The decision
-        records who made it, so a committee's own moderation is attributable rather than anonymous.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyResidentDecision' }
-      responses:
-        '200':
-          description: The decided row, with `status`, `assignedTo` and `decidedAt` filled in
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyResident' }
-        '403':
-          description: Signed in, but neither staff nor this society's committee
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/claim:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Engagement]
-      summary: Claim this society on behalf of its committee
-      operationId: claimSociety
-      description: >
-        How a managing committee asks for the power to run their own society page -- to review
-        residency requests, take down a notice and moderate the community tab.
-
-
-        **200 for the same reason `requestSocietyResidency` answers 200**: one claim per person per
-        society, so a second call amends the first. Somebody who typed the wrong committee role or
-        left the note blank should be able to correct it without an operator first rejecting the
-        original.
-
-
-        Nothing is granted here. The claim lands `pending` on `/admin/society-claims`, and until an
-        operator approves it the claimant is an ordinary member. That is the whole point: a route
-        that let a signed-in stranger assert committee status over a building would hand them the
-        residency register of everybody who lives in it.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyClaimCreate' }
-      responses:
-        '200':
-          description: 'The claim, created or amended, `status: pending`'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyClaim' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/questions:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Engagement]
-      summary: Ask a question about this society
-      operationId: askSocietyQuestion
-      description: >
-        Any signed-in caller. **201**, unlike the residency and claim writes next door, because this
-        genuinely creates a new row every time: a second question is a second question, and nothing
-        about it amends the first.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyPost' }
-      responses:
-        '201':
-          description: The question, with an empty `answers` array
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyQuestion' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/questions/{questionId}/answers:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: questionId, in: path, required: true, schema: { type: string, format: uuid } }
-    post:
-      tags: [Engagement]
-      summary: Answer a question about this society
-      operationId: answerSocietyQuestion
-      description: >
-        Any signed-in caller, on the same reasoning as the question: a prospective buyer who viewed
-        three flats here knows things the residents have stopped noticing.
-
-
-        The answer is returned on its own rather than as the re-read question, so a client that has
-        the thread in hand appends one row instead of replacing the list and losing the reader's
-        scroll position. `authorIsResident` travels with it, which is the field that lets a reader
-        weigh "the lift works fine" against who said it.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyPost' }
-      responses:
-        '201':
-          description: The answer
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyAnswer' }
-        '404':
-          description: No such society, or no such question on it
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/board:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Engagement]
-      summary: Post a notice (verified resident, committee or staff)
-      operationId: postSocietyBoardItem
-      description: >
-        **The one write on the society hub that needs a verified flat**, and the reason this
-        controller's gate is not a role. A notice asserts something about the building -- that the
-        lift is out, that the AGM is on Sunday -- and a stranger asserting it is misinformation with
-        the society's name on it. Asking a question needs only an account; posting a notice needs a
-        row in `society_residents` saying the committee recognised you.
-
-
-        That rule cannot be a `@PreAuthorize`, so it is not in `x-roles` either: a `403` here means
-        "verify your flat first", not "you are the wrong kind of user".
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyBoardItemCreate' }
-      responses:
-        '201':
-          description: The notice, with `canRemove` true for its author
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyBoardItem' }
-        '403':
-          description: Signed in, but not a verified resident of this society
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/board/{itemId}:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: itemId, in: path, required: true, schema: { type: string, format: uuid } }
-    delete:
-      tags: [Engagement]
-      summary: Take one notice down (author, committee or staff)
-      operationId: removeSocietyBoardItem
-      description: >
-        Three parties may remove a notice and the reasons differ: the author because they posted it,
-        the committee because they answer for what the building says about itself, and staff because
-        the platform answers for it publicly. That set is exactly what `canRemove` reports on the
-        read, so a client never has to draw a control it will then be told it cannot use.
-
-
-        204 with no body, because the row is gone and the list the caller is holding is the one they
-        already have minus this item.
-      responses:
-        '204':
-          description: Removed
-        '403':
-          description: Signed in, but not the author, the committee or staff
-        '404':
-          description: No such society, or no such notice on it
-  /societies/{slug}/contributions:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Engagement]
-      summary: Add a tip, a trusted pick or a photo
-      operationId: addSocietyContribution
-      description: >
-        Any signed-in caller -- a lower bar than the noticeboard next door, and on purpose. A notice
-        speaks for the building; a contribution speaks for one person, and is labelled as such by
-        `authorName` and `authorIsResident`. Requiring a verified flat here would have emptied the
-        tab of exactly the people most willing to fill it.
-
-
-        `referralContact` is somebody else's phone number. It is accepted here because a
-        recommendation without a way to reach the person is not a recommendation, and withheld on
-        the public read for the same reason it was accepted: it belongs to a third party who is not
-        on the platform.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyContributionCreate' }
-      responses:
-        '201':
-          description: The contribution, with `canRemove` true and an empty `replies` array
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyContribution' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/contributions/{contributionId}:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
-    delete:
-      tags: [Engagement]
-      summary: Remove one contribution (author, committee or staff)
-      operationId: removeSocietyContribution
-      description: >
-        The same three parties as the noticeboard, for the same three reasons, reported in advance
-        by `canRemove` on the read.
-      responses:
-        '204':
-          description: Removed, along with its replies
-        '403':
-          description: Signed in, but not the author, the committee or staff
-        '404':
-          description: No such society, or no such contribution on it
-  /societies/{slug}/contributions/{contributionId}/helpful:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
-    put:
-      tags: [Engagement]
-      summary: Mark a contribution helpful
-      operationId: markSocietyContributionHelpful
-      description: >
-        **`PUT` to set and `DELETE` to clear, rather than one toggle endpoint**, and this is the
-        detail worth reading twice. Both verbs are idempotent, so a request retried after a timeout
-        on a train produces the state the tap intended. A toggle would produce the opposite one --
-        the user taps, the response is lost, the client retries, and the vote it just cast is
-        silently withdrawn.
-
-
-        Answers with the new count and the caller's own state rather than 204, because that is
-        exactly what the button draws and re-reading the whole page to colour one icon would be
-        absurd.
-      responses:
-        '200':
-          description: The contribution's vote state after the write
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyHelpful' }
-        '404':
-          description: No such society, or no such contribution on it
-    delete:
-      tags: [Engagement]
-      summary: Withdraw a helpful vote
-      operationId: clearSocietyContributionHelpful
-      description: >
-        The idempotent partner of the `PUT`. Clearing a vote that was never cast is a `200` with the
-        unchanged count, not a `404` -- the caller asked for a state and that state is what they now
-        have.
-      responses:
-        '200':
-          description: The contribution's vote state after the write
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyHelpful' }
-        '404':
-          description: No such society, or no such contribution on it
-  /societies/{slug}/contributions/{contributionId}/replies:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
-    post:
-      tags: [Engagement]
-      summary: Reply in the thread under a contribution
-      operationId: replyToSocietyContribution
-      description: >
-        Any signed-in caller. One level of nesting and no more: a reply has no replies of its own,
-        because a society tab is not a forum and a three-deep thread on a tip about the milkman is a
-        moderation problem nobody asked for.
-
-
-        Returned on its own rather than as the re-read contribution, so a client appends instead of
-        replacing the list.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyPost' }
-      responses:
-        '201':
-          description: The reply
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyContributionReply' }
-        '404':
-          description: No such society, or no such contribution on it
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /societies/{slug}/contributions/{contributionId}/replies/{replyId}:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: replyId, in: path, required: true, schema: { type: string, format: uuid } }
-    delete:
-      tags: [Engagement]
-      summary: Remove one reply (its author, the committee or staff)
-      operationId: removeSocietyContributionReply
-      description: >
-        The reply's **own** author, not the contribution's -- somebody who posted a tip does not
-        thereby get to delete a correction to it. That distinction is why this is its own route and
-        its own `canRemove` on the reply rather than an inherited one.
-      responses:
-        '204':
-          description: Removed
-        '403':
-          description: Signed in, but not the reply's author, the committee or staff
-        '404':
-          description: No such society, contribution, or reply
-  /societies/{slug}/proposals:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Engagement]
-      summary: Propose a detail, the resident group link, or a corrected pin
-      operationId: proposeSocietyChange
-      description: >
-        **Two gates behind one route.** A missing detail -- the builder, the year, the maintenance
-        rate -- is open to anyone signed in, because it is a fact about a building that a visitor
-        can read off the gate. The group link and the map pin need a verified flat: one is an
-        invitation into a residents' group and the other moves where the building *is*, and neither
-        should be settable by somebody who has never been there. The service names which rule
-        stopped you in the `403`.
-
-
-        **201 even though a re-submission overwrites this author's own pending row.** From the
-        caller's side a proposal has been lodged either way, and the distinction between "created"
-        and "corrected" is one the composer does not draw and the author does not care about.
-
-
-        Nothing is applied here. The proposal lands `pending` on `/admin/society-proposals`, and
-        approval is what writes the value onto the society.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyProposalCreate' }
-      responses:
-        '201':
-          description: 'The proposal, `status: pending`'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyProposal' }
-        '403':
-          description: >
-            A group-link or pin proposal from somebody who is not a verified resident of this
-            society. A detail proposal never reaches this.
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
   /page-views:
     post:
       tags: [Engagement]
@@ -1674,7 +1266,7 @@ paths:
       description: >-
         Asked by the listing wizard before it submits, and answered **only** against the caller's own
         listings. The server derives the comparison key from the address exactly as `createListing`
-        will — `LocalityResolver` for the slug, then `AddressKey` for the normalised line — so the
+        will — the picked live locality for the slug, then `AddressKey` for the normalised line — so the
         pre-check and the write cannot disagree about what counts as the same doorway.
 
 
@@ -2321,9 +1913,7 @@ paths:
         **Approving a listing with no `localitySlug` is refused with 409.** Publishing one puts a
         listing live that is absent from locality search facets, from its locality landing page, from
         saved-search alerts and from its society's home list — while its owner is told it is now
-        visible to buyers. The remedy is `assignLocality`, or `createLocality` first if the area is
-        genuinely missing from the catalogue; both are reachable with the same `properties:moderate`
-        this route already requires, so the refusal always has a way out for whoever hits it.
+        visible to buyers. The remedy is for the owner to pick the locality from the suggestions.
 
 
         Only approval is blocked. Rejecting an unfiled listing, or sending one back to `pending`, is
@@ -2518,7 +2108,7 @@ paths:
         `PATCH /properties/{id}`; disambiguated here from the public getter to
         avoid method/verb collision (documented assumption).
       operationId: adminUpdateProperty
-      # S28: Editing another user's listing to correct it.
+      # Correcting another user's listing: the verification or moderation desk.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -4332,92 +3922,6 @@ paths:
               schema: { $ref: '#/components/schemas/OpsDeal' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /admin/locality-queue:
-    get:
-      tags: [Moderation]
-      summary: Listings the catalogue could not file
-      operationId: getLocalityQueue
-      description: >
-        Every listing whose `localitySlug` is null — the owner typed an area the resolver did not
-        recognise, so the server correctly declined to coin a slug and left the row for a human.
-        Until it is filed the listing is missing from locality search facets, from
-        `/locality/{slug}`, from saved-search alerts and from its society's home list, however
-        prominently it appears elsewhere.
-
-
-        **This queue lives on the server.** Its predecessor read one browser's `localStorage`, which
-        meant a listing waiting on a decision was invisible to every operator but the one whose
-        machine happened to have seen it — the screen was clear because it was looking somewhere
-        else, not because the work was done.
-
-
-        Ordered approved-first, then oldest-first. An approved listing missing from every locality
-        surface is failing buyers *now*; a pending one is only about to.
-
-
-        The rows are listings, so it is gated on `properties:*`.
-      x-roles: [staff, admin]
-      responses:
-        '200':
-          description: The backlog, capped at 200 rows with the true total alongside
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/LocalityQueueResponse' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /admin/locality-queue/{propertyId}:
-    parameters:
-      - name: propertyId
-        in: path
-        required: true
-        schema: { type: string }
-        description: Listing id or slug.
-    patch:
-      tags: [Moderation]
-      summary: File a listing under an area
-      operationId: assignLocality
-      description: >
-        Sets `properties.locality_slug` and so puts the listing into every locality surface at once.
-        Recorded against the curator with the free text the owner had typed, which is the pair a
-        later "why is my flat listed in Baner" needs.
-
-
-        Carries `properties:moderate`, not `localities:write`. Filing a listing under an area that
-        already exists is a change to the listing; only *minting* an area is a change to the
-        catalogue. That distinction is load-bearing: the same `properties:moderate` is what
-        `setPropertyStatus` refuses an unfiled listing on, so whoever the approval block stops can
-        always clear it themselves, and the rule can never deadlock the moderator it fires at.
-
-
-        `409` if the listing already has a locality — that row is not a queue entry, and admitting it
-        here would make this a second, quieter way to move listings between areas than the edit route
-        that re-runs the resolver. `409` also if the area is retired: filing a listing under an
-        inactive locality moves it from "invisible because unfiled" to "invisible because filed
-        somewhere unreachable", which is the same outcome for the buyer while making the console look
-        like the job was done.
-      x-roles: [staff, admin]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LocalityAssign' }
-      responses:
-        '200':
-          description: The listing, now filed and out of the queue
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/LocalityQueueEntry' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404':
-          description: No such listing, or no such locality
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '409':
-          description: The listing is already filed, or the area is retired
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/reviews:
     get:
       tags: [Moderation]
@@ -4543,7 +4047,7 @@ paths:
           in: query
           description: >
             Filter to one complaint code. Validated against the union of every target vocabulary —
-            the four single-record kinds plus the shared society-content set — because a caller may
+            the four single-record kinds — because a caller may
             filter by reason without also naming a target type.
           schema: { type: string }
         - name: targetType
@@ -9335,19 +8839,13 @@ paths:
   /admin/analytics/pricing:
     get:
       tags: [Admin & Analytics]
-      summary: Asking prices against the market rate, by locality
+      summary: What live listings ask, by locality
       operationId: adminPricingInsights
-      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
-        Where owners are asking more than the locality supports, and where Draazy's own market
-        rate has drifted from what listings actually say.
-
-
-        `marketRatePerSqft` is the curated figure the platform publishes; `avgActualRatePerSqft` is
-        what live listings average. The gap between the two is the point of the report -- a locality
-        where they have separated is one where the curated number is now misleading buyers, and it
-        is fixed by editing the locality, not by editing the listings.
+        What live listings ask per locality. Every figure is derived from approved, unarchived
+        flats; there is no curated market rate to compare against. An average is null with fewer
+        than three samples, and a retired locality appears only while it still has live listings.
 
 
         A **bare array**, not a page. It is one row per locality in Pune, the set is bounded by
@@ -9366,7 +8864,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Moderation turnaround against the promised target
       operationId: adminSlaSummary
-      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
         Whether the listing-review promise is being kept, and which listings are currently breaking
@@ -9396,48 +8893,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SlaSummary' }
-  /admin/society-claims:
-    get:
-      tags: [Admin & Analytics]
-      summary: Committees asking to run their own society page
-      operationId: adminListSocietyClaims
-      # S28 + societies:read.
-      x-roles: [staff, admin]
-      description: >
-        **Oldest first**, unlike almost every other list on the platform. This is a work queue, not
-        a feed: newest-first would bury the claim that has been waiting longest under the ones that
-        arrived this morning, which is precisely backwards for the person working through it.
-
-
-        A cross-society queue that starts from no society at all, which is why it lives under
-        `/admin` rather than under `/societies/{slug}`.
-      parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] }, description: Narrow the queue; omit for everything }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Claims, oldest first
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyClaim' }
   /admin/societies/summary:
     get:
       tags: [Admin & Analytics]
-      summary: Pending counts behind the societies console's tab labels
+      summary: Count behind the societies console's candidates tab
       operationId: adminSocietiesSummary
-      # S28 + societies:read.
+      # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
-        One read for the four numbers the console shows above its queues, so it can fetch only the
-        tab on screen. Whole-set counts, never the length of a page.
+        The whole-set count of member-added societies, never the length of a page.
       responses:
         '200':
           description: Pending counts
@@ -9446,223 +8910,23 @@ paths:
               schema:
                 type: object
                 properties:
-                  claims: { type: integer, format: int64, description: Pending committee claims }
-                  residents: { type: integer, format: int64, description: Pending residency requests }
-                  candidates: { type: integer, format: int64, description: Member-added societies nobody has verified }
-                  moderation: { type: integer, format: int64, description: Pending WhatsApp links and location fixes }
-  /admin/society-claims/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/GenericId' }
-    patch:
-      tags: [Admin & Analytics]
-      summary: Approve or reject one society claim
-      operationId: adminDecideSocietyClaim
-      # S28 + societies:write.
-      x-roles: [staff, admin]
-      description: >
-        Approval is not a status change with a badge attached: it hands this person the residency
-        register of a building and the power to take down what its residents post. That is why it is
-        an operator's decision rather than an automatic one on any signal the claimant can produce.
-
-
-        `PATCH` with the outcome in the body, not `/approve` and `/reject`, so the vocabulary stays
-        enumerable in one place.
-
-
-        A claim can be decided once. Re-deciding would rewrite `decidedBy` and `decidedAt` — losing
-        the record of who handed the building over — and re-approving a rejected claim would pass the
-        residency register to someone an operator had already turned down, so a decided claim answers
-        `409`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyClaimDecision' }
-      responses:
-        '200':
-          description: The decided claim
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyClaim' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /admin/society-claims/{id}/certificate:
-    parameters:
-      - { $ref: '#/components/parameters/GenericId' }
-    get:
-      tags: [Admin & Analytics]
-      summary: Open the registration certificate attached to one claim
-      operationId: adminGetSocietyClaimCertificate
-      # S28 + societies:read — the same atom as the queue, deliberately not a third one.
-      x-roles: [staff, admin]
-      description: >
-        A short-lived signed link to the scanned certificate a committee attached to its claim.
-
-
-        **Keyed by the claim, not by the document.** There is no `/admin/documents/{id}` and there
-        must not be: the vault this reads from holds Aadhaar, PAN, salary slips and agreements, so a
-        route that accepted a document id would let any account holding `societies:read` read any
-        user's KYC. The document id is read off the claim row — it never arrives from the client —
-        and the vault then re-checks that the document belongs to the person who filed that claim.
-
-
-        **Fetched on click, not with the queue.** The queue pages at twenty rows. Embedding a link
-        per row would mint twenty expiring capabilities to serve the one an operator opens, cache
-        nineteen of them in a response body, and write nineteen spurious rows into the reveal audit.
-        One request, one link, one audit row.
-
-
-        The link expires in minutes and is minted fresh per call, so it cannot be cached, stored or
-        shared. Every call is a disclosure and is audited as `societyClaim.certificate.reveal`,
-        alongside the contact reveals.
-
-
-        A claim that does not exist, a claim with no certificate, and a certificate that no longer
-        belongs to the claimant all answer `404`. Telling them apart would confirm to a staff
-        account that a document exists which it is not allowed to see.
-      responses:
-        '200':
-          description: A signed link, valid for minutes
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyClaimCertificate' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /admin/society-proposals:
-    get:
-      tags: [Admin & Analytics]
-      summary: What the community has proposed about its societies
-      operationId: adminListSocietyProposals
-      # S28 + societies:read.
-      x-roles: [staff, admin]
-      description: >
-        Society details, resident WhatsApp invites and corrected map pins, oldest first for the same
-        work-queue reason as the claims queue.
-
-
-        **This is the queue whose absence made all three features theatre.** The composer used to
-        write proposals into the author's own browser storage, so this list was permanently empty
-        however many residents filled the form in on theirs, and not one proposal has ever been
-        applied. Reading it from the database is the fix.
-      parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] }, description: Narrow the queue; omit for everything }
-        - { name: kind, in: query, schema: { type: string, enum: [details, whatsapp, location] }, description: Narrow to one proposal kind }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Proposals, oldest first
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyProposal' }
-  /admin/society-proposals/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/GenericId' }
-    patch:
-      tags: [Admin & Analytics]
-      summary: Approve or reject one community proposal
-      operationId: adminDecideSocietyProposal
-      # S28 + societies:write.
-      x-roles: [staff, admin]
-      description: >
-        **Approving writes the proposed value onto the society in the same transaction.** That is
-        the whole mechanism -- there is no second "apply" step to forget, and no window in which a
-        proposal reads `approved` while the society still shows the old builder name. Reject leaves
-        the society untouched.
-
-
-        Which fields move depends on `kind`: a `details` proposal fills the missing catalogue facts,
-        `whatsapp` attaches the resident group invite, `location` moves the map coordinates. One
-        route because the lifecycle is one lifecycle.
-
-
-        A proposal is decided once. Deciding an already-decided proposal answers 409 rather than
-        rewriting who decided it.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SocietyProposalDecision' }
-      responses:
-        '200':
-          description: The decided proposal; on approval the society already carries the change
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SocietyProposal' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /admin/society-residents:
-    get:
-      tags: [Admin & Analytics]
-      summary: Residency requests across every society
-      operationId: adminListSocietyResidents
-      # Server also requires the societies:read permission.
-      x-roles: [staff, admin]
-      description: >
-        Every society's residency queue at once, oldest first for the same work-queue reason as the
-        claims and proposals desks: the person who has waited longest is the one somebody is still
-        waiting on.
-
-
-        **The fourth queue on a console that already had three.** The only residency route was
-        per-society, so the cross-society tab had nothing to read and stayed on the operator's own
-        browser storage long after its neighbours moved to the database.
-
-
-        Deliberately read-only. Deciding a request stays on
-        `PATCH /societies/{slug}/residents/{residentId}`, which already admits staff and already
-        owns the one-verified-resident-per-flat rule; every row here carries the slug that addresses
-        it. A second decision route would be a second copy of that rule, and the copy not exercised
-        by the committee's daily use is the one that drifts.
-      parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, verified, rejected] }, description: Narrow the queue; omit for everything including decided rows }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Residency requests from every society, oldest first
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/SocietyResidentQueueRow' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+                  candidates: { type: integer, format: int64, description: Live member-added societies }
   /admin/society-candidates:
     get:
       tags: [Admin & Analytics]
-      summary: Member-added societies nobody has checked yet
+      summary: Live member-added societies, newest first
       operationId: adminListSocietyCandidates
       # Server also requires the societies:read permission.
       x-roles: [staff, admin]
       description: >
-        Everything `mintSociety` has created and no operator has confirmed, oldest first.
-
-
-        The third queue that was permanently empty for the same reason as the proposals queue -- and
-        the one whose emptiness meant **no member-added society has ever been verified**, so every
-        one of them has been sitting in the directory unbadged since the day it was added.
-
-
-        Rows are ordinary society records; `verifiedAt` being null is what puts them here.
+        Every live society `mintSociety` created that has not been merged away, newest first. There
+        is no clearing action: duplicates leave the list by being merged.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Unverified societies, oldest first
+          description: Member-added societies, newest first
           content:
             application/json:
               schema:
@@ -9673,32 +8937,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/Society' }
-  /admin/society-candidates/{slug}/verify:
-    parameters:
-      - { name: slug, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [Admin & Analytics]
-      summary: Confirm a member-added society is real
-      operationId: adminVerifySocietyCandidate
-      # S28 + societies:write.
-      x-roles: [staff, admin]
-      description: >
-        Stamps `verifiedAt`, which is what the hub's trust badge and the directory's ordering both
-        read. Until it is set, a member-added society is present but explicitly unvouched-for.
-
-
-        **409 if it is already verified**, rather than a silent second success. Verification records
-        who checked it and when; overwriting that with today's date because two operators opened the
-        same queue would erase the only evidence that the first check happened.
-      responses:
-        '200':
-          description: The verified society
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Society' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: Already verified -- the earlier check stands
   /admin/society-candidates/{slug}/duplicates:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
@@ -9792,7 +9030,7 @@ paths:
 
 
         **A merge is a pointer, not a move.** Nothing is copied, rewritten or deleted: the duplicate
-        keeps its listings, follows, reviews, residency records and claims, and the reads union them
+        keeps its listings, follows and reviews, and the reads union them
         onto the survivor. That is what makes it undoable — rewriting `properties.society_id` onto
         the survivor would leave no record of which rows had moved, so the one ops action whose
         input is two rows differing by a typo would be the one with no undo.
@@ -9889,7 +9127,7 @@ paths:
       # Server also requires the societies:write permission.
       x-roles: [staff, admin]
       description: >
-        Registration, conveyance, the maintenance rate and the claim state, plus an internal note
+        Registration, conveyance and the maintenance rate, plus an internal note
         for whoever reads the row next.
 
 
@@ -9917,8 +9155,7 @@ paths:
 
         `422` when `maintenancePerSqft` is negative or above 100 — it is rupees per square foot,
         typically 1 to 8 in Pune, and the adjacent mental model is the monthly bill, so a four-digit
-        figure is a units mistake rather than an expensive society. Also when `claimStatus` is not
-        one of `unclaimed`, `pending`, `claimed`.
+        figure is a units mistake rather than an expensive society.
       requestBody:
         required: true
         content:
@@ -11714,8 +10951,6 @@ components:
           enum: [now, '15', '30']
           nullable: true
         pets: { type: boolean }
-        societyVerified: { type: boolean }
-        conveyanceDone: { type: boolean }
         locality: { type: string, example: Koregaon Park }
         localitySlug:
           type: string
@@ -11740,6 +10975,14 @@ components:
             before D19 the client filled the gap by hashing the listing id into a society list,
             which printed one real building's builder, tower count and occupancy under another
             building's listing.
+        societyName:
+          type: string
+          example: Skyline Heights
+          description: >-
+            The bound society's current catalogue name, derived on the server and absent when no
+            society is bound. Present even when the society has since been retired from the catalogue,
+            so the owner's edit form can still show what the listing is bound to; `societySlug` is
+            what routes to the society page.
         city: { type: string, example: Pune }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
@@ -12000,8 +11243,6 @@ components:
             ownershipRequestedAt: { type: [string, 'null'], format: date-time, description: 'Open Verified-badge request from the owner''s document vault. Owner/staff only.' }
             ownershipDeclinedReason: { type: [string, 'null'], description: 'Why staff last declined a badge request. Owner/staff only.' }
             archived: { type: boolean, description: Soft-delete flag. A separate axis from status - always false on the public detail read; meaningful on /me/listings and /admin/properties. }
-            societyVerified: { type: boolean }
-            conveyanceDone: { type: boolean }
             docsCount: { type: integer }
             owner:
               type: object
@@ -12356,78 +11597,39 @@ components:
 
     Locality:
       type: object
+      required: [slug, name, city, archived, liveListings, rentListings, saleListings, indexable]
       properties:
         slug: { type: string, example: koregaon-park }
         name: { type: string, example: Koregaon Park }
         city: { type: string, example: Pune }
-        listingCount: { type: integer }
-        avgRentPsf: { type: number }
-        avgBuyPsf: { type: number }
-        ratePerSqft: { type: number, description: Avg buy rate (INR/sqft) }
-        avgRent: { type: integer, description: Absolute avg monthly rent (INR) }
-        demand: { type: integer, description: Demand index (0-100) }
-        focus: { type: string, enum: [Buy, Rent, Both] }
-        lat: { type: number, format: double }
-        lng: { type: number, format: double }
-        active: { type: boolean, description: Shown on site }
-    LocalityQueueEntry:
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
+        archived: { type: boolean, description: Retired; still listed only while live listings remain }
+        liveListings: { type: integer, description: Approved, unarchived listings bound to this slug }
+        rentListings: { type: integer }
+        saleListings: { type: integer }
+        indexable: { type: boolean, description: At least 3 live listings; otherwise the page is noindex and left out of the sitemap }
+        avgRent: { type: [integer, 'null'], description: Average monthly rent of live rent flats (INR); null below 3 samples }
+        ratePerSqft: { type: [integer, 'null'], description: Average asking rate of live sale flats (INR/sqft); null below 3 samples }
+    LocalitySummary:
       type: object
-      description: >
-        One listing the catalogue could not file. Deliberately carries **no owner and no contact**:
-        deciding which area a listing belongs to is a geography question that a name and a mobile
-        number answer nothing about, and including them would make the curation console a second
-        readable seller list gated on `properties:read`.
+      required: [slug, name, city]
       properties:
-        id: { type: string, format: uuid }
-        title: { type: string }
-        locality:
-          type: string
-          nullable: true
-          description: >
-            The free text the owner typed — the thing that failed to resolve, and the single field
-            that makes the row actionable. A curator with only a title and a pin is guessing.
-        city: { type: string, nullable: true }
-        lat: { type: number, format: double, nullable: true }
-        lng: { type: number, format: double, nullable: true }
-        status: { type: string, enum: [pending, approved, flagged] }
-        localitySlug:
-          type: string
-          nullable: true
-          description: >
-            Null on every row read from the queue — that is what put it there. Populated on the row
-            returned by `assignLocality`, which is the same row having just left the queue.
-        createdAt: { type: string, format: date-time }
-    LocalityQueueResponse:
+        slug: { type: string, example: baner }
+        name: { type: string, example: Baner }
+        city: { type: string, example: Pune }
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
+    LocalityResolve:
       type: object
-      required: [total, listings]
-      description: >
-        `total` is separate from `listings.length` because the array is capped at 200. Without it the
-        console would render the cap as if it were the backlog, and an operator clearing 200 rows a
-        day out of 900 would see the number never move and conclude the queue was broken rather than
-        long.
+      required: [placeId, name]
+      description: What the client says the picked place is; only the local-dev lookup trusts it.
       properties:
-        total:
-          type: integer
-          description: Every listing awaiting a locality, uncapped.
-        listings:
-          type: array
-          maxItems: 200
-          items: { $ref: '#/components/schemas/LocalityQueueEntry' }
-    LocalityAssign:
-      type: object
-      required: [slug]
-      description: >
-        Body of `assignLocality`. There is no dismiss counterpart on purpose: "reviewed, still has no
-        locality" is precisely the state the queue exists to end, so an action that produced it would
-        reduce the approval refusal back to the warning it replaced. The two honest ways out are to
-        create the missing area with `createLocality` and then file the listing, or to reject the
-        listing.
-      properties:
-        slug:
-          type: string
-          maxLength: 120
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-          description: An existing, **active** locality. Retired ones are refused with 409.
+        placeId: { type: string, minLength: 1, maxLength: 300, pattern: '^[A-Za-z0-9_-]+$' }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        lat: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        lng: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        types: { type: array, maxItems: 20, items: { type: string, maxLength: 60 }, description: Google place types }
     OnBehalfListingCreate:
       type: object
       required: [ownerMobile, listing]
@@ -12540,13 +11742,6 @@ components:
             has served. Every row carrying one has `source: community`. Null means not recorded:
             true of curated and RERA rows, which nobody minted, and of every community row created
             before V108. Null must not be rendered as "from a listing".
-        verifiedAt:
-          type: [string, 'null']
-          format: date-time
-          description: >-
-            When ops verified a community-created society record. Null while still pending, and
-            null for curated/RERA-sourced rows that are verified by provenance.
-        claimStatus: { type: string, enum: [unclaimed, pending, claimed], description: Community claim state }
         listingCount: { type: integer }
         followerCount: { type: integer }
         followedByMe: { type: boolean }
@@ -12566,16 +11761,13 @@ components:
           type: string
           format: date-time
           description: >-
-            When the row appeared. Carried for the candidate queue, which is a backlog: "minted an
-            hour ago" and "minted three weeks ago and still unverified" are the same row without it,
-            and only the second is a problem.
+            When the row appeared. Carried for the candidate queue, which is ordered by it.
     SocietyDetail:
       allOf:
         - $ref: '#/components/schemas/Society'
         - type: object
           properties:
             placeId: { type: [string, 'null'], description: Google Place ID for the approved society pin; null until one is recorded. }
-            locSource: { type: [string, 'null'], enum: [community, null], description: '`community` when residents supplied the approved pin; null when the catalogue location remains authoritative.' }
             homes:
               type: array
               items: { $ref: '#/components/schemas/PropertySummary' }
@@ -12585,16 +11777,16 @@ components:
     SocietyCreate:
       type: object
       description: >
-        What a member supplies when the picker cannot find their building. Deliberately short: this
-        is a form somebody fills in while trying to do something else, and every field beyond the
-        name is one more reason to abandon the listing they came to post.
-      required: [name]
+        A Google Place pick. Everything but `placeId` is a hint: the server stores Google's name and
+        pin, and falls back to `name`/`lat`/`lng` only where Google is not configured (local dev).
+      required: [placeId]
       properties:
-        name: { type: string, maxLength: 160, example: Kumar Pinnacle }
+        placeId: { type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9_-]+$', description: The Google Place ID; the society's identity }
+        name: { type: string, maxLength: 160, example: Kumar Pinnacle, description: Hint only; must not carry contact details }
         localityLabel: { type: string, maxLength: 120, description: Human-readable locality as the member typed it }
-        localitySlug: { type: string, maxLength: 120, description: 'Resolved locality slug, if the picker managed to match one' }
-        lat: { type: [number, 'null'], description: Optional map pin; a missing pin does not block the mint }
-        lng: { type: [number, 'null'] }
+        localitySlug: { type: string, maxLength: 120, description: 'A live locality picked from the suggestions; a slug that is not live is a 422' }
+        lat: { type: [number, 'null'], minimum: -90, maximum: 90, description: Optional map pin; a missing pin does not block the mint, but one outside the served city is a 422 }
+        lng: { type: [number, 'null'], minimum: -180, maximum: 180 }
         mintOrigin:
           type: string
           enum: [demand, listing]
@@ -12605,174 +11797,15 @@ components:
             source inventory in a building nobody asked about. An unrecognised value is a 422 rather
             than a silent discard, because a value that never matches `demand` downstream would
             leave the building sitting in the ops queue looking like supply forever.
-    SocietyMembership:
+    SocietyResolve:
       type: object
-      description: >
-        Where one caller stands in one society. Every personal field is null for a signed-out
-        reader; `verifiedResidents` is public regardless.
+      required: [society, candidates]
       properties:
-        societySlug: { type: string }
-        resident:
-          oneOf:
-            - $ref: '#/components/schemas/SocietyResident'
-            - type: 'null'
-          description: The caller's own residency row, at whatever status. Null if they have never asked.
-        admin:
-          type: boolean
-          description: >
-            True when this caller may review residency requests and remove community content here --
-            that is, platform staff, or the person whose claim on this society was approved.
-        claim:
-          oneOf:
-            - $ref: '#/components/schemas/SocietyClaim'
-            - type: 'null'
-          description: The society's live claim, if one exists. Null when nobody has claimed it.
-        verifiedResidents:
-          type: integer
-          description: >
-            How many residents the committee has verified. The number a prospective buyer reads to
-            judge whether this hub is alive, so it is public.
-    SocietyResident:
-      type: object
-      description: One person's claim to live in one flat, at whatever point of the review it has reached.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        name: { type: string, description: The requester's display name }
-        mobile:
-          type: [string, 'null']
-          description: >
-            Present to the committee reviewing the request and to the requester themselves;
-            withheld otherwise.
-        wing: { type: [string, 'null'], example: B }
-        flat: { type: string, example: '1204' }
-        unitKey:
-          type: string
-          description: >
-            Wing and flat normalised into the key the society's uniqueness rule is enforced on, so
-            `B/1204` and `b-1204` cannot both be verified.
-        relation: { type: [string, 'null'], description: 'How they occupy it: owner, tenant, family' }
-        status: { type: string, enum: [pending, verified, rejected] }
-        assignedTo: { type: [string, 'null'], description: Which reviewer picked this up }
-        flagged: { type: boolean, description: 'Marked for a closer look -- a second claim on an occupied flat, typically' }
-        note: { type: [string, 'null'], description: "Free text from the requester, or the reviewer's reason" }
-        createdAt: { type: string, format: date-time }
-        decidedAt: { type: [string, 'null'], format: date-time }
-    SocietyResidentQueueRow:
-      type: object
-      description: >
-        One residency request as the cross-society ops queue publishes it. Everything
-        `SocietyResident` carries, plus the building's name: a row that says only "B/704, pending"
-        is not a decision anybody can make, and an operator working every society at once cannot be
-        expected to hold slug-to-name in their head.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        societyName: { type: string, description: The building, so the row can be judged without a second lookup }
-        name: { type: string, description: The requester's display name }
-        mobile: { type: [string, 'null'] }
-        wing: { type: [string, 'null'], example: B }
-        flat: { type: string, example: '1204' }
-        unitKey: { type: string, description: Wing and flat normalised into the key uniqueness is enforced on }
-        relation: { type: [string, 'null'], description: 'How they occupy it: owner, tenant, family' }
-        status: { type: string, enum: [pending, verified, rejected] }
-        assignedTo: { type: [string, 'null'], description: Which reviewer picked this up }
-        flagged: { type: boolean, description: 'Marked for a closer look -- a second claim on an occupied flat, typically' }
-        note: { type: [string, 'null'] }
-        createdAt: { type: string, format: date-time }
-        decidedAt: { type: [string, 'null'], format: date-time }
-    SocietyResidentRequest:
-      type: object
-      description: >
-        Asking to be recognised as living in one flat. `flat` is the only required field because it
-        is the only one the uniqueness rule needs; a society without wings should not have to invent
-        one.
-      required: [flat]
-      properties:
-        wing: { type: string, maxLength: 16, example: B }
-        flat: { type: string, maxLength: 16, example: '1204' }
-        relation: { type: string, maxLength: 16, example: owner }
-        note: { type: string, maxLength: 500, description: Anything that helps the committee recognise you }
-    SocietyResidentDecision:
-      type: object
-      required: [status]
-      properties:
-        status: { type: string, maxLength: 16, enum: [verified, rejected] }
-        note: { type: string, maxLength: 500, description: 'Why -- worth filling in on a rejection, since the requester may ask' }
-    SocietyClaim:
-      type: object
-      description: A committee member's request to run their society's page.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        societyName: { type: string, description: Denormalised so the ops queue reads without a join }
-        claimantName: { type: string }
-        claimantMobile: { type: [string, 'null'], description: Present to staff and to the claimant; withheld otherwise }
-        role: { type: [string, 'null'], example: Secretary }
-        email: { type: [string, 'null'], format: email }
-        note: { type: [string, 'null'] }
-        registrationNo:
-          type: [string, 'null']
-          maxLength: 80
-          description: >-
-            The society's Maharashtra registration number, exactly as the claimant typed it and
-            still unchecked. Free text on purpose: these numbers have no single format, and a
-            pattern strict enough to be worth having would reject real societies.
-        certificateDocumentId:
-          type: [string, 'null']
-          format: uuid
-          description: >-
-            A row in the claimant's own personal document vault holding the scanned registration
-            certificate. Withheld from the public membership read — the proof is for the reviewer,
-            not for every visitor to the hub.
-        status: { type: string, enum: [pending, approved, rejected] }
-        createdAt: { type: string, format: date-time }
-        decidedAt: { type: [string, 'null'], format: date-time }
-    SocietyClaimCreate:
-      type: object
-      required: [name]
-      properties:
-        name: { type: string, maxLength: 120 }
-        role: { type: string, maxLength: 80, example: Secretary }
-        email: { type: string, format: email, maxLength: 160 }
-        note: { type: string, maxLength: 500, description: How an operator can confirm you are who you say }
-        registrationNo:
-          type: string
-          maxLength: 80
-          example: PNA/1234/2015
-          description: Optional. The society's registration number, if you have it to hand
-        certificateDocumentId:
-          type: string
-          format: uuid
-          description: >-
-            Optional. A document already uploaded to your own personal vault holding the scanned
-            certificate. Optional because a claimant without the paperwork in front of them must
-            still be able to file — a blocked funnel is worse than an unproven claim an operator
-            can follow up.
-    SocietyClaimDecision:
-      type: object
-      required: [status]
-      properties:
-        status: { type: string, maxLength: 16, enum: [approved, rejected] }
-        note: { type: string, maxLength: 500 }
-    SocietyClaimCertificate:
-      type: object
-      description: >
-        A minted, expiring link to one claim's certificate. Not a document record — deliberately no
-        id, no storage key and no owner. The queue row already carries `certificateDocumentId`,
-        which is what decides whether the button renders; echoing it beside a live link is the
-        pairing that turns a leaked response body into a usable one.
-      required: [url, fileName, mimeType, sizeBytes]
-      properties:
-        url:
-          type: string
-          format: uri
-          description: >-
-            Signed and short-lived. Must not be cached, logged or persisted — it is a capability on
-            a private document, not an address.
-        fileName: { type: string, example: reg-cert.pdf }
-        mimeType: { type: string, example: application/pdf }
-        sizeBytes: { type: integer, format: int64, example: 184320 }
+        society: { oneOf: [{ $ref: '#/components/schemas/Society' }, { type: 'null' }] }
+        candidates:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/Society' }
     SocietyMerge:
       type: object
       description: >
@@ -12802,7 +11835,7 @@ components:
       description: >
         One society a queued candidate might be a second copy of. A hint an operator reads, not a
         decision anything acts on -- the merge it points at is a separate, explicit call.
-      required: [slug, name, verified, score]
+      required: [slug, name, score]
       properties:
         slug: { type: string, example: kumar-pinnacle-wakad }
         name: { type: string, example: Kumar Pinnacle }
@@ -12810,12 +11843,6 @@ components:
           type: string
           nullable: true
           description: Null for the many RERA rows that were imported without one.
-        verified:
-          type: boolean
-          description: >-
-            Curated, RERA, or a member-added society an operator has already confirmed. These sort
-            first because a merge canonicalises *into* the trusted row; merging the good record into
-            the junk one is the mistake the ordering exists to make unlikely.
         score:
           type: number
           format: double
@@ -12836,221 +11863,6 @@ components:
           description: >-
             Slug of the survivor. Must not already be merged away itself: chains are refused rather
             than collapsed, because collapsing them cannot be undone.
-    SocietyQuestion:
-      type: object
-      description: A question asked about a society, with its answers attached.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        authorName: { type: string }
-        authorIsResident:
-          type: boolean
-          description: >
-            The badge that carries the whole trust model of this tab. Neither asking nor answering
-            requires a verified flat, so the reader is told who is speaking from inside the building
-            and weighs it themselves.
-        body: { type: string }
-        createdAt: { type: string, format: date-time }
-        answers:
-          type: array
-          items: { $ref: '#/components/schemas/SocietyAnswer' }
-          description: Nested rather than fetched per question -- twenty questions would otherwise be twenty-one requests.
-    SocietyAnswer:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        questionId: { type: string, format: uuid }
-        authorName: { type: string }
-        authorIsResident: { type: boolean }
-        body: { type: string }
-        createdAt: { type: string, format: date-time }
-    SocietyPost:
-      type: object
-      description: >
-        One field, shared by every free-text write on the society hub -- questions, answers and
-        replies. Three schemas with the same single property would have been three places to change
-        the length limit and two of them would eventually be missed.
-      required: [body]
-      properties:
-        body: { type: string, minLength: 1, maxLength: 600 }
-    SocietyBoardItem:
-      type: object
-      description: One notice on the society's board.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        kind: { type: string, maxLength: 16, example: notice, description: 'notice, event, alert -- what the board renders it as' }
-        title: { type: string }
-        body: { type: [string, 'null'] }
-        category: { type: [string, 'null'], maxLength: 40 }
-        eventDate: { type: [string, 'null'], format: date, description: Set on an event; null on a plain notice }
-        eventTime: { type: [string, 'null'], example: '18:30', description: 'Local time, no zone -- a society AGM is at half six in the building, wherever the reader is' }
-        authorName: { type: string }
-        authorIsResident: { type: boolean }
-        canRemove:
-          type: boolean
-          description: >
-            Whether **this** caller may delete it -- author, committee or staff. Computed
-            server-side against the real rule, because a client guessing from a display name gets it
-            wrong the moment two residents share one.
-        createdAt: { type: string, format: date-time }
-    SocietyBoardItemCreate:
-      type: object
-      required: [kind, title]
-      properties:
-        kind: { type: string, maxLength: 16, example: notice }
-        title: { type: string, minLength: 1, maxLength: 120 }
-        body: { type: string, maxLength: 800 }
-        category: { type: string, maxLength: 40 }
-        eventDate: { type: string, format: date }
-        eventTime: { type: string, example: '18:30' }
-    SocietyContribution:
-      type: object
-      description: One tip, trusted pick or photo on the community tab.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        kind: { type: string, maxLength: 16, example: tip, description: 'tip, referral, photo -- what the chips group on' }
-        category: { type: [string, 'null'], maxLength: 40 }
-        body: { type: [string, 'null'] }
-        referralName: { type: [string, 'null'], description: The person being recommended }
-        referralContact:
-          type: [string, 'null']
-          description: >
-            **Withheld from a signed-out reader.** It is a third party's phone number and they never
-            agreed to be on the open web; a signed-in caller is at least an account the platform can
-            act against if it is misused.
-        photoUrl: { type: [string, 'null'] }
-        authorName: { type: string }
-        authorIsResident: { type: boolean }
-        helpfulCount: { type: integer }
-        helpfulByMe: { type: boolean, description: Whether this caller has already voted; false for a signed-out reader }
-        canRemove: { type: boolean, description: 'Author, committee or staff -- computed for this caller' }
-        createdAt: { type: string, format: date-time }
-        replies:
-          type: array
-          items: { $ref: '#/components/schemas/SocietyContributionReply' }
-    SocietyContributionCreate:
-      type: object
-      required: [kind]
-      properties:
-        kind: { type: string, maxLength: 16, example: tip }
-        category: { type: string, maxLength: 40 }
-        body: { type: string, maxLength: 600 }
-        referralName: { type: string, maxLength: 80 }
-        referralContact: { type: string, maxLength: 20, description: Accepted here because a recommendation nobody can act on is not one }
-        photoUrl: { type: string, maxLength: 500 }
-    SocietyContributionReply:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        contributionId: { type: string, format: uuid }
-        authorName: { type: string }
-        authorIsResident: { type: boolean }
-        body: { type: string }
-        canRemove:
-          type: boolean
-          description: >
-            Against the **reply's** own author, not the contribution's -- posting a tip does not
-            grant the power to delete a correction to it.
-        createdAt: { type: string, format: date-time }
-    SocietyHelpful:
-      type: object
-      description: >
-        Exactly what the helpful button draws, and nothing else. Returned by both the `PUT` and the
-        `DELETE` so a vote never costs a re-read of the page it is on.
-      properties:
-        helpfulCount: { type: integer }
-        helpfulByMe: { type: boolean }
-    SocietyProposal:
-      type: object
-      description: >
-        One community proposal about a society -- a missing detail, the resident WhatsApp invite, or
-        a corrected map pin. Fields not relevant to this `kind` are null.
-      properties:
-        id: { type: string, format: uuid }
-        societySlug: { type: string }
-        societyName:
-          type: string
-          description: >
-            The society's name as recorded, denormalised onto the proposal deliberately. This queue
-            is cross-society and starts from no society at all, so without the name a client must
-            either fetch every society the page mentions or reconstruct one from the slug -- and the
-            ops console did the second, out of a bundled catalogue holding none of the member-added
-            societies these proposals are mostly about.
-        localitySlug:
-          type: [string, 'null']
-          description: Null for societies imported without one; the queue renders a dash.
-        kind: { type: string, enum: [details, whatsapp, location] }
-        status: { type: string, enum: [pending, approved, rejected] }
-        builder: { type: [string, 'null'] }
-        buildYear: { type: [integer, 'null'] }
-        towers: { type: [integer, 'null'] }
-        units: { type: [integer, 'null'] }
-        maintenancePerSqft: { type: [number, 'null'] }
-        amenities: { type: [array, 'null'], items: { type: string } }
-        inviteUrl:
-          type: [string, 'null']
-          description: >
-            The resident group invite. Reaches a verified resident of this society and staff; null
-            for everybody else, approved or not -- an invite link is a door into a group of people
-            who live somewhere.
-        lat: { type: [number, 'null'] }
-        lng: { type: [number, 'null'] }
-        placeId: { type: [string, 'null'], description: The map provider's id for the proposed pin }
-        label: { type: [string, 'null'], description: 'Human-readable summary of what is being proposed, for the ops queue' }
-        authorName: { type: string }
-        authorIsResident: { type: boolean }
-        decidedByName: { type: [string, 'null'] }
-        decidedAt: { type: [string, 'null'], format: date-time }
-        createdAt: { type: string, format: date-time }
-    SocietyProposalCreate:
-      type: object
-      description: >
-        One body for three proposal kinds. Which fields are read depends on `kind`, and which caller
-        may send it does too: a `details` proposal is open to anyone signed in, `whatsapp` and
-        `location` need a verified flat.
-      required: [kind]
-      properties:
-        kind: { type: string, maxLength: 16, enum: [details, whatsapp, location] }
-        builder: { type: string, maxLength: 120 }
-        buildYear: { type: integer, minimum: 1 }
-        towers: { type: integer, minimum: 1 }
-        units: { type: integer, minimum: 1 }
-        maintenancePerSqft: { type: number, minimum: 0.0, maximum: 999.99 }
-        amenities: { type: array, maxItems: 24, items: { type: string, maxLength: 60 } }
-        inviteUrl: { type: string, maxLength: 300 }
-        lat: { type: number, minimum: -90.0, maximum: 90.0 }
-        lng: { type: number, minimum: -180.0, maximum: 180.0 }
-        placeId: { type: string, maxLength: 300 }
-    SocietyProposalDecision:
-      type: object
-      required: [status]
-      properties:
-        status:
-          type: string
-          maxLength: 16
-          enum: [approved, rejected]
-          description: Approving applies the proposed value to the society in the same transaction.
-    SocietyProposals:
-      type: object
-      description: >
-        The hub's one read for the whole proposal surface: what is outstanding, and whether a
-        resident group exists at all.
-      properties:
-        pending:
-          type: array
-          items: { $ref: '#/components/schemas/SocietyProposal' }
-          description: Every proposal awaiting a decision, whoever raised it.
-        whatsappAvailable:
-          type: boolean
-          description: >
-            Whether an approved resident group invite exists. Public, and the reason the pair is
-            split: a signed-out visitor can be told the group is there and nudged to verify their
-            flat, without being handed the door.
-        whatsappJoinUrl:
-          type: [string, 'null']
-          description: The invite itself. Null unless the caller is a verified resident of this society.
     City:
       type: object
       properties:
@@ -13264,7 +12076,8 @@ components:
             Absent leaves it unstated, which is correct for anything with a building on it: a flat
             has no land use of its own. Blank is not accepted; the column does not permit it.
         furnishing: { $ref: '#/components/schemas/Furnishing' }
-        locality: { type: string }
+        locality: { type: string, description: 'Display name; must be a live locality (422 "Pick the locality from the suggestions."). The stored name is the locality''s canonical one.' }
+        localitySlug: { type: string, description: 'The picked live locality. Wins over `locality`. On edit an unchanged retired binding is kept.' }
         city: { type: string }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
@@ -13298,7 +12111,13 @@ components:
         # floor, a standalone building no society — so the rule reads what is present, else silent.
         address: { type: string, description: Street address; normalised server-side into a duplicate key }
         floor: { type: integer, description: Which floor the unit is on }
-        societyId: { type: string, format: uuid, description: The society this unit sits in }
+        societyId:
+          type: string
+          pattern: '^$|^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+          description: >-
+            The society this unit sits in (a uuid). On update, omitted or null keeps the current binding
+            and an empty string removes it; the id is checked only when it differs from the current one,
+            so a listing bound to a since-retired society stays editable.
         electricityMeterNo:
           type: string
           description: >-
@@ -13375,7 +12194,8 @@ components:
         never a listing to exclude. An edit does not ask it.
       properties:
         address: { type: string, maxLength: 300, description: Street address as typed; normalised server-side }
-        locality: { type: string, description: Display name; resolved server-side to the slug the address key is scoped by }
+        locality: { type: string, description: 'Display name; matched to a live locality for the slug the address key is scoped by' }
+        localitySlug: { type: string, description: 'The picked live locality; wins over `locality`' }
         city: { type: string }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
@@ -14057,7 +12877,7 @@ components:
         What kind of record a report is filed against. One schema for both the request and the
         response deliberately: the server validates writes and serialises reads from a single
         vocabulary, so two copies could only ever drift apart.
-      enum: [property, user, review, post, society_contribution, society_reply, society_question, society_answer, society_board]
+      enum: [property, user, review, post]
     Report:
       type: object
       properties:
@@ -14584,7 +13404,7 @@ components:
         price: { type: integer, format: int64, description: Amount in whole INR. }
         locality: { type: string }
         localitySlug: { type: [string, 'null'] }
-        society: { type: [string, 'null'] }
+        society: { type: [string, 'null'], readOnly: true, description: The bound society's name, derived from `societyId` on the server; null when none is bound. }
         area: { type: [number, 'null'] }
         areaUnit: { type: [string, 'null'], enum: [sqft, sqyd, sqm, guntha, acre, hectare, null] }
         furnishing: { type: [string, 'null'] }
@@ -14610,8 +13430,9 @@ components:
         propertyType: { type: string }
         bhk: { type: [number, 'null'] }
         price: { type: integer, format: int64, minimum: 0, description: Amount in whole INR. }
-        locality: { type: string }
-        society: { type: [string, 'null'] }
+        locality: { type: string, description: 'Display name; must be a live locality (422 otherwise).' }
+        localitySlug: { type: string, description: 'The picked live locality; wins over `locality`.' }
+        societyId: { type: [string, 'null'], format: uuid, description: The catalogue society this record is in; its name is stored server-side. Unknown or retired is a 404. }
         area: { type: [number, 'null'] }
         areaUnit: { type: [string, 'null'], enum: [sqft, sqyd, sqm, guntha, acre, hectare, null], description: Defaults sqft when null. }
         furnishing: { type: [string, 'null'] }
@@ -14639,7 +13460,8 @@ components:
         bhk: { type: [number, 'null'] }
         price: { type: [integer, 'null'], format: int64, minimum: 0 }
         locality: { type: [string, 'null'] }
-        society: { type: [string, 'null'] }
+        localitySlug: { type: [string, 'null'], description: 'The picked live locality, or the record''s current binding.' }
+        societyId: { type: [string, 'null'], description: 'Omitted or null keeps the current society; an empty string removes it; otherwise a catalogue society id (unknown or retired is a 404).' }
         area: { type: [number, 'null'] }
         areaUnit: { type: [string, 'null'], enum: [sqft, sqyd, sqm, guntha, acre, hectare, null] }
         furnishing: { type: [string, 'null'] }
@@ -15021,7 +13843,7 @@ components:
           enum: [urban, rural, null]
           description: >
             The registration area as the property's Index II shows it. The customer never chooses
-            it: the server stamps it from the locality at creation, and only this desk correction
+            it: the server stamps it from `_state.prop.gramPanchayat` at creation, and only this desk correction
             changes it (₹1,000 urban / ₹500 rural registration fee).
         reason: { type: string, maxLength: 300 }
     ServiceRequestRefunds:
@@ -15113,8 +13935,9 @@ components:
           additionalProperties: true
           description: >
             Free-form wizard payload. For a rent agreement the server overwrites `regArea` (and
-            `_state.regArea`) from `_state.prop.locality`: a gram-panchayat locality is "Rural",
-            anything else "Municipal / Urban". A client-sent value is ignored. Rent-agreement
+            `_state.regArea`) from the required boolean `_state.prop.gramPanchayat`: true is "Rural",
+            false "Municipal / Urban". A client-sent `regArea` is ignored; a missing or non-boolean
+            answer is a 422 once a rent is stated. Rent-agreement
             `_state.owner`, `_state.coOwners[]` and `_state.tenants[]` may carry `type`
             (`individual` or `entity`) and `residency` (`resident`, `nri`, `foreign`); non-resident
             parties use `passport` instead of Aadhaar, and foreign nationals also carry `visaOci`
@@ -15973,7 +14796,7 @@ components:
         agreementValidTill: { type: [string, 'null'], format: date }
         ownerConsentMobile: { type: [string, 'null'], description: Unmasked — the host typed it, and the edit form sends it back. }
       type: object
-      required: [bhk, roomType, locality, society, rentShare, availableFrom]
+      required: [bhk, roomType, locality, rentShare, availableFrom]
       description: Single spare-room post from the list-property flatmate flow. The required set mirrors `submitFlatmate` validation.
       properties:
         homeTypeLabel: { type: [string, 'null'], enum: [Flat, Independent House, Villa, Row House, null], description: 'What the building is, as the room card renders it. Null is "the host did not say", which is a different answer from any of the four.' }
@@ -15984,8 +14807,15 @@ components:
         facing: { type: [string, 'null'], maxLength: 32, example: E, description: 'Optional direction (E/W/N/S). Trimmed; omitted, null or blank clears it on update.' }
         overlooking: { type: [string, 'null'], maxLength: 32, example: Garden, description: 'Optional outlook (Garden/Amenity/Parking/Main Road). Trimmed; omitted, null or blank clears it on update.' }
         locality: { type: string }
-        societyId: { type: string }
-        society: { type: string }
+        localitySlug: { type: string, maxLength: 80, description: 'The picked live locality; wins over `locality`. A retired one passes only if the record already has it.' }
+        societyId:
+          type: string
+          description: >-
+            The society this room sits in. On update, omitted or null keeps the current binding and an
+            empty string removes it; the id is checked only when it differs from the current one, so a
+            room bound to a since-retired society stays editable. The room's `society` text is derived
+            from it on the server.
+        society: { type: string, deprecated: true, description: Ignored; the room's society text is derived from `societyId`. }
         flatNumber: { type: string, maxLength: 40 }
         rentShare: { $ref: '#/components/schemas/Money' }
         deposit: { $ref: '#/components/schemas/Money' }
@@ -16152,6 +14982,7 @@ components:
       properties:
         title: { type: string }
         locality: { type: string, maxLength: 80, description: Where the flat is. Required for a group with a flat — a substituted default would invent a fact about a flat nobody named. }
+        localitySlug: { type: string, maxLength: 80, description: 'The picked live locality; wins over `locality`. A retired one passes only if the record already has it.' }
         policy: { type: string, enum: [any, women, men], default: women }
         rent: { $ref: '#/components/schemas/Money' }
         deposit: { $ref: '#/components/schemas/Money' }
@@ -16635,14 +15466,6 @@ components:
             because the adjacent mental model is the monthly bill, and a four-digit figure here is a
             units mistake rather than an expensive society.
           example: 3.5
-        claimStatus:
-          type: string
-          nullable: true
-          enum: [unclaimed, pending, claimed]
-          description: >
-            Where the society sits in the committee-claim flow. Editable here as well as from the
-            claim desk on purpose: the desk moves it as evidence arrives, and this is the override
-            for when the desk got it wrong.
         adminNote:
           type: string
           nullable: true
@@ -16659,7 +15482,7 @@ components:
         A society as the back office sees it. Deliberately not `Society`: the public shape must
         never carry `adminNote`, and the way to guarantee that is for the two to be different types
         rather than for one of them to be filtered.
-      required: [slug, name, registration, conveyance, claimStatus]
+      required: [slug, name, registration, conveyance]
       properties:
         slug:
           type: string
@@ -16674,9 +15497,6 @@ components:
           type: number
           nullable: true
           description: Rupees per square foot per month. Null when nobody has recorded one.
-        claimStatus:
-          type: string
-          enum: [unclaimed, pending, claimed]
         adminNote:
           type: string
           nullable: true
@@ -17305,25 +16125,18 @@ components:
               sharePct: { type: number }
     PricingInsightRow:
       type: object
-      description: One locality's asking prices against the rate Draazy publishes for it.
+      description: One locality's asking prices, from live listings alone.
       properties:
         slug: { type: string }
         name: { type: string }
-        marketRatePerSqft:
-          type: [number, 'null']
-          description: The curated figure the platform publishes. Null for a locality nobody has rated yet.
         avgActualRatePerSqft:
           type: [number, 'null']
-          description: >
-            What live flats actually average. The gap against `marketRatePerSqft` is the point of
-            the report: where they have separated, the curated number is misleading buyers. Null
-            with fewer than three approved buy flats carrying an area - too few to call a price.
-        avgRent: { type: [number, 'null'] }
-        rentalYieldPct: { type: [number, 'null'] }
+          description: Average asking rate of live buy flats carrying an area. Null with fewer than three.
+        avgRent: { type: [number, 'null'], description: Average monthly rent of live rent flats. Null with fewer than three. }
+        rentalYieldPct: { type: [number, 'null'], description: Annual rent over buy price per sqft; null unless both sides have three samples. }
         buyCount: { type: integer }
         rentCount: { type: integer }
         totalListings: { type: integer }
-        demand: { type: [number, 'null'], description: 'Demand signal for the locality, for reading the price gap against interest' }
     SlaSummary:
       type: object
       description: >

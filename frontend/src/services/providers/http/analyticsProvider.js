@@ -15,16 +15,13 @@ const count = (v) => Number(v) || 0;
 const toPricingRow = (row) => ({
   slug: String(row?.slug || ''),
   name: String(row?.name || ''),
-  // Null for unpriced localities so curation gaps render as gaps, not zeroes.
-  marketRatePerSqft: num(row?.marketRatePerSqft),
-  // Do not fall back to marketRatePerSqft; this endpoint exists to expose that gap.
+  // Null below the server's sample floor, so a gap renders as a gap, not a zero.
   avgActualRatePerSqft: num(row?.avgActualRatePerSqft),
   avgRent: num(row?.avgRent),
   rentalYieldPct: num(row?.rentalYieldPct),
   buyCount: count(row?.buyCount),
   rentCount: count(row?.rentCount),
   totalListings: count(row?.totalListings),
-  demand: num(row?.demand),
 });
 
 /** Ordered by locality name by the server; the order is not re-derived here. */

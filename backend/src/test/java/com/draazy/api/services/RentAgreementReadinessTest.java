@@ -107,6 +107,40 @@ class RentAgreementReadinessTest extends ServiceFixtures {
         }
 
         @Test
+        @DisplayName("a request filed before the gram-panchayat question passes on its stamped registration area")
+        void legacyRequestWithStampedAreaPassesCheckout() throws Exception {
+            User owner = customer("9820000746");
+            String id = create(owner, state("owner", "", "9820000746", "9820000747"), 201);
+            identities(owner, id, parties(owner(0, OWNER_AADHAAR), tenant(TENANT_AADHAAR), witnesses()), 204);
+            papers(owner, id, "licensor-0-", PERSON_PAPERS);
+            upload(owner, id, "ownership-proof");
+            papers(owner, id, "tenant-0-", PERSON_PAPERS);
+            jdbc.update("update service_requests set details = jsonb_set(details, '{_state,prop}', "
+                    + "(details->'_state'->'prop') - 'gramPanchayat') where id = ?::uuid", id);
+            em.clear();
+
+            checkout(owner, id, 200);
+        }
+
+        @Test
+        @DisplayName("with neither a stamped area nor the answer, checkout names the gram-panchayat question")
+        void noAreaAndNoAnswerBlocksCheckout() throws Exception {
+            User owner = customer("9820000748");
+            String id = create(owner, state("owner", "", "9820000748", "9820000749"), 201);
+            identities(owner, id, parties(owner(0, OWNER_AADHAAR), tenant(TENANT_AADHAAR), witnesses()), 204);
+            papers(owner, id, "licensor-0-", PERSON_PAPERS);
+            upload(owner, id, "ownership-proof");
+            papers(owner, id, "tenant-0-", PERSON_PAPERS);
+            jdbc.update("update service_requests set details = "
+                    + "jsonb_set(details, '{_state,prop}', (details->'_state'->'prop') - 'gramPanchayat') "
+                    + "#- '{regArea}' #- '{_state,regArea}' where id = ?::uuid", id);
+            em.clear();
+
+            checkout(owner, id, 409)
+                    .andExpect(jsonPath("$.message", containsString("Gram panchayat (Yes or No)")));
+        }
+
+        @Test
         @DisplayName("nobody pays without accepting the current declaration, and the acceptance is kept")
         void declarationIsRecorded() throws Exception {
             User owner = customer("9820000744");
@@ -398,7 +432,7 @@ class RentAgreementReadinessTest extends ServiceFixtures {
             User owner = customer("9820000740");
             User tenant = customer("9820000741");
             String id = coFill(owner, tenant,
-                    ",\"terms\":{\"rent\":\"20000\",\"deposit\":\"100000\",\"months\":\"22\",\"increment\":\"5\"}");
+                    "," + PROP + ",\"terms\":{\"rent\":\"20000\",\"deposit\":\"100000\",\"months\":\"22\",\"increment\":\"5\"}");
             String tenantHalf = "\"tenants\":[{\"name\":\"Ria\",\"mobile\":\"9820000741\"}]";
 
             partyDetails(tenant, id, "{\"_state\":{" + tenantHalf
@@ -459,7 +493,7 @@ class RentAgreementReadinessTest extends ServiceFixtures {
                 .andExpect(jsonPath("$.documents[0].category").value("licensor-0-pan"));
     }
 
-    private static final String PROP = "\"prop\":{\"propType\":\"Flat / Apartment\",\"flatNo\":\"B-1204\","
+    private static final String PROP = "\"prop\":{\"gramPanchayat\":false,\"propType\":\"Flat / Apartment\",\"flatNo\":\"B-1204\","
             + "\"society\":\"Skyline Heights\",\"locality\":\"Baner\",\"pincode\":\"411045\",\"area\":\"850\"}";
     private static final String WITNESSES = "\"wit\":{\"w1Name\":\"Suresh Patil\",\"w1Age\":\"41\","
             + "\"w1Addr\":\"Karve Road, Pune\",\"w2Name\":\"Meera Joshi\",\"w2Age\":\"36\",\"w2Addr\":\"JM Road, Pune\"}";

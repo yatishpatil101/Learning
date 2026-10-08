@@ -61,12 +61,14 @@ export const initialForm = {
   furnishing: 'unfurnished',
   furniture: [],
   locality: '',
+  localitySlug: '',
   flatNumber: '',
   tower: '',
   society: '',
-  // Society ENTITY binding (societies.js / community-minted). Empty when the
-  // lister typed a name without picking/creating a society (legacy-safe).
+  // Google-resolved society row; empty when none was picked.
   societyId: '',
+  // Frontend-only: the owner said the building is not on Google Maps. Never sent to the API.
+  societyNotOnMaps: false,
   street: '',
   landmark: '',
   pincode: '',

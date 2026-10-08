@@ -2,10 +2,11 @@ package com.draazy.api.catalog.managed;
 
 import com.draazy.api.catalog.listing.ListingCreate;
 import com.draazy.api.catalog.listing.ListingService;
-import com.draazy.api.catalog.locality.LocalityResolver;
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.catalog.property.DealIntent;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.catalog.society.SocietyReference;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
@@ -35,16 +36,18 @@ public class ManagedPropertyService {
     private final ManagedPropertyRepository records;
     private final ManagedRentReceiptRepository receipts;
     private final ManagedPropertyMapper mapper;
-    private final LocalityResolver localities;
+    private final LocalityBinding localities;
     private final ListingService listingService;
     private final PropertyRepository properties;
     private final UserRepository users;
     private final Validator validator;
+    private final SocietyReference societyReference;
 
     public ManagedPropertyService(ManagedPropertyRepository records,
             ManagedRentReceiptRepository receipts, ManagedPropertyMapper mapper,
-            LocalityResolver localities, ListingService listingService,
-            PropertyRepository properties, UserRepository users, Validator validator) {
+            LocalityBinding localities, ListingService listingService,
+            PropertyRepository properties, UserRepository users, Validator validator,
+            SocietyReference societyReference) {
         this.records = records;
         this.receipts = receipts;
         this.mapper = mapper;
@@ -53,6 +56,7 @@ public class ManagedPropertyService {
         this.properties = properties;
         this.users = users;
         this.validator = validator;
+        this.societyReference = societyReference;
     }
 
     @Transactional(readOnly = true)
@@ -67,13 +71,13 @@ public class ManagedPropertyService {
 
     @Transactional
     public ManagedPropertyDto register(UUID ownerId, ManagedPropertyCreateRequest in) {
+        LocalityBinding.Bound locality = localities.require(in.localitySlug(), in.locality());
         String title = (in.title() == null || in.title().isBlank())
-                ? synthTitle(in.bhk(), in.propertyType(), in.locality())
+                ? synthTitle(in.bhk(), in.propertyType(), locality.name())
                 : in.title().trim();
-        String slug = localities.resolve(in.locality(), null, null);
 
         ManagedProperty m = new ManagedProperty(ownerId, title, in.deal(), in.propertyType(),
-                in.bhk(), in.price(), in.locality(), slug, in.society(), in.area(), in.areaUnit(),
+                in.bhk(), in.price(), locality.name(), locality.slug(), societyReference.nameOf(in.societyId()), in.area(), in.areaUnit(),
                 in.furnishing());
         m.setRented(Boolean.TRUE.equals(in.rented()));
         m.setTenantName(in.tenantName());
@@ -119,12 +123,16 @@ public class ManagedPropertyService {
         if (in.price() != null) {
             m.setPrice(in.price());
         }
-        if (in.locality() != null) {
-            m.setLocality(in.locality());
-            m.setLocalitySlug(localities.resolve(in.locality(), null, null));
+        boolean renamed = in.locality() != null && !in.locality().equals(m.getLocality());
+        boolean repicked = in.localitySlug() != null && !in.localitySlug().equals(m.getLocalitySlug());
+        if (renamed || repicked) {
+            LocalityBinding.Bound locality = localities.require(in.localitySlug(),
+                    in.locality() != null ? in.locality() : m.getLocality(), m.getLocalitySlug());
+            m.setLocality(locality.name());
+            m.setLocalitySlug(locality.slug());
         }
-        if (in.society() != null) {
-            m.setSociety(in.society());
+        if (in.societyId() != null) {
+            m.setSociety(societyReference.nameOf(in.societyId()));
         }
         if (in.area() != null) {
             m.setArea(in.area());
@@ -169,7 +177,7 @@ public class ManagedPropertyService {
         ListingCreate listing = new ListingCreate(
                 m.getTitle(), m.getDeal(), m.getPropertyType(), m.getBhk(), m.getPrice(),
                 null, null, null, m.getArea(), m.getAreaUnit(), m.getFurnishing(),
-                m.getLocality(), CITY, null, null, null, null, null, null, null,
+                m.getLocality(), m.getLocalitySlug(), CITY, null, null, null, null, null, null, null,
 
                 null, null, null,
 
@@ -191,7 +199,7 @@ public class ManagedPropertyService {
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
-        Property created = listingService.createOnBehalf(ownerId, listing, ownerId);
+        Property created = listingService.createOnBehalf(ownerId, listing, m.getLocalitySlug(), ownerId);
         m.markPublished(created.getId());
         return mapper.toDto(records.saveAndFlush(m));
     }

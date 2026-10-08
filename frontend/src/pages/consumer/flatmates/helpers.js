@@ -1,7 +1,7 @@
 import { uploadPersonalDocument } from '../../../services/documentService.js';
-import { localityByName, slugifyLocality } from '../../../data/localities.js';
-import { MOVE_LBL, LOCALITIES, LOCALITY_COORDS } from './constants.js';
+import { MOVE_LBL } from './constants.js';
 import { headlineOf } from '../../../lib/headline.js';
+import { slugOfName } from '../../../lib/searchEntities.js';
 
 export const detailPath = (kind, id) => `/flatmates/${kind}/${encodeURIComponent(id)}`;
 export const roomEditHref = (id) => `/list-property?flatmate=1&editRoom=${encodeURIComponent(id)}`;
@@ -28,7 +28,9 @@ const seekerBudget = (p) => (+p.budgetMax > +p.budget ? `${inr(p.budget)} – ${
 const bhkText = (bhk) => (bhk?.length ? `${bhk.map((b) => (b === '4' ? '4+' : b)).join(' / ')} BHK` : null);
 const groupListingsUrl = (p) => {
   const q = new URLSearchParams({ deal: 'rent' });
-  if (p.localities?.length) q.set('loc', p.localities.map((l) => localityByName(l)?.slug ?? slugifyLocality(l)).join(','));
+  const names = p.localities?.length ? p.localities : [p.locality].filter(Boolean);
+  const slugs = names.length === 1 && p.localitySlug ? [p.localitySlug] : names.map((l) => slugOfName(l));
+  if (slugs.length) q.set('loc', slugs.join(','));
   if (p.bhk?.length) q.set('bhks', p.bhk.map((b) => (b === '4' ? '4plus' : b)).join(','));
   if (p.rentMax) q.set('rent', `${p.rentMin || 0}-${p.rentMax}`);
   if (p.depositMax) q.set('deposit', `${p.depositMin || 0}-${p.depositMax}`);
@@ -48,12 +50,6 @@ const seatCeiling = (kind, item) => (kind === 'group' ? seatsLeft(item) + MAX_GR
 const allVerified = (g) => g.members.length > 0 && g.members.every((m) => m.verified);
 const policyAvatar = (p) => (p === 'women' ? 'from-pink-500 to-rose-400' : p === 'men' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
 
-// Prefills a group's locality from an existing property's free text. The dropdown only
-// offers LOCALITIES, so an unmatched value stays at the default rather than being guessed.
-const deriveLocality = (...parts) => {
-  const hay = parts.filter(Boolean).join(' ').toLowerCase();
-  return LOCALITIES.find((l) => hay.includes(l.toLowerCase())) || '';
-};
 // Default title for a replacement-flatmate group, so the host starts from something real.
 const replacementTitle = ({ bhk, locality } = {}) => {
   const where = locality ? ' in ' + locality : '';
@@ -238,9 +234,9 @@ const jitterFor = (id) => {
   return [dLat, dLng];
 };
 const primaryLocality = (post) => (post && (post.locality || (Array.isArray(post.localities) ? post.localities[0] : ''))) || '';
-const withCoords = (post) => {
+const withCoords = (post, localityCoords = {}) => {
   if (!post || (post.lat != null && post.lng != null)) return post;
-  const base = LOCALITY_COORDS[primaryLocality(post)];
+  const base = localityCoords[primaryLocality(post)];
   if (!base) return post;
   const [jLat, jLng] = jitterFor(post.id);
   return { ...post, lat: base[0] + jLat, lng: base[1] + jLng };
@@ -260,4 +256,4 @@ const terms = (f) => ({
   ...(f.electricityBilling ? { electricityBilling: f.electricityBilling } : {}),
 });
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, shareFloor, moneyRange, seekerBudget, bhkText, groupLocalities, groupListingsUrl, maxOpenSeats, MAX_GROUP_SEATS, seatCeiling, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchFor, isFresh, moveInLabel, isDateVal, todayIso, moveInByForm, moveInByWire, readAgreementDoc, hasAgreementEvidence, toSavedCard, numeric, terms, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, shareFloor, moneyRange, seekerBudget, bhkText, groupLocalities, groupListingsUrl, maxOpenSeats, MAX_GROUP_SEATS, seatCeiling, seatsLeft, allVerified, policyAvatar, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchFor, isFresh, moveInLabel, isDateVal, todayIso, moveInByForm, moveInByWire, readAgreementDoc, hasAgreementEvidence, toSavedCard, numeric, terms, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

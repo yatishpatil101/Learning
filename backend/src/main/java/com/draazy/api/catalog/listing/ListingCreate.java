@@ -43,6 +43,7 @@ public record ListingCreate(
         @Pattern(regexp = Furnishing.PATTERN,
                 message = Furnishing.PATTERN_MESSAGE) String furnishing,
         @NotBlank String locality,
+        String localitySlug,
         @NotBlank String city,
         Double lat,
         Double lng,

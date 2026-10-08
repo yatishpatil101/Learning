@@ -1,8 +1,3 @@
-import { localityNames, localityCoordMap } from '../../../data/localities.js';
-
-// Locality identity is owned by the canonical registry (data/localities.js);
-// derive the flatmates list + coord map from it so there is one source of truth.
-const LOCALITIES = localityNames();
 /* A stricter client limit is a rule the server never made, and the seeker is told no by a form
  * rather than by the product. */
 const MAX_LOCALITIES = 10;
@@ -12,7 +7,6 @@ const TAGS = ['Vegetarian', 'Non-veg ok', 'Non-smoker', 'Early riser', 'Night ow
 const MOVE_LBL = { now: 'Immediately', 15: 'Within 15 days', 30: 'Within a month', 60: 'In 1–2 months' };
 const FLAT_PREF_LBL = { any: 'Anyone', women: 'Women only', men: 'Men only' };
 const ROOM_PREF_LBL = { any: 'No preference', private: 'Private room', shared: 'Shared room' };
-const LOCALITY_COORDS = localityCoordMap();
 const ROOM_IMGS = ['https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=600&q=80', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80', 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80', 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=600&q=80', 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=600&q=80'];
 
 const SEEKERS = [
@@ -46,4 +40,4 @@ const SEED_GROUPS = [
   { id: 'g5', title: 'Girls 2BHK share near Aundh', locality: 'Aundh', policy: 'women', rent: 32000, seatsTotal: 3, members: [{ name: 'Ananya', initials: 'AN', verified: true }, { name: 'Meera', initials: 'ME', verified: true }], tags: ['Vegetarian', 'Pet-friendly'], note: 'Plants & cats welcome. Long-term preferred.', time: '5 days ago' },
 ];
 
-export { LOCALITIES, MAX_LOCALITIES, MAX_GROUP_LOCALITIES, GROUP_BHKS, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, LOCALITY_COORDS, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };
+export { MAX_LOCALITIES, MAX_GROUP_LOCALITIES, GROUP_BHKS, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };

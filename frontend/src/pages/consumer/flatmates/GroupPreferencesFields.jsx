@@ -5,7 +5,7 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import AmountInput from './AmountInput.jsx';
 import MoveInField from './MoveInField.jsx';
-import { LOCALITIES, MAX_GROUP_LOCALITIES, GROUP_BHKS } from './constants.js';
+import { MAX_GROUP_LOCALITIES, GROUP_BHKS } from './constants.js';
 import { inr } from './helpers.js';
 
 function perHeadRange(grp) {
@@ -17,7 +17,7 @@ function perHeadRange(grp) {
 
 const labelCx = 'block text-xs font-medium text-gray-400 mb-1.5';
 
-export default function GroupPreferencesFields({ grp, setGrp, grpErr }) {
+export default function GroupPreferencesFields({ grp, setGrp, grpErr, onLocalityBusy }) {
   const { t: tr } = useTranslation();
   const set = (patch, cleared) => { setGrp((g) => ({ ...g, ...patch })); if (cleared) grpErr.clear(cleared); };
   const toggleBhk = (b) => set({ bhk: grp.bhk.includes(b) ? grp.bhk.filter((x) => x !== b) : [...grp.bhk, b].sort() });
@@ -36,11 +36,11 @@ export default function GroupPreferencesFields({ grp, setGrp, grpErr }) {
           autoClose
           values={grp.localities}
           onChange={(arr) => { if (arr.length <= MAX_GROUP_LOCALITIES) set({ localities: arr }, 'localities'); }}
-          options={LOCALITIES}
           placeholder={tr('flatmates.addLocalities')}
           invalid={grpErr.has('localities')}
           dataErr="localities"
           ariaLabel={tr('flatmates.groupLocalities')}
+          onBusyChange={onLocalityBusy}
         />
         <FieldError show={grpErr.has('localities')}>{grpErr.msg('localities')}</FieldError>
       </div>

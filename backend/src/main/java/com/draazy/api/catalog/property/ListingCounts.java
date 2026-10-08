@@ -19,11 +19,6 @@ public class ListingCounts {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Long> byLocalitySlug() {
-        return toMap(properties.countLiveByLocalitySlug(PropertyStatus.APPROVED), k -> (String) k);
-    }
-
-    @Transactional(readOnly = true)
     public Map<UUID, Long> bySocietyId() {
         return toMap(properties.countLiveBySocietyId(PropertyStatus.APPROVED), k -> (UUID) k);
     }

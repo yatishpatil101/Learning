@@ -3,7 +3,7 @@ package com.draazy.api.catalog.listing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-import com.draazy.api.catalog.locality.LocalityResolver;
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.society.SocietyRepository;
 import com.draazy.api.identity.user.User;
@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class ListingOwnershipRecheckTest {
     private final ListingEditRules rules = new ListingEditRules(
-            mock(LocalityResolver.class), mock(SocietyRepository.class));
+            mock(LocalityBinding.class), mock(SocietyRepository.class));
 
     private Property verifiedRental() {
         Property property = new Property(new User("9812345678", "owner"),
@@ -48,7 +48,7 @@ class ListingOwnershipRecheckTest {
     }
 
     private static ListingUpdate update(String deal, String description, Long price) {
-        return new ListingUpdate(null, deal, null, null, price, null, null, null,
+        return new ListingUpdate(null, deal, null, null, price, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, description, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null);

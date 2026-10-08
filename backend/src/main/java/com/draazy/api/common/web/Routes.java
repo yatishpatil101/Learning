@@ -92,16 +92,17 @@ public final class Routes {
         }
 
         public static final String BASE = "/localities";
-    }
 
-    public static final class LocalityQueue {
+        /** Public {@code POST} - the locality a Google place pick is, minting the row when none exists. */
+        public static final String RESOLVE = BASE + "/resolve";
 
-        private LocalityQueue() {
-        }
+        /** Public {@code GET} - live localities by name, for when Google suggestions are unavailable. */
+        public static final String SEARCH = BASE + "/search";
 
-        public static final String BASE = "/admin/locality-queue";
+        public static final String BY_SLUG = BASE + "/{slug}";
 
-        public static final String BY_PROPERTY = BASE + "/{propertyId}";
+        /** Security-chain matcher: single segment, so any deeper route stays authenticated. */
+        public static final String ANY_SINGLE = BASE + "/*";
     }
 
     public static final class Societies {
@@ -111,70 +112,13 @@ public final class Routes {
 
         public static final String BASE = "/societies";
 
+        /** Public {@code GET} - what a Google place pick already is in the catalogue, or might duplicate. */
+        public static final String RESOLVE = BASE + "/resolve";
+
         public static final String BY_SLUG = BASE + "/{slug}";
-
-        /** Public {@code GET} — membership, questions, board, contributions and proposals in one read. */
-        public static final String HUB = BY_SLUG + "/hub";
-
-        /** Authenticated — {@code POST} asks to be recognised as a resident of one flat. */
-        public static final String RESIDENTS = BY_SLUG + "/residents";
-
-        public static final String RESIDENTS_QUEUE = RESIDENTS;
-
-        public static final String RESIDENT_BY_ID = RESIDENTS + "/{residentId}";
-
-        /** Authenticated — {@code POST} claims this society on behalf of its committee. */
-        public static final String CLAIM = BY_SLUG + "/claim";
-
-        /** Authenticated — {@code POST} asks a question about this society. */
-        public static final String QUESTIONS = BY_SLUG + "/questions";
-
-        /** Authenticated — {@code POST} answers one question. */
-        public static final String ANSWERS = QUESTIONS + "/{questionId}/answers";
-
-        public static final String BOARD = BY_SLUG + "/board";
-
-        public static final String BOARD_ITEM = BOARD + "/{itemId}";
-
-        /** Authenticated — {@code POST} shares a tip, trusted pick or photo on the community tab. */
-        public static final String CONTRIBUTIONS = BY_SLUG + "/contributions";
-
-        public static final String CONTRIBUTION = CONTRIBUTIONS + "/{contributionId}";
-
-        public static final String CONTRIBUTION_HELPFUL = CONTRIBUTION + "/helpful";
-
-        /** Authenticated — {@code POST} replies in the thread under a contribution. */
-        public static final String CONTRIBUTION_REPLIES = CONTRIBUTION + "/replies";
-
-        public static final String CONTRIBUTION_REPLY = CONTRIBUTION_REPLIES + "/{replyId}";
-
-        /** Authenticated — {@code POST} proposes a detail, the resident group link or a map pin. */
-        public static final String PROPOSALS = BY_SLUG + "/proposals";
 
         /** Security-chain matcher; single-segment for the same reason as {@link Localities#ANY_SINGLE}. */
         public static final String ANY_SINGLE = BASE + "/*";
-    }
-
-    public static final class SocietyClaims {
-
-        private SocietyClaims() {
-        }
-
-        public static final String BASE = "/admin/society-claims";
-
-        public static final String BY_ID = BASE + "/{id}";
-
-        public static final String CERTIFICATE = BY_ID + "/certificate";
-    }
-
-    public static final class SocietyProposals {
-
-        private SocietyProposals() {
-        }
-
-        public static final String BASE = "/admin/society-proposals";
-
-        public static final String BY_ID = BASE + "/{id}";
     }
 
     /** Staff — the queue of societies members added because the catalogue did not have them. */
@@ -185,17 +129,7 @@ public final class Routes {
 
         public static final String BASE = "/admin/society-candidates";
 
-        public static final String VERIFY = BASE + "/{slug}/verify";
-
         public static final String DUPLICATES = BASE + "/{slug}/duplicates";
-    }
-
-    public static final class SocietyResidents {
-
-        private SocietyResidents() {
-        }
-
-        public static final String BASE = "/admin/society-residents";
     }
 
     public static final class SocietyMerges {
@@ -1083,7 +1017,7 @@ public final class Routes {
 
         public static final String SUPPLY_GAP = "/admin/supply-gap";
 
-        /** Staff/admin — asking price against the locality's curated market rate. */
+        /** Staff/admin — what live flats are asked for, per locality, from the listings. */
         public static final String ANALYTICS_PRICING = "/admin/analytics/pricing";
 
         public static final String ANALYTICS_SLA = "/admin/analytics/sla";

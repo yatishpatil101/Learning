@@ -33,6 +33,7 @@ export const roomToForm = (room) => {
     maintenanceBilling: room.maintenanceBilling || '',
     electricityBilling: room.electricityBilling || '',
     locality: room.locality || '',
+    localitySlug: room.localitySlug || '',
     society: room.society || '',
     societyId: room.societyId || '',
     flatNumber: room.flatNumber || '',

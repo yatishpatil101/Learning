@@ -1,35 +1,48 @@
-import { useMemo, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
+import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { estimateValuation } from '../../../lib/data/valuation.js';
+import { getLocality } from '../../../services/localityService.js';
 import { registerManaged } from '../../../services/managedService.js';
-import { HUB_LOCALITIES, HOME_TYPES, BHK_OPTIONS, FURNISHING_OPTIONS, FIELD_CLS } from './constants.js';
+import { HOME_TYPES, BHK_OPTIONS, FURNISHING_OPTIONS, FIELD_CLS } from './constants.js';
 
-/* The Rent-o-meter — the acquisition hero. An owner gets an instant, indicative
-   rent + sale estimate with zero commitment, and can turn that estimate into a
-   registered (private) property in one tap. */
 export default function RentOMeter({ onSaved }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const rentStr = (n) => t('ownerHub.rentPerMo', { amount: fmtNum(n) });
-  const [form, setForm] = useState({ deal: 'rent', locality: '', type: 'Flat', bhk: '2', area: '', furnishing: 'semi-furnished' });
+  const [form, setForm] = useState({ deal: 'rent', locality: '', localitySlug: '', type: 'Flat', bhk: '2', area: '', furnishing: 'semi-furnished' });
   const [result, setResult] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [estimating, setEstimating] = useState(false);
+  const slugRef = useRef('');
 
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setResult(null); };
+  const clearLocality = (v) => { slugRef.current = ''; setForm((f) => ({ ...f, locality: v, localitySlug: '' })); setResult(null); };
+  const pickLocality = ({ slug, name }) => { slugRef.current = slug; setForm((f) => ({ ...f, locality: name, localitySlug: slug })); setResult(null); };
 
-  const est = useMemo(() => (result ? result.est : null), [result]);
+  const shown = result && result.slug === form.localitySlug ? result : null;
+  const est = shown ? shown.est : null;
   const isRent = form.deal === 'rent';
 
-  const estimate = () => {
-    if (!form.locality) { toast(t('ownerHub.pickLocality'), 'error'); return; }
-    const out = estimateValuation({ locality: form.locality, bhk: form.bhk, area: form.area, furnishing: form.furnishing });
-    setResult({ est: out });
+  const estimate = async () => {
+    const slug = form.localitySlug;
+    if (!slug) { toast(t('ownerHub.pickLocality'), 'error'); return; }
+    setEstimating(true);
+    try {
+      const loc = await getLocality(slug);
+      if (slugRef.current !== slug) return;
+      setResult({ slug, name: loc.name, est: estimateValuation({ locality: loc, bhk: form.bhk, area: form.area, furnishing: form.furnishing }) });
+    } catch (e) {
+      toast(e?.message || t('ownerHub.estimateFailed'), 'error');
+    } finally {
+      setEstimating(false);
+    }
   };
 
   const save = async () => {
@@ -41,6 +54,7 @@ export default function RentOMeter({ onSaved }) {
       prop = await registerManaged({
         deal: isRent ? 'rent' : 'sale',
         locality: form.locality,
+        localitySlug: form.localitySlug,
         type: form.type,
         bhk: form.bhk,
         area: est.area,
@@ -48,9 +62,7 @@ export default function RentOMeter({ onSaved }) {
         price,
         rented: false,
         monthlyRent: est.rent.mid,
-        // The whole estimate, kept verbatim. It is the owner's evidence for the number they were
-        // shown, and the server stores it as an opaque blob for exactly that reason — re-deriving
-        // it later from a changed model would quietly rewrite history.
+        // Kept verbatim: the owner's evidence for the number shown; re-deriving later would rewrite history.
         valuation: { rent: est.rent, sale: est.sale, perSqft: est.perSqft, at: Date.now() },
       });
     } catch (e) {
@@ -89,10 +101,14 @@ export default function RentOMeter({ onSaved }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <label className="block">
           <span className="text-xs text-gray-400 mb-1.5 block">{t('ownerHub.locality')}</span>
-          <NativeSelect value={form.locality} onChange={set('locality')} title={t('ownerHub.locality')} searchable>
-            <option value="">{t('ownerHub.selectLocality')}</option>
-            {HUB_LOCALITIES.map((l) => <option key={l} value={l}>{l}</option>)}
-          </NativeSelect>
+          <LocalitySelect
+            value={form.locality}
+            onChange={clearLocality}
+            onSelect={pickLocality}
+            placeholder={t('ownerHub.selectLocality')}
+            ariaLabel={t('ownerHub.locality')}
+            className="w-full"
+          />
         </label>
         <label className="block">
           <span className="text-xs text-gray-400 mb-1.5 block">{t('ownerHub.propertyType')}</span>
@@ -118,9 +134,15 @@ export default function RentOMeter({ onSaved }) {
         </label>
       </div>
 
-      <button onClick={estimate} className="btn-teal w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2">
+      <button onClick={estimate} disabled={estimating} className="btn-teal w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
         <Icon name="sparkles" className="w-4 h-4" /> {t('ownerHub.estimateNow')}
       </button>
+
+      {shown && !est && (
+        <p className="mt-5 text-sm text-amber-300/90 flex items-start gap-1.5" data-testid="rentometer-not-enough">
+          <Icon name="info" className="w-4 h-4 flex-shrink-0 mt-0.5" /> {t('ownerHub.notEnough', { name: shown.name })}
+        </p>
+      )}
 
       {est && (
         <div className="mt-6 pt-6 border-t border-white/10 fade-in visible">
@@ -135,26 +157,16 @@ export default function RentOMeter({ onSaved }) {
               : t('ownerHub.range', { low: fmtINR(est.sale.low), high: fmtINR(est.sale.high) })}
           </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-5">
+          <div className="grid grid-cols-2 gap-2.5 mt-5">
             <div className="rd-cell">
               <p className="text-[11px] text-gray-400">{t('ownerHub.localityRate')}</p>
               <p className="text-white font-semibold">₹{fmtNum(est.perSqft)}<span className="text-xs text-gray-400">{t('locality.perSqft')}</span></p>
-            </div>
-            <div className="rd-cell">
-              <p className="text-[11px] text-gray-400">{t('ownerHub.trend12')}</p>
-              <p className="text-emerald-400 font-semibold flex items-center gap-1"><Icon name="trending-up" className="w-4 h-4" /> +{est.yoy}%</p>
             </div>
             <div className="rd-cell">
               <p className="text-[11px] text-gray-400">{t('ownerHub.otherSide')}</p>
               <p className="text-white font-semibold">{isRent ? fmtINR(est.sale.mid) : rentStr(est.rent.mid)}</p>
             </div>
           </div>
-
-          {!est.known && (
-            <p className="text-[11px] text-amber-300/90 mt-3 flex items-start gap-1.5">
-              <Icon name="info" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {t('ownerHub.noCurated')}
-            </p>
-          )}
 
           <button onClick={save} disabled={saving} className="btn-teal w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
             <Icon name="folder-plus" className="w-4 h-4" /> {t('ownerHub.saveAsMine')}

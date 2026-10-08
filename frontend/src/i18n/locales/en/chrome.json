@@ -41,6 +41,10 @@
     "noMatches": "No matches",
     "typeToSearch": "Type to search…",
     "searching": "Searching…",
+    "localityAdding": "Adding locality…",
+    "localityPick": "Pick the locality from the suggestions.",
+    "localityFailed": "Couldn’t add that locality. Try again.",
+    "clearPlace": "Clear place",
     "featureNoun": "feature"
   },
   "chrome": {

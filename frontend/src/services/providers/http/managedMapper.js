@@ -102,7 +102,8 @@ export function toCreateRequest(data = {}) {
     bhk: data.bhk == null || data.bhk === '' ? null : Number(data.bhk) || null,
     price,
     locality: data.locality || 'Pune',
-    society: data.society || null,
+    localitySlug: data.localitySlug || undefined,
+    societyId: data.societyId || null,
     area: data.area == null || data.area === '' ? null : Number(data.area) || null,
     areaUnit: data.areaUnit || null,
     furnishing: data.furnishing || null,
@@ -127,7 +128,8 @@ export function toUpdateRequest(patch = {}) {
   if ('bhk' in patch) body.bhk = Number(patch.bhk) || null;
   if ('price' in patch) body.price = Number(patch.price) || 0;
   if ('locality' in patch) body.locality = patch.locality;
-  if ('society' in patch) body.society = patch.society;
+  if ('localitySlug' in patch) body.localitySlug = patch.localitySlug;
+  if ('societyId' in patch) body.societyId = patch.societyId;
   if ('area' in patch) body.area = Number(patch.area) || null;
   if ('areaUnit' in patch) body.areaUnit = patch.areaUnit;
   if ('furnishing' in patch) body.furnishing = patch.furnishing;

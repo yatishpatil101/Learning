@@ -44,7 +44,10 @@ export async function createRoom(room = {}) {
 
 /** `PATCH /flatmates/rooms/{id}` — the create body again; the server decides whether it re-reviews. */
 export async function updateRoom(id, room = {}) {
-  return toRoomViewModel(await patch(`/flatmates/rooms/${encodeURIComponent(id)}`, roomBody(room)));
+  return toRoomViewModel(await patch(`/flatmates/rooms/${encodeURIComponent(id)}`, {
+    ...roomBody(room),
+    ...(room.clearSociety ? { societyId: '' } : {}),
+  }));
 }
 
 function roomBody(room) {
@@ -56,8 +59,8 @@ function roomBody(room) {
     attachedBath: vocab('attachedBath', room.attachedBath),
     furnishing: vocab('furnishing', room.furnishing),
     locality: room.locality,
-    societyId: room.societyId,
-    society: room.society,
+    localitySlug: room.localitySlug || undefined,
+    societyId: room.societyId || undefined,
     flatNumber: room.flatNumber,
     rentShare: Number(room.rent ?? room.rentShare) || 0,
     deposit: room.deposit == null ? undefined : Number(room.deposit),
@@ -128,7 +131,7 @@ export async function getFlatmateDetail(kind, id) {
 
 /* A group still looking for a flat has no flat to describe, so none of these travel with it — the
    server would discard them, and `rent: 0` would fail its `@Min(1)` first. */
-const FLAT_ONLY = new Set(['locality', 'rent', 'deposit', 'noticePeriodDays', 'lockInMonths', 'maintenanceBilling', 'electricityBilling', 'role', 'propertyId', 'agreement', 'agreementDoc', 'consentMobile']);
+const FLAT_ONLY = new Set(['locality', 'localitySlug', 'rent', 'deposit', 'noticePeriodDays', 'lockInMonths', 'maintenanceBilling', 'electricityBilling', 'role', 'propertyId', 'agreement', 'agreementDoc', 'consentMobile']);
 
 function preferencesBody(p) {
   const money = (v) => (v === '' || v == null ? undefined : Number(v));
@@ -150,6 +153,7 @@ function groupBody(group) {
   const body = clean({
     title: group.title,
     locality: group.locality,
+    localitySlug: group.localitySlug || undefined,
     policy: vocab('policy', group.policy),
     rent: Number(group.rent) || 0,
     deposit: group.deposit,

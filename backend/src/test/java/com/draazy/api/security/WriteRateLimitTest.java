@@ -21,33 +21,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * The write rate limit (tech-debt D2), enabled deliberately with a budget small enough to reach.
- *
- * <p><strong>Why this test has to turn the feature on.</strong> The rest of the suite runs with
- * {@code draazy.security.rate-limit.enabled=false}, because MockMvc gives every request the same
- * remote address and most of the ~700 HTTP tests are unauthenticated — so the whole suite presents
- * as one caller and would exhaust any realistic budget partway through, failing whichever test
- * happened to run next. That is exactly how a limiter ends up switched off everywhere and therefore
- * proved nowhere, so this class exists to be the one place it is on.
- *
- * <p><strong>Why every test invents its own client address.</strong> The filter — and so its
- * counter — is one object in a context cached across the whole class, so its state does not roll
- * back between test methods the way a database transaction does. Sharing an address would make each
- * test's outcome depend on how many requests the previously-run test happened to make: a dependency
- * on JUnit's method ordering, green today and red the day a test is added above it. A distinct
- * address per test buys real isolation, and it exercises the keying at the same time — which is
- * itself load-bearing, since a limiter that pooled every caller into one bucket would let a single
- * script lock out the platform.
- *
- * <p>The write used throughout is {@code POST /auth/login} with a body the endpoint rejects. The
- * status of the <em>allowed</em> requests is deliberately asserted only as "not 429": all that
- * matters is whether the filter let the request reach the application, and a 400 proves that as
- * well as a 200 would — better, since it needs no fixtures and cannot pass by accident.
- */
+/** The one place the write limiter is enabled; MockMvc gives every request one address, so other tests disable it.
+ * Each test uses its own address because counters don't roll back. */
 @SpringBootTest(properties = {
     "draazy.security.rate-limit.enabled=true",
     "draazy.security.rate-limit.writes-per-window=2",
+    "draazy.security.rate-limit.locality-resolves-per-window=1",
     "draazy.security.rate-limit.window-seconds=60",
 })
 @AutoConfigureMockMvc
@@ -86,14 +65,24 @@ class WriteRateLimitTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error").value("rate_limited"))
                 .andExpect(jsonPath("$.status").value(429))
-                // A 429 without Retry-After tells a client it is too fast but not by how much, which
-                // leaves it guessing and being refused again. The honest number is the only thing
-                // that lets a well-behaved client back off correctly.
+                // Retry-After lets a well-behaved client back off correctly instead of being refused again.
                 .andExpect(result -> Assertions
                         .assertThat(result.getResponse().getHeader("Retry-After"))
                         .as("Retry-After must be present and a positive whole number of seconds")
                         .isNotNull()
                         .satisfies(v -> Assertions.assertThat(Integer.parseInt(v)).isPositive()));
+    }
+
+    @Test
+    @DisplayName("locality resolves have their own, smaller bucket that refuses before the general budget is spent")
+    void localityResolvesAreCappedSeparately() throws Exception {
+        mvc.perform(write(Routes.Localities.RESOLVE, "10.0.0.9")).andExpect(status().is(Matchers.not(429)));
+
+        mvc.perform(write(Routes.Localities.RESOLVE, "10.0.0.9"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"));
+        mvc.perform(write(Routes.Auth.LOGIN, "10.0.0.9")).andExpect(status().is(Matchers.not(429)));
+        mvc.perform(write(Routes.Localities.RESOLVE, "10.0.0.50")).andExpect(status().is(Matchers.not(429)));
     }
 
     @Test
@@ -125,18 +114,8 @@ class WriteRateLimitTest {
     void dataExportIsLimited() throws Exception {
         spendBudget("10.0.0.10");
 
-        // The general rule above — reads are never limited — has exactly two exceptions, and this is
-        // the one whose risk is cost rather than enumeration. GET /me/data-export runs roughly
-        // seventy queries across the whole schema and cannot be cached, because an access-request
-        // document that is stale is a false statement about what the platform holds. Left
-        // unlimited it would be the cheapest denial of service available against this platform,
-        // funded by the platform, and reachable by any signed-in account.
-        //
-        // Asserted unauthenticated on purpose. The limiter runs before authorisation, so a 429 here
-        // rather than a 401 proves the request was stopped by this filter and not by the security
-        // chain — which is the only thing that would still be true if the endpoint's own auth
-        // changed. The path is written out rather than referenced because this package deliberately
-        // imports nothing from a feature package; that is precisely the coupling this test replaces.
+        // Reads are exempt except this one, for cost: /me/data-export runs ~70 uncacheable queries.
+        // Unauthenticated on purpose: a 429 rather than 401 proves this filter stopped it.
         mvc.perform(get("/me/data-export").with(from("10.0.0.10")))
                 .andExpect(status().isTooManyRequests());
     }
@@ -146,10 +125,7 @@ class WriteRateLimitTest {
     void callbacksHaveTheirOwnBudget() throws Exception {
         spendBudget("10.0.0.5");
 
-        // The body is unsigned, so this is rejected on its merits — the point is only that it is not
-        // rejected by the ordinary budget, which this caller has already spent. A dropped callback is
-        // a customer who paid and was not credited, and the provider's retry arrives from the same
-        // address and would hit the same bucket.
+        // The unsigned body is rejected on its merits; the spent ordinary budget must not drop a provider's retry.
         mvc.perform(write(Routes.Webhooks.CASHFREE_PAYMENT, "10.0.0.5"))
                 .andExpect(status().is(Matchers.not(429)));
     }
@@ -157,10 +133,8 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("an oversized callback body is refused before it is buffered")
     void oversizedCallbackBodyIsRefused() throws Exception {
-        // The one write that is permitAll and takes an unbounded raw String, so that nothing else in
-        // the stack bounds it: Tomcat's maxPostSize covers form encoding and multipart only. Without
-        // this ceiling, a few hundred megabytes of unsigned JSON is materialised on the heap before
-        // the HMAC is consulted.
+        // The one permitAll write taking an unbounded raw String (Tomcat's maxPostSize covers form/multipart
+        // only), so without this ceiling hundreds of MB of unsigned JSON hit the heap before the HMAC check.
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
                         .with(from("10.0.0.8"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -171,9 +145,7 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("a callback that declares no length is refused too")
     void undeclaredCallbackBodyIsRefused() throws Exception {
-        // An unknown length — in practice `Transfer-Encoding: chunked` — reports as -1, which passes
-        // any `greater than the cap` test. Accepting it would have left the ceiling above bypassable
-        // by a single request header, on an unauthenticated route, for an unbounded body.
+        // Unknown length (chunked) reports -1, which would slip past a "greater than the cap" test.
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
                         .with(from("10.0.0.9"))
                         .contentType(MediaType.APPLICATION_JSON))
@@ -183,17 +155,13 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("a path parameter does not escape the limit, encoded or not")
     void limitedReadSurvivesPathParameters() throws Exception {
-        // Spring's path matching excludes `;name=value` segments, so `/documents/shared;x=1` reaches
-        // the same handler. StrictHttpFirewall rejects both of these shapes today, which is why the
-        // assertion is written against the filter's own helper rather than through MockMvc — the
-        // point is that the limiter does not depend on the firewall staying strict.
+        // Spring's path matching ignores `;name=value` segments; asserted on the filter's helper rather than
+        // MockMvc so the limiter doesn't depend on StrictHttpFirewall staying strict.
         Assertions.assertThat(WriteRateLimitFilter.normalisedPath("/api", "/api"
                         + Routes.Documents.SHARED + ";x=1"))
                 .isEqualTo(Routes.Documents.SHARED);
 
-        // And encoded, which is the order-of-operations trap: cutting at `;` before decoding leaves
-        // `%3B` intact, so the path matches nothing here while the dispatcher — which decodes first
-        // and strips afterwards — still routes it to the protected handler.
+        // Encoded: cutting at `;` before decoding leaves `%3B`, but the dispatcher decodes first and routes it.
         Assertions.assertThat(WriteRateLimitFilter.normalisedPath("/api", "/api"
                         + Routes.Documents.SHARED + "%3Bx=1"))
                 .isEqualTo(Routes.Documents.SHARED);
@@ -202,9 +170,7 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("an IPv6 caller is keyed on the /64, not the address")
     void ipv6IsKeyedByRoutingPrefix() {
-        // A single host is routinely handed an entire /64, so keying on the full address gives it
-        // 2^64 free budgets — the cheapest possible way to defeat the limit, and the reason the
-        // tracked-key ceiling would otherwise be unreachable in principle.
+        // A host is handed a whole /64, so keying on the full address would give it 2^64 free budgets.
         String first = WriteRateLimitFilter.anonymousKey("2001:db8:1234:5678:1::1");
         String second = WriteRateLimitFilter.anonymousKey("2001:db8:1234:5678:ffff::9");
         String other = WriteRateLimitFilter.anonymousKey("2001:db8:1234:9999::1");
@@ -216,18 +182,12 @@ class WriteRateLimitTest {
                 .isEqualTo("203.0.113.7");
     }
 
-    /**
-     * {@code GET /documents/shared} is the one read D2 named, because it is anonymous and guarded
-     * only by a token in the query string — so the attack is enumeration and the defence has to be a
-     * rate limit. These two cases are the ways a `security-reviewer` pass found to walk straight past
-     * it, both of which reach the same handler with the same effect.
-     */
+    /** {@code GET /documents/shared} is anonymous and guarded only by a query token, so enumeration needs a rate
+     * limit; these two cases are bypasses that reach the same handler. */
     @Test
     @DisplayName("the enumerable read is limited on HEAD too, not only GET")
     void limitedReadCoversHead() throws Exception {
-        // Spring MVC dispatches HEAD to the @GetMapping handler and merely drops the body, so the
-        // status code answers "is this token real?" just as well. Matching on the method would have
-        // made the control bypassable by one character.
+        // Spring MVC dispatches HEAD to the @GetMapping handler, so the status answers "is this token real?" too.
         for (int i = 0; i < BUDGET; i++) {
             mvc.perform(head(Routes.Documents.SHARED).param("token", "nope").with(from("10.0.0.6")))
                     .andExpect(status().is(Matchers.not(429)));
@@ -239,10 +199,7 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("percent-encoding the path does not escape the limit")
     void limitedReadSurvivesEncoding() throws Exception {
-        // `/documents/share%64` is a different string from `/documents/shared` but the same route:
-        // the dispatcher matches on the decoded path, so a filter comparing the raw URI would wave
-        // this through while Spring routed it to the very handler being protected. Built as a URI
-        // rather than a template because the template form re-encodes the `%` and would test nothing.
+        // Built as a URI since a template re-encodes `%`; the dispatcher matches the decoded path.
         java.net.URI encoded = java.net.URI.create(
                 Routes.Documents.SHARED.substring(0, Routes.Documents.SHARED.length() - 1)
                         + "%64?token=nope");
@@ -257,10 +214,8 @@ class WriteRateLimitTest {
     @Test
     @DisplayName("a misconfigured budget or window is refused at construction, not at runtime")
     void misconfigurationFailsFast() {
-        // Every one of these fails silently if clamped instead of rejected: a zero window restarts on
-        // every request so nothing is ever limited and the app looks healthy, a zero budget refuses
-        // every write on the platform, and an absurd window binds fine and then throws
-        // DateTimeException out of the filter on the first write — a 500 on every mutating request.
+        // Rejected, not clamped: a zero window never limits anything, a zero budget refuses every write, and an
+        // absurd window throws DateTimeException on the first write.
         Assertions.assertThatIllegalArgumentException()
                 .isThrownBy(() -> new WriteRateLimiter(0, Duration.ofSeconds(60)));
         Assertions.assertThatIllegalArgumentException()
@@ -271,12 +226,7 @@ class WriteRateLimitTest {
                 .isThrownBy(() -> new WriteRateLimiter(120, Duration.ofDays(4000)));
     }
 
-    /**
-     * The counter's own arithmetic, driven directly so the window can be crossed without waiting a
-     * minute for it. Fixed-window behaviour is the part most likely to be silently wrong — an
-     * off-by-one in the budget, or a window that never rolls — and neither is reachable through HTTP
-     * without a clock the test cannot control.
-     */
+    /** Driven directly to cross the window without waiting; HTTP can't expose off-by-one or stuck windows. */
     @Test
     @DisplayName("the window rolls over and the budget comes back")
     void windowRollsOver() {
@@ -298,21 +248,8 @@ class WriteRateLimitTest {
                 .isZero();
     }
 
-    /**
-     * A flood of one-shot keys must not switch enforcement off, and must not evict the people using
-     * the service.
-     *
-     * <p>The first version of this class stopped tracking new callers past a ceiling and let them
-     * through unlimited, which is the protection failing in exactly the direction the attacker wants:
-     * 50,000 addresses — one routed IPv6 /64, or an afternoon's proxy rental — would have disabled
-     * the limiter for every user who arrived afterwards. Evicting instead means the map is bounded
-     * and the limit still applies.
-     *
-     * <p>The victim is touched throughout the flood rather than only before it, because that is what
-     * distinguishes the design from a merely-capped map: under insertion ordering the victim is
-     * evicted and their counter silently resets, which is a targeted bypass rather than a bound. Only
-     * access ordering keeps an active caller tracked while single-use keys churn through the tail.
-     */
+    /** One-shot keys must neither switch enforcement off nor evict active callers; the victim is touched
+     * throughout since only access ordering keeps them tracked. */
     @Test
     @DisplayName("a key-space flood evicts the idle, not the active, and the limit still bites")
     void floodEvictsRatherThanDisabling() {

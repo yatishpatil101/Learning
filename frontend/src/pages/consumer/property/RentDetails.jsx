@@ -4,7 +4,7 @@ import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
 import { fmtNum } from '../../../lib/format.js';
 import { availableLabel, propertyKind } from './derivations.js';
-import { valueBenchmark } from './locationIntel.js';
+import { useLocalityStats } from './useLocalityStats.js';
 import { fixturesFor, commercialProfileFromType, withInFlatAsFurniture } from '../list-property/constants.js';
 
 const RENT_INVENTORY = {
@@ -81,15 +81,10 @@ export function RentDetails({ p }) {
     ? tr('property.notSpecified')
     : p.agreementDuration === 'long' ? tr('property.longTerm') : monthsLabel(p.agreementDuration);
 
-  // Residential listings in a known locality only: there is no curated average for a commercial unit or an
-  // unknown area, and fabricating one would read as a surveyed figure.
-  const bench = valueBenchmark(p);
-  const perSqft = bench.perSqft;
-  const RENT_TONE = {
-    good: 'text-emerald-400',
-    fair: 'text-brand-teal-3',
-    high: 'text-amber-400',
-  }[bench.tone] || 'text-brand-teal-3';
+  // Residential listings only: the locality figure is the average rent of its live listings (null below 3),
+  // shown as context, not a verdict, because homes of different sizes are mixed in it.
+  const loc = useLocalityStats(p);
+  const avgRent = isResidential ? loc?.avgRent : null;
 
   const tile = (icon, label, value, tipKey) => {
     const el = (
@@ -160,35 +155,11 @@ export function RentDetails({ p }) {
           </div>
           ) : null}
 
-          {/* Is the rent fair? — only when we have a verified locality rent benchmark. */}
-          {bench.hasData ? (
+          {avgRent ? (
             <div className="mt-5 pt-5 border-t border-white/5">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-3">
-                <div className="rd-cell">
-                  <p className="rd-lbl">{tr('property.thisProperty')}</p>
-                  <p className="rd-val-lg">₹{fmtNum(perSqft)}<span className="text-sm font-medium text-slate-400">/sq.ft.</span></p>
-                </div>
-                <div className="rd-cell">
-                  <p className="rd-lbl">{tr('property.localityAverage', { locality: p.locality })}</p>
-                  <p className="rd-val-lg text-slate-300">₹{fmtNum(bench.localityAvg)}<span className="text-sm font-medium text-slate-400">/sq.ft.</span></p>
-                </div>
-                <div className="rd-cell">
-                  <p className="rd-lbl">{tr('property.rentRating')}</p>
-                  <p className={'rd-val-lg flex items-center gap-1.5 ' + RENT_TONE}><Icon name={bench.tone === 'high' ? 'trending-up' : 'badge-check'} className="w-5 h-5" /> {bench.rating}</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-xs mb-2">
-                <span className="text-slate-400">{bench.diffPct === 0 ? tr('property.onParLocality') : tr('property.diffLocality', { pct: Math.abs(bench.diffPct), dir: bench.diffPct < 0 ? tr('property.dirBelow') : tr('property.dirAbove') })}</span>
-                <span className={'font-semibold ' + RENT_TONE}>{bench.rating}</span>
-              </div>
-              <div className="insight-bar"><span style={{ width: `${bench.pct}%` }} /></div>
-            </div>
-          ) : perSqft ? (
-            <div className="mt-5 pt-5 border-t border-white/5">
-              <div className="rd-cell">
-                <p className="rd-lbl">{tr('property.thisProperty')}</p>
-                <p className="rd-val-lg">₹{fmtNum(perSqft)}<span className="text-sm font-medium text-slate-400">/sq.ft.</span></p>
-                <p className="text-xs text-slate-400 mt-3 flex items-start gap-1.5"><Icon name="info" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-brand-teal-3" /> {tr('property.noRentBenchmark', { locality: p.locality })}</p>
+              <div className="rd-cell" data-testid="rent-locality-avg">
+                <p className="rd-lbl">{tr('property.localityAvgRent', { locality: p.locality })}</p>
+                <p className="rd-val-lg">₹{fmtNum(avgRent)}<span className="text-sm font-medium text-slate-400">{tr('property.perMonth')}</span></p>
               </div>
             </div>
           ) : null}

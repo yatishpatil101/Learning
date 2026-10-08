@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.Getter;
 
 /** Slug is the stable identity; names are display text and not unique. */
@@ -53,10 +54,17 @@ public class Locality {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
-    @Column(name = "registration_body", nullable = false, insertable = false, updatable = false)
-    private String registrationBody;
+    @Column(name = "place_id")
+    private String placeId;
+
+    @Column(name = "archived_at")
+    private Instant archivedAt;
 
     protected Locality() {
         // JPA
+    }
+
+    public boolean isArchived() {
+        return archivedAt != null;
     }
 }

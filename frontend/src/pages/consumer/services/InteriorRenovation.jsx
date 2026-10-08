@@ -1,6 +1,5 @@
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
-import { localityNames } from '../../../data/localities.js';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -279,7 +278,7 @@ export default function InteriorRenovation() {
                     </div>
                     <div className="mt-4">
                       <label className="block text-xs font-medium text-gray-300 mb-1.5">{tr('services.interior.locationLabel')}</label>
-                      <LocalitySelect value={form.location} onChange={(v) => set('location', v)} options={localityNames()} placeholder={tr('services.interior.locationPlaceholder')} ariaLabel={tr('services.interior.locationLabel')} className="w-full" />
+                      <LocalitySelect value={form.location} onChange={(v) => set('location', v)} nameOnly placeholder={tr('services.interior.locationPlaceholder')} ariaLabel={tr('services.interior.locationLabel')} className="w-full" />
                     </div>
                     <button type="submit" className="btn-teal w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"><Icon name="send" className="w-4 h-4" /> {tr('services.interior.bookMyConsult')}</button>
                     <p className="text-center text-[11px] text-gray-500 mt-3">{tr('services.interior.consentText')}</p>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
@@ -21,6 +22,7 @@ import { useRentAgreement } from './rent-agreement/useRentAgreement.js';
 
 export default function RentAgreement() {
   const ctx = useRentAgreement();
+  const [localityBusy, setLocalityBusy] = useState(false);
   const {
     rootRef, formRef, tr, navigate,
     step, errors, done, openFaq, setOpenFaq,
@@ -243,7 +245,7 @@ export default function RentAgreement() {
                   {/* Step 1: Property */}
 
                   <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepProperty step={step} prop={prop} setP={setP} setProp={setProp} setSelectedPropertyId={setSelectedPropertyId} pickListing={pickListing} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
+                    <StepProperty step={step} prop={prop} setP={setP} setProp={setProp} setSelectedPropertyId={setSelectedPropertyId} pickListing={pickListing} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} onLocalityBusy={setLocalityBusy} />
                   </fieldset>
 
                   {/* Step 2: Owner */}
@@ -272,7 +274,7 @@ export default function RentAgreement() {
                   {/* Nav buttons — sticky at viewport bottom on mobile so step actions stay reachable */}
                   <div className="flex justify-between items-center gap-3 mt-8 sticky bottom-[var(--dz-bottom-inset)] z-20 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4 bg-[var(--section-alt)] backdrop-blur border-t border-white/10 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none lg:border-0">
                     {step !== 0 ? <button type="button" onClick={prev} className="btn-outline px-6 py-3 rounded-xl text-gray-300 text-sm font-semibold flex items-center gap-2"><Icon name="arrow-left" className="w-4 h-4" /> {tr('services.ra.back')}</button> : <div />}
-                    {step !== 5 ? <button type="button" onClick={next} className="btn-teal px-7 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2">{gated ? <><Icon name="lock" className="w-4 h-4" /> {tr('services.ra.gate.nextCta')}</> : <>{tr('services.ra.next')} <Icon name="arrow-right" className="w-4 h-4" /></>}</button> : <div />}
+                    {step !== 5 ? <button type="button" onClick={next} disabled={localityBusy} className="btn-teal px-7 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2 disabled:opacity-70">{gated ? <><Icon name="lock" className="w-4 h-4" /> {tr('services.ra.gate.nextCta')}</> : <>{tr('services.ra.next')} <Icon name="arrow-right" className="w-4 h-4" /></>}</button> : <div />}
                   </div>
                 </>
               )}

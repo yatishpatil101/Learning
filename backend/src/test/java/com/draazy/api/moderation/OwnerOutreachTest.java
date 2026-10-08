@@ -63,6 +63,15 @@ class OwnerOutreachTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
+    private void saleFlat(User owner, String slug, long price) {
+        Property sale = new Property(owner, "Outreach sale", "buy", "apartment", price, "Kothrud", "Pune");
+        sale.setArea(new BigDecimal("1000"));
+        sale.setPriceUnit("total");
+        sale.setLocalitySlug(slug);
+        sale.setStatus(PropertyStatus.APPROVED);
+        properties.saveAndFlush(sale);
+    }
+
     private String chase(User staff, Property p, String templateId, int expected) throws Exception {
         return mvc.perform(post("/properties/" + p.getId() + "/outreach")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff))
@@ -103,15 +112,16 @@ class OwnerOutreachTest extends AbstractApiTest {
         assertThat(body).contains("Sunita Rao");
     }
 
-    /** A bound locality with no {@code rate_per_sqft} leaves the key standing; {@code akurdi} is one of the 140 without. */
     @Test
-    @DisplayName("a locality with no published rate leaves the key standing rather than guessing")
+    @DisplayName("a locality with fewer than three live sale listings leaves the key standing rather than guessing")
     void unratedLocalityLeavesTheKeyStanding() throws Exception {
         User owner = user("9853000009", "owner", "Nikhil Jadhav");
         User staff = user("9853000010", "staff", "Rhea Desk");
         Property p = listing(owner, true, staff.getId().toString());
         p.setLocalitySlug("akurdi");
         properties.saveAndFlush(p);
+        saleFlat(owner, "akurdi", 10_000_000L);
+        saleFlat(owner, "akurdi", 11_000_000L);
 
         String body = JsonPath.read(chase(staff, p, "wa-pricing", 200), "$.body");
 
@@ -119,17 +129,20 @@ class OwnerOutreachTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("a locality with a published rate is quoted, not guessed at")
+    @DisplayName("the rate is the average asking rate per sq ft of the locality's live sale flats")
     void publishedRateIsQuoted() throws Exception {
         User owner = user("9853000011", "owner", "Anjali More");
         User staff = user("9853000012", "staff", "Kabir Desk");
         Property p = listing(owner, true, staff.getId().toString());
         p.setLocalitySlug("kothrud");
         properties.saveAndFlush(p);
+        saleFlat(owner, "kothrud", 10_000_000L);
+        saleFlat(owner, "kothrud", 11_000_000L);
+        saleFlat(owner, "kothrud", 12_000_000L);
 
         String body = JsonPath.read(chase(staff, p, "wa-pricing", 200), "$.body");
 
-        assertThat(body).contains("11200").doesNotContain("{market_rate}");
+        assertThat(body).contains("11000").doesNotContain("{market_rate}");
     }
 
     @Test

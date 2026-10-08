@@ -39,8 +39,8 @@ const NAV_INDEX_FULL = [
   { label: 'Reports', keywords: 'reports flagged abuse spam moderation', path: '/admin/reports', icon: Flag, flag: 'reports' },
   { label: 'Support', keywords: 'support help tickets complaints issues', path: '/admin/support', icon: LifeBuoy, flag: 'support' },
   { label: 'Flatmates', keywords: 'flatmates roommate matching seekers moderation', path: '/admin/flatmates', icon: Users, flag: 'flatmates' },
-  { label: 'Societies', keywords: 'societies society claim resident verification rwa committee gated community buildings', path: '/admin/societies', icon: Building2, flag: null },
-  { label: 'Localities', keywords: 'localities locality area neighbourhood neighborhood registry pending mint verify curated community pune', path: '/admin/localities', icon: Compass, flag: null },
+  { label: 'Societies', keywords: 'societies society merge duplicate buildings', path: '/admin/societies', icon: Building2, flag: null },
+  { label: 'Localities', keywords: 'localities locality area neighbourhood neighborhood registry community pune', path: '/admin/localities', icon: Compass, flag: null },
   { label: 'Settings', keywords: 'settings configuration preferences site general email notifications sms seo', path: '/admin/settings', icon: Settings, flag: null },
   { label: 'Referrals', keywords: 'referrals ops refer bonus', path: '/admin/referrals', icon: Gift, flag: null },
   { label: 'Help & Runbooks', keywords: 'help runbook runbooks docs documentation guide guides knowledge base handbook playbook ops internal how to', path: '/help/c/ops-playbook', icon: BookOpen, flag: null },
@@ -88,12 +88,10 @@ const FEATURES_INDEX = [
   { label: 'Flatmate Moderation', keywords: 'seekers rooms groups flatmate share roommate posts publish', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
   { label: 'Group Applications', keywords: 'applications join group flatmate', path: '/admin/flatmates', parent: 'Flatmates', flag: 'flatmates' },
 
-  { label: 'Society Claims', keywords: 'society claims rwa committee onboard manage', path: '/admin/societies?tab=claims', parent: 'Societies', flag: null },
-  { label: 'Resident Verifications', keywords: 'resident verification proof live here badge', path: '/admin/societies?tab=residents', parent: 'Societies', flag: null },
+  { label: 'Society Candidates', keywords: 'society candidates merge duplicate minted community', path: '/admin/societies?tab=candidates', parent: 'Societies', flag: null },
   { label: 'Society Directory', keywords: 'society directory catalogue edit overlay maintenance', path: '/admin/societies?tab=directory', parent: 'Societies', flag: null },
 
-  { label: 'Pending Localities', keywords: 'pending localities review verify promote minted community area', path: '/admin/localities?tab=pending', parent: 'Localities', flag: null },
-  { label: 'Locality Directory', keywords: 'locality directory registry curated community areas', path: '/admin/localities?tab=directory', parent: 'Localities', flag: null },
+  { label: 'Locality Directory', keywords: 'locality directory registry community areas retired active', path: '/admin/localities', parent: 'Localities', flag: null },
   /* Three Dashboard entries stood here — Smart Alerts, SLA Health and Daily Scorecard. */
 
   { label: 'Team Performance', keywords: 'staff kpi performance metrics summary leaderboard turnaround', path: '/admin/staff-activity?tab=performance', parent: 'Team Activity', flag: null },
@@ -107,7 +105,7 @@ const FEATURES_INDEX = [
   { label: 'Identity Review', keywords: 'kyc identity id selfie liveness qa revoke runbook internal ops', path: '/help/a/identity-review', parent: 'Runbooks', flag: null },
   { label: 'Ownership & Badges', keywords: 'ownership evidence badge approvals verified badge maker checker runbook internal ops', path: '/help/a/ownership-and-badges', parent: 'Runbooks', flag: null },
   { label: 'Reports & Takedowns', keywords: 'reports trust safety takedown abuse report user chat dismiss runbook internal ops', path: '/help/a/reports-and-takedowns', parent: 'Runbooks', flag: null },
-  { label: 'Society Moderation', keywords: 'society claims residents candidates merge moderation runbook internal ops', path: '/help/a/society-moderation', parent: 'Runbooks', flag: null },
+  { label: 'Society Moderation', keywords: 'society candidates merge directory runbook internal ops', path: '/help/a/society-moderation', parent: 'Runbooks', flag: null },
   { label: 'Post on Behalf Runbook', keywords: 'post on behalf owner call whatsapp listing confirmation runbook internal ops', path: '/help/a/post-on-behalf', parent: 'Runbooks', flag: null },
   { label: 'Drafting Desk Runbook', keywords: 'drafting desk rent agreement registration stamp duty police intimation refund runbook internal ops', path: '/help/a/drafting-desk', parent: 'Runbooks', flag: null },
   { label: 'Service Queues', keywords: 'service queues legal interior packers movers valuation requests runbook internal ops', path: '/help/a/service-queues', parent: 'Runbooks', flag: null },

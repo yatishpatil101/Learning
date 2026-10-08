@@ -5,7 +5,7 @@ const FIELD_INPUTS = {
   type: ['propertyType', 'commercialType'], deal: ['deal'], bhkNum: ['bhk', 'propertyType'],
   price: ['price', 'monthlyRent', 'deal'], deposit: ['deposit', 'deal'],
   maintenance: ['monthlyMaintenance', 'rentMaintenance', 'rentMaintMode', 'deal'], tenants: ['preferredTenants'],
-  negotiable: ['priceNegotiable'], locality: ['locality'],
+  negotiable: ['priceNegotiable'], locality: ['locality', 'localitySlug'], localitySlug: ['locality', 'localitySlug'],
   lat: ['propLat'], lng: ['propLng'], address: ADDRESS_PARTS, societyId: ['societyId'],
   areaUnit: ['areaUnit'],
   landUse: ['propertyType', 'plotZone'],

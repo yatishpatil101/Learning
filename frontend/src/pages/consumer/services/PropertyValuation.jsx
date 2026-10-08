@@ -3,7 +3,6 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { localityNames } from '../../../data/localities.js';
 import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
@@ -62,14 +61,7 @@ export default function PropertyValuation() {
   const draft = useFormDraft('dzDraft:property-valuation', form, setForm, { ignore: ['name', 'mobile', 'ptype'] });
   const err = useFieldErrors(formRef);
 
-  // Every Pune locality (curated registry + user-minted community ones) is
-  // selectable; the 13 with hand-tuned rates lead, the rest use the city avg.
-  const locOptions = useMemo(() => {
-    const known = Object.keys(RATES);
-    const knownLower = new Set(known.map((k) => k.toLowerCase()));
-    const rest = localityNames().filter((n) => !knownLower.has(n.toLowerCase())).sort((a, b) => a.localeCompare(b));
-    return known.concat(rest);
-  }, []);
+  const locOptions = Object.keys(RATES);
 
   const est = useMemo(() => {
     const known = RATES[loc] != null;
@@ -272,7 +264,7 @@ export default function PropertyValuation() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-300 mb-1.5">{tr('services.valuation.location')}</label>
-                        <LocalitySelect value={form.location} onChange={(v) => set('location', v)} options={localityNames()} placeholder={tr('services.valuation.locationPlaceholder')} ariaLabel={tr('services.valuation.location')} className="w-full" />
+                        <LocalitySelect value={form.location} onChange={(v) => set('location', v)} nameOnly placeholder={tr('services.valuation.locationPlaceholder')} ariaLabel={tr('services.valuation.location')} className="w-full" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-300 mb-1.5">{tr('services.valuation.carpetAreaSqft')}</label>

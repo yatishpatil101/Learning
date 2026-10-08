@@ -94,7 +94,8 @@ class RentAgreementDraftApprovalTest extends ServiceFixtures {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"type\":\"rent-agreement\",\"propertyId\":\"" + property.getId()
                                 + "\",\"details\":{\"rent\":" + rentFrom(stateJson) + ",\"deposit\":100000,\"months\":11,"
-                                + "\"startDate\":\"2026-04-01\",\"_state\":" + stateJson + "}}"))
+                                + "\"startDate\":\"2026-04-01\",\"_state\":"
+                                + stateJson.replaceFirst("^\\{", "{\"prop\":{\"gramPanchayat\":false},") + "}}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         String id = field(json, "id");

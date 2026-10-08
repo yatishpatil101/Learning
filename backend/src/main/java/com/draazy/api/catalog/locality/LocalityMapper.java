@@ -4,10 +4,14 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
 
-/** Listing counts stay outside the entity because the cached DB column is not trusted. */
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface LocalityMapper {
 
-    @Mapping(target = "listingCount", source = "listingCount")
-    LocalityResponse toResponse(Locality locality, long listingCount);
+    @Mapping(target = "liveListings", source = "stats.live")
+    @Mapping(target = "rentListings", source = "stats.rent")
+    @Mapping(target = "saleListings", source = "stats.sale")
+    @Mapping(target = "indexable", expression = "java(stats.indexable())")
+    @Mapping(target = "avgRent", source = "stats.avgRent")
+    @Mapping(target = "ratePerSqft", source = "stats.ratePerSqft")
+    LocalityResponse toResponse(Locality locality, LocalityStats stats);
 }

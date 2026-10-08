@@ -285,7 +285,9 @@ export function stepErrors(step, form, now = new Date()) {
   const bounds = startDateBounds(now);
   if (step === 0) {
     const { prop } = form;
-    ['flatNo', 'society', 'locality', 'taluka', 'villageCity'].forEach((k) => { if (blank(prop[k])) e[k] = 'required'; });
+    ['flatNo', 'locality', 'taluka', 'villageCity'].forEach((k) => { if (blank(prop[k])) e[k] = 'required'; });
+    if (blank(prop.society)) e.society = 'required';
+    if (typeof prop.gramPanchayat !== 'boolean') e.gramPanchayat = 'required';
     if (!blank(prop.taluka) && !PUNE_TALUKAS.includes(prop.taluka)) e.taluka = 'format';
     if (!/^\d{6}$/.test(prop.pincode)) e.pincode = 'format';
     else if (!MH_PINCODE.test(prop.pincode)) e.pincode = 'state';

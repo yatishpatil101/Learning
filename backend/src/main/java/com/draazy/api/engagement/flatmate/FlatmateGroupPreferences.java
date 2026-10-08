@@ -24,6 +24,11 @@ public record FlatmateGroupPreferences(
 
     public static final int MAX_LOCALITIES = 3;
 
+    FlatmateGroupPreferences withLocalities(List<String> canonical) {
+        return new FlatmateGroupPreferences(canonical, bhk, rentMin, rentMax, depositMin, depositMax,
+                gatedOnly, bachelors, furnishing, moveInBy);
+    }
+
     FlatmateGroupPreferences normalised() {
         List<String> locs = List.copyOf(new LinkedHashSet<>(localities.stream().map(String::strip).toList()));
         List<String> sizes = bhk == null ? List.of() : List.copyOf(new LinkedHashSet<>(bhk.stream()

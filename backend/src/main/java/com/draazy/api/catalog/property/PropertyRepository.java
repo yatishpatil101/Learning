@@ -168,6 +168,25 @@ public interface PropertyRepository
             group by p.localitySlug""")
     List<Object[]> countLiveByLocalitySlug(@Param("status") String status);
 
+    /** One grouped pass over live listings: counts, then the flat samples behind the rent and rate
+     * averages. Rows are [slug, live, rent, sale, rentFlats, avgRent, saleFlatsWithArea, avgRate]. */
+    @Query(nativeQuery = true, value = """
+            select p.locality_slug,
+                   count(*),
+                   count(*) filter (where p.deal = 'rent'),
+                   count(*) filter (where p.deal = 'buy'),
+                   count(*) filter (where p.deal = 'rent' and p.property_type_key = 'flat'),
+                   avg(p.price) filter (where p.deal = 'rent' and p.property_type_key = 'flat'),
+                   count(*) filter (where p.deal = 'buy' and p.property_type_key = 'flat'
+                                      and p.area > 0 and coalesce(lower(p.area_unit), 'sqft') = 'sqft'),
+                   avg(p.price / p.area) filter (where p.deal = 'buy' and p.property_type_key = 'flat'
+                                      and p.area > 0 and coalesce(lower(p.area_unit), 'sqft') = 'sqft')
+            from properties p
+            where p.status = :status and p.archived = false and p.locality_slug is not null
+              and (cast(:slug as text) is null or p.locality_slug = cast(:slug as text))
+            group by p.locality_slug""")
+    List<Object[]> liveLocalityStats(@Param("status") String status, @Param("slug") String slug);
+
     @Query("""
             select p.societyId, count(p)
             from Property p
@@ -183,20 +202,6 @@ public interface PropertyRepository
     List<Object[]> countLiveByCity(@Param("status") String status);
 
     long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
-
-    /** Listings the resolver could not place - the curation queue, and the exact complement of
-     * {@link #countLiveByLocalitySlug}: a null slug is invisible to every locality-keyed read. */
-    @Query("""
-            select p from Property p
-            where p.localitySlug is null and p.archived = false and p.status in :statuses
-            order by p.createdAt asc""")
-    List<Property> findAwaitingLocality(@Param("statuses") Collection<String> statuses,
-            Pageable limit);
-
-    @Query("""
-            select count(p) from Property p
-            where p.localitySlug is null and p.archived = false and p.status in :statuses""")
-    long countAwaitingLocality(@Param("statuses") Collection<String> statuses);
 
     /** How many listings this owner currently has live. Counted, never {@code users.listings_count},
      * which tallies every row ever posted (docs/system/data-model.md). */

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -9,12 +9,13 @@ import FieldError from '../../../components/ui/FieldError.jsx';
 import HeadlineField from '../../../components/ui/HeadlineField.jsx';
 import AmountInput from './AmountInput.jsx';
 import MoveInField from './MoveInField.jsx';
-import { LOCALITIES, MAX_LOCALITIES, TAGS } from './constants.js';
+import { MAX_LOCALITIES, TAGS } from './constants.js';
 import { seekerHeadline } from './helpers.js';
 import isTopDialog from '../../../lib/isTopDialog.js';
 import useScrollLock from '../../../hooks/useScrollLock.js';
 
 export default function PostModal({ setPostOpen, submitPost, postFormRef, postDraft, post, setPost, postErr, editingId }) {
+  const [localityBusy, setLocalityBusy] = useState(false);
   const { t: tr } = useTranslation();
   const panelRef = useRef(null);
   /* Without the lock a thumb that reaches the end of this form goes on scrolling the results
@@ -62,11 +63,11 @@ export default function PostModal({ setPostOpen, submitPost, postFormRef, postDr
                 autoClose
                 values={post.localities}
                 onChange={(arr) => { if (arr.length <= MAX_LOCALITIES) { setPost({ ...post, localities: arr }); postErr.clear('localities'); } }}
-                options={LOCALITIES}
                 placeholder={tr('flatmates.addLocalities')}
                 invalid={postErr.has('localities')}
                 dataErr="localities"
                 ariaLabel={tr('flatmates.preferredLocalities')}
+                onBusyChange={setLocalityBusy}
               />
               <FieldError show={postErr.has('localities')}>{postErr.msg('localities')}</FieldError>
             </div>
@@ -106,7 +107,7 @@ export default function PostModal({ setPostOpen, submitPost, postFormRef, postDr
           </label>
           <div className="flex items-center justify-end gap-3 pt-1">
             <button type="button" onClick={() => setPostOpen(false)} className="btn-ghost text-sm font-medium text-gray-300 px-5 py-2.5 rounded-xl">{tr('flatmates.cancel')}</button>
-            <button type="submit" className="btn-teal text-sm font-semibold text-white px-6 py-2.5 rounded-xl inline-flex items-center gap-2"><Icon name="send" className="w-4 h-4" /> {editingId ? tr('flatmates.updateRequest') : tr('flatmates.postRequestBtn')}</button>
+            <button type="submit" disabled={localityBusy} className="btn-teal text-sm font-semibold text-white px-6 py-2.5 rounded-xl inline-flex items-center gap-2 disabled:opacity-70"><Icon name="send" className="w-4 h-4" /> {editingId ? tr('flatmates.updateRequest') : tr('flatmates.postRequestBtn')}</button>
           </div>
         </form>
       </div>

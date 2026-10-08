@@ -1,5 +1,6 @@
 package com.draazy.api.catalog.property;
 
+import com.draazy.api.catalog.locality.LocalityRepository;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.web.Ids;
 import java.time.Instant;
@@ -22,16 +23,18 @@ public class PropertyService {
     private static final int FEATURED_CAP = 12;
 
     private final PropertyRepository properties;
+    private final LocalityRepository localities;
 
-    public PropertyService(PropertyRepository properties) {
+    public PropertyService(PropertyRepository properties, LocalityRepository localities) {
         this.properties = properties;
+        this.localities = localities;
     }
 
     @Transactional(readOnly = true)
     public SearchResult searchWithTotals(PropertySearchQuery filters, ListingFacets extra,
             Pageable pageable, PropertySort.Rank rank) {
         Pageable safe = PropertySort.sanitize(pageable);
-        Specification<Property> match = PropertySpecs.publicSearch(filters, extra);
+        Specification<Property> match = PropertySpecs.publicSearch(filters, extra, localityCenter(filters.locality()));
         Instant now = Instant.now();
 
         Specification<Property> ordered;
@@ -57,6 +60,17 @@ public class PropertyService {
         // a client reading `sort` off the response would be told about an order that was overridden.
         return new SearchResult(new PageImpl<>(rows, exec, totals.total()), totals.verified(),
                 totals.unstated());
+    }
+
+    /** Null for a blank or unknown slug, or a locality with no pin: those match on the slug alone. */
+    private PropertySpecs.LocalityPoint localityCenter(String slug) {
+        if (slug == null || slug.isBlank()) {
+            return null;
+        }
+        return localities.findById(slug)
+                .filter(l -> l.getLat() != null && l.getLng() != null)
+                .map(l -> new PropertySpecs.LocalityPoint(l.getLat(), l.getLng()))
+                .orElse(null);
     }
 
     /** The two counts describe the whole match, not the page, so neither fits in a {@link Page}. */

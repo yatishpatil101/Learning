@@ -1,7 +1,6 @@
 package com.draazy.api.moderation.property;
 
-import com.draazy.api.catalog.locality.Locality;
-import com.draazy.api.catalog.locality.LocalityRepository;
+import com.draazy.api.catalog.locality.LocalityService;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.common.audit.AuditService;
@@ -15,7 +14,6 @@ import com.draazy.api.engagement.messaging.OutboundMessageRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
-import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,7 +36,7 @@ public class OwnerOutreachService {
     private final OutboundMessageRepository ledger;
     private final AuditService audit;
     private final UserRepository users;
-    private final LocalityRepository localities;
+    private final LocalityService localities;
     private final String baseUrl;
 
     public OwnerOutreachService(
@@ -47,7 +45,7 @@ public class OwnerOutreachService {
             OutboundMessageRepository ledger,
             AuditService audit,
             UserRepository users,
-            LocalityRepository localities,
+            LocalityService localities,
             @Value("${draazy.app.base-url}") String baseUrl) {
         this.properties = properties;
         this.sender = sender;
@@ -126,16 +124,12 @@ public class OwnerOutreachService {
         return vars;
     }
 
-    // Active only because a retired locality rate is one we have dropped.
     private String marketRate(Property property) {
         String slug = property.getLocalitySlug();
         if (!StringUtils.hasText(slug)) {
             return null;
         }
-        BigDecimal rate = localities.findBySlugAndActiveTrue(slug)
-                .map(Locality::getRatePerSqft)
-                .orElse(null);
-        return rate == null ? null : rate.stripTrailingZeros().toPlainString();
+        return localities.marketRate(slug).map(String::valueOf).orElse(null);
     }
 
     // Read from the row, not the token, so name changes take effect immediately.

@@ -1,6 +1,6 @@
 import { Home, Images, IndianRupee, MapPin } from 'lucide-react';
 import {
-  localities, floorOptions, totalFloorsOptions,
+  floorOptions, totalFloorsOptions,
   shellOptions, naStatusOptions, otherRightsOptions, buyerEligibilityOptions,
   PROPERTY_TYPES, commercialSubtypeOptions, commercialLabelOf,
   isLandType, landUseFor, DEPOSIT_MONTHS,
@@ -9,7 +9,7 @@ import {
 /* Shared canonical option data, imported from the consumer "Post a property" flow
    so the two forms can never drift apart. Re-exported for the wizard steps. */
 export {
-  localities, floorOptions, totalFloorsOptions,
+  floorOptions, totalFloorsOptions,
   naStatusOptions, otherRightsOptions, buyerEligibilityOptions,
   commercialSubtypeOptions, commercialLabelOf,
   isLandType, landUseFor, DEPOSIT_MONTHS,
@@ -62,7 +62,7 @@ export const INITIAL_FORM = {
   deal: 'rent', propertyType: '', commercialType: '', bhk: '', carpetArea: '',
   floor: '', totalFloors: '', furnishing: 'unfurnished', shellType: '',
   naStatus: '', otherRights: '', buyerEligibility: '',
-  locality: '', society: '', societyId: '', lat: null, lng: null, pincode: '', address: '',
+  locality: '', localitySlug: '', society: '', societyId: '', lat: null, lng: null, pincode: '', address: '',
   price: '', deposit: '', availableFrom: '', possession: 'ready', reraId: '',
   photos: [],
 };

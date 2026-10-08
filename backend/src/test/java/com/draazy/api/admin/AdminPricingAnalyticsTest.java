@@ -25,16 +25,8 @@ import org.springframework.http.HttpHeaders;
 
 /** {@code /admin/analytics/pricing}. Every locality is created by the test, under a slug nothing
  *  else uses, with prices chosen so each wrong implementation reports a different number. */
-@DisplayName("/admin/analytics/pricing — asking price against the curated rate")
+@DisplayName("/admin/analytics/pricing — what live flats are asked for, from the listings alone")
 class AdminPricingAnalyticsTest extends AbstractApiTest {
-
-    /** The curated capital rate on every fixture locality. Unlike any average the tests expect. */
-    private static final long MARKET_RATE = 9_000L;
-
-    /** The curated monthly rent reference. Carried through untouched, so it is asserted as-is. */
-    private static final long AVG_RENT = 27_000L;
-
-    private static final int DEMAND = 71;
 
     @Autowired UserRepository users;
     @Autowired PropertyRepository properties;
@@ -69,12 +61,9 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    /** An active locality with a full set of curated figures, so nothing is null by accident. */
     private void locality(String slug) {
-        jdbc.update("""
-                insert into localities (slug, name, city, rate_per_sqft, avg_rent, demand, active)
-                values (?, ?, 'Pune', ?, ?, ?, true)
-                """, slug, "Fixture " + slug, MARKET_RATE, AVG_RENT, DEMAND);
+        jdbc.update("insert into localities (slug, name, city, active) values (?, ?, 'Pune', true)",
+                slug, "Fixture " + slug);
     }
 
     /** {@code area} is a {@code BigDecimal} so a test can hand in null or zero, the case the
@@ -118,19 +107,19 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         listing(slug, "buy", 11_000_000L, new BigDecimal("1000"), "1b");
         listing(slug, "buy", 12_000_000L, new BigDecimal("1000"), "2");
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "3");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "3b");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "3c");
 
         Map<String, Object> row = row(admin(), slug);
 
         assertThat(row.get("name")).isEqualTo("Fixture " + slug);
-        assertThat(num(row, "marketRatePerSqft")).isEqualTo(MARKET_RATE);
-        assertThat(num(row, "avgActualRatePerSqft"))
-                .as("the mean of the three asking rates, not the curated ₹%d", MARKET_RATE)
-                .isEqualTo(11_000L);
-        assertThat(num(row, "avgRent")).isEqualTo(AVG_RENT);
+        assertThat(num(row, "avgActualRatePerSqft")).isEqualTo(11_000L);
+        assertThat(num(row, "avgRent")).isEqualTo(30_000L);
+        assertThat(((Number) row.get("rentalYieldPct")).doubleValue()).isEqualTo(3.3);
         assertThat(num(row, "buyCount")).isEqualTo(3L);
-        assertThat(num(row, "rentCount")).isEqualTo(1L);
-        assertThat(num(row, "totalListings")).isEqualTo(4L);
-        assertThat(num(row, "demand")).isEqualTo((long) DEMAND);
+        assertThat(num(row, "rentCount")).isEqualTo(3L);
+        assertThat(num(row, "totalListings")).isEqualTo(6L);
+        assertThat(row).doesNotContainKeys("marketRatePerSqft", "demand");
     }
 
     /** One or two listings are an owner's opinion, not a locality's price, and a verdict of
@@ -146,6 +135,7 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         Map<String, Object> row = row(admin(), slug);
 
         assertThat(row.get("avgActualRatePerSqft")).isNull();
+        assertThat(row.get("avgRent")).isNull();
         assertThat(row.get("rentalYieldPct")).isNull();
         assertThat(num(row, "buyCount")).as("still supply").isEqualTo(2L);
     }
@@ -168,7 +158,7 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(num(row, "buyCount")).as("every type is still supply").isEqualTo(5L);
     }
 
-    /** The only figure combining both halves of the schema: a missing ×12 reports 0.3, and dividing
+    /** The only figure combining both halves: a missing ×12 reports 0.3, and dividing
      *  by the monthly rent reports something absurd. */
     @Test
     void rentalYieldAnnualisesTheAskingRentOverTheCapitalRate() throws Exception {
@@ -177,16 +167,30 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4");
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4b");
         listing(slug, "rent", 30_000L, new BigDecimal("1000"), "4c");
+        listing(slug, "buy", 9_000_000L, new BigDecimal("1000"), "4d");
+        listing(slug, "buy", 9_000_000L, new BigDecimal("1000"), "4e");
+        listing(slug, "buy", 9_000_000L, new BigDecimal("1000"), "4f");
 
         Map<String, Object> row = row(admin(), slug);
 
         assertThat(((Number) row.get("rentalYieldPct")).doubleValue()).isEqualTo(4.0);
     }
 
-    /** Falling back to the curated rate gives an empty locality a deviation of exactly zero, which
+    @Test
+    void rentalYieldNeedsBothSidesSampled() throws Exception {
+        String slug = "d999-pricing-yield-one-sided";
+        locality(slug);
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "y1");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "y2");
+        listing(slug, "rent", 30_000L, new BigDecimal("1000"), "y3");
+
+        assertThat(row(admin(), slug).get("rentalYieldPct")).isNull();
+    }
+
+    /** A fallback figure gives an empty locality a deviation of exactly zero, which
      *  reads as the best-priced place in the city. */
     @Test
-    void aLocalityWithNoApprovedListingsReportsNullNotTheMarketRate() throws Exception {
+    void aLocalityWithNoApprovedListingsReportsNull() throws Exception {
         String slug = "d999-pricing-empty";
         locality(slug);
 
@@ -196,14 +200,11 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
                 .as("the field is present and null, not omitted — an absent key invites a ?? on the client")
                 .containsKey("avgActualRatePerSqft");
         assertThat(row.get("avgActualRatePerSqft"))
-                .as("no listings means no average, and emphatically not ₹%d", MARKET_RATE)
+                .as("no listings means no average")
                 .isNull();
         assertThat(row.get("rentalYieldPct"))
                 .as("nothing is let here, so there is no yield to report")
                 .isNull();
-        assertThat(num(row, "marketRatePerSqft"))
-                .as("the curated side is still known, which is what makes the null meaningful")
-                .isEqualTo(MARKET_RATE);
         assertThat(num(row, "totalListings")).isZero();
         assertThat(num(row, "buyCount")).isZero();
     }
@@ -284,12 +285,16 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
         assertThat(num(row, "totalListings")).isEqualTo(3L);
     }
 
-    /** An inactive locality is not part of the catalogue and is not part of the report. */
+    /** A non-live locality is reported only while approved listings are still bound to it. */
     @Test
-    void anInactiveLocalityIsNotReported() throws Exception {
-        String slug = "d999-pricing-inactive";
+    void aRetiredLocalityIsReportedOnlyWhileItHasLiveListings() throws Exception {
+        String slug = "d999-pricing-retired";
         locality(slug);
-        jdbc.update("update localities set active = false where slug = ?", slug);
+        jdbc.update("update localities set archived_at = now() where slug = ?", slug);
+        String busy = "d999-pricing-retired-live";
+        locality(busy);
+        jdbc.update("update localities set archived_at = now() where slug = ?", busy);
+        listing(busy, "buy", 10_000_000L, new BigDecimal("1000"), "r1");
 
         String json = mvc.perform(get(Routes.Admin.ANALYTICS_PRICING)
                         .header(HttpHeaders.AUTHORIZATION, admin()))
@@ -298,5 +303,6 @@ class AdminPricingAnalyticsTest extends AbstractApiTest {
 
         assertThat(JsonPath.read(json, "$[?(@.slug=='" + slug + "')]").toString())
                 .isEqualTo("[]");
+        assertThat(JsonPath.<List<Object>>read(json, "$[?(@.slug=='" + busy + "')]")).hasSize(1);
     }
 }

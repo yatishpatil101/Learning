@@ -1,5 +1,6 @@
 package com.draazy.api.engagement.flatmate;
 
+import com.draazy.api.catalog.locality.LocalityBinding;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
@@ -22,14 +23,17 @@ public class FlatmateModeratorEditService {
     private final FlatmateGroupRepository groups;
     private final FlatmateGuardrails guardrails;
     private final AuditService audit;
+    private final LocalityBinding localityBinding;
 
     FlatmateModeratorEditService(FlatmateSeekerPostRepository posts, FlatmateRoomRepository rooms,
-            FlatmateGroupRepository groups, FlatmateGuardrails guardrails, AuditService audit) {
+            FlatmateGroupRepository groups, FlatmateGuardrails guardrails, AuditService audit,
+            LocalityBinding localityBinding) {
         this.posts = posts;
         this.rooms = rooms;
         this.groups = groups;
         this.guardrails = guardrails;
         this.audit = audit;
+        this.localityBinding = localityBinding;
     }
 
     @Transactional
@@ -56,7 +60,8 @@ public class FlatmateModeratorEditService {
             post.setBudget(body.rent());
         }
         if (body.localities() != null) {
-            post.setLocalities(FlatmateSeekerService.clean(body.localities()));
+            post.setLocalities(localityBinding.canonicalNames(
+                    FlatmateSeekerService.clean(body.localities()), post.getLocalities()));
         }
         if (body.moveIn() != null) {
             post.setMoveIn(body.moveIn().toString());
@@ -80,7 +85,8 @@ public class FlatmateModeratorEditService {
             room.setDeposit(body.deposit());
         }
         if (body.localities() != null) {
-            String locality = single(body.localities());
+            String locality = single(localityBinding.canonicalNames(
+                    FlatmateSeekerService.clean(body.localities()), room.getLocalities()));
             if (room.isSplitRoom() && !locality.equals(room.getLocality())) {
                 throw new ConflictException(FlatmateConflicts.mark(
                         "This room came from splitting a flat, so its locality is the flat's. "
@@ -118,7 +124,8 @@ public class FlatmateModeratorEditService {
             group.setDeposit(body.deposit());
         }
         if (body.localities() != null) {
-            List<String> localities = FlatmateSeekerService.clean(body.localities());
+            List<String> localities = localityBinding.canonicalNames(
+                    FlatmateSeekerService.clean(body.localities()), group.getLocalities());
             refuse(localities.isEmpty(), "A group needs a locality.");
             refuse(localities.size() > (group.isHunting() ? FlatmateGroupPreferences.MAX_LOCALITIES : 1),
                     "Too many localities for this group.");
@@ -144,9 +151,8 @@ public class FlatmateModeratorEditService {
     }
 
     private static String single(List<String> localities) {
-        List<String> clean = FlatmateSeekerService.clean(localities);
-        refuse(clean.size() != 1, "A room has exactly one locality.");
-        return clean.get(0);
+        refuse(localities.size() != 1, "A room has exactly one locality.");
+        return localities.get(0);
     }
 
     private static void refuse(boolean condition, String message) {

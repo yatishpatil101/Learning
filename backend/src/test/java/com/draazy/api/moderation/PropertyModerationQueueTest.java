@@ -57,8 +57,7 @@ class PropertyModerationQueueTest extends AbstractApiTest {
         p.setArea(new BigDecimal("950"));
         p.setStatus(status);
 
-        // Repository saves skip LocalityResolver; file the fixture so queue tests
-        // do not fail on locality approval.
+        // Filed, so queue tests do not fail on locality approval.
         p.setLocalitySlug("baner");
         return properties.saveAndFlush(p);
     }

@@ -390,6 +390,20 @@ class ListingSearchTest extends AbstractApiTest {
         }
 
         @Test
+        @DisplayName("a blank registration number is not a RERA registration")
+        void blankReraIsNotRegistered() throws Exception {
+            Property registered = buy("Registered project");
+            registered.setReraId("P52100012345");
+            Property blank = buy("Wizard left it empty");
+            blank.setReraId("");
+            persist(registered);
+            persist(blank);
+            persist(buy("Never stated"));
+
+            assertThat(count("rera=true&owner=" + seller.getId())).isEqualTo(1);
+        }
+
+        @Test
         @DisplayName("amenities AND — two ticks are two requirements, not two alternatives")
         void amenitiesAreConjunctive() throws Exception {
             Property both = rent("Lift and parking");

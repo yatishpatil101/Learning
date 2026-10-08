@@ -7,6 +7,7 @@ import com.draazy.api.security.Roles;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -28,6 +29,36 @@ public abstract class AbstractApiTest {
 
     @Autowired
     protected JdbcTemplate jdbc;
+
+    private static final List<String> COMMON_LOCALITIES = commonLocalities();
+
+    private static List<String> commonLocalities() {
+        List<String> names = new ArrayList<>(List.of("Baner", "Kothrud", "Aundh", "Kharadi", "Viman Nagar",
+                "Wakad", "Hinjewadi", "Undri", "Magarpatta", "Kalyani Nagar", "DetailTown", "LimitTown", "BudgetFacetTown", "BudgetPostTown",
+                "DoubleRoomTown", "ExpiryTown", "GenderFacetTown", "RentFacetTown", "VerdictTown"));
+        for (char c = 'A'; c <= 'Z'; c++) {
+            for (String prefix : List.of("EditTown", "GateTown", "ExpiryTown", "VerdictTown")) {
+                names.add(prefix + c);
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    @BeforeEach
+    void commonLocalitiesAreLive() {
+        liveLocality(COMMON_LOCALITIES.toArray(String[]::new));
+    }
+
+    /** Makes each name a live, picked locality for this test (rolled back with it); revives a retired seeded row. */
+    protected void liveLocality(String... names) {
+        jdbc.update("""
+                insert into localities (slug, name, city, lat, lng, place_id, active, archived_at)
+                select slug, n, 'Pune', 18.52, 73.85, 'fixture-' || slug, true, null
+                from (select n, trim(both '-' from regexp_replace(lower(n), '[^a-z0-9]+', '-', 'g')) as slug
+                      from unnest(?::text[]) as n) names
+                on conflict (slug) do update set archived_at = null, active = true
+                """, (Object) names);
+    }
 
     protected String bearer(User u) {
         grantLegacyStaffFunctions(u);
@@ -51,6 +82,23 @@ public abstract class AbstractApiTest {
         jdbc.update("INSERT INTO back_office_permissions (user_id, permissions) VALUES (?, ?::jsonb) "
                 + "ON CONFLICT DO NOTHING", u.getId(),
                 "[\"" + String.join("\",\"", functions) + "\"]");
+    }
+
+    private static final java.util.regex.Pattern SOCIETY_TEXT =
+            java.util.regex.Pattern.compile("\"society\"\\s*:\\s*\"([^\"]+)\"");
+
+    /** A community society with this name, created on first use; returns its id. */
+    protected UUID societyNamed(String name) {
+        String slug = name.toLowerCase().replaceAll("[^a-z0-9]+", "-");
+        jdbc.update("INSERT INTO societies (slug, name, source, place_id) VALUES (?, ?, 'community', ?) "
+                + "ON CONFLICT (slug) DO NOTHING", slug, name, "test-" + slug);
+        return jdbc.queryForObject("SELECT id FROM societies WHERE slug = ?", UUID.class, slug);
+    }
+
+    /** Rewrites a legacy typed {@code "society":"X"} body field into the {@code societyId} the API now takes. */
+    protected String withSocietyIds(String json) {
+        return SOCIETY_TEXT.matcher(json).replaceAll(m ->
+                "\"societyId\":\"" + societyNamed(m.group(1)) + "\"");
     }
 
     protected String listingPhoto(User owner) {

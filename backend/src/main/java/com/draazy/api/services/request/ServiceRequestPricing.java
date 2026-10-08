@@ -117,6 +117,11 @@ public class ServiceRequestPricing {
         }
     }
 
+    static boolean rentStated(Map<String, Object> details) {
+        Long rent = rupees(details.get("rent"), childObject(childObject(details, "_state"), "terms").get("rent"));
+        return rent != null && rent > 0L;
+    }
+
     static boolean samePricedTerms(Map<String, Object> before, Map<String, Object> after) {
         return Objects.equals(leaveAndLicenceTerms(before), leaveAndLicenceTerms(after));
     }

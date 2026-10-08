@@ -7,7 +7,6 @@ import {
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { formatIndian } from './format.js';
 import { commercialLabelOf, COMMERCIAL_SPEC_KEYS, FLOOR_PLAN_CATEGORY, isResidentialType, isCommercialType, isLandType, isHouseType, landUseFor } from './constants.js';
-import { matchLocalityToCanonical } from '../../../data/localities.js';
 import {
   classifyChanges, displayValue, recentMaterialEdits,
   FOUNDATION_STAYS_LIVE_KEYS,
@@ -107,13 +106,7 @@ export const persistListing = async ({ form, user, editId, editListing, photos }
     const priceNum = parseAmount(isRent ? form.monthlyRent : form.price);
     const priceStr = isRent ? `₹${formatIndian(form.monthlyRent)}/mo` : `₹${formatIndian(form.price)}`;
     const areaNum = Number(form.carpetArea || form.builtUp) || undefined;
-    // An unmatched locality yields no slug, mirroring the server's resolver: minting one from free
-    // text splits an area into three unchecked slugs, pages and facets.
-    let localitySlug = '';
-    if (form.locality) {
-      const canon = matchLocalityToCanonical(form.locality, form.propLat, form.propLng);
-      if (canon) localitySlug = canon.slug;
-    }
+    const localitySlug = form.locality ? form.localitySlug || '' : '';
     const loc = [form.society, form.locality, 'Pune'].filter(Boolean).join(', ');
 
     /* Only URLs that outlive this tab. */
@@ -134,9 +127,7 @@ export const persistListing = async ({ form, user, editId, editListing, photos }
       id: listingId,
       title,
       type: typeLabel,
-      // Only a residential unit sits inside a society, so land/commercial never carry a societyId
-      // even when one lingers in form state from an earlier type choice.
-      societyId: (isLandType(form.propertyType) || isCommercialType(form.propertyType)) ? '' : (form.societyId || ''),
+      societyId: form.societyId || '',
       bhk: bhkLabel,
       bhkNum: bhkLabel ? (parseInt(form.bhk, 10) || 0) : 0,
       bath: isResidentialType(form.propertyType) ? (parseInt(form.bathrooms, 10) || 0) : 0,

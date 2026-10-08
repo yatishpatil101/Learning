@@ -20,7 +20,7 @@
     "saveFailed": "Could not update your shortlist. Please try again.",
     "fBudget": "Budget",
     "fLocality": "Locality",
-    "anyLocality": "Any locality",
+    "searchLocalityPlaceholder": "Search a locality",
     "fNearPlace": "Near a place",
     "fMoveIn": "Move-in",
     "immediate": "Immediate",

@@ -227,6 +227,21 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
     }
 
     @Test
+    void publish_acceptsARecordBoundToARetiredLocality() throws Exception {
+        User owner = user("9831003099");
+        String id = register(owner, flat("Baner", 25000));
+        jdbc.update("insert into localities (slug, name, city, active, archived_at) "
+                + "values ('zzold-baner', 'Zzold Baner', 'Pune', false, now())");
+        jdbc.update("update managed_properties set locality = 'Zzold Baner', locality_slug = 'zzold-baner' "
+                + "where id = ?::uuid", id);
+
+        mvc.perform(post(Routes.MeManagedProperties.BASE + "/" + id + "/publish")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("published"));
+    }
+
+    @Test
     void publish_isIdempotent_noSecondListing() throws Exception {
         User owner = user("9831003018");
         String id = register(owner, flat("Baner", 25000));

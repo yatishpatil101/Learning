@@ -133,6 +133,7 @@ export function toViewModel(p) {
     locality: p.locality,
     localitySlug: p.localitySlug,
     societySlug: p.societySlug,
+    societyName: p.societyName ?? null,
     societyId: p.societyId ?? null,
     city: p.city,
     lat: p.lat,
@@ -191,8 +192,6 @@ export function toViewModel(p) {
     // Null stays null: the detail page renders it as a question, and `?? false` would publish the
     // owner's silence as "not allowed".
     pets: p.pets ?? null,
-    societyVerified: p.societyVerified ?? false,
-    conveyanceDone: p.conveyanceDone ?? false,
     shareType: p.room ? 'flatmates' : null,
   };
 }
@@ -205,6 +204,7 @@ export function toQuery(filters = {}, sort = 'newest') {
     deal: filters.deal,
     type: filters.type,
     locality: filters.locality,
+    societies: filters.society,
     bhk: filters.bhk,
     minPrice: filters.minPrice,
     maxPrice: filters.maxPrice,
@@ -271,6 +271,7 @@ export function toEditForm(vm = {}) {
     areaUnit: vm.areaUnit ?? '',
     furnishing: vm.furnishing ?? '',
     locality: vm.locality ?? '',
+    localitySlug: vm.localitySlug ?? '',
     ...(isRent ? { monthlyRent: price, price: '' } : { price, monthlyRent: '' }),
     deposit: formString(vm.deposit),
     rentMaintenance: isRent ? formString(vm.maintenance) : '',
@@ -368,6 +369,7 @@ export function toListingCreate(listing = {}) {
     propertyType: listing.type ?? listing.propertyType,
     price: listing.price,
     locality: listing.locality,
+    localitySlug: listing.localitySlug || undefined,
     city: listing.city ?? 'Pune',
     bhk: listing.bhkNum ?? listing.bhk ?? undefined,
     area: listing.area,
@@ -426,6 +428,8 @@ export function toListingUpdate(patch = {}) {
     /* Same reasoning for the pet policy: an absent `pets` means "leave it alone", so an owner who
        cleared their answer needs a word for it or the old claim stands. */
     ...('pets' in patch && typeof patch.pets !== 'boolean' ? { clearPets: true } : {}),
+    // '' is the PATCH word for "unbind the society"; undefined would leave it standing.
+    ...('societyId' in patch && !patch.societyId ? { societyId: '' } : {}),
   }).filter(([key, value]) =>
     value !== undefined && (key !== 'city' || patch.city !== undefined)
       && (key !== 'address' || patch.address !== undefined)));

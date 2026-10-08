@@ -95,8 +95,7 @@ class ListingFoundationTest extends AbstractApiTest {
         p.setFurnishing("unfurnished");
         p.setPossession("under-construction");
 
-        // Filed, because saving through the repository skips LocalityResolver and re-approval refuses an
-        // unfiled listing.
+        // Filed, because re-approval refuses an unfiled listing.
         p.setLocalitySlug("kothrud");
         return properties.saveAndFlush(p);
     }

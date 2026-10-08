@@ -2,13 +2,8 @@
 
 /* Hero types mirror the browse taxonomy so a search maps 1:1 to the listings filter, sub-filters included. */
 export { HOME_TYPE_OPTS as TYPE_OPTS, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
-import { localityNames } from './localities.js';
 
-/* The searchable locality universe is owned by the canonical registry
-   (data/localities.js) — one source of truth across Home, List-Property and
-   Flatmate. CITY_POPULAR and NEARBY below stay editorial (curated adjacency the
-   registry doesn't model), keyed so each city surfaces only its own localities. */
-export const ALL_LOCS = localityNames();
+/* CITY_POPULAR and NEARBY are curated names, never a locality registry: a name becomes a search token only through its slug. */
 
 export const NEARBY = {
   Baner: ['Balewadi', 'Aundh', 'Pashan', 'Sus', 'Wakad'],

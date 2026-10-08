@@ -15,7 +15,6 @@ import { collectDocs as collectFormDocs, draftDocRefs, removeIndexedDocs, slotFo
 import { useRaFurniture } from './useRaFurniture.js';
 import { useRaPayment } from './useRaPayment.js';
 import { getDealFees } from '../../../../services/feesService.js';
-import { isGramPanchayat } from '../../../../data/localities.js';
 import { myListing, myListings } from '../../../../services/propertyService.js';
 import {
   addServiceRequestDoc,
@@ -106,7 +105,7 @@ export function useRentAgreement() {
 
   const [terms, setTerms] = useState(emptyTerms());
   const [maint, setMaint] = useState('Tenant');
-  const regArea = isGramPanchayat(prop.locality) ? 'rural' : 'urban';
+  const regArea = prop.gramPanchayat ? 'rural' : 'urban';
   const { furnItems, setFurnItems, custom, setCustom, isChecked, toggleFurn, bumpQty, removeFurn, addCustom, furnitureText } = useRaFurniture();
   const [clauses, setClauses] = useState('');
   // Step 5 — Witnesses

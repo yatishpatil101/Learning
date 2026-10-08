@@ -80,6 +80,11 @@ class RentAgreementReadiness {
         need(missing, prop.get("society"), "Society / building");
         need(missing, prop.get("locality"), "Locality");
         need(missing, prop.get("pincode"), "Pincode");
+        boolean areaStamped = stated(details.get("regArea"))
+                || stated(state.get("regArea"));
+        if (!areaStamped && !(prop.get("gramPanchayat") instanceof Boolean)) {
+            missing.add("Gram panchayat (Yes or No)");
+        }
         need(missing, prop.get("area"), "Area");
         if (!RESIDENTIAL.contains(String.valueOf(prop.get("propType")))) {
             missing.add("A residential property type");
@@ -116,8 +121,12 @@ class RentAgreementReadiness {
         return missing;
     }
 
+    private static boolean stated(Object value) {
+        return value != null && !value.toString().isBlank();
+    }
+
     private static void need(List<String> missing, Object value, String label) {
-        if (value == null || value.toString().isBlank()) {
+        if (!stated(value)) {
             missing.add(label);
         }
     }

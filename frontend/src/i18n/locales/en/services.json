@@ -263,11 +263,16 @@
         "flatNoPlaceholder": "e.g. B-1204",
         "flatNoErr": "Enter the flat / house number.",
         "society": "Building / Society Name",
-        "societyPlaceholder": "e.g. Skyline Heights",
-        "societyErr": "Enter the building / society name.",
+        "societyPlaceholder": "Search your society on Google Maps",
+        "societyErr": "Pick your society, or choose Not on Google Maps.",
+        "buildingText": "Building name (as on agreement)",
         "locality": "Area / Locality",
         "localityPlaceholder": "e.g. Baner",
-        "localityErr": "Enter the area / locality.",
+        "localityErr": "Pick the area / locality from the suggestions.",
+        "gramPanchayat": "Is the property under a gram panchayat?",
+        "gramPanchayatYes": "Yes",
+        "gramPanchayatNo": "No",
+        "gramPanchayatErr": "Choose Yes or No.",
         "city": "City",
         "taluka": "Taluka",
         "talukaPlaceholder": "Select taluka",
@@ -677,7 +682,7 @@
           "afternoon": "Afternoon (12 – 4 pm)",
           "evening": "Evening (4 – 8 pm)"
         },
-        "regAreaAuto": "— set from the locality; our team confirms it from the property's Index II and settles any difference."
+        "regAreaAuto": "— set from your gram panchayat answer; our team confirms it from the property's Index II and settles any difference."
       },
       "witnesses": {
         "title": "Witnesses",
