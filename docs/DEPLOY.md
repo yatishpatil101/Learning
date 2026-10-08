@@ -632,6 +632,26 @@ backwards without a warning. Read the checks on the commit before dispatching; t
 and the environment branch policy are the only things between the form and a live
 `gcloud run services replace`.
 
+### 5.2 Moving to a new GCP project or account
+
+Project ids are globally unique and never reused, so a move is a new project, not a rename. Supabase,
+R2 and Cloudflare are separate vendors and stay as they are; only the GCP half is rebuilt.
+
+```bash
+gcloud auth login                     # once per account; keep the old one logged in too
+PROJECT_ID=<new-id> OLD_PROJECT_ID=<old-id> OLD_ACCOUNT=<old-email> bash backend/deploy/bootstrap-project.sh
+```
+
+`OLD_PROJECT_ID` copies every secret instead of prompting. **That is mandatory while the database is
+kept**: `identity-hash-secret`, `identity-encryption-key` and `staff-totp-key` are set-once, and fresh
+values orphan every stored hash, make stored PAN/Aadhaar unreadable and force all staff to re-enrol 2FA.
+API keys created *in* the old project (`google-places-server-key`, the browser Maps key and Map ID)
+die with it — recreate them in the new project and add a new secret version before deleting the old one.
+
+Then set the three variables the script prints on the `sandbox` environment, dispatch the backend
+deploy, point Pages `API_ORIGIN` at the new `*.run.app` URL, and only then delete the old project —
+`minScale: 1` keeps billing it until you do.
+
 ### What the eight `@Scheduled` sweeps do here — nothing
 
 Cloud Run allocates CPU **only while a request is in flight**. Between requests the JVM's scheduler

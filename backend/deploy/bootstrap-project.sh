@@ -8,8 +8,13 @@ set -euo pipefail
 # ---------------------------------------------------------------------------------------------
 # Configuration. PROJECT_ID and GITHUB_REPO are the only two that change between projects.
 # ---------------------------------------------------------------------------------------------
-PROJECT_ID="${PROJECT_ID:-draazy-sandbox}"
+PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID to the target GCP project id}"
 GITHUB_REPO="${GITHUB_REPO:-yatishpatil101/Learning}"
+
+# Moving accounts: each secret's latest value is copied from here instead of prompting. The set-once
+# keys must carry over, or data already in the database becomes unreadable — docs/DEPLOY.md §5.2.
+OLD_PROJECT_ID="${OLD_PROJECT_ID:-}"
+OLD_ACCOUNT="${OLD_ACCOUNT:-}"
 
 # Must match `env.REGION` and `env.AR_REPOSITORY` in deploy.yml. They are duplicated rather
 # than read from the workflow because parsing YAML in bash to save one edit is a worse trade.
@@ -227,9 +232,17 @@ for entry in "${SECRETS[@]}"; do
     continue
   fi
 
-  printf '  %s\n    %s: ' "$name" "$desc"
-  read -rs value
-  printf '\n'
+  value=""
+  if [ -n "$OLD_PROJECT_ID" ]; then
+    value="$(gcloud secrets versions access latest --secret="$name" --project="$OLD_PROJECT_ID" \
+      ${OLD_ACCOUNT:+--account="$OLD_ACCOUNT"} 2>/dev/null || true)"
+    if [ -n "$value" ]; then echo "  $name — copied from $OLD_PROJECT_ID"; fi
+  fi
+  if [ -z "$value" ]; then
+    printf '  %s\n    %s: ' "$name" "$desc"
+    read -rs value
+    printf '\n'
+  fi
   [ -n "$value" ] || { echo "Empty value refused — the container would start and fail on first use." >&2; exit 1; }
   printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- --quiet >/dev/null
   unset value
