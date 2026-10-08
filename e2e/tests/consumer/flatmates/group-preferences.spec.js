@@ -3,6 +3,7 @@ import { apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { trackErrors } from '../../../helpers/console.js';
 import { postAsGroup } from '../../../helpers/app.js';
+import { pickLocalitiesIn } from '../../../helpers/locality.js';
 
 const track = flatmateCleanup(test);
 
@@ -11,14 +12,7 @@ const todayIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-async function pickFrom(page, trigger, options) {
-  const picker = page.getByRole('button', { name: trigger });
-  for (const option of options) {
-    await picker.click();
-    await page.locator('.dz-dropdown__option', { hasText: option }).first().click();
-    await expect(picker, 'a pick closes the menu').toHaveAttribute('aria-expanded', 'false');
-  }
-}
+const localityPicker = (page) => page.getByRole('button', { name: "Localities you'd live in" });
 
 async function openForm(page) {
   await page.goto('/flatmates');
@@ -40,7 +34,7 @@ test.describe('LIVE: a group still looking for a flat', () => {
     await expect(page.getByRole('button', { name: /Current tenant/i })).toHaveCount(0);
 
     await page.getByPlaceholder(/2 girls/i).fill(title);
-    await pickFrom(page, "Localities you'd live in", ['Baner', 'Wakad']);
+    await pickLocalitiesIn(page, localityPicker(page), ['Baner', 'Wakad']);
     await page.getByRole('button', { name: '2 BHK' }).click();
     await page.getByRole('button', { name: '3 BHK' }).click();
     await page.getByLabel('Lowest rent for the whole flat').fill('30000');
@@ -114,7 +108,7 @@ test.describe('LIVE: a group still looking for a flat', () => {
     await page.getByRole('button', { name: /Create group/i }).click();
     await expect(page.getByText('Pick at least one locality.').first()).toBeVisible();
 
-    await pickFrom(page, "Localities you'd live in", ['Baner']);
+    await pickLocalitiesIn(page, localityPicker(page), ['Baner']);
     await page.getByLabel('Lowest rent for the whole flat').fill('50000');
     await page.getByLabel('Highest rent for the whole flat').fill('40000');
     await page.getByRole('button', { name: /Create group/i }).click();

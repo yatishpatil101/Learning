@@ -67,14 +67,14 @@ for (const line of doc.split('\n')) {
 /* UNDOCUMENTED is a self-emptying worklist: cited or deleted entries fail so the allowlist cannot
    become permanent. */
 const UNDOCUMENTED = [
-  'consumer/account/live-listing-freshness',
-  'consumer/live-localities',
-  'consumer/live-reels',
-  'consumer/live-trust-counters',
+  'consumer/account/listing-freshness',
+  'consumer/localities',
+  'consumer/reels',
+  'consumer/trust-counters',
   'consumer/property/signin-gates',
-  'consumer/services/live-interior-lead',
-  'live-admin-content',
-  'live-admin-services',
+  'consumer/services/interior-lead',
+  'admin-content',
+  'admin-services',
   'live-demand-signals',
   'live-service-landing-ticket',
 ];

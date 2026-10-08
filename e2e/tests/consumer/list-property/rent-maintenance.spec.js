@@ -3,6 +3,8 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 // Track owners before submission so teardown can withdraw listings even after a mid-flow failure.
 const owners = new Set();
 
@@ -31,12 +33,6 @@ async function gotoFlow(page) {
   await page.goto('/list-property');
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
   return mobile;
-}
-
-async function pickOption(page, dataErr, label) {
-  await page.locator(`[data-err="${dataErr}"]`).click();
-  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 test('Pill selection is keyboard-operable, and a rent "Charged Extra" maintenance amount is saved on the listing', async ({ page }) => {
@@ -71,9 +67,9 @@ test('Pill selection is keyboard-operable, and a rent "Charged Extra" maintenanc
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Skyline Heights');
+  await fillSociety(page, 'Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

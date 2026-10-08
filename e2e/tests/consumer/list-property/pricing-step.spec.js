@@ -4,6 +4,8 @@ import { test, expect } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const RERA_BOX = 'e.g. P52100012345';
 
@@ -47,9 +49,9 @@ async function pickFloorOptions(page) {
 
 async function fillFlatAddress(page) {
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Skyline Heights');
+  await fillSociety(page, 'Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
@@ -81,7 +83,7 @@ async function landToPricing(page, type, deal = 'buy') {
   }
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

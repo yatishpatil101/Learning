@@ -4,6 +4,8 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { PHOTO_PNG, uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { LIST_PROPERTY_DRAFT_KEY as DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 import { approveListing } from '../../../helpers/moderation.js';
+import { fillSociety, pickGoogleSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const DETAILS = {
   flatNumber: 'C-901', tower: 'North', society: 'Edit Prefill Homes', street: 'Baner Road',
@@ -160,26 +162,32 @@ function recordWrites(page) {
   return () => writes;
 }
 
-async function saveDescription(page, description, writes) {
+async function saveDescription(page, description, writes, body = { description }) {
   await page.locator('textarea').fill(description);
   const patched = page.waitForResponse((response) => response.request().method() === 'PATCH'
     && /^\/api\/me\/listings\/[^/]+$/.test(new URL(response.url()).pathname));
   await page.getByRole('button', { name: 'Submit Property', exact: true }).click();
   const response = await patched;
   expect(response.status(), 'description-only save must succeed').toBe(200);
-  expect(response.request().postDataJSON()).toEqual({ description });
+  expect(response.request().postDataJSON()).toEqual(body);
   await expect(page.getByRole('heading', { name: 'Listing Updated!', exact: true })).toBeVisible();
   expect(writes().filter((request) => request.method() === 'PATCH')).toHaveLength(1);
   expect(writes().filter((request) => /multipart\/form-data/i.test(request.headers()['content-type'] || ''))).toHaveLength(0);
   expect(writes().filter((request) => /\/me\/(photos|documents)(\/|$)/.test(new URL(request.url()).pathname))).toHaveLength(0);
 }
 
-async function expectPreserved(request, seeded, description) {
+async function expectPreserved(request, seeded, description, { rebound = false } = {}) {
   const saved = await readListing(request, seeded);
   expect(saved.description).toBe(description);
   for (const key of ['address', 'pincode', 'area', 'carpetArea', 'builtUpArea', 'ageYears', 'floor',
     'deposit', 'maintenance', 'electricityMeterNo', 'reraId', 'formDetails', 'images', 'docsCount',
     'ownershipVerified', 'verified']) {
+    // Binding a Google society adds its id and pincode; nothing else already stored may change.
+    if (rebound && key === 'formDetails') {
+      if (seeded.baseline[key]) expect(saved[key]).toMatchObject(seeded.baseline[key]);
+      continue;
+    }
+    if (rebound && key === 'pincode') continue;
     expect(saved[key], `${key} must not be rewritten by an unrelated edit`).toEqual(seeded.baseline[key]);
   }
   const documents = await readDocuments(request, seeded);
@@ -336,12 +344,16 @@ test('an address the wizard composed is recovered into the boxes and replaced on
   await expect(page.locator('input[data-err="flatNumber"]')).toHaveValue('101');
   await expect(page.locator('input[data-err="society"]')).toHaveValue('KATEPURAM PHASE-2');
   await expect(street).toHaveValue('Shirode Road');
-  // Recovered boxes are not an edit: an unrelated save must still leave the stored line alone.
+  // A recovered name carries no Google place, so the owner binds one before leaving the step.
+  await pickGoogleSociety(page, 'KATEPURAM PHASE-2', { input: page.locator('input[data-err="society"]'), lat: 18.559, lng: 73.786, locality: 'Baner', pincode: '411045' });
+  // Rebinding the same name is not an address edit: an unrelated save must still leave the stored line alone.
   await nextStep(page, 'Price & terms');
   await nextStep(page, 'Photos & description');
   const description = 'Recovered address: description changed without replacing the address.';
-  await saveDescription(page, description, writes);
-  await expectPreserved(request, seeded, description);
+  await saveDescription(page, description, writes, {
+    description, societyId: expect.any(String), pincode: expect.any(String),
+  });
+  await expectPreserved(request, seeded, description, { rebound: true });
 
   await openEdit(page, seeded);
   await nextStep(page, 'Location');
@@ -519,14 +531,14 @@ test('create through the rental wizard persists exact answers and decimal areas 
   await page.locator('.furn-tile').filter({ has: page.getByText('Wardrobe', { exact: true }) }).click();
   await nextStep(page, 'Location');
   // Choosing a real locality places the pin without relying on Google tile timing.
-  await selectOption(page, page.locator('[data-err="locality"]'), 'Baner');
+  await pickLocality(page, 'Baner');
   const pin = page.locator('[data-err="location"] p').filter({ hasText: /Location set:/ });
   await expect(pin).toBeVisible();
   const coordinates = (await pin.innerText()).match(/Location set: (-?\d+\.\d+), (-?\d+\.\d+)/);
   expect(coordinates, 'the selected pin must expose both coordinates').not.toBeNull();
   await page.locator('input[data-err="flatNumber"]').fill(details.flatNumber);
   await field(page, /^Wing \/ Block$/).locator('input').fill(details.tower);
-  await page.locator('input[data-err="society"]').fill(details.society);
+  await fillSociety(page, details.society, { lat: Number(coordinates[1]), lng: Number(coordinates[2]), locality: 'Baner', pincode: '411045' });
   await page.locator('input[autocomplete="address-line1"]').fill(details.street);
   await page.locator('input[autocomplete="address-line3"]').fill(details.landmark);
   await page.locator('input[data-err="pincode"]').fill('411045');

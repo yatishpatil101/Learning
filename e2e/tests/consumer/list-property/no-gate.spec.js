@@ -2,8 +2,6 @@
    The second test holds a listing because the listing-limit paywall must not read as an identity wall. */
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { signedInAsNew, authHeaders, API, uploadedListingPhotos } from '../../../helpers/liveAuth.js';
-/* Baner is a real row in `GET /localities`, so the resolver files the listing rather than leaving
-   `locality_slug` null and dropping it into the curation queue another spec asserts on. */
 
 const BASE_LISTING = {
   deal: 'rent',

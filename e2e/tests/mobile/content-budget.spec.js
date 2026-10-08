@@ -90,8 +90,7 @@ test.describe('Mobile content budget', () => {
     await page.reload();
     await expect(page.getByText('New here?', { exact: false })).toBeVisible();
 
-    // Third: budget spent. It used to reappear on every single page load for the
-    // whole session, because only an explicit close was ever recorded.
+    // Third: budget spent, so it must not reappear on later page loads for the rest of the session.
     await page.reload();
     await expect(page.getByText('New here?', { exact: false })).toHaveCount(0);
   });
@@ -102,7 +101,7 @@ test.describe('Mobile reach and legibility', () => {
   test('every control in the societies toolbar is on screen', async ({ page }) => {
     await consent(page);
     await page.goto('/societies');
-    await expect(page.getByRole('button', { name: /verified/i }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sort societies' })).toBeVisible();
 
     const vw = page.viewportSize().width;
     const escaping = await page.evaluate((w) => {

@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { API, signedInAs } from '../../../helpers/liveAuth.js';
 import { pickFloors } from '../../../helpers/listingForm.helper.js';
-// Society "select or create" typeahead on the list-property Location step: a listing must bind to
-// a real society entity, and an unknown name must mint a community society.
+import { fillSociety, stubGooglePlaces, wizardSocietyInput } from '../../../helpers/places.js';
+// The list-property Location step takes a society only from a Google Maps suggestion: picking one
+// mints (or re-finds) the society behind that place, and typed text is never accepted.
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543211';
 
@@ -23,38 +24,31 @@ async function toStep2Flat(page) {
   await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
 }
 
-test('typing a known name lists the verified society and binds it on pick', async ({ page }) => {
+test('picking a Google suggestion mints a community society that reaches the shared catalogue', async ({ page, request }) => {
   await toStep2Flat(page);
-  const society = page.locator('input[data-err="society"]');
-  await society.click();
-  await society.fill('Skyline');
-  const option = page.locator('.dz-dropdown__option', { hasText: 'Skyline Heights' }).first();
-  await expect(option).toBeVisible();
-  await expect(option.getByText('Verified')).toBeVisible();
-  await option.click();
-  await expect(society).toHaveValue('Skyline Heights');
-  await expect(page.getByText(/Verified society/i)).toBeVisible();
-});
-
-test('an unknown name can be added inline and reaches the shared catalogue', async ({ page, request }) => {
-  await toStep2Flat(page);
-  const society = page.locator('input[data-err="society"]');
-  // Unique per run: `POST /societies` is a mint-or-match, so a fixed name would read back an
-  // earlier run's row and the `mintOrigin` assertion below would be about that row instead.
+  // Unique per run: the placeId follows the name, so a fixed name would read back an earlier
+  // run's row and the `mintOrigin` assertion below would be about that row instead.
   const NAME = `Zz Live Select ${Date.now().toString(36)}`;
-  await society.click();
-  await society.fill(NAME);
-  const addRow = page.getByTestId('society-add-option');
-  await expect(addRow).toBeVisible();
-  await addRow.click();
-  await expect(society).toHaveValue(NAME);
-  await expect(page.getByText(/pending verification/i)).toBeVisible();
-  // Outside the browser: an anonymous reader searching the catalogue finds the building.
+  await fillSociety(page, NAME);
   const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
   expect(found.status()).toBe(200);
   const row = (await found.json()).content.find((s) => s.name === NAME);
   expect(row, 'the minted society is absent from the catalogue — the write never left the browser').toBeTruthy();
   expect(row.source).toBe('community');
-  expect(row.verifiedAt).toBeNull();
   expect(row.mintOrigin).toBe('listing');
+});
+
+test('typed text is not a society: the field offers only Google suggestions and Not on Google Maps, and reverts on blur', async ({ page, request }) => {
+  await toStep2Flat(page);
+  const society = wizardSocietyInput(page);
+  const NAME = `Zz Typed Only ${Date.now().toString(36)}`;
+  await stubGooglePlaces(page, { empty: true });
+  await society.click();
+  await society.fill(NAME);
+  await expect(page.getByTestId('society-not-on-maps')).toBeVisible();
+  await expect(page.getByTestId('society-google-option')).toHaveCount(0);
+  await society.blur();
+  await expect(society).toHaveValue('');
+  const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
+  expect((await found.json()).content.find((s) => s.name === NAME)).toBeUndefined();
 });

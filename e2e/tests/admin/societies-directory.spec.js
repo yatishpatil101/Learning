@@ -1,4 +1,5 @@
-/** Asserts the paging request: a client-side slice of loaded rows renders the same range without fetching. */
+/** Directory tab of the society desk against the live API; needs backend :8081 (`local,e2e`) and a seeded database. Paging asserts the request
+ * (350 rows, page of 20) because client-side slicing is indistinguishable from a server fetch on a mock; nothing here seeds storage. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -47,10 +48,14 @@ test('the desk counts the whole catalogue, not the page it is showing', async ({
   await expect(dirCount(page)).not.toHaveText(String(PAGE_SIZE));
   await expect(rows(page)).toHaveCount(PAGE_SIZE);
 
-  // All five tabs and their counts. Values belong to the queues, and to the specs that own those queues.
-  for (const [key, label] of [['claims', 'Claims'], ['residents', 'Residents'], ['candidates', 'Candidates'], ['moderation', 'Moderation'], ['directory', 'Directory']]) {
+  // Exactly two tabs — Candidates and Directory. Values belong to the queues, and to the specs that own those queues.
+  await expect(page.getByRole('tab')).toHaveText([/^Candidates/, /^Directory/]);
+  for (const [key, label] of [['candidates', 'Candidates'], ['directory', 'Directory']]) {
     await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) })).toBeVisible();
     await expect(page.getByTestId(`tab-count-${key}`)).toHaveText(/^\d[\d,]*$/);
+  }
+  for (const gone of ['Claims', 'Residents', 'Moderation']) {
+    await expect(page.getByRole('tab', { name: new RegExp(`^${gone}`) })).toHaveCount(0);
   }
 
   /* The disclosure banner renders only when a queue failed to load. Its absence is what makes the
@@ -79,7 +84,7 @@ test('Next fetches the next page from the server instead of slicing one already 
   await page.getByRole('button', { name: 'Next page' }).first().click();
   await request;
 
-  await expect(range(page)).toHaveText(`${PAGE_SIZE + 1}–${PAGE_SIZE * 2} of ${grouped(totalElements)}`);
+  await expect(range(page)).toHaveText(`${PAGE_SIZE + 1}–${Math.min(PAGE_SIZE * 2, totalElements)} of ${grouped(totalElements)}`);
   // The rows are the ones the server just sent, in its order, not a re-sorted local slice.
   await expect(rows(page).first().locator('td').first()).toContainText(second.content[0].name);
   await expect(rows(page).first().locator('td').first()).not.toHaveText(firstName);

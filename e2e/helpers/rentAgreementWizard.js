@@ -1,5 +1,7 @@
 import { expect } from '@playwright/test';
 import { pickDate } from './datePicker.helper.js';
+import { pickSocietyNotOnMaps } from './places.js';
+import { pickLocalityIn } from './locality.js';
 
 // Verhoeff-valid and distinct because both wizard and server reject shared party IDs.
 export const AADHAAR = {
@@ -38,22 +40,44 @@ export async function uploadAll(scope, prefix) {
   }
 }
 
-export async function pickLocality(page, name = 'Baner') {
-  await active(page).locator('[data-err="locality"]').click();
-  const menu = page.locator('.dz-dropdown__menu.is-portal-open');
-  await expect(menu).toBeVisible();
-  await menu.locator('.dz-dropdown__option', { hasText: new RegExp(`^${name}$`) }).first().evaluate((el) => el.click());
-  await expect(menu).toBeHidden();
-  await expect(active(page).locator('[data-err="locality"]')).toContainText(name);
+const SERVED_LOCALITIES = [
+  { slug: 'baner', name: 'Baner', city: 'Pune', lat: 18.559, lng: 73.7868 },
+  { slug: 'kharadi', name: 'Kharadi', city: 'Pune', lat: 18.5515, lng: 73.9348 },
+  { slug: 'hinjawadi', name: 'Hinjawadi', city: 'Pune', lat: 18.5912, lng: 73.7389 },
+];
+
+// Without a server the locality search has nothing to answer, and Google must stay out of it so the
+// picker offers exactly the rows served here.
+async function serveLocalities(page) {
+  await page.route(/places\.googleapis\.com|AutocompletePlaces/, (route) => route.abort());
+  await page.route('**/api/localities/search**', (route) => {
+    const q = (new URL(route.request().url()).searchParams.get('q') || '').toLowerCase();
+    return route.fulfill({ json: SERVED_LOCALITIES.filter((l) => l.name.toLowerCase().includes(q)) });
+  });
 }
 
-export async function fillProperty(page, { next = true } = {}) {
+export async function pickLocality(page, name = 'Baner') {
+  await serveLocalities(page);
+  await pickLocalityIn(page, active(page).locator('[data-err="locality"]'), name, { domClick: true });
+}
+
+export const SOCIETY_PLACEHOLDER = 'Search your society on Google Maps';
+export const BUILDING_PLACEHOLDER = 'Building name (as on agreement)';
+
+// These specs run without a server, so the Google-backed picker has nothing to resolve against;
+// "Not on Google Maps" plus the building text is the path that never crosses the wire.
+export async function fillBuilding(page, name = 'Skyline Heights') {
+  const p = active(page);
+  await pickSocietyNotOnMaps(page, p.getByPlaceholder(SOCIETY_PLACEHOLDER));
+  await p.getByPlaceholder(BUILDING_PLACEHOLDER).fill(name);
+}
+
+export async function fillProperty(page, { next = true, gramPanchayat = false } = {}) {
   const p = active(page);
   await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-  const society = p.getByPlaceholder('e.g. Skyline Heights');
-  await society.fill('Skyline Heights');
-  await society.press('Escape');
+  await fillBuilding(page);
   await pickLocality(page);
+  if (gramPanchayat !== null) await p.getByTestId(gramPanchayat ? 'ra-gram-yes' : 'ra-gram-no').click();
   await p.getByRole('button', { name: 'Taluka', exact: true }).click();
   await page.getByRole('option', { name: 'Haveli', exact: true }).click();
   await p.getByPlaceholder('e.g. Baner, Pune').fill('Baner');

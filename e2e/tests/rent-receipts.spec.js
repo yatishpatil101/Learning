@@ -4,6 +4,8 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
+import { pickPlaceholderLocality } from '../helpers/locality.js';
+import { ensureLocalityStats } from '../helpers/localityStats.js';
 
 const RENT = 31500;
 const TENANT = 'Rohit More';
@@ -11,9 +13,7 @@ const TENANT = 'Rohit More';
 /** `[mobile, managedId]` for everything this spec created, so `afterAll` can put the database back. */
 const created = [];
 
-/* The month the UI's status card is about — the same key `currentDueStatus` computes, and in the
-   same zone. Both the server's window rule and the panel read the calendar in IST, so a CI runner
-   set to anything else would otherwise disagree with both for a few hours each month. */
+/* The month the status card is about, in IST: the server's window rule and the panel both read IST. */
 const thisMonth = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' })
     .format(new Date())
@@ -29,8 +29,8 @@ const monthLabel = (ym) => {
 /** Drive the Rent-o-meter to a saved property and return its id, taken from the passport URL. */
 async function estimateAndSave(page, mobile) {
   await page.goto('/dashboard#owner-hub');
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await ensureLocalityStats('Baner');
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Estimate now/i }).click();
   await expect(page.getByText(/Estimated monthly rent/i)).toBeVisible();
 
@@ -82,9 +82,7 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
     expect(errors, `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  /* Deleting the parent through the API rather than the UI keeps the cleanup honest: it does not
-     depend on the screen it is cleaning up after still working. The receipts go with it — that
-     cascade is the subject of a backend test, and this is where it earns its keep. */
+  /* Delete via the API so cleanup doesn't depend on the screen it cleans up; receipts cascade with the parent. */
   test.afterAll(async () => {
     for (const [mobile, id] of created) {
       await fetch(`${API}/me/managed-properties/${id}`, {
@@ -160,9 +158,7 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
     const first = await (await fetch(`${receiptsUrl(id)}?months=6`, { headers: await authHeaders(mobile) })).json();
     expect(first).toHaveLength(1);
 
-    /* Driven over HTTP because the UI correctly makes it unreachable. What is proved here is the
-       server's guarantee when two devices race or a retry lands twice: the second write is refused
-       rather than producing a second document for the same month with a different reference. */
+    /* Driven over HTTP since the UI makes it unreachable; proves a racing or retried write is refused. */
     const again = await fetch(receiptsUrl(id), {
       method: 'POST',
       headers: await authHeaders(mobile),
@@ -172,7 +168,7 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
 
     const after = await (await fetch(`${receiptsUrl(id)}?months=6`, { headers: await authHeaders(mobile) })).json();
     expect(after).toHaveLength(1);
-    // Same document, not a re-issue: a fresh id would mean the tenant's copy no longer matches.
+    // Same document, not a re-issue: a fresh id would leave the tenant's copy stale.
     expect(after[0].id).toBe(first[0].id);
   });
 });

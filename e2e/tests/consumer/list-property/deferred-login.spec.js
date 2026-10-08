@@ -2,6 +2,9 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, E2E_OTP, authHeaders, ownerIdOf, seedConsent, signIn, storedPhotoUrl, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY, pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { mintPickableSociety } from '../../../helpers/liveSociety.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const created = new Set();
 
@@ -36,16 +39,12 @@ async function fillDetails(page) {
   await page.getByRole('button', { name: /Next Step/i }).click();
 }
 
-async function fillLocation(page) {
+async function fillLocation(page, society) {
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await page.locator('[data-err="location"] input[role="combobox"]').fill('Kothrud');
-  await page.getByRole('button', { name: /Search location/i }).click();
-  await expect(page.getByText(/Location set: /)).toBeVisible();
-  await page.locator('[data-err="locality"] .dz-dropdown__trigger').click();
-  await menuOpen(page);
-  await page.getByRole('option', { name: 'Kothrud', exact: true }).click();
+  await pickLocality(page, 'Kothrud');
   await page.locator('input[data-err="flatNumber"]').fill('D-904');
-  await page.locator('input[data-err="society"]').fill(`Deferred Login Homes ${Date.now()}`);
+  await fillSociety(page, society);
+  await expect(page.getByText(/Location set: /)).toBeVisible();
   await page.locator('input[data-err="pincode"]').fill('411038');
   await page.getByRole('button', { name: /Next Step/i }).click();
 }
@@ -59,12 +58,12 @@ async function fillPricing(page) {
   await page.getByRole('button', { name: /Next Step/i }).click();
 }
 
-async function reachDeferredLogin(page) {
+async function reachDeferredLogin(page, society) {
   await seedConsent(page);
   await page.goto('/list-property');
   await expect(page.getByRole('heading', { name: /List your property/i })).toBeVisible({ timeout: 30000 });
   await fillDetails(page);
-  await fillLocation(page);
+  await fillLocation(page, society);
   await fillPricing(page);
   const sheet = page.getByRole('dialog', { name: /Verify your mobile to upload photos and publish/i });
   await expect(sheet).toBeVisible();
@@ -110,7 +109,9 @@ test.describe('list property deferred login', () => {
       if (req.url().includes('/api/me/listings') && req.method() === 'POST') posted = true;
     });
 
-    const sheet = await reachDeferredLogin(page);
+    const society = `Zz Deferred Homes ${uniqueMobile().slice(-6)}`;
+    await mintPickableSociety(mobile, society);
+    const sheet = await reachDeferredLogin(page, society);
     await expect.poll(async () => page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY))
       .toContain('"__owner":""');
 
@@ -162,7 +163,7 @@ test.describe('list property deferred login', () => {
     await page.locator('input[data-err="carpetArea"]').fill('1199');
     await pickFloors(page);
     await page.getByRole('button', { name: /Next Step/i }).click();
-    await page.locator('input[data-err="society"]').fill('Zz Owner A Private Draft');
+    await fillSociety(page, 'Zz Owner A Private Draft');
 
     await expect.poll(async () => page.evaluate((key) => localStorage.getItem(key), LIST_PROPERTY_DRAFT_KEY))
       .toContain('Zz Owner A Private Draft');

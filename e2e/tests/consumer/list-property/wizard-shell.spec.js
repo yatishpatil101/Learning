@@ -2,6 +2,8 @@ import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 async function gotoForm(page) {
   await signedInAsNew(page);
@@ -30,9 +32,9 @@ async function toLocation(page) {
 
 async function toPricing(page) {
   await toLocation(page);
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Shell Homes');
+  await fillSociety(page, 'Shell Homes');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('heading', { name: /Price & terms/i }).waitFor({ timeout: 10000 });

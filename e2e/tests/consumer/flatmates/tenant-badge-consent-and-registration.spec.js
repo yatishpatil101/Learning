@@ -3,6 +3,7 @@ import { API, E2E_OTP, apiLogin, signedInAs, uniqueMobile } from '../../../helpe
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { postAsGroup, haveAFlat } from '../../../helpers/app.js';
+import { pickPlaceholderLocality } from '../../../helpers/locality.js';
 import { uploadAgreementDocument } from '../../../helpers/flatmateAgreement.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -176,6 +177,7 @@ test('the agreement step asks only for the document, names the obligations and o
   await expect(serviceLink).toHaveAttribute('href', '/services/rent-agreement?from=flatmates');
 
   await page.getByPlaceholder('e.g. 2 girls → 1 more for a 2BHK in Baner').fill(`Consent group ${stamp()}`);
+  await pickPlaceholderLocality(page);
   await page.getByPlaceholder('e.g. 34,000').fill('35000');
   await page.getByPlaceholder('Your name').fill('Consent Tenant');
   await page.locator('input[type="file"]').setInputFiles({

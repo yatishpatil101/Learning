@@ -1,78 +1,31 @@
-/**
- * The society ops console — claims, residents, candidates and merges — against the live API.
- *
- * This is the first live coverage the console has ever had, and the reason is worth stating: until
- * `87f2d07` and the two commits after it, all five of its queues read `localStorage`. A "live" spec
- * would have signed in against a real backend, opened a real screen, and then asserted against the
- * test runner's own browser storage — green forever, and proving nothing about the server. There
- * was no honest live spec to write. Now every queue is a route, so there is.
- *
- * ## Nothing here seeds storage
- *
- * No `addInitScript`, no `localStorage.setItem`, no `seedStorage`. Every row asserted below either
- * comes from `R__zz_DML_dev_demo_data.sql` or is created over the API by the test that needs it. A
- * converted spec that still writes storage is worse than no spec: it passes when the server is
- * wrong, which is the one failure it exists to catch.
- *
- * ## What is read and what is created
- *
- * The seeded rows are read, never decided:
- *
- * - **Kumar Palaash** has a `pending` claim, which is what puts a row in the claims queue.
- * - **Sunview Heights** (`sunview-heights-wakad`) is the seeded community candidate, three days old
- *   and unverified.
- * - **Greenfield Residency** is the seeded *verified* community society — the control that proves
- *   the candidates queue filters on the verification stamp rather than on `source`.
- *
- * Everything that decides something creates its own subject first, by minting a society over
- * `POST /societies`. That is the drift rule from the phase doc, and it bites harder here than
- * elsewhere: there is exactly one seeded candidate, so a spec that verified it would empty the
- * queue for every spec after it — and would pass alone, pass first, and fail in a full run.
- *
- * ## Why the merge assertions are the longest block
- *
- * Merging is the one action on this console whose input is two rows differing by a typo. Getting it
- * wrong is not a hypothetical, which is why the server refuses chains in both directions and why
- * the merge is a pointer that can be undone. Those refusals are the behaviour most worth pinning:
- * a merge that silently collapsed a chain would look identical on screen and be unrecoverable.
- *
- * Fixtures: `docs/system/fixture-registry.md` → the `society` rows.
- */
+/** Society ops console (candidates and merges) against the live API; each test mints its own candidates over `POST /societies`
+ * because the tab lists only the 20 newest, and nothing here seeds storage. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 
-/** The seeded society whose claim is still with ops. */
-const CLAIMED_PENDING = 'Kumar Palaash';
-/** The seeded community candidate: minted by a member, never confirmed. */
-const SEEDED_CANDIDATE = 'Sunview Heights';
-/** The seeded community society that ops already confirmed — it must NOT be in the queue. */
-const SEEDED_VERIFIED = 'Greenfield Residency';
 
-/**
- * Open one tab of the console and wait for its table, not its heading.
- *
- * `PageHeader` renders before any queue answers, so asserting on the title proves only that the
- * route resolved. The tab is a URL parameter (`useTabParam`), so this is a navigation rather than a
- * click — which also means a failure names the tab it was on.
- */
-async function openTab(page, tab) {
+/** Opens a console tab by URL param (`useTabParam`) and waits for its heading; navigating, not clicking, names the tab on failure. */
+async function openTab(page, tab, search) {
   await page.goto(`/admin/societies?tab=${tab}`);
   await expect(page.getByRole('heading', { name: 'Societies', exact: true })).toBeVisible({ timeout: 20000 });
+  // The queue pages client-side at ten, and every spec that mints makes it longer.
+  if (search) await page.getByPlaceholder('Society or locality').fill(search);
 }
 
 const rows = (page) => page.getByTestId('queue-row');
 
-/** Scoped to the card title: a plain name filter also matches rows listing it under "Similar to". */
+/** The row whose *Society* column is this name; a plain name filter also matches rows listing it under "Similar to".
+ * Scoped to the card title, the society the row is about. */
 const named = (page, name) =>
   rows(page).filter({ has: page.locator('h3').filter({ hasText: name }) });
 
 /** Mint a community society over the API and return its slug. */
-async function mintSociety(name, { mobile }) {
+async function mintSociety(name, { mobile, apart = false, mintOrigin }) {
   const headers = await authHeaders(mobile);
   const res = await fetch(`${API}/societies`, {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({ name, localitySlug: 'wakad', lat: 18.5989, lng: 73.7629 }),
+    body: JSON.stringify({ name, placeId: `e2e-${name}`.replace(/[^A-Za-z0-9_-]/g, '-'), ...(mintOrigin ? { mintOrigin } : {}), ...(apart ? { localitySlug: 'kharadi', lat: 18.5512, lng: 73.9402 } : { localitySlug: 'wakad', lat: 18.5989, lng: 73.7629 }) }),
   });
   expect(res.status, `mint ${name}`).toBeLessThan(300);
   return (await res.json()).slug;
@@ -81,116 +34,74 @@ async function mintSociety(name, { mobile }) {
 /** A name no other run will collide with — the same trick as `uniqueMobile`, for societies. */
 const uniqueName = (label) => `${label} ${String(Date.now()).slice(-7)}`;
 
-test('the console loads every queue from the server, with no console errors', async ({ page, login, consoleErrors }) => {
+test('the desk is exactly Candidates and Directory, loads from the server, and has no console errors', async ({ page, login, consoleErrors }) => {
+  const name = uniqueName('Deskcheck Towers');
+  await mintSociety(name, { mobile: uniqueMobile() });
   await login.asAdmin();
-  await openTab(page, 'claims');
+  await openTab(page, 'candidates', name);
 
-  /* The seeded pending claim. Scoped to the society name rather than counted, because
-     `live-society-residency.spec.js` files claims of its own and an absolute count would depend on
-     which file sorted first. */
-  await expect(rows(page).filter({ hasText: CLAIMED_PENDING })).toHaveCount(1);
+  await expect(page.getByRole('tab')).toHaveText([/^Candidates/, /^Directory/]);
+  for (const gone of ['Claims', 'Residents', 'Moderation']) {
+    await expect(page.getByRole('tab', { name: new RegExp(`^${gone}`) })).toHaveCount(0);
+  }
 
-  /* The disclosure banner must be absent. It renders only when a queue failed to load, and its
-     absence is the assertion that all five reads answered — an empty table on an ops screen reads
-     as "nothing to do", so a silent failure here is the expensive kind. */
+  // Scoped to the society name rather than counted, because other specs mint candidates of their own.
+  await expect(named(page, name)).toHaveCount(1);
+
+  /* The disclosure banner renders only when a queue failed to load, and its absence is the assertion
+     that the reads answered — an empty table on an ops screen reads as "nothing to do". */
   await expect(page.getByText(/could not be loaded/i)).toHaveCount(0);
 
   expect(consoleErrors).toHaveLength(0);
 });
 
-test('a claim carries the registration number the claimant actually typed', async ({ page, login }) => {
-  /* The number is a column again, not a sentence smuggled into the note. Before V109 the hub
-     concatenated `Registration no. …` onto the free-text note, which cost the reviewer the
-     claimant's own words and made the number unsearchable. */
-  const mobile = uniqueMobile();
-  const slug = await mintSociety(uniqueName('Claimtest Heights'), { mobile });
-  const headers = await authHeaders(mobile);
-  const filed = await fetch(`${API}/societies/${slug}/claim`, {
-    method: 'POST',
-    headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: 'Anita Deshpande',
-      role: 'Chairperson',
-      note: 'Committee elected in March; happy to send the AGM minutes.',
-      registrationNo: 'PNA/9911/2015',
-    }),
-  });
-  expect(filed.status).toBeLessThan(300);
+test('the retired society desk routes are gone: a removed tab falls back to Candidates, and the verify and claims APIs answer no more', async ({ page, login }) => {
+  const slug = await mintSociety(uniqueName('Noverify Towers'), { mobile: uniqueMobile() });
+  const headers = await authHeaders(ACTORS.admin);
+
+  const verify = await fetch(`${API}/admin/society-candidates/${slug}/verify`, { method: 'POST', headers });
+  expect(verify.status, 'verify left the API').toBeGreaterThanOrEqual(400);
+  expect(verify.status).not.toBe(500);
+
+  const claims = await fetch(`${API}/admin/society-claims?status=pending&size=5`, { headers });
+  expect(claims.status, 'the claims queue left the API').toBeGreaterThanOrEqual(400);
+  expect(claims.status).not.toBe(500);
+
+  const summary = await fetch(`${API}/admin/societies/summary`, { headers });
+  expect(summary.status).toBe(200);
+  expect(Object.keys(await summary.json())).toEqual(['candidates']);
 
   await login.asAdmin();
   await openTab(page, 'claims');
-
-  const row = rows(page).filter({ hasText: 'Anita Deshpande' });
-  await expect(row).toHaveCount(1);
-  // Both, and separately: the number in its own line, and the note still in the claimant's words.
-  await expect(row).toContainText('PNA/9911/2015');
-  await expect(row).toContainText('AGM minutes');
+  await expect(page.getByRole('tab', { name: /^Candidates/ })).toHaveAttribute('aria-selected', 'true');
 });
 
-test('the candidates queue holds the unverified community society and not the verified one', async ({ page, login }) => {
+test('a candidate row offers Merge and no Verify', async ({ page, login }) => {
+  const name = uniqueName('Mergeonly Court');
+  await mintSociety(name, { mobile: uniqueMobile() });
   await login.asAdmin();
-  await openTab(page, 'candidates');
-
-  await expect(named(page, SEEDED_CANDIDATE)).toHaveCount(1);
-  /* The control. Both rows are `source = 'community'`; only one carries a verification stamp. A
-     queue that filtered on `source` alone would show both, and an operator would keep re-verifying
-     a society that was confirmed eleven days ago. */
-  await expect(named(page, SEEDED_VERIFIED)).toHaveCount(0);
-});
-
-test('a candidate with no recorded provenance claims none', async ({ page, login }) => {
-  /* `mint_origin` (V108) is a different axis from `source`, and it is null on every society minted
-     before it existed — including the seeded candidate. The chip used to be a two-branch ternary,
-     which rendered a confident "From a listing" on exactly those rows: the operator was being told
-     where the building came from by a component that did not know. */
-  await login.asAdmin();
-  await openTab(page, 'candidates');
-
-  const row = named(page, SEEDED_CANDIDATE);
-  await expect(row).toHaveCount(1);
-  await expect(row).not.toContainText('From a listing');
-  await expect(row).not.toContainText('Searcher demand');
-});
-
-test('verifying a candidate takes it off the queue and keeps its paperwork flags alone', async ({ page, login }) => {
-  const name = uniqueName('Verifytest Residency');
-  const slug = await mintSociety(name, { mobile: uniqueMobile() });
-
-  await login.asAdmin();
-  await openTab(page, 'candidates');
+  await openTab(page, 'candidates', name);
 
   const row = named(page, name);
   await expect(row).toHaveCount(1);
-  await row.getByRole('button', { name: 'Verify' }).click();
-  await expect(page.getByText(/verified — now a first-class society/i)).toBeVisible();
-  await expect(named(page, name)).toHaveCount(0);
-
-  /* Verification says we believe the society exists. It must not say its registration is done or
-     its conveyance deed is executed — those describe the building's legal paperwork, which nobody
-     here has seen, and the old browser-side promotion set both. */
-  const res = await fetch(`${API}/societies/${slug}`);
-  const society = await res.json();
-  expect(society.registration).toBe(false);
-  expect(society.conveyance).toBe(false);
-  expect(society.verifiedAt).not.toBeNull();
+  await expect(row.getByRole('button', { name: 'Merge' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Verify', exact: true })).toHaveCount(0);
 });
 
-test('a second operator is told who verified a society rather than overwriting them', async ({ page, login }) => {
-  const name = uniqueName('Racetest Towers');
-  const slug = await mintSociety(name, { mobile: uniqueMobile() });
-  const headers = await authHeaders(ACTORS.admin);
-  const first = await fetch(`${API}/admin/society-candidates/${slug}/verify`, { method: 'POST', headers });
-  expect(first.status).toBeLessThan(300);
-
-  /* The row is gone from the queue, so this is the API's answer rather than a second click. The
-     409 matters because the record of *who* confirmed a society is the only thing that says who to
-     ask about it later — silently overwriting it would lose that. */
-  const second = await fetch(`${API}/admin/society-candidates/${slug}/verify`, { method: 'POST', headers });
-  expect(second.status).toBe(409);
-
+test('a candidate row names where it came from: a listing, or searcher demand', async ({ page, login }) => {
+  const fromListing = uniqueName('Listorigin Plaza');
+  const fromDemand = uniqueName('Demandorigin Plaza');
+  await mintSociety(fromListing, { mobile: uniqueMobile() });
+  await mintSociety(fromDemand, { mobile: uniqueMobile(), mintOrigin: 'demand' });
   await login.asAdmin();
-  await openTab(page, 'candidates');
-  await expect(named(page, name)).toHaveCount(0);
+
+  await openTab(page, 'candidates', fromListing);
+  await expect(named(page, fromListing)).toContainText('From a listing');
+  await expect(named(page, fromListing)).not.toContainText('Searcher demand');
+
+  await page.getByPlaceholder('Society or locality').fill(fromDemand);
+  await expect(named(page, fromDemand)).toContainText('Searcher demand');
+  await expect(named(page, fromDemand)).not.toContainText('From a listing');
 });
 
 test('merging a duplicate takes it off the queue without deleting it, and undoes cleanly', async ({ page, login }) => {
@@ -199,7 +110,7 @@ test('merging a duplicate takes it off the queue without deleting it, and undoes
   const dupeSlug = await mintSociety(dupe, { mobile: uniqueMobile() });
 
   await login.asAdmin();
-  await openTab(page, 'candidates');
+  await openTab(page, 'candidates', dupe);
 
   await named(page, dupe).getByRole('button', { name: 'Merge' }).click();
   const dialog = page.getByRole('dialog', { name: 'Merge society' });
@@ -236,7 +147,7 @@ test('the duplicate column finds a second copy the bundled catalogue never held,
     await mintSociety(typo, { mobile: uniqueMobile() });
 
     await login.asAdmin();
-    await openTab(page, 'candidates');
+    await openTab(page, 'candidates', typo);
 
     const row = named(page, typo);
     await expect(row).toHaveCount(1);
@@ -246,23 +157,20 @@ test('the duplicate column finds a second copy the bundled catalogue never held,
     await expect(row).not.toContainText('No obvious match');
 
     /* And the chip is the shortcut it exists to be: one click puts the operator in the merge dialog
-       with this pair already chosen. That is the whole value of the hint — the difference between an
-       operator merging the duplicate and verifying it because merging looked like work. */
+       with this pair already chosen. */
     await row.getByRole('button', { name: original }).click();
     const dialog = page.getByRole('dialog', { name: 'Merge society' });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(typo);
   });
   await test.step('a society that resembles nothing says so, rather than saying nothing', async () => {
-    /* The other half of the contract, and the one that has to survive the column being asynchronous.
-       "Checking…" settling into "No obvious match" is a real answer; "Checking…" that never settles —
-       which is what a failed fetch would leave behind if the page did not record the failure — is an
-       operator staring at a spinner deciding whether to verify. */
+    /* "Checking…" must settle into "No obvious match"; one that never settles is what a failed fetch leaves if the page does not record it. */
+    // Locality and pin add to a name score, so anything minted beside it would be offered as a duplicate.
     const name = `Ynthracite Bqorvald ${String(Date.now()).slice(-7)}`;
-    await mintSociety(name, { mobile: uniqueMobile() });
+    await mintSociety(name, { mobile: uniqueMobile(), apart: true });
 
     await login.asAdmin();
-    await openTab(page, 'candidates');
+    await openTab(page, 'candidates', name);
 
     const row = named(page, name);
     await expect(row).toHaveCount(1);
@@ -283,85 +191,17 @@ test('the duplicate column finds a second copy the bundled catalogue never held,
 });
 
 test('a duplicate check that fails says so, instead of saying "No obvious match"', async ({ page, login }) => {
-  /* The three-state column had a fourth thing that could be true and no way to say it: a request
-     that did not answer recorded `[]`, which is the same shape as "the catalogue holds nothing like
-     this", and rendered the same sentence. So the one case where the operator most needs to look
-     twice — the check never ran — wore the message that tells them they need not. The console
-     warning behind it is not something anybody working a queue of eighty rows will see. */
+  /* A request that did not answer must not record `[]` and render "nothing like this", the case where the operator most needs to look twice. */
   const name = `Failcheck Manor ${String(Date.now()).slice(-7)}`;
   await mintSociety(name, { mobile: uniqueMobile() });
 
   await page.route('**/admin/society-candidates/*/duplicates*', (route) => route.abort('failed'));
 
   await login.asAdmin();
-  await openTab(page, 'candidates');
+  await openTab(page, 'candidates', name);
 
   const row = named(page, name);
   await expect(row).toHaveCount(1);
   await expect(row.getByText('Could not check')).toBeVisible({ timeout: 20000 });
   await expect(row).not.toContainText('No obvious match');
-});
-
-test('a community details proposal names its society rather than title-casing its slug', async ({ page, login }) => {
-  /* The queue row's society name used to be resolved out of the bundled catalogue, for the same
-     reason and with the same result as the duplicate column: 28 curated societies, none of them
-     member-added, so a proposal filed against a society added last week fell through to
-     `titleCase(slug)`. `SocietyProposalResponse` carries `societyName` and `localitySlug` now.
-  
-     The subject is verified first, deliberately. A proposal against a society still in the
-     candidates queue renders on that society's own row, whose name comes from the queue — the
-     assertion would pass without the server sending a name at all. Verified, it becomes an orphan
-     suggestion in the block above the table, which has nothing but the proposal to name it. */
-  const mobile = uniqueMobile();
-  const name = `Proposaltest D'Souza Grange ${String(Date.now()).slice(-7)}`;
-  const slug = await mintSociety(name, { mobile });
-  const headers = await authHeaders(mobile);
-
-  const filed = await fetch(`${API}/societies/${slug}/proposals`, {
-    method: 'POST',
-    headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'details', builder: 'Quollhaven Constructions', buildYear: 2019 }),
-  });
-  expect(filed.status, 'file a details proposal').toBeLessThan(300);
-
-  await login.asAdmin();
-  const staff = await authHeaders(ACTORS.admin);
-  const verified = await fetch(`${API}/admin/society-candidates/${slug}/verify`, { method: 'POST', headers: staff });
-  expect(verified.status, 'verify the subject').toBeLessThan(300);
-
-  await openTab(page, 'candidates');
-
-  /* The apostrophe is the assertion. A slug cannot hold one, so the fallback can only ever produce
-     "Proposaltest D Souza Grange …" — the two strings are distinguishable in exactly the way a
-     reconstruction differs from the real name, and every society whose name carries punctuation, a
-     numeral or a lowercase particle differs from its slug the same way. The fallback string is
-     computed from the slug the server actually issued rather than assumed, so this stays a real
-     negative if the mint ever changes how it slugifies. */
-  const fallback = slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  await expect(page.getByText(name).first()).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(fallback)).toHaveCount(0);
-});
-
-test('the residents queue spans societies, and says which desk each request is on', async ({ page, login }) => {
-  /* Unfiltered on purpose, and unlike its three neighbours. A residency is the one decision on this
-     console that is routinely revisited: a flat changes hands, and rejecting the outgoing resident
-     is how the incoming one gets verified. Asking only for `pending` would hide exactly the row an
-     operator came for — and the server has no already-decided 409 here for the same reason. */
-  await login.asAdmin();
-  await openTab(page, 'residents');
-  await expect(rows(page).first()).toBeVisible({ timeout: 20000 });
-
-  /* Both seeded societies at once. This is the assertion the route exists for: the queue it
-     replaced was addressed by slug, so "who is waiting anywhere" meant one request per society to
-     find the handful with anything pending — work that grows with the catalogue rather than with
-     the backlog. */
-  await expect(rows(page).filter({ hasText: 'Blue Ridge Towers' }).first()).toBeVisible();
-  await expect(rows(page).filter({ hasText: 'Kumar Palaash' }).first()).toBeVisible();
-
-  /* And the half of the routing rule a single society cannot show. Blue Ridge has an approved
-     claim, so its requests sit with the committee; Kumar Palaash's claim is still with ops, so its
-     requests are ops' own. "assigned_to is always committee" passes every assertion one claimed
-     society can make. */
-  await expect(rows(page).filter({ hasText: 'Blue Ridge Towers' }).first()).toContainText('Committee');
-  await expect(rows(page).filter({ hasText: 'Kumar Palaash' }).first()).toContainText('Ops');
 });

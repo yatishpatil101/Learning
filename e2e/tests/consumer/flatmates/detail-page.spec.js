@@ -5,6 +5,7 @@ import { approveListingWithFetch, rejectListingWithFetch } from '../../../helper
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { trackErrors } from '../../../helpers/console.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const track = flatmateCleanup(test);
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -108,7 +109,7 @@ test.describe('LIVE: flatmate detail page', () => {
     const res = await fetch(`${API}/flatmates/rooms`, {
       method: 'POST',
       headers: auth(accessToken),
-      body: JSON.stringify({ society, roomType: 'Private room', locality: 'Baner', rentShare: 18000, bhk: '2', attachedBath: 'attached', furnishing: 'semi', hostRole: 'tenant', photos, ...(await tenantRoomAgreement(accessToken)) }),
+      body: JSON.stringify({ ...(await withSocietyId(accessToken, { society })), roomType: 'Private room', locality: 'Baner', rentShare: 18000, bhk: '2', attachedBath: 'attached', furnishing: 'semi', hostRole: 'tenant', photos, ...(await tenantRoomAgreement(accessToken)) }),
     });
     expect(res.status, 'seeding a room').toBe(201);
     const room = await res.json();

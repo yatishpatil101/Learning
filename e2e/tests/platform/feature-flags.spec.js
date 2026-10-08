@@ -9,7 +9,7 @@ const FREE_PLAN = 'b1000000-0000-4000-8000-000000000001';
 
 const ALL_FLAGS = [
   'mapSearch', 'scheduleVisit', 'reviewsEnabled', 'inAppMessaging', 'assistant',
-  'kycBadgeEnabled', 'societySaaS', 'subscriptionPlans', 'paidFeaturedListings', 'referralRewards',
+  'kycBadgeEnabled', 'subscriptionPlans', 'paidFeaturedListings', 'referralRewards',
   'signupsEnabled', 'staffLoginEnabled',
 ];
 // Exclude maintenanceMode so the all-off checks still exercise the consumer app.
@@ -96,7 +96,7 @@ test('the admin settings console lists every flag group, flags the maintenance s
 
   await page.getByRole('tab', { name: 'Feature flags' }).click();
   await expect(page.getByText('Platform-wide feature toggles')).toBeVisible();
-  for (const group of ['Discovery & Engagement', 'Trust & Communities', 'Monetization & Payments', 'Platform & Access']) {
+  for (const group of ['Discovery & Engagement', 'Trust', 'Monetization & Payments', 'Platform & Access']) {
     await expect(page.getByRole('button', { name: new RegExp(group) })).toBeVisible();
   }
   // Maintenance is the one switch whose "on" is the exception, so two of three reads as healthy.
@@ -174,15 +174,13 @@ test('kycBadgeEnabled flag guards the identity verification route', async ({ pag
   await expect(page.getByRole('heading', { name: 'Use your phone', exact: true })).toBeVisible();
 });
 
-test('societySaaS flag guards the society hub', async ({ page, flags }) => {
-  await flags.disable('societySaaS');
+test('the slug-less /society route is gone, and the retired societySaaS flag is not a switch any more', async ({ page }) => {
   await page.goto('/society');
-  await redirectsAway(page, '/society');
-
-  await flags.enable('societySaaS');
-  await page.goto('/society');
-  await expect(page.locator('#main-content').first()).toBeVisible();
+  await expect(page.getByText('Page not found').first()).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/society');
+
+  const bootstrap = await (await fetch(`${API}/bootstrap`)).json();
+  expect(bootstrap.flags, 'societySaaS left the flag document').not.toHaveProperty('societySaaS');
 });
 
 test('paidFeaturedListings flag shows and hides the feature action on an owner\'s live listing', async ({ page, flags }) => {

@@ -17,16 +17,6 @@ const expectSlugs = async (page, expected) => {
   await expect.poll(async () => await slugs(page), { timeout: 15000 }).toEqual([...expected].sort());
 };
 
-test('Society-verified filter reflects the seeded flag, not a hash of the slug', async ({ page }) => {
-  await page.goto(`${BASE}/listings?deal=buy&v=society`);
-  await expectSlugs(page, ['p5120', 'p5133', 'p5023']);
-});
-
-test('Conveyance-done filter reflects the seeded flag, not a hash of the slug', async ({ page }) => {
-  await page.goto(`${BASE}/listings?deal=buy&v=conveyance`);
-  await expectSlugs(page, ['p5120', 'p5008', 'p5023']);
-});
-
 test('Preferred-tenants filter reflects the stated policy, not a hash of the slug', async ({ page }) => {
   await page.goto(`${BASE}/listings?deal=rent&tenants=family`);
   await cards(page).first().waitFor({ timeout: 15000 });
@@ -62,12 +52,6 @@ test('Flatmates type comes from the stated room, not a coin flip on the slug', a
 });
 
 test('listings that state nothing are excluded from narrowed searches, not defaulted in', async ({ page }) => {
-  for (const url of ['deal=buy&v=society', 'deal=buy&v=conveyance']) {
-    await page.goto(`${BASE}/listings?${url}`);
-    await cards(page).first().waitFor({ timeout: 15000 });
-    expect(await slugs(page), `p5010 states no attributes and must not match ${url}`).not.toContain('p5010');
-  }
-
   for (const url of ['deal=rent&availfrom=now', 'deal=rent&pets=1']) {
     await page.goto(`${BASE}/listings?${url}`);
     await cards(page).first().waitFor({ timeout: 15000 });

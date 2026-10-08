@@ -3,6 +3,8 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickFloors, LIST_PROPERTY_DRAFT_KEY, readListPropertyDraft } from '../../../helpers/listingForm.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
@@ -111,7 +113,7 @@ test('a fresh Details step: unselected deal and BHK, strength meter, StepNav and
         deal: 'buy', propertyType: 'flat', bhk: '2', bathrooms: '2', balconies: '1',
         carpetArea: '900', builtUp: '1100', superBuiltUp: '1250', floor: '4', totalFloors: '12',
         facing: 'east', age: '5-10', furnishing: 'semi', furniture: ['wardrobe'],
-        locality: 'Baner', flatNumber: 'A-401', tower: 'A', society: 'Example Homes',
+        locality: 'Baner', flatNumber: 'A-401', tower: 'A', societyId: 'soc-1',
         street: 'High Street', landmark: 'Near park', pincode: '411045', price: '9500000',
         monthlyMaintenance: '2500', ownership: 'freehold', construction: 'new',
         availableFrom: '2027-01-01', reraId: 'P52100000001', description: 'A bright home with a quiet outlook and practical room layout for a family.',
@@ -214,12 +216,7 @@ test('the Location step: a bare map, a branded pin, the compact address grid, an
     });
     expect(paired).toBe(true);
 
-    await page.locator('[data-err="locality"] .dz-dropdown__trigger').click();
-    await menuOpen(page);
-    const first = page.locator('.dz-dropdown__option').first();
-    const chosen = (await first.innerText()).trim();
-    await first.click();
-    await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(chosen);
+    await pickLocality(page, 'Baner');
   });
 
   /* Unit and wing are halves of one address line. Geometry rather than structure, because the two widths reach
@@ -251,15 +248,19 @@ test('the Location step: a bare map, a branded pin, the compact address grid, an
   expect(consoleErrors).toHaveLength(0);
 });
 
-/* 'Kharadi' is matched offline by `runMapSearch` against the locality table, so the placement needs
-   no geocoder stub and the restored coordinates name their own source. */
-test('a locality search places the pin, and the pin is still placed after a reload', async ({ page }) => {
+/* The flat layout has no area search, so the pin is placed from a stubbed device position; the
+   coordinates themselves name their source and need no geocoder stub. */
+test('a current-location pin is placed, and the pin is still placed after a reload', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success) { success({ coords: { latitude: 18.5515, longitude: 73.94 } }); },
+    } });
+  });
   await gotoFlow(page);
   await gotoLocationStep(page);
   // The pin is not treated as "set" until the owner acts, so no confirmation shows yet.
   await expect(page.getByText(/Location set:/)).toHaveCount(0);
-  await page.locator('input[placeholder*="Search a locality"]').fill('Kharadi');
-  await page.getByRole('button', { name: /Search location/i }).click();
+  await page.getByRole('button', { name: /Use my current location/i }).click();
   const confirmation = page.getByText(/Location set: /);
   await expect(confirmation).toBeVisible();
   await expect(confirmation).toContainText('73.94');
@@ -333,11 +334,9 @@ test('filling only the mandatory fields keeps the meter above where it started a
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
 
-  await page.locator('[data-err="locality"]').click();
-  await menuOpen(page);
-  await page.locator('.dz-dropdown__option').first().click();
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Skyline Heights');
+  await fillSociety(page, 'Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

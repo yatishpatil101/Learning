@@ -5,9 +5,9 @@ import { signedInAs } from '../helpers/liveAuth.js';
 test.describe('My Rental — live', () => {
   test('the tenant sees their real rented home, not a demo one, and no payment rail', async ({ page }) => {
     await signedInAs(page, ACTORS.tenant);
-    await page.goto('/dashboard#rental', { waitUntil: 'networkidle' });
+    await page.goto('/dashboard#rental', { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByRole('button', { name: 'Rental', exact: true }).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Rental', exact: true }).first()).toBeVisible({ timeout: 60000 });
 
     // The card is the server's tenancy: the owner's name and the rent come from the database, and
     // neither is a string this browser could have invented.

@@ -1,6 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { AADHAAR, INVALID_AADHAAR, MOBILE, PNG, active, clickNext, fillCoOwner, fillOwner, fillProperty, fillTenant, fillTenantPolice, fillTerms, fillWitnesses, uploadAll } from '../../../helpers/rentAgreementWizard.js';
+import { AADHAAR, INVALID_AADHAAR, MOBILE, PNG, active, clickNext, fillBuilding, fillCoOwner, fillOwner, fillProperty, fillTenant, fillTenantPolice, fillTerms, fillWitnesses, pickLocality, uploadAll } from '../../../helpers/rentAgreementWizard.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 /* Mock-only: every rule here is enforced in the browser before anything is sent. The same rules are
    re-checked by the server; `rent-agreement-submit.spec.js` pins that half live. */
@@ -22,7 +22,7 @@ async function login(page, user = BUYER) {
 
 const seedDraft = (page, draft) => page.addInitScript(([k, d]) => localStorage.setItem(k, JSON.stringify(d)), [DRAFT, draft]);
 
-const PROP = { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', taluka: 'Haveli', villageCity: 'Baner', pincode: '411045', area: '' };
+const PROP = { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', gramPanchayat: false, city: 'Pune', taluka: 'Haveli', villageCity: 'Baner', pincode: '411045', area: '' };
 
 const stillOn = (page, step) => expect(page.locator('.step-dot').nth(step), `the wizard stays on step ${step + 1}`).toHaveClass(/\bactive\b/);
 
@@ -107,6 +107,7 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
   });
 
   test('a foreign tenant uses passport and visa details, gets SRO-route copy and Form C notice', async ({ page }) => {
+    test.slow();
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
     await fillOwner(page);
@@ -367,7 +368,25 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
     await expect(page.locator('div.flex.justify-between', { hasText: 'Document Handling (DHC)' }).first()).toContainText('₹300');
   });
 
-  test('the registration area is read from the locality, not chosen', async ({ page }) => {
+  test('the property step waits for the gram panchayat answer', async ({ page }) => {
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    await fillProperty(page, { next: false, gramPanchayat: null });
+    const p = active(page);
+    const answer = p.locator('[data-err="gramPanchayat"]');
+    await expect(p.getByTestId('ra-gram-yes'), 'no answer is assumed').toHaveAttribute('aria-pressed', 'false');
+    await expect(p.getByTestId('ra-gram-no')).toHaveAttribute('aria-pressed', 'false');
+
+    await clickNext(page);
+    await stillOn(page, 0);
+    await expect(answer.getByText('Choose Yes or No.')).toBeVisible();
+
+    await p.getByTestId('ra-gram-yes').click();
+    await expect(answer.getByText('Choose Yes or No.')).toHaveCount(0);
+    await expect(p.getByTestId('ra-gram-yes')).toHaveAttribute('aria-pressed', 'true');
+    await clickNext(page, 1);
+  });
+
+  test('the registration area follows the gram panchayat answer, not the locality', async ({ page }) => {
     await page.route('**/api/fees', (route) => route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify([{ deal: 'rent', brokerage: 0, platformFee: 1999, stampDuty: null, registration: null, gst: 360, notes: null }]),
@@ -376,14 +395,14 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
     const fee = page.locator('div.flex.justify-between', { hasText: 'Registration Fee' }).first();
     const area = page.getByTestId('ra-reg-area');
 
-    await seedDraft(page, { step: 3, prop: { ...PROP, locality: 'Hinjawadi Phase 2' }, tenantMode: 'fill', terms });
+    await seedDraft(page, { step: 3, prop: { ...PROP, gramPanchayat: true }, tenantMode: 'fill', terms });
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await stillOn(page, 3);
     await expect(area).toContainText('Gram Panchayat / Rural');
     await expect(fee).toContainText('₹500');
     await expect(active(page).getByRole('button', { name: 'Municipal / Urban' }), 'there is no toggle to flip').toHaveCount(0);
 
-    await seedDraft(page, { step: 3, prop: PROP, tenantMode: 'fill', terms, regArea: 'rural' });
+    await seedDraft(page, { step: 3, prop: { ...PROP, locality: 'Hinjawadi' }, tenantMode: 'fill', terms, regArea: 'rural' });
     await page.reload({ waitUntil: 'networkidle' });
     await stillOn(page, 3);
     await expect(area, 'a stale saved choice is ignored').toContainText('Municipal / Urban');
@@ -483,6 +502,7 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
   });
 
   test('co-owners sign too: each needs KYC and papers, and the primary signs as a co-owner or under a registered POA', async ({ page }) => {
+    test.slow();
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
     await fillOwner(page, { next: false });
@@ -555,11 +575,9 @@ test.describe('Rent Agreement — IGR property particulars', () => {
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     const p = active(page);
     await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-    const society = p.getByPlaceholder('e.g. Skyline Heights');
-    await society.fill('Skyline Heights');
-    await society.press('Escape');
-    await p.locator('[data-err="locality"]').click();
-    await page.locator('.dz-dropdown__menu.is-portal-open .dz-dropdown__option', { hasText: /^Baner$/ }).first().click();
+    await fillBuilding(page);
+    await pickLocality(page, 'Baner');
+    await p.getByTestId('ra-gram-no').click();
     await p.getByPlaceholder('411045').fill('411045');
     await p.getByPlaceholder('e.g. 850').fill('850');
 
@@ -637,6 +655,7 @@ test.describe('Rent Agreement — IGR tenant police record', () => {
   });
 
   test('passport address proof must be uploaded before leaving the tenant step', async ({ page }) => {
+    test.slow();
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
     await fillOwner(page);

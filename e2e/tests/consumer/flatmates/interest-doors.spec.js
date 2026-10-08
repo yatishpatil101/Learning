@@ -4,6 +4,7 @@ import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { trackErrors } from '../../../helpers/console.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -33,7 +34,7 @@ async function hostsRoom(token, society) {
     method: 'POST',
     headers: auth(token),
     body: JSON.stringify({
-      society,
+      ...(await withSocietyId(token, { society })),
       roomType: 'Private room',
       locality: 'Baner',
       rentShare: 18000,

@@ -3,6 +3,7 @@ import { API, E2E_OTP, apiLogin, signedInAs, uniqueMobile } from '../../../helpe
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { postAsGroup, haveAFlat } from '../../../helpers/app.js';
+import { pickPlaceholderLocality } from '../../../helpers/locality.js';
 /* `ownerConsent` is not client-settable (`FlatmateMapper.applyTo` drops it), so consent can only be
  * proven by creating a group afterwards and finding the flag the server itself wrote. */
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -113,6 +114,7 @@ test('the consent button needs a full 10-digit owner mobile, the modal records c
   // must reuse this title or the flag it asserts belongs to a different flat.
   const title = `Consent via UI ${Date.now().toString(36)}`;
   await page.getByPlaceholder(/2 girls/i).fill(title);
+  await pickPlaceholderLocality(page);
 
   await mobileField.fill(ownerMobile);
   await consentBtn.click();

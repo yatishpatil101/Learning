@@ -3,6 +3,8 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 async function gotoForm(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
@@ -28,11 +30,9 @@ async function toUploadsFlat(page) {
   await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
-  await page.locator('[data-err="locality"]').click();
-  await menuOpen(page);
-  await page.locator('.dz-dropdown__option').first().click();
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Test Project');
+  await fillSociety(page, 'Test Project');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

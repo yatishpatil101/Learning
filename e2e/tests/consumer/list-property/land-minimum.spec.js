@@ -4,6 +4,8 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const owners = new Set();
 
@@ -56,10 +58,12 @@ async function fillLandStep1(page, { type, deal, area }) {
   if (type === 'Farm Land' && deal === 'buy') await pickOption(page, 'buyerEligibility', 'Agriculturist buyer only');
 }
 
+const BANER_PIN = { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' };
+
 async function fillLocation(page) {
   await nextStep(page);
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="pincode"]').fill('411045');
 }
 
@@ -138,7 +142,7 @@ test('switching a flat to a plot posts neither its possession nor its age', asyn
 
   await fillLocation(page);
   await page.locator('input[data-err="flatNumber"]').fill('B-904');
-  await page.locator('input[data-err="society"]').fill('Zztest Baner Heights');
+  await fillSociety(page, 'Zztest Baner Heights', BANER_PIN);
   await fillPricing(page, 'buy', { possession: 'Ready to Move' });
 
   for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Back', exact: true }).click();

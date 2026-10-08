@@ -25,7 +25,7 @@ async function coFillOverHttp(ownerToken, inviteeMobile) {
     body: JSON.stringify({
       request: {
         type: 'rent-agreement',
-        details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000', _state: { tenantMode: 'invite' } },
+        details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000', _state: { tenantMode: 'invite', prop: { gramPanchayat: false } } },
       },
       role: 'tenant',
       mobile: inviteeMobile,

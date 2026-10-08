@@ -1,5 +1,7 @@
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';
+import { pickGoogleSociety } from '../../helpers/places.js';
+import { pickGoogleLocality, pickPlaceholderLocality } from '../../helpers/locality.js';
 
 // Posting a listing on an owner's behalf, against the real API.
 const admin = () => authHeaders('9000000000');
@@ -205,10 +207,9 @@ test('the desk asks only the critical facts, and each one reaches the server', a
   await page.getByRole('option', { name: 'Ground', exact: true }).click();
   await page.getByRole('button', { name: /Next/i }).click();
 
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Wakad/i }).click();
+  await pickPlaceholderLocality(page, 'Wakad');
   await expect(page.getByText('Landmark', { exact: true })).toHaveCount(0);
-  await page.locator('#pob-society').fill('Zztest Desk Heights');
+  await pickGoogleSociety(page, 'Zztest Desk Heights', { input: page.locator('#pob-society') });
   await page.getByRole('button', { name: /Next/i }).click();
 
   await page.locator('#pob-price').fill('24000');
@@ -242,53 +243,18 @@ test('the desk asks only the critical facts, and each one reaches the server', a
 });
 
 const PIN = { lat: 18.5975, lng: 73.7701 };
-async function stubPlaces(page) {
-  await page.waitForFunction(() => !!window.google?.maps?.version, null, { timeout: 20000 });
-  await page.evaluate(({ lat, lng }) => {
-    const prediction = (label) => ({
-      placeId: `stub-${label}`,
-      text: { toString: () => label },
-      mainText: { toString: () => label },
-      secondaryText: { toString: () => 'Pune, Maharashtra' },
-      toPlace: () => ({
-        addressComponents: [
-          { types: ['postal_code'], longText: '411057' },
-          { types: ['sublocality_level_1', 'sublocality', 'political'], longText: 'Wakad' },
-        ],
-        location: { lat: () => lat, lng: () => lng },
-        displayName: label,
-        formattedAddress: `${label}, Pune`,
-        types: ['premise'],
-        fetchFields: async () => ({}),
-      }),
-    });
-    const realImport = window.google.maps.importLibrary.bind(window.google.maps);
-    window.google.maps.importLibrary = async (name) => (name === 'places'
-      ? { AutocompleteSuggestion: { fetchAutocompleteSuggestions: async ({ input }) => ({ suggestions: [{ placePrediction: prediction(input) }] }) } }
-      : realImport(name));
-  }, PIN);
-}
-
 test('locality and society take Google suggestions, and a picked society binds the listing to it and its pin', async ({ page, login }) => {
   const ownerMobile = uniqueMobile();
   const society = `Zztest Google Towers ${ownerMobile.slice(-6)}`;
   await login.asAdmin();
   await page.goto('/admin/post-on-behalf');
-  await stubPlaces(page);
 
   await ownerAndProperty(page, { name: 'Google Owner', mobile: ownerMobile, carpetArea: '900' });
   await page.getByRole('button', { name: /Next/i }).click();
 
-  await page.getByText('Select locality').click();
-  await page.locator('.dz-dropdown__search input').fill('Pashan');
-  await page.locator('.dz-dropdown__option', { hasText: 'Pashan' }).first().click();
-  await expect(page.getByLabel('Locality')).toContainText('Pashan');
+  await pickGoogleLocality(page, 'Pashan', { field: page.getByLabel('Locality'), lat: 18.538, lng: 73.789 });
 
-  await page.locator('#pob-society').fill(society);
-  const googleOption = page.getByTestId('society-google-option');
-  await expect(googleOption).toContainText(society);
-  await googleOption.click();
-  await expect(page.locator('#pob-society')).toHaveValue(society);
+  await pickGoogleSociety(page, society, { input: page.locator('#pob-society'), ...PIN });
   await page.getByRole('button', { name: /Next/i }).click();
 
   await page.locator('#pob-price').fill('26000');
@@ -299,6 +265,7 @@ test('locality and society take Google suggestions, and a picked society binds t
 
   const stored = await onlyListing(ownerMobile);
   expect(stored.locality).toBe('Pashan');
+  expect(stored.localitySlug, 'the Google pick bound the listing to the resolved locality').toBe('pashan');
   expect(stored.societyId, 'the Google pick did not bind a society record').toBeTruthy();
   expect(Number(stored.lat)).toBeCloseTo(PIN.lat, 3);
   expect(Number(stored.lng)).toBeCloseTo(PIN.lng, 3);
@@ -311,8 +278,7 @@ test('a deposit typed under rent is not filed against a sale', async ({ page, lo
 
   await ownerAndProperty(page, { name: 'NoDeposit Owner', mobile: ownerMobile, carpetArea: '900' });
   await page.getByRole('button', { name: /Next/i }).click();
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Next/i }).click();
 
   await page.locator('input[inputmode="numeric"]').first().fill('25000');
@@ -351,8 +317,7 @@ test('the sidebar reaches the wizard, step one will not be skipped, and the mone
 
   await ownerAndProperty(page, { name: 'Money Owner', mobile: ownerMobile, carpetArea: '950' });
   await page.getByRole('button', { name: /Next/i }).click();
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Next/i }).click();
 
   const price = page.locator('#pob-price');
@@ -397,8 +362,7 @@ test('a property type switched away from takes its bedroom configuration with it
   await choose(page, 'Shell type', 'Bare Shell');
 
   await page.getByRole('button', { name: /Next/i }).click();
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Next/i }).click();
   await page.locator('#pob-price').fill('9000000');
   await page.getByRole('button', { name: /Next/i }).click();
@@ -437,8 +401,7 @@ test('the deal toggle and the land cascade decide what the operator may type, an
   await choose(page, 'NA status', /Still agricultural/);
   await choose(page, 'Other rights', /Clear/);
   await page.getByRole('button', { name: /Next/i }).click();
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Next/i }).click();
   // For Sale, all the way through: the price field is renamed and the deposit is not offered.
   await expect(page.getByText('Expected Price')).toBeVisible();
@@ -480,10 +443,9 @@ test('a commercial listing files its type and shell, and asks nothing the owner 
   await expect(page.getByLabel('Fixtures')).toHaveCount(0);
 
   await page.getByRole('button', { name: /Next/i }).click();
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Chakan|Wakad|Baner/ }).first().click();
+  await pickPlaceholderLocality(page, 'Baner');
   await expect(page.locator('#pob-society')).toBeVisible();
-  await expect(page.locator('#pob-society')).not.toHaveAttribute('role', 'combobox');
+  await expect(page.locator('#pob-society')).toHaveAttribute('role', 'combobox');
   await page.getByRole('button', { name: /Next/i }).click();
 
   await page.locator('#pob-price').fill('180000');

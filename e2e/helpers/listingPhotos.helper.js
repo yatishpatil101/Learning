@@ -2,6 +2,8 @@ import { crc32, deflateSync } from 'node:zlib';
 import { expect } from '@playwright/test';
 import { authHeaders, ownerIdOf, seedConsent, signedInAsNew } from './liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY } from './listingForm.helper.js';
+import { fillSociety } from './places.js';
+import { pickLocality } from './locality.js';
 
 const png = (width, height, pixelAt) => {
   const chunk = (type, data) => {
@@ -51,10 +53,8 @@ export async function openPhotoStep(page) {
   await page.goto('/list-property');
   await expect(page.locator('.lp-steps')).toBeVisible();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.locator('[data-err="locality"] .dz-dropdown__trigger').click();
-  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.getByRole('option', { name: 'Baner', exact: true }).click();
-  await page.locator('input[data-err="society"]').fill('Photo UX Home');
+  await pickLocality(page, 'Baner');
+  await fillSociety(page, 'Photo UX Home');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('button', { name: /Next Step/i }).click();

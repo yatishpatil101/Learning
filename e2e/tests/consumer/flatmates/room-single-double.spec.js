@@ -4,6 +4,9 @@ import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 import { PHOTO_PNG } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -16,7 +19,7 @@ async function doubleRoom() {
     headers: auth(accessToken),
     body: JSON.stringify({
       bhk: '2', roomType: 'Shared room', attachedBath: 'attached', furnishing: 'semi',
-      locality: 'Baner', society: `Double room ${Date.now().toString(36)}`,
+      locality: 'Baner', ...(await withSocietyId(accessToken, { society: `Double room ${Date.now().toString(36)}` })),
       rentShare: 15000, deposit: 30000, availableFrom: '2026-12-01',
       lookingFor: 'any', foodPref: 'any', hostRole: 'tenant', occupants: 2,
       photos: ['https://cdn.example/double-room.jpg'],
@@ -53,9 +56,8 @@ test.describe('single and double rooms', () => {
     await page.getByLabel('The owner knows and agrees to sharing').check();
     await page.getByRole('button', { name: /Next Step/i }).click();
 
-    await page.locator('[data-err="locality"]').click();
-    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
-    await page.locator('input[data-err="society"]').fill('Double Room Heights');
+    await pickLocality(page, 'Baner');
+    await fillSociety(page, 'Double Room Heights');
     await page.getByRole('button', { name: /Next Step/i }).click();
 
     await expect(page.getByText('Rent & move-in', { exact: true })).toBeVisible();

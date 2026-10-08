@@ -4,6 +4,7 @@ import { appReady } from '../helpers/app.js';
 import { API, apiLogin, authHeaders, ownerIdOf, signedInAs, signedInAsNew, uniqueMobile, uploadedListingPhotos } from '../helpers/liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
 import { PHOTO_PNG } from '../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../helpers/places.js';
 
 // The wizard is behind auth and `/me/photos` is scoped by the caller's token, so this must be a real seeded account.
 const OWNER = { mobile: '9470744469', name: 'Meera Deshpande' };
@@ -102,18 +103,18 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     const next = page.getByRole('button', { name: /Next Step/i });
     await next.click();
 
-    await page.locator('[data-err="location"] input[role="combobox"]').fill('Baner');
-    await page.getByRole('button', { name: 'Search location' }).click();
-
-    const address = { flatNumber: 'A-701', society: 'Live Spec Residency', pincode: '411045' };
+    const address = { flatNumber: 'A-701', pincode: '411045' };
+    const society = `Live Spec Residency ${ownerId.slice(-6)}`;
     const money = { monthlyRent: '32000', deposit: '100000' };
     for (const [field, value] of Object.entries(address)) {
       await page.locator(`input[data-err="${field}"]`).fill(value);
     }
+    await fillSociety(page, society, { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' });
     for (const [field, value] of Object.entries(address)) {
       expect(await page.locator(`input[data-err="${field}"]`).inputValue(),
         `address field ${field} was overwritten`).toBe(value);
     }
+    await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).not.toHaveClass(/is-placeholder/, { timeout: 15_000 });
 
     await next.click();
 

@@ -3,6 +3,7 @@ import { API, apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 /* The fixture omits `propertyId` and declares no agreement, so the server derives the identity
    floor; owner tier is covered by `trust-badges.spec.js`. */
 
@@ -42,7 +43,7 @@ test('the host closes and reopens a real standalone room seat from its detail pa
       attachedBath: 'attached',
       furnishing: 'semi',
       locality: 'Baner',
-      society,
+      ...(await withSocietyId(accessToken, { society })),
       rentShare: 15000,
       deposit: 30000,
       availableFrom: '2026-12-01',

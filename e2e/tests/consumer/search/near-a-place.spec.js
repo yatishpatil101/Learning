@@ -1,43 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
-import { API } from '../../../helpers/liveAuth.js';
 
-/* "Near a Place" — the landmark picker, against the live catalogue.
-
-   What this proves is a UI contract, not a data one: typing into the Near-a-Place field
-   surfaces a Google Places prediction, picking it commits a *point* (lat/lng + label) to
-   the filter state, and the distance controls + the removable chip appear as a result.
-   Google is stubbed because a real Places call is a paid, rate-limited, non-deterministic
-   dependency — the thing under test is what OUR code does with a prediction, not Google's.
-
-   The live half is the page underneath. The mock twin ran the whole listings screen off
-   `mockApi.js`; here the grid, the locality registry behind the dropdown and the count line
-   are all served by the API, so this also proves the picker still works when its neighbours
-   are doing real network I/O. It is a genuinely different failure surface: an unhandled
-   rejection from a listings fetch lands in the same `trackErrors` bucket as a picker bug.
-
-   The one piece of live grounding: the stubbed POI claims to be in Hinjawadi, and the nudge
-   / snap logic downstream only works if `hinjawadi` is a locality the server actually knows.
-   Asserted against `GET /localities` up front so a registry change fails here loudly rather
-   than showing up later as a mute picker. */
+/* "Near a Place" landmark picker against the live catalogue: picking a stubbed Google prediction commits a point (lat/lng + label) to the filter
+   state and reveals the distance controls and chip. Google is stubbed because real Places calls are paid and non-deterministic. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
-
-/* The parent locality the stubbed prediction claims. Read from the server, not asserted as
-   a constant, so the failure message names the registry rather than the dropdown. */
-const PARENT_SLUG = 'hinjawadi';
-
-async function assertRegistryKnows(slug) {
-  const res = await fetch(`${API}/localities`);
-  expect(res.ok, `GET /localities -> ${res.status}`).toBe(true);
-  const rows = await res.json();
-  const list = Array.isArray(rows) ? rows : rows.content || [];
-  expect(list.length, 'the locality registry is empty; the seed did not run').toBeGreaterThan(5);
-  const hit = list.find((l) => (l.slug || '').toLowerCase() === slug);
-  expect(hit, `"${slug}" is not in GET /localities, so nothing downstream can snap to it`).toBeTruthy();
-  return hit;
-}
 
 // Stub Places (New) so a typed query resolves to a deterministic Pune POI prediction.
 async function stubPlacesNear(page) {
@@ -73,36 +41,31 @@ async function stubPlacesNear(page) {
 }
 
 test('typing a landmark commits a point, not a string, and unfolds the distance controls', async ({ page }) => {
-  await assertRegistryKnows(PARENT_SLUG);
-
   const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/listings`);
   await filters(page).first().waitFor({ timeout: 15000 });
-  /* The global APIProvider loads the real Maps SDK on every page; wait for it to settle
-     (only the real payload sets `google.maps.version`) before overriding importLibrary,
-     otherwise the late script load clobbers the stub. Fail-soft: if the SDK never loads
-     there is nothing to clobber and the stub still wins. */
+  /* Wait for the real Maps SDK to settle (only it sets `google.maps.version`) before overriding importLibrary, or
+     the late script load clobbers the stub. */
   await page.waitForFunction(() => window.google?.maps?.version, { timeout: 12000 }).catch(() => {});
   await stubPlacesNear(page);
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Near a Place"))').first();
+  // Collapsed until a place is set.
   await group.locator('.fg-header').first().click();
-  await group.locator('.dz-dropdown__trigger').first().click();
+  const search = group.locator('input[type="search"]');
+  // A plain field, not a dropdown: nothing is listed until something is typed.
+  await expect(search).toBeVisible();
+  await expect(group.getByRole('listbox')).toHaveCount(0);
 
-  const menu = page.locator('.dz-dropdown__menu--portal');
-  await expect(menu).toBeVisible();
-  // Empty state first: the field asks for input rather than pretending to have results.
-  await expect(menu.locator('.dz-dropdown__empty')).toContainText(/Type to search/i);
-
-  await menu.locator('input').fill('Hinj');
-  const option = menu.locator('[role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
+  await search.fill('Hinj');
+  const option = group.getByRole('option', { name: /Hinjawadi IT Park/ }).first();
   await expect(option).toBeVisible({ timeout: 8000 });
+  await expect(group.getByRole('img', { name: 'Powered by Google' }), 'Places predictions carry the Google attribution').toBeVisible();
   await option.click();
 
-  // The menu closes and the trigger now reads back the place that was picked.
-  await expect(menu).toHaveCount(0);
-  await expect(group.locator('.dz-dropdown__trigger').first()).toContainText('Hinjawadi IT Park');
+  await expect(group.getByRole('listbox')).toHaveCount(0);
+  await expect(search).toHaveValue('Hinjawadi IT Park');
 
   /* A point, not a search term: the radius slider only renders when the filter is holding
      coordinates, and the active-filter chip is how the rest of the page learns about it. */
@@ -118,18 +81,8 @@ test('typing a landmark commits a point, not a string, and unfolds the distance 
   expect(relevant, relevant.join('\n')).toEqual([]);
 });
 
-/* "Near a Place" — auto-reveal distance controls, against the live catalogue.
-
-   After a landmark is picked the distance/commute panel unfolds below the select. The
-   filter panel's OWN scroll container must scroll to reveal it WITHOUT moving the window
-   — that is the page-jump-to-footer regression this guards.
-
-   Why it is worth running live as well as mocked: the measurement is a race between the
-   app's scroll and the page settling, and live the panel shares a frame with real network
-   I/O (the grid re-fetching, the locality registry loading). A scroll-reveal that is only
-   correct when everything else is instantaneous is not correct. Nothing here is a
-   hard-coded pixel: the baseline is read from the DOM immediately before the action and
-   every assertion is relative to it. */
+/* Near a Place auto-reveal: the filter panel's own scroll container must reveal the distance controls without moving the window (page-jump regression).
+   Also run live because the measurement races real network I/O; the baseline is read from the DOM just before the action, with no hard-coded pixels. */
 
 test('picking a place scrolls the filter panel (not the window) to reveal the distance controls', async ({ page }) => {
   const errors = trackErrors(page);
@@ -143,8 +96,6 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Near a Place"))').first();
   await group.locator('.fg-header').first().click();
-  await group.locator('.dz-dropdown__trigger').first().click();
-  await expect(page.locator('.dz-dropdown__menu--portal')).toBeVisible();
 
   const scrollState = () => page.evaluate(() => {
     const s = document.querySelector('aside .filter-scroll');
@@ -153,24 +104,16 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
     return { panel: Math.round(s.scrollTop), winY: window.scrollY, room };
   });
 
-  await page.locator('.dz-dropdown__menu--portal input').fill('Hinj');
-  const option = page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
-  /* Bring the option into view BEFORE the baseline, then take it, then click.
-     `click()` scrolls its target into view first, and the menu is a portal anchored below a
-     trigger that can sit near the bottom of a 620px viewport — so on the runs where the option
-     lands below the fold, Playwright scrolls the *window* itself and the guard below then blames
-     the app for a jump the harness performed. Doing the scroll explicitly first makes the baseline
-     measure only what the app does in response to the pick, which is the thing under test. */
+  await group.locator('input[type="search"]').fill('Hinj');
+  const option = group.getByRole('option', { name: /Hinjawadi IT Park/ }).first();
+  /* Scroll the option into view before taking the baseline: if Playwright's click does it, the guard below blames the app
+       for a jump the harness made. */
   await option.scrollIntoViewIfNeeded();
   const before = await scrollState();
   expect(before.panel, 'no `aside .filter-scroll` container, so nothing below measures the panel')
     .not.toBeNull();
-  /* The window-did-not-move guard at the end of this test is the file's headline claim, and it is
-     the one assertion that can be true for the wrong reason: if the document ever fits inside the
-     viewport, `window.scrollY` is pinned at 0 and "the page did not jump" holds with the bug fully
-     present. So establish first that the window has somewhere to jump TO. `/listings` is a
-     sticky-sidebar layout, so a future shell that scrolls only internally would silently retire
-     this test rather than fail it. */
+  /* If the document fits the viewport, `window.scrollY` stays 0 and "did not jump" passes with the bug present, so
+     first establish the window has room to jump. */
   expect(
     before.room,
     'the document fits inside the viewport, so the window cannot scroll and the page-jump guard '
@@ -179,9 +122,7 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
 
   await option.click();
   await expect(group.locator('input[type="range"]')).toBeVisible();
-  /* `scrollState()` reads through `page.evaluate`, which does not retry, so a fixed sleep here
-     would be load-bearing. Polling for the panel to have moved waits for the smooth scroll to
-     finish rather than for a duration somebody watched it take once. */
+  /* `scrollState()` reads through `page.evaluate`, which does not retry, so poll for the panel to have moved instead of sleeping. */
   await expect.poll(async () => (await scrollState()).panel).toBeGreaterThan(before.panel);
 
   const after = await scrollState();
@@ -189,7 +130,7 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
   // The filter panel scrolled down…
   expect(after.panel).toBeGreaterThan(before.panel);
   // …far enough to reveal the just-unfolded distance controls INSIDE the panel's own
-  // scroll viewport (position-independent — "Near a Place" now sits mid-list).
+  // scroll viewport (position-independent).
   const revealed = await group.locator('input[type="range"]').evaluate((el) => {
     const s = document.querySelector('aside .filter-scroll').getBoundingClientRect();
     const r = el.getBoundingClientRect();
@@ -203,21 +144,8 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
   expect(relevant, relevant.join('\n')).toEqual([]);
 });
 
-/* The Near-a-Place radius, at its two edges.
-
-   Clearing the number field must not store `''`: `nearParams` treats a non-numeric radius as no
-   radius and returns `{}` — which drops the CENTRE POINT with it, so the whole proximity filter
-   went silently off while the chip and the place name stayed on screen. The buyer is looking at a
-   search that says "within N km of Hinjawadi" and reading results from all of Pune.
-
-   The repair keeps the half-typed text out of the filter rather than writing a repaired value into
-   it: a blank field is a keystroke on the way somewhere, so the radius already in effect stands
-   until a legal one replaces it. Pinned as "no request ever left without the point", because the
-   bug produced a perfectly healthy-looking screen — nothing in the DOM distinguishes it.
-
-   The other edge is the ceiling. The controls offer 25 km and the server clamps at 50, so a
-   hand-edited or shared `?nearr=9999` would otherwise render a slider pinned at a number the
-   search never honoured. What is displayed must be what was asked. */
+/* Near-a-Place radius edges: clearing the field must not store `''` (`nearParams` would drop the centre point and silently turn the filter off),
+   and a shared `?nearr=9999` must not render a slider pinned beyond the 50 km server clamp. */
 
 // Hinjawadi IT Park — a real point in the seeded catalogue's city, so the search is answerable.
 const POINT = 'near=18.5913%2C73.7389&nearlabel=Hinjawadi+IT+Park';
@@ -244,9 +172,8 @@ test('clearing the radius repairs it instead of dropping the proximity filter', 
   const group = await openNear(page, `${POINT}&nearr=12`);
   await expect(radiusField(group)).toHaveValue('12');
 
-  /* Every search the page runs from here on. The bug was an ABSENCE on the wire, so the assertion
-     has to be over all of them — a single later request carrying the point proves nothing about
-     the one that went out while the field was blank. */
+  /* Over every later search: the bug was an absence on the wire, so one request carrying the point proves nothing
+     about the one sent while the field was blank. */
   const unscoped = [];
   page.on('request', (r) => {
     if (!/\/properties\?/.test(r.url())) return;

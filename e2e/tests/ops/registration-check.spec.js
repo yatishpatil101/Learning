@@ -109,6 +109,7 @@ async function approvedAgreement(holder) {
         ownerName: 'Live Check Owner', rent: 30000, deposit: 150000, months: 11,
         _state: {
           tenantMode: 'fill',
+          prop: { gramPanchayat: false },
           tenants: [{ name: TENANT_NAME, mobile: tenantMobile }, { name: TYPED_NAME, mobile: uniqueMobile() }],
         },
       },
@@ -171,7 +172,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
       propertyId: listing.id,
       details: {
         rent: 55000, deposit: 200000, months: 11,
-        _state: { owner: { oMobile: uniqueMobile() }, tenants: [{ name: TYPED_NAME, mobile: uniqueMobile() }], terms: { rent: '55000', months: '11' } },
+        _state: { prop: { gramPanchayat: false }, owner: { oMobile: uniqueMobile() }, tenants: [{ name: TYPED_NAME, mobile: uniqueMobile() }], terms: { rent: '55000', months: '11' } },
       },
     });
     settle(request.id);
@@ -197,7 +198,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const customer = (await apiLogin(uniqueMobile())).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
-      details: { ownerName: 'Unlisted Owner', rent: 18000, deposit: 60000, months: 11, _state: { tenantMode: 'fill' } },
+      details: { ownerName: 'Unlisted Owner', rent: 18000, deposit: 60000, months: 11, _state: { tenantMode: 'fill', prop: { gramPanchayat: false } } },
     });
     settle(request.id);
 
@@ -258,7 +259,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
         rent: 25000, deposit: 100000, months: 11,
         _state: {
           tenantMode: 'fill',
-          prop: { flatNo: 'B-702', society: 'Kumar Park', locality: 'Kothrud', city: 'Pune', pincode: '411038' },
+          prop: { flatNo: 'B-702', society: 'Kumar Park', locality: 'Kothrud', gramPanchayat: false, city: 'Pune', pincode: '411038' },
           owner: { oName: 'Asha Deshpande', oMobile: '9822012345', capacity: 'poa', poaPrincipal: 'Vinod Deshpande', poaRegNo: 'HVL3-889-2024', poaSro: 'Haveli 3', poaDate: '2024-03-15' },
           tenants: [{ name: 'Kiran Rao', mobile: '9922054321' }],
           terms: { rent: '25000', deposit: '100000', months: '11', lockin: '6', notice: '1' },
@@ -303,7 +304,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const customer = (await apiLogin(mobile)).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
-      details: { ownerName: 'Reupload Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill' } },
+      details: { ownerName: 'Reupload Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill', prop: { gramPanchayat: false } } },
     });
     settle(request.id);
     const staff = (await apiLogin(STAFF.rental)).accessToken;
@@ -354,7 +355,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const customer = (await apiLogin(uniqueMobile())).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
-      details: { ownerName: 'Slow Pickup Owner', rent: 21000, deposit: 63000, months: 11, _state: { tenantMode: 'fill' } },
+      details: { ownerName: 'Slow Pickup Owner', rent: 21000, deposit: 63000, months: 11, _state: { tenantMode: 'fill', prop: { gramPanchayat: false } } },
     });
     settle(request.id);
     enteredStatusAgo(request.id, 5);
@@ -386,7 +387,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const customer = (await apiLogin(mobile)).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
-      details: { ownerName: 'Revised Terms Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill' } },
+      details: { ownerName: 'Revised Terms Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill', prop: { gramPanchayat: false } } },
     });
     settle(request.id);
     const staff = (await apiLogin(STAFF.rental)).accessToken;
@@ -440,7 +441,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const customer = (await apiLogin(uniqueMobile())).accessToken;
     const request = await ok('POST', '/service-requests', customer, {
       type: 'rent-agreement',
-      details: { ownerName: 'Refund Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill' } },
+      details: { ownerName: 'Refund Owner', rent: 20000, deposit: 60000, months: 11, _state: { tenantMode: 'fill', prop: { gramPanchayat: false } } },
     });
     settle(request.id);
     markPaid(request.id);
@@ -486,7 +487,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const raise = async (token, licensor, startDate) => {
       const request = await ok('POST', '/service-requests', token, {
         type: 'rent-agreement', propertyId: listing.id,
-        details: { rent: 20000, deposit: 60000, months: 11, startDate, _state: { tenantMode: 'fill', owner: { oName: licensor } } },
+        details: { rent: 20000, deposit: 60000, months: 11, startDate, _state: { tenantMode: 'fill', prop: { gramPanchayat: false }, owner: { oName: licensor } } },
       });
       settle(request.id);
       return request.id;

@@ -4,6 +4,9 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
+import { chooseLocality, pickLocality } from '../../../helpers/locality.js';
 
 const track = flatmateCleanup(test);
 
@@ -72,7 +75,7 @@ async function hostsRoom(token, society) {
     method: 'POST',
     headers: auth(token),
     body: JSON.stringify({
-      society,
+      ...(await withSocietyId(token, { society })),
       roomType: 'Private room',
       locality: 'Baner',
       rentShare: 18000,
@@ -105,8 +108,7 @@ test.describe('LIVE: my flatmate listings', () => {
     await page.getByPlaceholder('e.g. Riya').fill('Form Seeker');
     await page.getByLabel('Lowest monthly budget').fill('16000');
     const localityPicker = page.getByRole('button', { name: 'Preferred localities' });
-    await localityPicker.click();
-    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
+    await chooseLocality(page, localityPicker, 'Baner');
     await expect(localityPicker).toContainText('Baner');
     // A success toast cannot prove the server accepted the payload.
     const posted = page.waitForResponse(
@@ -201,10 +203,8 @@ test.describe('LIVE: my flatmate listings', () => {
     await fillTenantProof(page);
     await page.getByRole('button', { name: /Next Step/i }).click();
 
-    await page.locator('[data-err="locality"]').click();
-    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
-    await page.locator('input[data-err="society"]').fill(society);
+    await pickLocality(page, 'Baner');
+    await fillSociety(page, society);
     await page.getByRole('button', { name: /Next Step/i }).click();
     await expect(page.getByText('Rent & move-in', { exact: true })).toBeVisible();
     await page.locator('input[data-err="rentShare"]').fill('13500');
@@ -279,10 +279,8 @@ test.describe('LIVE: my flatmate listings', () => {
     await fillTenantProof(page);
     await page.getByRole('button', { name: /Next Step/i }).click();
 
-    await page.locator('[data-err="locality"]').click();
-    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
-    await page.locator('input[data-err="society"]').fill(society);
+    await pickLocality(page, 'Baner');
+    await fillSociety(page, society);
     await page.getByRole('button', { name: /Next Step/i }).click();
     await expect(page.getByText('Rent & move-in', { exact: true })).toBeVisible();
     await page.locator('input[data-err="rentShare"]').fill('14500');

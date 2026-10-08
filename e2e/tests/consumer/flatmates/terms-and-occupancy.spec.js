@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 const track = flatmateCleanup(test);
@@ -23,7 +24,7 @@ async function postRoom(token, overrides = {}) {
       bhk: '2',
       roomType: 'Private room',
       locality: 'Baner',
-      society: newSociety(),
+      ...(await withSocietyId(token, { society: newSociety() })),
       rentShare: 16000,
       availableFrom: '2026-12-01',
       photos: ['https://cdn.example.com/room.png'],

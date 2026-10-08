@@ -4,6 +4,8 @@ import { authHeaders, uploadedListingPhotos, ownerIdOf, signedInAsNew } from '..
 import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
 import { PHOTO_PNG } from '../helpers/listingPhotos.helper.js';
 import { openBadgeVault } from '../helpers/badgeVault.js';
+import { fillSociety } from '../helpers/places.js';
+import { pickLocality } from '../helpers/locality.js';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { PDFDocument, PDFName, PDFString } = requireFrontend('pdf-lib');
@@ -11,12 +13,6 @@ const PNG = PHOTO_PNG;
 const CAP = 1_000_000;
 const photoInput = (page) => page.locator('[data-err="photos"] label.upload-zone input[multiple]');
 
-async function chooseLocality(page, name) {
-  const field = page.locator('[data-err="locality"] .dz-dropdown__trigger');
-  await field.click();
-  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.getByRole('option', { name, exact: true }).click();
-}
 
 async function openPhotos(page) {
   const mobile = await signedInAsNew(page);
@@ -33,8 +29,8 @@ async function openPhotos(page) {
   await expect(page.locator('.lp-steps')).toBeVisible();
   // The draft already carries the rent, deposit and date, so the pricing step needs no answers.
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await chooseLocality(page, 'Baner');
-  await page.locator('input[data-err="society"]').fill('Media Test Home');
+  await pickLocality(page, 'Baner');
+  await fillSociety(page, 'Media Test Home');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('button', { name: /Next Step/i }).click();

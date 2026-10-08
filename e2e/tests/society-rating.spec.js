@@ -1,13 +1,10 @@
 // LIVE integration check for the `society` domain — the directory's rating aggregate.
 import { test, expect } from '@playwright/test';
 import { signIn } from '../helpers/liveAuth.js';
+import { seedSocietyReviews } from '../helpers/liveSociety.js';
 
 // A seeded consumer.
 const REVIEWER = { mobile: '9708919481', name: 'Omkar Kulkarni' };
-
-// A curated society, so it is present regardless of how much of the MahaRERA import is seeded.
-const SLUG = 'aditya-shagun-kothrud';
-const NAME = 'Aditya Shagun';
 
 // Force the scroll-reveal classes on: `.reveal` sits at opacity 0 until the observer fires.
 const reveal = (page) => page.evaluate(() => {
@@ -36,7 +33,7 @@ let seeded = false;
 
 let target = null;
 
-// Pick the society to rate — the preferred one if it is still unrated, otherwise any unrated row.
+// Pick the society to rate — any unrated row, else the first.
 async function resolveTarget(request) {
   if (target) return target;
   const rows = [];
@@ -46,9 +43,8 @@ async function resolveTarget(request) {
     if (page + 1 >= body.totalPages) break;
   }
   expect(rows.length, 'the seeded catalogue must not be empty').toBeGreaterThan(0);
-  const preferred = rows.find((s) => s.slug === SLUG);
   const unrated = rows.find((s) => Number(s.reviewCount) === 0);
-  const row = preferred && Number(preferred.reviewCount) === 0 ? preferred : (unrated || preferred || rows[0]);
+  const row = unrated || rows[0];
   target = { slug: row.slug, name: row.name };
   return target;
 }
@@ -70,6 +66,8 @@ test('the live directory card reports the aggregate the server computed', async 
   // Seed the fixture through the product, not around it, and only if it is empty.
   if (Number((await serverAggregate(page.request)).reviewCount) === 0) {
     const { slug } = await resolveTarget(page.request);
+    // Two more reviews so the hub offers its Reviews tab (it needs three).
+    await seedSocietyReviews(page.request, slug, 2, { categories: { Safety: 5, Connectivity: 1 } });
     await signIn(page, REVIEWER.mobile);
     await page.goto(`/society/${slug}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });

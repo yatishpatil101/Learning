@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { trackErrors } from '../../../helpers/console.js';
+import { chooseLocality, pickLocalitiesIn } from '../../../helpers/locality.js';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
@@ -43,7 +44,7 @@ test.describe('LIVE: post-request form', () => {
     await expect(page.locator('.dz-field-error', { hasText: 'Max budget can’t be below min.' })).toBeVisible();
     await page.getByLabel('Highest monthly budget').fill('22000');
 
-    await pickFrom(page, 'Preferred localities', ['Baner', 'Wakad'], { closes: true });
+    await pickLocalitiesIn(page, page.getByRole('button', { name: 'Preferred localities' }), ['Baner', 'Wakad']);
     await pickFrom(page, 'Lifestyle preferences', ['Vegetarian', 'Non-smoker']);
 
     await page.getByRole('button', { name: 'Looking to share with' }).click();
@@ -112,9 +113,7 @@ test.describe('post-request form on a phone', () => {
     await expect(page.getByRole('heading', { name: /Post your flatmate request/i })).toBeVisible({ timeout: 20_000 });
 
     const picker = page.getByRole('button', { name: 'Preferred localities' });
-    await picker.tap();
-    await page.locator('.dz-dropdown__option', { hasText: 'Wakad' }).first().tap();
-    await expect(page.locator('.dz-dropdown__option').first()).toBeHidden();
+    await chooseLocality(page, picker, 'Wakad', { tap: true });
     await expect(picker).toContainText('Wakad');
 
     const note = page.locator('label', { hasText: 'Verified Seekers' });

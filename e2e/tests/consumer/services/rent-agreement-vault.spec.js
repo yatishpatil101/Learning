@@ -2,7 +2,7 @@
    read back over HTTP from outside the browser as the evidence the paper actually left it. */
 import { expect, test } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
-import { pickLocality } from '../../../helpers/rentAgreementWizard.js';
+import { fillBuilding, pickLocality } from '../../../helpers/rentAgreementWizard.js';
 
 const PAGE = '/services/rent-agreement';
 // The browser decodes even under-cap originals before uploading them unchanged.
@@ -23,9 +23,9 @@ const idsOf = (rows) => new Set(rows.map((r) => r.id));
 async function toOwnerStep(page) {
   const p = page.locator('.step-panel.active');
   await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-  await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-  await p.getByPlaceholder('e.g. Skyline Heights').press('Escape');
+  await fillBuilding(page);
   await pickLocality(page, 'Baner');
+  await p.getByTestId('ra-gram-no').click();
   await p.getByPlaceholder('411045').fill('411045');
   await p.getByPlaceholder('e.g. 850').fill('850');
   await p.getByRole('button', { name: 'Taluka', exact: true }).click();

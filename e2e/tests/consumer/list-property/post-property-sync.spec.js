@@ -2,6 +2,7 @@
 import { test, expect, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { authHeaders, API } from '../../../helpers/liveAuth.js';
 import { approveListingWithFetch } from '../../../helpers/moderation.js';
+import { pickPlaceholderLocality } from '../../../helpers/locality.js';
 import * as consumerC from '../../../../frontend/src/pages/consumer/list-property/constants.js';
 import * as adminC from '../../../../frontend/src/pages/admin/post-on-behalf/constants.js';
 // Teardown rejects, not deletes: rejection is a producible product state.
@@ -34,13 +35,7 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     expect(adminC.furnishingOptions.map((o) => o.value)).toEqual(['unfurnished', 'semi', 'furnished']);
   });
 
-  async function pick(page, opener, option) {
-    await opener.click();
-    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-    await page.getByRole('option', { name: option }).click();
-  }
-
-  test('admin furnishing round-trips to a canonical key in the saved listing', async ({ page, login, request }) => {
+    test('admin furnishing round-trips to a canonical key in the saved listing', async ({ page, login, request }) => {
     await login.asAdmin();
     await page.goto('/admin/post-on-behalf');
 
@@ -53,7 +48,7 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     await page.getByRole('group', { name: 'Furnishing' }).getByRole('button', { name: 'Semi-Furnished' }).click();
     await page.getByRole('button', { name: /Next/i }).click();
 
-    await pick(page, page.getByText('Select locality'), /Baner/i);
+    await pickPlaceholderLocality(page, 'Baner');
     await page.getByRole('button', { name: /Next/i }).click();
     await page.locator('input[inputmode="numeric"]').first().fill('24000');
     await page.getByRole('button', { name: /Next/i }).click();

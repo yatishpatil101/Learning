@@ -25,8 +25,6 @@ async function post(fields) {
     propertyType: 'Flat',
     price: 24000,
     city: 'Pune',
-    /* A real entry in `GET /localities`, so the resolver files the listing rather than leaving
-       `locality_slug` null and dropping it into the curation queue. */
     locality: 'Baner',
     bhk: 3,
     area: 1200,

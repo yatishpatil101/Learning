@@ -141,9 +141,6 @@ test.describe('LIVE: reviews against the real API', () => {
     const before = await (await first).json();
     expect(before).toHaveProperty('content');
 
-    // Open the reviews tab before asserting on controls mounted inside it.
-    await page.getByRole('tab', { name: /reviews/i }).first().click();
-
     const body = `Living here since 2019 ${Date.now()}`;
     const posted = page.waitForResponse(
       (r) => /\/api\/reviews\/locality\/aundh$/.test(r.url()) && r.request().method() === 'POST',

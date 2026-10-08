@@ -2,6 +2,8 @@
 import { ACTORS, expect, test } from '../../fixtures/live.js';
 import { API, E2E_OTP, apiLogin, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 import { tenantRoomAgreement } from '../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../helpers/liveSociety.js';
+import { pickLocalitiesIn } from '../../helpers/locality.js';
 
 const STAFF = '9733798115';
 
@@ -59,7 +61,7 @@ async function seedTenantRoom(host, society, agreementDoc = undefined, extra = {
     attachedBath: 'attached',
     furnishing: 'semi',
     locality: 'Kothrud',
-    society,
+    ...(await withSocietyId(accessToken, { society })),
     rentShare: 15000,
     deposit: 30000,
     availableFrom: '2026-12-01',
@@ -333,7 +335,7 @@ test.describe('Ops → flatmate desk (live)', () => {
     await dialog.getByRole('button', { name: 'Edit details' }).click();
     const form = dialog.getByTestId('flatmate-edit-form');
     await form.getByLabel('Budget (₹/month)').fill('18000');
-    await form.getByLabel('Localities (comma-separated)').fill('Kothrud, Baner');
+    await pickLocalitiesIn(page, form.getByRole('button', { name: 'Localities' }), ['Baner']);
     const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/admin\/flatmates\/[^/]+$/.test(new URL(r.url()).pathname));
     await dialog.getByRole('button', { name: 'Save changes' }).click();
     expect((await saved).status()).toBe(200);

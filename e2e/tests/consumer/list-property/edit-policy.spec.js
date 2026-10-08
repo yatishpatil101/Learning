@@ -11,8 +11,6 @@ const BASE_LISTING = {
   city: 'Pune',
   bhk: 2,
   area: 900,
-  // A real entry in `GET /localities`, so the resolver files the listing rather than leaving
-  // `locality_slug` null and dropping it into the curation queue `locality-queue` owns.
   locality: 'Baner',
   address: 'D-704, Zztest Policy Heights, Baner Road',
   pincode: '411045',
@@ -65,7 +63,7 @@ test('a first free listing is NOT paywalled and shows no edit banner', async ({ 
   await expect(formLocator(page)).toBeVisible({ timeout: 20000 });
   // … editing an existing listing is never paywalled, and the form is available.
   await expect(page.getByText(/used your free listing/i)).toHaveCount(0);
-  await expect(page.getByText(/editing a live listing/i)).toHaveCount(0);
+  await expect(page.getByText('Publishes instantly')).toHaveCount(0);
 });
 
 test('a live listing is paywalled for a second new post, and editing it shows the tiered banner with a price edit staying live', async ({ page, request }) => {
@@ -81,8 +79,7 @@ test('a live listing is paywalled for a second new post, and editing it shows th
 
   await test.step('P1 ? editing a live listing shows the tiered edit banner (and no paywall)', async () => {
     await page.goto(`/list-property?edit=${id}`);
-    await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 20000 });
-    await expect(page.getByText('Publishes instantly')).toBeVisible();
+    await expect(page.getByText('Publishes instantly')).toBeVisible({ timeout: 20000 });
     await expect(page.getByText('Needs a re-check')).toBeVisible();
     await expect(page.getByText(/used your free listing/i)).toHaveCount(0);
     await expect(formLocator(page)).toBeVisible();
@@ -111,7 +108,7 @@ test('a live listing is paywalled for a second new post, and editing it shows th
 test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', async ({ page, request }) => {
   const { id } = await ownerWithLiveListing(page, request);
   await page.goto(`/list-property?edit=${id}`);
-  await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('Publishes instantly')).toBeVisible({ timeout: 20000 });
   // Change BHK from 2 → 3 on step 1. BHK is one of the four fields that set
   // `remoderationRequired` in ListingEditRules.apply, so the server takes the listing down.
   await page.locator('[data-err="bhk"]').getByText('3', { exact: true }).click();
@@ -132,7 +129,7 @@ test('P1 — re-zoning a plot is warned about, even though nobody types the fiel
     formDetails: { plotZone: 'Residential (R1)' },
   });
   await page.goto(`/list-property?edit=${id}`);
-  await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('Publishes instantly')).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('Under review — off search')).toHaveCount(0);
   // R1 → C-1 moves `landUse` residential → commercial, which is a different Land-use filter.
   await page.getByText('Residential (R1)', { exact: true }).click();

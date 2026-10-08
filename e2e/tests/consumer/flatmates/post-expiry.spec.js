@@ -64,4 +64,30 @@ test.describe('LIVE: flatmate post expiry', () => {
     await expect(page.getByText(/back on the board for 30 days/)).toBeVisible();
     await expect(card.getByText('Expired', { exact: true })).toBeHidden();
   });
+
+  test('a post reads its moderation state, not a hard-coded Live', async ({ page }) => {
+    const mobile = uniqueMobile();
+    const { accessToken } = await apiLogin(mobile);
+    await hostsPost(accessToken, 'Aundh');
+    await signedInAs(page, mobile);
+
+    const remove = (list) => list.content.map((p) => ({ ...p, modStatus: 'removed' }));
+    await page.route(/\/me\/flatmate-posts(\?|$)/, async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      body.content = remove(body);
+      await route.fulfill({ response: res, json: body });
+    });
+    await page.route('**/api/me/dashboard', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      if (body.flatmatePosts) body.flatmatePosts.content = remove(body.flatmatePosts);
+      await route.fulfill({ response: res, json: body });
+    });
+
+    await page.goto('/dashboard#listings');
+    const card = page.locator('div.rounded-xl', { hasText: 'Looking to share — Aundh' }).last();
+    await expect(card.getByText('Not approved', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(card.getByText('Live', { exact: true })).toBeHidden();
+  });
 });

@@ -3,6 +3,7 @@ import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liv
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { postAsGroup, haveAFlat } from '../../../helpers/app.js';
+import { pickPlaceholderLocality } from '../../../helpers/locality.js';
 /** Live UI coverage verifies group persistence, owner controls, and deletion. */
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -34,6 +35,7 @@ async function createGroupViaForm(page, token, title) {
   await haveAFlat(page);
 
   await page.getByPlaceholder(/2 girls/i).fill(title);
+  await pickPlaceholderLocality(page);
   await page.getByPlaceholder(/e\.g\. 34,000/i).fill('40000');
   await page.getByPlaceholder(/Your name/i).fill('Group Owner');
   await page.getByRole('button', { name: /Create group/i }).click();
@@ -102,9 +104,8 @@ test.describe('Flatmate group lifecycle (live)', () => {
     await test.step('the host is offered Your group and Delete, never a join action', async () => {
       await reopenOnTeamUp(page);
 
-      // The reload dropped every byte of client state, so the tile can only come from the server.
-      // The absence is the point of the test, and it is anchored: the tile is visible, so an
-      // empty board cannot make this pass.
+      // The reload drops all client state, so the tile can only come from the server; the visible tile anchors the
+      // absence check so an empty board cannot pass.
       const tile = page.getByTestId('my-posts-strip').getByRole('link').filter({ hasText: title });
       await expect(tile).toBeVisible({ timeout: 15_000 });
       await expect(tile).toContainText('Your group');

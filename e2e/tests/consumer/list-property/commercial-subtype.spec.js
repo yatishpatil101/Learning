@@ -4,6 +4,8 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const owners = new Set();
 
@@ -62,14 +64,16 @@ async function gotoCommercialRent(page) {
 // Fit-out is the one commercial answer step 1 refuses to advance without. Pills, not a dropdown.
 const pickFitOut = (page) => page.locator('[data-err="shellType"]').getByText('Warm Shell', { exact: true }).click();
 
+const BANER_PIN = { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' };
+
 const inDays = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 
 async function fillLocationAndPricing(page) {
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('Unit 402');
-  await page.locator('input[data-err="society"]').fill('Zztest Business Bay');
+  await fillSociety(page, 'Zztest Business Bay', BANER_PIN);
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

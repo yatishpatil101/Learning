@@ -3,6 +3,7 @@ import { API, apiLogin, authHeaders, uniqueMobile } from '../../../helpers/liveA
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 import { trackErrors } from '../../../helpers/console.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const track = flatmateCleanup(test);
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -18,7 +19,7 @@ test.describe('LIVE: room card cover', () => {
       method: 'POST',
       headers: auth(accessToken),
       body: JSON.stringify({
-        society, roomType: 'Private room', locality: 'Baner', rentShare: 17333, bhk: '2',
+        ...(await withSocietyId(accessToken, { society })), roomType: 'Private room', locality: 'Baner', rentShare: 17333, bhk: '2',
         attachedBath: 'attached', furnishing: 'semi', lookingFor: 'any', foodPref: 'any',
         availableFrom: '2026-12-01', hostRole: 'tenant', photos: [COVER, SECOND],
         ...(await tenantRoomAgreement(accessToken)),

@@ -62,7 +62,6 @@ async function splitFlat() {
     city: 'Pune',
     bhk: 2,
     area: 900,
-    // A real entry in `GET /localities` so the row is filed rather than queued for curation — and
     // Baner, so it never lands in the Aundh the empty-tab test below needs bare.
     locality: 'Baner',
     title: `Zztest flatmate discovery ${Date.now()}`,

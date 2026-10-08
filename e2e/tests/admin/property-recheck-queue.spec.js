@@ -13,8 +13,6 @@ const BASE_LISTING = {
   city: 'Pune',
   bhk: 2,
   area: 780,
-  // A real row in `GET /localities`, so the listing is filed rather than dropped into the curation
-  // queue that `locality-queue` owns.
   locality: 'Baner',
 };
 

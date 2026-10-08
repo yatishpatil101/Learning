@@ -3,6 +3,7 @@ import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAu
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -32,7 +33,7 @@ async function createRoom(token, body) {
       locality: 'Baner', rentShare: 15000, deposit: 30000, availableFrom: '2026-12-01',
       lookingFor: 'any', foodPref: 'any', photos: ['https://cdn.example/saves.jpg'],
       ...(await tenantRoomAgreement(token)),
-      ...body,
+      ...(await withSocietyId(token, body)),
     }),
   });
   const room = await response.json();

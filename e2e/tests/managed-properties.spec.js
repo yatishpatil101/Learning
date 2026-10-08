@@ -4,6 +4,8 @@ import { test, expect } from '@playwright/test';
 import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { trackErrors } from '../helpers/console.js';
 import { signedInAs, authHeaders, API } from '../helpers/liveAuth.js';
+import { pickPlaceholderLocality } from '../helpers/locality.js';
+import { ensureLocalityStats } from '../helpers/localityStats.js';
 
 async function unsignedPdfBuffer() {
   const pdf = await PDFDocument.create();
@@ -18,8 +20,8 @@ const created = [];
 
 async function estimateAndSave(page) {
   await page.goto('/dashboard#owner-hub');
-  await page.getByText('Select locality').click();
-  await page.getByRole('option', { name: /Baner/i }).click();
+  await ensureLocalityStats('Baner');
+  await pickPlaceholderLocality(page, 'Baner');
   await page.getByRole('button', { name: /Estimate now/i }).click();
   await expect(page.getByText(/Estimated monthly rent/i)).toBeVisible();
 

@@ -35,7 +35,7 @@ test('clearing the flatmates radius does not drop the proximity point', async ({
   await expect(radiusField(page)).toHaveValue('12');
   await radiusField(page).blur();
   await expect(radiusField(page)).toHaveValue('12');
-  await expect(filters(page).getByText('Baner').first()).toBeVisible();
+  await expect(filters(page).getByRole('combobox', { name: 'Search a place near you' })).toHaveValue('Baner');
   expect(unscoped, 'a search left without the proximity point').toEqual([]);
 });
 

@@ -3,6 +3,7 @@ import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liv
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -43,7 +44,7 @@ async function createRoom(token, society) {
       attachedBath: 'attached',
       furnishing: 'semi',
       locality: 'Baner',
-      society,
+      ...(await withSocietyId(token, { society })),
       rentShare: 15000,
       deposit: 30000,
       availableFrom: '2026-12-01',

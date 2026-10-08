@@ -23,8 +23,6 @@ async function publishListing(request, fields) {
   const res = await api('POST', '/me/listings', headers, {
     title: `Zztest consumer-fixes ${Date.now()}`,
     city: 'Pune',
-    // A real entry in `GET /localities`, so the resolver files the listing rather than leaving
-    // `locality_slug` null and dropping it into the curation queue `locality-queue` owns.
     locality: 'Baner',
     images: await uploadedListingPhotos(headers),
     ...fields,

@@ -14,8 +14,6 @@ const BASE_LISTING = {
   bhk: 2,
   area: 900,
   areaUnit: 'sqft',
-  // A real entry in `GET /localities`, so the resolver files the listing rather than dropping it
-  // into the curation queue another spec owns.
   locality: 'Baner',
 };
 

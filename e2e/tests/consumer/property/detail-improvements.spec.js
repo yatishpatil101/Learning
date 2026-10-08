@@ -1,15 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
+import { API } from '../../../helpers/liveAuth.js';
 
-/* Ids are the seeded slugs, and the locality of each is load-bearing rather than incidental.
-   `frontend/src/data/localityIntel.js` benchmarks exactly ten localities, and the page prints a
-   real comparison inside that set and a neutral note outside it - so both branches need a fixture
-   that cannot be moved somewhere prettier without deleting the coverage it exists for. */
-const SALE_FLAT_KNOWN = 'p5013';  // 1 BHK Flat, Baner - psf 9800 vs Baner benchmark 11500 -> "good deal"
+/* The benchmark is the server's listing-derived locality stats (null below three live listings), so
+   each assertion follows what `GET /localities/<slug>` says rather than a fixed figure. */
+const SALE_FLAT_KNOWN = 'p5013';  // 1 BHK Flat, Baner
 const SALE_LAND = 'p5124';        // Open Plot, Wagholi (buy, land) - seeded 2026-08-19
 const SALE_COMMERCIAL = 'p5101';  // Office Space, Baner (buy, commercial)
-const RENT_2BHK_KNOWN = 'p5121';  // 2 BHK Flat, Wakad - benchmarked (rent2 27000) and priced under it
-const RENT_NODATA_LOC = 'p5123';  // 3 BHK Flat, Balewadi - deliberately NOT in the benchmark set
+const RENT_2BHK_KNOWN = 'p5121';  // 2 BHK Flat, Wakad
+const RENT_NODATA_LOC = 'p5123';  // 3 BHK Flat, Balewadi
 const RENT_1BHK = 'p5122';        // 1 BHK Flat, Hinjawadi - too small to split
 const RENT_COMMERCIAL = 'p5110';  // Warehouse / Godown for rent - not residential
 
@@ -17,6 +16,10 @@ const collectErrors = async (page) => trackErrors(page);
 function relevant(errors) {
   return errors.filter((e) => !/favicon|leaflet|tile|net::ERR|unsplash|maptiler|openstreetmap/i.test(e));
 }
+
+const statsOf = async (slug) => (await fetch(`${API}/localities/${slug}`)).json();
+
+const RETIRED_INTEL = ['appreciation', 'livability', "what's nearby", 'market rate'];
 
 async function gotoProp(page, id) {
   await page.goto(`/property/${id}`, { waitUntil: 'networkidle' });
@@ -37,19 +40,22 @@ async function gotoProp(page, id) {
   return combined;
 }
 
-test('a benchmarked sale flat shows an honest comparison, shares with a toast, offers EMI, counts lifetime enquiries and is reached by one breadcrumb', async ({ page, context }) => {
+test('a sale flat compares with the locality only when the server has stats, shares with a toast, offers EMI, counts lifetime enquiries and is reached by one breadcrumb', async ({ page, context }) => {
   test.slow();
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors = await collectErrors(page);
   const txt = await gotoProp(page, SALE_FLAT_KNOWN);
 
-  await test.step('SALE flat in a benchmarked locality shows an honest ₹/sq.ft comparison', async () => {
-    // Real locality average + a genuine value verdict (this listing is below Baner avg).
-    expect(txt).toContain('baner average');
-    expect(txt).toContain('good deal');
-    expect(txt).toContain('below locality average');
-    // Real appreciation figure from the curated locality (Baner yoy = 8.4%).
-    expect(txt).toContain('8.4% appreciation over the last 12 months');
+  await test.step('the ₹/sq.ft comparison exists exactly when the locality has a listing-derived rate', async () => {
+    const { ratePerSqft } = await statsOf('baner');
+    if (ratePerSqft != null) {
+      expect(txt).toContain('baner average');
+      expect(txt).toContain('value rating');
+    } else {
+      expect(txt).not.toContain('baner average');
+      expect(txt).toContain('no baner price benchmark for this listing yet');
+    }
+    for (const gone of RETIRED_INTEL) expect(txt).not.toContain(gone);
     expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
   });
 
@@ -79,22 +85,26 @@ test('a benchmarked sale flat shows an honest comparison, shares with a toast, o
 
 test('a sale plot shows a neutral note, never a fabricated residential benchmark, and no home-loan framing', async ({ page }) => {
   const txt = await gotoProp(page, SALE_LAND);
-  expect(txt).toContain('publish a verified');
-  expect(txt).toContain('rather than a guessed one');
+  expect(txt).toContain('no wagholi price benchmark for this listing yet');
   // No made-up "locality average / value rating" comparison for a plot.
   expect(txt).not.toContain('wagholi average');
   expect(txt).not.toContain('value rating');
   expect(txt).not.toContain('calculate emi');
 });
 
-test('a benchmarked rent flat shows an honest rent rating and the flatmate-split card', async ({ page }) => {
+test('a rent flat shows the locality average rent only when the server has one, and the flatmate-split card', async ({ page }) => {
   const errors = await collectErrors(page);
   const txt = await gotoProp(page, RENT_2BHK_KNOWN);
 
-  await test.step('RENT flat in a benchmarked locality shows an honest rent rating', async () => {
-    expect(txt).toContain('wakad average');
-    expect(txt).toContain('rent rating');
-    expect(txt).toMatch(/below market rent|above market rent|fair rent/);
+  await test.step('the locality average rent tile follows the server stats', async () => {
+    const { avgRent } = await statsOf('wakad');
+    if (avgRent != null) {
+      await expect(page.getByTestId('rent-locality-avg')).toBeVisible();
+      expect(txt).toContain('avg rent in wakad');
+    } else {
+      expect(txt).not.toContain('avg rent in wakad');
+    }
+    expect(txt).not.toContain('rent rating');
     expect(relevant(errors), relevant(errors).join('\n')).toHaveLength(0);
   });
 
@@ -108,14 +118,15 @@ test('where there is no benchmark the page says so, and where a rental is not sp
 
   await test.step('SALE commercial shows a neutral note, not a residential ₹/sq.ft verdict', async () => {
     const txt = await gotoProp(page, SALE_COMMERCIAL);
-    expect(txt).toContain('publish a verified');
+    expect(txt).toContain('no baner price benchmark for this listing yet');
     expect(txt).not.toContain('baner average');
     expect(txt).not.toContain('good deal');
   });
 
-  await test.step('RENT in a non-benchmarked locality shows a neutral note, not a guessed rent', async () => {
+  await test.step('RENT never shows a guessed average where the locality has too few listings', async () => {
+    const { avgRent } = await statsOf('balewadi');
     const txt = await gotoProp(page, RENT_NODATA_LOC);
-    expect(txt).toContain('no verified balewadi rent benchmark');
+    if (avgRent == null) expect(txt).not.toContain('avg rent in balewadi');
     expect(txt).not.toContain('rent rating');
   });
 

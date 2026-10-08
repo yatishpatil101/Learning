@@ -3,6 +3,8 @@ import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAu
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 import { trackErrors } from '../../../helpers/console.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
+import { chooseLocality } from '../../../helpers/locality.js';
 
 const STAFF = '9733798115';
 
@@ -10,7 +12,7 @@ const track = flatmateCleanup(test);
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
 async function seed(token, kind, body) {
-  const res = await fetch(`${API}/flatmates/${kind}`, { method: 'POST', headers: auth(token), body: JSON.stringify(body) });
+  const res = await fetch(`${API}/flatmates/${kind}`, { method: 'POST', headers: auth(token), body: JSON.stringify(await withSocietyId(token, body)) });
   expect(res.status, `seeding ${kind}`).toBe(201);
   const row = await res.json();
   track(kind, row.id, token);
@@ -86,8 +88,7 @@ test.describe('LIVE: editing flatmate posts from My properties', () => {
     await expect(dialog.getByRole('button', { name: /Still looking for a flat/i })).toHaveAttribute('aria-pressed', 'true');
 
     const picker = dialog.getByRole('button', { name: "Localities you'd live in" });
-    await picker.click();
-    await page.locator('.dz-dropdown__option', { hasText: 'Wakad' }).first().click();
+    await chooseLocality(page, picker, 'Wakad');
     await expect(picker).toHaveAttribute('aria-expanded', 'false');
 
     const patched = page.waitForResponse((r) => r.url().endsWith(`/flatmates/groups/${group.id}`) && r.request().method() === 'PATCH');

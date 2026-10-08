@@ -4,6 +4,8 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { uniquePhotoPng, uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { signIn, signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 // Kunal has one listing against two slots, so quota cannot mask the duplicate guard.
 const KUNAL = '9700000090';
 const KUNAL_LISTING = 'd0000000-0000-4000-8000-0000000000d1';
@@ -40,6 +42,8 @@ async function pickOption(page, dataErr, label) {
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
+const BANER_PIN = { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' };
+
 // Let each caller assert its own submit outcome: duplicate block or successful post.
 async function driveTheWizard(page, { flat, society, street, locality = 'Baner', duplicate = false, photo }) {
   await page.goto('/list-property');
@@ -57,9 +61,9 @@ async function driveTheWizard(page, { flat, society, street, locality = 'Baner',
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
-  await pickOption(page, 'locality', locality);
+  await pickLocality(page, locality);
   await page.locator('input[data-err="flatNumber"]').fill(flat);
-  await page.locator('input[data-err="society"]').fill(society);
+  await fillSociety(page, society, locality === 'Baner' ? BANER_PIN : {});
   if (street) await page.locator('input[data-err="street"]').fill(street);
   await page.locator('input[data-err="pincode"]').fill('411045');
   const duplicateCheck = duplicate

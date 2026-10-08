@@ -90,7 +90,7 @@ async function seedRentAgreement() {
       details: {
         ownerName: 'Queue Count Owner', rent: 24000, deposit: 72000, months: 11,
         _state: {
-          prop: { flatNo: 'B-1201', society: 'Queue Count Heights', locality: 'Baner' },
+          prop: { flatNo: 'B-1201', society: 'Queue Count Heights', locality: 'Baner', gramPanchayat: false },
           owner: { oName: 'Queue Count Owner' },
           tenants: [{ name: 'Queue Count Tenant', mobile: uniqueMobile() }],
           terms: { rent: '24000', deposit: '72000', months: '11' },

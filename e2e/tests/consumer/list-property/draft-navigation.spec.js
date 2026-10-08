@@ -3,6 +3,8 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { pickFloors, readListPropertyDraft, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const inDays = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 
@@ -30,9 +32,9 @@ async function completeDetails(page) {
 }
 
 async function completeLocation(page) {
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('A-1201');
-  await page.locator('input[data-err="society"]').fill('Draft Residency');
+  await fillSociety(page, 'Draft Residency');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await expect(page.getByRole('heading', { name: /Price & terms/i })).toBeVisible();

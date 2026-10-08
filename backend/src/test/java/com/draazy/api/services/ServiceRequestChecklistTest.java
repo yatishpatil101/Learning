@@ -197,8 +197,12 @@ class ServiceRequestChecklistTest extends ServiceFixtures {
     }
 
     private static String police(String addressProof, boolean previousSame, String previousProof, String occupation) {
+        String previous = previousSame ? ""
+                : ",\"previous\":{\"address\":\"12 MG Road\",\"pincode\":\"411001\",\"village\":\"Pune\",\"policeStation\":\"Shivajinagar\"}";
+        String workplace = "student".equals(occupation) ? ""
+                : ",\"workplaceAddress\":\"Hinjewadi Phase 1\",\"workIdProofType\":\"Employee ID\"";
         return "{\"occupation\":\"" + occupation + "\",\"police\":{\"addressProofType\":\"" + addressProof
                 + "\",\"previousSameAsPermanent\":" + previousSame
-                + ",\"previousAddressProofType\":\"" + previousProof + "\"}}";
+                + ",\"previousAddressProofType\":\"" + previousProof + "\"" + previous + workplace + "}}";
     }
 }

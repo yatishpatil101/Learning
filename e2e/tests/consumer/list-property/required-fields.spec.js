@@ -3,6 +3,8 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { uploadPublishablePhotos } from '../../../helpers/listingPhotos.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 import { approveListingWithFetch } from '../../../helpers/moderation.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const owners = new Set();
 
@@ -52,13 +54,15 @@ async function fillStep1(page, floors, deal = 'buy') {
   return mobile;
 }
 
+const BANER_PIN = { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' };
+
 async function gotoPricing(page, floors, deal = 'buy') {
   const mobile = await fillStep1(page, floors, deal);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Skyline Heights');
+  await fillSociety(page, 'Skyline Heights', BANER_PIN);
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
@@ -275,7 +279,7 @@ test('an industrial listing is not asked for a unit number or a project it does 
   await page.locator('[data-err="shellType"]').getByText('Bare Shell', { exact: true }).click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="pincode"]').fill('411045');
 
   await expect(page.getByText('Unit / Shop No.', { exact: true })).toBeVisible();
@@ -292,7 +296,7 @@ test('a commercial rental publishes the owner\'s own fit-out, not a tier-keyed g
   await page.locator('input[data-err="dockCount"]').fill('4');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
@@ -353,9 +357,9 @@ test('a commercial sale is priced on its tenancy, and only a let one is asked wh
   await page.locator('[data-err="shellType"]').getByText('Furnished', { exact: true }).click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('502');
-  await page.locator('input[data-err="society"]').fill('Zztest Business Bay');
+  await fillSociety(page, 'Zztest Business Bay', BANER_PIN);
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

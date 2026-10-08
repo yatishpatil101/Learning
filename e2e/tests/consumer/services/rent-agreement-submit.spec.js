@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, uploadedListingPhotos, signedInAsNew } from '../../../helpers/liveAuth.js';
-import { active, fillOwner, fillProperty, fillTenant, fillTerms, fillWitnesses, payAndSubmit } from '../../../helpers/rentAgreementWizard.js';
+import { SOCIETY_PLACEHOLDER, active, fillOwner, fillProperty, fillTenant, fillTerms, fillWitnesses, payAndSubmit } from '../../../helpers/rentAgreementWizard.js';
 // Settlement stays out of reach — only the signature-verified webhook moves the request to `new` —
 // so the paid half is owned by `ServiceRequestFlowTest.PaidGate` on the backend.
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -16,7 +16,7 @@ async function fileUnpaidRequest(mobile) {
     headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({
       type: 'rent-agreement',
-      details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000', deposit: '150000' },
+      details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000', deposit: '150000', _state: { prop: { gramPanchayat: false } } },
     }),
   });
   return { status: res.status, body: await res.json().catch(() => ({})), accessToken };
@@ -160,10 +160,10 @@ test.describe('Rent Agreement — the priced desk, live', () => {
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
     await expect(page.getByText(LOCKED)).toBeVisible({ timeout: 20000 });
-    await expect(page.getByPlaceholder('e.g. Skyline Heights')).toHaveCount(0);
+    await expect(page.getByPlaceholder(SOCIETY_PLACEHOLDER)).toHaveCount(0);
     // Starting a new agreement reveals a fresh, blank wizard for a different property.
     await page.getByRole('button', { name: /Start a new agreement/ }).click();
-    const propInput = active(page).getByPlaceholder('e.g. Skyline Heights');
+    const propInput = active(page).getByPlaceholder(SOCIETY_PLACEHOLDER);
     await expect(propInput).toBeVisible();
     await expect(propInput).toHaveValue('');
   });

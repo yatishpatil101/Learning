@@ -26,8 +26,8 @@ test('Pricing tab renders the figures the server sent, not the mock provider\'s'
   // database values a provider reading `db.json` does not reproduce.
   const table = page.locator('table').filter({ has: page.getByText('Asking ₹/sqft') });
   const row = table.locator('tbody tr').filter({ hasText: measured.name }).first();
-  await expect(row.locator('td').nth(2)).toHaveText(fmtINR(measured.avgActualRatePerSqft));
-  await expect(row.locator('td').nth(5)).toHaveText(String(measured.buyCount));
+  await expect(row.locator('td').nth(1)).toHaveText(fmtINR(measured.avgActualRatePerSqft));
+  await expect(row.locator('td').nth(4)).toHaveText(String(measured.buyCount));
 });
 
 test('SLA tab renders the backlog the server sent, not the mock provider\'s', async ({ page, login, request }) => {

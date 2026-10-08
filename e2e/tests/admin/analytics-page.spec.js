@@ -260,20 +260,17 @@ test('unmeasured values read as unmeasured and no tab presents generated numbers
     await expect(page.getByRole('heading', { name: 'Concierge Pipeline' })).toBeVisible();
     await expect(page.getByText(/(^|[^\d.])0h\b/)).toHaveCount(0);
   });
-  await test.step('Pricing tab shows a dash, not the market rate, where nothing was measured', async () => {
+  await test.step('Pricing tab shows a dash, not an invented rate, where too few flats were measured', async () => {
     await openAnalytics(page, 'pricing');
     const table = page.locator('table').filter({ has: page.getByText('Asking ₹/sqft') });
     await expect(table).toBeVisible();
 
-    // Localities with too few approved flats must not borrow curated market rates.
     await expect(page.getByText(/\d+ of \d+ localities have too few flats to price/)).toBeVisible();
+    await expect(table.locator('thead')).not.toContainText(/market/i);
 
-    const dashRow = table.locator('tbody tr').filter({ hasText: '—' }).first();
+    const dashRow = table.locator('tbody tr').filter({ has: page.locator('td:nth-child(2)', { hasText: '—' }) }).first();
     await expect(dashRow).toBeVisible();
-    // Asking is the dash; market is a rupee figure on the same row. Both halves matter: the first
-    // proves nothing was invented, the second proves the dash is not simply an empty table.
-    await expect(dashRow.locator('td').nth(2)).toHaveText('—');
-    await expect(dashRow.locator('td').nth(1)).toContainText('₹');
+    await expect(dashRow.locator('td').nth(1)).toHaveText('—');
   });
   await test.step('no analytics tab presents generated numbers', async () => {
     for (const tab of ['traffic', 'engagement', 'funnel', 'supply-gap', 'pricing', 'sla']) {

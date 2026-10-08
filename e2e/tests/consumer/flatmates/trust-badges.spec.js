@@ -3,6 +3,7 @@ import { API, E2E_OTP, apiLogin, authHeaders, uploadedListingPhotos, uniqueMobil
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
 import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const track = flatmateCleanup(test);
@@ -62,7 +63,7 @@ const roomBody = ({ society: name, hostRole = 'tenant', agreementDeclared = fals
 });
 
 async function roomPayload(token, spec) {
-  const body = roomBody(spec);
+  const body = await withSocietyId(token, roomBody(spec));
   return (body.hostRole || 'tenant') === 'tenant'
     ? { ...body, ...(await tenantRoomAgreement(token)), ...(body.ownerConsentMobile ? { ownerConsentMobile: body.ownerConsentMobile } : {}) }
     : body;
@@ -192,7 +193,6 @@ test.describe('Flatmate trust badges (live)', () => {
       city: 'Pune',
       bhk: 2,
       area: 900,
-      // A real entry in `GET /localities`, so the row is filed rather than queued for curation.
       locality: 'Baner',
       title: `Zztest owner spare room ${Date.now()}`,
       images: await uploadedListingPhotos(accessToken),

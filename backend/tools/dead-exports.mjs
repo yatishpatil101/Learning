@@ -1,51 +1,6 @@
 #!/usr/bin/env node
-/**
- * Dead-export scan for `frontend/src` — which exported symbols does nothing else name?
- *
- * Lives beside `route-census.mjs` in `backend/tools/` despite scanning the frontend, because that
- * directory is where this repo's cross-cutting tooling already is (`gen-catalogue-seed.mjs`,
- * `live-probe.mjs`, `validate_spec.py`). Splitting tools by which tree they happen to read would
- * put two files that answer the same kind of question in two places.
- *
- * ## The asymmetry, which is the entire design
- *
- * This is a text search for an identifier across every other source file. That makes it **sound in
- * exactly one direction**:
- *
- * - **Zero occurrences is a proof of death.** No file anywhere names the symbol, so nothing can
- *   import it, re-export it, or reach it through a namespace. Barrels do not defeat this: an
- *   `export *` re-exporter does not mention the name, but any *consumer* must, whether it writes
- *   `import { foo }` or `ns.foo`.
- * - **A nonzero count proves nothing at all.** `get`, `list`, `create`, `update`, `cancel` and
- *   `digits` are exported from `lib/serviceFlow.js`, and a word-boundary search finds them three
- *   and a half thousand times across the tree — almost none of which are this module. A short,
- *   generic export name is invisible to this technique.
- *
- * So the tool reports **only** the zero-occurrence set, and does not print a "live" list. Printing
- * one would invite the reader to trust a number that is meaningless for precisely the exports most
- * likely to be dead. A scan that is sound one way should say so and offer nothing the other way,
- * rather than presenting both columns as though they were the same kind of fact.
- *
- * ## What is deliberately not scanned
- *
- * `services/providers/**` is excluded. `services/config.js` loads providers through a *non-eager*
- * `import.meta.glob`, so no file names them and all 64 would be reported dead. They are not; the
- * glob is load-bearing and must stay non-eager. This exclusion is the one hand-maintained thing
- * here, and it is one line rather than a list because the whole directory shares the reason.
- *
- * `e2e/` is included as a *consumer* corpus (a symbol used only by a spec is alive) but never as a
- * subject.
- *
- * ## Usage
- *
- *   node backend/tools/dead-exports.mjs                 # every dead export, grouped by file
- *   node backend/tools/dead-exports.mjs src/lib         # restrict subjects to a subtree
- *   node backend/tools/dead-exports.mjs --json
- *
- * Exit code is always 0. A dead export is not necessarily a defect — a constant published for a
- * screen that has not been built is a judgement call, not a bug — and a scan that fails the build
- * gets switched off.
- */
+/** Dead-export scan for `frontend/src`: reports only zero-occurrence names, as a nonzero count proves nothing for short generic names.
+ * `services/providers/**` is excluded because `config.js` loads it through a non-eager `import.meta.glob` that must stay non-eager. */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,12 +33,7 @@ const subjects = collect(SUBJECT_ROOT)
 const consumers = CONSUMER_ROOTS.flatMap((r) => collect(r));
 const text = new Map(consumers.map((f) => [f, readFileSync(f, 'utf8')]));
 
-/**
- * Concatenating every consumer once and searching that would be simpler, but it would also have to
- * be rebuilt per subject to exclude the subject's own file — the definition itself is an
- * occurrence. Holding the file texts and skipping one is the same work without the quadratic
- * string building.
- */
+/** Texts are held and the subject's file skipped, avoiding a concatenation rebuilt per subject. */
 function referencedElsewhere(name, ownPath) {
   const needle = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
   for (const [path, body] of text) {
@@ -108,9 +58,7 @@ if (process.argv.includes('--json')) {
   console.log(JSON.stringify({ subjects: subjects.length, files: findings.length, total, findings }, null, 2));
 } else {
   console.log(`subjects=${subjects.length} files_with_dead_exports=${findings.length} dead_exports=${total}`);
-  // ASCII on purpose: this output is routinely redirected into a log that PowerShell 5.1 renders
-  // as ANSI, and an em-dash there arrives as mojibake in the one place a reader is looking for a
-  // clean answer.
+  // ASCII on purpose: logs redirected through PowerShell 5.1 render as ANSI and an em-dash becomes mojibake.
   console.log('\nOnly zero-occurrence symbols are listed. A symbol absent here is NOT thereby proven');
   console.log('live -- short generic names (get, list, create) match everywhere and this scan');
   console.log('cannot see through them.\n');

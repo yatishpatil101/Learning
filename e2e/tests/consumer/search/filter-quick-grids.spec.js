@@ -27,7 +27,7 @@ const PAGES = [
 ];
 
 for (const [name, path] of PAGES) {
-  test(`${name}: option grids are two-up, labels stay in their cell, only searchable lists are dropdowns`, async ({ page }) => {
+  test(`${name}: option grids are two-up, labels stay in their cell, searchable lists are inline search fields, not dropdowns`, async ({ page }) => {
     await page.goto(`${BASE}${path}`);
     await filters(page).locator('.fg-header').first().waitFor();
     const grids = await gridReport(page);
@@ -36,7 +36,10 @@ for (const [name, path] of PAGES) {
       expect(g.columns, `${g.group} should be two columns`).toBe(2);
       expect(g.overflow, `${g.group} labels overflow their cell`).toEqual([]);
     }
-    await expect(filters(page).locator('.dz-dropdown__trigger')).toHaveCount(2);
+    await expect(filters(page).locator('.dz-dropdown__trigger')).toHaveCount(0);
+    await expect(filters(page).getByRole('combobox')).toHaveCount(2);
+    await expect(filters(page).getByRole('combobox', { name: 'Localities' })).toBeVisible();
+    await expect(filters(page).getByRole('combobox', { name: 'Search a place near your locality' })).toBeVisible();
     await expect(filters(page).getByRole('button', { name: 'Amenities', exact: true })).toHaveCount(0);
   });
 }

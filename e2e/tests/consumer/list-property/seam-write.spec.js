@@ -7,6 +7,8 @@ import { PHOTO_PNG, uploadPublishablePhotos } from '../../../helpers/listingPhot
 import { approveListingWithFetch } from '../../../helpers/moderation.js';
 import { openBadgeVault, uploadBadgeProof } from '../../../helpers/badgeVault.js';
 import { createRequire } from 'node:module';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 const requireFrontend = createRequire(new URL('../../../../frontend/package.json', import.meta.url));
 const { PDFDocument, PDFName } = requireFrontend('pdf-lib');
@@ -75,9 +77,9 @@ async function postAFlat(page, { flat, society, deal = 'rent', furniture = [], a
   await page.waitForSelector('.gm-style', { timeout: 30000 });
   // A verification identifier must not interrupt the location/pricing step.
   await expect(page.getByPlaceholder(/MSEDCL electricity bill/i)).toHaveCount(0);
-  await pickOption(page, 'locality', 'Baner');
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill(flat);
-  await page.locator('input[data-err="society"]').fill(society);
+  await fillSociety(page, society);
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

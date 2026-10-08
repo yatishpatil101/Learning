@@ -15,19 +15,19 @@ async function settledBox(locator) {
   return prev;
 }
 
-async function openLocalities(page) {
+/* The /societies locality filter is a public searchable dropdown: Select turns searchable at eight
+   options, and the seeded city has far more localities than that. */
+async function openSearchablePicker(page) {
   await seedConsent(page);
-  await page.goto('/listings');
-  await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
-  const group = page.locator('.filter-panel.open .filter-group:has(h4:has-text("Localities"))');
-  await group.locator('.dz-dropdown__trigger').click();
+  await page.goto('/societies');
+  await page.locator('.dz-dropdown__trigger[aria-label="Filter by locality"]').click();
   await expect(menu(page).locator('.dz-dropdown__search input')).toBeFocused();
   return menu(page);
 }
 
 test.describe('Searchable dropdowns on a phone', () => {
   test('open as a full-height picker with search first, not a bottom sheet the keyboard buries', async ({ page }) => {
-    const picker = await openLocalities(page);
+    const picker = await openSearchablePicker(page);
     await expect(picker).toHaveClass(/dz-dropdown__menu--picker/);
     const box = await settledBox(picker);
     const vh = await page.evaluate(() => window.innerHeight);
@@ -40,7 +40,7 @@ test.describe('Searchable dropdowns on a phone', () => {
   });
 
   test('carry their own way out beside the search box', async ({ page }) => {
-    const picker = await openLocalities(page);
+    const picker = await openSearchablePicker(page);
     const cancel = picker.getByRole('button', { name: 'Cancel' });
     await expect(cancel).toBeInViewport();
     const tap = await cancel.boundingBox();
@@ -48,14 +48,17 @@ test.describe('Searchable dropdowns on a phone', () => {
 
     await cancel.click();
     await expect(menu(page)).toHaveCount(0);
-    await expect(page.locator('.filter-panel.open'), 'only the picker closes, not the filter sheet under it').toHaveCount(1);
+    await expect(page.locator('.dz-dropdown__trigger[aria-label="Filter by locality"]'), 'only the picker closes, the page under it stays put').toBeVisible();
+    await expect(page).toHaveURL(/\/societies$/);
   });
 
   test('stop at the top edge of the keyboard', async ({ page }) => {
-    const picker = await openLocalities(page);
+    const picker = await openSearchablePicker(page);
     await settledBox(picker);
     expect(await rootVar(page, '--dz-vv-bottom'), 'the open picker must be tracking the viewport').toBe('0px');
 
+    await picker.locator('.dz-dropdown__search input').fill('a');
+    await expect.poll(() => picker.locator('[role="option"]').count()).toBeGreaterThan(3);
     const keyboard = 320;
     await page.evaluate((kb) => document.documentElement.style.setProperty('--dz-vv-bottom', `${kb}px`), keyboard);
     const vh = await page.evaluate(() => window.innerHeight);

@@ -3,6 +3,7 @@ import { API, E2E_OTP, apiLogin, signedInAs, uniqueMobile } from '../../../helpe
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 /* `reviewStatus` is joined onto the feed rows server-side (`FlatmateReviewStatuses`), so every row
    here is created over HTTP and published through real moderation — the two gates are independent. */
 
@@ -70,7 +71,7 @@ async function createRoom(token, body) {
       bhk: '2', roomType: 'Private room', attachedBath: 'attached', furnishing: 'semi',
       locality: 'Baner', rentShare: 15000, deposit: 30000, availableFrom: '2026-12-01',
       lookingFor: 'any', foodPref: 'any', photos: ['https://cdn.example/review-status.jpg'],
-      ...payload,
+      ...(await withSocietyId(token, payload)),
     }),
   });
   const room = await response.json();

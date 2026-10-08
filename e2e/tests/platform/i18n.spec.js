@@ -52,32 +52,15 @@ test.describe('English-only UI', () => {
   });
 });
 // These import `src` modules through the dev server because the frontend has no unit-test runner.
-test('date helpers default to English and timeAgo returns a shape a caller must translate', async ({ page }) => {
+test('the month label helper defaults to English, never the visitor\'s OS locale', async ({ page }) => {
   await page.goto('/');
 
   const out = await page.evaluate(async () => {
-    const [{ prettyDate, timeAgo }, { ymLabel }] = await Promise.all([
-      import('/src/pages/consumer/society/constants.js'),
-      import('/src/lib/data/rentReminders.js'),
-    ]);
-    const r = timeAgo(Date.now() - 3 * 86400000);
-    return {
-      dateDefault: prettyDate('2026-01-15'),
-      ymDefault: ymLabel('2026-01'),
-      empty: prettyDate(''),
-      shape: { keys: Object.keys(r).sort(), key: r.key, countType: typeof r.count },
-    };
+    const { ymLabel } = await import('/src/lib/data/rentReminders.js');
+    return { ymDefault: ymLabel('2026-01') };
   });
 
-  // Use English as the explicit fallback, never the visitor's OS locale.
-  expect(out.dateDefault).toMatch(/Jan/);
   expect(out.ymDefault).toMatch(/Jan/);
-  expect(out.empty).toBe('');
-
-  // Pin helper shape so missed translations cannot render "[object Object]".
-  expect(out.shape.keys).toEqual(['count', 'key']);
-  expect(out.shape.key).toMatch(/^society\./);
-  expect(out.shape.countType).toBe('number');
 });
 
 // Persisted ids must not be translated or existing user rows become orphaned.

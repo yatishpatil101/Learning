@@ -52,6 +52,10 @@ with the official CLI (rewrites the whole `.github\prompts` tree):
 cd $env:USERPROFILE; npx --yes ui-ux-pro-max-cli@latest init --ai copilot --global --force
 ```
 
+This machine's install is v2.15.0 with `data\` and `scripts\` overlaid from upstream `main` (React 19
+stack rows, dark-mode and `--stack` warning fixes); `init --force` reverts that until a release past
+2.15.0 ships. The pre-overlay copy is at `$env:USERPROFILE\.github\prompts-backup-v2.15.0`.
+
 ## Prerequisite: Python
 
 The scripts need Python 3 (standard library only). Verify first:
@@ -64,6 +68,9 @@ If Python is missing, **ask the user to install it** — never run `winget`/`cho
 
 Gotcha: if a stale `scripts\__pycache__` exists with `.pyc` from a different Python version (or from a
 previous toolkit version), delete it before first run (`Remove-Item -Recurse -Force scripts\__pycache__`).
+
+Gotcha: Windows PowerShell mangles the output's UTF-8 (`—` prints as `ΓÇö`). Run this once per terminal
+first: `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $env:PYTHONIOENCODING='utf-8'`.
 
 ## Query contract (v2.15)
 
@@ -152,6 +159,9 @@ text fields untruncated — human-readable output truncates them at 300 chars).
 - Stack = `react` (the frontend is React + Vite + Tailwind) — pass `--stack react`; `html-tailwind`
   guidance also applies since styling is Tailwind.
 - Keep results consistent with the existing Draazy theme — see the `draazy-frontend` skill.
+- Persisted design system: [design-system/draazy/MASTER.md](../../../design-system/draazy/MASTER.md)
+  (page overrides in `pages/`). Read it before a new surface instead of regenerating; its header
+  says which parts the shipped theme overrides.
 - Good starting query: `"real estate marketplace property listings trust professional"`.
 
 ## Sibling skills bundled by the same installer

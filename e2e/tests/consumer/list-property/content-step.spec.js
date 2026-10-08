@@ -1,6 +1,8 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickFloors, pickPossession } from '../../../helpers/listingForm.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
@@ -21,11 +23,9 @@ async function reachContentStep(page) {
   await pickFloors(page);
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByRole('heading', { name: 'Location', exact: true }).waitFor({ timeout: 10000 });
-  await page.locator('[data-err="locality"]').click();
-  await menuOpen(page);
-  await page.locator('.dz-dropdown__option').first().click();
+  await pickLocality(page, 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
-  await page.locator('input[data-err="society"]').fill('Green Meadows');
+  await fillSociety(page, 'Green Meadows');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });

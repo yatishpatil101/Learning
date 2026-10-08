@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, authHeaders, signedInAs, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
-import { AADHAAR, active, clickNext, fillOwner, fillProperty, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, inviteTenant, uploadAll } from '../../../helpers/rentAgreementWizard.js';
+import { AADHAAR, SOCIETY_PLACEHOLDER, active, clickNext, fillOwner, fillProperty, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, inviteTenant, uploadAll } from '../../../helpers/rentAgreementWizard.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 // Co-fill must be live: it spans two accounts and browser contexts.
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -33,7 +33,7 @@ async function coFillOverHttp(ownerToken, inviteeMobile) {
     body: JSON.stringify({
       request: {
         type: 'rent-agreement',
-        details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000' },
+        details: { ownerName: 'Anita Verma', property: 'B-1204, Skyline Heights', rent: '30000', _state: { prop: { gramPanchayat: false } } },
       },
       role: 'tenant',
       mobile: inviteeMobile,
@@ -66,7 +66,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
           details: {
             ownerName: 'Anita Verma',
             rent: '30000',
-            _state: { tenantMode: 'invite', tenants: [{ name: 'Ria', mobile: tenantOne }, { name: 'Sam', mobile: tenantTwo }] },
+            _state: { tenantMode: 'invite', prop: { gramPanchayat: false }, tenants: [{ name: 'Ria', mobile: tenantOne }, { name: 'Sam', mobile: tenantTwo }] },
           },
         },
         role: 'tenant',
@@ -156,7 +156,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
          complete. Asserted from a context whose `localStorage` never held the owner's draft. */
 
       await expect(tenantPage.getByText('Set up by the owner — view only')).toBeVisible();
-      await expect(active(tenantPage).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
+      await expect(active(tenantPage).getByPlaceholder(SOCIETY_PLACEHOLDER)).toBeDisabled();
       await expect(active(tenantPage).locator('.dz-dropdown__trigger').first()).toBeDisabled();
 
       await clickNext(tenantPage, 1); // Property -> Owner (still read-only)
@@ -223,7 +223,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
       await signedInAs(ownerPage, ownerMobile);
       await ownerPage.goto(inviteUrl({ partyId: party.id, requestId: body.id }), { waitUntil: 'networkidle' });
       await expect(ownerPage.getByText('Set up by the tenant — view only')).toBeVisible();
-      await expect(active(ownerPage).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
+      await expect(active(ownerPage).getByPlaceholder(SOCIETY_PLACEHOLDER)).toBeDisabled();
       await clickNext(ownerPage, 1);
       await expect(ownerPage.getByText('Your details — please complete this step')).toBeVisible();
       const o = active(ownerPage);

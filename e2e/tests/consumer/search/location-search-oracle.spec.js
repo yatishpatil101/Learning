@@ -50,10 +50,8 @@ function oracle(rows, { locs = null, near = null, radiusKm = null } = {}) {
   return out.length;
 }
 
-/* The "Showing N of M" total, once it describes the query on screen. Scoped to the visible copy
-   (`.first()` picks the hidden mobile one) and read past `aria-busy`, since a refining grid keeps
-   the previous results painted. `busyTimeout` is for callers wrapping this in `expect.poll`, where
-   one busy grid would otherwise eat the whole poll budget inside a single iteration. */
+/* Scoped to the visible copy (`.first()` is the hidden mobile one) and read past `aria-busy`, as a refining grid
+   keeps old results; `busyTimeout` stops one busy grid eating an `expect.poll` budget in a single iteration. */
 async function shownCount(page, { busyTimeout = 15000 } = {}) {
   const line = page.locator('main p:visible', { hasText: /Showing/ }).first();
   await line.waitFor({ timeout: 15000 });
@@ -75,10 +73,7 @@ test('the count on screen is the distance filter done right, checked against ind
 });
 
 test('a locality and a place intersect — neither filter quietly wins', async ({ page }) => {
-  /* The failure this exists to catch is not "the filter is broken" but "the filter is the wrong
-     set operation": a union would return more than either side, and a last-one-wins bug would
-     return exactly one side's count. Both are indistinguishable from correct unless the three
-     numbers are known to differ, so the differences are asserted before the page is opened. */
+  /* Differences asserted before opening the page: a union or last-one-wins bug looks right otherwise. */
   const rows = await catalogue('buy');
   const locOnly = oracle(rows, { locs: LOCS });
   const nearOnly = oracle(rows, { near: NEAR, radiusKm: 5 });
@@ -117,10 +112,8 @@ test('widening the radius can only add listings, never drop one', async ({ page 
 });
 
 test('commute mode reads the slider as minutes, not kilometres', async ({ page }) => {
-  /* `nearmode=min` switches the radius slider from km to travel minutes, and the app converts at
-     0.4 km per minute (facetQuery.js:191). So 15 on the slider is a 6 km circle, not a 15 km one —
-     and the two are asserted to be different sizes first, because if the seed ever made them equal
-     this test would pass whether the conversion happened or not. */
+  /* `nearmode=min` converts at 0.4 km/min (facetQuery.js:191), so 15 is a 6 km circle; assert the sizes differ
+     first or the test passes whether or not the conversion happened. */
   const rows = await catalogue('buy');
   const asMinutes = oracle(rows, { near: NEAR, radiusKm: 15 * 0.4 });
   const asKm = oracle(rows, { near: NEAR, radiusKm: 15 });
@@ -134,16 +127,14 @@ test('commute mode reads the slider as minutes, not kilometres', async ({ page }
 });
 
 test('a locality the registry knows but has no stock in says so, and offers a way out', async ({ page }) => {
-  /* The anchor that stops this being vacuous: an unrecognised slug would also render an empty page,
-     so "empty" only means anything once the slug is confirmed to be a real, active locality the
-     registry simply has nothing in. */
+  /* Anchor: an unrecognised slug also renders empty, so confirm it is a real locality with no stock. */
   const res = await fetch(`${API}/localities`);
   expect(res.ok, `GET /localities -> ${res.status}`).toBe(true);
   const registry = await res.json();
   const list = Array.isArray(registry) ? registry : registry.content || [];
   expect(list.length, 'the locality registry is empty; the seed did not run').toBeGreaterThan(5);
 
-  const empty = list.find((l) => l.active !== false && Number(l.listingCount) === 0);
+  const empty = list.find((l) => !l.archived && Number(l.liveListings) === 0);
   expect(empty, 'every locality in the registry has stock, so there is no empty state to show')
     .toBeTruthy();
 
@@ -167,8 +158,7 @@ test('removing the locality chip broadens the results back to the whole catalogu
 
   await page.locator('.af-chip', { hasText: 'Baner' }).first().click();
 
-  /* Poll rather than read once: the chip strip renders from live filter state while the grid renders
-     from the deferred copy, so the chip vanishes a render BEFORE the count moves and anchoring on
-     its disappearance reads the stale number. The only honest anchor is the new count itself. */
+  /* Poll: the chip strip renders from live filter state but the grid from a deferred copy, so the chip vanishes
+     before the count moves; the new count is the only honest anchor. */
   await expect.poll(() => shownCount(page, { busyTimeout: 2000 }), { timeout: 15000 }).toBe(everything);
 });

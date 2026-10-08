@@ -29,8 +29,6 @@ async function listing() {
     propertyType: 'Flat',
     price: 21000,
     city: 'Pune',
-    // A real row in `GET /localities`, so the resolver files the listing instead of leaving
-    // `locality_slug` null and dropping it into the curation queue.
     locality: 'Baner',
     bhk: 2,
     area: 900,

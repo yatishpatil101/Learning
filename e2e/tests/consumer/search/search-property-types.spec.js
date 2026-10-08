@@ -189,6 +189,6 @@ test('home Rent Shared Room search carries locality + gender into the flatmates 
   // The filter controls render twice (desktop grid + mobile drawer), so target the visible desktop
   // instance to avoid a strict-mode match on the off-screen drawer copy.
   await expect(page.getByRole('button', { name: 'Women', exact: true })).toHaveClass(/active/);
-  await expect(page.locator('.dz-dropdown__value:visible', { hasText: 'Baner' }).first()).toBeVisible();
+  await expect(page.locator('#sf-desktop-filters').getByRole('combobox', { name: 'Locality' })).toHaveValue('Baner');
   expect(errors).toHaveLength(0);
 });

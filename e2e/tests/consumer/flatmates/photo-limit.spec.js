@@ -2,6 +2,8 @@ import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { PHOTO_PNG } from '../../../helpers/listingPhotos.helper.js';
+import { fillSociety } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 
 async function openRoomPhotoStep(page) {
   await signedInAsNew(page);
@@ -16,10 +18,8 @@ async function openRoomPhotoStep(page) {
   await page.getByLabel('The owner knows and agrees to sharing').check();
   await page.getByRole('button', { name: /Next Step/i }).click();
 
-  await page.locator('[data-err="locality"]').click();
-  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
-  await page.locator('input[data-err="society"]').fill('Photo Limit Heights');
+  await pickLocality(page, 'Baner');
+  await fillSociety(page, 'Photo Limit Heights');
   await page.getByRole('button', { name: /Next Step/i }).click();
   await expect(page.getByText('Rent & move-in', { exact: true })).toBeVisible();
   await page.locator('input[data-err="rentShare"]').fill('13500');

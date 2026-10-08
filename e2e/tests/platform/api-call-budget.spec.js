@@ -217,11 +217,10 @@ const DESKS = [
   {
     name: 'societies reads one summary and the open tab only',
     url: '/admin/societies',
-    ready: /Claims/,
-    once: ['/api/admin/societies/summary', '/api/admin/society-claims'],
+    ready: /Candidates/,
+    once: ['/api/admin/societies/summary', '/api/admin/society-candidates', '/api/admin/society-merges'],
     never: [
-      '/api/admin/society-merges', '/api/admin/society-residents', '/api/admin/society-proposals',
-      '/api/admin/society-candidates', '/api/societies',
+      '/api/admin/society-claims', '/api/admin/society-residents', '/api/admin/society-proposals', '/api/societies',
     ],
     check: () => {},
   },

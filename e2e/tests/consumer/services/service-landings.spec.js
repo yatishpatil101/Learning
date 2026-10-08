@@ -1,10 +1,5 @@
-/* The service landing pages against the live backend.
-
-   `ServiceLanding` (packers, home loans, legal) shares one sign-in gate, one session prefill and one
-   hero, so each is asserted once, on the page that can also prove the stronger half (home loans
-   proves the gate files nothing on the desk). Valuation and interior are bespoke pages with their
-   own handlers, so each keeps its own gate and prefill. The submit path of the packers form is
-   `live-service-landing-ticket.spec.js`; the interior submit is `live-interior-lead.spec.js`. */
+/* Service landings against the live backend: `ServiceLanding` (packers, home loans, legal) shares one gate, prefill and hero so each is asserted once;
+   valuation and interior are bespoke and keep their own. Packers submit: `live-service-landing-ticket.spec.js`; interior: `interior-lead.spec.js`. */
 import { expect, test, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, signIn, signedInAs } from '../../../helpers/liveAuth.js';
 import { appReady } from '../../../helpers/app.js';

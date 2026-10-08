@@ -1,6 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { AADHAAR, MOBILE, active, clickNext, fillOwner, fillProperty, fillTenant, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, pickLocality, uploadAll } from '../../../helpers/rentAgreementWizard.js';
+import { AADHAAR, MOBILE, active, BUILDING_PLACEHOLDER, SOCIETY_PLACEHOLDER, clickNext, fillBuilding, fillOwner, fillProperty, fillTenant, fillTenantPolice, fillTerms, fillWitnesses, inviteOwner, pickLocality, uploadAll } from '../../../helpers/rentAgreementWizard.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const BUYER = { name: 'Anita Verma', mobile: '9811223344', email: '', role: 'buyer', joinedAt: Date.now() };
@@ -27,6 +27,7 @@ async function login(page, user) {
 
 test.describe('Rent Agreement — revenue flow', () => {
   test('a mid-fill refresh restores every answer except PAN and Aadhaar and remembers which papers were attached', async ({ page }) => {
+    test.slow();
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
@@ -59,7 +60,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(back.getByPlaceholder('ABCDE1234F').first(), 'the purged PAN is the first gap, and has focus').toBeFocused();
 
     await page.getByRole('button', { name: 'Back' }).click();
-    await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(active(page).getByPlaceholder(BUILDING_PLACEHOLDER)).toHaveValue('Skyline Heights');
   });
 
   test('a draft written before the fix has its identity numbers purged on the next visit', async ({ page }) => {
@@ -70,7 +71,7 @@ test.describe('Rent Agreement — revenue flow', () => {
       localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
         step: 1,
         aType: 'Residential',
-        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', gramPanchayat: false, city: 'Pune', pincode: '411045', area: '' },
         owner: { oName: 'Anita Verma', oAge: '34', oGender: 'Male', oPan: 'ABCDE1234F', oAadhaar: '123412341234', oMobile: '9811223344', oEmail: '', oAddr: '12, MG Road, Pune 411001' },
         tenants: [{ name: 'Rahul Nair', age: '29', gender: 'Male', occupation: '', relation: '', pan: 'PQRSX6789K', aadhaar: '999988887777', mobile: '9822334455', email: '', addr: '44, FC Road, Pune 411004' }],
         tenantMode: 'fill',
@@ -140,6 +141,7 @@ test.describe('Rent Agreement — revenue flow', () => {
   });
 
   test('a tenant can start the agreement and invite the owner to fill only the owner half', async ({ page }) => {
+    test.slow();
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await fillProperty(page);
@@ -176,14 +178,14 @@ test.describe('Rent Agreement — revenue flow', () => {
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
         step: 3,
-        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', gramPanchayat: false, city: 'Pune', pincode: '411045', area: '' },
       }));
     });
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
     const p = active(page);
     await expect(p.getByPlaceholder('e.g. B-1204')).toBeVisible();
-    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(p.getByPlaceholder(SOCIETY_PLACEHOLDER)).toHaveValue('Skyline Heights');
     await expect(page.locator('.step-dot').nth(0)).toHaveClass(/\bactive\b/);
     for (let i = 1; i <= 5; i++) {
       await expect(page.locator('.step-dot').nth(i), `step ${i + 1} should be padlocked`).toHaveClass(/\blocked\b/);
@@ -205,8 +207,8 @@ test.describe('Rent Agreement — revenue flow', () => {
     await p.getByPlaceholder('e.g. Baner, Pune').fill('Baner');
     await page.clock.pauseAt(new Date('2025-01-01T10:05:00Z'));
     await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
-    await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
-    await p.getByPlaceholder('e.g. Skyline Heights').press('Escape');
+    await fillBuilding(page);
+    await p.getByTestId('ra-gram-no').click();
     await p.getByPlaceholder('e.g. 850').fill('850');
     await p.getByPlaceholder('411045').fill('411045');
 
@@ -231,8 +233,9 @@ test.describe('Rent Agreement — revenue flow', () => {
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     const back = active(page);
     await expect(back.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
-    await expect(back.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(back.getByPlaceholder(BUILDING_PLACEHOLDER)).toHaveValue('Skyline Heights');
     await expect(back.locator('[data-err="locality"]')).toContainText('Baner');
+    await expect(back.getByTestId('ra-gram-no')).toHaveAttribute('aria-pressed', 'true');
     await expect(back.getByPlaceholder('411045')).toHaveValue('411045');
     // …and the line is gone, so the same control now does what it says.
     await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
@@ -278,7 +281,7 @@ test.describe('Rent Agreement — what the platform already holds is not asked f
     const p = active(page);
     await p.getByRole('button', { name: /2 BHK in Kumar Paradise/ }).click();
     await expect(p.getByPlaceholder('e.g. B-1204')).toHaveValue('A-702');
-    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Kumar Paradise');
+    await expect(p.getByPlaceholder(SOCIETY_PLACEHOLDER)).toHaveValue('Kumar Paradise');
     await expect(p.locator('[data-err="locality"]')).toContainText('Kharadi');
     await expect(p.getByPlaceholder('411045')).toHaveValue('411014');
     await expect(p.getByPlaceholder('e.g. 850')).toHaveValue('950');
@@ -316,7 +319,7 @@ test.describe('Rent Agreement — what the platform already holds is not asked f
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
         step: 0,
-        prop: { propType: 'Flat / Apartment', furnish: 'Furnished', flatNo: 'B-1204', society: 'Skyline Heights', societyId: '', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+        prop: { propType: 'Flat / Apartment', furnish: 'Furnished', flatNo: 'B-1204', society: 'Skyline Heights', societyId: '', locality: 'Baner', gramPanchayat: false, city: 'Pune', pincode: '411045', area: '' },
         terms: { startDate: '', months: '11', rent: '30000', deposit: '', nrDeposit: '', increment: '5', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT' },
       }));
     });
@@ -325,7 +328,7 @@ test.describe('Rent Agreement — what the platform already holds is not asked f
     await expect(page.getByText('Your saved draft is for a different flat')).toBeVisible();
     const p = active(page);
     await expect(p.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
-    await expect(p.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(p.getByPlaceholder(SOCIETY_PLACEHOLDER)).toHaveValue('Skyline Heights');
     await expect(p.getByPlaceholder('e.g. 850'), 'the other flat\'s area is not borrowed').toHaveValue('');
 
     await p.getByRole('button', { name: /2 BHK in Kumar Paradise/ }).click();
@@ -343,6 +346,6 @@ test.describe('Rent Agreement — what the platform already holds is not asked f
 
     await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
     await expect(p.getByText('Enter the flat / house number.'), 'a fixed answer clears without another Next').toHaveCount(0);
-    await expect(p.getByText('Enter the building / society name.'), 'an untouched one stays flagged').toBeVisible();
+    await expect(p.getByText('Pick your society, or choose Not on Google Maps.'), 'an untouched one stays flagged').toBeVisible();
   });
 });

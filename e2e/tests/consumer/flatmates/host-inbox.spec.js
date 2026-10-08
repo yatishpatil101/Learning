@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
+import { withSocietyId } from '../../../helpers/liveSociety.js';
 /* Accept is verified by reading `GET /me/flatmate-requests` from an independent API client, not by
    the optimistic UI flip — a handler that dropped the write would still hide the button. */
 
@@ -28,7 +29,7 @@ test('host sees a seeker\'s room interest in the dashboard, and Accept persists 
     method: 'POST',
     headers: auth(hostToken),
     body: JSON.stringify({
-      society,
+      ...(await withSocietyId(hostToken, { society })),
       roomType: 'Private room',
       locality: 'Baner',
       rentShare: 15000,

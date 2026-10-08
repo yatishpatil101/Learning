@@ -2,6 +2,8 @@
  * a session the server recognises. No identity badge: the wizard has no identity gate. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
+import { fillSociety, stubGooglePlaces, wizardSocietyInput } from '../../../helpers/places.js';
+import { pickLocality } from '../../../helpers/locality.js';
 async function gotoForm(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
@@ -149,13 +151,10 @@ async function toLocation(page, typeLabel, { deal = 'buy', commercialSubtype } =
 /* Land is never asked for a unit, and neither is a standalone industrial shed. Driven by what the step renders
  * rather than a list of type labels, so a profile that drops a field is not remembered here twice. */
 async function fillAddress(page) {
-  await page.locator('[data-err="locality"]').click();
-  await menuOpen(page);
-  await page.locator('.dz-dropdown__option').first().click();
-  for (const [dataErr, value] of [['flatNumber', 'B-1204'], ['society', 'Test Project']]) {
-    const input = page.locator(`input[data-err="${dataErr}"]`);
-    if (await input.count()) await input.fill(value);
-  }
+  await pickLocality(page, 'Baner');
+  const flat = page.locator('input[data-err="flatNumber"]');
+  if (await flat.count()) await flat.fill('B-1204');
+  if (await wizardSocietyInput(page).count()) await fillSociety(page, 'Test Project');
   await page.locator('input[data-err="pincode"]').fill('411045');
 }
 
@@ -166,27 +165,23 @@ async function toPricing(page, typeLabel, options = {}) {
   await page.waitForSelector('text=/Price & terms/i', { timeout: 15000 });
 }
 
-test('society picker waits for typing to pause before requesting candidates', async ({ page }) => {
-  const queries = [];
+test('society picker waits for typing to pause before asking Google, and never queries our own catalogue', async ({ page }) => {
+  const catalogue = [];
   page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (url.pathname === '/api/societies') queries.push(url.searchParams.get('q'));
+    if (new URL(request.url()).pathname === '/api/societies') catalogue.push(request.url());
   });
 
   await toLocation(page, 'Flat / Apartment');
-  expect(queries, 'a closed society picker must not load candidates').toEqual([]);
+  await stubGooglePlaces(page);
+  const asked = () => page.evaluate(() => window.__placesQueries || []);
+  expect(await asked(), 'a closed society picker must not ask Google').toEqual([]);
 
-  await page.locator('input[data-err="society"]').pressSequentially('Skyline', { delay: 20 });
-  await expect.poll(() => queries.length, { timeout: 5000 }).toBe(1);
-  expect(queries).toEqual(['Skyline']);
-
-  const society = page.locator('input[data-err="society"]');
-  await society.press('Escape');
-  await society.press('ArrowDown');
-  expect(await page.getByTestId('society-add-option').count()).toBe(0);
-  await expect.poll(() => queries.length, { timeout: 5000 }).toBe(2);
+  await wizardSocietyInput(page).pressSequentially('Skyline', { delay: 20 });
+  await expect.poll(async () => (await asked()).length, { timeout: 5000 }).toBe(1);
+  expect(await asked()).toEqual(['Skyline']);
+  await expect(page.getByTestId('society-google-option')).toHaveCount(1);
+  expect(catalogue).toEqual([]);
 });
-
 test('Open Plot sale hides residential-only pricing', async ({ page }) => {
   await toPricing(page, 'Open Plot');
 

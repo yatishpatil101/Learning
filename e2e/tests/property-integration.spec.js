@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { uploadPublishablePhotos } from '../helpers/listingPhotos.helper.js';
 import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
+import { fillSociety } from '../helpers/places.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, apiLogin, authHeaders, ownerIdOf, API, uploadedListingPhotos } from '../helpers/liveAuth.js';
 
@@ -117,9 +118,9 @@ test.describe('LIVE: property domain against the real API', () => {
     await expect(first).toBeVisible({ timeout: 15000 });
     const href = await first.getAttribute('href');
 
-    // The location tab must mount before it can request the filtered count.
+    // The location tab must mount before it requests the locality's listing-derived figures.
     const counted = page.waitForResponse(
-      (r) => r.url().includes('/api/properties') && /[?&]size=1(&|$)/.test(r.url()),
+      (r) => /\/api\/localities\/[^/]+$/.test(new URL(r.url()).pathname),
       { timeout: 20000 },
     );
     await page.goto(`${href}?tab=location`);
@@ -128,8 +129,8 @@ test.describe('LIVE: property domain against the real API', () => {
     const res = await counted;
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.totalElements).toBeGreaterThan(0);
-    expect(new URL(res.url()).searchParams.get('locality')).toBeTruthy();
+    expect(body.liveListings).toBeGreaterThan(0);
+    await expect(page.getByTestId('location-locality-stats')).toContainText(/homes? listed/);
   });
 
   test('My Listings uses /me/listings and shows non-public statuses', async ({ page }) => {
@@ -213,19 +214,16 @@ test.describe('LIVE: property domain against the real API', () => {
     const next = page.getByRole('button', { name: /Next Step/i });
     await next.click();
 
-    await page.locator('[data-err="location"] input[role="combobox"]').fill('Baner');
-    await page.getByRole('button', { name: 'Search location' }).click();
-
-    // Wait for reverse-geocoding to select a locality before advancing.
-    await expect(page.locator('[data-err="locality"] .dz-dropdown__value'))
-      .not.toHaveClass(/is-placeholder/, { timeout: 15_000 });
-
     // A unique society name makes this run's server row identifiable.
     const society = `Seam Spec Residency ${Date.now()}`;
-    const address = { flatNumber: 'A-902', society, pincode: '411045' };
+    const address = { flatNumber: 'A-902', pincode: '411045' };
     for (const [field, value] of Object.entries(address)) {
       await page.locator(`input[data-err="${field}"]`).fill(value);
     }
+    await fillSociety(page, society, { lat: 18.5602, lng: 73.7861, locality: 'Baner', pincode: '411045' });
+    // The society pick binds the locality asynchronously; advancing earlier would fail validation.
+    await expect(page.locator('[data-err="locality"] .dz-dropdown__value'))
+      .not.toHaveClass(/is-placeholder/, { timeout: 15_000 });
     await next.click();
     for (const [field, value] of Object.entries({ monthlyRent: '31000', deposit: '90000' })) {
       await page.locator(`input[data-err="${field}"]`).fill(value);

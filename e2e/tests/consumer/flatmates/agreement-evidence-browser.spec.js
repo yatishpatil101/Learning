@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
+import { pickPlaceholderLocality } from '../../../helpers/locality.js';
 import { postAsGroup, haveAFlat } from '../../../helpers/app.js';
 import { createRequire } from 'node:module';
 
@@ -34,6 +35,7 @@ async function submitGroup(page, title, upload, file = AGREEMENT_FILE) {
       && response.request().method() === 'POST',
   );
   await page.getByPlaceholder(/2 girls/i).fill(title);
+  await pickPlaceholderLocality(page);
   await page.getByPlaceholder(/e\.g\. 34,000/i).fill('40000');
   await page.getByPlaceholder(/Your name/i).fill('Agreement Host');
   await page.getByText(/registered rent agreement/i).click();

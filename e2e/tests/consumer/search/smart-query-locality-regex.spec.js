@@ -1,16 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
 
-/* Smart search matches a typed query against every locality's slug and name, word by word, with a
-   `RegExp` built by string concatenation. The locality registry is server data — Pune has
-   `N.I.B.M.`, `Kharadi (Bypass)`, `Yerawada-Airport` — so those names were being compiled as
-   PATTERN rather than compared as text. A `.` matches any character, a lone `(` does not parse at
-   all, and the throw comes out of a keystroke handler: the search bar dies on the way to the
-   result, for everyone, until the registry row is changed back.
-
-   The registry is stubbed because the point is what our parser does with a hostile NAME, and a
-   green run must not depend on the live registry currently happening to contain one. The page
-   underneath is live. */
+/* Locality names like `N.I.B.M.` and `Kharadi (Bypass)` must not be compiled as RegExp: a lone `(` throws in the
+   keystroke handler. The registry is stubbed so a green run does not depend on live data containing one. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -23,8 +15,7 @@ const REGISTRY = [
 ];
 
 test('a locality name with regex punctuation is matched as text, not compiled as a pattern', async ({ page }) => {
-  // Scoped to the API path: the dev server also serves `src/data/localities.js`, and a looser
-  // glob fulfils that module request with JSON, which blanks the whole app.
+  // Scoped to the API path: a looser glob also fulfils source-module requests with JSON, which blanks the whole app.
   await page.route('**/api/localities', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
