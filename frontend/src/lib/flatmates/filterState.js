@@ -42,14 +42,11 @@ const parseBudget = (value, defaults) => {
 const budgetsEqual = (a, b) => a[0] === b[0] && a[1] === b[1];
 const budgetChanged = (value, defaults) => !budgetsEqual(value, defaults.budget);
 const splitCsv = (value) => (value ? value.split(',').map((item) => item.trim()).filter(Boolean) : []);
-const findLocality = (value, localities) => {
-  const needle = value.trim().toLowerCase();
-  return localities.find((locality) => locality.toLowerCase() === needle) || '';
-};
+const findLocality = (value) => value.trim();
 
 export const hasFlatmateSearchParams = (params) => params.toString() !== '';
 
-export function flatmateFiltersFromParams(params, defaults, localities) {
+export function flatmateFiltersFromParams(params, defaults) {
   const filters = cloneFilters(defaults);
   const get = (key) => params.get(key) || '';
 
@@ -57,7 +54,7 @@ export function flatmateFiltersFromParams(params, defaults, localities) {
     const value = field === 'q' ? get(param) : get(param).trim();
     if (!value) return;
     if (field === 'locality') {
-      const locality = findLocality(value, localities);
+      const locality = findLocality(value);
       if (locality) filters.locality = locality;
     } else if (field === 'gender') {
       if (VALID_GENDERS.has(value)) filters.gender = value;
@@ -143,7 +140,7 @@ export function sortFromParams(params) {
   return VALID_SORTS.has(sort) ? sort : DEFAULT_SORT;
 }
 
-export function readRememberedFlatmateSearch(defaults, localities) {
+export function readRememberedFlatmateSearch(defaults) {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
     const source = stored && typeof stored === 'object' && stored.filters && typeof stored.filters === 'object'
@@ -155,7 +152,7 @@ export function readRememberedFlatmateSearch(defaults, localities) {
       if (Object.hasOwn(source, key) && typeof source[key] === 'string') filters[key] = source[key];
     });
     if (Object.hasOwn(source, 'locality') && typeof source.locality === 'string') {
-      filters.locality = findLocality(source.locality, localities);
+      filters.locality = findLocality(source.locality);
     }
     if (Object.hasOwn(source, 'gender') && VALID_GENDERS.has(source.gender)) filters.gender = source.gender;
     if (Object.hasOwn(source, 'sharing') && VALID_SHARING.has(String(source.sharing))) filters.sharing = String(source.sharing);

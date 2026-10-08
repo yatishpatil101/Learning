@@ -1,13 +1,6 @@
-/* Read-through commute cache — the prototype stand-in for the Spring Boot
-   cache-at-write flow. A property's drive times to Pune's IT hubs are a fixed
-   fact about a fixed pin, so we compute ONCE per (rounded) coordinate and reuse
-   forever: in-memory Map first, then localStorage, else compute + persist both.
-
-   The real backend swaps computeLegs() for a Google Routes API call (server-side
-   key, same rounded-coord cache key) — see backend/. Times here are deterministic
-   and traffic-aware (a per-hub congestion factor over the free-flow estimate) so
-   the UI reads like a live feed with no RNG (stable across reloads and tests). */
-import { IT_HUBS } from '../data/localityIntel.js';
+/* A pin's drive times are a fixed fact, so compute once per rounded coordinate and cache; deterministic, no RNG,
+   so results are stable across reloads and tests. */
+import { IT_HUBS } from './commuteHubs.js';
 
 const KEY = 'dz_commute_v1';
 const ROAD_FACTOR = 1.35;     // crow-flight → by-road

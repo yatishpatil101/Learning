@@ -1,25 +1,21 @@
-import { localityBySlug } from '../../data/localities.js';
 import { fnvHash } from '../hash.js';
 
-/* FALLBACK ONLY, for shapes that never came from the API. Every `properties` row carries stored
-   `lat`/`lng`, and a position invented in the browser is not one the server's radius filter can
-   compare against. The offset is a function of the listing id, so a pin stays put while paging. */
+/* Fallback only: the server's radius filter can't compare a browser-invented
+   position. The offset is id-based so a pin stays put while paging. */
 
-/* Pune (Shivajinagar). Only reached by a listing whose locality is not in the registry, which the
-   posting wizard does not allow — it exists so a hand-written fixture cannot produce `NaN`. */
+/* Pune (Shivajinagar). Only reached by a row with no stored pin, so a hand-written fixture cannot
+   produce `NaN`. */
 const CITY_CENTRE = [18.5204, 73.8567];
 
 /** ~0.0045 degrees is a little under 500 m at Pune's latitude. */
 const SPREAD = 0.0045;
 
-/** The stored position for a listing, or its locality-anchored stand-in. */
+/** The stored position for a listing, or a stand-in near the city centre. */
 export function seedPosition(p) {
-  const loc = localityBySlug(p?.localitySlug);
-  const base = loc && loc.lat != null && loc.lng != null ? [loc.lat, loc.lng] : CITY_CENTRE;
   const h = fnvHash(p?.id || '');
   return [
-    base[0] + (((h % 9) - 4) * SPREAD),
-    base[1] + ((((h >> 8) % 9) - 4) * SPREAD),
+    CITY_CENTRE[0] + (((h % 9) - 4) * SPREAD),
+    CITY_CENTRE[1] + ((((h >> 8) % 9) - 4) * SPREAD),
   ];
 }
 

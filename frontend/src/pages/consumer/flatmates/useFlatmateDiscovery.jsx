@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { LOCALITIES, LOCALITY_COORDS } from './constants.js';
+import { useLocalityCoords } from './useLocalityCoords.js';
 import { TAB_MOVE_IN, TAB_TEAM_UP, normalizeTab, decorateRooms } from './model.js';
 import { inr, withCoords, BUDGET_MIN, BUDGET_MAX, budgetIsAny, segClass } from './helpers.js';
 import {
@@ -40,9 +40,10 @@ const isoInDays = (n) => {
 export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, openPostModal, onPost }) {
   const [params, setParams] = useSearchParams();
   const { pathname } = useLocation();
+  const localityCoords = useLocalityCoords();
   const initFromUrl = () => (hasFlatmateSearchParams(params)
-    ? flatmateFiltersFromParams(params, emptyFilters, LOCALITIES)
-    : readRememberedFlatmateSearch(emptyFilters, LOCALITIES) || { ...emptyFilters, budget: [...emptyFilters.budget], habits: [] });
+    ? flatmateFiltersFromParams(params, emptyFilters)
+    : readRememberedFlatmateSearch(emptyFilters) || { ...emptyFilters, budget: [...emptyFilters.budget], habits: [] });
   // Map view only — never touches the list, the URL or the posting model. Empty => focus gate.
   const [mapAreas, setMapAreas] = useState(() => new Set());
   const [filters, setFilters] = useState(initFromUrl);
@@ -107,8 +108,8 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, 
   const reconcileFromUrl = (source) => {
     lastWrittenRef.current = '';
     const nextFilters = hasFlatmateSearchParams(source)
-      ? flatmateFiltersFromParams(source, emptyFilters, LOCALITIES)
-      : readRememberedFlatmateSearch(emptyFilters, LOCALITIES) || { ...emptyFilters, budget: [...emptyFilters.budget], habits: [] };
+      ? flatmateFiltersFromParams(source, emptyFilters)
+      : readRememberedFlatmateSearch(emptyFilters) || { ...emptyFilters, budget: [...emptyFilters.budget], habits: [] };
     setFilters((current) => (flatmateFiltersEqual(current, nextFilters) ? current : nextFilters));
 
     const nextSort = sortFromParams(source);
@@ -171,11 +172,11 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, 
   const search = useFlatmatesSearch({ tab, filters: query, page: requestPage, size });
 
   const activeList = useMemo(() => {
-    const withPoints = search.items.map(withCoords);
+    const withPoints = search.items.map((p) => withCoords(p, localityCoords));
     const roomsOnPage = decorateRooms(withPoints.filter((x) => x.kind === 'room'));
     const byId = new Map(roomsOnPage.map((r) => [r.id, r]));
     return withPoints.map((x) => byId.get(x.id) || x);
-  }, [search.items]);
+  }, [search.items, localityCoords]);
 
   const total = search.total;
   const verifiedTotal = search.verifiedTotal;
@@ -204,13 +205,13 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, 
 
   const byLocality = useMemo(() => {
     const m = {};
-    const add = (loc, item) => { if (LOCALITY_COORDS[loc]) (m[loc] = m[loc] || []).push(item); };
+    const add = (loc, item) => { if (localityCoords[loc]) (m[loc] = m[loc] || []).push(item); };
     activeList.forEach((it) => {
       const locs = (it.localities && it.localities.length) ? it.localities : (it.locality ? [it.locality] : []);
       locs.forEach((l) => add(l, it));
     });
     return m;
-  }, [activeList]);
+  }, [activeList, localityCoords]);
   const kindWord = tab === TAB_MOVE_IN ? 'homes' : 'flatmates';
 
   // Only areas that hold matching posts, ranked by count, so a pick never dead-ends.
@@ -270,7 +271,7 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, 
     if (budgetD) next.budget = [BUDGET_MIN, parseInt(budgetD[1], 10)];
     if (!budgetIsAny(next.budget)) parts.push('≤ ' + inr(next.budget[1]));
 
-    const loc = LOCALITIES.find((l) => q.includes(l.toLowerCase()));
+    const loc = Object.keys(localityCoords).find((l) => q.includes(l.toLowerCase()));
     if (loc) { next.locality = loc; parts.push(loc); }
 
     if (/\b(immediate|now|asap|urgent)\b/.test(q)) { next.moveIn = 'now'; parts.push(t('flatmates.immediate')); }

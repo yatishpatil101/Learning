@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { APIProvider, Map, AdvancedMarker, InfoWindow } from '@vis.gl/react-google-maps';
 import Icon from '../../../components/Icon.jsx';
-import { LOCALITY_COORDS } from './constants.js';
+import { useLocalityCoords } from './useLocalityCoords.js';
 import { inr, seekerBudget, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel, roomTitle, seekerTitle, FLATMATE_IMG } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../../lib/mapsConfig.js';
@@ -85,8 +85,8 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
   );
 }
 
-function framing(items) {
-  const pts = Object.keys(items).map((l) => LOCALITY_COORDS[l]).filter(Boolean);
+function framing(items, localityCoords) {
+  const pts = Object.keys(items).map((l) => localityCoords[l]).filter(Boolean);
   if (pts.length >= 2) {
     const lats = pts.map((p) => p[0]);
     const lngs = pts.map((p) => p[1]);
@@ -104,16 +104,17 @@ function framing(items) {
 
 function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin, onSave, saved, interestedFor, goToPosting }) {
   const { t } = useTranslation();
+  const localityCoords = useLocalityCoords();
   const [openLoc, setOpenLoc] = useState(null);
   // kindWord is 'homes' on the Move-in tab and 'flatmates' on Team up — the two
   // tabs are the only sources, so there is no third case to handle.
   const hereKey = kindWord === 'homes' ? 'homesHere' : 'flatmatesHere';
   const prefix = tab === TAB_MOVE_IN ? 'r' : 's';
   const openList = openLoc && items[openLoc] ? items[openLoc] : null;
-  const openPos = openLoc ? LOCALITY_COORDS[openLoc] : null;
+  const openPos = openLoc ? localityCoords[openLoc] : null;
   // Stable identity so vis.gl doesn't re-run setOptions on every render (same
   // reason IW_OFFSET is hoisted) — framing() builds a fresh bounds/center object.
-  const frame = useMemo(() => framing(items), [items]);
+  const frame = useMemo(() => framing(items, localityCoords), [items, localityCoords]);
   if (!GOOGLE_MAPS_API_KEY) return <MapUnavailable style={{ height: 460 }} />;
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
@@ -132,7 +133,7 @@ function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin,
           style={{ width: '100%', height: '100%' }}
         >
           {Object.keys(items).map((l) => {
-            const pos = LOCALITY_COORDS[l];
+            const pos = localityCoords[l];
             if (!pos) return null;
             return (
               <AdvancedMarker

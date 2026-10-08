@@ -2,19 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 
-/* Map view is "area-first": rendering a whole city of markers is expensive, so the
-   map only appears once the user has focused on 1–maxAreas localities. This panel is
-   shown in place of the map for the two gated states:
-     • no areas selected  → a "focus your map" popular-area picker.
-     • too many areas (> maxAreas) → a trim-down prompt with a grid-view fallback.
-   Picking a single area is enough to unlock the map. */
+/* The map only appears after focusing on 1–maxAreas localities: a whole city of markers is expensive. */
 
-// Areas worth suggesting first: most stock, then strongest demand.
+// Areas worth suggesting first: most live stock.
 const popularAreas = (localities, limit = 8) =>
   localities
-    .filter((l) => l.active !== false)
+    .filter((l) => !l.archived)
     .slice()
-    .sort((a, b) => (b.listings || 0) - (a.listings || 0) || (b.demand || 0) - (a.demand || 0))
+    .sort((a, b) => (b.liveListings || 0) - (a.liveListings || 0))
     .slice(0, limit);
 
 export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, setView, suggestedLocalities = [] }) {
@@ -29,7 +24,7 @@ export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, s
   }, [f.localities.size, initialDraft]);
 
   const choices = useMemo(() => {
-    const bySlug = new Map(localities.filter((l) => l.active !== false).map((l) => [l.slug, l]));
+    const bySlug = new Map(localities.filter((l) => !l.archived).map((l) => [l.slug, l]));
     const picked = initialDraft.map((slug) => bySlug.get(slug)).filter(Boolean);
     const rest = popularAreas(localities, 10).filter((l) => !initialDraft.includes(l.slug));
     return [...picked, ...rest].slice(0, 8);

@@ -1,7 +1,5 @@
-/* Single source of truth for WHICH filter sections are meaningful for the selected property types —
-   read by the Filters UI and by the results/chips logic, so a hidden filter can never silently
-   narrow results. Selecting nothing means "browse all". The canonical type keys collapse into the
-   three groups that actually differ in what a buyer needs to see: residential, commercial, land. */
+/* Shared by the Filters UI and results logic so a hidden filter can
+   never silently narrow results; selecting nothing means browse all. */
 
 const RESIDENTIAL = new Set(['flat', 'house', 'villa', 'flatmates']);
 const LAND = new Set(['plot', 'farmland']);
@@ -16,10 +14,7 @@ export function typeGroups(types) {
   return g;
 }
 
-/* Sections whose relevance depends on the selected type. Anything not listed here
-   (budget, property type, localities, verification, near a place) is always
-   relevant. `commercialType` keeps its own upstream condition. `room` (Private/
-   Shared) is a flatmates-only concept. */
+/* Sections not listed are always relevant; `room` (Private/Shared) is a flatmates-only concept. */
 export function sectionVisible(section, types) {
   const g = typeGroups(types || new Set());
   if (section === 'landUse' || section === 'na') return g.size === 1 && g.has('land');
@@ -35,8 +30,6 @@ export function sectionVisible(section, types) {
     case 'facing':
     case 'baths':
     case 'tenants':
-    // falls through — housing-society & society-conveyance checks only exist for residential homes.
-    case 'verifSociety':
       return residentialOnly;
     case 'furnishing':
     case 'availability':
@@ -55,4 +48,4 @@ export function sectionVisible(section, types) {
 
 /* Per-verification-option relevance. Options not listed here (Verified Owner,
    Ownership Verified) apply to every property type. */
-export const VERIF_SECTIONS = { rera: 'verifRera', society: 'verifSociety', conveyance: 'verifSociety' };
+export const VERIF_SECTIONS = { rera: 'verifRera' };

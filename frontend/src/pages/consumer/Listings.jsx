@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import { recordSignal } from '../../services/demandService.js';
-import { listLocalities } from '../../services/localityService.js';
+import { getLocality, listLocalities } from '../../services/localityService.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { setLastSearch, getLastSearch } from '../../lib/localPrefs.js';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
@@ -17,10 +17,8 @@ import NewCityEmptyState from '../../components/city/NewCityEmptyState.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
-import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
-import { allLocalities } from '../../data/localities.js';
-import { allSocieties } from '../../data/societies.js';
+import { getSociety } from '../../services/societyService.js';
 import { toFacetQuery } from '../../lib/listings/facetQuery.js';
 import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams, switchDealFilters, hasFilterParams } from '../../lib/listings/filterState.js';
 import { clampNearRadius, nearMaxFor } from '../../lib/nearParams.js';
@@ -44,7 +42,7 @@ const MAP_MARKER_CAP = 100;
 const MAP_MAX_AREAS = 5;
 const LAST_LISTINGS_SEARCH_KEY = 'draazy.listings.lastSearch.v1';
 
-/* The locality registry: filter options, chip labels and the map's fallback focus. */
+/* The locality list: filter options, chip labels and the map's fallback focus. */
 const loadLocalities = () => listLocalities();
 const filterSignature = (value) => JSON.stringify(serializeF(value));
 let pendingDrawerBackSnapshot = null;
@@ -111,7 +109,7 @@ export default function Listings() {
   const [activeId, setActiveId] = useState(backRestoreInitial?.activeId || params.get('property') || null);
   /* The locality registry, through `useAsyncList` so a failed read has a name and a retry rather than leaving the
      most-visited page in the app on skeletons that never resolve. */
-  const [localityRows] = useAsyncList(loadLocalities, []);
+  const [localityRows, localityStatus] = useAsyncList(loadLocalities, []);
   // Only Pune has inventory today, so a data-less live city gets an honest empty state here
   // rather than Pune listings mislabelled as its own.
   const { city } = useCity();
@@ -288,35 +286,49 @@ export default function Listings() {
   }, [urlDeal]);
 
   useEffect(() => {
-    const ls = localityRows;
-    if (!ls.length) return;
-    // The full canonical registry, not just listing-derived localities, so any Pune locality is
-    // searchable without the Maps SDK loaded.
-    const seen = new Set(ls.map((l) => l.slug));
-    const merged = [...ls];
-    allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
-    setLocalities(merged);
+    setLocalities((prev) => {
+      const seen = new Set(localityRows.map((l) => l.slug));
+      return [...localityRows, ...prev.filter((l) => !seen.has(l.slug))];
+    });
   }, [localityRows]);
 
-  // A live Places pick can resolve to a locality that isn't in the option list yet;
+  // A Places pick resolves to a locality that isn't in the option list yet;
   // register it (slug → name) so its chip and the dropdown summary show a friendly name.
-  const addLocalityOption = useCallback(({ slug, name }) => {
+  const addLocalityOption = useCallback(({ slug, name, lat, lng }) => {
     if (!slug) return;
-    setLocalities((prev) => (prev.some((l) => l.slug === slug) ? prev : [...prev, { slug, name: name || slug }]));
+    setLocalities((prev) => (prev.some((l) => l.slug === slug) ? prev : [...prev, { slug, name: name || slug, lat: lat ?? null, lng: lng ?? null }]));
   }, []);
 
   const locNameBySlug = useMemo(() => Object.fromEntries(localities.map((l) => [l.slug, l.name])), [localities]);
+  // A shared URL or saved search can carry a slug the list does not hold; ask the server for its name.
+  const askedLocalitiesRef = useRef(new Set());
+  const locSlugsKey = [...f.localities].sort().join(',');
+  useEffect(() => {
+    if (localityStatus === 'loading') return;
+    locSlugsKey.split(',').filter((slug) => slug && !locNameBySlug[slug] && !askedLocalitiesRef.current.has(slug)).forEach((slug) => {
+      askedLocalitiesRef.current.add(slug);
+      getLocality(slug).then(addLocalityOption).catch(() => {});
+    });
+  }, [locSlugsKey, locNameBySlug, localityStatus, addLocalityOption]);
   const suggestedMapLocalities = useMemo(() => {
     const stored = deserializeStoredFilters(initialListingsSearch?.filters);
     if (!stored?.localities?.size) return [];
-    const known = new Set(localities.filter((l) => l.active !== false).map((l) => l.slug));
+    const known = new Set(localities.filter((l) => !l.archived).map((l) => l.slug));
     return [...stored.localities].filter((slug) => known.has(slug)).slice(0, MAP_MAX_AREAS);
   }, [initialListingsSearch, localities]);
-  // A `?society=` filter can name any of the 348 rows, so the chip label needs the whole
-  // catalogue — not the 28 readable before the bulk chunk lands.
-  const catalogueReady = useSocietyCatalogue();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- catalogueReady refreshes module cache.
-  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), [catalogueReady]);
+  const [socNameBySlug, setSocNameBySlug] = useState({});
+  const socSlugsKey = [...f.societies].join(',');
+  useEffect(() => {
+    const missing = socSlugsKey.split(',').filter((slug) => slug && !socNameBySlug[slug]);
+    if (!missing.length) return undefined;
+    let alive = true;
+    missing.forEach((slug) => {
+      getSociety(slug)
+        .then((s) => { if (alive && s?.name) setSocNameBySlug((prev) => ({ ...prev, [slug]: s.name })); })
+        .catch(() => {});
+    });
+    return () => { alive = false; };
+  }, [socSlugsKey]); // eslint-disable-line react-hooks/exhaustive-deps -- names already loaded are not refetched.
 
   // Deferred filter state — keeps the inputs responsive while the request for the new results is
   // in flight, so a checkbox never waits on the network to look checked.
@@ -367,16 +379,16 @@ export default function Listings() {
 
   const ptr = usePullToRefresh(search.refresh);
 
-  // The map fits to its property markers, but a zero-inventory locality has none — these registry
+  // The map fits to its property markers, but a zero-inventory locality has none — the locality
   // centres give it something to focus on rather than the city default.
   const locSig = [...f.localities].sort().join(',');
   const mapFocus = useMemo(() => {
     if (!f.localities.size) return [];
-    return allLocalities()
+    return localities
       .filter((l) => f.localities.has(l.slug) && l.lat != null && l.lng != null)
       .map((l) => [l.lat, l.lng]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `locSig` is.
-  }, [locSig]);
+  }, [locSig, localities]);
 
   // The server already returned exactly one page, so there is nothing left to slice. `mapGated`
   // suspends the request rather than fetching a batch the map has decided not to draw.

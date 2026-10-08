@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
-import Select from '../../../../components/ui/Select.jsx';
 import { FilterGroup, Divider } from '../FilterControls.jsx';
-import { fetchPlaceDetails, fetchSuggestions, newAutocompleteSession } from '../../../../lib/places.js';
+import PlaceSearchInput from '../../../../components/search/PlaceSearchInput.jsx';
 import { useCommitOnRelease } from '../../../../lib/useCommitOnRelease.js';
 import { clampNearRadius, nearMaxFor } from '../../../../lib/nearParams.js';
-import { localityBySlug, matchLocalityToCanonical, nearestLocality } from '../../../../data/localities.js';
 
-export default function NearAPlaceSection({ f, set, onAddLocality }) {
+export default function NearAPlaceSection({ f, set, localities }) {
   const { t } = useTranslation();
   const nearMode = f.nearMode || 'km';
   // The slider reports every step of a drag; hold the in-flight radius here and lift it when the
@@ -30,88 +28,28 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     // deleting the text is how you start retyping, not a request to search one kilometre.
     if (raw !== '') set({ nearRadius: clampNearRadius(raw, nearMax) });
   }, [nearMax, set]);
-  // A place in an unselected locality makes the two location filters contradict and return
-  // nothing, so nudge the user to add the parent. Derived from state, so it fires for shared URLs.
-  const [nearDismissed, setNearDismissed] = useState(null);
-  const nearHint = useMemo(() => {
-    if (!f.near) return null;
-    const [latS, lngS] = String(f.near).split(',');
-    const lat = parseFloat(latS);
-    const lng = parseFloat(lngS);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    const canon = matchLocalityToCanonical(f.nearLabel, lat, lng) || nearestLocality(lat, lng, 6);
-    if (!canon || !canon.slug) return null;
-    if (f.localities.size === 0 || f.localities.has(canon.slug)) return null;
-    return { slug: canon.slug, name: canon.name };
-  }, [f.near, f.nearLabel, f.localities]);
   // Biases the live Near-a-Place search toward the area being looked in. The city hard-fence in
   // fetchSuggestions still applies, so a bias can only rank results, never leak them out.
   const nearBias = useMemo(() => {
-    const pts = [...f.localities].map((s) => localityBySlug(s)).filter((l) => l && l.lat != null && l.lng != null);
+    const pts = localities.filter((l) => f.localities.has(l.slug) && l.lat != null && l.lng != null);
     if (!pts.length) return null;
     const lat = pts.reduce((a, l) => a + l.lat, 0) / pts.length;
     const lng = pts.reduce((a, l) => a + l.lng, 0) / pts.length;
     const d = 0.06;
     return { north: lat + d, south: lat - d, east: lng + d, west: lng - d };
-  }, [f.localities]);
-  // A point set from a home-search POI is surfaced as a synthetic option so the Select trigger
-  // reads its real name rather than raw coords. No seed list — suggestions are live.
+  }, [f.localities, localities]);
   const nearName = f.nearLabel || '';
-  const nearOpts = useMemo(
-    () => (f.near ? [{ value: f.near, label: f.nearLabel || t('listings.selectedPlace') }] : []),
-    [f.near, f.nearLabel, t],
-  );
+  const onPlacePick = ({ near, label }) => set({ near, nearLabel: label });
+  const onPlaceClear = () => set({ near: '', nearLabel: '' });
 
-  // Live Google Places search, so suggestions are real places near the selected locality.
-  // Predictions carry no coordinates, so options hold a placeholder resolved on pick.
-  const nearTokenRef = useRef(null);
-  const nearPickIdRef = useRef(0);
-  const mountedRef = useRef(true);
-  const locSetRef = useRef(f.localities);
-  useEffect(() => { locSetRef.current = f.localities; }, [f.localities]);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const nearAsyncSearch = useCallback(async (query) => {
-    if (!nearTokenRef.current) nearTokenRef.current = newAutocompleteSession();
-    const preds = await fetchSuggestions(query, nearTokenRef.current, nearBias ? { locationBias: nearBias } : {});
-    return preds.map((p) => ({
-      value: '__place__:' + p.placeId,
-      label: p.mainText,
-      sublabel: p.secondaryText,
-      meta: { _p: p._p, name: p.mainText },
-    }));
-  }, [nearBias]);
-  const onNearChange = useCallback((v) => {
-    if (typeof v === 'string' && v.startsWith('__place__:')) return;
-    const opt = nearOpts.find((o) => o.value === v);
-    set({ near: v || '', nearLabel: v ? (opt?.label || f.nearLabel || '') : '' });
-  }, [nearOpts, set, f.nearLabel]);
-  const onNearPick = useCallback(async (opt) => {
-    if (!opt?.meta) return;
-    const pickId = ++nearPickIdRef.current;
-    const placeId = String(opt.value).replace('__place__:', '');
-    const details = await fetchPlaceDetails({ placeId, _p: opt.meta._p });
-    // Ignore a stale/late response once a newer pick started or the panel unmounted.
-    if (pickId !== nearPickIdRef.current || !mountedRef.current) return;
-    if (!details || details.lat == null || details.lng == null) return;
-    nearTokenRef.current = null;
-    set({ near: `${details.lat.toFixed(4)},${details.lng.toFixed(4)}`, nearLabel: details.name || opt.meta.name || opt.label || '' });
-  }, [set]);
-
-  const onAddNearLocality = useCallback(() => {
-    if (!nearHint) return;
-    onAddLocality?.({ slug: nearHint.slug, name: nearHint.name });
-    set({ localities: new Set([...locSetRef.current, nearHint.slug]) });
-  }, [nearHint, onAddLocality, set]);
-
-  // Reveal the unfolded controls by scrolling the filter panel's OWN scroll container —
-  // scrolling the window here jumps the whole page.
+  // Reveal the radius controls once, when a place first appears — not on every re-pick. Scroll the
+  // panel's OWN container: scrolling the window jumps the whole page.
   const nearPanelRef = useRef(null);
+  const hadNearRef = useRef(!!f.near);
   useEffect(() => {
-    if (!f.near) return;
+    const had = hadNearRef.current;
+    hadNearRef.current = !!f.near;
+    if (!f.near || had) return;
     const panel = nearPanelRef.current;
     const scroller = panel?.closest('.filter-scroll');
     if (!scroller) return;
@@ -125,35 +63,14 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     <>
       <FilterGroup icon="map-pinned" title={t('listings.nearAPlace')} summary={f.near ? `${nearName || t('listings.placeCap')} · ${liveRadius} ${nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}` : ''} defaultCollapsed={!f.near}>
         <div className="space-y-3">
-          <Select
-            value={f.near || ''}
-            onChange={onNearChange}
-            onPick={onNearPick}
-            asyncSearch={nearAsyncSearch}
-            options={nearOpts}
-            searchable
+          <PlaceSearchInput
+            label={f.near ? (nearName || t('listings.selectedPlace')) : ''}
+            onPick={onPlacePick}
+            onClear={onPlaceClear}
+            bias={nearBias}
             placeholder={t('listings.searchPlacePlaceholder')}
             ariaLabel={t('listings.searchPlaceAria')}
-            className="w-full"
           />
-          {nearHint && nearDismissed !== f.near ? (
-            <div className="flex items-start gap-2.5 rounded-xl border border-teal-500/20 bg-teal-500/10 px-3 py-2.5">
-              <Icon name="info" className="w-4 h-4 text-teal-400 flex-shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-gray-300 leading-snug">
-                  <span className="font-semibold text-white">{nearName || t('listings.thisPlace')}</span> {t('listings.nearHintBody', { name: nearHint.name })}
-                </p>
-                <div className="mt-2 flex items-center gap-3">
-                  <button type="button" onClick={onAddNearLocality} className="text-xs font-semibold text-teal-300 hover:text-teal-200 t-all">
-                    {t('listings.addLocalityBtn', { name: nearHint.name })}
-                  </button>
-                  <button type="button" onClick={() => setNearDismissed(f.near)} className="text-xs text-gray-500 hover:text-gray-300 t-all">
-                    {t('listings.dismiss')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
           {f.near ? (
             <div ref={nearPanelRef} className="space-y-4 pt-1">
 

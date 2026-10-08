@@ -1,57 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import Select from '../../../components/ui/Select.jsx';
-import { fetchSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../../../lib/places.js';
+import PlaceSearchInput from '../../../components/search/PlaceSearchInput.jsx';
 import { clampNearRadius, nearMaxFor } from '../../../lib/nearParams.js';
 
-/* "Near a Place" for Flatmates — the same proximity model Listings uses, now possible because
- * every post carries per-post coordinates (see helpers.withCoords). */
+/* The same proximity model Listings uses; it works because every post carries its own
+ * coordinates (see helpers.withCoords). */
 export default function NearPlaceField({ filters, setF }) {
   const { t } = useTranslation();
   const nearMode = filters.nearMode || 'km';
   const nearMax = nearMaxFor(nearMode);
   const nearRadius = clampNearRadius(filters.nearRadius || 5, nearMax);
   const [radiusDraft, setRadiusDraft] = useState(null);
-  const nearOpts = useMemo(
-    () => (filters.near ? [{ value: filters.near, label: filters.nearLabel || t('flatmates.selectedPlace') }] : []),
-    [filters.near, filters.nearLabel, t],
-  );
 
-  const tokenRef = useRef(null);
-  const pickIdRef = useRef(0);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const asyncSearch = useCallback(async (query) => {
-    if (!tokenRef.current) tokenRef.current = newAutocompleteSession();
-    const preds = await fetchSuggestions(query, tokenRef.current, {});
-    return preds.map((p) => ({
-      value: '__place__:' + p.placeId,
-      label: p.mainText,
-      sublabel: p.secondaryText,
-      meta: { _p: p._p, name: p.mainText },
-    }));
-  }, []);
-
-  const onChange = useCallback((v) => {
-    if (typeof v === 'string' && v.startsWith('__place__:')) return;
-    if (!v) setF({ near: '', nearLabel: '' });
-  }, [setF]);
-
-  const onPick = useCallback(async (opt) => {
-    if (!opt?.meta) return;
-    const pickId = ++pickIdRef.current;
-    const placeId = String(opt.value).replace('__place__:', '');
-    const details = await fetchPlaceDetails({ placeId, _p: opt.meta._p });
-    if (pickId !== pickIdRef.current || !mountedRef.current) return;
-    if (!details || details.lat == null || details.lng == null) return;
-    tokenRef.current = null;
-    setF({ near: `${details.lat.toFixed(4)},${details.lng.toFixed(4)}`, nearLabel: details.name || opt.meta.name || opt.label || '' });
-  }, [setF]);
+  const onPick = ({ near, label }) => setF({ near, nearLabel: label });
+  const onClear = () => setF({ near: '', nearLabel: '' });
   const onRadiusType = useCallback((e) => {
     const raw = e.target.value;
     setRadiusDraft(raw);
@@ -66,16 +29,12 @@ export default function NearPlaceField({ filters, setF }) {
 
   return (
     <div className="space-y-3">
-      <Select
-        value={filters.near || ''}
-        onChange={onChange}
+      <PlaceSearchInput
+        label={filters.near ? (filters.nearLabel || t('flatmates.selectedPlace')) : ''}
         onPick={onPick}
-        asyncSearch={asyncSearch}
-        options={nearOpts}
-        searchable
+        onClear={onClear}
         placeholder={t('flatmates.searchPlacePlaceholder')}
         ariaLabel={t('flatmates.ariaSearchPlace')}
-        className="w-full"
       />
       {filters.near ? (
         <div className="space-y-3 pt-1">

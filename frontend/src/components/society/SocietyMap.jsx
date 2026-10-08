@@ -2,6 +2,7 @@ import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useTranslation } from 'react-i18next';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../lib/mapsConfig.js';
 import MapUnavailable from '../property/MapUnavailable.jsx';
+import '../../styles/components/location-picker.css';
 
 /* Without a Maps key it degrades to the shared placeholder so the surrounding card stays intact. */
 export default function SocietyMap({ lat, lng, name, height = 220 }) {

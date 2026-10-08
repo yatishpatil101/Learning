@@ -1,85 +1,43 @@
-import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import MultiSelect from '../../../../components/ui/MultiSelect.jsx';
+import Icon from '../../../../components/Icon.jsx';
+import LocalitySearchInput from '../../../../components/search/LocalitySearchInput.jsx';
 import { FilterGroup, Divider } from '../FilterControls.jsx';
-import { fetchAreaSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../../../../lib/places.js';
-import { matchLocalityToCanonical, nearestLocality, slugifyLocality } from '../../../../data/localities.js';
 
 export default function LocalitySection({ f, set, localities, onAddLocality }) {
   const { t } = useTranslation();
-
-  // Live Google Places search for the Localities filter. To honour the
-  // locality-only model while still letting people type a street or sub-area
-  // (e.g. "Datta Mandir Road"), suggestions are broadened beyond locality types
-  // and every pick is snapped UP to its PARENT canonical locality (e.g. Wakad)
-  // via place coordinates before it enters the filter. Fails soft to the static
-  // registry list when the Maps SDK / quota is unavailable.
-  const locTokenRef = useRef(null);
-  const mountedRef = useRef(true);
-  const locSetRef = useRef(f.localities);
-  useEffect(() => { locSetRef.current = f.localities; }, [f.localities]);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const localityAsyncSearch = useCallback(async (query) => {
-    if (!locTokenRef.current) locTokenRef.current = newAutocompleteSession();
-    const preds = await fetchAreaSuggestions(query, locTokenRef.current);
-    // Carry a non-slug marker value so a still-resolving pick never lands in the
-    // filter set; the real snapped slug is added in onLocalityPick once coords resolve.
-    return preds.map((p) => ({
-      value: '__place__:' + p.placeId,
-      label: p.mainText,
-      sublabel: p.secondaryText,
-      meta: { _p: p._p, name: p.mainText },
-    }));
-  }, []);
-
-  // Drop the transient live-search marker so only real registry slugs reach the filter.
-  const onLocalityChange = useCallback(
-    (arr) => set({ localities: new Set(arr.filter((v) => !String(v).startsWith('__place__:'))) }),
-    [set],
-  );
-
-  const onLocalityPick = useCallback(async (opt) => {
-    // A static registry pick has no meta and was already added via onLocalityChange.
-    if (!opt || !opt.meta) return;
-    let details = null;
-    try { details = await fetchPlaceDetails(opt.meta); } catch { details = null; }
-    locTokenRef.current = null; // Places billing: close the session after a pick.
-    if (!mountedRef.current) return;
-    const name = opt.meta.name || opt.label || '';
-    const lat = details ? details.lat : null;
-    const lng = details ? details.lng : null;
-    // Snap to the parent canonical locality: named area first (localityRaw, e.g.
-    // "Wakad"), then the typed label, then the nearest registry locality by coords,
-    // and only as a last resort an honest full slug of the picked name.
-    const canon =
-      matchLocalityToCanonical(details && details.localityRaw ? details.localityRaw : name, lat, lng) ||
-      matchLocalityToCanonical(name, lat, lng) ||
-      nearestLocality(lat, lng, 6) ||
-      (name ? { slug: slugifyLocality(name), name } : null);
-    if (!canon || !canon.slug) return;
-    onAddLocality?.({ slug: canon.slug, name: canon.name });
-    set({ localities: new Set([...locSetRef.current, canon.slug]) });
-  }, [set, onAddLocality]);
+  const picked = [...f.localities].map((slug) => ({ slug, name: localities.find((l) => l.slug === slug)?.name || slug }));
+  const add = (loc) => {
+    onAddLocality(loc);
+    set((prev) => ({ localities: new Set([...prev.localities, loc.slug]) }));
+  };
+  const remove = (slug) => set((prev) => ({ localities: new Set([...prev.localities].filter((s) => s !== slug)) }));
 
   return (
     <>
       <FilterGroup icon="map-pin" title={t('listings.localities')} summary={f.localities.size ? t('listings.selectedCount', { count: f.localities.size }) : ''}>
-        <MultiSelect
-          values={[...f.localities]}
-          onChange={onLocalityChange}
-          options={localities.map((l) => ({ value: l.slug, label: l.name }))}
-          asyncSearch={localityAsyncSearch}
-          onPick={onLocalityPick}
-          searchable
-          placeholder={t('listings.searchLocalityPlaceholder')}
-          ariaLabel={t('listings.localities')}
-          className="w-full"
-          autoClose
-        />
+        <div className="space-y-2.5">
+          {picked.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {picked.map((l) => (
+                <button
+                  key={l.slug}
+                  type="button"
+                  onClick={() => remove(l.slug)}
+                  aria-label={t('ui.removeItem', { label: l.name })}
+                  className="flex items-center gap-1 rounded-lg bg-teal-500/15 px-2.5 py-1 text-[11px] font-semibold text-teal-200 hover:bg-teal-500/25"
+                >
+                  {l.name} <Icon name="x" className="h-3 w-3" />
+                </button>
+              ))}
+            </div>
+          )}
+          <LocalitySearchInput
+            onPick={add}
+            clearOnPick
+            placeholder={t('listings.searchLocalityPlaceholder')}
+            ariaLabel={t('listings.localities')}
+          />
+        </div>
       </FilterGroup>
       <Divider />
     </>

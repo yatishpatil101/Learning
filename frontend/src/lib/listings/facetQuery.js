@@ -94,8 +94,6 @@ export function toFacetQuery(df, opts = {}) {
     ownerVerified: verified.owner || undefined,
     ownershipVerified: verified.ownership || undefined,
     rera: verified.rera && rel('verifRera') ? true : undefined,
-    societyVerified: verified.society && rel('verifSociety') ? true : undefined,
-    conveyanceDone: verified.conveyance && rel('verifSociety') ? true : undefined,
 
     minPrice,
     maxPrice,

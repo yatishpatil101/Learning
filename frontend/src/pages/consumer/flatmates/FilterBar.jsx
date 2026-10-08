@@ -3,13 +3,12 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import Select from '../../../components/ui/Select.jsx';
-import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import DualRange from '../../../components/ui/DualRange.jsx';
 import { FilterGroup } from '../../../components/ui/FilterGroup.jsx';
 import useSwipeDismiss from '../../../lib/useSwipeDismiss.js';
+import LocalitySearchInput from '../../../components/search/LocalitySearchInput.jsx';
 import NearPlaceField from './NearPlaceField.jsx';
-import { LOCALITIES } from './constants.js';
 import { inr, BUDGET_MIN, BUDGET_MAX, budgetIsAny, isDateVal, todayIso } from './helpers.js';
 import { TAB_MOVE_IN, TAB_TEAM_UP } from './model.js';
 
@@ -35,9 +34,6 @@ function Section({ sheet, icon, label, summary, className, children }) {
 function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, variant = 'grid' }) {
   const { t } = useTranslation();
   const sheet = variant === 'sheet';
-  // LocalitySelect layers live Google suggestions on top, so the user is not limited to this
-  // static Pune shortlist.
-  const LOCALITY_OPTIONS = [{ value: '', label: t('flatmates.anyLocality') }, ...LOCALITIES.map((l) => ({ value: l, label: l }))];
   // Move-in applies to both feeds (a room has a date, so does a seeker), while flat size is a
   // "people" question and an attached bathroom is a "place" one.
   const showMoveIn = true;
@@ -76,7 +72,15 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab, varia
         </div>
       </Section>
       <Section sheet={sheet} icon="map-pin" label={t('flatmates.fLocality')} summary={summaries.locality}>
-        <div className="w-full lg:w-3/4"><LocalitySelect value={filters.locality} onChange={(v) => setF({ locality: v })} options={LOCALITY_OPTIONS} placeholder={t('flatmates.anyLocality')} ariaLabel={t('flatmates.fLocality')} className="w-full" /></div>
+        <div className="w-full lg:w-3/4">
+          <LocalitySearchInput
+            label={filters.locality}
+            onPick={(l) => setF({ locality: l.name })}
+            onClear={() => setF({ locality: '' })}
+            placeholder={t('flatmates.searchLocalityPlaceholder')}
+            ariaLabel={t('flatmates.fLocality')}
+          />
+        </div>
       </Section>
       <Section sheet={sheet} icon="map-pinned" label={t('flatmates.fNearPlace')} summary={summaries.near} className="lg:col-start-3 lg:row-start-1 lg:row-span-3">
         <div className="w-full lg:w-3/4"><NearPlaceField filters={filters} setF={setF} /></div>

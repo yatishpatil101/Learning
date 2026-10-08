@@ -26,7 +26,7 @@ export default function Filters({ f, set, localities, onAddLocality, clearAll, i
         </>
       ) : null}
 
-      <NearAPlaceSection f={f} set={set} onAddLocality={onAddLocality} />
+      <NearAPlaceSection f={f} set={set} localities={localities} />
       {isRent ? null : <PropertyTypeSections f={f} set={set} idp={idp} />}
       <SpecSections f={f} set={set} idp={idp} />
       <RentExtraSections f={f} set={set} />

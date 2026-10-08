@@ -28,7 +28,7 @@ export function buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, se
   const TENANT_LBL = Object.fromEntries(TENANTS);
   const ROOM_LBL = Object.fromEntries(ROOM_TYPES);
   const AVAILF_LBL = Object.fromEntries(AVAIL_FROM);
-  const VERIF_LBL = { owner: tr('listings.verifOwner'), ownership: tr('property.ownershipVerified'), rera: tr('listings.verifRera'), society: tr('listings.verifSociety'), conveyance: tr('listings.verifConveyance') };
+  const VERIF_LBL = { owner: tr('listings.verifOwner'), ownership: tr('property.ownershipVerified'), rera: tr('listings.verifRera') };
   const CTYPE_LBL = Object.fromEntries(COMMERCIAL_TYPES);
   const FACING_LBL = Object.fromEntries(FACING.map(([v, key]) => [v, tr(key)]));
   const BATHS_LBL = Object.fromEntries(BATHS.map(([v, key]) => [v, tr(key)]));

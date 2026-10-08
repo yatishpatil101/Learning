@@ -90,7 +90,7 @@ const LEGACY_ALIASES = ['type', 'locality', 'sharing'];
 /* Filtered links reset cleanly; a bare deal switch keeps compatible state across journeys. */
 export const hasFilterParams = (params) => [...FILTER_PARAM_KEYS, ...LEGACY_ALIASES].some((k) => params.has(k));
 
-const VERIF_KEYS = ['owner', 'ownership', 'rera', 'society', 'conveyance'];
+const VERIF_KEYS = ['owner', 'ownership', 'rera'];
 const LEGACY_AVAIL_TO_CONSTRUCTION = Object.assign(Object.create(null), {
   ready: ['ready'],
   uc: ['under', 'new'],
