@@ -135,7 +135,7 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
         </nav>
         <p className="text-xs text-gray-600">
           If you have questions about this policy, contact us at{' '}
-          <a href="mailto:legal@draazy.com" className="text-teal-400 hover:underline">legal@draazy.com</a>.
+          <a href="mailto:support@draazy.com" className="text-teal-400 hover:underline">support@draazy.com</a>.
         </p>
       </div>
 

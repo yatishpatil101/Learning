@@ -102,7 +102,7 @@ export default function Privacy() {
       </ul>
       <p>
         You may withdraw consent for any optional processing at any time — withdrawing is as easy as giving it.
-        To exercise these rights, email <a href="mailto:privacy@draazy.com">privacy@draazy.com</a> or open the{' '}
+        To exercise these rights, email <a href="mailto:support@draazy.com">support@draazy.com</a> or open the{' '}
         <Link to="/dashboard#profile">Privacy &amp; Account</Link> section under Dashboard → Profile, where you can
         download or permanently delete your data. Where a registered Consent Manager is available, you may also use it
         to review and manage your consents. We acknowledge requests within 72 hours and resolve them within the
@@ -135,13 +135,13 @@ export default function Privacy() {
       </p>
       <p>
         <strong>Grievance Officer:</strong> Mr. Rohan Deshpande<br />
-        <strong>Email:</strong> <a href="mailto:grievance@draazy.com">grievance@draazy.com</a><br />
+        <strong>Email:</strong> <a href="mailto:support@draazy.com">support@draazy.com</a><br />
         <strong>Phone:</strong> +91 98765 43210 (Mon–Sat, 9 AM – 6 PM)<br />
         <strong>Acknowledgement:</strong> within 24 hours; grievances resolved within 15 days as required by law.
       </p>
       <p>
         <strong>Data Protection / Nodal Officer:</strong> Ms. Ananya Kulkarni<br />
-        <strong>Email:</strong> <a href="mailto:dpo@draazy.com">dpo@draazy.com</a>
+        <strong>Email:</strong> <a href="mailto:support@draazy.com">support@draazy.com</a>
       </p>
       <p>
         If your grievance is not resolved to your satisfaction, you may escalate to the{' '}

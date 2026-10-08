@@ -170,7 +170,7 @@ test.describe('Home mobile — featured first', () => {
     await expect(hero.locator('.hero-mist')).toBeVisible();
     // The dark island's headline is white; on the light hero it must be dark ink.
     await expect(hero.locator('h1')).toHaveCSS('color', 'rgb(15, 23, 42)');
-    await expect(hero.locator('.hero-city')).toHaveCSS('color', 'rgb(234, 88, 12)');
+    await expect(hero.locator('.hero-city')).toHaveCSS('color', 'rgb(194, 65, 12)');
     await expect(hero.locator('.hero-noun [aria-hidden]').first()).toHaveCSS('color', 'rgb(15, 118, 110)');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect(hero.locator('.hero-mist')).toHaveCSS('animation-name', 'none');

@@ -378,7 +378,7 @@ export default function Owner() {
                       <a href="#owner-listings" className="btn-teal inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold"><Icon name="lock-keyhole" className="w-4 h-4" /> {t('owner.contactViaListing')}</a>
                     </>
                   )}
-                  <a href="mailto:hello@draazy.com" className="flex items-center gap-3 py-3 px-4 rounded-xl border border-white/10 text-gray-200 text-sm hover:bg-white/5 transition-all"><Icon name="mail" className="w-4 h-4 text-teal-400" /> {t('owner.emailSupport')}</a>
+                  <a href="mailto:support@draazy.com" className="flex items-center gap-3 py-3 px-4 rounded-xl border border-white/10 text-gray-200 text-sm hover:bg-white/5 transition-all"><Icon name="mail" className="w-4 h-4 text-teal-400" /> {t('owner.emailSupport')}</a>
                   <div className={(revealed ? '' : 'hidden lg:block ') + 'mt-1'}><Link to={scheduleHref()} className="btn-teal flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold"><Icon name="calendar-check" className="w-4 h-4" /> {t('owner.scheduleVisit')}</Link></div>
                 </div>
               </div>

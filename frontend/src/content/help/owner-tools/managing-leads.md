@@ -16,7 +16,7 @@ Everything waiting on you appears first in **Dashboard → Home → Action Cente
 
 **Response time.** Tenants contact several owners at once and commit to the first credible one. Reply quickly, even if the answer is that the home is no longer available or the move-in date does not work.
 
-Turn on in-app, SMS or email alerts for new enquiries under [notification settings](/help/a/notifications-language).
+Turn on in-app, email or WhatsApp alerts for new enquiries under [notification settings](/help/a/notifications-language).
 
 ## One inbox, five filters
 

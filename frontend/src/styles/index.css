@@ -624,7 +624,7 @@ html.light .hero-bg:not(.theme-dark) .shape { display: none; }
 
 /* The gradient-clipped words carry island classes (`from-teal-400`, `from-orange-400`) that keep their bright dark-mode stops. */
 html.light .hero-bg:not(.theme-dark) .hero-noun [aria-hidden] { background: none; color: rgb(var(--dz-c-teal-700)); }
-html.light .hero-bg:not(.theme-dark) .hero-city { background: none; color: rgb(var(--dz-c-orange-600)); }
+html.light .hero-bg:not(.theme-dark) .hero-city { background: none; color: rgb(var(--dz-c-orange-700)); }
 html.light .hero-bg:not(.theme-dark) .hero-ticker > div { background: rgb(var(--dz-c-pure-white)); box-shadow: var(--tile-shadow); }
 
 .hero-mist { display: none; }

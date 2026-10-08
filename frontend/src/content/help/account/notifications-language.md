@@ -16,7 +16,6 @@ Draazy can reach you through:
 - **In-app** - the bell in the top bar and the Notifications page
 - **Email** - if you added an email
 - **WhatsApp** - for enabled account alerts
-- **SMS** - for enabled account alerts and OTPs
 - **Push on this device** - shown only when your browser supports it and notifications are enabled for the app
 
 Manage them under **Dashboard > Profile > Notification Preferences**.
@@ -30,7 +29,6 @@ Draazy is English-only today. There is no Hindi or Marathi switch in the app.
 | New property match alerts | Saved-search and match alerts |
 | Email | Delivery by email |
 | WhatsApp | Delivery by WhatsApp |
-| SMS | Delivery by SMS |
 | Message alerts on this device | Browser push alerts for this device |
 | Quiet hours | A daily window when non-urgent alerts stay quiet |
 

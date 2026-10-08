@@ -2,12 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- layout viewport, the way iOS already does. Without it a fixed bottom action bar — the -->
+    <!-- interactive-widget: the keyboard resizes the layout viewport, as iOS already does, so fixed bottom bars stay above it. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0f0d1a" />
+    <!-- Same geometry as src/components/brand/LogoMark.jsx, e2e/scripts/gen-app-icons.mjs and
+         frontend/scripts/logo-preview.html. data-light is the light-theme variant; keep both in step. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230f0d1a'/><g transform='translate(-0.64 1.28) scale(0.96)'><path fill='%2314b8a6' fill-rule='evenodd' d='M17 8 H32 A24 24 0 0 1 32 56 H17 A5 5 0 0 1 12 51 V13 A5 5 0 0 1 17 8 Z M17.5 12.5 H32 A19.5 19.5 0 0 1 32 51.5 H17.5 A1 1 0 0 1 16.5 50.5 V13.5 A1 1 0 0 1 17.5 12.5 Z'/><path fill='%2314b8a6' stroke='%2314b8a6' stroke-width='4' stroke-linejoin='round' d='M23.2 19.45 L30.7 23.17 V40.83 L23.2 44.55 Z'/></g></svg>"
+      data-light="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23f3f7f6'/><g transform='translate(-0.64 1.28) scale(0.96)'><path fill='%230d9488' fill-rule='evenodd' d='M17 8 H32 A24 24 0 0 1 32 56 H17 A5 5 0 0 1 12 51 V13 A5 5 0 0 1 17 8 Z M17.5 12.5 H32 A19.5 19.5 0 0 1 32 51.5 H17.5 A1 1 0 0 1 16.5 50.5 V13.5 A1 1 0 0 1 17.5 12.5 Z'/><path fill='%230d9488' stroke='%230d9488' stroke-width='4' stroke-linejoin='round' d='M23.2 19.45 L30.7 23.17 V40.83 L23.2 44.55 Z'/></g></svg>" />
     <!-- Before first paint, or a light-theme visitor sees a dark flash. Mirrors applyAppPrefs in src/lib/localPrefs.js. -->
-    <script>try { if (JSON.parse(localStorage.getItem('dzAppPrefs') || '{}').theme === 'light') { document.documentElement.classList.add('light'); document.querySelector('meta[name="color-scheme"]').content = 'light'; document.querySelector('meta[name="theme-color"]').content = '#f3f7f6'; } } catch (e) {}</script>
+    <script>try { if (JSON.parse(localStorage.getItem('dzAppPrefs') || '{}').theme === 'light') { document.documentElement.classList.add('light'); document.querySelector('meta[name="color-scheme"]').content = 'light'; document.querySelector('meta[name="theme-color"]').content = '#f3f7f6'; var f = document.querySelector('link[rel="icon"]'); f.dataset.dark = f.href; f.href = f.dataset.light; } } catch (e) {}</script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Cashfree hosted checkout: the SDK is a loader, and the modal POSTs a form from THIS
          document into an iframe on the checkout host. Keep in step with public/_headers. -->
@@ -15,9 +19,6 @@
     <title>Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage</title>
     <meta name="description" content="Draazy is Pune's broker-free real-estate marketplace. Buy, rent or list flats, villas, plots, commercial spaces and PGs — deal directly with verified owners, zero brokerage." />
 
-    <!-- 404 behind a stale cache. Same geometry as src/components/brand/LogoMark.jsx, e2e/scripts/gen-app-icons.mjs and
-         frontend/scripts/logo-preview.html; if you -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230f0d1a'/><g transform='translate(-0.64 1.28) scale(0.96)'><path fill='%2314b8a6' fill-rule='evenodd' d='M17 8 H32 A24 24 0 0 1 32 56 H17 A5 5 0 0 1 12 51 V13 A5 5 0 0 1 17 8 Z M17.5 12.5 H32 A19.5 19.5 0 0 1 32 51.5 H17.5 A1 1 0 0 1 16.5 50.5 V13.5 A1 1 0 0 1 17.5 12.5 Z'/><path fill='%2314b8a6' stroke='%2314b8a6' stroke-width='4' stroke-linejoin='round' d='M23.2 19.45 L30.7 23.17 V40.83 L23.2 44.55 Z'/></g></svg>" />
     <!-- Apple has never supported SVG touch icons; it falls back to the PNG. -->
     <link rel="apple-touch-icon" href="/icon-192.png" />
 

@@ -14,7 +14,7 @@ test('the generic support page shows no owner card and leaks no owner number', a
 
   // And what it offers is Draazy's own channels, which belong to the company and not to a person.
   await expect(support.locator('a[href="tel:18002000000"]')).toBeVisible();
-  await expect(support.locator('a[href^="mailto:hello@draazy.com"]')).toBeVisible();
+  await expect(support.locator('a[href^="mailto:support@draazy.com"]')).toBeVisible();
   await expect(support.locator('a[href^="https://wa.me/"]')).toBeVisible();
 
   // No owner card, under any name. `Contact owner directly` is the card's own heading, so its

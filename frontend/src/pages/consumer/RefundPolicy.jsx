@@ -84,7 +84,7 @@ export default function RefundPolicy() {
       <ol>
         <li>Log in and open <strong>Dashboard → Billing</strong> to find the transaction and its transaction ID.</li>
         <li>
-          Email <a href="mailto:billing@draazy.com">billing@draazy.com</a> from your registered email address — or
+          Email <a href="mailto:support@draazy.com">support@draazy.com</a> from your registered email address — or
           raise a ticket from the <Link to="/support">Support</Link> page — with your registered mobile number,
           transaction ID, and the reason for your request.
         </li>

@@ -59,7 +59,7 @@ export default function Footer() {
             </p>
             <div className="flex items-center gap-2">
               <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/share/1EKDhPoDnE/?mibextid=wwXIfr" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp?stkn=dGl6eWQ3cGQ4YzQ%3D&utm_source=qr" hover="hover:bg-pink-500/10 hover:text-pink-400" />
+              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp.homes?stkn=dGl6eWQ3cGQ4YzQ%3D&utm_source=qr" hover="hover:bg-pink-500/10 hover:text-pink-400" />
               <Soc k="x" label="Draazy on X" href="https://x.com/draazyapp?s=11" hover="hover:bg-teal-500/10 hover:text-teal-400" />
               <Soc k="linkedin" label="Draazy on LinkedIn" href="http://www.linkedin.com/in/draazy-app-4a3195435" hover="hover:bg-teal-500/10 hover:text-teal-400" />
               <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-orange-500/10 hover:text-orange-400" />
@@ -127,9 +127,9 @@ export default function Footer() {
                 <Icon name="phone" className="w-4 h-4 text-teal-500 shrink-0" />
                 <span className="text-sm text-gray-500 group-hover:text-white transition-colors">+91 98765 43210</span>
               </a>
-              <a href="mailto:hello@draazy.com" className="flex items-center gap-2.5 group">
+              <a href="mailto:support@draazy.com" className="flex items-center gap-2.5 group">
                 <Icon name="mail" className="w-4 h-4 text-teal-500 shrink-0" />
-                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">hello@draazy.com</span>
+                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">support@draazy.com</span>
               </a>
               <div className="flex items-start gap-2.5">
                 <Icon name="map-pin" className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />

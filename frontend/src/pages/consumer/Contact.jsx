@@ -231,10 +231,10 @@ export default function Contact() {
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactWhatsappShort')}</span>
                     <span className="font-semibold hidden lg:inline">{t('misc1.contactWhatsapp')}</span>
                   </a>
-                  <a href="mailto:hello@draazy.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
+                  <a href="mailto:support@draazy.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
                     <Icon name="mail" className="w-4 h-4 text-teal-400 shrink-0" />
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactEmailShort')}</span>
-                    <span className="truncate hidden lg:inline">hello@draazy.com</span>
+                    <span className="truncate hidden lg:inline">support@draazy.com</span>
                   </a>
                 </div>
                 <p className="mt-3 text-[11px] text-gray-500 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> {t('misc1.contactNoSpam')}</p>

@@ -363,7 +363,6 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           {[
             ['email', 'Email', 'Match alerts and enquiry updates by email.'],
             ['whatsapp', 'WhatsApp', 'Important updates on WhatsApp.'],
-            ['sms', 'SMS', 'Enquiry alerts for your listings by SMS.'],
           ].map(([k, label, desc]) => (
             <PrefRow key={k} title={label} desc={desc}>
               <Switch checked={prefs[k]} onChange={(v) => changePrefs({ [k]: v })} label={label} />

@@ -45,6 +45,11 @@ export const applyAppPrefs = (prefs = getAppPrefs()) => {
   root.classList.toggle('light', prefs.theme === 'light');
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', prefs.theme === 'light' ? '#f3f7f6' : '#0f0d1a');
   document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', prefs.theme === 'light' ? 'light' : 'dark');
+  const icon = document.querySelector('link[rel="icon"][data-light]');
+  if (icon) {
+    icon.dataset.dark ||= icon.href;
+    icon.href = prefs.theme === 'light' ? icon.dataset.light : icon.dataset.dark;
+  }
   return prefs;
 };
 

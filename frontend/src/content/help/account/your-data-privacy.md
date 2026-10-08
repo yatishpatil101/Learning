@@ -51,7 +51,7 @@ Under India's DPDP Act you can ask us to:
 
 ## Contact
 
-Data protection queries go to [privacy@draazy.com](mailto:privacy@draazy.com), or raise a ticket through support.
+Data protection queries go to [support@draazy.com](mailto:support@draazy.com), or raise a ticket through support.
 
 ## Related
 

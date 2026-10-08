@@ -27,7 +27,7 @@ INSERT INTO settings (key, value) VALUES
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value || settings.value;
 
 INSERT INTO settings (key, value) VALUES
-    ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.example.com", "city": "Pune" }'::jsonb)
+    ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.com", "city": "Pune" }'::jsonb)
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
 -- Flags and the Move-in Pack are admin-owned, so no DO UPDATE: this file's checksum moves whenever

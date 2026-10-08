@@ -134,7 +134,7 @@ export default function Terms() {
 
       <h2>13. Grievance redressal &amp; contact</h2>
       <p>
-        For questions about these Terms, contact us at <a href="mailto:legal@draazy.com">legal@draazy.com</a>.
+        For questions about these Terms, contact us at <a href="mailto:support@draazy.com">support@draazy.com</a>.
         Complaints and grievances may be addressed to our Grievance Officer, whose details (along with our company
         identity, CIN, and GSTIN) are published in our <Link to="/privacy">Privacy Policy</Link>. We acknowledge
         grievances within 24 hours and resolve them within 15 days, as required under applicable law.

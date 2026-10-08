@@ -13,6 +13,10 @@ test.describe('Dashboard settings', () => {
     await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Privacy & Account' })).toBeVisible();
 
+    await test.step('Delivery channels offer no SMS — Draazy does not send SMS notifications', async () => {
+      await expect(page.getByRole('switch', { name: 'WhatsApp' })).toBeVisible();
+      await expect(page.getByRole('switch', { name: 'SMS' })).toHaveCount(0);
+    });
     await test.step('Settings offers no language choice', async () => {
       await expect(page.getByRole('button', { name: /App language/i })).toHaveCount(0);
       await expect(page.getByText(/मराठी|हिंदी/)).toHaveCount(0);
@@ -41,16 +45,21 @@ test.describe('Dashboard settings', () => {
     const html = page.locator('html');
     const lightMode = page.getByRole('switch', { name: 'Light mode' });
     const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const favicon = page.locator('link[rel="icon"]');
+    const lightTile = /fill='%23f3f7f6'/;
 
     await expect(html).not.toHaveClass(/\blight\b/);
+    await expect(favicon).toHaveAttribute('href', /fill='%230f0d1a'/);
     await lightMode.click();
     await expect(html).toHaveClass(/\blight\b/);
     expect(await bodyBg()).toBe('rgb(243, 247, 246)');
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f3f7f6');
+    await expect(favicon).toHaveAttribute('href', lightTile);
 
     await page.reload();
     await expect(html).toHaveClass(/\blight\b/);
     await expect(lightMode).toHaveAttribute('aria-checked', 'true');
+    await expect(favicon).toHaveAttribute('href', lightTile);
     const tealFill = await page.evaluate(() => {
       const probe = Object.assign(document.createElement('div'), { className: 'bg-teal-500 text-white' });
       document.body.append(probe);
@@ -64,6 +73,7 @@ test.describe('Dashboard settings', () => {
     await lightMode.click();
     await expect(html).not.toHaveClass(/\blight\b/);
     expect(await bodyBg()).not.toBe('rgb(243, 247, 246)');
+    await expect(favicon).toHaveAttribute('href', /fill='%230f0d1a'/);
   });
 
   test('the admin header toggles light mode, and tiles stand off the light page', async ({ page, login }) => {

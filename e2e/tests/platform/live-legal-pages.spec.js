@@ -20,6 +20,12 @@ test.describe('Legal pages', () => {
     await expect(toc).toBeVisible();
     expect(await toc.getByRole('button').count()).toBeGreaterThan(1);
 
+    await test.step('every contact address on the page is the single support mailbox', async () => {
+      const hrefs = await page.locator('a[href^="mailto:"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+      expect(hrefs.length).toBeGreaterThan(0);
+      expect(new Set(hrefs)).toEqual(new Set(['mailto:support@draazy.com']));
+    });
+
     await test.step('TOC jump scrolls the matching section into view', async () => {
       const firstItem = page.locator('.legal-toc button').first();
       const label = (await firstItem.textContent()).trim();
