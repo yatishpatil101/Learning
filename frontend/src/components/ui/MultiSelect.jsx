@@ -25,11 +25,13 @@ const MultiSelect = forwardRef(function MultiSelect({
   disabled,
   ariaLabel,
   invalid,
+  ariaDescribedBy,
   dataErr,
   autoClose,
   asyncSearch,
   onPick,
   noResultsText,
+  anchored,
 }, ref) {
   /* Resolved at render rather than as a default parameter: a default is evaluated against whatever language was
      active on first mount and would never follow a later switch. */
@@ -53,7 +55,7 @@ const MultiSelect = forwardRef(function MultiSelect({
   const [portalOpen, setPortalOpen] = useState(false);
   /* On phones the menu docks to the bottom edge as a sheet instead of hanging off the trigger. */
   const listId = useId();
-  const sheet = useSheetViewport();
+  const sheet = useSheetViewport() && !anchored;
   const picker = sheet && isSearchable;
   useVisualViewportInsets(open && picker);
 
@@ -127,7 +129,18 @@ const MultiSelect = forwardRef(function MultiSelect({
       if (!inRoot && !inMenu) close();
     };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    // Capture phase: focus sits on an option after a pick, where Escape would otherwise reach the dialog behind.
+    const onEscape = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    };
+    document.addEventListener('keydown', onEscape, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onEscape, true);
+    };
   }, [open, close]);
   // Fixed positioning against the trigger so the portalled menu escapes any ancestor
   // overflow/transform trap and can flip up near the viewport edge.
@@ -185,18 +198,23 @@ const MultiSelect = forwardRef(function MultiSelect({
 
   const pendingRef = useRef(null);
   const toggle = useCallback((opt) => {
-    if (opt.disabled) return;
+    if (opt.disabled || disabled) return;
     const pending = pendingRef.current;
     const current = pending && sameValues(pending.from, values) ? pending.next : values;
     const has = current.includes(opt.value);
     const next = has
       ? current.filter((v) => v !== opt.value)
       : [...current, opt.value];
+    if (opt.deferChange && !has) {
+      if (onPick) onPick(opt);
+      if (autoClose) close();
+      return;
+    }
     pendingRef.current = { from: values, next };
     onChange(next);
     if (!has && onPick) onPick(opt);
     if (autoClose) close();
-  }, [onChange, values, autoClose, close, onPick]);
+  }, [onChange, values, autoClose, close, onPick, disabled]);
   /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
 
   const swipe = useSwipeDismiss(close);
@@ -254,6 +272,7 @@ const MultiSelect = forwardRef(function MultiSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         className={classNames('dz-dropdown__trigger', invalid && 'dz-invalid dz-shake')}
         onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={onKeyDown}

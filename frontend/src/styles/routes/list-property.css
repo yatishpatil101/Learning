@@ -684,27 +684,6 @@ html.dz-reduce-motion .lp-meter__node {
   }
 }
 
-/* ---- Location picker pin (teal teardrop) ---- */
-.lp-pin {
-  width: 26px;
-  height: 26px;
-  background: var(--teal-2);
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  box-shadow: 0 5px 14px rgb(var(--dz-c-black) / 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lp-pin__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: rgb(var(--dz-c-emerald-950));
-  transform: rotate(45deg);
-}
-
 /* List-property "Search an area" autocomplete dropdown — dark, google.com/maps-style
    predictions shown under the search input in the location picker. */
 .dz-ac-list {

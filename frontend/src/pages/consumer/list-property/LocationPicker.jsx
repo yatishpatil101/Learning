@@ -3,6 +3,7 @@ import { APIProvider, Map, AdvancedMarker, useMap, MapControl, ControlPosition }
 import { useTranslation } from 'react-i18next';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID, mapColorScheme } from '../../../lib/mapsConfig.js';
 import MapUnavailable from '../../../components/property/MapUnavailable.jsx';
+import '../../../styles/components/location-picker.css';
 
 function readLatLng(e) {
   const ll = (e && e.detail && e.detail.latLng) || (e && e.latLng) || null;

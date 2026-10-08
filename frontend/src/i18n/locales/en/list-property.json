@@ -287,6 +287,7 @@
       "searchOrDragFlat": "Search an area or drag the pin to the exact spot.",
       "locationSet": "Location set: {{lat}}, {{lng}} — drag the pin to fine-tune.",
       "searchOrDragProperty": "Search an area or drag the pin to place your property on the map.",
+      "dragProperty": "Pick your society above, or drag the pin to your building.",
       "pickLocalityFlat": "Pick a locality above or search to place the flat on the map.",
       "fillingAddress": "Filling the address from your pin…",
       "filledAddress": "Filled some address fields from the map — please check them below.",
@@ -317,7 +318,6 @@
       "egPrice": "e.g. 1,25,00,000",
       "egMaint3500": "e.g. 3,500",
       "egMaint2500": "e.g. 2,500",
-      "egGreenVilla": "e.g. Green Villa",
       "egBUnit": "e.g. B-1203",
       "egBUnit4": "e.g. B-1204",
       "egTowerB": "e.g. Tower B",
@@ -384,8 +384,8 @@
       "roomType": "Choose the type of room you're offering.",
       "flatType": "Select the flat type.",
       "locality": "Select the locality.",
-      "society": "Enter the society / building name.",
-      "house": "Enter the house / building name.",
+      "society": "Pick your society, or choose Not on Google Maps.",
+      "house": "Pick your building, or choose Not on Google Maps.",
       "rentShare": "Enter the room's monthly rent.",
       "availableRoom": "Select when the room is available.",
       "enterHouseName": "Enter the house / building name.",
@@ -474,26 +474,22 @@
       "notfound": "Couldn't find that area. Try a nearby locality or drag the pin to the spot."
     },
     "society": {
-      "placeholder": "e.g. Skyline Heights",
-      "verified": "Verified",
-      "unverified": "Unverified",
-      "groupHeading": "Societies",
+      "placeholder": "Search your society on Google Maps",
       "googleHeading": "From Google Maps",
-      "addOption": "Add “{{name}}” — we'll verify it",
+      "candidatesHeading": "Is it one of these?",
+      "notListed": "No, it's {{name}}",
+      "notOnMaps": "Not on Google Maps",
+      "notOnMapsNote": "Not on Google Maps — we'll use your address and pin.",
+      "distance": "{{value}} away",
       "adding": "Adding…",
       "addFailed": "Couldn't add that society. Check your connection and try again.",
-      "empty": "Type your society name",
-      "verifiedNote": "Verified society — linked to its Draazy hub.",
-      "pendingNote": "Added to Draazy — pending verification by our team."
+      "notABuilding": "Pick the building, not an area.",
+      "empty": "No match on Google Maps"
     },
     "locationPicker": {
       "unavailable": "Map picker unavailable"
     },
     "editPolicy": {
-      "editingLiveTitle": "You're editing a live listing",
-      "editingTitle": "You're editing your listing",
-      "liveBody": "Most updates publish instantly. Changing what buyers search on always gets a quick review — and if you change what the property fundamentally is (property type, locality, BHK, or buy vs rent) it comes off search until we approve it again. Price, furnishing and possession stay in search while we re-check them.",
-      "reviewBody": "Your listing is still under review, so your edits will be checked along with it.",
       "publishInstantly": "Publishes instantly",
       "publishInstantlyDesc": "Description, amenities, availability, deposit, address details & new photos.",
       "needsRecheck": "Needs a re-check",
@@ -591,15 +587,13 @@
         "hint": "We store only the video id and show it as a privacy-enhanced embed."
       },
       "amenities": {
-        "prefilled": "Pre-filled from {{society}}; untick anything that is wrong.",
         "all": "Amenities",
         "society": "Society amenities"
       }
     },
     "locationSmart": {
       "findSociety": "Find your society / project",
-      "findSocietyHelp": "Pick a listed society to fill the known address and map pin. You can change anything that is wrong.",
-      "notListed": "My society isn't listed - type its name and add it for verification.",
+      "findSocietyHelp": "Search Google Maps and pick your building. We'll fill the address and map pin.",
       "filledFrom": "Filled from {{society}}; change anything that's wrong.",
       "filledFields": "Autofilled: {{fields}}.",
       "useCurrentLocation": "Use my current location",

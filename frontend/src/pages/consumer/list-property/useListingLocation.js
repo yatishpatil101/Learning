@@ -1,14 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
-import { localities, localityCoords, isLandType } from './constants.js';
-import { reverseGeocode, forwardGeocode } from './geocode.js';
-import { matchLocalityToCanonical, localityBySlug } from '../../../data/localities.js';
+import { isLandType } from './constants.js';
+import { reverseGeocode, forwardGeocode, fetchLocalitySuggestions, fetchPlaceDetails, newAutocompleteSession } from './geocode.js';
 import { getSociety } from '../../../services/societyService.js';
+import { resolveLocality, searchLocalities } from '../../../services/localityService.js';
 
-const AUTOFILL_FIELDS = ['pincode', 'street', 'locality', 'society'];
-/* `society` is excluded: a reverse lookup yields address components, never a trustworthy
- * building name. */
-const PIN_FALLBACK_FIELDS = ['pincode', 'street', 'locality'];
-const SOCIETY_PIN_FIELDS = ['locality', 'pincode'];
+const AUTOFILL_FIELDS = ['pincode', 'street', 'locality'];
+const PIN_FALLBACK_FIELDS = AUTOFILL_FIELDS;
+const SOCIETY_PIN_FIELDS = ['pincode'];
 const SOCIETY_FILL_LABELS = {
   society: 'society',
   locality: 'locality',
@@ -33,8 +31,30 @@ const ageBucketFromYear = (year) => {
 const isPreCompletion = (form) => !isLandType(form.propertyType)
   && (form.construction === 'new' || form.construction === 'under');
 
+const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 const societyLocality = (society) =>
-  society.locality || society.localityLabel || localityBySlug(society.localitySlug)?.name || '';
+  society.locality || society.localityLabel || titleCase(society.localitySlug);
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+/* No saved row yet: mint it from the Google locality of exactly this name, as a manual pick would. */
+const googleLocality = async (name) => {
+  const hit = (await fetchLocalitySuggestions(name, newAutocompleteSession())).find((s) => sameName(s.mainText, name));
+  const details = hit && await fetchPlaceDetails(hit);
+  if (details?.lat == null || details?.lng == null) return null;
+  return resolveLocality({ placeId: details.placeId || hit.placeId, name: details.name || hit.mainText, lat: details.lat, lng: details.lng, types: details.types });
+};
+
+const activeLocality = async (name, slug) => {
+  if (!String(name || '').trim()) return null;
+  try {
+    const rows = await searchLocalities(name);
+    return rows.find((l) => (slug && l.slug === slug) || sameName(l.name, name)) || await googleLocality(name);
+  } catch {
+    return null;
+  }
+};
 
 const societyPincode = (society) =>
   society.pincode || society.pinCode || society.postalCode || '';
@@ -96,24 +116,37 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     // A newer pin superseded this lookup while it was in flight — discard the stale
     // response so it can't fill fields (or flip the status) for the wrong location.
     if (lastGeoRef.current !== key) return;
-    // Carry the pin's coords so the locality resolver can fall back to the nearest
-    // known area when the reverse-geocode name doesn't match our list.
     applyAddressFill({ ...geo, lat, lng }, replace);
   };
   /* `replace` (a deliberate new pick) writes every non-user field, filling or CLEARING, so a
    * corrective re-search leaves nothing stale; a pin refine only fills gaps. */
+  /* A locality is only ever bound to a saved row, never to Google's raw text. */
+  const bindLocality = async (name, slug, replace, stale = () => false) => {
+    const stamp = lastGeoRef.current;
+    const canBind = () => !userEditedRef.current.locality && (replace || !formRef.current.locality);
+    if (!canBind()) return false;
+    const hit = await activeLocality(name, slug);
+    if (lastGeoRef.current !== stamp || stale() || !canBind()) return false;
+    if (hit) {
+      setForm((prev) => ({ ...prev, locality: hit.name, localitySlug: hit.slug }));
+      clearErrors(['locality']);
+      return true;
+    }
+    if (replace && formRef.current.locality) setForm((prev) => ({ ...prev, locality: '', localitySlug: '' }));
+    return false;
+  };
   const applyAddressFill = (geo, replace = false, onlyFields = AUTOFILL_FIELDS) => {
     if (!geo) { setGeoFillStatus(''); return null; }
-    // Prefer a canonical Pune locality — fuzzy name or nearest area within ~2.5 km.
-    // Otherwise keep Google's raw text rather than leaving it blank.
-    const canon = matchLocalityToCanonical(geo.localityRaw, geo.lat, geo.lng);
-    const locality = canon ? canon.name : String(geo.localityRaw || '').trim().slice(0, 40);
-    const society = geo.isNamedPlace && geo.name ? String(geo.name).slice(0, 60) : '';
-    const incoming = { pincode: geo.pincode || '', street: geo.street || '', locality, society };
+    const incoming = { pincode: geo.pincode || '', street: geo.street || '' };
     const cur = formRef.current;
     const edited = userEditedRef.current;
     const fills = {};
-    for (const f of onlyFields) {
+    if (onlyFields.includes('locality') && !edited.locality) {
+      bindLocality(geo.localityRaw, '', replace).then((bound) => {
+        if (bound) setGeoFillStatus('done');
+      });
+    }
+    for (const f of onlyFields.filter((x) => x !== 'locality')) {
       if (edited[f]) continue;
       // the owner edited it — never touch
       if (replace) {
@@ -126,13 +159,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     }
     const willFill = Object.keys(fills).length > 0;
     if (willFill) {
-      setForm((prev) => {
-        const next = { ...prev, ...fills };
-        // Society name changed/cleared → drop any bound society id so SocietySelect
-        // re-matches (or offers to add) it, never claiming a link the owner didn't pick.
-        if ('society' in fills) next.societyId = '';
-        return next;
-      });
+      setForm((prev) => ({ ...prev, ...fills }));
       for (const f of Object.keys(fills)) delete societyFillRef.current[f];
     }
     // A follow-up lookup that fills nothing must not retract a "filled from the map"
@@ -175,11 +202,10 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
    * default. */
   const onLocalityChange = (v, coords) => {
     set('locality', v);
+    set('localitySlug', coords?.slug || '');
     if (pinSourceRef.current === 'manual' || pinSourceRef.current === 'society') return;
     if (coords && coords.lat != null && coords.lng != null) {
       flyToCoords(coords.lat, coords.lng, undefined, false, 'locality');
-    } else if (v && localityCoords[v]) {
-      flyToCoords(localityCoords[v][0], localityCoords[v][1], undefined, false, 'locality');
     }
   };
   const onPinMove = (lat, lng) => {
@@ -190,16 +216,6 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   const runMapSearch = async () => {
     const q = mapSearch.trim();
     if (!q) return;
-    const ql = q.toLowerCase();
-    const hit = localities.find((name) => {
-      const n = name.toLowerCase();
-      return n === ql || n.includes(ql) || ql.includes(n);
-    });
-    if (hit && localityCoords[hit]) {
-      flyToCoords(localityCoords[hit][0], localityCoords[hit][1], undefined, true);
-      setMapSearchStatus('');
-      return;
-    }
     setMapSearchStatus('searching');
     try {
       const hitLoc = await forwardGeocode(q);
@@ -221,18 +237,28 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     applyPlaceFill(details.lat, details.lng, details, true);
   };
 
-  const fillFromSocietyPin = async (society, lat, lng, gaps, seq) => {
-    const geo = society.localityRaw && !gaps.includes('pincode') ? {} : await reverseGeocode(lat, lng);
+  const fillFromSocietyPin = async (lat, lng, gaps, seq) => {
+    const geo = await reverseGeocode(lat, lng);
     if (societyPickSeqRef.current !== seq || pinSourceRef.current !== 'society') return;
-    const raw = society.localityRaw || geo.localityRaw || '';
-    const canon = matchLocalityToCanonical(raw, lat, lng);
-    const incoming = { locality: canon ? canon.name : String(raw).trim().slice(0, 40), pincode: geo.pincode || '' };
+    const incoming = { pincode: geo.pincode || '' };
     const filled = gaps.filter((f) => incoming[f] && !userEditedRef.current[f]);
     if (!filled.length) return;
     setForm((prev) => ({ ...prev, ...Object.fromEntries(filled.map((f) => [f, incoming[f]])) }));
     filled.forEach((f) => { societyFillRef.current[f] = true; });
     clearErrors(filled);
     setSocietyFillNotice((n) => n && { ...n, fields: [...new Set([...n.fields, ...filled.map((f) => SOCIETY_FILL_LABELS[f])])] });
+  };
+
+  /* The society is where the home is, so its locality replaces whatever was there, even a hand pick. */
+  const followSocietyLocality = async (society, lat, lng, seq) => {
+    const stale = () => societyPickSeqRef.current !== seq;
+    const known = societyLocality(society);
+    let name = known || society.localityRaw || '';
+    if (!name && Number.isFinite(lat) && Number.isFinite(lng)) name = (await reverseGeocode(lat, lng)).localityRaw || '';
+    if (!name || stale()) return;
+    delete userEditedRef.current.locality;
+    if (!await bindLocality(name, known ? society.localitySlug : '', true, stale)) return;
+    setSocietyFillNotice((n) => n && { ...n, fields: [...new Set([...n.fields, SOCIETY_FILL_LABELS.locality])] });
   };
 
   const applySocietyPick = (society, seq) => {
@@ -251,7 +277,6 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
       explicitFields.society = String(society.name).slice(0, 60);
       filled.push(SOCIETY_FILL_LABELS.society);
     }
-    fill('locality', societyLocality(society));
     fill('pincode', societyPincode(society));
     if (society.year) {
       const age = ageBucketFromYear(society.year);
@@ -267,6 +292,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
       ? SOCIETY_PIN_FIELDS.filter((f) => !(f in fills) && !userEditedRef.current[f] && (!cur[f] || societyFillRef.current[f]))
       : [];
     set('societyId', society.id || '', { explicit: true });
+    set('societyNotOnMaps', false, { explicit: true });
     if ('society' in explicitFields) {
       set('society', explicitFields.society, { explicit: true });
       delete userEditedRef.current.society;
@@ -279,15 +305,19 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     }
     clearErrors(['societyId', ...Object.keys(fills), ...(hasPin ? ['location'] : [])]);
     setSocietyFillNotice(society.name ? { name: society.name, fields: [...new Set(filled)] } : null);
-    if (pinGaps.length) fillFromSocietyPin(society, lat, lng, pinGaps, seq);
+    if (pinGaps.length) fillFromSocietyPin(lat, lng, pinGaps, seq);
+    followSocietyLocality(society, lat, lng, seq);
   };
 
   const onSocietyPick = async (picked) => {
     const seq = societyPickSeqRef.current + 1;
     societyPickSeqRef.current = seq;
-    if (!picked || picked.source === 'type' || picked.source === 'match') {
-      set('societyId', picked?.id || '', { explicit: true });
-      set('society', picked?.name || '', { explicit: true });
+    if (!picked || picked.notOnMaps) {
+      set('societyId', '', { explicit: true });
+      set('society', '', { explicit: true });
+      set('societyNotOnMaps', !!picked, { explicit: true });
+      setSocietyFillNotice(null);
+      if (picked) clearErrors(['society']);
       return;
     }
     let society = picked;

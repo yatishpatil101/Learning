@@ -28,6 +28,7 @@ const Select = forwardRef(function Select({
   onPick,
   prefix,
   noResultsText,
+  anchored,
 }, ref) {
   /* Resolved at render rather than as a default parameter: a default is evaluated against whatever language was
      active on first mount and would never follow a later switch. */
@@ -53,7 +54,7 @@ const Select = forwardRef(function Select({
   /* On phones the menu docks to the bottom edge as a sheet: an anchored panel there opens under the thumb and is
      routinely half-covered by the keyboard when the field is searchable. */
   const listId = useId();
-  const sheet = useSheetViewport();
+  const sheet = useSheetViewport() && !anchored;
   const picker = sheet && isSearchable;
   useVisualViewportInsets(open && picker);
   // Fall back to showing the raw value as its own label so a locality picked from
@@ -179,7 +180,7 @@ const Select = forwardRef(function Select({
 
   const choose = (opt) => {
     if (opt.disabled) return;
-    onChange(opt.value);
+    if (!opt.deferChange) onChange(opt.value);
     if (onPick) onPick(opt);
     close();
   };
