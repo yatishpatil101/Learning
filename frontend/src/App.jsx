@@ -71,6 +71,7 @@ const HelpSearchResults = lazy(() => import('./pages/consumer/help/HelpSearchRes
 const HelpFaq = lazy(() => import('./pages/consumer/help/HelpFaq.jsx'));
 const HelpChangelog = lazy(() => import('./pages/consumer/help/HelpChangelog.jsx'));
 const BlogIndex = lazy(() => import('./pages/consumer/blog/BlogIndex.jsx'));
+const LocalityIndex = lazy(() => import('./pages/consumer/locality/LocalityIndex.jsx'));
 const BlogPost = lazy(() => import('./pages/consumer/blog/BlogPost.jsx'));
 const Privacy = lazy(() => import('./pages/consumer/Privacy.jsx'));
 const Terms = lazy(() => import('./pages/consumer/Terms.jsx'));
@@ -266,7 +267,7 @@ export default function App() {
               out, so a guard here made the bottom nav's Saved tab a dead end for those users. */}
           <Route path="/saved" element={<Saved />} />
           <Route path="/pay-rent" element={<ProtectedRoute><PayRent /></ProtectedRoute>} />
-          <Route path="/locality" element={<Locality />} />
+          <Route path="/locality" element={<LocalityIndex />} />
           <Route path="/locality/:slug" element={<Locality />} />
           <Route path="/map" element={<Navigate to="/listings?view=map" replace />} />
           <Route path="/messages" element={<AppFlagRoute flag="inAppMessaging"><ProtectedRoute><Messages /></ProtectedRoute></AppFlagRoute>} />

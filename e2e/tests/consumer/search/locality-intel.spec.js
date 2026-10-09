@@ -4,6 +4,51 @@ import { mintLocality, uniqueLocalityName } from '../../../helpers/locality.js';
 
 const noindex = (page) => page.locator('meta[name="robots"][content="noindex"]');
 
+test.describe('Locality guides — indexable before listings exist', () => {
+  test('the /locality hub lists every guide on a map and in zone sections', async ({ page, consoleErrors }) => {
+    await page.goto('/locality');
+    await expect(page.getByRole('heading', { level: 1, name: 'Find your part of Pune' })).toBeVisible();
+    await expect(noindex(page)).toHaveCount(0);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://draazy.com/locality');
+    await expect(page.getByRole('img', { name: /Map of Pune showing 12 localities/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'West Pune' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'East Pune' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Read guide/ })).toHaveCount(12);
+
+    await page.getByRole('link', { name: /Kharadi.*Read guide/ }).click();
+    await expect(page).toHaveURL(/\/locality\/kharadi$/);
+    await page.getByRole('link', { name: 'All localities' }).click();
+    await expect(page).toHaveURL(/\/locality$/);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://draazy.com/locality');
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('a guided locality shows its guide, is indexable and links to the other guides', async ({ page, consoleErrors }) => {
+    await page.goto('/locality/baner');
+    await expect(page.getByRole('heading', { level: 1, name: 'Baner' })).toBeVisible();
+    await expect(page.getByTestId('locality-guide').getByRole('heading', { name: 'At a glance' })).toBeVisible();
+    await expect(noindex(page)).toHaveCount(0);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://draazy.com/locality/baner');
+    await expect(page).toHaveTitle(/^Baner, Pune: area guide/);
+
+    await page.getByRole('navigation', { name: 'Other Pune localities' }).getByRole('link', { name: 'Kharadi' }).click();
+    await expect(page).toHaveURL(/\/locality\/kharadi$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Kharadi' })).toBeVisible();
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://draazy.com/locality/kharadi');
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('the guide still renders, indexable, when the locality record is missing', async ({ page }) => {
+    await page.route('**/localities/kothrud', (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
+    await page.goto('/locality/kothrud');
+    await expect(page.getByRole('heading', { level: 1, name: 'Kothrud' })).toBeVisible();
+    await expect(page.getByTestId('locality-guide')).toBeVisible();
+    await expect(page.getByTestId('locality-unavailable')).toHaveCount(0);
+    await expect(noindex(page)).toHaveCount(0);
+    await expect(page.locator('a[href="/listings?loc=kothrud"]').first()).toBeVisible();
+  });
+});
+
 test.describe('Locality page — stats only where the data is real', () => {
   test('a locality with three or more live listings shows its stats and is indexable', async ({ page, consoleErrors }) => {
     const all = await (await fetch(`${API}/localities`)).json();

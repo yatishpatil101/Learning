@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import helpContentPlugin from './scripts/vite-plugin-help-content.mjs';
 import blogPlugin from './scripts/vite-plugin-blog.mjs';
+import localityGuidesPlugin from './scripts/vite-plugin-locality-guides.mjs';
 
 const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
 
@@ -37,7 +38,7 @@ function pwaPlugin() {
         'assets/index-*.js',
         'assets/vendor-react-*.js',
       ],
-      globIgnores: ['**/floorplans/**', 'blog.html', 'blog/**'],
+      globIgnores: ['**/floorplans/**', 'blog.html', 'blog/**', 'locality.html', 'locality/**'],
       importScripts: ['push-sw.js'],
       // SPA deep links resolve to the shell. The denylist is the important half: without it, a
       // navigation request to /api/* would be answered with index.html.
@@ -91,7 +92,7 @@ function pwaPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), helpContentPlugin({ root: __dirname }), blogPlugin({ root: __dirname }), pwaPlugin(), apiBaseHtmlPlugin()],
+  plugins: [react(), helpContentPlugin({ root: __dirname }), blogPlugin({ root: __dirname }), localityGuidesPlugin({ root: __dirname }), pwaPlugin(), apiBaseHtmlPlugin()],
   build: {
     rollupOptions: {
       output: {

@@ -79,7 +79,7 @@ export default function Footer() {
                 ['Refer & earn', '/refer'],
                 ['Services', '/services'],
                 ['EMI calculator', '/emi-calculator'],
-                ['Locality insights', '/locality/baner'],
+                ['Locality guides', '/locality'],
               ].map(([label, to]) => (
                 <li key={label}>
                   <Link to={to} className="text-sm text-gray-500 hover:text-white transition-colors">{label}</Link>

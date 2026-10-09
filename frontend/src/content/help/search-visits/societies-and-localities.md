@@ -4,7 +4,7 @@ slug: societies-and-localities
 category: search-visits
 audience: tenant
 order: 5
-updated: 2026-10-04
+updated: 2026-10-09
 summary: Research a building or a neighbourhood before you shortlist a flat in it.
 tags: [society, locality, area, research, reviews, follow]
 ---
@@ -13,9 +13,9 @@ Most people pick a locality first and a building second. Draazy has a page for e
 
 ## Locality pages
 
-[Locality insights](/locality) covers Pune's main areas with prices, how they have moved, rental yield, livability and the inventory currently live on Draazy.
+[Locality guides](/locality) covers 12 of Pune's most popular areas, from Hinjawadi and Baner in the west to Kharadi and Viman Nagar in the east: who each suits, how you get around and what to check before you rent or buy.
 
-Ten localities are covered in depth; the rest carry whatever we can say honestly. Where we have no data, the page says so rather than filling the gap.
+Each locality page also shows the homes live on Draazy there. Average rent and rate per sq. ft. appear once an area has at least three live listings; until then, the page says so rather than guessing.
 
 From any locality page you can jump straight into [search](/listings) restricted to that area, or set an alert so new listings there reach you. See [Saved searches and alerts](/help/a/saved-searches-alerts).
 

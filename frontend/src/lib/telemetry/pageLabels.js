@@ -8,7 +8,7 @@ const PAGE_LABELS = {
   '/flatmates': 'Flatmates',
   '/list-property': 'Post property',
   '/services': 'Services',
-  '/locality': 'Locality insights',
+  '/locality': 'Locality guides',
   '/locality/:slug': 'Locality detail',
   '/society/:slug': 'Society detail',
   '/emi-calculator': 'EMI calculator',

@@ -189,8 +189,8 @@ export const KB = [
     id: 'locality',
     keywords: ['locality', 'area', 'neighbourhood', 'neighborhood', 'baner', 'wakad', 'hadapsar', 'where', 'live', 'guide', 'insights', 'connectivity', 'prices'],
     q: 'How do I learn about a locality?',
-    a: "Open Locality insights for prices, appreciation, livability, rental yield and live homes in each Pune area — and set an alert for the ones you like.",
-    actions: [{ label: 'Locality insights', to: '/locality', icon: 'map-pin' }],
+    a: "Open Locality guides to see who each Pune area suits, how you get around and what to check before you rent or buy. Each area page also shows the homes live there, and you can set an alert for new ones.",
+    actions: [{ label: 'Locality guides', to: '/locality', icon: 'map-pin' }],
   },
   {
     id: 'societies',
