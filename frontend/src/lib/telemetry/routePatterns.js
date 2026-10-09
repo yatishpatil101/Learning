@@ -9,6 +9,8 @@ export const UNMATCHED = '/*';
 export const ROUTE_PATTERNS = [
   '/',
   '/admin/*',
+  '/blog',
+  '/blog/:slug',
   '/checkout',
   '/compare',
   '/contact',

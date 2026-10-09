@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /admin
+Disallow: /ops
+Disallow: /api/
+
+Sitemap: https://draazy.com/sitemap.xml

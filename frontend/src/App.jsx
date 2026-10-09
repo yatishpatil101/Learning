@@ -70,6 +70,8 @@ const HelpArticle = lazy(() => import('./pages/consumer/help/HelpArticle.jsx'));
 const HelpSearchResults = lazy(() => import('./pages/consumer/help/HelpSearchResults.jsx'));
 const HelpFaq = lazy(() => import('./pages/consumer/help/HelpFaq.jsx'));
 const HelpChangelog = lazy(() => import('./pages/consumer/help/HelpChangelog.jsx'));
+const BlogIndex = lazy(() => import('./pages/consumer/blog/BlogIndex.jsx'));
+const BlogPost = lazy(() => import('./pages/consumer/blog/BlogPost.jsx'));
 const Privacy = lazy(() => import('./pages/consumer/Privacy.jsx'));
 const Terms = lazy(() => import('./pages/consumer/Terms.jsx'));
 const RefundPolicy = lazy(() => import('./pages/consumer/RefundPolicy.jsx'));
@@ -286,6 +288,8 @@ export default function App() {
           {/* Legacy/guessable aliases so /docs and /help-center land somewhere useful. */}
           <Route path="/docs" element={<Navigate to="/help" replace />} />
           <Route path="/help-center" element={<Navigate to="/help" replace />} />
+          <Route path="/blog" element={<BlogIndex />} />
+          <Route path="/blog/:slug" element={<BlogPost />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />

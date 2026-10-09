@@ -46,7 +46,7 @@ function decodeEntities(s) {
 
 /* Supports only the frontmatter subset the help content uses; a full YAML parser would be
    another dependency for no gain. */
-function parseFrontmatter(raw) {
+export function parseFrontmatter(raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return { data: {}, body: raw };
 
@@ -75,7 +75,7 @@ function parseFrontmatter(raw) {
 }
 
 /** Strip HTML tags, decode entities and collapse whitespace — the search haystack. */
-function toPlainText(html) {
+export function toPlainText(html) {
   return decodeEntities(
     html
       .replace(/<pre[\s\S]*?<\/pre>/g, ' ')
@@ -86,7 +86,7 @@ function toPlainText(html) {
 }
 
 /* A fresh Marked instance per file keeps the heading collector isolated. */
-function createRenderer(headings) {
+export function createRenderer(headings) {
   const marked = new Marked({ gfm: true, breaks: false });
   const seen = new Map();
 
