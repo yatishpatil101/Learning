@@ -32,7 +32,6 @@ const TX_STATUSES = [
   { value: '', label: 'All' },
   { value: 'paid', label: 'Paid' },
   { value: 'pending', label: 'Pending' },
-  { value: 'failed', label: 'Failed' },
 ];
 
 const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
@@ -53,7 +52,6 @@ function pct(cur, prev) {
   return { val: (d >= 0 ? '+' : '') + d + '%', up: d >= 0 };
 }
 
-/** `2026-08-01` becomes `Aug 26`, the chart's axis label. */
 function monthLabel(iso) {
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime())
@@ -99,6 +97,8 @@ export default function AdminFinance() {
   const [txStatus, setTxStatus] = useState('');
   const [detail, setDetail] = useState(null);
   const [tab, setTab] = useTabParam(['overview', 'transactions'], 'overview');
+  const [overviewFailed, setOverviewFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -107,10 +107,13 @@ export default function AdminFinance() {
     Promise.allSettled([getFinanceOverview(), getFinanceSeries(MAX_MONTHS)]).then(([f, sr]) => {
       if (!alive) return;
       setFinance(f.status === 'fulfilled' ? f.value : null);
+      setOverviewFailed(f.status !== 'fulfilled');
       setSeries(sr.status === 'fulfilled' ? sr.value : []);
     });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
+
+  const retryOverview = () => { setOverviewFailed(false); setAttempt((n) => n + 1); };
 
   useEffect(() => {
     const id = setTimeout(() => setTxTerm(txQ.trim()), 300);
@@ -126,9 +129,9 @@ export default function AdminFinance() {
     let alive = true;
     listFinanceTransactions({ ...txFilters, size: LEDGER_PAGE_SIZE })
       .then((res) => { if (alive) setLedger({ items: res.items, total: res.total }); })
-      .catch(() => { if (alive) setLedger({ items: [], total: 0 }); });
+      .catch(() => { if (alive) setLedger({ items: [], total: 0, failed: true }); });
     return () => { alive = false; };
-  }, [txFilters]);
+  }, [txFilters, attempt]);
 
   const slicedSeries = useMemo(() => (series || []).slice(-range), [series, range]);
 
@@ -136,6 +139,17 @@ export default function AdminFinance() {
   const txTotal = ledger?.total || 0;
   const { items: pageTx, paging } = useClientPaging(txRows, TX_PER_PAGE, `${txStatus}|${txTerm}`);
 
+  if (overviewFailed) {
+    return (
+      <div>
+        <PageHeader title="Finance" subtitle="Revenue, subscriptions, transactions and platform economics." />
+        <div role="alert" className="rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+          Could not load the finance overview.{' '}
+          <button type="button" onClick={retryOverview} className="underline underline-offset-2">Retry</button>
+        </div>
+      </div>
+    );
+  }
   if (!finance) return <Loading />;
 
   const month = slicedSeries[slicedSeries.length - 1]
@@ -311,7 +325,7 @@ export default function AdminFinance() {
           {(plans || []).length === 0 ? (
             <p className="py-2 text-sm text-gray-500">{t('adminFinance.noActivePlans')}</p>
           ) : (plans || []).map((p) => (
-            /* Keyed on the price too: a repriced plan returns one line per price cohort, so the name alone is not unique. */
+            /* Keyed on price too: a repriced plan returns one line per price cohort, so the name is not unique. */
             <div key={`${p.name}:${p.price}`} className="flex items-center justify-between border-b border-white/5 py-2 text-sm">
               <div>
                 <div className="font-medium">{p.name}</div>
@@ -357,8 +371,7 @@ export default function AdminFinance() {
           toolbar={(
             <>
               <SearchBox value={txQ} onChange={setTxQ} placeholder="Search party…" label="Search party" />
-              {/* Exactly AdminFinanceService.LEDGER_STATUSES: there is no
-                  refund path and the server answers 400 for `refunded`. */}
+              {/* The ledger only ever derives `paid` and `pending`; the server answers 400 for `refunded`. */}
               <Chips label="Status" options={TX_STATUSES} value={txStatus} onChange={setTxStatus} />
               <div className="ml-auto flex items-center gap-2">
                 <button type="button" onClick={doTxExport} className={BTN.ghost}><Download className="h-3.5 w-3.5" />Export CSV</button>
@@ -367,7 +380,7 @@ export default function AdminFinance() {
             </>
           )}
         >
-          <RowList isEmpty={!txRows.length} empty="No transactions match.">
+          <RowList isEmpty={!txRows.length} empty={ledger?.failed ? <span role="alert">Could not load transactions. <button type="button" onClick={() => setAttempt((n) => n + 1)} className="underline underline-offset-2">Retry</button></span> : 'No transactions match.'}>
             {pageTx.map(txRow)}
           </RowList>
         </QueuePanel>

@@ -83,7 +83,8 @@ class UploadPolicyEndpointsTest {
         when(storage.storePublic(anyString(), any(), anyString())).thenReturn("https://cdn.example/photo");
         service = new DocumentService(documents, personal, managed, properties, managedProperties,
                 mock(DocumentMapper.class), storage, List.of(new BuiltInDocumentScanner(10_485_760)),
-                mock(BadgeEvidenceLookup.class), mock(AuditService.class));
+                mock(BadgeEvidenceLookup.class), mock(AuditService.class),
+                mock(com.draazy.api.identity.verification.IdentityFilePurgeService.class));
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new AuthPrincipal(OWNER, "owner", null, true, false), null, List.of()));
         mvc = MockMvcBuilders.standaloneSetup(new MePhotosController(new PhotoService(storage, new com.draazy.api.catalog.photo.PhotoKeys("test-secret"))),

@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,10 +38,11 @@ public class LocalityService {
                 .toList();
     }
 
+    /** Every row, retired ones included, so an area retired with no listings can still be restored. */
     @Transactional(readOnly = true)
     public List<LocalityAdminRow> adminList() {
         Map<String, LocalityStats> stats = statsBySlug(null);
-        return localities.findDirectory(PropertyStatus.APPROVED).stream()
+        return localities.findAll(Sort.by("name")).stream()
                 .map(l -> adminRow(l, stats.getOrDefault(l.getSlug(), LocalityStats.NONE)))
                 .toList();
     }

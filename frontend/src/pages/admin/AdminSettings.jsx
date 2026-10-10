@@ -51,6 +51,12 @@ const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flag
 const DEFAULT_GROUPS_PER_PERSON = 2;
 const MAX_GROUPS_CEILING = 10;
 
+const COUNT_FEES = new Set(['freeContactLimit', 'referralContactBonus', 'referralQualifyPerMonth']);
+
+const saveError = (err) => (err?.status === 412
+  ? 'Someone else changed these settings — reload to see their changes.'
+  : 'That change was not saved. Please try again.');
+
 const SITE_FIELDS = [
   ['name', 'Site name'],
   ['legalName', 'Legal name'],
@@ -115,6 +121,7 @@ export default function AdminSettings() {
   const [tab, setTab] = useTabParam(TABS.map(([id]) => id), 'general');
   const [flagSubTab, setFlagSubTab] = useState('application');
   const [confirm, setConfirm] = useState(null);
+  const [formError, setFormError] = useState({});
 
   useEffect(() => {
     let alive = true;
@@ -161,7 +168,7 @@ export default function AdminSettings() {
         // is the failure an operator is least likely to check.
         setFlag(section, key, value)
           .then(() => toast(`${label} ${value ? 'enabled' : 'disabled'}`, 'toggle'))
-          .catch(() => toast('That change was not saved. Please try again.', 'error'));
+          .catch((err) => toast(saveError(err), 'error'));
       },
     });
   }, [setFlag, toast]);
@@ -187,15 +194,21 @@ export default function AdminSettings() {
   if (!settings) return <Loading />;
 
   const setSite = (k, v) => setSettings((s) => ({ ...s, site: { ...s.site, [k]: v } }));
-  const setFee = (k, v) => setSettings((s) => ({ ...s, fees: { ...s.fees, [k]: Number(v) || 0 } }));
+  const setFee = (k, v) => setSettings((s) => ({ ...s, fees: { ...s.fees, [k]: v === '' ? '' : Number(v) } }));
+
+  const requireFilled = (scope, values) => {
+    const blank = values.some((v) => v === '');
+    setFormError((e) => ({ ...e, [scope]: blank ? 'Fill in every value. A blank field is not saved as 0.' : '' }));
+    return !blank;
+  };
 
   /* Reports what actually happened, never an unconditional success — the caller applied the value
      optimistically, so the returned boolean is its cue to roll back. Auditing is the server's. */
   const persist = async (patch, okMessage, okKind = 'success') => {
     try {
       await updateSettings(patch);
-    } catch {
-      toast('That change was not saved. Please try again.', 'error');
+    } catch (err) {
+      toast(saveError(err), 'error');
       return false;
     }
     toast(okMessage, okKind);
@@ -203,7 +216,8 @@ export default function AdminSettings() {
   };
 
   const saveSite = () => persist({ site: settings.site }, 'Site details saved');
-  const saveFees = () => persist({ fees: settings.fees }, 'Fee schedule saved');
+  const saveFees = () => requireFilled('fees', Object.values(settings.fees))
+    && persist({ fees: settings.fees }, 'Fee schedule saved');
 
   const maxPhotos = settings.listings?.maxPhotos ?? DEFAULT_MAX_PHOTOS;
   const setMaxPhotos = (v) => setSettings((s) => ({ ...s, listings: { ...s.listings, maxPhotos: v === '' ? '' : Number(v) } }));
@@ -227,12 +241,13 @@ export default function AdminSettings() {
 
   // Move-in Pack: admin-owned prices + launch toggle (consumer /services reads settings.movePack).
   const movePack = settings.movePack || { enabled: false, items: {} };
-  const setMovePackItem = (k, v) => setSettings((s) => ({ ...s, movePack: { ...movePack, items: { ...movePack.items, [k]: Number(v) || 0 } } }));
+  const setMovePackItem = (k, v) => setSettings((s) => ({ ...s, movePack: { ...movePack, items: { ...movePack.items,   [k]: v === '' ? '' : Number(v) } } }));
   const setMovePackEnabled = (v) => setSettings((s) => ({ ...s, movePack: { ...movePack, enabled: v } }));
-  const saveMovePack = () => persist(
-    { movePack: settings.movePack },
-    'Move-in Pack saved',
-  );
+    const saveMovePack = () => requireFilled('movePack', Object.values(movePack.items || {}))
+      && persist(
+        { movePack: settings.movePack },
+        'Move-in Pack saved',
+      );
 
   // Google Places geo policy (city limit + blacklist) — persisted to settings.geo
   // and read live by lib/geoConfig.js across every locality search in the app.
@@ -273,7 +288,7 @@ export default function AdminSettings() {
     setConfirm({
       title: `${nextVal ? 'Enable' : 'Disable'} ${humanize(k)}?`,
       message: `This will ${nextVal ? 'enable' : 'disable'} "${humanize(k)}" across the platform.`,
-      danger: !nextVal,
+      danger: k === 'maintenanceMode' ? nextVal : !nextVal,
       confirmLabel: nextVal ? 'Enable' : 'Disable',
       action: async () => {
         setSettings((s) => ({ ...s, flags: { ...s.flags, [k]: nextVal } }));
@@ -362,7 +377,7 @@ export default function AdminSettings() {
                 <label key={k} className="flex items-center justify-between gap-4 text-sm">
                   <span className="text-gray-300">{humanize(k)}</span>
                   <div className="flex items-center gap-1">
-                    {!k.toLowerCase().includes('percent') && <span className="text-gray-500">&#8377;</span>}
+                    {!k.toLowerCase().includes('percent') && !COUNT_FEES.has(k) && <span className="text-gray-500">&#8377;</span>}
                     <input type="number" value={v} onChange={(e) => setFee(k, e.target.value)} className="dz-input w-32 text-right" />
                     {k.toLowerCase().includes('percent') && <span className="text-gray-500">%</span>}
                   </div>
@@ -372,6 +387,7 @@ export default function AdminSettings() {
             <button onClick={saveFees} className="dz-btn dz-btn-primary mt-5">
               <Save className="h-4 w-4" /> Save fees
             </button>
+            {formError.fees ? <p role="alert" className="mt-3 text-xs text-rose-300">{formError.fees}</p> : null}
           </div>
 
           {/* Move-in Pack — prices + launch toggle for the consumer /services bundle */}
@@ -400,6 +416,7 @@ export default function AdminSettings() {
             <button onClick={saveMovePack} className="dz-btn dz-btn-primary mt-5">
               <Save className="h-4 w-4" /> Save Move-in Pack
             </button>
+            {formError.movePack ? <p role="alert" className="mt-3 text-xs text-rose-300">{formError.movePack}</p> : null}
           </div>
         </div>
       )}

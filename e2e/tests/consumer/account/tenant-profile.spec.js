@@ -38,7 +38,8 @@ test.describe('Tenant profile — live API', () => {
     expect(body).toMatchObject({ name: 'Live Tenant Profile', occupation: 'Engineer', income: 90000 });
 
     await expect(page.getByRole('button', { name: /Browse rentals/i })).toBeVisible();
-    await expect(page.getByText('₹90,000/mo')).toBeVisible();
+    await expect(page.getByText(/Owners see your name, a masked mobile/), 'the preview no longer claims owners see income').toBeVisible();
+    await expect(page.getByText('₹90,000/mo')).toHaveCount(0);
 
     await page.reload();
     await expect(page.locator('#tp-occ')).toHaveValue('Engineer');
@@ -75,7 +76,7 @@ test.describe('Tenant profile — live API', () => {
     await newTenant(page, request, 'Live Checklist');
     await openProfile(page);
 
-    await expect(page.getByText('Boost your score')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Boost your score' })).toBeVisible();
     await expect(page.getByText('+20%')).toBeVisible();
     await page.locator('#tp-occ').fill('Engineer');
     await expect(page.getByText('+20%')).toHaveCount(0);

@@ -8,7 +8,6 @@ import Icon from '../../components/Icon.jsx';
 import LoadError from '../../components/LoadError.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { isoToDisplay } from '../../lib/format.js';
 
 import { myTenantProfile, saveTenantProfile } from '../../services/rentService.js';
 import { useVerification } from '../../context/VerificationContext.jsx';
@@ -158,12 +157,6 @@ export default function TenantProfile() {
 
   const incomeDisplay = form.income ? Number(form.income).toLocaleString('en-IN') : '';
 
-  const meta = [];
-  if (form.employment) meta.push(['briefcase', form.employment]);
-  if (form.income && Number(form.income) > 0) meta.push(['wallet', '₹' + Number(form.income).toLocaleString('en-IN') + t('misc.tpMoIncomeSuffix')]);
-  if (form.occupants) meta.push(['users', form.occupants]);
-  if (form.moveIn) meta.push(['calendar', t('misc.tpMoveInPrefix') + (isoToDisplay(form.moveIn) || form.moveIn)]);
-
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex items-center gap-3 mb-2">
@@ -266,14 +259,7 @@ export default function TenantProfile() {
                 <span className={form.idVerified ? 'text-xs text-emerald-300 font-semibold' : 'text-xs text-gray-500'}>{form.idVerified ? t('misc.tpVerifiedTenant') : t('misc.tpUnverifiedTenant')}</span>
               </div>
             </div>
-            <div className="mb-3">
-                <div className="flex items-center justify-between text-xs mb-1"><span className="text-gray-400">{t('misc.tpTrustScore')}</span><span className="text-emerald-300 font-bold">{sLabel}</span></div>
-                {scoreBar}
-            </div>
-            <div className="space-y-1.5 text-sm text-gray-300">
-              {meta.length ? meta.map(([ic, txt]) => <p key={txt} className="flex items-center gap-2"><Icon name={ic} className="w-4 h-4 text-teal-400" /> {txt}</p>) : <p className="text-gray-500 text-xs">{t('misc.tpFillToPreview')}</p>}
-              {form.about && <p className="text-gray-400 text-xs italic border-l-2 border-white/10 pl-2 mt-2 line-clamp-3">{form.about}</p>}
-            </div>
+            <p className="text-xs text-gray-400">{t('misc.tpOwnersSeeNote')}</p>
           </div>
           {/* Booster checklist — the actionable core of the page. */}
 

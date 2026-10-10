@@ -7,7 +7,7 @@ const OVERVIEW = /\/api\/admin\/finance(\?.*)?$/;
 const SERIES = /\/api\/admin\/finance\/series(\?.*)?$/;
 const LEDGER = /\/api\/admin\/finance\/transactions(\?.*)?$/;
 
-const REFUNDS_NOTE = 'Refunds: the platform has no refund path, so no refund can be recorded here.';
+const REFUNDS_NOTE = 'Refunds: not tracked here, so this stays at ₹0. Service-request refunds are not included.';
 const SERVICES_NOTE = 'Revenue excludes the services marketplace: a service order records a quote, not money received.';
 const SERVICES_QUOTED = 'Quoted value, not money received, so it is left out of revenue.';
 
@@ -60,7 +60,7 @@ async function expectInventedRowsGone(page) {
   await expect(page.getByText('Rent held for landlords')).toHaveCount(0);
   await expect(page.getByText('Owner plan', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Seeker plan', { exact: true })).toHaveCount(0);
-  expect(await statusOptions(page)).toEqual(['All', 'Paid', 'Pending', 'Failed']);
+  expect(await statusOptions(page)).toEqual(['All', 'Paid', 'Pending']);
 }
 
 test.describe('finance console: empty subscription book', () => {
@@ -173,5 +173,35 @@ test.describe('finance console: structural-zero disclosure', () => {
         await expect(flowRow(page, 'Net retained')).toContainText('₹4,200');
       });
     }
+  });
+});
+
+test.describe('finance console: failed reads', () => {
+  test('a failed overview shows an error with Retry, not an endless spinner', async ({ page }) => {
+    await signIn(page, ACTORS.admin, { screen: 'staff' });
+    await page.route(OVERVIEW, async (route) => {
+      if (route.request().resourceType() === 'document') return route.fallback();
+      return route.fulfill({ status: 500, json: { error: 'internal_error', message: 'boom' } });
+    });
+
+    await page.goto('/admin/finance');
+    await expect(page.getByRole('alert')).toContainText('Could not load the finance overview.');
+
+    await page.unroute(OVERVIEW);
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByText('MRR (subscriptions)')).toBeVisible();
+  });
+
+  test('a failed ledger read says so instead of "No transactions match."', async ({ page }) => {
+    await signIn(page, ACTORS.admin, { screen: 'staff' });
+    await page.route(LEDGER, async (route) => {
+      if (route.request().resourceType() === 'document') return route.fallback();
+      return route.fulfill({ status: 500, json: { error: 'internal_error', message: 'boom' } });
+    });
+
+    await openFinance(page);
+    await page.getByRole('tab', { name: /^Transactions/ }).click();
+    await expect(page.getByRole('alert')).toContainText('Could not load transactions.');
+    await expect(page.getByText('No transactions match.')).toHaveCount(0);
   });
 });

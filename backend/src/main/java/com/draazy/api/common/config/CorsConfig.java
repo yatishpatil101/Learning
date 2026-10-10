@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -25,7 +26,7 @@ public class CorsConfig {
         cfg.setAllowedHeaders(List.of("*"));
         // Headers absent here are stripped by the browser silently — get() returns null, no error.
         // A wildcard is not an option: it is ignored outright when allowCredentials is true.
-        cfg.setExposedHeaders(List.of(BuildStampFilter.BUILD_HEADER));
+        cfg.setExposedHeaders(List.of(BuildStampFilter.BUILD_HEADER, HttpHeaders.ETAG));
         cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
 

@@ -130,7 +130,7 @@ class BackOfficeFunctionAuthorizationTest extends AbstractApiTest {
     void enquiriesHolderCanFileTheRespondedNoteButUsersLookupCannot() throws Exception {
         User holder = staff("9866060040", "[\"enquiries\"]");
         User lookup = staff("9866060041", "[\"users\"]");
-        String url = Routes.Moderation.NOTES_FOR_ENTITY.replace("{entityType}", "listing")
+        String url = Routes.Moderation.NOTES_FOR_ENTITY.replace("{entityType}", "property")
                 .replace("{entityId}", "22222222-2222-2222-2222-222222222222");
 
         mvc.perform(post(url)

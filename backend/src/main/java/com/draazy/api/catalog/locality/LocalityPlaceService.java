@@ -17,11 +17,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Never creates a locality from typed text: found by Place ID, else a non-live curated row of the same name is revived, else minted. */
+/** Typed text never creates a locality: a dormant curated row of the same name is revived before one is minted.
+ * A retired row is never reopened by a pick. */
 @Service
 public class LocalityPlaceService {
 
     static final String PICK_MESSAGE = "Pick the locality from the suggestions.";
+
+    static final String CLOSED_MESSAGE = "That area isn't open for new listings.";
 
     static final String OUTSIDE_AREA_MESSAGE = "Pick a locality in Pune.";
 
@@ -86,7 +89,14 @@ public class LocalityPlaceService {
     }
 
     private LocalitySummary known(String placeId) {
-        return localities.findByPlaceId(placeId).map(LocalitySummary::of).orElse(null);
+        return localities.findByPlaceId(placeId).map(this::open).map(LocalitySummary::of).orElse(null);
+    }
+
+    private Locality open(Locality l) {
+        if (l.isArchived()) {
+            throw new ValidationException(CLOSED_MESSAGE);
+        }
+        return l;
     }
 
     private LocalitySummary adoptOrMint(Place place, String slug) {
@@ -100,8 +110,11 @@ public class LocalityPlaceService {
             return LocalitySummary.of(twin.get());
         }
         if (!RESERVED_SLUGS.contains(slug)) {
-            Optional<Locality> retired = localities.findById(slug).filter(l -> l.getPlaceId() == null && near(l, place));
-            if (retired.isPresent() && localities.adopt(slug, place.placeId(), place.name(), place.lat(), place.lng()) == 1) {
+            Optional<Locality> sameSlug = localities.findById(slug).filter(l -> l.getPlaceId() == null && near(l, place));
+            if (sameSlug.isPresent() && sameSlug.get().isActive() && sameSlug.get().isArchived()) {
+                throw new ValidationException(CLOSED_MESSAGE);
+            }
+            if (sameSlug.isPresent() && localities.adopt(slug, place.placeId(), place.name(), place.lat(), place.lng()) == 1) {
                 return LocalitySummary.of(localities.findById(slug).orElseThrow());
             }
         }

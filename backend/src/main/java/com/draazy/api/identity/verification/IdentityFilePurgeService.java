@@ -37,10 +37,14 @@ public class IdentityFilePurgeService {
         List<String> keys = files.findByVerificationId(v.getId()).stream()
                 .map(IdentityVerificationFile::getStorageKey)
                 .toList();
-        Instant queuedAt = Instant.now();
-        keys.forEach(key -> deletes.queue(key, queuedAt));
         files.deleteByVerificationId(v.getId());
         files.flush();
+        purgeKeys(keys);
+    }
+
+    public void purgeKeys(List<String> keys) {
+        Instant queuedAt = Instant.now();
+        keys.forEach(key -> deletes.queue(key, queuedAt));
         afterCommit(() -> keys.forEach(this::deleteStoredFile));
     }
 

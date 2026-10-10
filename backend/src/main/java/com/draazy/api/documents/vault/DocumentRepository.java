@@ -10,6 +10,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
 
   boolean existsByPropertyIdAndServiceRequestIdIsNull(UUID propertyId);
 
+    boolean existsByStorageKey(String storageKey);
+
     List<Document> findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(UUID propertyId);
 
     // Group in memory to avoid one count query per inbox row.

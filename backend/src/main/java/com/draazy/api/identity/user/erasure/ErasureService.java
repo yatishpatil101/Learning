@@ -46,17 +46,19 @@ public class ErasureService {
     private final AuditService audit;
     private final EntityManager entityManager;
     private final IdentityVerificationService identity;
+    private final IdentityFilePurgeService filePurge;
 
     private final String pepper;
 
     public ErasureService(ErasureRequestRepository requests, UserRepository users,
             AuditService audit, EntityManager entityManager, IdentityVerificationService identity,
-            @Value("${draazy.erasure.pepper:}") String pepper) {
+            IdentityFilePurgeService filePurge, @Value("${draazy.erasure.pepper:}") String pepper) {
         this.requests = requests;
         this.users = users;
         this.audit = audit;
         this.entityManager = entityManager;
         this.identity = identity;
+        this.filePurge = filePurge;
         this.pepper = pepper == null ? "" : pepper;
     }
 

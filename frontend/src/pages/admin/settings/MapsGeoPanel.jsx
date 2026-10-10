@@ -109,6 +109,7 @@ export default function MapsGeoPanel({
   const [bounds, setBounds] = useState({ north: '', south: '', east: '', west: '' });
   const [term, setTerm] = useState('');
   const [note, setNote] = useState('');
+  const [coverageError, setCoverageError] = useState('');
 
   // No client-side stand-in: the write key `slug` can't be derived from a display name without guessing.
   const cityRows = cities;
@@ -157,7 +158,11 @@ export default function MapsGeoPanel({
       north: toNum(bounds.north), south: toNum(bounds.south),
       east: toNum(bounds.east), west: toNum(bounds.west),
     };
-    if (c.lat == null || c.lng == null || Object.values(b).some((x) => x == null)) return;
+    if (c.lat == null || c.lng == null || Object.values(b).some((x) => x == null)) {
+      setCoverageError('Fill in the centre and all four bounds with numbers before saving.');
+      return;
+    }
+    setCoverageError('');
     onSave({ ...geo, cities: { ...(geo.cities || {}), [city]: { ...mapOverride, center: c, bounds: b } } }, `Updated ${city} map coverage`);
   };
 
@@ -323,6 +328,7 @@ export default function MapsGeoPanel({
             <span className="text-xs text-gray-500">Using built-in default</span>
           )}
         </div>
+        {coverageError ? <p role="alert" className="mt-3 text-xs text-rose-300">{coverageError}</p> : null}
       </div>
 
       {/* Blacklist */}

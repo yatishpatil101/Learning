@@ -67,4 +67,15 @@ public class Locality {
     public boolean isArchived() {
         return archivedAt != null;
     }
+
+    /** Active + archived marks an admin-closed row; adopt only revives inactive (dormant seed) rows. */
+    public void retire(Instant at) {
+        archivedAt = at;
+        active = true;
+    }
+
+    public void restore() {
+        archivedAt = null;
+        active = true;
+    }
 }

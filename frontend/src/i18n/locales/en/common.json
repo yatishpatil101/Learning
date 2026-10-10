@@ -9,7 +9,7 @@
     "somethingWentWrong": "Something went wrong. Please try again.",
     "uploading": "Uploading…",
     "waitForUpload": "Wait for the upload to finish, then try again.",
-    "appStale": "Draazy was updated while this page was open, so part of the app could not load. Reload the page and try again.",
+    "appStale": "Draazy was updated. Reload the page to continue.",
     "close": "Close",
     "closeTitle": "Close {{title}}",
     "retry": "Retry",

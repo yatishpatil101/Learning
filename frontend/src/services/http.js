@@ -97,7 +97,7 @@ async function exchange(path, opts) {
   return toResult(res, withStatus);
 }
 
-// Concurrent identical reads share one fetch; `ttl` (ms) keeps a result for later callers and a primed seed (`once`) until its first reader.
+// Concurrent identical reads share one fetch; `ttl` (ms) keeps a result, and a primed seed until its first reader.
 // Any write drops everything, so a read after a write is never stale.
 const reads = new Map();
 // Bumped on every clear, so a read that was in flight across a write is not kept as fresh.
@@ -169,8 +169,8 @@ export function get(path, query, opts = {}) {
 // Long enough to absorb the reads a page's panels repeat while mounting; any write clears it first.
 export const PAGE_LOAD_TTL = 5_000;
 
-// Seeds the read `get(path, query)` would make with a value fetched elsewhere (a bootstrap section); a null or failed seed falls back to the real request.
-// An unread seed is dropped, so the next `get` can surface its own error. Without `ttl` it is single-use; with it, readers within `ttl` ms share it.
+// Seeds the read `get(path, query)` would make with a value fetched elsewhere; a null or failed seed falls back.
+// An unread seed is dropped so the next `get` can surface its own error; without `ttl` it is single-use.
 export function prime(path, query, value, { ttl } = {}) {
   let entry;
   const fallback = () => (entry.read
@@ -372,7 +372,7 @@ function buildQuery(query) {
 
 async function toResult(res, withStatus = false) {
   const payload = await parseBody(res);
-  if (res.ok) return withStatus ? { data: payload, status: res.status } : payload;
+  if (res.ok) return withStatus ? { data: payload, status: res.status, etag: res.headers.get('ETag') } : payload;
   throw new ApiError({
     code: payload?.error,
     message: payload?.message,

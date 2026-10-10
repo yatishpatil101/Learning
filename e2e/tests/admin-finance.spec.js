@@ -145,7 +145,7 @@ test.describe('finance console UI behaviour', () => {
       // Driven off the payload rather than hardcoded to "three disclosures are showing".
       await expect(panel).toBeVisible();
       for (const [flag, phrase] of [
-        [overview.refundsMeasured, /no refund path/i],
+        [overview.refundsMeasured, /Refunds: not tracked here/i],
         [overview.serviceOrdersCounted, /excludes the services marketplace/i],
       ]) {
         if (flag) await expect(panel).not.toContainText(phrase);
@@ -184,7 +184,7 @@ test.describe('finance console UI behaviour', () => {
       const labels = (await page.getByRole('group', { name: 'Status' }).getByRole('button').allTextContents()).map((s) => s.trim());
 
       // Do not advertise transaction states the platform cannot produce.
-      expect(labels).toEqual(['All', 'Paid', 'Pending', 'Failed']);
+      expect(labels).toEqual(['All', 'Paid', 'Pending']);
     });
     await test.step('searching by party keeps only matching rows', async () => {
       await gotoLedger(page);
@@ -211,8 +211,8 @@ test.describe('finance console UI behaviour', () => {
     });
     await test.step('the ledger filters are sent to the server', async () => {
       await gotoLedger(page);
-      const filtered = page.waitForRequest((r) => /\/admin\/finance\/transactions\?.*status=failed/.test(r.url()));
-      await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Failed' }).click();
+      const filtered = page.waitForRequest((r) => /\/admin\/finance\/transactions\?.*status=pending/.test(r.url()));
+      await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Pending' }).click();
       await filtered;
     });
     await test.step('finance header exports a revenue CSV', async () => {

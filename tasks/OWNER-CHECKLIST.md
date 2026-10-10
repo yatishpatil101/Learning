@@ -29,6 +29,8 @@ Things code can't close: secrets, deploy steps, real-device checks, human fact-c
 
 ## Content and ops
 - [ ] Fact-check the 12 blog posts and 12 locality guides; re-check Metro Line 3 and the Hinjawadi PCMC merger before deploy
-- [ ] Seed production FAQs (they answer `[]`)
+- [ ] Seed production FAQs (they answer `[]`): paste the 4 corrected FAQs from the Help audit; the first 6 by category also show on Home, the built-in five until then
+- [ ] Lawyer glance at the 2026-10-10 legal edits: Terms §7 + Refund §2.2 (no auto-renewal), Refund §6 (no wallet credits), Privacy §1.3/§4/§7 (no Google login, erasure is a reviewed request)
+- [ ] Confirm or delete Privacy §5 security claims (TLS 1.3, AES-256, pen-testing, SOC 2 Type II); Refund's 7-day cooling-off and annual pro-rata clauses have no backend flow, so support refunds them by hand
 - [ ] Confirm rent-agreement SLA targets with ops
 - [ ] Ops: act on legacy pending flatless flatmate posts

@@ -33,12 +33,12 @@ public interface LocalityRepository extends JpaRepository<Locality, String> {
     int mint(@Param("slug") String slug, @Param("name") String name, @Param("city") String city,
             @Param("placeId") String placeId, @Param("lat") double lat, @Param("lng") double lng);
 
-    /** Gives a row with no place the one just picked; 0 means somebody else got there first. */
+    /** Gives a dormant seed row (inactive, no place) the one just picked; 0 means somebody else got there first. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
             update localities
             set place_id = :placeId, name = :name, lat = :lat, lng = :lng, active = true, archived_at = null
-            where slug = :slug and place_id is null""", nativeQuery = true)
+            where slug = :slug and place_id is null and active = false""", nativeQuery = true)
     int adopt(@Param("slug") String slug, @Param("placeId") String placeId, @Param("name") String name,
             @Param("lat") double lat, @Param("lng") double lng);
 

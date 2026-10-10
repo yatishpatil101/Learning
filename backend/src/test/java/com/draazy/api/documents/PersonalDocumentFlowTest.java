@@ -104,6 +104,7 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
     void deletePersonal_removesItFromTheCallersVault() throws Exception {
         User owner = user("9821002007");
         String id = upload(owner, "Aadhaar Card", pdf("aadhaar.pdf"));
+        String key = personalDocuments.findById(java.util.UUID.fromString(id)).orElseThrow().getStorageKey();
 
         mvc.perform(delete(Routes.MeDocuments.PERSONAL_BY_ID, id)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -112,6 +113,8 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeDocuments.PERSONAL)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbc.queryForObject("select count(*) from identity_storage_deletes where storage_key = ?",
+                Long.class, key)).isEqualTo(1L);
     }
 
     @Test

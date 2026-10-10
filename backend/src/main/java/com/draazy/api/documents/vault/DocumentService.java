@@ -11,6 +11,7 @@ import com.draazy.api.common.error.PayloadTooLargeException;
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
 import com.draazy.api.common.trust.BadgeEvidenceLookup;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.identity.verification.IdentityFilePurgeService;
 import com.draazy.api.provider.DocumentScanner;
 import com.draazy.api.provider.FileStorage;
 import com.draazy.api.security.AuthPrincipal;
@@ -33,13 +34,15 @@ public class DocumentService {
     private final List<DocumentScanner> scanners;
     private final BadgeEvidenceLookup badgeEvidence;
     private final AuditService audit;
+    private final IdentityFilePurgeService filePurge;
 
     // Scanners are cumulative: adding one must never replace the existing security checks.
     public DocumentService(DocumentRepository documents,
             PersonalDocumentRepository personalDocuments,
             ManagedPropertyDocumentRepository managedDocuments, PropertyRepository properties,
             ManagedPropertyRepository managedProperties, DocumentMapper mapper, FileStorage storage,
-            List<DocumentScanner> scanners, BadgeEvidenceLookup badgeEvidence, AuditService audit) {
+            List<DocumentScanner> scanners, BadgeEvidenceLookup badgeEvidence, AuditService audit,
+            IdentityFilePurgeService filePurge) {
         this.documents = documents;
         this.personalDocuments = personalDocuments;
         this.managedDocuments = managedDocuments;
@@ -50,6 +53,7 @@ public class DocumentService {
         this.scanners = scanners;
         this.badgeEvidence = badgeEvidence;
         this.audit = audit;
+        this.filePurge = filePurge;
     }
 
     @Transactional(readOnly = true)
@@ -146,6 +150,7 @@ public class DocumentService {
                     "category", doc.getCategory(), "fileName", doc.getFileName());
         }
         documents.delete(doc);
+        purgeIfUnreferenced(doc.getStorageKey());
     }
 
     // A private managed record may never be advertised, so its papers cannot require a listing.
@@ -177,6 +182,7 @@ public class DocumentService {
                 .filter(d -> d.getOwnerId().equals(ownerId))
                 .orElseThrow(() -> NotFoundException.of("Document"));
         personalDocuments.delete(doc);
+        purgeIfUnreferenced(doc.getStorageKey());
     }
 
     @Transactional(readOnly = true)
@@ -210,6 +216,15 @@ public class DocumentService {
                 .filter(d -> d.getManagedPropertyId().equals(recordId))
                 .orElseThrow(() -> NotFoundException.of("Document"));
         managedDocuments.delete(doc);
+        purgeIfUnreferenced(doc.getStorageKey());
+    }
+
+    // fileFromPersonalVault shares one object between a personal row and document rows, so the
+    // bytes leave storage only with the last row pointing at them.
+    private void purgeIfUnreferenced(String key) {
+        if (key != null && !documents.existsByStorageKey(key) && !personalDocuments.existsByStorageKey(key)) {
+            filePurge.purgeKeys(List.of(key));
+        }
     }
 
     private UUID ownedManaged(UUID ownerId, String managedId) {

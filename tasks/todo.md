@@ -13,8 +13,6 @@
 - [x] **A01** back-office functions split so each feature is its own checkbox: `flatmates`, `referrals` (from reports), `localities` + `reviews` (from listingModeration), `enquiries` (from support), `societies` (from content), `users`; V103/V104 carry holders; Add-member groups come from the catalogue (Analytics was never rendered). Verified 2026-10-10: back-office-functions, reports, localities-console, referrals, admin-content-reports-payload, support-referrals-payload specs green; full backend suite green. PENDING AGENT REVIEW
 
 ### Consumer UI
-- [ ] **C01** PENDING AGENT REVIEW: Help Center audit 2026-10-10 — 30 of 33 articles + 12 runbooks + changelog 1.7–1.9 + FAQs rewritten against code (`check:help`, `check:i18n` green). Paste the 4 corrected FAQs into the prod CMS. Open fact gaps: Seeker Plus monthly vs one-time (#277), free rent agreement not applied at checkout, tenant-profile page promises owners see income, referral copy on `/refer` vs 3-per-slot rule
-- [ ] **C03** Back-office copy/behaviour gaps found while writing runbooks (report only): Users archived-can-sign-in note + search placeholder + badge reason 10–300 not validated client-side; Enquiries "Responded" needs `notes:write`, "In progress" chip has no backend status; Team "Suspend" archives and doesn't revoke tokens; Finance spinner forever on load failure + dead "Failed" chip + "no refund path" banner wrong; Settings saves skip `If-Match`; Erasure modal says "removes" (archives) and skips `personal_documents`; Help feedback ranks raw count; admin search input hidden on phones
 ### e2e and test health
 
 ## Waiting by design
@@ -29,6 +27,9 @@
 ## Shipped
 Newest first, one line per slice; the commit (or the uncommitted tree) is the record.
 
+- 2026-10-10 C03 back-office gaps closed: Users copy/badge reason/archive ends sessions; Enquiries Responded (`notes:write`), dead chips gone, Funnel deal filter dropped; Team Suspend really suspends; phone admin search; Finance/Integrations error states + refund banner; Settings `If-Match` 412, no ₹ on counts, blank refused; erasure sweeps `personal_documents` (+ vault deletes purge unreferenced files); help feedback one vote per voter (V105) ranked by share; Team Activity CSV pages the whole trail
+- 2026-10-10 C01 fact gaps closed: tenant profile/flatmates no longer promise owners see income; /refer says "qualified referral", Move-in guarantee removed; Seeker Plus "one payment · 1 month"; Terms/Refund/Privacy factual edits (lawyer glance in OWNER-CHECKLIST)
+- 2026-10-10 Localities Retire/Restore (`localities:write`), retired areas refused on pick and never revived by adopt; admin list shows retired rows; staff dashboard tiles for Reviews/Enquiries/Flatmates/Societies/Referrals; Home FAQ reads first 6 CMS FAQs (built-in five fallback)
 - 2026-10-10 E08 full e2e: every -Full failure green on rerun (115 tests; the rest were Vite reloads from concurrent edits); specs updated for FAQ-only content desk, one notes read in properties queue, lazy search index, light default
 - 2026-10-10 E09/A02/C02 verified: light default, staff AuthShell, runbooks, theme toggle (53 tests green)
 - 2026-10-10 Backend suite green: test context cache capped at 12 (`spring.properties`; 32×4 pools passed max_connections), committed identity tests erase their cases, Cashfree wiring test gets `ProviderCalls`, hygiene walk skips `.shards`/`target-*`, client-gone SSE errors no longer logged as 500s

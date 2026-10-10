@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.support.AbstractApiTest;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,14 +37,38 @@ class HelpFeedbackEndpointTest extends AbstractApiTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("the same reader voting again replaces their verdict and comment instead of adding a row")
+    void sameVoterCountsOnce() throws Exception {
+        String slug = "once-probe-" + System.nanoTime();
+        String voter = UUID.randomUUID().toString();
+
+        send(slug, "203.0.113.70", voter, "{\"helpful\":false}");
+        send(slug, "203.0.113.70", voter, "{\"helpful\":false,\"comment\":\"no fee table\"}");
+        send(slug, "203.0.113.70", UUID.randomUUID().toString(), "{\"helpful\":true}");
+
+        assertThat(jdbc.queryForList(
+                "select helpful, comment from help_article_feedback where slug = ? order by helpful",
+                slug)).hasSize(2)
+                .first().satisfies(row -> {
+                    assertThat(row.get("helpful")).isEqualTo(false);
+                    assertThat(row.get("comment")).isEqualTo("no fee table");
+                });
+    }
+
     private void send(String slug, String ip) throws Exception {
+        send(slug, ip, UUID.randomUUID().toString(), "{\"helpful\":false}");
+    }
+
+    private void send(String slug, String ip, String voter, String verdict) throws Exception {
         mvc.perform(post("/help/feedback")
                         .with(request -> {
                             request.setRemoteAddr(ip);
                             return request;
                         })
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"slug\":\"" + slug + "\",\"lang\":\"en\",\"helpful\":false}"))
+                        .content("{\"slug\":\"" + slug + "\",\"lang\":\"en\",\"voter\":\"" + voter + "\","
+                                + verdict.substring(1)))
                 .andExpect(status().isAccepted());
     }
 }

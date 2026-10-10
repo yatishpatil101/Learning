@@ -21,14 +21,16 @@ public record HelpFeedbackCreate(
         @Pattern(regexp = "en|hi|mr", message = "lang must be en, hi or mr")
         String lang,
 
-        // Boxed and @NotNull rather than primitive: a primitive would silently default a missing
-        // field to false, filing "the client forgot to send the verdict" as "this article did not
-        // help" — the one wrong answer that looks exactly like a real one.
+        // Boxed and @NotNull: a primitive would default a missing field to false, filing a client omission
+        // as a genuine "did not help" verdict.
         @NotNull
         Boolean helpful,
 
-        // Matches the column's CHECK. Bounded rather than forbidden: the cap is only there so an
-        // anonymous endpoint cannot be used to store an arbitrary document.
+        // Matches the column's CHECK; the cap keeps an anonymous endpoint from storing arbitrary documents.
         @Size(max = 500)
-        String comment) {
+        String comment,
+
+        // The browser's random id, so signed-out readers behind one shared IP still count separately.
+        @Pattern(regexp = "[0-9a-fA-F-]{36}", message = "voter must be a UUID")
+        String voter) {
 }

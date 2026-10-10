@@ -141,6 +141,22 @@ test.describe('/admin dashboard — the scorecard is the server\'s', () => {
     await expect(page.getByTestId('my-functions')).toBeVisible();
   });
 
+  test('a scoped staffer gets a queue tile for each queue function they hold, and for no other', async ({ page, login }) => {
+    const { mobile } = await login.scopeStaff('rental', ['reports', 'referrals', 'societies']);
+    const mine = await fetch(`${API}/admin/my-work`, { headers: await authHeaders(mobile) }).then((r) => r.json());
+    expect(mine.queues.map((q) => q.function).sort()).toEqual(['referrals', 'reports', 'societies']);
+
+    await login.asStaff('rental');
+    await page.goto('/staff');
+    const queues = page.getByTestId('my-queues');
+    for (const [label, path] of [['Referrals', '/staff/referrals'], ['Societies', '/staff/societies'], ['Reports', '/staff/reports']]) {
+      await expect(queues.getByRole('link', { name: new RegExp(label) })).toHaveAttribute('href', path);
+    }
+    await expect(queues.getByText('Enquiries')).toHaveCount(0);
+    await expect(queues.getByText('Flatmates')).toHaveCount(0);
+    await expect(queues.getByText('Review moderation')).toHaveCount(0);
+  });
+
   test('the Flagged tile is the count the server keeps, over a listing the queue has one of', async ({ page, login }) => {
     // Create a fixture so an empty catalogue cannot make both sides agree at zero.
     const admin = await authHeaders(ACTORS.admin);

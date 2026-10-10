@@ -5,11 +5,13 @@ import com.draazy.api.identity.auth.Tokens;
 import com.draazy.api.security.AuthPrincipal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The only writer of {@link HelpFeedback}. */
+/** The only writer of {@code help_article_feedback}: one current verdict per reader per article. */
 @Service
 public class HelpFeedbackService {
 
@@ -36,14 +38,16 @@ public class HelpFeedbackService {
                 body.slug(), ipHash, dayStart) >= DAILY_IP_SLUG_LIMIT) {
             return;
         }
-        HelpFeedback row = new HelpFeedback();
-        row.setSlug(body.slug());
-        row.setLang(body.lang());
-        row.setHelpful(body.helpful());
-        row.setComment(blankToNull(body.comment()));
-        row.setUserId(principal == null ? null : principal.userId());
-        row.setIpHash(ipHash);
-        repository.save(row);
+        UUID userId = principal == null ? null : principal.userId();
+        repository.upsert(body.slug(), body.lang(), body.helpful(), blankToNull(body.comment()), userId,
+                ipHash, voterKey(userId, body.voter(), ipHash));
+    }
+
+    private static String voterKey(UUID userId, String voter, String ipHash) {
+        if (userId != null) {
+            return userId.toString();
+        }
+        return voter == null ? ipHash : "b:" + voter.toLowerCase(Locale.ROOT);
     }
 
     /** Only strip controls; escaping belongs to the read path that knows its output format. */
