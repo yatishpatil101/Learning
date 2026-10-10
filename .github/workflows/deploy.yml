@@ -342,7 +342,7 @@ jobs:
 
             # Deep links must reach the shell; unknown paths must 404, not a soft 200.
             if [ "$ok" = true ]; then
-              for probe in "/listings 200" "/property/smoke 200" "/locality/baner 200" "/locality/smoke-area 200" "/no-such-page-smoke 404"; do
+              for probe in "/listings 200" "/locality/baner 200" "/locality/smoke-area 200" "/property/smoke 404" "/no-such-page-smoke 404"; do
                 set -- $probe
                 code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${SITE_URL}$1") || code=000
                 if [ "$code" != "$2" ]; then
