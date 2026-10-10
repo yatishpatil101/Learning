@@ -37,6 +37,7 @@ public class SecurityConfig {
     private final boolean rateLimitEnabled;
     private final int writeBudget;
     private final int localityResolveBudget;
+    private final int propertyReadBudget;
     private final Duration rateLimitWindow;
     private final boolean proxyAware;
     private final Optional<OriginGateFilter> originGate;
@@ -47,6 +48,7 @@ public class SecurityConfig {
             @Value("${draazy.security.rate-limit.enabled:true}") boolean rateLimitEnabled,
             @Value("${draazy.security.rate-limit.writes-per-window:120}") int writeBudget,
             @Value("${draazy.security.rate-limit.locality-resolves-per-window:10}") int localityResolveBudget,
+            @Value("${draazy.security.rate-limit.property-reads-per-window:600}") int propertyReadBudget,
             @Value("${draazy.security.rate-limit.window-seconds:60}") long windowSeconds,
             @Value("${draazy.security.trusted-proxies:none}") String trustedProxies,
             @Value("${draazy.security.origin-secret}") String originSecret) {
@@ -62,6 +64,7 @@ public class SecurityConfig {
         this.rateLimitEnabled = rateLimitEnabled;
         this.writeBudget = writeBudget;
         this.localityResolveBudget = localityResolveBudget;
+        this.propertyReadBudget = propertyReadBudget;
         this.rateLimitWindow = Duration.ofSeconds(windowSeconds);
 
         this.proxyAware = !TrustedProxyConfig.NO_PROXY.equalsIgnoreCase(trustedProxies.trim());
@@ -106,7 +109,7 @@ public class SecurityConfig {
                         // whether to sign up at all. Why each is public: cross-cutting.md §8.4.
                         .requestMatchers(HttpMethod.GET,
                                 Routes.Localities.BASE, Routes.Localities.ANY_SINGLE,
-                                Routes.Societies.BASE, Routes.Societies.ANY_SINGLE,
+                                Routes.Societies.BASE, Routes.Societies.ANY_SINGLE, Routes.Societies.ANY_BRIEF,
                                 Routes.Fees.BASE,
 
                                 // Flags, geo, cities, prices and plans: what a logged-out visitor's
@@ -144,7 +147,8 @@ public class SecurityConfig {
 
                         // Token-scoped document share: the expiring token IS the credential,
                         // checked in DocumentRequestService.shared. GET-only and exact-path.
-                        .requestMatchers(HttpMethod.GET, Routes.Documents.SHARED).permitAll()
+                        .requestMatchers(HttpMethod.GET, Routes.Documents.SHARED,
+                                Routes.Documents.SHARED_URL).permitAll()
 
                         .requestMatchers(HttpMethod.POST,
                                 Routes.Webhooks.CASHFREE_PAYMENT).permitAll()
@@ -168,7 +172,7 @@ public class SecurityConfig {
             // ~700 MockMvc tests share one anonymous bucket; WriteRateLimitTest turns it back on.
             http.addFilterAfter(
                     new WriteRateLimitFilter(writeBudget, rateLimitWindow, proxyAware,
-                            rateLimitStores, localityResolveBudget),
+                            rateLimitStores, localityResolveBudget, propertyReadBudget),
                     JwtAuthFilter.class);
         }
 

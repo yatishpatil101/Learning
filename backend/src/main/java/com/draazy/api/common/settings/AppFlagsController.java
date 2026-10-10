@@ -2,6 +2,7 @@ package com.draazy.api.common.settings;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,11 @@ public class AppFlagsController {
     /** The seeded key holding the flag block. Shared so the two readers cannot drift apart. */
     private static final String FLAGS_KEY = PlatformSettings.FLAGS_KEY;
 
+    /** The flags the consumer app reads. The rest (e.g. staffLoginEnabled) stay in the admin-only document. */
+    static final Set<String> PUBLIC = Set.of("mapSearch", "scheduleVisit", "reviewsEnabled", "inAppMessaging",
+            "assistant", "kycBadgeEnabled", "subscriptionPlans", "referralRewards",
+            "signupsEnabled", "maintenanceMode");
+
     private final SettingsCache settings;
     private final ObjectMapper objectMapper;
 
@@ -25,7 +31,8 @@ public class AppFlagsController {
         this.objectMapper = objectMapper;
     }
 
-    /** Absent means on, non-booleans are dropped, and an unreadable row serves {@code {}}: api-standards.md §4.4. */
+    /** Absent means on, non-booleans and non-public keys are dropped, and an unreadable row
+     * serves {@code {}}: api-standards.md §4.4. */
     public Map<String, Boolean> flags() {
         Map<String, Boolean> out = new LinkedHashMap<>();
         settings.value(FLAGS_KEY).ifPresent(row -> {
@@ -41,7 +48,7 @@ public class AppFlagsController {
                 return;
             }
             parsed.properties().forEach(entry -> {
-                if (entry.getValue().isBoolean()) {
+                if (PUBLIC.contains(entry.getKey()) && entry.getValue().isBoolean()) {
                     out.put(entry.getKey(), entry.getValue().booleanValue());
                 }
             });

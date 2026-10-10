@@ -136,9 +136,25 @@ class PublicReadCacheFilterTest {
 
         assertThat(filter.caches(underApi)).isTrue();
         assertThat(filter.caches(new MockHttpServletRequest("POST", "/bootstrap"))).isFalse();
-        assertThat(filter.caches(get("/properties"))).isFalse();
         assertThat(filter.caches(get("/me/listings"))).isFalse();
+        assertThat(filter.caches(get("/properties/p1/archive"))).isFalse();
         assertThat(new PublicReadCacheFilter(Duration.ZERO).caches(get("/bootstrap"))).isFalse();
+    }
+
+    @Test
+    void callerAwareReadsAreCachedOnlyForAnonymousCallers() throws Exception {
+        for (String path : new String[] {"/properties", "/properties/p1", "/properties/p1/reviews",
+                "/owners/u1", "/localities/baner", "/societies/x/brief", "/flatmates/feed"}) {
+            assertThat(filter.caches(get(path))).as(path).isTrue();
+            var signedIn = get(path);
+            signedIn.addHeader("Authorization", "Bearer t");
+            assertThat(filter.caches(signedIn)).as(path).isFalse();
+        }
+
+        send(get("/properties/p1"));
+        var replay = send(get("/properties/p1"));
+        assertThat(replay.getContentAsString()).isEqualTo("{\"n\":1}");
+        assertThat(replay.getHeader("Vary")).isEqualTo("Authorization");
     }
 
     private static MockHttpServletRequest get(String path) {

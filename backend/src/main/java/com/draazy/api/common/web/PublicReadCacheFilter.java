@@ -8,21 +8,26 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 /** Serves public reference reads from memory and lets browsers and the edge cache them (cross-cutting.md §9). */
 @Component
@@ -33,7 +38,16 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
     // Each must answer every caller identically: one that varied by caller would leak across users.
     static final Set<String> PATHS = Set.of(
             Routes.Bootstrap.BASE, Routes.Fees.BASE, Routes.Localities.BASE, Routes.Content.FAQS,
-            Routes.Properties.FEATURED);
+            Routes.Properties.FEATURED, Routes.Properties.SEARCH_INDEX, Routes.Societies.TOP);
+
+    // Caller-aware for a signed-in viewer (the owner, a checker), identical for every anonymous one.
+    static final List<PathPattern> ANONYMOUS = Stream.of(
+                    Routes.Properties.BASE, Routes.Properties.ANY_SINGLE, Routes.Reviews.FOR_PROPERTY,
+                    Routes.Reviews.FOR_ENTITY, Routes.Owners.ANY_SINGLE, Routes.Localities.ANY_SINGLE,
+                    Routes.Societies.BASE, Routes.Societies.ANY_SINGLE, Routes.Societies.ANY_BRIEF,
+                    Routes.Flatmates.FEED, Routes.Flatmates.GROUP_BY_ID, Routes.Flatmates.ROOM_BY_ID,
+                    Routes.Flatmates.POST_BY_ID)
+            .map(PathPatternParser.defaultInstance::parse).toList();
 
     private static final String ADMIN_PREFIX = "/admin/";
 
@@ -59,7 +73,20 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
 
     /** Whether this request is served through the cache; false for everything when the TTL is zero. */
     public boolean caches(HttpServletRequest request) {
-        return ttlMillis > 0 && "GET".equals(request.getMethod()) && PATHS.contains(pathOf(request));
+        if (ttlMillis <= 0 || !"GET".equals(request.getMethod())) {
+            return false;
+        }
+        String path = pathOf(request);
+        return PATHS.contains(path) || (isAnonymous(request) && anonymousRoute(path));
+    }
+
+    private static boolean isAnonymous(HttpServletRequest request) {
+        return request.getHeader(HttpHeaders.AUTHORIZATION) == null;
+    }
+
+    private static boolean anonymousRoute(String path) {
+        PathContainer container = PathContainer.parsePath(path);
+        return ANONYMOUS.stream().anyMatch(p -> p.matches(container));
     }
 
     // Every back-office write can change a cached answer (settings, cities, plans, FAQs, moderation),
@@ -99,8 +126,9 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
                 return;
             }
             byte[] body = buffer.getContentAsByteArray();
+            // Weak: Tomcat will not gzip a response that carries a strong ETag.
             entry = new Entry(body, buffer.getContentType(),
-                    '"' + DigestUtils.md5DigestAsHex(body) + '"', now + ttlMillis);
+                    "W/\"" + DigestUtils.md5DigestAsHex(body) + '"', now + ttlMillis);
             entries.put(key, entry);
         }
         serve(entry, now, request, response);
@@ -112,6 +140,8 @@ public class PublicReadCacheFilter extends OncePerRequestFilter {
         long maxAge = Math.max(1, TimeUnit.MILLISECONDS.toSeconds(entry.expiresAt() - now + 999));
         response.setHeader(HttpHeaders.CACHE_CONTROL,
                 CacheControl.maxAge(maxAge, TimeUnit.SECONDS).cachePublic().getHeaderValue());
+        // Else a browser could replay an anonymous answer to the same visitor just after sign-in.
+        response.addHeader(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION);
         if (new ServletWebRequest(request, response).checkNotModified(entry.etag())) {
             return;
         }

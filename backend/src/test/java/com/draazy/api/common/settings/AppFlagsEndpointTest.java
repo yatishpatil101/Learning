@@ -39,6 +39,7 @@ class AppFlagsEndpointTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.flags.kycBadgeEnabled").value(true))
                 .andExpect(jsonPath("$.flags.boostEnabled").doesNotExist())
+                .andExpect(jsonPath("$.flags.staffLoginEnabled").doesNotExist())
                 .andExpect(jsonPath("$.flags.maintenanceMode").value(false));
     }
 
