@@ -9,15 +9,15 @@ const UNVERIFIED_OWNER_ID = 'b05422ba-0a55-5136-ba68-d202e83e29b0';
 /** One page big enough to hold anything one seeded owner has, so `totalElements` and rows agree. */
 const WHOLE_CATALOGUE = 200;
 
-const CARD_FIELDS = ['id', 'name', 'mobile', 'verified', 'city', 'memberSince', 'listingCount'];
+const CARD_FIELDS = ['name', 'mobile', 'verified', 'city', 'memberSince', 'listingCount'];
 
-test('the seller card is public and carries exactly seven fields', async () => {
+test('the seller card is public and carries exactly six fields', async () => {
   const res = await fetch(`${API}/owners/${OWNER_ID}`);
   expect(res.status, 'the seller card is public').toBe(200);
 
   const card = await res.json();
   expect([...Object.keys(card)].sort()).toEqual([...CARD_FIELDS].sort());
-  expect(card.id).toBe(OWNER_ID);
+  expect(card.id, 'the id is already in the URL').toBeUndefined();
   expect(typeof card.name).toBe('string');
   expect(card.name.length).toBeGreaterThan(0);
 });

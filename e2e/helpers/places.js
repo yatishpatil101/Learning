@@ -1,7 +1,14 @@
 import { expect } from '@playwright/test';
+import { API, authHeaders } from './liveAuth.js';
 
-// Stubs the Places library after the Maps SDK loads so Google-only suggestions are deterministic; each label becomes a placeId
-// `stubPlaceId(label, idPrefix)` (slugged to [A-Za-z0-9_-]{1,255}), which the backend's dev PlacesLookup trusts.
+/** Provenance is staff-only: the candidate queue is the one route that carries mintOrigin. */
+export async function mintOriginOf(request, name) {
+  const res = await request.get(`${API}/admin/society-candidates`, { params: { size: 100 }, headers: await authHeaders('9000000000') });
+  return (await res.json()).content.find((s) => s.name === name)?.mintOrigin ?? null;
+}
+
+// Stubs the Places library after the Maps SDK loads so Google-only suggestions are deterministic; each label
+// becomes a placeId from stubPlaceId(label, idPrefix) that the backend's dev PlacesLookup trusts.
 export const stubPlaceId = (label, idPrefix = 'stub-') => `${idPrefix}${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
 
 export async function stubGooglePlaces(page, {

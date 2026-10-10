@@ -84,3 +84,26 @@ test('a rent typed just above the rent slider is still read as a sale price', as
   await expect(page).toHaveURL(/[?&]deal=buy/, { timeout: 10000 });
   await expect(page).toHaveURL(/[?&]budget=0-500000/);
 });
+
+test('a typed size sets the area filter instead of riding along as free text', async ({ page }) => {
+  await stubRegistry(page);
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.goto(`${BASE}/listings?deal=rent`);
+
+  await smartSearch(page, '2 bhk baner 1000 sqft');
+
+  await expect(page).toHaveURL(/[?&]area=800-1200(&|$)/, { timeout: 10000 });
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(page.locator('.af-chip', { hasText: /800 sq\.ft . 1,200 sq\.ft/i }).first()).toBeVisible();
+});
+
+test('"above N sq ft" sets only the floor of the area range', async ({ page }) => {
+  await stubRegistry(page);
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.goto(`${BASE}/listings?deal=rent`);
+
+  await smartSearch(page, 'above 1,200 sq.ft');
+
+  await expect(page).toHaveURL(/[?&]area=1200-6000(&|$)/, { timeout: 10000 });
+  await expect(page).not.toHaveURL(/[?&]q=/);
+});

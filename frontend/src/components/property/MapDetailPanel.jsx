@@ -18,6 +18,7 @@ import InlineOtpSheet from '../auth/InlineOtpSheet.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { digits } from '../../lib/contact.js';
 import '../../styles/routes/property-map-detail.css';
+import { propertyHref } from '../../lib/listingSeo.js';
 
 const isLandListing = (p) => {
   const type = (p.type || '').toLowerCase();
@@ -268,7 +269,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
             {!isOwner && scheduleEnabled ? <button type="button" className="dz-mdp-btn is-ghost" onClick={schedule}><Icon name="calendar-check" /> Schedule</button> : null}
           </div>
           <Link
-            to={`/property/${p.id}`}
+            to={propertyHref(p)}
             state={{ from: fromSearch, restore: true }}
             onClick={onOpenFull}
             onMouseEnter={() => import('../../pages/consumer/Property.jsx')}

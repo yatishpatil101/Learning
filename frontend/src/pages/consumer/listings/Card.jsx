@@ -13,6 +13,7 @@ import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
+import { propertyHref } from '../../../lib/listingSeo.js';
 
 const isLandListing = (p) => {
   const type = (p.type || '').toLowerCase();
@@ -91,7 +92,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
       : (psf ? t('listings.psfEmi', { psf: psf.toLocaleString('en-IN'), emi: emiOf(p.price) }) : t('listings.emiFrom', { emi: emiOf(p.price) }));
     const amenChips = (p.amenities || []).slice(0, 4);
     return (
-      <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
+      <Link to={propertyHref(p)} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
         <div className="lr">
           <div className="lr-img">
             <PropertyImage src={p.image} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
@@ -105,7 +106,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
               )}
             </div>
-            <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+            <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 [@media(pointer:fine)]:w-9 [@media(pointer:fine)]:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
               <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-6 h-6" />
             </span>
           </div>
@@ -147,7 +148,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   }
 
   return (
-    <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
+    <Link to={propertyHref(p)} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
       <div className="relative overflow-hidden card-img-wrap h-48">
         <PropertyImage src={p.image} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
@@ -155,7 +156,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
             <Icon name="shield-check" />
           </span>
         ) : null}
-        <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+        <span className={'heart-btn heart-on-photo absolute top-3 right-3 w-11 h-11 [@media(pointer:fine)]:w-9 [@media(pointer:fine)]:h-9 flex items-center justify-center t-all' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onHeartKey} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
           <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-6 h-6" />
         </span>
         <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">

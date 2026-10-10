@@ -1,6 +1,6 @@
 // @ts-check
-/** Mints a society only this test writes to: seeded rows are global to the database, so a per-worker guard cannot arbitrate them.
- * `POST /societies` is the real consumer route; the row arrives empty and public. */
+/** Seeded rows are global to the database, so a per-worker guard cannot arbitrate them; this mints a
+ * society only this test writes to, via the real POST /societies route. */
 import { expect } from '@playwright/test';
 import { ACTORS } from '../fixtures/live.js';
 import { API, authHeaders, uniqueMobile, uploadedListingPhotos } from './liveAuth.js';
@@ -9,11 +9,11 @@ import { stubPlaceId } from './places.js';
 
 const slugId = (s) => s.replace(/[^A-Za-z0-9_-]/g, '-');
 
-/** Per-worker mint counter so two mints in one millisecond differ; a place-id collision makes the server answer 200 with
- * the existing row, which is why the `expect(201)` below is load-bearing. */
+/** Per-worker mint counter so two mints in one millisecond differ; a place-id collision makes the server
+ * answer 200 with the existing row, which is why the expect(201) below is load-bearing. */
 let sequence = 0;
 
-/** Mint a private society and return its slug; `Zz` sorts it last and Wakad is a real seeded locality (an unknown one is dropped: FK). */
+/** `Zz` sorts it last; Wakad is a real seeded locality, since an unknown one is dropped by the FK. */
 export async function mintSociety(request, author, label) {
   sequence += 1;
   const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${sequence}`;
@@ -48,9 +48,10 @@ export async function mintPickableSociety(author, name, { lat = 18.5975, lng = 7
 
 // A live (approved) listing bound to the society, so area search finds a home there.
 export async function publishSocietyListing(slug, name, { deal = 'buy' } = {}) {
-  const read = await fetch(`${API}/societies/${slug}`);
-  const society = await read.json();
-  expect(read.status, JSON.stringify(society)).toBe(200);
+  // The hub detail carries no id; the wizard binds from a search row, so this does too.
+  const read = await fetch(`${API}/societies?q=${encodeURIComponent(name)}&size=20`);
+  const society = (await read.json()).content?.find((s) => s.slug === slug);
+  expect(society, `society ${slug} not in search`).toBeTruthy();
   const headers = await authHeaders(uniqueMobile());
   const created = await fetch(`${API}/me/listings`, {
     method: 'POST',

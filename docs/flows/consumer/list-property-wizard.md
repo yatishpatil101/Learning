@@ -530,8 +530,8 @@ caller can pass by accident; a method whose name says who may call it is not.
 
 ### 9.3 What an edit costs, and what acts on the answer
 
-`ListingEditRules` owns the rule that decides what an edit costs; `ListingService` owns what to *do*
-about the answer, and the owner and moderator paths do opposite things with the same `EditImpact`.
+`ListingEditRules` owns the rule that decides what an edit costs; `ListingService` (owner) and `ListingModerationService` (staff) own what to *do*
+about the answer, and the two paths do opposite things with the same `EditImpact`.
 The split arrived when the file reached the 450-line ceiling `ServiceSizeGuardTest` enforces, but it
 is along a real seam: a rule that decides and a caller that acts. `check-listing-foundation.mjs`
 pins the two sets against the client's copy of the same rule.

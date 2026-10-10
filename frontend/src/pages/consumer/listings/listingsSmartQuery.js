@@ -1,6 +1,6 @@
 import { INITIAL, RANGE, normBhk, serializeF, deserializeF } from '../../../lib/listings/filterState.js';
 import { sectionVisible } from '../../../lib/listings/filterRelevance.js';
-import { areaProfileForTypes, defaultAreaRangeSqft } from '../../../lib/listings/areaUnits.js';
+import { areaProfileForTypes, defaultAreaRangeSqft, formatAreaRange } from '../../../lib/listings/areaUnits.js';
 import { SEARCH_TYPES, BUY_TYPES, RENT_TYPES } from '../../../data/propertyTypes.js';
 import { AMEN_BUY, AMEN_RENT, AMEN_LBL, FURN_LBL } from './constants.js';
 
@@ -55,6 +55,9 @@ const RANGE_RE = new RegExp(`${AMOUNT}\\s*(?:-|–|to)\\s*${AMOUNT}`);
 const MAX_RE = new RegExp(`\\b(?:${MAX_WORDS})\\s*${AMOUNT}`);
 const MIN_RE = new RegExp(`\\b(?:${MIN_WORDS})\\s*${AMOUNT}`);
 const BARE_RE = new RegExp(AMOUNT);
+const SQFT = '(?:sq\\.?\\s?ft\\.?|sqft|sft|square\\s?(?:feet|foot|ft))(?![a-z])';
+const AREA_RE = new RegExp(`(?:\\b(${MAX_WORDS}|${MIN_WORDS})\\s*)?\\b(\\d+(?:\\.\\d+)?)(?:\\s*(?:-|–|to)\\s*(\\d+(?:\\.\\d+)?))?\\s*${SQFT}`);
+const MAX_PREFIX_RE = new RegExp(`^(?:${MAX_WORDS})$`);
 
 /* Locality names are data, not pattern source: a `.` or `(` in one would otherwise be compiled as syntax and either
    match the wrong places or throw. */
@@ -140,6 +143,7 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   const typeKeys = [...new Set(typeHits.map(([k]) => k))];
   if (rkM && !typeKeys.includes('flat')) typeKeys.push('flat');
 
+  const areaM = eat(AREA_RE);
   const money = readMoney(eat, peek);
 
   /* An explicit word is a statement; a shared-room search exists only on Rent; otherwise the magnitude decides,
@@ -187,6 +191,7 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
   }
 
   if (money.amount != null) applyMoney(next, isRent, money);
+  if (areaM) applyArea(next, areaM);
 
   const parts = [];
   if (bhkKey) parts.push(bhkM ? `${bhkM[1]} BHK` : '1 RK / Studio');
@@ -198,6 +203,7 @@ export function parseSmartQuery(raw, { current, localities, locNameBySlug }) {
     parts.push(nearWord ? `near ${names}` : names);
   }
   if (money.amount != null) parts.push(money.text);
+  if (areaM) parts.push(formatAreaRange(next.area, areaProfileForTypes(next.types, next.areaUnit)));
   if (furn) parts.push(FURN_LBL[furn]);
   usedAmen.forEach((k) => parts.push(AMEN_LBL[k] || k));
   if (isRent && pets) parts.push('Pet-friendly');
@@ -248,4 +254,16 @@ function applyMoney(next, isRent, money) {
   const [dLo, dHi] = RANGE[key];
   const clamp = (v) => Math.min(Math.max(Math.round(v), dLo), dHi);
   next[key] = [money.lo == null ? dLo : clamp(money.lo), money.hi == null ? dHi : clamp(money.hi)];
+}
+
+/* A bare size is read as "about": a band either side, because no listing is exactly the figure a shopper types. */
+function applyArea(next, [, prefix, a, b]) {
+  const [dLo, dHi] = defaultAreaRangeSqft(areaProfileForTypes(next.types, next.areaUnit));
+  const clamp = (v) => Math.min(Math.max(Math.round(v), dLo), dHi);
+  const n = parseFloat(a);
+  let lo = n * 0.8;
+  let hi = n * 1.2;
+  if (b != null) [lo, hi] = [Math.min(n, parseFloat(b)), Math.max(n, parseFloat(b))];
+  else if (prefix) [lo, hi] = MAX_PREFIX_RE.test(prefix) ? [dLo, n] : [n, dHi];
+  next.area = [clamp(lo), clamp(hi)];
 }

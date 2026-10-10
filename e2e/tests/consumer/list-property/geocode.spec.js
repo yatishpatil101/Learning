@@ -1,7 +1,7 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew, API } from '../../../helpers/liveAuth.js';
 import { pickFloors, LIST_PROPERTY_DRAFT_KEY } from '../../../helpers/listingForm.helper.js';
-import { isolatedPin } from '../../../helpers/places.js';
+import { isolatedPin, mintOriginOf } from '../../../helpers/places.js';
 // Stub Places and Geocoder after SDK load so geocode paths are deterministic.
 async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb = 'Baner', lat = 18.559, lng = 73.776, fail = false, types = ['sublocality_level_1', 'sublocality', 'political'], name = 'Test Place', localityName = '' } = {}) {
   await page.evaluate(({ pincode, road, suburb, lat, lng, fail, types, name, localityName }) => {
@@ -159,6 +159,28 @@ test('the current-location button pins the spot and reverse-geocodes its localit
   await expect(page.locator('[data-err="locality"]')).toContainText('Baner');
 });
 
+test('a current-location answer that arrives after the owner searched an area does not move the pin back', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success) { window.__lateGeo = success; },
+    } });
+  });
+  await gotoLandStep2(page);
+  await stubGeo(page);
+  await page.getByRole('button', { name: /Use my current location/i }).click();
+  await expect.poll(() => page.evaluate(() => typeof window.__lateGeo)).toBe('function');
+  await searchArea(page, 'Baner');
+  const pinned = page.getByText(/Location set:/i);
+  await expect(pinned).toBeVisible({ timeout: 8000 });
+  const before = await pinned.textContent();
+  await page.evaluate(() => {
+    window.__lateGeo({ coords: { latitude: 19.076, longitude: 72.8777 } });
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
+  await expect(pinned).toHaveText(before);
+  await expect(pinned).not.toContainText('19.07');
+});
+
 test('searching a named building (not a known locality) pins it via Places but leaves the society to be picked from Google', async ({ page }) => {
   await gotoLandStep2(page);
   await stubGeo(page, { lat: 18.5938, lng: 73.7416, name: 'Aspiria', types: ['premise', 'point_of_interest', 'establishment'] });
@@ -251,7 +273,7 @@ test('society field offers Google Maps buildings our catalogue lacks, and pickin
   expect(found.status()).toBe(200);
   const row = (await found.json()).content.find((s) => s.name === NAME);
   expect(row, 'the Google pick never reached the shared catalogue').toBeTruthy();
-  expect(row.mintOrigin).toBe('listing');
+  expect(await mintOriginOf(request, NAME)).toBe('listing');
   expect(Number(row.lat)).toBeCloseTo(18.5938, 3);
 });
 

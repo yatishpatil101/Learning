@@ -18,6 +18,7 @@ import useScrollLock from '../../../hooks/useScrollLock.js';
 import useModalDialog from '../../../hooks/useModalDialog.js';
 import { dialableMobile, telHref, whatsappHref } from './contactPhone.js';
 import { ownerVerificationMeta, OwnerRoleLine, OwnerVerifiedMark } from './ownerVerification.jsx';
+import { propertyKey } from '../../../lib/listingSeo.js';
 
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
@@ -32,7 +33,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = String(p.id || '');
-  const { id: routeId } = useParams();
+  const routeId = propertyKey(useParams().id);
   const { gate, loading } = useContactGate(routeId || propId);
   // `isIn` gates the fetch: signed out there is no quota to report, and no token to ask with.
   const { entitlements } = useEntitlements(isIn);
@@ -41,7 +42,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
   const { identityVerified, anyVerified, roleAndVerification } = ownerVerificationMeta(p, t);
-  const { verified: seekerVerified } = useVerification();
+  const { verified: seekerVerified, loading: verifying } = useVerification();
   const panelRef = useModalDialog(true, onClose);
   const ownerDialable = dialableMobile(ownerMobile);
 
@@ -258,7 +259,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
           )}
         </div>
         <label className="block text-sm font-medium text-slate-300 mb-2">{t('property.sendQuickMessage')} <span className="text-slate-500 font-normal">({t('property.optional')})</span></label>
-        {p.ownerVerified && !seekerVerified && (
+        {p.ownerVerified && !seekerVerified && !verifying && (
           <div className="mb-3 rounded-xl bg-teal-500/10 border border-teal-500/20 px-4 py-3 flex items-start gap-2.5">
             <Icon name="shield-check" className="w-4 h-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <div>

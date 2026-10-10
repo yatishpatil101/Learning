@@ -17,12 +17,12 @@ const distanceLabel = (km) => (km < 1
   ? `${Math.max(50, Math.round((km * 1000) / 50) * 50)} m`
   : `${km.toFixed(1)} km`);
 
-/** A society is only chosen from a Google Maps suggestion, resolved or minted server-side; typed text is never emitted as one.
- * `onChange` gets the bound society, `{ notOnMaps: true, source: 'notOnMaps' }`, or `null` once the owner types over a binding. */
+/** A society comes only from a Google Maps suggestion, resolved or minted server-side, never from typed text.
+ * `onChange` gets the bound society, `{ notOnMaps: true, source: 'notOnMaps' }`, or `null` once typed over. */
 export default function SocietySelect({
   value, name, notOnMaps = false, allowNotOnMaps = true, onChange,
   localityLabel = '', lat = null, lng = null,
-  placeholder, invalid = false, dataErr = 'society', inputClassName = fld, id,
+  placeholder, invalid = false, dataErr = 'society', inputClassName = fld, id, 'aria-describedby': describedBy,
   mintOrigin = 'listing', authReason = 'listproperty', onRequireAuth,
 }) {
   const { t } = useTranslation();
@@ -92,7 +92,7 @@ export default function SocietySelect({
       ...rec,
       lat: rec.lat ?? place.lat,
       lng: rec.lng ?? place.lng,
-      pincode: rec.pincode || place.pincode || '',
+      pincode: place.pincode || '',
       localityRaw: place.localityRaw || '',
       source,
     });
@@ -249,6 +249,7 @@ export default function SocietySelect({
         aria-autocomplete="list"
         aria-activedescendant={menuOpen && items[active] ? optId(active) : undefined}
         aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         data-err={dataErr}
         data-testid="society-input"
         placeholder={placeholder || t('listProperty.society.placeholder')}

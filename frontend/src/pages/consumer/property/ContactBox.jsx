@@ -13,6 +13,7 @@ import { useEntitlements, contactsLeft } from './useEntitlements.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
 import { dialableMobile, telHref } from './contactPhone.js';
+import { propertyKey } from '../../../lib/listingSeo.js';
 
 export function ContactBox({ p, isIn, toast }) {
   const { t } = useTranslation();
@@ -21,7 +22,7 @@ export function ContactBox({ p, isIn, toast }) {
   const ownerMobile = String(p.ownerMobile || '');
   const propId = p.id || '';
   // The route param, not `p.id`: useProperty already reads the gate under it, so the two share one request.
-  const { id: routeId } = useParams();
+  const routeId = propertyKey(useParams().id);
   const { gate, loading, setGate } = useContactGate(routeId || propId);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);

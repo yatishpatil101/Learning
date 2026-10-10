@@ -400,7 +400,7 @@ UPDATE public.properties p
 INSERT INTO public.faqs (id, question, answer, category) VALUES
   ('fa900001-0000-4000-8000-00000000f001',
    'Is Draazy really zero brokerage?',
-   'Yes — always. You connect directly with verified owners and pay zero brokerage on any rent or resale deal. We earn only from optional owner plans and add-on services like rent agreements, never a cut of your rent or deposit.',
+   'Yes — always. You connect directly with verified owners and pay zero brokerage on any rent or resale deal. We earn only from optional plans and add-on services like rent agreements, never a cut of your rent or deposit.',
    'General'),
   ('fa900001-0000-4000-8000-00000000f002',
    'How are owners and listings verified?',
@@ -408,11 +408,11 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Trust'),
   ('fa900001-0000-4000-8000-00000000f003',
    'How do I contact an owner or schedule a visit?',
-   'Open any listing and tap ''Contact owner'' to send a contact request — the owner approves it and their number is revealed then, usually the same day. ''Schedule visit'' lets you pick a date and slot the same way. You''ll see the response in Messages and get an SMS update — no broker sits in between.',
+   'Open any listing and tap ''Contact owner'' to send a contact request — the owner approves it and their number is revealed then, usually the same day. ''Schedule visit'' lets you pick a date and slot the same way. You''ll see the response in Messages and in your notifications — no broker sits in between.',
    'Seekers'),
   ('fa900001-0000-4000-8000-00000000f004',
    'Can I list my property for free?',
-   'Yes. A basic listing with photos, rent and amenities is free for owners. Paid plans add featured placement, more buyer contacts and priority support — start free and upgrade any time from your dashboard.',
+   'Yes. Owner Free lets you keep one live listing at no cost, with unlimited enquiries. Owner Plus and Owner Pro raise the listing limit and add featured placement, priority support and, on Pro, a dedicated manager — start free and upgrade any time from the Plans page.',
    'Owners'),
   ('fa900001-0000-4000-8000-00000000f005',
    'Is my payment and deposit safe?',
@@ -420,7 +420,7 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Payments'),
   ('fa900001-0000-4000-8000-00000000f006',
    'Do you offer rent agreements?',
-   'Yes — legally-valid drafting, e-stamping and doorstep biometric registration starting at ₹999. You fill the details online, we prepare the draft, and delivery is usually within 2–3 working days across Pune and PCMC.',
+   'Yes — drafting, stamp duty and e-registration with a doorstep biometric visit. Our platform fee is ₹500 plus 18% GST, and government stamp duty and registration charges are added, worked out from your rent, deposit and term. You fill the details online and our team prepares the draft.',
    'Services'),
   ('fa900001-0000-4000-8000-00000000f007',
    'Which areas of Pune do you cover?',
@@ -741,10 +741,11 @@ UPDATE public.properties SET last_confirmed_at = now() - interval '20 days' WHER
 -- `landUseOf()`'s type inference, for the reason `landUse` in the registry gives.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005160', 'p5160', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Alandi', 'buy', 'Farm Land', 9200000, 'total', true, 2, 'acre', 'agricultural', 'Alandi', 'alandi', 'Pune', 18.6773, 73.8983, 'Farm Land available on sale in Alandi, Pune. Borewell on site, 7/12 clear, zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'approved', true, true, true, 2, 37, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
- ('f1c70000-0000-4000-8000-000000005161', 'p5161', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Manjari', 'buy', 'Farm Land', 21000000, 'total', false, 3, 'acre', 'agricultural', 'Manjari', 'manjari', 'Pune', 18.5049, 73.9745, 'Farm Land available on sale in Manjari, Pune. Canal-fed, approach road on the east boundary, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'approved', true, true, true, 3, 52, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
-    ON CONFLICT DO NOTHING;
+ ('f1c70000-0000-4000-8000-000000005161', 'p5161', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Manjari', 'buy', 'Farm Land', 21000000, 'total', false, 3, 'acre', 'agricultural', 'Manjari', 'manjari', 'Pune', 18.5049, 73.9745, 'Farm Land available on sale in Manjari, Pune. Canal-fed, approach road on the east boundary, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'approved', true, true, true, 3, 52, 2,  '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+  ('f1c70000-0000-4000-8000-000000005171', 'p5171', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Wagholi', 'buy', 'Farm Land', 3800000, 'total', true, 20, 'guntha', 'agricultural', 'Wagholi', 'wagholi', 'Pune', 18.5808, 73.9787, 'Farm Land available on sale in Wagholi, Pune. 20 guntha, fenced, borewell on site, zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'approved', true, true, true, 2, 18, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+     ON CONFLICT DO NOTHING;
 
--- Farm land to rent — the half of the Farm Land chip that would otherwise have no stock at all.
+ -- Farm land to rent — the half of the Farm Land chip that would otherwise have no stock at all.
 -- One row is in guntha so the unit is not a constant the detail page can hard-code.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, deposit, negotiable, area, area_unit, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005162', 'p5162', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for rent in Khadakwasla', 'rent', 'Farm Land', 28000, 'per-month', 84000, true, 1, 'acre', 'agricultural', 'Khadakwasla', 'khadakwasla', 'Pune', 18.4412, 73.7683, 'Farm Land available on rent in Khadakwasla, Pune. Backwater side, borewell and shed on the plot. Zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'approved', true, true, true, 2, 44, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
@@ -1308,6 +1309,9 @@ WITH ordered(function_name, sort_order) AS (
         ('propertyVerification', 20),
         ('listingModeration', 30),
         ('postOnBehalf', 40),
+        ('flatmates', 45),
+        ('localities', 46),
+        ('reviews', 47),
         ('desk:rental', 50),
         ('desk:legal', 60),
         ('desk:loans', 70),
@@ -1315,8 +1319,12 @@ WITH ordered(function_name, sort_order) AS (
         ('desk:packers', 90),
         ('desk:valuation', 100),
         ('support', 110),
+        ('enquiries', 112),
+        ('users', 114),
         ('content', 120),
-        ('reports', 130)
+        ('societies', 122),
+        ('reports', 130),
+        ('referrals', 132)
 ),
 staff_functions AS (
     SELECT u.id AS user_id,
@@ -1327,9 +1335,16 @@ staff_functions AS (
         'propertyVerification',
         'listingModeration',
         'postOnBehalf',
+        'flatmates',
+        'localities',
+        'reviews',
         'support',
+        'enquiries',
+        'users',
         'content',
+        'societies',
         'reports',
+        'referrals',
         'desk:' || u.team
     )
     WHERE u.role = 'staff'

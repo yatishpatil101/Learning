@@ -61,7 +61,10 @@ test('ArrowUp from an unhighlighted list wraps to the last option', async ({ pag
 test('typing filters options and keyboard selection carries into the search URL', async ({ page }) => {
   await page.goto('/');
   const input = page.locator('input[role="combobox"]');
+  // The local index loads on first open; typing before it lands lists only Google places.
+  const indexed = page.waitForResponse((r) => r.url().includes('/properties/search-index'));
   await input.click();
+  await indexed;
   await input.fill('Kot');
   // ArrowDown moves through options that have to exist first; the sleep here was standing in for
   // the debounced suggestion fetch, and a keypress against an empty list selects nothing.

@@ -107,7 +107,7 @@ for (const [name, profile] of Object.entries(PROFILES)) {
          search returned no wizard-posted plot at all. */
 
       await page.goto(`/listings?deal=${deal}&type=${profile.typeKey}&landuse=${profile.landUse}`);
-      await expect(page.locator(`a[href="/property/${id}"]`)).toBeVisible();
+      await expect(page.locator(`a[href^="/property/"][href$="-${id}"]`)).toBeVisible();
     });
   }
   /* s.194-IA deducts 1% TDS above ₹50L but excludes agricultural land by its own terms, so the
@@ -121,3 +121,13 @@ for (const [name, profile] of Object.entries(PROFILES)) {
     await expect(tds).toHaveCount(profile.landUse === 'agricultural' ? 0 : 1);
   });
 }
+
+test('the seeded guntha farm sale keeps its unit, and its insights quote no per-sq.ft figure or EMI', async ({ page }) => {
+  await page.goto('/property/p5171');
+  await expect(page.locator('.detail-card', { hasText: 'Plot Area' })).toContainText('20 Guntha');
+  await expect(page.locator('.detail-card', { hasText: '/ sq.ft' })).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'Price Insights' }).click();
+  await expect(page.getByRole('heading', { name: 'Affordability' })).toHaveCount(0);
+  await expect(page.getByText('/sq.ft.')).toHaveCount(0);
+});

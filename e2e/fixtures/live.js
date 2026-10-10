@@ -29,9 +29,9 @@ export const STAFF = {
 
 // Every function a `staff` account may hold, mirroring `BackOfficeFunctions.CATALOGUE`.
 export const BASELINE_STAFF = [
-  'kyc', 'propertyVerification', 'listingModeration', 'postOnBehalf',
+  'kyc', 'propertyVerification', 'listingModeration', 'postOnBehalf', 'flatmates', 'localities', 'reviews',
   'desk:rental', 'desk:legal', 'desk:loans', 'desk:interior', 'desk:packers', 'desk:valuation',
-  'support', 'content', 'reports',
+  'support', 'enquiries', 'users', 'reports', 'referrals', 'content', 'societies',
 ];
 
 // An Indian mobile, and *only* a whole one — the lookarounds pin the match to a complete digit run.
@@ -61,8 +61,8 @@ export const test = base.extend({
 
     const set = async (patch) => {
       if (before === null) {
-        const res = await fetch(`${API}/bootstrap`);
-        before = res.ok ? (await res.json()).flags : {};
+        const res = await fetch(`${API}/admin/settings`, { headers: await authHeaders(ACTORS.admin) });
+        before = res.ok ? (await res.json()).flags ?? {} : {};
       }
       Object.keys(patch).forEach((key) => touched.add(key));
       await write(patch);
@@ -116,8 +116,8 @@ export const test = base.extend({
   },
 
   login: async ({ page }, use) => {
-    // Accounts this test narrowed, so teardown can widen them back.
-    const scoped = new Set();
+    // Accounts this test narrowed → the functions they stored before, so teardown restores exactly those.
+    const scoped = new Map();
 
     // `identity:write` is administrator-only, so a staffer's `kyc` function can view a case but never decide it.
     const functionsFor = (names) => {
@@ -137,12 +137,24 @@ export const test = base.extend({
           mapped.add('postOnBehalf');
         } else if (['services:read', 'services:write', 'registrations:write'].includes(name)) {
           mapped.add('desk:rental');
-        } else if (['tickets:read', 'tickets:write', 'enquiries:read', 'notes:read', 'notes:write'].includes(name)) {
+        } else if (['tickets:read', 'tickets:write', 'notes:read', 'notes:write'].includes(name)) {
           mapped.add('support');
-        } else if (['content:read', 'content:write', 'societies:read', 'societies:write'].includes(name)) {
+        } else if (name === 'enquiries:read') {
+          mapped.add('enquiries');
+        } else if (['content:read', 'content:write'].includes(name)) {
           mapped.add('content');
-        } else if (['reports:read', 'reports:write', 'flatmates:read', 'flatmates:write'].includes(name)) {
+        } else if (['societies:read', 'societies:write'].includes(name)) {
+          mapped.add('societies');
+        } else if (['reports:read', 'reports:write'].includes(name)) {
           mapped.add('reports');
+        } else if (['referrals:read', 'referrals:write'].includes(name)) {
+          mapped.add('referrals');
+        } else if (['reviews:read', 'reviews:write'].includes(name)) {
+          mapped.add('reviews');
+        } else if (['localities:read', 'localities:write'].includes(name)) {
+          mapped.add('localities');
+        } else if (['flatmates:read', 'flatmates:write'].includes(name)) {
+          mapped.add('flatmates');
         } else {
           mapped.add(name);
         }
@@ -163,14 +175,21 @@ export const test = base.extend({
     };
 
     const scope = async (mobile, atoms) => {
-      const res = await fetch(`${API}/users?role=staff&size=100`, {
+      const want = String(mobile).replace(/\D/g, '');
+      const res = await fetch(`${API}/users?role=staff&q=${want}&size=5`, {
         headers: await authHeaders(ACTORS.admin),
       });
       if (!res.ok) throw new Error(`listing staff failed (${res.status})`);
       const page1 = await res.json();
-      const want = String(mobile).replace(/\D/g, '');
-      const row = (page1.content || page1.items || []).find((u) => u.mobile === want);
+      const masked = `${want.slice(0, 2)}XXXXX${want.slice(-3)}`;
+      const row = (page1.content || page1.items || []).find((u) => u.mobile === masked);
       if (!row) throw new Error(`no back-office account shown as ${want} — see fixtures/live.js`);
+      if (!scoped.has(row.id)) {
+        const stored = await fetch(`${API}/users/${row.id}/permissions`, { headers: await authHeaders(ACTORS.admin) });
+        if (!stored.ok) throw new Error(`reading ${row.id} permissions failed (${stored.status})`);
+        const access = await stored.json();
+        scoped.set(row.id, access.scoped ? access.functions : [...BASELINE_STAFF]);
+      }
       await put(row.id, atoms);
       return row.id;
     };
@@ -195,13 +214,12 @@ export const test = base.extend({
         const mobile = STAFF[String(team).toLowerCase()];
         if (!mobile) throw new Error(`no seeded staffer for team "${team}" — see fixtures/live.js`);
         const id = await scope(mobile, atoms);
-        scoped.add(id);
         return { id, mobile };
       },
     });
 
-    for (const id of scoped) {
-      await put(id, [...BASELINE_STAFF]);
+    for (const [id, functions] of scoped) {
+      await put(id, functions);
     }
   },
 });
