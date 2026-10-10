@@ -9,9 +9,8 @@ public record LocalityResponse(
         Double lng,
         boolean archived,
         long liveListings,
-        long rentListings,
-        long saleListings,
         boolean indexable,
         Long avgRent,
-        Long ratePerSqft) {
+        Long ratePerSqft,
+        Long fromPrice) {
 }

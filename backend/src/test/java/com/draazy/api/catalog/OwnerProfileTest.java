@@ -65,12 +65,12 @@ class OwnerProfileTest extends AbstractApiTest {
         User u = owner("9811000001");
         mvc.perform(get("/owners/" + u.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(u.getId().toString()))
+                .andExpect(jsonPath("$.id").doesNotExist())
                 .andExpect(jsonPath("$.name").value("Asha Patil"))
                 .andExpect(jsonPath("$.mobile").exists())
                 .andExpect(jsonPath("$.verified").exists())
                 .andExpect(jsonPath("$.listingCount").exists())
-                .andExpect(jsonPath("$.*", org.hamcrest.Matchers.hasSize(7)));
+                .andExpect(jsonPath("$.*", org.hamcrest.Matchers.hasSize(6)));
     }
 
     /** Fields named individually so a swap fails; {@code lastActive} would expose a private person's presence. */
@@ -118,7 +118,7 @@ class OwnerProfileTest extends AbstractApiTest {
                         .value(org.hamcrest.Matchers.not(justAfterMidnightIst.atZone(ZoneId.of("UTC")).getYear())));
     }
 
-    /** The stored {@code listings_count} column disagrees with what a visitor can open the moment anything is taken down. */
+    /** The stored {@code listings_count} disagrees with what a visitor can open once anything is taken down. */
     @Test
     void theListingCountCountsOnlyWhatAVisitorCanOpen() throws Exception {
         User u = owner("9811000005");

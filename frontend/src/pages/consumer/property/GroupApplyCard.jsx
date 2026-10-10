@@ -77,7 +77,7 @@ export function GroupApplyCard({ p, isIn, toast }) {
             <span className="min-w-0">
               <span className="block truncate text-xs font-semibold text-white">{g.title}</span>
               <span className="block text-[11px] text-gray-400">
-                {g.members?.length || 0}/{g.seatsTotal} members
+                {g.memberCount || 0}/{g.seatsTotal} members
               </span>
             </span>
             <span className="text-[11px] font-semibold text-brand-teal-2 whitespace-nowrap">Apply</span>

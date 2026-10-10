@@ -322,7 +322,8 @@ test.describe('LIVE: the flatmates board against the real API', () => {
   });
 
   test('a room posted through the API reaches the public board once it is moderated', async ({ page, request }) => {
-    await signedInAs(page, OWNER.mobile);
+    // A new host each time: the server caps live posts per host, and this room is never closed.
+    await signedInAsNew(page);
     const marker = `live probe ${Date.now()}`;
     const created = await page.evaluate(async (note) => {
       const svc = await import('/src/services/flatmateService.js');

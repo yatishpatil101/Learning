@@ -24,21 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
-/**
- * The D9.7 invariant: <strong>rejecting a review removes it from the page <em>and</em> from the
- * score it moved, in one write.</strong>
- *
- * <p>This is the whole reason review takedown needed no new column, and it is worth a test because
- * the failure mode is silent. If the rating aggregate ever stopped filtering on
- * {@code status = 'published'} — a one-word change in {@code ReviewRepository.aggregateFor} — a
- * defamatory review would vanish from the listing while still dragging the society's rating down,
- * and nothing in the UI would show that anything was wrong. Moderators would see the review gone,
- * consider the complaint handled, and the harm would persist under a number no one re-checks.
- *
- * <p>So the assertions deliberately bracket the takedown: the same two reads are made before and
- * after, and both must move together. Asserting only that the review disappeared from the list
- * would pass against exactly the bug this exists to catch.
- */
+/** Rejecting a review must remove it from the page and from the score in one write: if the aggregate stopped
+ * filtering on status = 'published', a removed review would silently keep dragging the rating down. */
 @DisplayName("Review takedown — the page and the score move together")
 class ReviewTakedownTest extends AbstractApiTest {
 
@@ -94,7 +81,7 @@ class ReviewTakedownTest extends AbstractApiTest {
         mvc.perform(get("/reviews/society/" + SOCIETY_SLUG))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2));
-        mvc.perform(get("/societies/" + SOCIETY_SLUG))
+        mvc.perform(get("/societies/" + SOCIETY_SLUG + "/brief"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reviewCount").value(2))
                 .andExpect(jsonPath("$.avgRating").value(3.0));
@@ -109,7 +96,7 @@ class ReviewTakedownTest extends AbstractApiTest {
         mvc.perform(get("/reviews/society/" + SOCIETY_SLUG))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1));
-        mvc.perform(get("/societies/" + SOCIETY_SLUG))
+        mvc.perform(get("/societies/" + SOCIETY_SLUG + "/brief"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reviewCount").value(1))
                 .andExpect(jsonPath("$.avgRating").value(5.0));

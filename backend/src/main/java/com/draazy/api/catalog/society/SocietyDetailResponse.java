@@ -1,14 +1,10 @@
 package com.draazy.api.catalog.society;
 
-import com.draazy.api.catalog.property.PropertySummary;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
-/** The spec composes this with {@code allOf}, so base fields are repeated; {@code reviews} stays empty because they are
- * served paged from {@code GET /reviews/society/{slug}}. */
+/** Hub: specs, newest homes and live-listing stats over the whole merge family; ratings come from reviews. */
 public record SocietyDetailResponse(
-        UUID id,
         String slug,
         String name,
         String builder,
@@ -29,17 +25,11 @@ public record SocietyDetailResponse(
         String petPolicy,
         String vegPolicy,
         String rera,
-        boolean registration,
-        boolean conveyance,
         List<String> amenities,
-        String source,
-        String mintOrigin,
         long listingCount,
-        long followerCount,
-        boolean followedByMe,
-        BigDecimal avgRating,
-        long reviewCount,
-        java.time.Instant createdAt,
-        List<PropertySummary> homes,
-        List<Object> reviews) {
+        long forSale,
+        long forRent,
+        Long psf,
+        Long rentAvg,
+        List<SocietyHome> homes) {
 }

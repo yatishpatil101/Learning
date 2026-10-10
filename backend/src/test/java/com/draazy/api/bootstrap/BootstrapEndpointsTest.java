@@ -57,17 +57,13 @@ class BootstrapEndpointsTest extends AbstractApiTest {
 
         assertThat(shell.get("me")).isEqualTo(read(Routes.Auth.ME, token));
         assertThat(shell.get("subscription")).isEqualTo(read(Routes.Plans.SUBSCRIPTION, token));
-        assertThat(shell.get("identity")).isEqualTo(read(Routes.Verification.IDENTITY, token));
-        assertThat(shell.get("saved"))
-                .isEqualTo(read(Routes.Engagement.SAVED + "?page=0&size=500", token));
-        assertThat(shell.get("savedSearches"))
-                .isEqualTo(read(Routes.Engagement.SAVED_SEARCHES, token));
-        assertThat(shell.get("following"))
-                .isEqualTo(read(Routes.Engagement.SOCIETIES_FOLLOWING + "?page=0&size=500", token));
+        assertThat(shell.get("saved")).isEqualTo(read(Routes.Engagement.SAVED_KEYS, token));
         assertThat(shell.get("notificationsUnread"))
                 .isEqualTo(read(Routes.Engagement.NOTIFICATIONS_UNREAD_COUNT, token));
         assertThat(shell.get("messagesUnread"))
                 .isEqualTo(read(Routes.Conversations.UNREAD_COUNT, token));
+        assertThat(shell.properties()).extracting(java.util.Map.Entry::getKey).containsExactly(
+                "me", "subscription", "saved", "notificationsUnread", "messagesUnread");
     }
 
     private JsonNode read(String uri, String token) throws Exception {

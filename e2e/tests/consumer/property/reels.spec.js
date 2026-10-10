@@ -1,7 +1,7 @@
 import { test, expect } from '../../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
 
-/* Reels against the live catalogue, behind two gates: `isResidentialHome` and `photoCount >= 3`. Saves are checked
+/* Reels against the live catalogue, behind two gates: residential type and at least three photos. Saves are checked
    via the API (`PUT /me/saved/{uuid}`); like is session-only, so only `aria-pressed` is asserted. */
 
 /* An approved Plot with six photos: clears the photo gate, so only the type gate keeps it out. Named, not
@@ -20,9 +20,17 @@ async function catalogue() {
 }
 
 const refOf = (p) => p.slug || p.id;
-const eligibleIn = (rows) => rows.filter(
-  (p) => RESIDENTIAL.test(p.propertyType || '') && (p.imageCount ?? 0) >= MIN_PHOTOS,
-);
+
+/* Cards carry no photo count, so each row's gallery is read off its own detail page. */
+async function withPhotoCounts(rows) {
+  const details = await Promise.all(rows.map((p) => fetch(`${API}/properties/${p.id}`).then((r) => r.json())));
+  return rows.map((p, i) => ({ ...p, photoCount: details[i].images?.length ?? 0 }));
+}
+
+async function eligibleIn(rows) {
+  const homes = await withPhotoCounts(rows.filter((p) => RESIDENTIAL.test(p.propertyType || '')));
+  return homes.filter((p) => p.photoCount >= MIN_PHOTOS);
+}
 
 /* Cookie consent, seeded before boot so the global bottom banner never overlaps the bottom-of-reel
    CTAs. Same reason the legal-pages and mobile-inbox specs do it. */
@@ -46,10 +54,11 @@ test('the feed is residential homes only — and a plot with six photos proves t
   const rows = await catalogue();
 
   /* Assert first that the adversary exists and clears the photo gate, not just that it's absent from the feed. */
-  const plot = rows.find((p) => refOf(p) === PLOT_WITH_PHOTOS);
-  expect(plot, `${PLOT_WITH_PHOTOS} is not in the approved catalogue any more`).toBeTruthy();
+  const listed = rows.find((p) => refOf(p) === PLOT_WITH_PHOTOS);
+  expect(listed, `${PLOT_WITH_PHOTOS} is not in the approved catalogue any more`).toBeTruthy();
+  const [plot] = await withPhotoCounts([listed]);
   expect(plot.propertyType, 'the adversary stopped being non-residential').not.toMatch(RESIDENTIAL);
-  expect(plot.imageCount, 'the adversary no longer clears the photo gate, so it proves nothing')
+  expect(plot.photoCount, 'the adversary no longer clears the photo gate, so it proves nothing')
     .toBeGreaterThanOrEqual(MIN_PHOTOS);
 
   await openFeed(page);
@@ -61,13 +70,13 @@ test('the feed is residential homes only — and a plot with six photos proves t
 
   // The positive half. Every id the feed shows is a residential home in the catalogue — checked
   // against the API's own answer for that row, not against a fixture file read from inside the page.
-  const byRef = new Map(rows.map((p) => [refOf(p), p]));
+  const byRef = new Map((await withPhotoCounts(rows.filter((p) => shown.includes(refOf(p))))).map((p) => [refOf(p), p]));
   for (const ref of shown) {
     const row = byRef.get(ref);
     expect(row, `the feed showed ${ref}, which the catalogue does not list`).toBeTruthy();
     expect(row.propertyType, `every reel must be a residential home, got "${row.propertyType}"`)
       .toMatch(RESIDENTIAL);
-    expect(row.imageCount, `${ref} is a reel with only ${row.imageCount} photos`)
+    expect(row.photoCount, `${ref} is a reel with only ${row.photoCount} photos`)
       .toBeGreaterThanOrEqual(MIN_PHOTOS);
   }
 
@@ -76,13 +85,13 @@ test('the feed is residential homes only — and a plot with six photos proves t
 });
 
 test('the feed is the catalogue, not a curated list — every qualifying home is offered', async ({ page }) => {
-  /* Guards over-filtering, which the homes-only test can't. Count comparison since the feed caps at FEED_MAX=24;
+  /* Guards over-filtering, which the homes-only test can't. The server caps the feed at 24;
      relax to min(eligible, 24) if the seeded catalogue outgrows the cap. */
   const rows = await catalogue();
-  const eligible = eligibleIn(rows);
+  const eligible = await eligibleIn(rows);
   expect(eligible.length, 'no listing qualifies for a reel, so the feed proves nothing')
     .toBeGreaterThan(0);
-  expect(eligible.length, 'the catalogue outgrew FEED_MAX; this assertion needs the cap applied')
+  expect(eligible.length, 'the catalogue outgrew the 24-reel cap; this assertion needs the cap applied')
     .toBeLessThanOrEqual(24);
 
   await openFeed(page);
@@ -119,7 +128,7 @@ test('loads with no console errors and core chrome present, and the contact link
 test('both intent filters narrow the feed to their own deal', async ({ page }) => {
   /* Both directions against the catalogue's own answer: a filter that emptied the feed would otherwise pass. */
   const rows = await catalogue();
-  const eligible = eligibleIn(rows);
+  const eligible = await eligibleIn(rows);
   const expected = {
     buy: eligible.filter((p) => p.deal === 'buy').map(refOf).sort(),
     rent: eligible.filter((p) => p.deal === 'rent').map(refOf).sort(),

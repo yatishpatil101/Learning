@@ -162,17 +162,16 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.sort").value("name,asc"))
                 .andExpect(jsonPath("$.content[0].name").value(firstByName))
-                .andExpect(jsonPath("$.content[0].source").isString())
+                .andExpect(jsonPath("$.content[0].source").doesNotExist())
                 .andExpect(jsonPath("$.content[0].claimStatus").doesNotExist())
                 .andExpect(jsonPath("$.content[0].verifiedAt").doesNotExist());
     }
 
     @Test
     void societySecurityIsDescriptiveText() throws Exception {
-        mvc.perform(get("/societies?q=Amanora"))
+        mvc.perform(get("/societies/amanora-park-hadapsar"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].security").value("3-tier + CCTV"));
+                .andExpect(jsonPath("$.security").value("3-tier + CCTV"));
     }
 
     @Test
@@ -227,16 +226,50 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.listingCount").value(1))
                 .andExpect(jsonPath("$.homes.length()").value(1))
                 .andExpect(jsonPath("$.homes[0].title").value("Live in Amanora"))
-                .andExpect(jsonPath("$.homes[0].status").value("approved"));
+                .andExpect(jsonPath("$.homes[0].status").doesNotExist());
+    }
+
+    /** The hub's tab counts and averages are server aggregates, so it never needs the whole home list. */
+    @Test
+    void societyDetailAggregatesItsLiveHomesAndCarriesNoProvenance() throws Exception {
+        User o = owner("9850000004");
+        UUID amanora = societyId("amanora-park-hadapsar");
+        listing(o, "Rent one", "hadapsar", amanora, "approved");
+        listing(o, "Rent two", "hadapsar", amanora, "approved");
+        Property sale = new Property(o, "Sale one", "buy", "apartment", 9_000_000L, "Hadapsar", "Pune");
+        sale.setArea(new BigDecimal("1000"));
+        sale.setLocalitySlug("hadapsar");
+        sale.setSocietyId(amanora);
+        sale.setStatus("approved");
+        properties.saveAndFlush(sale);
+
+        mvc.perform(get("/societies/amanora-park-hadapsar"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.listingCount").value(3))
+                .andExpect(jsonPath("$.forRent").value(2))
+                .andExpect(jsonPath("$.forSale").value(1))
+                .andExpect(jsonPath("$.rentAvg").value(25000))
+                .andExpect(jsonPath("$.psf").value(9000))
+                .andExpect(jsonPath("$.id").doesNotExist())
+                .andExpect(jsonPath("$.source").doesNotExist())
+                .andExpect(jsonPath("$.mintOrigin").doesNotExist())
+                .andExpect(jsonPath("$.createdAt").doesNotExist())
+                .andExpect(jsonPath("$.registration").doesNotExist())
+                .andExpect(jsonPath("$.reviews").doesNotExist())
+                .andExpect(jsonPath("$.followerCount").doesNotExist());
     }
 
     @Test
-    void societyDetailReportsNoReviewsRatherThanAZeroRating() throws Exception {
-        mvc.perform(get("/societies/amanora-park-hadapsar"))
+    void societyBriefReportsNoReviewsRatherThanAZeroRating() throws Exception {
+        mvc.perform(get("/societies/amanora-park-hadapsar/brief"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reviews").isEmpty())
+                .andExpect(jsonPath("$.slug").value("amanora-park-hadapsar"))
+                .andExpect(jsonPath("$.name").isNotEmpty())
                 .andExpect(jsonPath("$.reviewCount").value(0))
-                .andExpect(jsonPath("$.avgRating").doesNotExist());
+                .andExpect(jsonPath("$.avgRating").doesNotExist())
+                .andExpect(jsonPath("$.amenities").doesNotExist());
+        mvc.perform(get("/societies/no-such-society/brief"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -246,10 +279,10 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("not_found"));
     }
 
-    /** The slug, not {@code society_id}: every society route takes a slug. Asserted on the summary
-     *  too, since a field appearing only after the click cannot drive a filter or a count. */
+    /** The slug, not {@code society_id}: every society route takes a slug. The card leaves it out:
+     *  the society filter runs server-side and the hero search counts from the search index. */
     @Test
-    void aBoundListingCarriesItsSocietySlugOnTheCardAndOnDetail() throws Exception {
+    void aBoundListingCarriesItsSocietySlugOnDetailOnly() throws Exception {
         User o = owner("9850000021");
         Property p = listing(o, "Bound to Amanora", "hadapsar",
                 societyId("amanora-park-hadapsar"), "approved");
@@ -262,7 +295,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/properties").param("q", "Bound to Amanora"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].societySlug").value("amanora-park-hadapsar"));
+                .andExpect(jsonPath("$.content[0].societySlug").doesNotExist());
     }
 
     @Test
@@ -316,39 +349,24 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
+    /** Following is served by {@code /me/societies/following}; public reads stay caller-independent. */
     @Test
-    void followedByMeReflectsTheCallerAndDefaultsToFalseWhenAnonymous() throws Exception {
+    void societyReadsCarryNoFollowerState() throws Exception {
         User follower = owner("9850000002");
-        UUID amanora = societyId("amanora-park-hadapsar");
-        jdbc.update("insert into society_follows (user_id, society_id) values (?, ?)",
-                follower.getId(), amanora);
-
-        mvc.perform(get("/societies/amanora-park-hadapsar"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.followedByMe").value(false))
-                .andExpect(jsonPath("$.followerCount").value(1));
-
-        mvc.perform(get("/societies/amanora-park-hadapsar")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(follower)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.followedByMe").value(true))
-                .andExpect(jsonPath("$.followerCount").value(1));
-    }
-
-    @Test
-    void followedByMeIsResolvedForAWholePageOfSocieties() throws Exception {
-        User follower = owner("9850000003");
         jdbc.update("insert into society_follows (user_id, society_id) values (?, ?)",
                 follower.getId(), societyId("aditya-shagun-kothrud"));
 
+        mvc.perform(get("/societies/aditya-shagun-kothrud")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(follower)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.followedByMe").doesNotExist())
+                .andExpect(jsonPath("$.followerCount").doesNotExist());
         mvc.perform(get("/societies?sort=name,asc")
                         .header(HttpHeaders.AUTHORIZATION, bearer(follower)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].slug").value("aditya-shagun-kothrud"))
-                .andExpect(jsonPath("$.content[0].followedByMe").value(true))
-                .andExpect(jsonPath("$.content[0].followerCount").value(1))
-                .andExpect(jsonPath("$.content[1].followedByMe").value(false));
-    /** The contract offers no sort here, but Spring binds one anyway and would hand an unknown
-     *  property to Spring Data — a 500 any anonymous caller could trigger by guessing. */
+                .andExpect(jsonPath("$.content[0].followedByMe").doesNotExist())
+                .andExpect(jsonPath("$.content[0].source").doesNotExist())
+                .andExpect(jsonPath("$.content[0].createdAt").doesNotExist());
     }
 }

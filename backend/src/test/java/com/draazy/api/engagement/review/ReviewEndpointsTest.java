@@ -351,7 +351,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
 
         // Unrated: absent, not zero. A card that renders 0.0 for an unreviewed society is stating
         // something false about it, so the aggregate has to be able to say "no opinion yet".
-        mvc.perform(hub ? get("/societies/" + slug) : get("/societies").param("q", name))
+        mvc.perform(hub ? get("/societies/" + slug + "/brief") : get("/societies").param("q", name))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(root + ".reviewCount").value(0))
                 .andExpect(jsonPath(root + ".avgRating").doesNotExist());
@@ -364,7 +364,7 @@ class ReviewEndpointsTest extends AbstractApiTest {
         jdbc.update("insert into reviews (target_type, target_id, rating, status) "
                 + "values ('society', ?, 1, 'rejected')", id);
 
-        mvc.perform(hub ? get("/societies/" + slug) : get("/societies").param("q", name))
+        mvc.perform(hub ? get("/societies/" + slug + "/brief") : get("/societies").param("q", name))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(root + ".reviewCount").value(2))
                 .andExpect(jsonPath(root + ".avgRating").value(4.5));

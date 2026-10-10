@@ -1,5 +1,5 @@
-/** HTTP plan provider: the public `plans` catalogue plus caller-scoped subscription calls. `listPlans` does not short-circuit without a session,
- * because the pricing page must render for the signed-out visitors it exists to convert. */
+/** `listPlans` does not short-circuit without a session, because the pricing page
+ * must render for the signed-out visitors it exists to convert. */
 import { get, post } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import { bootstrapSection } from './bootstrap.js';
@@ -11,15 +11,15 @@ export async function listPlans() {
   return (Array.isArray(rows) ? rows : []).map(toPlanCatalogueEntry);
 }
 
-/** The caller's plan resolved against the catalogue: the subscription carries a plan UUID, so both are fetched together; a signed-out caller gets the free tier locally
- * because the endpoint could only answer 401. */
+/** The subscription carries a plan UUID, so both are fetched together; a signed-out caller
+ * gets the free tier locally because the endpoint could only answer 401. */
 export async function getSubscription() {
   if (!readAccessToken()) return toPlanViewModel(null, []);
   const [row, plans] = await Promise.all([
     get('/me/subscription'),
     listPlans(),
   ]);
-  return toPlanViewModel(row, plans.map((p) => ({ id: p.id, name: p.name })));
+  return toPlanViewModel(row, plans);
 }
 
 /** Does not grant the plan: a priced plan stays `pending` until the signature-verified webhook activates it.
@@ -36,5 +36,5 @@ export async function subscribe(slug, paymentMethod = 'upi') {
   const row = await post('/me/subscription', { planId: plan.id, paymentMethod }, {
     headers: { 'Idempotency-Key': `sub:${plan.id}` },
   });
-  return toPlanViewModel(row, plans.map((p) => ({ id: p.id, name: p.name })));
+  return toPlanViewModel(row, plans);
 }

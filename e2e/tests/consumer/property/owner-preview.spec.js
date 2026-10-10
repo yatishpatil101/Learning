@@ -47,7 +47,9 @@ async function postListing(headers, fields) {
   });
   expect(res.status, 'POST /me/listings').toBe(201);
   created.add(res.body.id);
-  return res.body;
+  const stored = await api('GET', `/me/listings/${res.body.id}`, headers);
+  expect(stored.status, 'GET /me/listings/{id}').toBe(200);
+  return stored.body;
 }
 
 test.afterEach(async ({ request }) => {

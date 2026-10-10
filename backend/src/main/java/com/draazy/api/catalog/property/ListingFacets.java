@@ -61,6 +61,13 @@ public record ListingFacets(
             null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null);
 
+    public static ListingFacets ofIds(List<String> ids) {
+        return new ListingFacets(
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, ids, null);
+    }
+
     /** Widest-first, or empty when unfiltered; kept here so the cumulative rule sits next to the field. */
     public List<String> availableFromBuckets() {
         if (availableFrom == null || availableFrom.isBlank()) {

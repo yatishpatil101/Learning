@@ -18,9 +18,11 @@ public class PhotoService {
     private static final Logger log = LoggerFactory.getLogger(PhotoService.class);
 
     private final FileStorage storage;
+    private final PhotoKeys keys;
 
-    public PhotoService(FileStorage storage) {
+    public PhotoService(FileStorage storage, PhotoKeys keys) {
         this.storage = storage;
+        this.keys = keys;
     }
 
     public PhotoDto upload(UUID ownerId, MultipartFile file) {
@@ -34,7 +36,7 @@ public class PhotoService {
         bytes = ImageMetadataStripper.strip(type, bytes);
         PhotoUploads.validate(type, bytes.length, bytes);
 
-        String key = "photos/" + ownerId + "/" + UUID.randomUUID();
+        String key = keys.newKey(ownerId);
         Long hash = PhotoHash.compute(bytes);
         if (hash != null) {
             key += "-" + PhotoHash.toHex(hash);

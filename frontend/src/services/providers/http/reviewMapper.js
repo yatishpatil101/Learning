@@ -89,6 +89,7 @@ export function toModerationViewModelPage(res, fallback = {}) {
     total: res?.totalElements ?? rows.length,
     page: res?.page ?? res?.number ?? fallback.page ?? 0,
     size: res?.size ?? fallback.size ?? rows.length,
+    counts: res?.counts || null,
   };
 }
 

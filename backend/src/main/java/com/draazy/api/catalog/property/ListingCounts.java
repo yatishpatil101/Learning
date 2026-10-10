@@ -1,6 +1,7 @@
 package com.draazy.api.catalog.property;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -19,19 +20,17 @@ public class ListingCounts {
     }
 
     @Transactional(readOnly = true)
-    public Map<UUID, Long> bySocietyId() {
-        return toMap(properties.countLiveBySocietyId(PropertyStatus.APPROVED), k -> (UUID) k);
+    public Map<UUID, Long> bySocietyIds(Collection<UUID> societyIds) {
+        if (societyIds.isEmpty()) {
+            return Map.of();
+        }
+        return toMap(properties.countLiveBySocietyId(PropertyStatus.APPROVED, societyIds), k -> (UUID) k);
     }
 
     /** City names are free text, so both query and callers lower-case before matching. */
     @Transactional(readOnly = true)
     public Map<String, Long> byCity() {
         return toMap(properties.countLiveByCity(PropertyStatus.APPROVED), k -> (String) k);
-    }
-
-    @Transactional(readOnly = true)
-    public long forSocietyId(UUID societyId) {
-        return properties.countBySocietyIdAndStatusAndArchivedFalse(societyId, PropertyStatus.APPROVED);
     }
 
     /** Lives here because "live" means approved and unarchived in the catalogue. */

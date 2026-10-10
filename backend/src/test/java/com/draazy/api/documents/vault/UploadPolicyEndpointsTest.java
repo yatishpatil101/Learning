@@ -86,7 +86,7 @@ class UploadPolicyEndpointsTest {
                 mock(BadgeEvidenceLookup.class), mock(AuditService.class));
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new AuthPrincipal(OWNER, "owner", null, true, false), null, List.of()));
-        mvc = MockMvcBuilders.standaloneSetup(new MePhotosController(new PhotoService(storage)),
+        mvc = MockMvcBuilders.standaloneSetup(new MePhotosController(new PhotoService(storage, new com.draazy.api.catalog.photo.PhotoKeys("test-secret"))),
                         new MeDocumentsController(service))
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler())

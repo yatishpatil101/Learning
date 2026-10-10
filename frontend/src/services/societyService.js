@@ -4,7 +4,7 @@ import { isBlacklisted } from '../lib/geoConfig.js';
 
 const provider = createProvider('society');
 
-/** Ranked type-ahead over the catalogue (at most 20 rows): locality match, then alphabetical, so a caller cannot rank differently per mode. */
+/** Ranked type-ahead (max 20 rows): locality match, then alphabetical, so callers cannot rank per mode. */
 export const searchSocieties = async (query, localityLabel = '') => {
   const rows = await (await provider()).searchSocieties(query, localityLabel);
   const locSlug = localityLabel ? localityLabel.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : '';
@@ -17,23 +17,22 @@ export const searchSocieties = async (query, localityLabel = '') => {
     .slice(0, 20);
 };
 
-/** `total` counts the whole filtered set, not this page; the console's "Societies" tile reads it. */
 export const listSocietyDirectory = async (opts) => (await provider()).listSocietyDirectory(opts);
 
 /** `null` means only "no such society"; other failures throw, since "missing" and "unreachable" differ. */
 export const getSociety = async (slug) => (await provider()).getSociety(slug);
 
-/** One page of the directory, filtered and ordered by the server; rows plus a slug-keyed rating index so unrated `null` stays distinct from zero. */
+/** Name, specs and `rating` for a listing page or a search chip; `null` when no such society. */
+export const getSocietyBrief = async (slug) => (await provider()).getSocietyBrief(slug);
+
+/** Rows plus a slug-keyed rating index, so an unrated `null` stays distinct from a zero rating. */
 export const listSocietiesPage = async (opts) => (await provider()).listSocietiesPage(opts);
 
-/** Listing-bearing societies for the strongest-first rail; rows carry the server's `listingCount` and omit ratings, which this rail does not render. */
-export const listSocietiesWithListings = async () => (await provider()).listSocietiesWithListings();
+/** The home rail's eight society cards, ranked by the server. */
+export const topSocieties = async () => (await provider()).topSocieties();
 
-/** The slugs of the societies the caller follows, newest first. Empty when signed out. */
+/** The caller's follows, newest first, as `{slug, name, localitySlug, listingCount}`. */
 export const listFollowedSocieties = async () => (await provider()).listFollowedSocieties();
-
-/** A slug this reader cannot resolve is absent rather than a stub, so `length` may differ from the follow list. */
-export const listFollowedSocietyRows = async () => (await provider()).listFollowedSocietyRows();
 
 /** Throws 404 for a society minted only in this browser, which is why `FollowContext` keeps those local. */
 export const followSociety = async (slug) => (await provider()).followSociety(slug);
@@ -41,33 +40,31 @@ export const followSociety = async (slug) => (await provider()).followSociety(sl
 /** Unfollow one society. Idempotent: unfollowing one not followed is not an error. */
 export const unfollowSociety = async (slug) => (await provider()).unfollowSociety(slug);
 
-/** Looks a Google place up before minting: `society` is the row already bound to that Place ID, else `candidates` are up to three nearby rows. Public. */
+/** Public; `society` is the row already bound to the Place ID, else `candidates` are up to three nearby rows. */
 export const resolveSociety = async ({ placeId, name, lat, lng }) =>
   (await provider()).resolveSociety({ placeId, name, lat, lng });
 
-/** Adds the society behind a Google Place ID (auth required); `created` is false when the place already had a row, which is not an error. */
+/** Auth required; `created` is false when the place already had a row, which is not an error. */
 export const mintSociety = async (body) => {
   if (!body?.placeId) throw new Error('mintSociety needs a Google placeId');
   return (await provider()).mintSociety(body);
 };
 
-/** Member-added societies, newest first, up to one server page — the counterpart of the mint. */
 export const listSocietyCandidates = async (opts) => (await provider()).listSocietyCandidates(opts);
 
-/** Societies a queued candidate may duplicate, strongest first: a hint, never an action, drawn from the catalogue so candidate-on-candidate duplicates are reported. */
+/** A hint, never an action; drawn from the catalogue so candidate-on-candidate duplicates are reported. */
 export const listSocietyCandidateDuplicates = async (slug, opts) =>
   (await provider()).listSocietyCandidateDuplicates(slug, opts);
 
 /** Pending-work counts for the society desk's tab badges. */
 export const getSocietiesSummary = async () => (await provider()).getSocietiesSummary();
 
-/** Society merges currently in force, newest first, as a record of decisions where the latest is the interesting one. */
 export const listSocietyMerges = async (opts) => (await provider()).listSocietyMerges(opts);
 
-/** A merge is a pointer, not a move: the duplicate keeps its data and reads union it onto the survivor, so it is undoable. */
+/** A merge is a pointer, not a move: reads union the duplicate onto the survivor, so it is undoable. */
 export const mergeSocieties = async (from, into) => (await provider()).mergeSocieties(from, into);
 
-/** Undoes a merge, addressed by the society that was merged away, since a survivor can have absorbed several duplicates. */
+/** Addressed by the merged-away society, since one survivor can have absorbed several duplicates. */
 export const undoSocietyMerge = async (slug) => (await provider()).undoSocietyMerge(slug);
 
 /** `adminNote` is kept off the public payload because it is moderator prose about a named building. */

@@ -1,18 +1,13 @@
 // `GET /societies` carries `avgRating`/`reviewCount`/`listingCount` per row, so a directory page
 // needs no second read for its ratings or home counts.
 import { del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
-import { MAX_PAGE_SIZE } from '../../apiLimits.js';
-import { toRatingIndex, toSociety } from './societyMapper.js';
-
-// The badge half of "strongest" is not a sortable column, so the server can only narrow the
-// population. Pinned to the page ceiling, not a second literal.
-const LISTED_CANDIDATES = MAX_PAGE_SIZE;
+import { toRatingIndex, toSociety, toSocietyBrief } from './societyMapper.js';
 
 // One page, read whole: the answer feeds a membership check, so an unread second page is not a
 // shorter list but societies the directory draws as unfollowed.
 const FOLLOW_PAGE_SIZE = 500;
 
-// One server page of the directory, filtered and ordered there; ratings are a slug-keyed index so an unrated `null` stays distinct from zero.
+// One server page of the directory; ratings are a slug-keyed index so an unrated `null` stays distinct from zero.
 // `total` is the whole filtered set, not this page.
 export async function listSocietiesPage({
   q = '', locality = '', sort = 'relevance', page = 0, size = 24,
@@ -32,23 +27,7 @@ export async function listSocietiesPage({
   };
 }
 
-// Each row carries `listingCount`. Ratings are omitted because the rail does not render them.
-export async function listSocietiesWithListings() {
-  const res = await get('/societies', { hasListings: true, page: 0, size: LISTED_CANDIDATES });
-  const total = Number(res?.totalElements) || 0;
-  if (total > LISTED_CANDIDATES) {
-    console.warn(
-      `[society] ${total} societies have live listings; ranking within the first ${LISTED_CANDIDATES}. `
-      + 'Raise LISTED_CANDIDATES or the rail is ordering a slice of the catalogue, not the catalogue.',
-    );
-  }
-  const rows = [];
-  for (const row of Array.isArray(res?.content) ? res.content : []) {
-    const soc = toSociety(row);
-    if (soc) rows.push(soc);
-  }
-  return { rows };
-}
+export const topSocieties = () => get('/societies/top', null, { auth: false });
 
 const SEARCH_CANDIDATES = 20;
 
@@ -74,14 +53,18 @@ export async function getSociety(slug) {
   }
 }
 
-// The back office reads the public `GET /societies` on purpose, and takes no `sort`.
-export async function listSocietyDirectory({ q = '', locality = '', page = 0, size = 20 } = {}) {
-  const res = await get('/societies', {
-    q: q || undefined,
-    locality: locality || undefined,
-    page,
-    size,
-  });
+export async function getSocietyBrief(slug) {
+  try {
+    return toSocietyBrief(await get(`/societies/${encodeURIComponent(slug)}/brief`));
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+// Staff with `societies:read`: slim table rows, not the public card.
+export async function listSocietyDirectory({ q = '', page = 0, size = 20 } = {}) {
+  const res = await get('/admin/societies', { q: q || undefined, page, size });
   return unwrapPage(res, { page, size });
 }
 
@@ -89,14 +72,7 @@ export async function listSocietyDirectory({ q = '', locality = '', page = 0, si
 // Slugless rows are dropped, or one membership check answers true for every unnamed society.
 export async function listFollowedSocieties() {
   const res = await get('/me/societies/following', { page: 0, size: FOLLOW_PAGE_SIZE });
-  return unwrapFullPage(res, 'society').map((row) => row?.slug).filter(Boolean);
-}
-
-// Separate from `listFollowedSocieties` because the app-wide follow context only needs a `Set` of
-// slugs, not up to 500 full records.
-export async function listFollowedSocietyRows() {
-  const res = await get('/me/societies/following', { page: 0, size: FOLLOW_PAGE_SIZE });
-  return unwrapFullPage(res, 'society').map(toSociety).filter(Boolean);
+  return unwrapFullPage(res, 'society').filter((row) => row?.slug);
 }
 
 /** Idempotent follow — 204 whether or not the row existed. 404 when the slug is unknown. */
@@ -134,10 +110,10 @@ export async function mintSociety({
   return { society: toSociety(data), created: status === 201 };
 }
 
-/** Staff with `societies:read`. */
-export async function listSocietyCandidates({ page, size = MAX_PAGE_SIZE } = {}) {
-  const res = await get('/admin/society-candidates', { page, size });
-  return unwrapFullPage(res, 'society candidates');
+/** Staff with `societies:read`. One server page: `{ items, total, ... }`, searched by `q` on name and locality. */
+export async function listSocietyCandidates({ q = '', page = 0, size = 10 } = {}) {
+  const res = await get('/admin/society-candidates', { q: q || undefined, page, size });
+  return unwrapPage(res, { page, size });
 }
 
 // A plain array, because the endpoint answers a handful by construction. One request per candidate

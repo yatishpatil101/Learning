@@ -1,6 +1,6 @@
 // @ts-check
-/** The hub opens a society as the row the API holds, never a slug-built stub; the breadcrumb locality link discriminates
- * (stub: `/locality/<society slug>`, real row: its locality). */
+/** The hub opens a society as the row the API holds, never a slug-built stub; the breadcrumb locality link
+ * discriminates (stub: /locality/<society slug>, real row: its locality). */
 import { expect, test } from '../../../fixtures/live.js';
 import { API, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { mintSociety } from '../../../helpers/liveSociety.js';
@@ -31,7 +31,7 @@ test('a seeded society opens as itself, not as a stub', async ({ page, request }
 
   /* A slug-built stub puts the society slug in `localitySlug`, linking to a locality page for a building. */
   const crumb = page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: /./ });
-  await expect(crumb.nth(1)).toHaveAttribute('href', `/locality/${row.localitySlug}`);
+  await expect(crumb.nth(2)).toHaveAttribute('href', `/locality/${row.localitySlug}`);
 
 });
 
@@ -48,9 +48,9 @@ test('a society minted during this run opens as itself', async ({ page, request 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(row.name);
 
   const crumb = page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: /./ });
-  await expect(crumb.nth(1)).toHaveAttribute('href', `/locality/${row.localitySlug}`);
+  await expect(crumb.nth(2)).toHaveAttribute('href', `/locality/${row.localitySlug}`);
   // Not the fallback's idea of a locality, which is the society itself.
-  await expect(crumb.nth(1)).not.toHaveAttribute('href', `/locality/${slug}`);
+  await expect(crumb.nth(2)).not.toHaveAttribute('href', `/locality/${slug}`);
 
   await expect(page.getByText('Society Verified')).toHaveCount(0);
 });

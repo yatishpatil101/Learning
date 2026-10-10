@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { isLandType } from './constants.js';
 import { reverseGeocode, forwardGeocode, fetchLocalitySuggestions, fetchPlaceDetails, newAutocompleteSession } from './geocode.js';
-import { getSociety } from '../../../services/societyService.js';
 import { resolveLocality, searchLocalities } from '../../../services/localityService.js';
 
 const AUTOFILL_FIELDS = ['pincode', 'street', 'locality'];
@@ -55,9 +54,6 @@ const activeLocality = async (name, slug) => {
     return null;
   }
 };
-
-const societyPincode = (society) =>
-  society.pincode || society.pinCode || society.postalCode || '';
 
 export default function useListingLocation({ setForm, formRef, errors, setErrors }) {
   const [mapSearch, setMapSearch] = useState('');
@@ -184,7 +180,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   };
   // Placement rides the form so a restored draft and an edit prefill both carry it.
   const placePin = (lat, lng, source) => {
-    if (source === 'manual' || source === 'society') currentLocationSeqRef.current += 1;
+    if (source !== 'current') currentLocationSeqRef.current += 1;
     pinSourceRef.current = source;
     setForm((prev) => ({ ...prev, propLat: lat, propLng: lng, pinPlaced: true }));
     if (errors.location) setErrors((prev) => { const n = { ...prev }; delete n.location; return n; });
@@ -277,7 +273,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
       explicitFields.society = String(society.name).slice(0, 60);
       filled.push(SOCIETY_FILL_LABELS.society);
     }
-    fill('pincode', societyPincode(society));
+    fill('pincode', society.pincode);
     if (society.year) {
       const age = ageBucketFromYear(society.year);
       if (age) fill('age', age);
@@ -309,7 +305,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     followSocietyLocality(society, lat, lng, seq);
   };
 
-  const onSocietyPick = async (picked) => {
+  const onSocietyPick = (picked) => {
     const seq = societyPickSeqRef.current + 1;
     societyPickSeqRef.current = seq;
     if (!picked || picked.notOnMaps) {
@@ -320,15 +316,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
       if (picked) clearErrors(['society']);
       return;
     }
-    let society = picked;
-    if (picked.slug && (picked.year == null || !picked.rera)) {
-      try {
-        const full = await getSociety(picked.slug);
-        const known = Object.fromEntries(Object.entries(full || {}).filter(([, v]) => v != null && v !== ''));
-        if (full && societyPickSeqRef.current === seq) society = { ...picked, ...known };
-      } catch {}
-    }
-    if (societyPickSeqRef.current === seq) applySocietyPick(society, seq);
+    applySocietyPick(picked, seq);
   };
 
   const canUseCurrentLocation = typeof window !== 'undefined'
@@ -344,9 +332,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     setCurrentLocationStatus('locating');
     const seq = currentLocationSeqRef.current + 1;
     currentLocationSeqRef.current = seq;
-    const pinSourceAtRequest = pinSourceRef.current;
-    const isCurrentRequestStale = () => currentLocationSeqRef.current !== seq
-      || (pinSourceRef.current !== pinSourceAtRequest && (pinSourceRef.current === 'manual' || pinSourceRef.current === 'society'));
+    const isCurrentRequestStale = () => currentLocationSeqRef.current !== seq;
     navigator.geolocation.getCurrentPosition(async ({ coords }) => {
       if (isCurrentRequestStale()) return;
       const lat = coords.latitude;

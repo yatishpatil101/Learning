@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Full listing detail; the entity↔wire boundary for the detail path. The owner's mobile is always
  * emitted masked by {@code PropertyMapper.toOwner}, never by the client. */
@@ -113,7 +114,7 @@ public record PropertyResponse(
         String electricityMeterNo,
         int views,
         int enquiries,
-        boolean featured,
+        Boolean featured,
 
         /** Why a moderator took this listing down — back office only, withheld from the owner too.
          * Rationale: docs/system/cross-cutting.md#private-listing-fields-on-the-detail-response. */
@@ -121,7 +122,7 @@ public record PropertyResponse(
 
         /** Is a stays-live moderation re-check queued? (Q14) Without it the stays-live and
          * revert-to-pending outcomes are indistinguishable on the wire. */
-        boolean recheckPending,
+        Boolean recheckPending,
 
         String recheckReason,
 
@@ -129,7 +130,7 @@ public record PropertyResponse(
 
         /** The soft-delete flag — a separate axis from {@code status}, not a sixth status value, so
          * a status-complete list can tell a live pending listing from an archived one. */
-        boolean archived,
+        Boolean archived,
         boolean ownerVerified,
         boolean ownershipVerified,
         int docsCount,
@@ -156,6 +157,10 @@ public record PropertyResponse(
     /** Owner summary embedded in the detail. {@code mobile} is the masked form; the raw number is
      * never placed here on this slice. */
     public record Owner(String id, String name, String mobile, boolean verified) {
+
+        public Owner {
+            Objects.requireNonNull(id, "owner id");
+        }
     }
 
     /** The commercial answer set, lifted verbatim out of {@code formDetails}. Values stay Strings because

@@ -18,6 +18,7 @@ import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal from '../../components/ReportModal.jsx';
 import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
+import { propertyHref } from '../../lib/listingSeo.js';
 
 /* The relative label is derived at render: '2 days ago' is only
    true on the day it's computed, so a stored one goes stale. */
@@ -132,8 +133,8 @@ export default function Owner() {
   // A year, computed server-side: a signup minute published on a public page is a correlation
   // handle nobody gains anything from.
   const memberSince = owner.memberSince ?? '\u2014';
-  /* A percentage over a subset is a different claim: ownerListings
-     is one page and a failed rail read is [], so show an em-dash. */
+  /* A percentage over a subset is a different claim: the rail is capped at 12
+     and a failed read is [], so show an em-dash. */
   const verifiedPct = owner.listingCount > 0 && listings.length === owner.listingCount
     ? `${Math.round((listings.filter((l) => l.verified).length / listings.length) * 100)}%`
     : '\u2014';
@@ -142,7 +143,7 @@ export default function Owner() {
      no listing in context; isOwnerViewer is a local comparison. */
   const revealed = isOwnerViewer(owner.mobile);
 
-  const latestListing = listings.length ? [...listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
+  const latestListing = listings[0] || null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
   /* Figures come from the summary read, never `reviews`; `revAvg` stays null so an unrated owner isn't shown as
      rated badly; `dist` arrives ascending but the bars read downwards. */
@@ -192,7 +193,6 @@ export default function Owner() {
 
   const scheduleHref = () => {
     const qp = new URLSearchParams();
-    if (owner.mobile) qp.set('o', digits(owner.mobile));
     if (latestListing) { qp.set('listing', latestListing.id); if (latestListing.title) qp.set('title', latestListing.title); }
     const qs = qp.toString();
     return '/schedule-visit' + (qs ? `?${qs}` : '');
@@ -278,7 +278,7 @@ export default function Owner() {
                 {listings.length ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {listings.map((p) => (
-                      <Link key={p.id} to={`/property/${p.id}`} className="prop-row rounded-xl overflow-hidden block group">
+                      <Link key={p.id} to={propertyHref(p)} className="prop-row rounded-xl overflow-hidden block group">
                         <div className="h-32 overflow-hidden"><PropertyImage src={p.image} sizes={CARD_SIZES} className="w-full h-full object-cover" alt="" /></div>
                         <div className="p-3">
                           <p className="text-white font-bold text-sm">{p.deal === 'rent' ? '₹' + (p.price || 0).toLocaleString('en-IN') + t('owner.perMonth') : fmtINR(p.price)}</p>

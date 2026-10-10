@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +27,7 @@ public class SocietyResolveService {
     }
 
     @Transactional(readOnly = true)
-    public SocietyResolveResponse resolve(String placeId, String name, Double lat, Double lng, UUID viewerId) {
+    public SocietyResolveResponse resolve(String placeId, String name, Double lat, Double lng) {
         String id = placeId == null ? "" : placeId.trim();
         if (!PLACE_ID.matcher(id).matches()) {
             throw new BadRequestException("placeId is required: letters, digits, - and _, at most 255 characters");
@@ -44,11 +43,11 @@ public class SocietyResolveService {
                 .filter(s -> s.getArchivedAt() == null);
         if (hit.isPresent()) {
             return new SocietyResolveResponse(
-                    societyService.summarise(List.of(hit.get()), viewerId).getFirst(), List.of());
+                    societyService.summarise(List.of(hit.get())).getFirst(), List.of());
         }
         List<Society> nearby = lat == null || lng == null ? List.of() : candidates(name, lat, lng);
         return new SocietyResolveResponse(null, nearby.isEmpty() ? List.of()
-                : societyService.summarise(nearby, viewerId));
+                : societyService.summarise(nearby));
     }
 
     private List<Society> candidates(String name, double lat, double lng) {

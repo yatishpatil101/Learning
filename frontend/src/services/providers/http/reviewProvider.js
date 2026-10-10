@@ -30,7 +30,7 @@ const entityReviews = (entityType, entityId, { page = 0, size = PAGE_SIZE } = {}
     { ttl: SHARED_READ_TTL_MS },
   );
 
-/** Reviews of one listing (`GET /properties/{propId}/reviews`), not `/reviews/property/{id}`, which 404s because `entityType` excludes `property`.
+/** Reviews of one listing (`GET /properties/{propId}/reviews`); `/reviews/property/{id}` 404s for `property`.
  * `propertyId` must be the listing UUID (`p.uuid || p.id`), since the path binds `UUID propId`. */
 export async function listPropertyReviews(propertyId) {
   return toViewModelPage(await propertyReviews(propertyId));
@@ -51,7 +51,7 @@ export async function createPropertyReview(propertyId, review) {
 
 export async function listEntityReviews(entityType, entityId, { page = 0, size = PAGE_SIZE } = {}) {
   const res = await entityReviews(entityType, entityId, { page, size });
-  warnIfTruncated(res, `${entityType} ${entityId}`);
+  if (size === PAGE_SIZE) warnIfTruncated(res, `${entityType} ${entityId}`);
   return toViewModelPage(res, { page, size });
 }
 
@@ -63,20 +63,20 @@ export async function createEntityReview(entityType, entityId, review) {
   return toViewModel(created);
 }
 
-/** The rating summary of the same response `listEntityReviews` reads; it covers every published review. An `entityType`
- * outside `society | locality | owner` is a 404 the caller must show as unavailable. */
-export async function getEntityReviewSummary(entityType, entityId) {
-  return toSummaryViewModel(summaryOf(await entityReviews(entityType, entityId)), entityType);
+/** Summary of the same response `listEntityReviews` reads (pass the same `size` to share it).
+ * An `entityType` outside `society | locality | owner` is a 404 the caller must show as unavailable. */
+export async function getEntityReviewSummary(entityType, entityId, { size = PAGE_SIZE } = {}) {
+  return toSummaryViewModel(summaryOf(await entityReviews(entityType, entityId, { size })), entityType);
 }
 
-/** The staff moderation queue (`GET /admin/reviews`, paged): the one review read that does not filter on `status`, so it needs its own route
- * and a moderator can see taken-down reviews; `status: 'rejected'` lists those. */
-export async function listReviewsForModeration({ status, page = 0, size = 20 } = {}) {
-  const res = await get('/admin/reviews', { status: status || undefined, page, size });
+/** The one review read that does not filter on `status`, so it needs its own route
+ * and a moderator can see taken-down reviews (`status: 'rejected'`). */
+export async function listReviewsForModeration({ status, q, page = 0, size = 20, counts = false } = {}) {
+  const res = await get('/admin/reviews', { status: status || undefined, q: q || undefined, page, size, counts: counts || undefined });
   return toModerationViewModelPage(res, { page, size });
 }
 
-/** `PATCH /reviews/{id}/status`: `published` or `rejected` only (server 400s `pending`); `reason` goes untrimmed to the audit log. */
+/** `published` or `rejected` only (the server 400s `pending`); `reason` goes untrimmed to the audit log. */
 export async function setReviewStatus(id, status, reason) {
   await patch(`/reviews/${encodeURIComponent(id)}/status`, { status, reason: reason || undefined });
 }

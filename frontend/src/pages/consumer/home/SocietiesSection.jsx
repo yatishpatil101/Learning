@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { listSocietiesWithListings } from '../../../services/societyService.js';
+import { topSocieties } from '../../../services/societyService.js';
 import { useNearViewport } from '../../../lib/useNearViewport.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -26,13 +26,11 @@ export default function SocietiesSection() {
   const [fadeLeft, setFadeLeft] = useState(false);
   const [fadeRight, setFadeRight] = useState(false);
 
-  /* From the seam: a stale society would link to a dead hub. `hasListings=true` narrows it to one
-     page — see the flow doc, § 9.4. */
   useEffect(() => {
     if (!inView) return undefined;
     let alive = true;
-    listSocietiesWithListings()
-      .then(({ rows }) => { if (alive) setSocieties(rows); })
+    topSocieties()
+      .then((rows) => { if (alive) setSocieties(rows); })
       .catch((err) => {
         /* An empty strip, not a broken page: nothing else depends on this rail. Logged rather than
            swallowed, so a catalogue outage is diagnosable. */
@@ -42,17 +40,10 @@ export default function SocietiesSection() {
     return () => { alive = false; };
   }, [inView]);
 
-  const top = useMemo(() => (societies || [])
-    .map((soc) => ({
-      slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-      /* The server's count: summed over the merge family and correct for listings this screen
-         never sees. The "New" branch is unreachable here, kept because the card is generic. */
-      homes: soc.listingCount,
-    }))
-    /* No rating tie-break between `homes` and `name`: adding one is a product decision about what
-       "strongest" means, and an arbitrary sort key reads as intentional. */
-    .sort((a, b) => (b.homes - a.homes) || a.name.localeCompare(b.name))
-    .slice(0, 8), [societies]);
+  // The server ranks: most homes (summed over the merge family) first, ties by name.
+  const top = useMemo(() => (societies || []).map((soc) => ({
+    slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '', homes: soc.listingCount,
+  })), [societies]);
 
   // Arrows track whether there is more to scroll; the fades track whether a card is actually
   // clipped by that edge. Same mechanics as the property-type strip.

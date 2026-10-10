@@ -58,7 +58,7 @@ public class ReviewService {
 
     // ------------------------------------------------------------------ reads
 
-    /** Unpaged (see {@link ReviewRepository#findPublished(String, String)}); the summary is computed by the database, not from the rows. */
+    /** Unpaged because per-property reviews are bounded; the summary comes from the database, not the rows. */
     @Transactional(readOnly = true)
     public ReviewListResponse listForProperty(UUID propertyId) {
         requireReachableProperty(propertyId);
@@ -67,18 +67,38 @@ public class ReviewService {
         return ReviewListResponse.of(new PageImpl<>(rows), summaryOf(ReviewTargetTypes.PROPERTY, targetId));
     }
 
-    /** Reviews of every status for moderators (staff/admin only), paged because no unique index bounds the count, unlike {@link #listForProperty}.
-     * {@code status} is one of the {@code ReviewStatuses} values, or null for the whole queue. */
+    /** Paged, unlike {@link #listForProperty}, because no unique index bounds the moderation queue's count. */
     @Transactional(readOnly = true)
-    public Page<ReviewResponse> listForModeration(String status, Pageable pageable) {
+    public Page<ReviewModerationRow> listForModeration(String status, String q, Pageable pageable) {
         Page<Review> page = reviews.findForModeration(
-                status == null || status.isBlank() ? null : status.strip(), pageable);
+                status == null || status.isBlank() ? null : status.strip(), likePattern(q), pageable);
         Map<UUID, String> names = authorNames(page.getContent());
-        /* `toModerationResponse`: the only read of mixed statuses, so rows must carry theirs. */
-        return page.map(r -> mapper.toModerationResponse(r, nameOf(names, r)));
+        return page.map(r -> ReviewModerationRow.of(r, nameOf(names, r)));
     }
 
-    /** {@link ReviewTargetKey#resolve} 404s a target that does not exist, so an unknown locality slug is an error, not a zero-review summary. */
+    /** Whole-queue totals for the status chips: {@code all} plus one key per status, zero when none. */
+    @Transactional(readOnly = true)
+    public Map<String, Long> moderationCounts() {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("pending", 0L);
+        counts.put("published", 0L);
+        counts.put("rejected", 0L);
+        long all = 0;
+        for (Object[] row : reviews.countByStatus()) {
+            long n = ((Number) row[1]).longValue();
+            counts.merge((String) row[0], n, Long::sum);
+            all += n;
+        }
+        counts.put("all", all);
+        return counts;
+    }
+
+    private static String likePattern(String q) {
+        return q == null || q.isBlank() ? null : "%" + q.strip().toLowerCase(java.util.Locale.ROOT) + "%";
+    }
+
+    /** {@link ReviewTargetKey#resolve} 404s an unknown target, so a bad locality slug is an error
+     * rather than a zero-review summary. */
     @Transactional(readOnly = true)
     public ReviewListResponse listForEntity(String entityType, String entityId, Pageable pageable) {
         String key = targetKey.resolve(entityType, entityId);
@@ -90,7 +110,8 @@ public class ReviewService {
 
     // ----------------------------------------------------------------- writes
 
-    /** Checks run so the caller gets the most specific true reason: listing exists (404), an owner reviewing their own listing is refused, a duplicate is a clean 409 before the write. */
+    /** Checks run in order so the caller gets the most specific true reason, with a clean 409 on a duplicate
+     * before the write. */
     @Transactional
     public ReviewResponse createForProperty(UUID authorId, UUID propertyId,
             ReviewCreateRequest body) {
@@ -153,8 +174,8 @@ public class ReviewService {
                 .orElseThrow(() -> NotFoundException.of("Property"));
     }
 
-    /** The 404 gate for the anonymous read: applies the public detail route's visibility floor ({@link Property#isDirectlyReachable()}),
-     * or a UUID would confirm that a rejected or archived listing is on file. The write path stays unfiltered on purpose. */
+    /** The 404 gate for the anonymous read: applies the public detail route's visibility floor, or a UUID would
+     * confirm that a rejected or archived listing is on file. The write path stays unfiltered on purpose. */
     private void requireReachableProperty(UUID propertyId) {
         if (!properties.existsByIdAndArchivedFalseAndStatusIn(
                 propertyId, PropertyStatus.DIRECTLY_REACHABLE)) {
@@ -162,7 +183,8 @@ public class ReviewService {
         }
     }
 
-    /** Guarded because the author id is nullable: {@link #authorNames} returns {@code Map.of()} when no row has an author, and an immutable map NPEs on a null key. */
+    /** Guarded because {@link #authorNames} returns {@code Map.of()} when no row has an author,
+     * and an immutable map NPEs on a null key. */
     private String nameOf(Map<UUID, String> names, Review row) {
         return row.getAuthorId() == null ? null : names.get(row.getAuthorId());
     }
@@ -218,7 +240,8 @@ public class ReviewService {
         return stars;
     }
 
-    /** Uses this target kind's vocabulary, the same list {@link #persist} validates against, or the {@code c.key in (:keys)} filter drops aspects. */
+    /** Uses this target kind's vocabulary, the same list {@link #persist} validates against, or the
+     * {@code c.key in (:keys)} filter drops aspects. */
     private Map<String, BigDecimal> categoryAveragesFor(String targetType, String targetId) {
         Map<String, BigDecimal> averages = new LinkedHashMap<>();
         for (ReviewCategoryAverage row : reviews.categoryAveragesFor(

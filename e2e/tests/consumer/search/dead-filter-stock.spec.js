@@ -71,8 +71,9 @@ test.describe('every offered filter has stock behind it', () => {
       const match = await expectNarrowed(`societies=${slug}`);
       expect(match.totalElements, `${slug} holds one listing, which any single-row bug also returns`)
         .toBeGreaterThan(1);
-      for (const row of match.content) {
-        expect(row.societySlug, `${row.slug} is not bound to ${slug}`).toBe(slug);
+      const bound = await Promise.all(match.content.map(async (row) => (await detail(row.slug || row.id)).societySlug));
+      for (const [i, s] of bound.entries()) {
+        expect(s, `${match.content[i].slug} is not bound to ${slug}`).toBe(slug);
       }
     });
   }

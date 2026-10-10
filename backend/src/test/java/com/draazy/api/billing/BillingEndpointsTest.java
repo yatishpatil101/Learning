@@ -91,7 +91,8 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value(SubscriptionStatuses.ACTIVE))
                 .andExpect(jsonPath("$.paymentRef").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.renewsAt").value(Matchers.notNullValue()));
+                .andExpect(jsonPath("$.renewsAt").doesNotExist())
+                .andExpect(jsonPath("$.startedAt").doesNotExist());
     }
 
     @Test
@@ -105,7 +106,8 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value(SubscriptionStatuses.PENDING))
                 .andExpect(jsonPath("$.paymentRef").value(Matchers.notNullValue()))
-                .andExpect(jsonPath("$.renewsAt").value(Matchers.nullValue()))
+                .andExpect(jsonPath("$.renewsAt").doesNotExist())
+                .andExpect(jsonPath("$.startedAt").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
         // With nothing else held, the pending order is still reported so the checkout can be
@@ -113,7 +115,7 @@ class BillingEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Plans.SUBSCRIPTION).header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(SubscriptionStatuses.PENDING))
-                .andExpect(jsonPath("$.renewsAt").value(Matchers.nullValue()));
+                .andExpect(jsonPath("$.paymentRef").doesNotExist());
 
         String orderId = jsonField(created, "paymentRef");
         deliverSigned(orderId, "SUCCESS");
@@ -122,7 +124,7 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.planId").value(PAID_PLAN))
                 .andExpect(jsonPath("$.status").value(SubscriptionStatuses.ACTIVE))
-                .andExpect(jsonPath("$.renewsAt").value(Matchers.notNullValue()));
+                .andExpect(jsonPath("$.renewsAt").doesNotExist());
 
         // A redelivery of the same event must not move it again or extend the term.
         var renewsAt = subscriptions.findByPaymentRef(orderId).orElseThrow().getRenewsAt();

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { API, signedInAs } from '../../../helpers/liveAuth.js';
 import { pickFloors } from '../../../helpers/listingForm.helper.js';
-import { fillSociety, stubGooglePlaces, wizardSocietyInput } from '../../../helpers/places.js';
+import { fillSociety, mintOriginOf, stubGooglePlaces, wizardSocietyInput } from '../../../helpers/places.js';
 // The list-property Location step takes a society only from a Google Maps suggestion: picking one
 // mints (or re-finds) the society behind that place, and typed text is never accepted.
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -34,8 +34,7 @@ test('picking a Google suggestion mints a community society that reaches the sha
   expect(found.status()).toBe(200);
   const row = (await found.json()).content.find((s) => s.name === NAME);
   expect(row, 'the minted society is absent from the catalogue — the write never left the browser').toBeTruthy();
-  expect(row.source).toBe('community');
-  expect(row.mintOrigin).toBe('listing');
+  expect(await mintOriginOf(request, NAME)).toBe('listing');
 });
 
 test('typed text is not a society: the field offers only Google suggestions and Not on Google Maps, and reverts on blur', async ({ page, request }) => {

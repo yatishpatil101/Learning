@@ -132,7 +132,8 @@ class SocietyMergeTest extends AbstractApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.slug").value(duplicate))
                 .andExpect(jsonPath("$.intoSlug").value(keep))
-                .andExpect(jsonPath("$.mergedAt").exists());
+                .andExpect(jsonPath("$.mergedAt").exists())
+                .andExpect(jsonPath("$.mergedBy").doesNotExist());
 
         // A browser-local merge leaves this queue empty for everyone else, so the pair waits to be
         // merged a second time, possibly the other way round.
@@ -189,13 +190,12 @@ class SocietyMergeTest extends AbstractApiTest {
         mvc.perform(get("/societies/" + keep))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.listingCount").value(2))
-                .andExpect(jsonPath("$.followerCount").value(1))
                 .andExpect(jsonPath("$.homes.length()").value(2));
 
         // The person who followed the duplicate followed this building, and still does.
-        mvc.perform(get("/societies/" + keep)
+        mvc.perform(get("/me/societies/following")
                         .header(HttpHeaders.AUTHORIZATION, bearer(follower)))
-                .andExpect(jsonPath("$.followedByMe").value(true));
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     @Test

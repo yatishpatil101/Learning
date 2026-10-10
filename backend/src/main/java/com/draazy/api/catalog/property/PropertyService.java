@@ -19,8 +19,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PropertyService {
 
-    /** Homepage strip cap — the contract's featured endpoint takes no limit, so we bound it here. */
-    private static final int FEATURED_CAP = 12;
+    /** The home strip draws six; the contract's featured endpoint takes no limit, so we bound it here. */
+    private static final int FEATURED_CAP = 6;
+
+    /** A rail of recently viewed listings never holds more than this. */
+    public static final int CARDS_CAP = 16;
+
+    // ponytail: newest 100 only, so counts undercount once live stock outgrows it; aggregate server-side then.
+    private static final int SEARCH_INDEX_CAP = 100;
+
+    private static final int REELS_CAP = 24;
+
+    private static final PropertySearchQuery NO_FILTERS =
+            new PropertySearchQuery(null, null, null, null, null, null, null, null, null, null, null);
 
     private final PropertyRepository properties;
     private final LocalityRepository localities;
@@ -63,7 +74,7 @@ public class PropertyService {
     }
 
     /** Null for a blank or unknown slug, or a locality with no pin: those match on the slug alone. */
-    private PropertySpecs.LocalityPoint localityCenter(String slug) {
+    PropertySpecs.LocalityPoint localityCenter(String slug) {
         if (slug == null || slug.isBlank()) {
             return null;
         }
@@ -77,7 +88,7 @@ public class PropertyService {
     public record SearchResult(Page<Property> page, long verifiedTotal, long unstatedTotal) {
     }
 
-    /** No visibility floor, guarded only by {@code @PreAuthorize} on its single caller; a new caller must carry its own. */
+    /** No visibility floor, only {@code @PreAuthorize} on its one caller, so a new one needs its own. */
     @Transactional(readOnly = true)
     public Page<Property> searchForModeration(PropertySearchQuery filters, ModerationFacets mod,
             Pageable pageable) {
@@ -89,6 +100,25 @@ public class PropertyService {
     public List<Property> featured() {
         return properties.findByStatusAndArchivedFalseOrderByFeaturedDescCreatedAtDesc(
                 PropertyStatus.APPROVED, PageRequest.of(0, FEATURED_CAP));
+    }
+
+    /** The publicly live rows among {@code ids} (slugs or UUIDs), in no particular order. */
+    @Transactional(readOnly = true)
+    public List<Property> publicByIds(List<String> ids) {
+        return properties.findPage(PropertySpecs.publicSearch(NO_FILTERS, ListingFacets.ofIds(ids)),
+                PageRequest.of(0, CARDS_CAP));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Property> newestReels(ListingFacets facets) {
+        return properties.findPage(PropertySpecs.publicSearch(NO_FILTERS, facets).and(PropertySpecs.newestFirst()),
+                PageRequest.of(0, REELS_CAP));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Property> newestLive() {
+        return properties.findPage(PropertySpecs.publicSearch(NO_FILTERS).and(PropertySpecs.newestFirst()),
+                PageRequest.of(0, SEARCH_INDEX_CAP));
     }
 
     @Transactional(readOnly = true)

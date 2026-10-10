@@ -1,8 +1,8 @@
 // @ts-check
-// Community society minting; the catalogue assertions are made by a second, anonymous caller. Edge cases are in SocietyMintTest.
+// The catalogue assertions are made by a second, anonymous caller; edge cases are in SocietyMintTest.
 import { expect, test } from '@playwright/test';
 import { API, apiLogin, authHeaders, signedInAs, uniqueMobile } from '../helpers/liveAuth.js';
-import { isolatedPin, pickGoogleSociety } from '../helpers/places.js';
+import { isolatedPin, mintOriginOf, pickGoogleSociety } from '../helpers/places.js';
 
 /** A new signed-in account over HTTP: `signedInAsNew` needs a page, and `uniqueMobile()` can repeat within a
  * millisecond, which would sign in as the previous test's author. */
@@ -34,8 +34,7 @@ test.describe('society minting', () => {
     expect(res.status()).toBe(201);
     const minted = await res.json();
     expect(minted.name).toBe(name);
-    expect(minted.source).toBe('community');
-    // Society responses carry no verification state.
+    expect(minted).not.toHaveProperty('source');
     expect(minted).not.toHaveProperty('verifiedAt');
     expect(minted.localitySlug).toBe('wakad');
 
@@ -50,10 +49,11 @@ test.describe('society minting', () => {
     expect(found.status()).toBe(200);
     const slugs = (await found.json()).content.map((s) => s.slug);
     expect(slugs).toContain(minted.slug);
+    expect(await mintOriginOf(request, name)).toBe('listing');
   });
 
-  /** Needs a browser: `mintOrigin` separates "wants a flat here" from "selling one" and the server defaults an absent value to `listing`,
-   * so a finder that forgets `demand` silently files demand as supply; only picking a Google suggestion proves the page sends it. */
+  /** Needs a browser: the server defaults an absent mintOrigin to listing, so a finder that forgets demand
+   * silently files demand as supply; only picking a Google suggestion proves the page sends it. */
   test('the Society Finder files its mint as searcher demand, not as a listing', async ({ page, request }) => {
     const mobile = await newAccount();
     await signedInAs(page, mobile);
@@ -61,12 +61,7 @@ test.describe('society minting', () => {
 
     await page.goto('/societies');
     await pickGoogleSociety(page, name, { keepsValue: false, keyboard: true, ...isolatedPin() });
-    // Read back from outside the browser: the row's provenance is the assertion, and it lives on
-    // the server or nowhere.
-    await expect.poll(async () => {
-      const found = await request.get(`${API}/societies`, { params: { q: name, size: 20 } });
-      return (await found.json()).content.find((s) => s.name === name)?.mintOrigin ?? null;
-    }, { message: 'the finder mint never reached the catalogue, or reached it without a provenance' })
+    await expect.poll(() => mintOriginOf(request, name), { message: 'the finder mint never reached the catalogue, or reached it without a provenance' })
       .toBe('demand');
   });
 });

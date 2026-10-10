@@ -18,25 +18,30 @@ public class SelfProfile {
     }
 
     // Consumer accounts get permissions null; back-office accounts get the resolved atom list.
-    public UserResponse of(User user) {
+    public SelfResponse of(User user) {
         UserResponse base = userMapper.toResponse(user);
-        List<String> desks = Roles.isBackOffice(user.getRole())
+        boolean backOffice = Roles.isBackOffice(user.getRole());
+        List<String> desks = backOffice
                 ? accountPermissions.desksFor(user.getRole(), user.getId()).stream().sorted().toList()
                 : List.of();
+        List<String> atoms = backOffice
+                ? List.copyOf(accountPermissions.effectiveFor(user.getRole(), user.getId()))
+                : null;
+        return new SelfResponse(base.id(), base.name(), base.mobile(), base.email(), base.role(),
+                base.verified(), base.city(), base.verifiedContactOnly(), base.hideNumber(),
+                base.shareActivityStatus(), base.shareReadReceipts(), base.listingsCount(), atoms,
+                desks);
+    }
+
+    // A token-bearing sign-in caches this as the session identity: back-office accounts get the
+    // slim staff shape, everyone else the consumer profile.
+    public SessionUser forSession(User user) {
         if (!Roles.isBackOffice(user.getRole())) {
-            return new UserResponse(base.id(), base.name(), base.mobile(), base.email(), base.role(),
-                    base.team(), base.status(), base.verified(), base.city(), base.mobileVerified(),
-                    base.verifiedContactOnly(), base.hideNumber(), base.shareActivityStatus(),
-                    base.shareReadReceipts(), base.listingsCount(), base.joinedAt(),
-                    base.lastActive(), base.createdAt(), null, desks, null, null, null);
+            return of(user);
         }
-        List<String> atoms =
-                List.copyOf(accountPermissions.effectiveFor(user.getRole(), user.getId()));
-        return new UserResponse(base.id(), base.name(), base.mobile(), base.email(), base.role(),
-                base.team(), base.status(), base.verified(), base.city(), base.mobileVerified(),
-                base.verifiedContactOnly(), base.hideNumber(), base.shareActivityStatus(),
-                base.shareReadReceipts(),
-                base.listingsCount(), base.joinedAt(), base.lastActive(), base.createdAt(), atoms,
-                desks, null, null, null);
+        return new StaffSelfResponse(user.getId().toString(), user.getName(), user.getMobile(), user.getEmail(),
+                user.getRole(),
+                List.copyOf(accountPermissions.effectiveFor(user.getRole(), user.getId())),
+                accountPermissions.desksFor(user.getRole(), user.getId()).stream().sorted().toList());
     }
 }

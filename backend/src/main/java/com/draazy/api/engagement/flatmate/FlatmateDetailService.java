@@ -89,7 +89,7 @@ public class FlatmateDetailService {
                     mapper.toDto(post, new FlatmateMapper.SeekerView(mobile)), List.of(), null);
         }
         return FlatmateDetailDto.visitor(FlatmateDetailDto.KIND_POST,
-                mapper.toDto(post, FlatmateMapper.SeekerView.ANONYMOUS), List.of());
+                mapper.toFeedDto(post), List.of());
     }
 
     private static boolean isHost(AuthPrincipal caller, UUID hostId) {
@@ -102,7 +102,7 @@ public class FlatmateDetailService {
         return new FlatmateRoomDto.Host(room.getDetails(),
                 review.map(FlatmateReview::getAgreementDoc).map(FlatmateDetailService::withoutBytes)
                         .orElse(null),
-                agreement.getRegNo(), agreement.getRegisteredOn(), agreement.getValidTill(),
+                agreement.getValidTill(),
                 room.getOwnerConsentMobile());
     }
 

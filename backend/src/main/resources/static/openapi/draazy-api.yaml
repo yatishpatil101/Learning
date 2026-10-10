@@ -393,7 +393,7 @@ paths:
           description: Current user
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
+              schema: { $ref: '#/components/schemas/Self' }
         '401': { $ref: '#/components/responses/Unauthorized' }
     patch:
       tags: [Identity & Access]
@@ -409,7 +409,7 @@ paths:
           description: Updated user
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
+              schema: { $ref: '#/components/schemas/Self' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: Name changes are locked while the account is verified (`NAME_LOCKED_WHILE_VERIFIED`).
@@ -702,14 +702,124 @@ paths:
       summary: Featured listings
       security: []
       operationId: featuredProperties
+      description: The home rail's six cards, promoted first then newest approved.
       responses:
         '200':
-          description: Featured property summaries
+          description: Featured property cards
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/PropertySummary' }
+                maxItems: 6
+                items: { $ref: '#/components/schemas/PropertyCard' }
+  /properties/search-index:
+    get:
+      tags: [Catalog & Search]
+      summary: Where the newest live homes are, for the hero search counts
+      security: []
+      operationId: propertySearchIndex
+      description: >
+        The newest 100 publicly live listings, reduced to deal and location. Carries no id, title,
+        price or owner, so it cannot be used to enumerate listings.
+      responses:
+        '200':
+          description: Search index rows
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: { $ref: '#/components/schemas/SearchIndexEntry' }
+  /properties/cards:
+    get:
+      tags: [Catalog & Search]
+      summary: Cards for a handful of listings
+      security: []
+      operationId: propertyCards
+      description: >
+        The recently-viewed rails. Only publicly live rows among `ids` come back, in no particular
+        order; ids that are not live drop out.
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema: { type: array, maxItems: 16, items: { type: string } }
+          description: Slugs or UUIDs.
+      responses:
+        '200':
+          description: Property cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PropertyCard' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /properties/compare:
+    get:
+      tags: [Catalog & Search]
+      summary: Compare-table columns for up to four listings
+      security: []
+      operationId: propertyCompare
+      description: Only publicly live rows among `ids` come back; ids that are not live drop out.
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema: { type: array, maxItems: 4, items: { type: string } }
+          description: Slugs or UUIDs.
+      responses:
+        '200':
+          description: Compare rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PropertyCompare' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /properties/reels:
+    get:
+      tags: [Catalog & Search]
+      summary: Newest live listings as reels, each with its first photos
+      security: []
+      operationId: propertyReels
+      description: Up to 24 rows, newest first; takes the same facet parameters as `GET /properties` (e.g. `types`, `minPhotos`).
+      responses:
+        '200':
+          description: Reels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PropertyReel' }
+  /properties/similar:
+    get:
+      tags: [Catalog & Search]
+      summary: Three live listings like the one described
+      security: []
+      operationId: propertySimilar
+      description: Same deal; nearby with similar BHK and price first, then nearest within 6 km, then nearest.
+      parameters:
+        - { name: deal, in: query, required: true, schema: { type: string, maxLength: 20 } }
+        - { name: locality, in: query, schema: { type: string } }
+        - { name: bhk, in: query, schema: { type: number } }
+        - { name: price, in: query, schema: { type: integer } }
+        - { name: lat, in: query, schema: { type: number } }
+        - { name: lng, in: query, schema: { type: number } }
+        - { name: exclude, in: query, description: The listing being viewed (slug or UUID)., schema: { type: string } }
+      responses:
+        '200':
+          description: Up to three cards
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 3
+                items: { $ref: '#/components/schemas/SimilarListing' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /properties/{id}:
     parameters:
       - { $ref: '#/components/parameters/PropertyId' }
@@ -804,12 +914,12 @@ paths:
       description: >
         A locality exists because someone picked it from Google Places, never because it was typed.
         Found by Place ID when we already hold it; otherwise the place is verified server-side, and a
-        retired curated row of the same name within 2.5 km is brought back (taking Google's name),
+        dormant curated row of the same name within 2.5 km is brought back (taking Google's name),
         or a new row is minted (slug is the name, suffixed -2, -3 on a clash). The place must be a
         locality, sub-locality or neighbourhood inside the Pune Metropolitan Region (lat 18.25-18.95,
         lng 73.30-74.35), and not the city itself. A same-named live row within 2.5 km is returned
         rather than duplicated. Public, with its own per-IP limit (10/min) ahead of the general
-        write budget.
+        write budget. A row staff retired is never reopened by a pick: its place is refused.
       requestBody:
         required: true
         content:
@@ -822,7 +932,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LocalitySummary' }
         '422':
-          description: Not a locality Google knows ("Pick the locality from the suggestions.") or outside the served area ("Pick a locality in Pune.")
+          description: Not a locality Google knows ("Pick the locality from the suggestions.") outside the served area ("Pick a locality in Pune."), or retired ("That area isn't open for new listings.")
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -979,6 +1089,22 @@ paths:
               schema: { $ref: '#/components/schemas/SocietyResolve' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+  /societies/top:
+    get:
+      tags: [Catalog & Search]
+      summary: The home page's society rail
+      security: []
+      operationId: topSocieties
+      description: Up to eight societies with live homes, most homes first, ties by name.
+      responses:
+        '200':
+          description: Society cards
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 8
+                items: { $ref: '#/components/schemas/SocietyCard' }
   /societies/{slug}:
     get:
       tags: [Catalog & Search]
@@ -993,6 +1119,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /societies/{slug}/brief:
+    get:
+      tags: [Catalog & Search]
+      summary: Society name, specs and rating for a listing page or a search chip
+      security: []
+      operationId: getSocietyBrief
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Society brief
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyBrief' }
         '404': { $ref: '#/components/responses/NotFound' }
   /page-views:
     post:
@@ -1047,8 +1188,8 @@ paths:
         The "Was this helpful?" control at the foot of every help centre article.
 
 
-        **Write-only, and there is no read anywhere.** These are notes to whoever maintains the
-        articles, not a public rating. Serving them back would turn a maintenance signal into a
+        **Write-only for readers.** The one read is `GET /admin/help-feedback`, for the people who
+        maintain the articles. These are notes to them, not a public rating. Serving them back would turn a maintenance signal into a
         review system -- a reader judging an article by its score, an early run of three votes
         becoming a verdict the article cannot shake, and a free-text box on an anonymous endpoint
         becoming a surface that publishes whatever is typed into it.
@@ -1068,8 +1209,8 @@ paths:
         English and badly in Marathi, and one combined rate would describe neither.
 
 
-        Append-only: voting twice leaves two rows, because an article that stopped being helpful is
-        itself the finding.
+        Voting again replaces the reader's earlier verdict and comment (the reader is the account,
+        else the `voter` id, else the caller's IP).
       requestBody:
         required: true
         content:
@@ -1123,10 +1264,8 @@ paths:
       summary: Societies the caller follows
       description: >
         Most recently followed first. Paged rather than a bare array: nothing caps how many
-        societies one person may follow. Cards are the same shape the public directory returns, so
-        `followerCount`, `avgRating` and `listingCount` are all present and `followedByMe` is
-        computed rather than assumed — it can read false if the follow was removed on another device
-        between the page and this read.
+        societies one person may follow. Rows carry only what the follow toggle and the dashboard
+        panel draw.
       operationId: listFollowedSocieties
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -1143,7 +1282,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/Society' }
+                        items: { $ref: '#/components/schemas/FollowedSociety' }
   /me/societies/{slug}/follow:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
@@ -1222,6 +1361,11 @@ paths:
     get:
       tags: [Listings]
       summary: My posted properties
+      description: >-
+        One slim row per listing — what the My Listings card, its chips and the quality score draw.
+        `pendingLeads` is the count of the owner's open contact requests on that listing and
+        `dealStatus` its deal outcome, so the panel needs no contact-request or deal read. The
+        full record is `GET /me/listings/{id}`.
       operationId: myListings
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -1229,7 +1373,7 @@ paths:
         - { $ref: '#/components/parameters/Sort' }
       responses:
         '200':
-          description: Paged listings
+          description: Paged listing rows
           content:
             application/json:
               schema:
@@ -1239,7 +1383,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/PropertyModerationRow' }
+                        items: { $ref: '#/components/schemas/OwnerListingCard' }
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [Listings]
@@ -1252,12 +1396,28 @@ paths:
             schema: { $ref: '#/components/schemas/ListingCreate' }
       responses:
         '201':
-          description: Created (status = pending)
+          description: Created (status = pending) — identity and status; the full record is `GET /me/listings/{id}`
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/ListingWriteResult' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /me/listings/quota:
+    get:
+      tags: [Listings]
+      summary: My listing slots
+      description: >-
+        The wizard paywall's two numbers: the owner's ceiling and the slots they hold. The same
+        `allowance` and `used` as `ListingEntitlement`, without that read's contact and
+        agreement sections.
+      operationId: myListingSlots
+      responses:
+        '200':
+          description: Ceiling and slots held
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListingSlots' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /me/listings/duplicate-check:
     post:
       tags: [Listings]
@@ -1351,10 +1511,10 @@ paths:
             schema: { $ref: '#/components/schemas/ListingUpdate' }
       responses:
         '200':
-          description: Updated listing
+          description: Updated listing — identity, status and the re-check verdict
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/ListingWriteResult' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
     delete:
@@ -1362,16 +1522,17 @@ paths:
       summary: Take a listing down
       operationId: archiveListing
       description: >
-        **A soft archive, not a delete**, and the response is what says so: this hands back the
-        listing it just archived rather than a `204`. The row survives with `archived: true`, drops
+        **A soft archive, not a delete**, and the response is what says so: this answers with the
+        row's `id`, `status` and `archived: true` rather than a `204`. The row survives, drops
         out of search and off the public detail page, and stays reachable to its owner and to
         moderation.
 
 
-        Returning the body is the point. The owner's dashboard needs to redraw the card in its
+        Returning that much is the point. The owner's dashboard needs to redraw the card in its
         archived state immediately, and a `204` would force a re-read of a listing that public
         search can no longer return. It is also the honest shape: nothing was destroyed, so claiming
-        "no content" would misdescribe what happened.
+        "no content" would misdescribe what happened. The full record is not echoed back; no caller
+        reads it.
 
 
         Enquiries, visits and moderation history that already reference this listing keep pointing
@@ -1383,10 +1544,28 @@ paths:
         exists is not information this route owes an unrelated caller.
       responses:
         '200':
-          description: 'The archived listing, `archived: true`'
+          description: 'The archived listing — `id`, `status` and `archived: true`'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/ListingWriteResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/listings/{id}/card:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    get:
+      tags: [Listings]
+      summary: One of my listings as its My Listings row
+      description: >-
+        The row a client re-reads after an action that moved it (a deal closed, a draft sent for
+        review), instead of the whole list. Same shape as an item of `GET /me/listings`.
+      operationId: getMyListingCard
+      responses:
+        '200':
+          description: The row
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerListingCard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/listings/{id}/confirm-available:
     parameters:
@@ -1413,10 +1592,10 @@ paths:
       operationId: confirmListingAvailable
       responses:
         '200':
-          description: The listing, with `lastConfirmedAt` updated
+          description: The listing row, with `lastConfirmedAt` updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/OwnerListingCard' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/listings/{id}/pause:
@@ -1433,10 +1612,10 @@ paths:
       operationId: pauseMyListing
       responses:
         '200':
-          description: 'The listing with `status: paused`'
+          description: 'The listing row with `status: paused`'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/OwnerListingCard' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1453,10 +1632,10 @@ paths:
       operationId: resumeMyListing
       responses:
         '200':
-          description: 'The listing with `status: approved`'
+          description: 'The listing row with `status: approved`'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Property' }
+              schema: { $ref: '#/components/schemas/OwnerListingCard' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1614,31 +1793,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /me/deals:
-    get:
-      tags: [Listings]
-      summary: All deals for my properties
-      operationId: myDeals
-      description: >
-        Newest first, owner-scoped, paged. `deals` is unique per property, so this collection is as
-        large as the caller's portfolio - an agency reading its whole book to render twenty cards is
-        what the page replaces. No `sort` parameter: the order is fixed server-side.
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Paged deals
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/Deal' }
   /me/deals/{propId}:
     parameters:
       - { $ref: '#/components/parameters/PropId' }
@@ -1816,6 +1970,7 @@ paths:
         Paged in step with it so the response shape does not depend on which end of a visit the
         caller is on. No `sort` parameter: the order is fixed server-side.
       parameters:
+        - { name: propertyId, in: query, schema: { type: string, format: uuid }, description: "Only the caller's visits to this listing — what the property page needs." }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -2016,6 +2171,27 @@ paths:
                 items: { $ref: '#/components/schemas/OutreachEntry' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/outreach/{messageId}/sent:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+      - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Moderation]
+      summary: Attest that a prepared WhatsApp message was sent
+      operationId: markOwnerOutreachSent
+      description: >
+        A staff attestation, not a delivery receipt: the staff member pressed send in their own
+        WhatsApp. Idempotent. When the message carries this listing's claim link, the listing's
+        progress moves to `link_sent`. `404` when the message does not belong to this listing.
+      x-roles: [staff, manager, admin]
+      responses:
+        '200':
+          description: The message, now `sent`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutreachEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/flag:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     post:
@@ -2130,7 +2306,7 @@ paths:
       tags: [Moderation]
       summary: List all users (admin)
       operationId: listUsers
-      # Ops needs to find a user and call them; the back office sees full mobiles.
+      # Rows carry a masked mobile.
       x-roles: [staff, manager, admin]
       parameters:
         - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
@@ -2146,9 +2322,10 @@ paths:
           in: query
           schema: { type: boolean, default: false }
           description: >
-            Adds `counts` (`all`, `active`, `suspended`, `archived`) to the page: the whole filtered
-            set under `role`, `customers` and `q`, ignoring `status`, `flagged`, `archived` and paging.
-            `all` excludes archived accounts.
+            Adds `counts` (`all`, `active`, `suspended`, `archived`, `badgePending`) to the page: the whole
+            filtered set under `role`, `customers` and `q`, ignoring `status`, `flagged`, `archived` and
+            paging. `all` excludes archived accounts. `badgePending` is the platform-wide count of pending
+            badge-grant requests. The console asks only when the role or search changes, not on a page flip.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -2163,23 +2340,10 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/User' }
+                        items: { $ref: '#/components/schemas/AdminUserRow' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /users/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    get:
-      tags: [Moderation]
-      summary: User detail + listings
-      operationId: getUser
-      # Opening one person's record is audited.
-      x-roles: [staff, manager, admin]
-      responses:
-        '200':
-          description: User
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/User' }
-        '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Moderation]
       summary: Update user
@@ -2196,7 +2360,7 @@ paths:
           description: Updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
+              schema: { $ref: '#/components/schemas/AdminUserRow' }
         '409':
           description: Name changes are locked while the target account is verified (`NAME_LOCKED_WHILE_VERIFIED`).
           content:
@@ -2356,7 +2520,7 @@ paths:
           description: Hand-granted badge withdrawn.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
+              schema: { $ref: '#/components/schemas/AdminUserRow' }
         '202':
           description: Badge grant request created; a second administrator must approve it.
           content:
@@ -2406,7 +2570,7 @@ paths:
           description: Updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
+              schema: { $ref: '#/components/schemas/AdminUserRow' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /users/{id}/timeline:
@@ -2726,7 +2890,7 @@ paths:
         approved cases sampled for second-staff review, oldest sample first, excluding cases the
         caller approved. `status=decided` lists verified, rejected and revoked cases, newest decision
         first, narrowed by `outcome`. Every filter is applied in the database before paging. Rows
-        carry the applicant, document type and OCR claims; images are minted on the detail read only.
+        carry only what a queue line shows; claims, images and warnings are the detail read.
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [pending, verified, rejected, revoked, qa, decided] } }
         - { name: q, in: query, description: Applicant name contains, or mobile contains the typed digits (3+), schema: { type: string } }
@@ -2749,7 +2913,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/IdentityReview' }
+                        items: { $ref: '#/components/schemas/IdentityReviewRow' }
         '400': { $ref: '#/components/responses/BadRequest' }
   /moderation/identity-reviews/summary:
     get:
@@ -2807,7 +2971,7 @@ paths:
           description: Claimed
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/IdentityReview' }
+              schema: { $ref: '#/components/schemas/IdentityClaimState' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
@@ -2829,11 +2993,7 @@ paths:
       parameters:
         - { name: force, in: query, required: false, schema: { type: boolean, default: false } }
       responses:
-        '200':
-          description: Released
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IdentityReview' }
+        '204': { description: Released }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
@@ -2999,6 +3159,13 @@ paths:
       summary: Initiate property review
       operationId: initPropertyVerification
       # No x-roles: the owner submits their own listing; guard is participant-or-staff.
+      parameters:
+        - name: markRead
+          in: query
+          description: >
+            Also marks the other side's case-file messages read, so opening the review modal is one
+            write rather than an open followed by `markVerificationRead`.
+          schema: { type: boolean, default: false }
       responses:
         '201': { description: Initiated }
   /properties/{id}/verification/messages:
@@ -3277,7 +3444,8 @@ paths:
       operationId: listOwnershipDocuments
       description: >
         The listing's document vault as the reviewer sees it — what the owner uploaded in their
-        Dashboard document vault, newest first, each with a short-lived signed URL. Evidence recorded with
+        Dashboard document vault, newest first, as metadata only. A file is opened through
+        `getOwnershipDocumentUrl`, which signs a short-lived link on click. Evidence recorded with
         `recordOwnershipEvidence` cites one of these by `documentId`. Staff/admin only; the owner
         reads the same vault at `GET /me/documents/{propId}`.
       x-roles: [staff, admin]
@@ -3288,7 +3456,27 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/verification/ownership/documents/{docId}/url:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Moderation]
+      summary: Sign one of the owner's listing documents (staff)
+      operationId: getOwnershipDocumentUrl
+      description: >
+        Same gate as `listOwnershipDocuments` and audited per open, since each call hands out a scan
+        of an identity document. A file that is not in this listing's vault is 404.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentUrl' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/verification/ownership/request:
@@ -3340,39 +3528,6 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /admin/property-reviews:
-    get:
-      tags: [Moderation]
-      summary: Listing verification queue
-      operationId: listPropertyReviews
-      description: >
-        Every listing verification case file, most recently updated first, so ops can work the
-        thread that has been waiting longest. The four operations above all address a case by
-        property id and none of them can produce one: `getPropertyVerification` is
-        participant-scoped and answers 404 to anyone who is neither the owner nor staff, so without
-        this the only way into a case nobody had messaged about was the database. Staff and admin
-        only — unlike the thread itself there is no participant here to widen the guard for, since
-        the queue spans every owner's listings at once.
-      x-roles: [staff, admin]
-      parameters:
-        - name: status
-          in: query
-          description: Only case files in this state. Anything outside the enum is a 400.
-          schema: { type: string, enum: [pending, approved, rejected, flagged, archived] }
-        - name: unread
-          in: query
-          description: Only case files with an owner message no staff member has opened. Cannot be combined with status (400).
-          schema: { type: boolean, default: false }
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-        - { $ref: '#/components/parameters/Sort' }
-      responses:
-        '200':
-          description: Paged case files, most recently updated first
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /me/property-reviews:
     get:
       tags: [Moderation]
@@ -3397,7 +3552,14 @@ paths:
           description: Paged case files for the caller's listings, most recently updated first
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ReviewBadge' }
   /reports/{id}:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -3455,6 +3617,31 @@ paths:
               schema: { $ref: '#/components/schemas/PropertyModerationSummary' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /admin/properties/lookup:
+    get:
+      tags: [Moderation]
+      summary: Command-palette property search
+      operationId: lookupPropertiesForOps
+      description: Six fields per hit (id, slug, title, locality, owner name, status); the queue row carries about forty.
+      x-roles: [staff, manager, admin]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged hits
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/PropertyLookupRow' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /admin/properties/duplicates:
     get:
       tags: [Moderation]
@@ -3587,6 +3774,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/OwnerListingStanding' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/properties/{id}:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    get:
+      tags: [Moderation]
+      summary: One listing for the desk, whole
+      operationId: getPropertyForModeration
+      description: >
+        The full record behind a `listPropertiesForModeration` row, by id or slug and at any status
+        including archived: what the review modal, the View modal and a `?review=` deep link read.
+        Owner contact is raw, on the same `properties:read` entitlement as the queue. The row
+        carries the same `signals` and `ownerReplied`. 404 for an unknown listing.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyModerationRow' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/properties:
     get:
@@ -3726,7 +3934,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/Property' }
+                        items: { $ref: '#/components/schemas/PropertyQueueRow' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Moderation]
@@ -3790,14 +3998,16 @@ paths:
         letting ops write the owner's decision field.
 
 
-        Requester mobiles are in full: the back office calls customers. Opening one row
-        (`revealEnquiryForOps`) is audited; browsing the list is not.
+        Requester mobiles are masked on the list; opening one row (`revealEnquiryForOps`) returns the full
+        number and is audited.
       x-roles: [staff, admin]
       parameters:
         - name: status
           in: query
           description: Narrow to one status. Omit for the whole board.
           schema: { type: string, enum: [pending, approved, declined] }
+        - { $ref: '#/components/parameters/BoardSearch' }
+        - { $ref: '#/components/parameters/BoardDays' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3813,6 +4023,26 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/OpsEnquiry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/enquiries/summary:
+    get:
+      tags: [Moderation]
+      summary: Demand board totals and funnel
+      operationId: getEnquiryBoardSummary
+      description: >
+        Per-status counts for the three tabs (`all` is the total), GMV over every deal, and the funnel
+        (enquiries, visits, closed deals, locality table) computed server-side so the console no longer sums
+        a truncated window of rows. `days` and `deal` narrow the funnel only.
+      x-roles: [staff, admin]
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
+      responses:
+        '200':
+          description: Board summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminEnquirySummary' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /admin/enquiries/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
@@ -3837,12 +4067,14 @@ paths:
       operationId: listVisitsForOps
       description: >
         Every site visit on the platform, newest first. Read-only for the same reason as
-        `listEnquiriesForOps`; visitor mobiles are in full.
+        `listEnquiriesForOps`; visitor mobiles are masked here and in full on `revealVisitForOps`.
       x-roles: [staff, admin]
       parameters:
         - name: status
           in: query
           schema: { type: string, enum: [scheduled, confirmed, completed, cancelled] }
+        - { $ref: '#/components/parameters/BoardSearch' }
+        - { $ref: '#/components/parameters/BoardDays' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3883,13 +4115,18 @@ paths:
       description: >
         Every deal on the platform, newest first — the funnel's floor, and the rows the board's GMV
         tile sums. `agreedPrice` is null until a deal closes, so GMV is a sum over closed deals by
-        construction. Read-only; counterparty mobiles are in full, preferring the number an owner
-        typed on an off-platform close.
+        construction. Read-only; counterparty mobiles are masked here (full on `revealDealForOps`),
+        preferring the number an owner typed on an off-platform close.
       x-roles: [staff, admin]
       parameters:
         - name: status
           in: query
           schema: { type: string, enum: [active, reserved, closed] }
+        - name: deal
+          in: query
+          schema: { $ref: '#/components/schemas/DealIntent' }
+        - { $ref: '#/components/parameters/BoardSearch' }
+        - { $ref: '#/components/parameters/BoardDays' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3928,21 +4165,29 @@ paths:
       summary: Review moderation queue
       operationId: listReviewsForModeration
       description: >
-        Reviews of every status, newest first. The counterpart `setReviewStatus` shipped without
+        Reviews of every status, newest first, as slim queue rows. The counterpart `setReviewStatus` shipped without
         this, so a moderator could act on a review only if they already had its id — in practice,
         only ones that had been reported. Reviews are post-moderated (published on write), so the
         useful filters are `rejected` (what has been taken down) and no filter at all.
-      x-roles: [staff, admin]
+      x-roles: [staff, manager, admin]
       parameters:
         - name: status
           in: query
           description: Narrow to one moderation status. Omit for the whole queue.
           schema: { type: string, enum: [pending, published, rejected] }
+        - name: q
+          in: query
+          description: Case-insensitive match on the review text, the author's name or the target id.
+          schema: { type: string }
+        - name: counts
+          in: query
+          schema: { type: boolean, default: false }
+          description: Add the whole-queue totals (`all`, `pending`, `published`, `rejected`) for the status chips; the console asks on first load and after a decision only.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Paged reviews
+          description: Paged moderation rows
           content:
             application/json:
               schema:
@@ -3952,7 +4197,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/Review' }
+                        items: { $ref: '#/components/schemas/ReviewModerationRow' }
   /reviews/{id}/status:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -4054,9 +4299,24 @@ paths:
           in: query
           description: Filter to one reportable kind. Omitted returns every kind.
           schema: { $ref: '#/components/schemas/ReportTargetType' }
+        - name: q
+          in: query
+          description: Case-insensitive match on the report id, target id, reason code or note.
+          schema: { type: string }
+        - name: sinceDays
+          in: query
+          description: Only reports filed within this many days.
+          schema: { type: integer, minimum: 1 }
+        - name: counts
+          in: query
+          schema: { type: boolean, default: false }
+          description: >-
+            Add the queue totals: `undecided.property|user|post` (open + reviewing, whole table, for the
+            tab badges) and `status.all|open|reviewing|actioned|dismissed` (within `targetType`, for the
+            status chips). The console asks on first load and after a decision only.
       responses:
         '200':
-          description: Paged reports
+          description: Paged reports; each row carries `targetReportCount`
           content:
             application/json:
               schema:
@@ -4197,6 +4457,10 @@ paths:
       description: >
         Tenant-tier posts, contested addresses and flat splits whose parent listing is still
         pending. Owner-tier posts are vetted through the listing's own documents and never appear.
+
+
+        Rows are cards: the agreement file, the host's number and the registration particulars are in
+        the detail (`GET /admin/flatmates/{id}`), which a card never needs.
       operationId: listFlatmateReviews
       externalDocs: { description: Behaviour, url: docs/flows/ops/service-queues.md }
       parameters:
@@ -4216,7 +4480,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateReview' }
+                        items: { $ref: '#/components/schemas/FlatmateReviewRow' }
   /admin/flatmate-reviews/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -4312,8 +4576,8 @@ paths:
 
 
         Several kinds may be asked for in one call (`kind=post,room,group`). Each kind is its own
-        table, so `size` applies per kind (and per `recheck` set) and `totalElements` is the sum;
-        a caller that wants every row asks with a `size` at least as large as the biggest backlog.
+        table, but the page is global: one page never holds more than `size` rows, merged in age
+        order across kinds (and across the `recheck` set), and `totalElements` is the sum.
 
 
         The author's mobile is deliberately absent. Deciding whether a post may be published does
@@ -4366,8 +4630,24 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateModerationQueueItem' }
+                        items: { $ref: '#/components/schemas/FlatmateModerationRow' }
         '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/flatmates/moderation/summary:
+    get:
+      tags: [Moderation]
+      summary: Cards waiting on each tab of the flatmate moderation desk
+      description: >
+        The true size of the `pending`, `published` and `hidden` tabs, so a tab label does not report
+        the length of whatever window the browser downloaded. `pending` counts awaiting posts, rooms and
+        groups, re-checks, group applications, and badge claims whose post is not itself awaiting
+        (those share the post's card).
+      operationId: getFlatmateModerationSummary
+      responses:
+        '200':
+          description: Counts per tab
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateModerationSummary' }
   /admin/flatmates/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
@@ -4795,12 +5075,12 @@ paths:
       summary: Stream message realtime events
       operationId: streamMessages
       description: >
-        Authenticated SSE stream for message, read, typing and presence invalidation events, plus
+        Authenticated SSE stream for message, read, delivered, typing and presence invalidation events, plus
         `notification` when the caller's unread notification count may have changed. Clients
         fetch the relevant conversation or count after receiving an event; payloads carry ids only.
       responses:
         '200':
-          description: "Server-sent events: `message`, `read`, `typing`, `presence`, `notification`."
+          description: "Server-sent events: `message`, `read`, `delivered`, `typing`, `presence`, `notification`."
           headers:
             X-Accel-Buffering:
               schema: { type: string, enum: ['no'] }
@@ -5409,7 +5689,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
     post:
       tags: [Documents]
       summary: Upload document (multipart)
@@ -5430,7 +5710,7 @@ paths:
           description: Uploaded
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Document' }
+              schema: { $ref: '#/components/schemas/DocumentSummary' }
         '413': { description: Payload too large }
         '415': { description: Unsupported media type }
   /me/documents/{propId}/{docId}:
@@ -5443,6 +5723,22 @@ paths:
       operationId: deleteDocument
       responses:
         '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/documents/{docId}/url:
+    parameters: [ { name: docId, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [Documents]
+      summary: Sign one of my vault documents (owner)
+      operationId: getDocumentUrl
+      description: >
+        Owner-scoped across the property, personal and managed-property vaults. A file that is not
+        the caller's, or that belongs to a service request, is 404. Called when a file is opened.
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentUrl' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/documents/personal:
     get:
@@ -5459,7 +5755,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
     post:
       tags: [Documents]
       summary: Upload personal KYC document (multipart)
@@ -5480,7 +5776,7 @@ paths:
           description: Uploaded
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Document' }
+              schema: { $ref: '#/components/schemas/DocumentSummary' }
         '413': { description: Payload too large }
         '415': { description: Unsupported media type }
   /me/documents/personal/{docId}:
@@ -5514,7 +5810,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Documents]
@@ -5538,7 +5834,7 @@ paths:
           description: Uploaded
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Document' }
+              schema: { $ref: '#/components/schemas/DocumentSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { description: Payload too large }
         '415': { description: Unsupported media type }
@@ -5626,12 +5922,11 @@ paths:
         sibling path rather than a member of `/me/documents`, because everything under that prefix
         is scoped to listings the caller *owns* and this is scoped to rows the caller *wrote*.
 
-        `shareToken` is always `null` here, even on an approved request. It is the owner's
-        forwardable credential; echoing it on a list endpoint would mean one leaked page of JSON
-        unlocks every vault the buyer has ever been let into. The signed-in buyer reads `status`,
+        The share token is never returned on any signed-in route. The signed-in buyer reads `status`,
         `expiresAt` and `sharedDocumentCount`, then opens
         `/me/document-requests/{reqId}/documents` with their JWT instead.
       parameters:
+        - { name: propertyId, in: query, schema: { type: string, format: uuid }, description: "Only the caller's asks on this listing — what the property page needs." }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -5659,7 +5954,7 @@ paths:
         is a lawyer or a banker with no account here. This one is authenticated by the caller's JWT,
         because its audience is the buyer who wrote the request and is already signed in.
 
-        It exists because `shareToken` is owner-facing by contract: a grant only reached the buyer
+        It exists because the share token is never returned to the signed-in buyer: a grant only reached the buyer
         if the owner forwarded the link, so a buyer whose owner never did saw the status `granted`
         and had no way to open anything. The fix is not to hand the buyer the token — that would
         make their own request list a bearer credential — but to give them a read that needs no
@@ -5682,8 +5977,26 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
         '404': { description: Unknown, not the caller's, not granted, or lapsed }
+  /me/document-requests/{reqId}/documents/{docId}/url:
+    parameters:
+      - { $ref: '#/components/parameters/ReqId' }
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Documents]
+      summary: Sign one document of my granted request (requester)
+      operationId: myGrantedDocumentUrl
+      description: >
+        Requester-scoped exactly like `myGrantedDocuments`: the grant must be the caller's own,
+        granted and unexpired, and `docId` one of the files it unlocks. Anything else is 404.
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentUrl' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /documents/requests:
     post:
       tags: [Documents]
@@ -5757,8 +6070,29 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Document' }
+                items: { $ref: '#/components/schemas/DocumentSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /documents/shared/url:
+    get:
+      tags: [Documents]
+      summary: Sign one shared document (share token)
+      operationId: getSharedDocumentUrl
+      description: >
+        Same authorisation as `/documents/shared`: the `X-Share-Token` header is the proof, and
+        a missing, unknown, declined or expired token is the same 401. `docId` must be one of the
+        files that token unlocks, otherwise 404. Called when a file is opened, so no signed link is
+        minted for files nobody opens.
+      parameters:
+        - { name: X-Share-Token, in: header, required: true, schema: { type: string } }
+        - { name: docId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentUrl' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /tickets:
     get:
       tags: [Services & Support]
@@ -5774,11 +6108,16 @@ paths:
             One status for customers. Staff/admin may pass a comma-separated list, e.g.
             `assigned,in-progress,changes-requested,approved`; `awaiting-payment` still matches no
             staff queue rows.
+        - { name: priority, in: query, schema: { type: string, enum: [low, medium, high, urgent] } }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Contains-match, case-insensitive, over the id, subject, service, customer, detail and mobile.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Tickets
+          description: Ticket rows. Notes, `value` and `quotedValue` come with `getTicket`.
           content:
             application/json:
               schema:
@@ -5788,7 +6127,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/Ticket' }
+                        items: { $ref: '#/components/schemas/TicketRow' }
     # No x-roles: a customer raising a request is the point of the queue; only working it is staff-only.
     post:
       tags: [Services & Support]
@@ -5805,8 +6144,35 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CustomerTicket' }
+  /tickets/summary:
+    get:
+      tags: [Services & Support]
+      summary: Ticket counts per status for one desk (admin/staff)
+      operationId: getTicketSummary
+      x-roles: [staff, admin]
+      parameters:
+        - { name: team, in: query, schema: { $ref: '#/components/schemas/Team' } }
+      responses:
+        '200':
+          description: Counts for the same scope as `listTickets`, whatever page it is on
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketSummary' }
   /tickets/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Services & Support]
+      summary: One ticket with its notes (admin/staff)
+      operationId: getTicket
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The ticket in full
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Services & Support]
       summary: Update ticket (admin/staff)
@@ -5860,7 +6226,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/SupportTicket' }
+                items: { $ref: '#/components/schemas/SupportTicketSummary' }
     post:
       tags: [Services & Support]
       summary: Create support ticket
@@ -5881,6 +6247,7 @@ paths:
     get:
       tags: [Services & Support]
       summary: Support ticket detail with messages
+      description: A desk member with `tickets:write` opening someone else's ticket also clears the desk's `awaitingReply` flag.
       operationId: getSupportTicket
       responses:
         '200':
@@ -5907,7 +6274,7 @@ paths:
           description: Sent
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Message' }
+              schema: { $ref: '#/components/schemas/SupportMessage' }
         '404': { $ref: '#/components/responses/NotFound' }
   /support/tickets/{id}/read:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
@@ -5931,11 +6298,15 @@ paths:
           description: >-
             Omit for everything. `true` narrows to tickets whose newest message is from the customer
             and nobody on the desk has read -- the working queue. `false` is the complement.
+        - name: counts
+          in: query
+          schema: { type: boolean, default: false }
+          description: Add the three tab totals (`awaiting`, `answered`, `all`) over the whole table; the desk asks on first load and refresh only.
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Support tickets, newest first, with `counts` (`awaiting`, `answered`, `all`) over the whole table
+          description: Support tickets, newest first; `counts` (`awaiting`, `answered`, `all`) only with `counts=true`
           content:
             application/json:
               schema:
@@ -6108,6 +6479,43 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServiceRequest' }
+  /service-requests/queue:
+    get:
+      tags: [Services & Support]
+      summary: A desk's service-request queue, as rows (staff/manager/admin)
+      operationId: listServiceRequestQueue
+      x-roles: [staff, manager, admin]
+      description: >
+        The rows a desk draws and nothing behind them: no thread, no files, no parties, no payment
+        session and no timeline. `details` is cut down to the fields a row summarises (the scalar
+        request fields plus a reduced `_state` carrying only the owner and tenant names, flat and
+        terms). Open a row with `getServiceRequest`. Same scope and filters as `listServiceRequests`
+        for back-office callers, which still reaches the full shape.
+      parameters:
+        - { name: type, in: query, schema: { type: string }, description: Service type, e.g. rent-agreement }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: team, in: query, schema: { $ref: '#/components/schemas/Team' } }
+        - { name: ticketId, in: query, schema: { type: string } }
+        - { name: unassigned, in: query, schema: { type: boolean, default: false } }
+        - { name: overdue, in: query, schema: { type: boolean, default: false } }
+        - { name: mine, in: query, schema: { type: boolean, default: false } }
+        - { name: q, in: query, schema: { type: string }, description: Anchored start of the requester's name or mobile, or a whole request id }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Queue rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ServiceRequestQueueRow' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /service-requests/queue-summary:
     get:
       tags: [Services & Support]
@@ -6185,6 +6593,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /service-requests/{id}/docs/{docId}/url:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Services & Support]
+      summary: Sign one document of a service request
+      operationId: getServiceRequestDocumentUrl
+      description: >
+        Minted when the file is opened, not with every read of the request. Visible on the same terms
+        as `getServiceRequest` lists it: a request the caller cannot see, a file that is not on it, a
+        draft held back for a colleague's check, or another side's identity scan is a 404.
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentUrl' }
         '404': { $ref: '#/components/responses/NotFound' }
   /service-requests/{id}/status:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
@@ -7170,9 +7597,8 @@ paths:
       responses:
         '200':
           description: >-
-            Each section is byte-for-byte what its own endpoint answers (`/auth/me`,
-            `/me/subscription`, `/me/verification/identity`, `/me/saved?size=500`,
-            `/me/saved-searches`, `/me/societies/following?size=500`,
+            Only what every signed-in page draws. Each section is byte-for-byte what its own
+            endpoint answers (`/auth/me`, `/me/subscription`, `/me/saved/keys`,
             `/notifications/unread-count`, `/messages/unread-count`), so a client can seed its
             per-endpoint state from it. A section whose read failed is `null` and the client
             re-reads it from its own endpoint; `me` is never null, because a caller who cannot be
@@ -7186,17 +7612,22 @@ paths:
       tags: [Engagement]
       summary: The dashboard's inbox reads in one call
       operationId: getMeDashboard
+      parameters:
+        - name: listingTools
+          in: query
+          description: Adds `entitlements`, which only the My Listings panel reads.
+          schema: { type: boolean, default: false }
       responses:
         '200':
           description: >-
-            Each section is byte-for-byte what its own endpoint answers (`/me/listings?size=100`,
+            Each list section is byte-for-byte what its own endpoint answers (`/me/listings?size=100`,
             `/me/flatmate-posts`, `/me/flatmate-rooms`, `/me/flatmate-groups`,
             `/me/contact-requests`, `/me/photo-requests`, `/me/documents/requests`,
             `/me/flatmate-requests`, `/me/group-applications`, `/visits`, `/me/visit-requests`,
-            `/me/deals` and `/me/property-reviews` at `page=0&size=100`, plus `/me/tenancies`,
-            `/me/recent-searches`, `/me/service-request-invites`, `/me/managed-properties` and
-            `/me/entitlements`), so a client can seed its per-endpoint state from it. A section
-            whose read failed is `null` and the client re-reads it from its own endpoint.
+            and `/me/property-reviews` at `page=0&size=100`, plus `/me/recent-searches`,
+            `/me/managed-properties` and `/me/entitlements`), so a client can seed its per-endpoint
+            state from it. A section whose read failed is `null` and the client re-reads it from its
+            own endpoint. Tenancies and co-fill invites travel only as `hasTenancy` / `hasRentalInvite`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MeDashboard' }
@@ -7206,8 +7637,11 @@ paths:
       tags: [Billing & Growth]
       summary: My current subscription
       operationId: getSubscription
+      description: >
+        The held plan and its status only. The order fields (`paymentRef`, `paymentSessionId`)
+        ride the subscribe response, never this read.
       responses:
-        '200': { description: Subscription, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '200': { description: Subscription state, content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionState' } } } }
     post:
       tags: [Billing & Growth]
       summary: Subscribe / upgrade plan
@@ -7282,8 +7716,13 @@ paths:
       # signals saying which of them we suspect. The decision endpoints below are guarded alike.
       x-roles: [staff, admin]
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, qualified, rewarded, rejected, clawed-back] } }  # Slice-13 spec fix S52
+        - { name: status, in: query, schema: { type: string }, description: 'One status or a comma-separated set of pending, qualified, rewarded, rejected, clawed-back.' }  # Slice-13 spec fix S52
         - { name: risk, in: query, schema: { type: string, enum: [low, medium, high] } }
+        - { name: q, in: query, schema: { type: string }, description: 'Matches the referrer or referred name, either mobile, or the referral id.' }
+        - name: counts
+          in: query
+          schema: { type: boolean, default: false }
+          description: 'Add the tab totals (`all`, `pending`, `highRisk`, `rewarded`, `refused`) over the whole table.'
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -7352,8 +7791,9 @@ paths:
       summary: Saved properties
       operationId: listSaved
       description: >
-        Newest-saved first. Paged: nothing caps how many listings a user may shortlist, and each row
-        is a full PropertySummary.
+        Newest-saved first. Paged: nothing caps how many listings a user may shortlist. Rows are
+        shortlist cards; `available` is false once the listing is sold, rented or otherwise off the
+        market. The shell's hearts read `/me/saved/keys` instead.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -7369,7 +7809,22 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/PropertySummary' }
+                        items: { $ref: '#/components/schemas/SavedCard' }
+  /me/saved/keys:
+    get:
+      tags: [Engagement]
+      summary: Saved property keys
+      operationId: listSavedKeys
+      description: The whole shortlist as keys, newest-saved first, unpaged — what the hearts and the count need.
+      responses:
+        '200':
+          description: Saved keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SavedKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /me/saved/{propId}:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
     put:
@@ -7411,7 +7866,7 @@ paths:
                         type: array
                         items:
                           oneOf:
-                            - $ref: '#/components/schemas/FlatmateSeekerPost'
+                            - $ref: '#/components/schemas/FlatmateSeekerFeed'
                             - $ref: '#/components/schemas/FlatmateRoomFeed'
                             - $ref: '#/components/schemas/FlatmateGroupFeed'
   /me/flatmate-saves/keys:
@@ -7771,7 +8226,7 @@ paths:
                         type: array
                         items:
                           oneOf:
-                            - $ref: '#/components/schemas/FlatmateSeekerPost'
+                            - $ref: '#/components/schemas/FlatmateSeekerFeed'
                             - $ref: '#/components/schemas/FlatmateRoomFeed'
                             - $ref: '#/components/schemas/FlatmateGroupFeed'
   /flatmates/posts:
@@ -7891,6 +8346,24 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateSeekerPost' }
+  /me/flatmate-posts/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    get:
+      tags: [Engagement]
+      summary: One of my flatmate ads
+      operationId: getMyFlatmatePost
+      description: >
+        The caller's own live ad by id, for the edit form, with their own `mobile` unmasked. Another
+        author's id, a taken-down ad and an unknown id all answer 404, so an id reveals nothing about
+        who owns it.
+      responses:
+        '200':
+          description: The ad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateSeekerPost' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /me/flatmate-rooms:
     get:
       tags: [Engagement]
@@ -7923,7 +8396,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateRoom' }
+                        items: { $ref: '#/components/schemas/FlatmateRoomCard' }
   /flatmates/rooms/{id}:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -8349,7 +8822,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateGroup' }
+                        items: { $ref: '#/components/schemas/FlatmateGroupCard' }
   /me/group-applications:
     get:
       tags: [Engagement]
@@ -8498,6 +8971,23 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateRequest' }
+  /me/flatmate-interests/keys:
+    get:
+      tags: [Engagement]
+      summary: Flatmate interest keys
+      operationId: listMyFlatmateInterestKeys
+      description: >
+        Every ask the caller has sent, unpaged and unhydrated -- what the flatmates board and a flatmate
+        detail page need to draw the interest button. Same bound as `listFlatmateSaveKeys`: one
+        person's rate-limited asks, four fields each.
+      responses:
+        '200':
+          description: The caller's interest keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlatmateInterestKey' }
   /flatmates/{kind}/{id}/interest:
     parameters:
       - name: kind
@@ -8611,6 +9101,30 @@ paths:
                   items: { type: string }
       responses:
         '204': { description: Marked }
+  /notifications/dismiss:
+    post:
+      tags: [Engagement]
+      summary: Dismiss several notifications at once
+      description: >
+        One call for a collapsed inbox row. Another user's ids are skipped rather than 404, as on
+        mark-read, so the batch cannot probe the id space.
+      operationId: dismissNotifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string }
+      responses:
+        '204': { description: Dismissed }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /notifications/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     delete:
@@ -8893,6 +9407,87 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SlaSummary' }
+  /admin/localities:
+    get:
+      tags: [Admin & Analytics]
+      summary: Every locality the console lists, with its live listing count
+      operationId: adminListLocalities
+      # Server also requires the localities:read permission.
+      x-roles: [staff, admin]
+      description: >
+        The staff table's row: pin, retired flag and live count, without the public page's market stats.
+      responses:
+        '200':
+          description: Localities, alphabetical
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LocalityAdminRow' }
+  /admin/localities/{slug}/retire:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Admin & Analytics]
+      summary: Close an area to new listings
+      operationId: adminRetireLocality
+      # Server also requires the localities:write permission.
+      x-roles: [staff, admin]
+      description: >
+        Retiring only stops the area being picked for new listings, by place or by name. Existing
+        listings stay online and the area page keeps rendering. Idempotent: retiring a retired area
+        changes nothing and is not audited again. Audited as `locality.retire` with the live count.
+      responses:
+        '200':
+          description: The row as the console lists it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalityAdminRow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/localities/{slug}/restore:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Admin & Analytics]
+      summary: Reopen a retired area for new listings
+      operationId: adminRestoreLocality
+      # Server also requires the localities:write permission.
+      x-roles: [staff, admin]
+      description: >
+        Clears the retirement and marks the row active. Idempotent. Audited as `locality.restore`.
+      responses:
+        '200':
+          description: The row as the console lists it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalityAdminRow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/societies:
+    get:
+      tags: [Admin & Analytics]
+      summary: The staff society directory, one page
+      operationId: adminListSocieties
+      # Server also requires the societies:read permission.
+      x-roles: [staff, admin]
+      description: >
+        Live societies by name with only what the directory table draws. Edits open `/admin/societies/{slug}`.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text search over name, builder and the locality's words }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Societies, alphabetical
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyDirectoryRow' }
   /admin/societies/summary:
     get:
       tags: [Admin & Analytics]
@@ -8922,6 +9517,7 @@ paths:
         Every live society `mintSociety` created that has not been merged away, newest first. There
         is no clearing action: duplicates leave the list by being merged.
       parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text search over name and the locality's words }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -8936,7 +9532,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/Society' }
+                        items: { $ref: '#/components/schemas/SocietyCandidate' }
   /admin/society-candidates/{slug}/duplicates:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
@@ -9333,6 +9929,134 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/AdminFinanceTransaction' }
         '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/integrations:
+    get:
+      tags: [Admin & Analytics]
+      summary: Third-party provider health
+      operationId: adminIntegrations
+      description: >
+        One entry per paid third party (email, WhatsApp, payment gateway), always in that order,
+        counted from the `provider_call` ledger. `live=false` means the mock is wired, so its calls
+        are recorded as `skipped`.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: Provider health
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AdminProviderHealth' }
+  /admin/integrations/calls:
+    get:
+      tags: [Admin & Analytics]
+      summary: The provider call log, paged
+      operationId: adminIntegrationCalls
+      description: >
+        Every outbound call to a third party and every inbound payment webhook, newest first, kept
+        for 90 days. Never carries a message body, OTP, link or key; recipients are masked.
+      x-roles: [admin]
+      parameters:
+        - name: provider
+          in: query
+          schema: { type: string, enum: [zeptomail, whatsapp, cashfree] }
+        - name: outcome
+          in: query
+          schema: { type: string, enum: [ok, failed, skipped] }
+        - name: q
+          in: query
+          description: >
+            Exact match on `reference` (e.g. a payment order id), or a full email or mobile matched
+            against the recipient. A partial recipient matches nothing: only the masked form is stored.
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: One page of the log
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminProviderCall' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/help-feedback:
+    get:
+      tags: [Admin & Analytics]
+      summary: Help article verdicts, worst first
+      operationId: adminHelpFeedback
+      description: >
+        One row per article and language, most "not helpful" verdicts first, so a weak translation
+        is not averaged into a good English rate. `comments` counts written reasons and is kept
+        apart from the verdicts: most readers who vote give none.
+      x-roles: [admin]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: One page of article verdict counts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminHelpFeedbackArticle' }
+  /admin/help-feedback/comments:
+    get:
+      tags: [Admin & Analytics]
+      summary: Help article comments, newest first
+      operationId: adminHelpFeedbackComments
+      description: >
+        Readers' own words, verbatim and never rendered to another reader. Render as text only; a
+        CSV or XLSX export must neutralise a leading `=`, `+`, `-` or `@`. Carries no user id and
+        no address hash.
+      x-roles: [admin]
+      parameters:
+        - name: slug
+          in: query
+          schema: { type: string, pattern: '^[a-z0-9-]{1,120}$' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: One page of comments
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminHelpFeedbackComment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/settings/flags:
+    get:
+      tags: [Admin & Analytics]
+      summary: Admin console module switches
+      description: >-
+        Only the `adminFlags` block of the settings document, so the console shell does not download
+        the fee table and permission map on every page. Any back-office role may read it: staff and managers
+        need the tab switches to build their navigation.
+      operationId: getAdminSettingsFlags
+      x-roles: [staff, manager, admin]
+      responses:
+        '200':
+          description: The module switches, keyed by section then flag; empty when none are stored.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   /admin/settings:
     get:
       tags: [Admin & Analytics]
@@ -9371,7 +10095,7 @@ paths:
             schema: { $ref: '#/components/schemas/AdminSettings' }
       responses:
         '200':
-          description: Saved
+          description: Saved - only the top-level blocks that were written, merged; GET for the whole document.
           headers:
             ETag:
               description: Version of the document as saved - use it for the next conditional write.
@@ -9507,6 +10231,23 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/TeamMember' }
+  /admin/team/assignees:
+    get:
+      tags: [Admin & Analytics]
+      summary: Who a ticket can be handed to
+      operationId: listTeamAssignees
+      description: >
+        The ticket board's assignee picker: active back-office accounts with the desks each works. No
+        mobile, email or role, and `users:read` is not needed - `tickets:read` is.
+      x-roles: [manager, admin]
+      responses:
+        '200':
+          description: Active accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TeamAssignee' }
   /admin/message-templates:
     get:
       tags: [Admin & Analytics]
@@ -9657,8 +10398,9 @@ paths:
       operationId: adminMyWork
       description: >
         Single-actor version of team performance for the signed-in back-office user. `staff` contains
-        exactly the caller, `handled` counts the caller's audit rows in the window, and `queues` is
-        limited to queues for the caller's effective functions.
+        exactly the caller (name, functions and counts only - no id), `handled` counts the caller's
+        audit rows in the window, and `queues` is computed only for the caller's effective functions,
+        without the median decision time.
       x-roles: [staff, manager, admin]
       parameters:
         - name: days
@@ -9669,7 +10411,7 @@ paths:
           description: Caller volume and open queue metrics
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TeamPerformanceResponse' }
+              schema: { $ref: '#/components/schemas/MyWork' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /admin/badge-grants:
@@ -9769,14 +10511,16 @@ paths:
       - { $ref: '#/components/parameters/ContentType' }
     get:
       tags: [Admin & Analytics]
-      summary: List CMS content of a type (incl. archived)
+      summary: List CMS content of a type
       operationId: adminListContent
-      # CMS is an ops job. Bare array (api-standards.md §5.1: fixed reference data), including
-      # archived rows because the ops screen has an Archived tab.
+      # CMS is an ops job. Bare array (api-standards.md §5.1: fixed reference data).
       x-roles: [staff, admin]
+      parameters:
+        - { name: archived, in: query, schema: { type: boolean }, description: 'true: archived rows only; false: live rows only; absent: both' }
+        - { name: translations, in: query, schema: { type: boolean, default: false }, description: Include each row's translation map }
       responses:
         '200':
-          description: Content items, newest first, archived included
+          description: Content items, newest first
           content:
             application/json:
               schema:
@@ -9954,8 +10698,18 @@ components:
       name: type
       in: path
       required: true
-      description: Which CMS list is being managed.
-      schema: { type: string, enum: [announcements, services, faqs, banners] }
+      description: Which CMS list is being managed. FAQs are the only one authored here.
+      schema: { type: string, enum: [faqs] }
+    BoardSearch:
+      name: q
+      in: query
+      description: Matches the property title, the person's name, or the start of their mobile number.
+      schema: { type: string }
+    BoardDays:
+      name: days
+      in: query
+      description: Only rows from the last N days. Omit for all time.
+      schema: { type: integer, minimum: 1 }
     GenericId:
       name: id
       in: path
@@ -10326,7 +11080,7 @@ components:
         id: { type: string }
         userId: { type: string }
         userName: { type: string }
-        userMobile: { type: string }
+        userMobile: { type: string, description: Masked; the full number is on the audited user record }
         requestedBy: { type: string }
         requestedByName: { type: string }
         reason: { type: string }
@@ -10573,35 +11327,20 @@ components:
             Signed download link, **minted for this read and short-lived**. Not an identifier and not
             a link to store - re-read the message to get a fresh one.
         uploadedAt: { type: string, format: date-time }
-    Message:
+    SupportMessage:
       type: object
       properties:
         id: { type: string }
-        authorId:
-          type: string
-          description: >
-            Who wrote it. **Use this, not `author`, to decide whether a message is the reader's
-            own.** `author` is a display name, and attributing by name works until two users share
-            one - at which point a stranger's message renders on the reader's side of the thread.
         author: { type: [string, 'null'], description: Display name, absent if the account has none }
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
-        attachments:
-          type: array
-          items: { $ref: '#/components/schemas/MessageAttachment' }
     ConversationMessage:
       type: object
       properties:
         id: { type: string }
-        authorId:
-          type: string
-          description: >
-            Who wrote it. **Use this, not `author`, to decide whether a message is the reader's
-            own.** `author` is a display name, and attributing by name works until two users share
-            one - at which point a stranger's message renders on the reader's side of the thread.
+        mine: { type: boolean, description: The reader wrote it. Decides the side of the thread; `author` is only a display name. }
         author: { type: [string, 'null'], description: Display name, absent if the account has none }
-        authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
         clientId: { type: [string, 'null'] }
@@ -10612,7 +11351,7 @@ components:
             author: { type: [string, 'null'] }
             body: { type: string, maxLength: 120 }
         read: { type: boolean, description: For the reader's own pair-thread messages, whether the recipient has read it }
-        delivered: { type: boolean, description: For the reader's own pair-thread messages, whether the recipient has received it on a read/inbox/stream request. }
+        delivered: { type: boolean, description: "For the reader's own pair-thread messages, whether the recipient has received it: on the recipient's live stream when sent, else their next inbox, thread or stream request." }
         attachments:
           type: array
           items: { $ref: '#/components/schemas/MessageAttachment' }
@@ -10644,8 +11383,8 @@ components:
         kind: { type: string, enum: [direct, group] }
         counterpartyName: { type: [string, 'null'] }
         counterpartyRole: { $ref: '#/components/schemas/Role' }
-        # Masking is listing-bound: approval reveals the owner to the buyer unless hidden, and the
-        # approved requester to the owner. Being in an unrelated conversation is not a reveal.
+        # Masking is listing-bound: approval reveals the owner to the buyer (unless hidden) and the requester
+        # to the owner; an unrelated conversation reveals nothing. Detail only, the inbox list omits it.
         counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
         youAre: { type: string, enum: [owner, buyer, member] }
         propertyId: { type: [string, 'null'] }
@@ -10668,7 +11407,7 @@ components:
         awaitingReply: { type: boolean, description: The last message was authored by someone else }
         presence:
           type: [object, 'null']
-          description: Pair-thread counterparty activity, omitted when either side hides activity status.
+          description: Pair-thread counterparty activity on detail only, omitted when either side hides activity status.
           properties:
             online: { type: boolean }
             lastSeenAt: { type: [string, 'null'], format: date-time }
@@ -10776,7 +11515,13 @@ components:
         accessToken: { type: string }
         tokenType: { type: string, default: Bearer }
         expiresIn: { type: integer, example: 900 }
-        user: { $ref: '#/components/schemas/User' }
+        user:
+          description: >
+            The session identity the client caches. `Self` for consumer roles; back-office roles
+            (staff, manager, admin) get the slimmer `StaffSelf`.
+          oneOf:
+            - { $ref: '#/components/schemas/Self' }
+            - { $ref: '#/components/schemas/StaffSelf' }
         otpSent:
           type: boolean
           description: Present and `true` only on the OTP-send step; omitted on token-bearing responses.
@@ -10887,6 +11632,292 @@ components:
             earned through identity review and can only be revoked from that record (withdrawing it
             by hand answers 409); `manual` means an administrator granted it through the two-admin
             badge request.
+    AdminUserRow:
+      type: object
+      description: One row of the back-office users list. The full record, with the unmasked mobile, is `GET /users/{id}`.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        mobile: { type: string, description: Masked, e.g. 98XXXXX210 }
+        role: { $ref: '#/components/schemas/Role' }
+        status: { type: string, enum: [active, suspended, archived] }
+        verified: { type: boolean }
+        city: { type: string }
+        listingsCount: { type: integer }
+        joinedAt: { type: string, format: date-time }
+        flagged: { type: boolean }
+        flagReason: { type: string }
+        badgeSource: { type: string, enum: [identity, manual] }
+        badgePending: { type: boolean, description: A hand-grant request for this account awaits a second administrator }
+    AdminEnquirySummary:
+      type: object
+      properties:
+        enquiries: { type: object, additionalProperties: { type: integer, format: int64 }, description: Count per status plus `all` }
+        visits: { type: object, additionalProperties: { type: integer, format: int64 } }
+        deals: { type: object, additionalProperties: { type: integer, format: int64 } }
+        dealTypes: { type: object, additionalProperties: { type: integer, format: int64 } }
+        gmv: { type: integer, format: int64, description: Whole INR over every deal }
+        funnel:
+          type: object
+          properties:
+            enquiries: { type: integer, format: int64 }
+            visits: { type: integer, format: int64 }
+            dealsClosed: { type: integer, format: int64 }
+            gmv: { type: integer, format: int64 }
+            localities:
+              type: array
+              description: Top ten by enquiries
+              items:
+                type: object
+                properties:
+                  locality: { type: string }
+                  enquiries: { type: integer, format: int64 }
+                  visits: { type: integer, format: int64 }
+                  deals: { type: integer, format: int64 }
+                  gmv: { type: integer, format: int64 }
+    PropertyLookupRow:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        locality: { type: string }
+        owner: { type: string }
+        status: { type: string }
+    Self:
+      type: object
+      description: >
+        The caller reading themselves (`GET`/`PATCH /auth/me`, token-bearing auth responses,
+        `/me/bootstrap`). Only what the app shell, the profile tab and the console's navigation draw;
+        account-state and moderation fields live on `User`, which only the back-office routes serve.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        email: { type: [string, 'null'], format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        verified: { type: boolean }
+        city: { type: string, example: Pune }
+        verifiedContactOnly: { type: boolean }
+        hideNumber: { type: boolean }
+        shareActivityStatus: { type: boolean }
+        shareReadReceipts: { type: boolean }
+        listingsCount: { type: integer }
+        permissions:
+          type: array
+          items: { type: string }
+          description: Resolved back-office atoms; absent for `buyer` and `owner`. Advisory to the UI only.
+        desks:
+          type: array
+          items: { type: string }
+          description: The caller's service desks, sorted. Empty for consumer roles.
+    StaffSelf:
+      type: object
+      description: >
+        A back-office sign-in's identity (token-bearing `/auth/staff-login*` and refresh): what the
+        console shell and its navigation draw. No consumer profile fields - `GET /auth/me` still
+        returns the full `Self`.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        email: { type: [string, 'null'], format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        permissions:
+          type: array
+          items: { type: string }
+          description: Resolved back-office atoms. Advisory to the UI only.
+        desks:
+          type: array
+          items: { type: string }
+          description: The caller's service desks, sorted.
+    PropertyCard:
+      type: object
+      description: What a home-page or recently-viewed card draws, and nothing else.
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        locality: { type: string }
+        city: { type: string }
+        coverImage: { type: string }
+        ownerVerified: { type: boolean }
+        ownershipVerified: { type: boolean }
+    ListingWriteResult:
+      type: object
+      description: >-
+        What the owner's create, edit and take-down answer — the row's identity and the verdict the
+        wizard acts on, not the record it just wrote. `GET /me/listings/{id}` is the full record.
+        `slug` is absent on a listing that has none; `archived` is sent only by the take-down.
+      required: [id, status, recheckPending]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        archived: { type: boolean }
+        recheckPending: { type: boolean }
+        recheckReason: { type: string }
+        recheckRequestedAt: { type: string, format: date-time }
+    ListingSlots:
+      type: object
+      description: The two numbers the wizard paywall draws; the same `allowance` and `used` as `ListingEntitlement`.
+      required: [allowance, used]
+      properties:
+        allowance: { type: integer }
+        used: { type: integer, format: int64 }
+    OwnerListingCard:
+      type: object
+      description: >-
+        A My Listings row: what the card, its chips and the quality score read, and nothing else.
+        `photoCount`, `descLength` and `amenityCount` stand in for the gallery, description and
+        amenity list the quality score used to count client-side.
+      required: [id, status, dealStatus, featured, archived, recheckPending, ownerVerified, ownershipVerified, views, enquiries, docsCount, pendingLeads, photoCount, descLength, amenityCount]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        areaUnit: { type: string }
+        furnishing: { type: string }
+        locality: { type: string }
+        localitySlug: { type: string }
+        societyId: { type: string }
+        coverImage: { type: string }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        dealStatus: { type: string, enum: [active, reserved, closed] }
+        freshness: { type: string }
+        progress: { $ref: '#/components/schemas/ListingProgress' }
+        createdAt: { type: string, format: date-time }
+        lastConfirmedAt: { type: string, format: date-time }
+        ownershipRequestedAt: { type: string, format: date-time }
+        ownershipDeclinedReason: { type: string }
+        featured: { type: boolean }
+        archived: { type: boolean }
+        recheckPending: { type: boolean }
+        recheckReason: { type: string }
+        ownerVerified: { type: boolean }
+        ownershipVerified: { type: boolean }
+        views: { type: integer }
+        enquiries: { type: integer }
+        docsCount: { type: integer }
+        pendingLeads: { type: integer, description: Open contact requests on this listing that have not expired. }
+        photoCount: { type: integer }
+        descLength: { type: integer }
+        amenityCount: { type: integer }
+        facing: { type: string }
+        floor: { type: integer }
+        ageYears: { type: integer }
+        deposit: { type: integer }
+        availableFrom: { type: string }
+        possession: { type: string }
+    SavedCard:
+      type: object
+      description: A shortlist row on Saved and the dashboard panel.
+      required: [id, available]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        locality: { type: string }
+        coverImage: { type: string }
+        available: { type: boolean }
+    FollowedSociety:
+      type: object
+      required: [slug, name, listingCount]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        localitySlug: { type: string, nullable: true }
+        listingCount: { type: integer, format: int64 }
+    PropertyCompare:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        areaUnit: { type: string }
+        furnishing: { $ref: '#/components/schemas/Furnishing' }
+        possession: { $ref: '#/components/schemas/PropertyPossession' }
+        reraId: { type: string }
+        amenities: { type: array, items: { type: string } }
+        locality: { type: string }
+        city: { type: string }
+        coverImage: { type: string }
+    PropertyReel:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        locality: { type: string }
+        photos: { type: array, maxItems: 5, items: { type: string } }
+    SimilarListing:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        locality: { type: string }
+        city: { type: string }
+        coverImage: { type: string }
+        reraId: { type: string }
+        ownerVerified: { type: boolean }
+        distanceKm: { type: number, description: Absent when either listing has no pin. }
+    SocietyCard:
+      type: object
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        localitySlug: { type: string }
+        listingCount: { type: integer }
+    SearchIndexEntry:
+      type: object
+      properties:
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        locality: { type: string }
+        localitySlug: { type: string }
+        societySlug: { type: string }
+        societyName: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+    SubscriptionState:
+      type: object
+      description: Absent fields mean no subscription.
+      properties:
+        planId: { type: string }
+        status: { type: string }
+    SavedKey:
+      type: object
+      properties:
+        id: { type: string, description: 'UUID, which PUT and DELETE /me/saved/{propId} take.' }
+        slug: { type: string }
     UserUpdate:
       type: object
       properties:
@@ -10914,7 +11945,6 @@ components:
         propertyType: { $ref: '#/components/schemas/PropertyTypeLabel' }
         bhk: { type: number, example: 3 }
         price: { $ref: '#/components/schemas/Money' }
-        priceUnit: { type: string, enum: [total, per-month], example: per-month }
         area: { type: number, example: 1180 }
         areaUnit:
           type: string
@@ -10925,19 +11955,6 @@ components:
         landUse:
           type: string
           enum: [residential, commercial, industrial, agricultural, mixed]
-          nullable: true
-        ageYears:
-          type: integer
-          minimum: 0
-          nullable: true
-        floor:
-          type: integer
-          nullable: true
-        totalFloors:
-          type: integer
-          nullable: true
-        facing:
-          type: string
           nullable: true
         room:
           type: string
@@ -10961,43 +11978,10 @@ components:
             never key off it. Absent when the listing's locality could not be resolved to a curated
             locality (owner free-text that matched nothing); such listings are invisible to locality
             filters until curated during moderation.
-        societySlug:
-          type: string
-          example: skyline-heights
-          description: >-
-            The society this home is actually in (FK to Society.slug), or absent when the owner
-            never named one. The slug and not `society_id`, because the slug is the society's public
-            key everywhere else — `GET /societies/{slug}`, the hub route, the client's own catalogue
-            — so a UUID would tell a client that a society exists while giving it no way to name
-            one. Carried on the card and not only on detail because a society filter and a
-            "N homes in this building" count are computed over a page of results. Absent is a real
-            and common answer and must be read as "not known", never as any particular society:
-            before D19 the client filled the gap by hashing the listing id into a society list,
-            which printed one real building's builder, tower count and occupancy under another
-            building's listing.
-        societyName:
-          type: string
-          example: Skyline Heights
-          description: >-
-            The bound society's current catalogue name, derived on the server and absent when no
-            society is bound. Present even when the society has since been retired from the catalogue,
-            so the owner's edit form can still show what the listing is bound to; `societySlug` is
-            what routes to the society page.
         city: { type: string, example: Pune }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
         coverImage: { type: string, format: uri }
-        imageCount:
-          type: integer
-          minimum: 0
-          description: >
-            How many photos the listing has — the number, never the photos. The card surface only
-            ever asks "is there enough here", and shipping five URLs per row on a hundred-row page
-            to answer a yes/no is several times the payload for none of the benefit; search results
-            never render a second photo. It exists because the reels feed requires three frames and
-            had no other way to ask: it read `gallery.length` off a list row that has never carried
-            `images`, so every listing scored zero and the feed was permanently empty. Clients that
-            need the photos themselves read `GET /properties/{id}`.
         verified: { type: boolean }
         ownerVerified:
           type: boolean
@@ -11024,70 +12008,93 @@ components:
             detail. `reserved` badges a listing "under offer" while it stays `approved` and still
             takes offers; `closed` accompanies a terminal `sold`/`rented` status.
         createdAt: { type: string, format: date-time }
-        lastConfirmedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: >
-            When the owner last confirmed this listing is still available (`POST
-            /me/listings/{id}/confirm-available`). The input to the freshness badge, and the only
-            part of it that is stored rather than derived — everything else about staleness is a
-            function of this instant and the clock, so an owner who answers the nudge is back to
-            "active" immediately with nothing to recompute.
-
-
-            `null` means nobody has ever confirmed this listing, which is different from confirming
-            it long ago. Clients fall back to `createdAt` in that case, which is what the badge has
-            always effectively shown; the distinction is kept in the field rather than erased by
-            backfilling, so a listing whose owner answers stays distinguishable from one that has
-            only ever been posted.
         featured:
           type: boolean
           description: >
             The owner holds an entitling paid Owner plan (D292): derived on every read, so it ends
             when the plan does and nobody can set it by hand. Covers every listing of a subscribed
             owner. Present on the card because that is where the badge renders.
-        qualityScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          nullable: true
-          description: >
-            How complete this listing is, 0–100 — photos, description, verifications, the fields a
-            buyer needs and the amenity list. Computed by the database as a generated column, so it
-            can never disagree with the listing beneath it and never needs a recompute after an
-            edit.
-
-
-            It is served, and not merely used for ranking, because it is also what the owner's own
-            dashboard shows them: the same number that decides where a listing places is the number
-            they are asked to improve, and two separate figures for that would be an invitation to
-            distrust both.
-
-
-            `null` only on an instance that has been written but not read back; every read path
-            returns a number. Absent rather than `0` in that case, because a zero on a complete
-            listing is a wrong answer where no answer is an honest one.
-        freshness:
-          type: string
-          enum: [active, aging, stale, dormant]
-          description: >
-            How recently the owner confirmed availability, derived from `lastConfirmedAt` (falling
-            back to `createdAt`) against the server clock at request time.
-
-
-            Derived per request and never stored: it is a function of the clock, so any persisted
-            tier is correct only at the instant it was written. Sent alongside the timestamp rather
-            than instead of it — the timestamp is what a card renders ("confirmed 2 days ago"), the
-            tier is what decides tone and ranking. It is served rather than re-derived by each
-            client because it also governs whether a listing is shown at all, and a visibility rule
-            the browser evaluates is a rule anything reading the API directly does not have.
     Property:
       allOf:
         - $ref: '#/components/schemas/PropertySummary'
         - type: object
           properties:
             description: { type: string }
+            priceUnit: { type: string, enum: [total, per-month], example: per-month }
+            societySlug:
+              type: string
+              example: skyline-heights
+              description: >-
+                The society this home is actually in (FK to Society.slug), or absent when the owner
+                never named one. The slug and not `society_id`, because the slug is the society's public
+                key everywhere else — `GET /societies/{slug}`, the hub route, the client's own catalogue
+                — so a UUID would tell a client that a society exists while giving it no way to name
+                one. Carried on the card and not only on detail because a society filter and a
+                "N homes in this building" count are computed over a page of results. Absent is a real
+                and common answer and must be read as "not known", never as any particular society:
+                before D19 the client filled the gap by hashing the listing id into a society list,
+                which printed one real building's builder, tower count and occupancy under another
+                building's listing.
+            societyName:
+              type: string
+              example: Skyline Heights
+              description: >-
+                The bound society's current catalogue name, derived on the server and absent when no
+                society is bound. Present even when the society has since been retired from the catalogue,
+                so the owner's edit form can still show what the listing is bound to; `societySlug` is
+                what routes to the society page.
+            lastConfirmedAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: >
+                When the owner last confirmed this listing is still available (`POST
+                /me/listings/{id}/confirm-available`). The input to the freshness badge, and the only
+                part of it that is stored rather than derived — everything else about staleness is a
+                function of this instant and the clock, so an owner who answers the nudge is back to
+                "active" immediately with nothing to recompute.
+
+
+                `null` means nobody has ever confirmed this listing, which is different from confirming
+                it long ago. Clients fall back to `createdAt` in that case, which is what the badge has
+                always effectively shown; the distinction is kept in the field rather than erased by
+                backfilling, so a listing whose owner answers stays distinguishable from one that has
+                only ever been posted.
+            qualityScore:
+              type: integer
+              minimum: 0
+              maximum: 100
+              nullable: true
+              description: >
+                How complete this listing is, 0–100 — photos, description, verifications, the fields a
+                buyer needs and the amenity list. Computed by the database as a generated column, so it
+                can never disagree with the listing beneath it and never needs a recompute after an
+                edit.
+
+
+                It is served, and not merely used for ranking, because it is also what the owner's own
+                dashboard shows them: the same number that decides where a listing places is the number
+                they are asked to improve, and two separate figures for that would be an invitation to
+                distrust both.
+
+
+                `null` only on an instance that has been written but not read back; every read path
+                returns a number. Absent rather than `0` in that case, because a zero on a complete
+                listing is a wrong answer where no answer is an honest one.
+            freshness:
+              type: string
+              enum: [active, aging, stale, dormant]
+              description: >
+                How recently the owner confirmed availability, derived from `lastConfirmedAt` (falling
+                back to `createdAt`) against the server clock at request time.
+
+
+                Derived per request and never stored: it is a function of the clock, so any persisted
+                tier is correct only at the instant it was written. Sent alongside the timestamp rather
+                than instead of it — the timestamp is what a card renders ("confirmed 2 days ago"), the
+                tier is what decides tone and ranking. It is served rather than re-derived by each
+                client because it also governs whether a listing is shown at all, and a visibility rule
+                the browser evaluates is a rule anything reading the API directly does not have.
             deposit: { $ref: '#/components/schemas/Money' }
             maintenance: { $ref: '#/components/schemas/Money' }
             negotiable: { type: boolean }
@@ -11242,11 +12249,12 @@ components:
                 SLA clock after a rejection fix, a stays-live re-check edit or a reopened deal.
             ownershipRequestedAt: { type: [string, 'null'], format: date-time, description: 'Open Verified-badge request from the owner''s document vault. Owner/staff only.' }
             ownershipDeclinedReason: { type: [string, 'null'], description: 'Why staff last declined a badge request. Owner/staff only.' }
-            archived: { type: boolean, description: Soft-delete flag. A separate axis from status - always false on the public detail read; meaningful on /me/listings and /admin/properties. }
+            archived: { type: boolean, description: Soft-delete flag. A separate axis from status - absent on the public detail read; meaningful on /me/listings and /admin/properties. }
             docsCount: { type: integer }
             owner:
               type: object
               description: Owner summary; contact number masked unless the reader is entitled to it.
+              required: [id]
               properties:
                 id: { type: string }
                 name: { type: string }
@@ -11464,6 +12472,72 @@ components:
             signals: { $ref: '#/components/schemas/ListingSignals' }
             ownerReplied: { type: boolean, description: The owner has sent a case-file message the desk has not read }
 
+    PropertyQueueRow:
+      type: object
+      description: >-
+        A queue row: what the table, its chips and the quality score read, and nothing else. The
+        owner's number is kept because the row prints it for the call. The whole listing is
+        `getPropertyForModeration`.
+      required: [id, status, recheckPending, featured, archived, ownerVerified, ownershipVerified, views, enquiries, docsCount, photoCount, descLength, amenityCount, signals, ownerReplied]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { type: integer }
+        area: { type: number }
+        areaUnit: { type: string }
+        furnishing: { type: string }
+        locality: { type: string }
+        localitySlug: { type: string }
+        city: { type: string }
+        coverImage: { type: string }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        progress: { $ref: '#/components/schemas/ListingProgress' }
+        createdAt: { type: string, format: date-time }
+        lastConfirmedAt: { type: string, format: date-time }
+        freshness: { type: string }
+        resubmittedAt: { type: string, format: date-time }
+        ownershipRequestedAt: { type: string, format: date-time }
+        recheckPending: { type: boolean }
+        recheckReason: { type: string }
+        recheckRequestedAt: { type: string, format: date-time }
+        featured: { type: boolean }
+        archived: { type: boolean }
+        ownerVerified: { type: boolean }
+        ownershipVerified: { type: boolean }
+        views: { type: integer }
+        enquiries: { type: integer }
+        docsCount: { type: integer }
+        photoCount: { type: integer }
+        descLength: { type: integer }
+        amenityCount: { type: integer }
+        facing: { type: string }
+        floor: { type: integer }
+        ageYears: { type: integer }
+        deposit: { type: integer }
+        availableFrom: { type: string }
+        possession: { type: string }
+        owner:
+          type: object
+          description: Raw mobile, on `properties:read`.
+          properties:
+            id: { type: string }
+            name: { type: string }
+            mobile: { type: string }
+            verified: { type: boolean }
+        adminPipeline:
+          type: object
+          description: Staff-posted listings only.
+          properties:
+            postedByAdmin: { type: boolean }
+            postedByStaff: { type: string }
+            reminderCount: { type: integer }
+        signals: { $ref: '#/components/schemas/ListingSignals' }
+        ownerReplied: { type: boolean, description: The owner has sent a case-file message the desk has not read }
+
     ListingSignals:
       type: object
       required: [possibleBroker, hardBlock, conflict, items]
@@ -11552,8 +12626,32 @@ components:
           description: Staff-only soft cues for this already-derived cluster; never create-time duplicate arms.
         listings:
           type: array
-          items: { $ref: '#/components/schemas/Property' }
+          items: { $ref: '#/components/schemas/DuplicateClusterListing' }
           description: The members, newest first.
+
+    DuplicateClusterListing:
+      type: object
+      description: One member of a cluster, as the side-by-side card prints it; the whole listing is `getPropertyForModeration`.
+      required: [id, status, verified]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        price: { type: integer }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        coverImage: { type: string }
+        locality: { type: string }
+        pincode: { type: string }
+        verified: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        owner:
+          type: object
+          description: Raw mobile, on `properties:read`.
+          properties:
+            id: { type: string }
+            name: { type: string }
+            mobile: { type: string }
+            verified: { type: boolean }
 
     DuplicateClusterHint:
       type: object
@@ -11597,7 +12695,7 @@ components:
 
     Locality:
       type: object
-      required: [slug, name, city, archived, liveListings, rentListings, saleListings, indexable]
+      required: [slug, name, city, archived, liveListings, indexable]
       properties:
         slug: { type: string, example: koregaon-park }
         name: { type: string, example: Koregaon Park }
@@ -11606,11 +12704,10 @@ components:
         lng: { type: [number, 'null'], format: double }
         archived: { type: boolean, description: Retired; still listed only while live listings remain }
         liveListings: { type: integer, description: Approved, unarchived listings bound to this slug }
-        rentListings: { type: integer }
-        saleListings: { type: integer }
         indexable: { type: boolean, description: At least 3 live listings; otherwise the page is noindex and left out of the sitemap }
         avgRent: { type: [integer, 'null'], description: Average monthly rent of live rent flats (INR); null below 3 samples }
         ratePerSqft: { type: [integer, 'null'], description: Average asking rate of live sale flats (INR/sqft); null below 3 samples }
+        fromPrice: { type: [integer, 'null'], description: Lowest live asking price, rent or sale (INR) }
     LocalitySummary:
       type: object
       required: [slug, name, city]
@@ -11653,7 +12750,7 @@ components:
       type: object
       description: >
         One contact request on the ops demand board. Not `ContactRequest`: that is the owner's view
-        of their own inbox. Here the requester's mobile is in full at every status.
+        of their own inbox. The mobile is masked on the list and in full on the audited detail.
       properties:
         id: { type: string, format: uuid }
         propertyId: { type: string, format: uuid }
@@ -11699,8 +12796,9 @@ components:
         createdAt: { type: string, format: date-time }
     Society:
       type: object
+      description: A directory, search or follow-list card. Provenance and admin fields live on the admin routes.
       properties:
-        id: { type: string, format: uuid, example: 00000000-0000-0000-0000-000000000000 }
+        id: { type: string, format: uuid, description: Bound onto a listing by the wizard }
         slug: { type: string, example: kumar-pinnacle }
         name: { type: string }
         builder: { type: string }
@@ -11708,6 +12806,85 @@ components:
         lat: { type: number }
         lng: { type: number }
         year: { type: integer, description: Year built / possession }
+        rera: { type: [string, 'null'], description: MahaRERA registration id; empty if none }
+        listingCount: { type: integer }
+        avgRating:
+          type: [number, 'null']
+          description: >-
+            Average published rating, computed on read. Null — not 0 — when the society has no
+            reviews: no rating is not a rating of zero, and a card rendering 0.0 for an unreviewed
+            society states something false about it. On the directory as well as the hub because
+            the cards show a star; resolving it per card would be one request per row.
+        reviewCount:
+          type: integer
+          description: >-
+            How many published reviews the average is over. Without it the average is unreadable —
+            4.9 from one review is not 4.9 from two hundred.
+    SocietyBrief:
+      type: object
+      description: What a listing page or a search chip shows about its society.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        builder: { type: string }
+        units: { type: integer }
+        towers: { type: integer }
+        year: { type: integer }
+        occupancy: { type: number }
+        avgRating: { type: [number, 'null'], description: Weighted over the merge family; null when unreviewed }
+        reviewCount: { type: integer }
+    SocietyHome:
+      type: object
+      description: One of the six newest live homes on a society hub.
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: [string, 'null'] }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        bhk: { type: [number, 'null'] }
+        price: { type: integer }
+        area: { type: [number, 'null'] }
+    SocietyCandidate:
+      type: object
+      description: A member-added society on the ops candidate queue.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        localitySlug: { type: [string, 'null'] }
+        mintOrigin: { type: [string, 'null'], enum: [demand, listing, null] }
+        createdAt: { type: string, format: date-time }
+    LocalityAdminRow:
+      type: object
+      description: A row of the staff locality list.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        lat: { type: [number, 'null'] }
+        lng: { type: [number, 'null'] }
+        archived: { type: boolean }
+        liveListings: { type: integer, format: int64 }
+    SocietyDirectoryRow:
+      type: object
+      description: A row of the staff society directory.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        builder: { type: [string, 'null'] }
+        localitySlug: { type: [string, 'null'] }
+        year: { type: [integer, 'null'] }
+        maintenancePerSqft: { type: [number, 'null'] }
+    SocietyDetail:
+      type: object
+      description: The society hub. Counts and averages are computed over the merge family's live homes.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        builder: { type: string }
+        localitySlug: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        placeId: { type: [string, 'null'], description: Google Place ID for the approved society pin; null until one is recorded. }
+        year: { type: integer }
         towers: { type: integer }
         units: { type: integer }
         occupancy: { type: number, description: Occupancy percentage (0-100) }
@@ -11725,55 +12902,17 @@ components:
         power: { type: string }
         petPolicy: { type: string }
         vegPolicy: { type: string }
-        rera: { type: [string, 'null'], description: MahaRERA registration id; empty if none }
-        registration: { type: boolean, description: Society registered }
-        conveyance: { type: boolean, description: Conveyance deed done }
+        rera: { type: [string, 'null'] }
         amenities: { type: array, items: { type: string } }
-        source: { type: string, enum: [curated, rera, community], description: Origin of the record }
-        mintOrigin:
-          type: [string, 'null']
-          enum: [demand, listing, null]
-          description: >-
-            Which human action minted this society: `demand` (a searcher looked for the building and
-            the catalogue did not have it) or `listing` (somebody posting a flat could not find their
-            society). A different axis from `source`, not an extension of it — `source` says where
-            the record came from and is what a reader weighs for trustworthiness, `mintOrigin` says
-            what somebody was doing when they added it, and is what ops reads to find demand nobody
-            has served. Every row carrying one has `source: community`. Null means not recorded:
-            true of curated and RERA rows, which nobody minted, and of every community row created
-            before V108. Null must not be rendered as "from a listing".
         listingCount: { type: integer }
-        followerCount: { type: integer }
-        followedByMe: { type: boolean }
-        avgRating:
-          type: [number, 'null']
-          description: >-
-            Average published rating, computed on read. Null — not 0 — when the society has no
-            reviews: no rating is not a rating of zero, and a card rendering 0.0 for an unreviewed
-            society states something false about it. On the directory as well as the hub because
-            the cards show a star; resolving it per card would be one request per row.
-        reviewCount:
-          type: integer
-          description: >-
-            How many published reviews the average is over. Without it the average is unreadable —
-            4.9 from one review is not 4.9 from two hundred.
-        createdAt:
-          type: string
-          format: date-time
-          description: >-
-            When the row appeared. Carried for the candidate queue, which is ordered by it.
-    SocietyDetail:
-      allOf:
-        - $ref: '#/components/schemas/Society'
-        - type: object
-          properties:
-            placeId: { type: [string, 'null'], description: Google Place ID for the approved society pin; null until one is recorded. }
-            homes:
-              type: array
-              items: { $ref: '#/components/schemas/PropertySummary' }
-            reviews:
-              type: array
-              items: { $ref: '#/components/schemas/Review' }
+        forSale: { type: integer }
+        forRent: { type: integer }
+        psf: { type: [integer, 'null'], description: Average asking INR/sqft of live sale homes }
+        rentAvg: { type: [integer, 'null'], description: Average monthly rent of live rent homes }
+        homes:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/SocietyHome' }
     SocietyCreate:
       type: object
       description: >
@@ -11823,13 +12962,6 @@ components:
           description: The society that survives, and the one this slug now resolves to.
         intoName: { type: string, example: Kumar Pinnacle }
         mergedAt: { type: string, format: date-time }
-        mergedBy:
-          type: string
-          format: uuid
-          description: >-
-            The operator who recorded it. A merge with no signature is a decision nobody made, and
-            on the day two operators disagree about which of two rows is the real society it is the
-            only way to know who to ask.
     SocietyDuplicateSuggestion:
       type: object
       description: >
@@ -12433,6 +13565,15 @@ components:
         functions:
           type: array
           items: { type: string, example: 'desk:rental' }
+    TeamAssignee:
+      type: object
+      required: [id, desks]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        desks:
+          type: array
+          items: { type: string, example: rental }
     BackOfficePermissionsRequest:
       type: object
       required: [functions]
@@ -12528,6 +13669,28 @@ components:
     IdentityLiveness:
       type: string
       enum: [passed, bypassed, unavailable]
+    IdentityReviewRow:
+      type: object
+      description: One queue line. The case itself — claims, images, warnings, account contact — is the detail read.
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/IdentityVerificationStatus' }
+        userName: { type: [string, 'null'] }
+        userMobile: { $ref: '#/components/schemas/Mobile' }
+        docType: { $ref: '#/components/schemas/IdentityDocType' }
+        submittedAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+        approvedByName: { type: [string, 'null'], description: Reviewer who decided the case. }
+        claimedByName: { type: [string, 'null'], description: Fresh claim holder; null when unclaimed or stale. }
+        claimedByMe: { type: boolean }
+        qaSampledAt: { type: [string, 'null'], format: date-time, description: Hidden from the original approver. }
+    IdentityClaimState:
+      type: object
+      description: Who holds the case after a claim; the caller already has the case from the detail read.
+      properties:
+        claimedByName: { type: [string, 'null'] }
+        claimedByMe: { type: boolean }
     IdentityReview:
       type: object
       description: A verification case as the reviewer sees it.
@@ -12542,8 +13705,6 @@ components:
         status: { $ref: '#/components/schemas/IdentityVerificationStatus' }
         docType: { $ref: '#/components/schemas/IdentityDocType' }
         claims: { $ref: '#/components/schemas/IdentityClaims' }
-        claimedHash: { type: [string, 'null'], description: Short prefix of the keyed hash of the OCR-read number, so two cases carrying the same document are visibly the same. }
-        docLast4: { type: [string, 'null'] }
         holderName: { type: [string, 'null'], description: Confirmed on approval. }
         holderDob: { type: [string, 'null'], format: date, description: Confirmed on approval. }
         holderDobYearOnly: { type: boolean, description: True when the document showed only a birth year; `holderDob` is then YYYY-01-01. }
@@ -12562,7 +13723,6 @@ components:
         revokedByName: { type: [string, 'null'] }
         revocationReason: { type: [string, 'null'] }
         claimedByName: { type: [string, 'null'], description: Fresh claim holder; null when unclaimed or stale. }
-        claimedAt: { type: [string, 'null'], format: date-time, description: Fresh claim timestamp; null when unclaimed or stale. }
         claimedByMe: { type: boolean }
         qaSampledAt: { type: [string, 'null'], format: date-time, description: Hidden from the original approver. }
         qaReviewedAt: { type: [string, 'null'], format: date-time }
@@ -12597,6 +13757,7 @@ components:
         birthYear: { type: [integer, 'null'], minimum: 1900, description: Year-only documents store holderDob as YYYY-01-01 and holderDobYearOnly true. Exactly one of `dob` or `birthYear` is required. }
         poseConfirmed: { type: [boolean, 'null'], description: Required `true` when the case carries a `livenessChallenge` — the selfie shows the requested pose. }
         numberOverride: { type: [boolean, 'null'], description: 'Required `true` to approve a number that differs from the applicant''s entry; audited and always QA-sampled.' }
+    IdentityRejectRequest:
       type: object
       required: [reason]
       properties:
@@ -12810,67 +13971,19 @@ components:
         read: { type: boolean }
         internal: { type: boolean, description: Staff-only; never true in an owner's copy. }
         clarificationRequested: { type: boolean, default: false }
-    PropertyReviewSummary:
+    ReviewBadge:
       type: object
-      description: One listing under review, as it appears in the ops queue.
+      description: >
+        One listing's review state on the owner's dashboard card. No reviewer id or name, no listing copy
+        and no progress: the card already holds the listing.
       properties:
-        propertyTitle: { type: [string, 'null'] }
-        propertyImage: { type: [string, 'null'] }
-        lastMessage: { type: [string, 'null'], description: Most recent non-internal message body }
-        lastMessageAt: { type: [string, 'null'], format: date-time }
-        progress: { $ref: '#/components/schemas/ListingProgress' }
         propertyId: { type: string }
         status: { $ref: '#/components/schemas/PropertyReviewStatus' }
-        reviewer: { type: string }
-        reviewerName: { type: [string, 'null'], description: The reviewer's name on the ops queue; always null on /me/property-reviews. }
-        unread:
-          type: integer
-          description: >
-            D218. Messages waiting on the side reading this row, counted from the opposite end
-            depending on which queue served it: on `/admin/property-reviews` it is the owner's
-            unread messages, on `/me/property-reviews` it is ops'. Same rule — a message is unread
-            to the side that did not send it — which is also what `markVerificationRead` writes.
-            Deliberately not reader-scoped on the ops queue: that desk is shared, so counting "what
-            I personally have not opened" would make a colleague's reply look like new owner mail.
-          example: 2
-        decidedAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
+        unread: { type: integer, description: Ops messages the owner has not opened., example: 2 }
+        updatedAt: { type: string, format: date-time, description: Latest non-internal message, else the case's creation. }
         reasonCode: { $ref: '#/components/schemas/PropertyReviewReasonCode' }
-        reasonNote: { type: [string, 'null'] }
-    PropertyReviewQueuePage:
-      type: object
-      properties:
-        content:
-          type: array
-          items: { $ref: '#/components/schemas/PropertyReviewSummary' }
-        number: { type: integer, description: 'Zero-based page index — `page` everywhere else.', example: 0 }
-        size: { type: integer, example: 20 }
-        numberOfElements: { type: integer, description: 'Items on this page.', example: 1 }
-        totalElements: { type: integer, format: int64, example: 137 }
-        totalPages: { type: integer, example: 7 }
-        first: { type: boolean }
-        last: { type: boolean }
-        empty: { type: boolean }
-        sort:
-          type: object
-          properties:
-            empty: { type: boolean }
-            sorted: { type: boolean }
-            unsorted: { type: boolean }
-        pageable:
-          type: object
-          properties:
-            offset: { type: integer, format: int64 }
-            pageNumber: { type: integer }
-            pageSize: { type: integer }
-            paged: { type: boolean }
-            unpaged: { type: boolean }
-            sort:
-              type: object
-              properties:
-                empty: { type: boolean }
-                sorted: { type: boolean }
-                unsorted: { type: boolean }
+        reasonNote: { type: [string, 'null'], description: Only while the case is needs-info or rejected. }
+        lastMessage: { type: [string, 'null'], description: Most recent non-internal message body }
     ReportTargetType:
       type: string
       description: >-
@@ -12888,6 +14001,10 @@ components:
         details: { type: string }
         status: { type: string, enum: [open, reviewing, actioned, dismissed] }
         createdAt: { type: string, format: date-time }
+        targetReportCount:
+          type: integer
+          format: int64
+          description: Reports ever filed against the same target; present on `GET /reports` rows only.
     ReportTriage:
       type: object
       description: >
@@ -12909,12 +14026,14 @@ components:
 
             Only legal alongside `status=actioned` - "dismissed, and also taken down" is not a
             decision anybody means. Supported per target type: `property` accepts `hide_content`
-            (flags the listing, which removes it from every public read); `user` accepts
+            (flags the listing, which removes it from every public read) and `post` accepts
+            `hide_content` (marks the seeker post, room or group `removed`, which drops it from every
+            public read and tells its author); `user` accepts
             `suspend_account` (the same soft-delete an admin drives from the users screen).
-            `review` and `post` accept `none` only - a review is taken down through
-            `PATCH /reviews/{id}/status`, which also removes it from the rating average, and
-            share-flat posts have no moderation verb yet. Both are refused with a message naming
-            the endpoint to use instead, rather than accepted and silently discarded.
+            `review` accepts `none` only - a review is taken down through
+            `PATCH /reviews/{id}/status`, which also removes it from the rating average. It is
+            refused with a message naming the endpoint to use instead, rather than accepted and
+            silently discarded.
     ErasureCreate:
       type: object
       description: >
@@ -13075,7 +14194,6 @@ components:
             mobile: { $ref: '#/components/schemas/Mobile' }
         status: { type: string, enum: [pending, resolved, declined] }
         createdAt: { type: string, format: date-time }
-        decidedAt: { type: [string, 'null'], format: date-time }
     PhotoRequestCreateResult:
       type: object
       description: >
@@ -13518,6 +14636,22 @@ components:
         sizeBytes: { type: [integer, 'null'], format: int64 }
         mimeType: { type: [string, 'null'] }
         uploadedAt: { type: string, format: date-time }
+    DocumentSummary:
+      type: object
+      description: >-
+        A vault or granted file's metadata. The file itself is opened through the matching `.../url`
+        route, which signs a short-lived link on click.
+      properties:
+        id: { type: string }
+        category: { type: string, example: Sale Deed }
+        fileName: { type: [string, 'null'] }
+        sizeBytes: { type: [integer, 'null'], format: int64 }
+        mimeType: { type: [string, 'null'] }
+        uploadedAt: { type: string, format: date-time }
+    DocumentUrl:
+      type: object
+      properties:
+        url: { type: string, format: uri, description: Short-lived signed URL for one file }
     DocumentRequest:
       type: object
       properties:
@@ -13534,7 +14668,6 @@ components:
             Number of uploaded files this request's category scope unlocks. Zero means the owner
             approved categories for which no file has been uploaded yet; it does not mean the
             request was declined.
-        shareToken: { type: [string, 'null'] }
         # A grant is time-boxed, so the token carries its deadline: without it the client cannot
         # tell a live grant from one about to lapse, and 'expired' appears out of nowhere.
         expiresAt: { type: [string, 'null'], format: date-time }
@@ -13587,6 +14720,30 @@ components:
               text: { type: string }
               at: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
+    TicketRow:
+      type: object
+      description: One ticket-board row. Notes, `value` and `quotedValue` come with `getTicket`.
+      properties:
+        id: { type: string }
+        subject: { type: string }
+        team: { $ref: '#/components/schemas/Team' }
+        priority: { type: string, enum: [low, medium, high, urgent] }
+        status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
+        assignee: { type: [string, 'null'], description: Assignee display name }
+        service: { type: [string, 'null'], description: Service catalogue display name }
+        customer: { type: string, description: Requester name }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        detail: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    TicketSummary:
+      type: object
+      properties:
+        open: { type: integer, format: int64 }
+        inProgress: { type: integer, format: int64 }
+        waiting: { type: integer, format: int64 }
+        resolved: { type: integer, format: int64 }
+        closed: { type: integer, format: int64 }
+        all: { type: integer, format: int64 }
     CustomerTicket:
       type: object
       properties:
@@ -13631,6 +14788,23 @@ components:
         priority: { type: string, enum: [low, medium, high, urgent] }
         assigneeId: { type: string, description: 'User id of the staff member to assign, or the reserved value "none" to unassign. Omit to leave the assignee unchanged; a null is treated as omitted.' }
         team: { $ref: '#/components/schemas/Team' }
+    SupportTicketSummary:
+      type: object
+      description: One row of the ticket list. The thread comes from `getSupportTicket`.
+      properties:
+        id: { type: string }
+        subject: { type: string }
+        category: { type: string }
+        status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
+        unread: { type: boolean }
+        lastMessage:
+          type: [object, 'null']
+          description: The newest message; `body` is cut to a 160-character preview.
+          properties:
+            authorRole: { $ref: '#/components/schemas/Role' }
+            body: { type: string, maxLength: 160 }
+            createdAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
     SupportTicket:
       type: object
       properties:
@@ -13641,7 +14815,7 @@ components:
         unread: { type: boolean }
         messages:
           type: array
-          items: { $ref: '#/components/schemas/Message' }
+          items: { $ref: '#/components/schemas/SupportMessage' }
         createdAt: { type: string, format: date-time }
     AdminSupportTicket:
       type: object
@@ -13688,7 +14862,7 @@ components:
               name: { type: string, example: Owner Aadhaar + PAN }
               done: { type: boolean }
               # The newest document filed under this item. An id, never a URL: this endpoint mints
-              # no download credential, so the bytes stay behind getServiceRequest.
+              # no download credential, so the bytes stay behind getServiceRequestDocumentUrl.
               documentId: { type: [string, 'null'] }
               review: { type: [string, 'null'], enum: [pending, verified, rejected, null], description: The desk's verdict on documentId; null when nothing is filed }
               reason: { type: [string, 'null'], description: "Why the desk rejected it; null on another co-fill side's PAN, Aadhaar or photo" }
@@ -13715,7 +14889,8 @@ components:
               by: { type: string }
         documents:
           type: array
-          items: { $ref: '#/components/schemas/Document' }
+          description: File metadata only; each file is opened through `getServiceRequestDocumentUrl`.
+          items: { $ref: '#/components/schemas/DocumentSummary' }
         messages:
           type: array
           items: { $ref: '#/components/schemas/ServiceRequestMessage' }
@@ -13739,6 +14914,30 @@ components:
           oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/ServiceRequestDraftApproval' } ]
         draftCheck:
           oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/ServiceRequestDraftCheck' } ]
+    ServiceRequestQueueRow:
+      type: object
+      description: >-
+        What a desk queue row draws. The thread, files, parties, payment session and timeline come
+        with `getServiceRequest`.
+      properties:
+        id: { type: string }
+        type: { type: string, example: rent-agreement }
+        status: { type: string, enum: [awaiting-payment, new, assigned, in-progress, draft-shared, changes-requested, approved, completed, cancelled] }
+        details:
+          type: ['object', 'null']
+          additionalProperties: true
+          description: >-
+            Only the scalar request fields a row summarises, plus `_state` reduced to the owner and tenant
+            names, the flat (`prop`) and the terms.
+        assignee: { type: [string, 'null'] }
+        assignedToMe: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        amount: { type: [integer, 'null'], format: int64 }
+        sla:
+          oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/ServiceRequestSla' } ]
+        draftCheckStatus: { type: [string, 'null'], description: Status of the newest second-check on the draft; null when none was needed }
+        policeConfirmed: { type: boolean, description: Police intimation confirmed; read only on completed rows }
+        approvedAt: { type: [string, 'null'], format: date-time, description: When the customer approved the draft; read only on approved rent agreements }
     ServiceQueueSummary:
       type: object
       properties:
@@ -13838,6 +15037,7 @@ components:
         nrDeposit: { type: [integer, 'null'], format: int64, minimum: 0 }
         months: { type: [integer, 'null'], format: int64, minimum: 1 }
         increment: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        incrementEvery: { type: [integer, 'null'], format: int64, minimum: 1, description: 'Months between increases; only 11 or 12 is priced.' }
         regArea:
           type: [string, 'null']
           enum: [urban, rural, null]
@@ -13861,7 +15061,7 @@ components:
             properties:
               id: { type: string }
               amount: { type: integer, format: int64 }
-              status: { type: string, enum: [requested, approved, rejected] }
+              status: { type: string, enum: [requested, approved, rejected, failed] }
               dutyPaid: { type: boolean }
               grn: { type: [string, 'null'] }
               reason: { type: string }
@@ -13916,7 +15116,7 @@ components:
       properties:
         requestId: { type: string }
         status: { type: string }
-        match: { type: string, enum: [listing, address] }
+        match: { type: string, enum: [listing, address, record], description: 'A record is an agreement filed outside any request; its requestId is that record''s id.' }
         startDate: { type: [string, 'null'], format: date }
         endDate: { type: [string, 'null'], format: date, description: 'Exclusive: start date plus the term in months.' }
         licensor: { type: [string, 'null'] }
@@ -14032,9 +15232,9 @@ components:
         preparedBy: { type: [string, 'null'], description: Operator who uploaded the registered copy. }
         verifiedBy: { type: [string, 'null'], description: Operator who checked it. }
         preparedByYou: { type: boolean, description: True when the caller uploaded it, so cannot check it. }
-        documentUrl:
+        documentId:
           type: [string, 'null']
-          description: Fresh signed URL of the exact registered copy this row was prepared from.
+          description: The exact registered copy this row was prepared from; open it through `getServiceRequestDocumentUrl`.
         otpVerified:
           type: boolean
           description: >
@@ -14074,8 +15274,6 @@ components:
         id: { type: [string, 'null'] }
         planId: { type: [string, 'null'] }
         status: { type: [string, 'null'], enum: [pending, active, past-due, cancelled, expired] }
-        startedAt: { type: [string, 'null'], format: date-time }
-        renewsAt: { type: [string, 'null'], format: date-time }
         # The gateway order id. Null
         # once nothing is owed; the durable handle the payment webhook correlates against.
         paymentRef: { type: [string, 'null'] }
@@ -14120,6 +15318,16 @@ components:
           type: integer
           minimum: 0
           description: Rent agreements earned via referrals.
+        used:
+          type: integer
+          minimum: 0
+          description: Rent-agreement requests holding a credit; a cancelled request releases it.
+        remaining:
+          type: integer
+          minimum: 0
+          description: >-
+            Credits spendable at `POST /service-requests/{id}/checkout`, which waives only Draazy's
+            service fee and its GST. Never negative, even after a referral clawback.
     ReferralSummary:
       type: object
       # Rewards count owner contacts, not rupees: there is no wallet anywhere, while every
@@ -14128,8 +15336,6 @@ components:
         code: { type: string, example: PUNE-AB12 }
         invited: { type: integer }
         converted: { type: integer }
-        contactsEarned: { type: integer, description: Owner contacts already granted }
-        contactsPending: { type: integer, description: Owner contacts promised, not yet qualified }
     Referral:
       type: object
       description: A single referral record with anti-fraud signals (admin/ops view).
@@ -14140,7 +15346,6 @@ components:
         referred: { type: string }
         referredMobile: { $ref: '#/components/schemas/Mobile' }
         channel: { type: string, enum: [seeker, owner] }
-        shareChannel: { type: [string, 'null'], enum: [whatsapp, sms, email, copy, qr, other, null] }
         reward: { type: string, description: "Human label, e.g. '+15 owner contacts'" }
         rewardAmount: { type: integer, description: Owner contacts granted by this referral }
         status: { type: string, enum: [pending, qualified, rewarded, rejected, clawed-back] }
@@ -14152,9 +15357,6 @@ components:
         velocityHigh: { type: boolean }
         activated: { type: boolean }
         at: { type: string, format: date-time }
-        qualifiedAt: { type: [string, 'null'], format: date-time }
-        handledBy: { type: [string, 'null'] }
-        handledAt: { type: [string, 'null'], format: date-time }
     SavedSearch:
       type: object
       properties:
@@ -14167,7 +15369,6 @@ components:
         label: { type: string, description: Short human summary rendered on the alert card and in the dashboard Alerts panel. }
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
         channel: { type: string, enum: [whatsapp, sms, email, push], default: whatsapp }
-        mobile: { $ref: '#/components/schemas/Mobile', description: Required for the signed-out lead path — an anonymous alert is keyed by mobile so it re-homes on sign-in. }
         newCount: { type: integer, description: Matches that arrived since the alert sweep's last baseline. Falls back to zero once the alert has been sent — it is a "what changed" number, not a total. }
         matchCount: { type: integer, description: How many live listings match these facets right now, regardless of age. Computed server-side on every read of this resource, because the browser could only ever count one page of the catalogue. Always 0 for a `flatmates` alert, which this count does not cover. }
         createdAt: { type: string, format: date-time }
@@ -14258,28 +15459,23 @@ components:
             from "would not recommend" (`r.recommend != null`), so `false` and absent are not
             the same answer.
         createdAt: { type: string, format: date-time }
+    ReviewModerationRow:
+      type: object
+      description: One row of the review moderation queue - only what the queue renders, with the review's own moderation state.
+      properties:
+        id: { type: string }
+        targetType: { type: string, enum: [property, locality, society, owner] }
+        targetId: { type: string }
+        author: { type: string }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
         status:
           type: string
           enum: [pending, published, rejected]
-          readOnly: true
           description: >
-            Moderation state, and **present only on `GET /admin/reviews`**. Absent on every other
-            read, because every other read filters `status = 'published'` before it maps -- so the
-            field would be a constant there, and a constant field invites a client to branch on
-            something that can never vary.
-
-            Added because the moderation queue could not do the job its own description claims. That
-            endpoint's useful call is the unfiltered one -- "everything, newest first, which is how a
-            moderator finds a review nobody has reported yet" -- and a mixed-status list in which no
-            row carries its status is a list nobody can act on: a moderator cannot tell what has
-            already been taken down, so every row reads as "unknown". The `?status=` filter was the
-            workaround, costing one round trip per status to reconstruct what a single response
-            should have carried.
-
             `pending` is in the enum because the column can hold it, not because this platform
-            writes it: reviews are post-moderated, so `ReviewService` publishes on write. Declaring
-            only the two values a moderator can *set* would make the contract narrower than the
-            column and would 400 a legitimate row if that policy ever changed.
+            writes it: reviews are post-moderated, so `ReviewService` publishes on write.
     ReviewCreate:
       # Note what is NOT here: `context`. It is derived server-side (see Review.context), because a
       # client-settable badge would defeat the anti-fake-review rule it exists to enforce.
@@ -14482,7 +15678,6 @@ components:
         id: { type: string, format: uuid }
         kind: { type: string, enum: [post, room, group], description: Which board this came from. }
         modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
-        authorId: { type: string, format: uuid }
         authorName: { type: [string, 'null'] }
         headline:
           type: [string, 'null']
@@ -14511,6 +15706,29 @@ components:
             When the re-check was first raised. Not reset by later edits: its age is the SLA, so a
             host who re-crops a photo daily cannot walk their own row back down the queue.
         createdAt: { type: string, format: date-time }
+    FlatmateModerationRow:
+      type: object
+      description: >
+        One card of the flatmate moderation queue: `FlatmateModerationQueueItem` without the photo
+        URLs, which a card only counts, and which the popup reads from the detail.
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [post, room, group] }
+        modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+        authorName: { type: [string, 'null'] }
+        headline: { type: [string, 'null'] }
+        locality: { type: [string, 'null'] }
+        freeText: { type: [string, 'null'] }
+        photoCount: { type: integer, description: How many photos the author attached; 0 for a post or a group. }
+        recheckReason: { type: [string, 'null'] }
+        recheckRequestedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    FlatmateModerationSummary:
+      type: object
+      properties:
+        pending: { type: integer, format: int64 }
+        published: { type: integer, format: int64 }
+        hidden: { type: integer, format: int64 }
     FlatmateModerationDetail:
       type: object
       description: >
@@ -14567,6 +15785,37 @@ components:
         verified: { type: boolean, description: Mirrors the seeker's L2 Verified badge at post time (ADR-009a). }
         modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
         mobile: { $ref: '#/components/schemas/Mobile' }
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
+        createdAt: { type: string, format: date-time }
+    FlatmateSeekerFeed:
+      type: object
+      description: A seeker post as anyone but its author sees it. No moderation verdict or contact; coordinates rounded to 3 decimals.
+      properties:
+        id: { type: string, example: s1 }
+        title: { type: [string, 'null'], maxLength: 120, description: 'The seeker''s own headline. Null on posts made before it existed — render the name instead.' }
+        name: { type: string }
+        gender: { type: string, enum: [any, male, female] }
+        age: { type: [integer, 'null'], minimum: 18 }
+        occupation: { type: string, example: UX Designer }
+        budget: { $ref: '#/components/schemas/Money' }
+        budgetMax: { $ref: '#/components/schemas/FlatmateBudgetMax' }
+        localities:
+          type: array
+          description: Pune localities the seeker will consider (canonical registry names).
+          items: { type: string }
+          example: [Baner, Balewadi]
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        flatPref: { type: string, enum: [any, women, men], description: Who they want to share the flat with. }
+        roomPref: { type: string, enum: [any, private, shared] }
+        tags:
+          type: array
+          description: Lifestyle habits; also the `habits` filter vocabulary.
+          items: { type: string }
+          example: [Vegetarian, Non-smoker]
+        note: { type: string, maxLength: 600 }
+        verifiedContactOnly: { type: boolean, default: false, description: Seeker-side of ADR-019 — only badged callers may express interest. }
+        verified: { type: boolean, description: Mirrors the seeker's L2 Verified badge at post time (ADR-009a). }
         lat: { type: [number, 'null'], format: double }
         lng: { type: [number, 'null'], format: double }
         createdAt: { type: string, format: date-time }
@@ -14628,6 +15877,15 @@ components:
           enum: [room, group, post]
           description: Which collection `id` belongs to.
         id: { type: string, format: uuid }
+    FlatmateInterestKey:
+      type: object
+      description: One sent ask as a key. `GET /me/flatmate-interests/keys` answers with these.
+      required: [id, kind, targetId, status]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [flatmate, room, group] }
+        targetId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, accepted, declined] }
     FlatmateRoomFeed:
       type: object
       description: >
@@ -14791,10 +16049,9 @@ components:
         agreementDoc:
           type: [object, 'null']
           description: The stored agreement's `id`, `name`, `mime` and `size`, never its bytes. Sending the same `id` back without `dataUrl` keeps the stored file.
-        agreementRegNo: { type: [string, 'null'] }
-        agreementRegisteredOn: { type: [string, 'null'], format: date }
         agreementValidTill: { type: [string, 'null'], format: date }
         ownerConsentMobile: { type: [string, 'null'], description: Unmasked — the host typed it, and the edit form sends it back. }
+    FlatmateRoomCreate:
       type: object
       required: [bhk, roomType, locality, rentShare, availableFrom]
       description: Single spare-room post from the list-property flatmate flow. The required set mirrors `submitFlatmate` validation.
@@ -14959,7 +16216,6 @@ components:
               name: { type: string, description: 'Omitted when this member has not given a name — an OTP account has none until its profile is filled in. Render a placeholder; do not invent one, and do not treat the absence as an error.' }
               initials: { type: string, maxLength: 2, description: Omitted with `name`, since there is nothing to take initials from. }
               verified: { type: boolean }
-              id: { type: string, description: 'The member row. The host sends it to `DELETE /flatmates/groups/{id}/members/{memberId}`.' }
               host: { type: boolean, description: This member is the group's host. }
         propertyId: { type: [string, 'null'] }
         hostRole: { $ref: '#/components/schemas/HostRole' }
@@ -15032,17 +16288,6 @@ components:
         mime: { type: string, enum: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] }
         dataUrl: { type: [string, 'null'], description: 'Base64 data URL for a stored document. Null whenever the file was not stored — over the 3 MB cap (`tooLarge: true`), or unreadable — so null does not imply `tooLarge`.' }
         tooLarge: { type: boolean, default: false }
-    AgreementRegNo:
-      type: [string, 'null']
-      maxLength: 60
-      example: PNE-3/1234/2025
-      description: >
-        Legacy. The sub-registrar's registration number, held only on posts filed before hosts
-        stopped being asked for it — the uploaded agreement carries it now. Null on every new post.
-    AgreementRegisteredOn:
-      type: [string, 'null']
-      format: date
-      description: Legacy registration date, as printed on the agreement. Null on every new post.
     AgreementValidTill:
       type: [string, 'null']
       format: date
@@ -15086,6 +16331,44 @@ components:
       properties:
         share: { $ref: '#/components/schemas/ShareIntent', description: Rooms only — how many people are moving in. }
         message: { type: string, maxLength: 4000, description: Optional override; the server generates a share-intent-appropriate opener when absent. }
+    FlatmateRoomCard:
+      type: object
+      description: >
+        A host's own room as the dashboard and the board's "your posts" strip draw it: title, price,
+        place, occupancy and moderation state. `FlatmateRoom` stays on the write endpoints and the
+        detail read, where the edit form needs the rest.
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        propertyId: { type: [string, 'null'], format: uuid }
+        society: { type: [string, 'null'] }
+        flatType: { type: [string, 'null'] }
+        locality: { type: string }
+        localities: { type: array, items: { type: string } }
+        budget: { type: integer, format: int64 }
+        shareMax: { type: integer }
+        occupants: { type: integer }
+        cover: { type: [string, 'null'] }
+        modStatus: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+    FlatmateGroupCard:
+      type: object
+      description: >
+        A host's own group as the dashboard, the board's "your posts" strip and the group-apply
+        picker draw it. `FlatmateGroup` stays on the write endpoints and the detail read.
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        locality: { type: string }
+        localities: { type: array, items: { type: string }, description: 'The hunted localities, else the group''s one locality.' }
+        rent: { type: integer, format: int64 }
+        seatsTotal: { type: integer }
+        seatsOpen: { type: integer }
+        memberCount: { type: integer }
+        propertyId: { type: [string, 'null'], format: uuid }
+        modStatus: { type: string }
+        createdAt: { type: string, format: date-time }
     FlatmateRequest:
       type: object
       description: >
@@ -15100,7 +16383,9 @@ components:
         targetTitle: { type: string }
         locality: { type: string }
         requesterName: { type: string }
-        requesterMobile: { $ref: '#/components/schemas/Mobile' }
+        requesterMobile:
+          type: [string, 'null']
+          description: Masked (`98XXXXX210`) on the host's inbox until the host accepts; the requester's own outbox rows carry their own ten-digit number.
         status: { type: string, enum: [pending, accepted, declined] }
         requestedAt: { type: string, format: date-time }
         message: { type: [string, 'null'], description: "The requester's note to the host, written when the request was made." }
@@ -15132,13 +16417,28 @@ components:
             service derives it from the consent table on every create and every edit. Approving a
             `tenant` review while this is false is refused with 422.
         agreementDoc: { $ref: '#/components/schemas/AgreementDoc' }
-        agreementRegNo: { $ref: '#/components/schemas/AgreementRegNo' }
-        agreementRegisteredOn: { $ref: '#/components/schemas/AgreementRegisteredOn' }
         agreementValidTill: { $ref: '#/components/schemas/AgreementValidTill' }
         status: { type: string, enum: [pending, approved, rejected] }
         reason: { type: string, description: Required on reject; shown to the host. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    FlatmateReviewRow:
+      type: object
+      description: >
+        One card of the verification queue: `FlatmateReview` without the agreement file, the host's
+        number, the registration particulars and the verdict, all of which the popup reads from the
+        detail.
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [room, group] }
+        roomId: { type: [string, 'null'] }
+        groupId: { type: [string, 'null'] }
+        host: { type: string }
+        address: { type: string }
+        tier: { $ref: '#/components/schemas/VerificationTier' }
+        flagForReview: { type: boolean }
+        ownerConsent: { type: boolean }
+        createdAt: { type: string, format: date-time }
     FlatmateAlertCriteria:
       type: object
       description: >
@@ -15280,7 +16580,6 @@ components:
         user row — email, where they operate, how long they have been here — so every field here is
         one somebody decided a stranger may see, and the absent ones are absent on purpose.
       properties:
-        id: { type: string, format: uuid }
         name: { type: string }
         mobile: { $ref: '#/components/schemas/Mobile' }
         verified:
@@ -15400,7 +16699,6 @@ components:
         - ownerProYearly
         - rentAgreementPlatform
         - seekerPlusTopup
-        - featuredListing
         - gstPercent
       properties:
         ownerPlanYearly:
@@ -15425,11 +16723,6 @@ components:
           minimum: 0
           description: What a seeker pays to top up their owner-contact allowance.
           example: 199
-        featuredListing:
-          type: integer
-          minimum: 0
-          description: What an owner pays to feature one listing.
-          example: 999
         gstPercent:
           type: number
           minimum: 0
@@ -15525,32 +16818,11 @@ components:
       type: object
       required: [me]
       properties:
-        me: { $ref: '#/components/schemas/User' }
-        subscription: { oneOf: [ { $ref: '#/components/schemas/Subscription' }, { type: 'null' } ] }
-        identity: { oneOf: [ { $ref: '#/components/schemas/IdentityVerification' }, { type: 'null' } ] }
+        me: { $ref: '#/components/schemas/Self' }
+        subscription: { oneOf: [ { $ref: '#/components/schemas/SubscriptionState' }, { type: 'null' } ] }
         saved:
-          oneOf:
-            - allOf:
-                - $ref: '#/components/schemas/PageEnvelope'
-                - type: object
-                  properties:
-                    content:
-                      type: array
-                      items: { $ref: '#/components/schemas/PropertySummary' }
-            - type: 'null'
-        savedSearches:
           type: [array, 'null']
-          items: { $ref: '#/components/schemas/SavedSearch' }
-        following:
-          oneOf:
-            - allOf:
-                - $ref: '#/components/schemas/PageEnvelope'
-                - type: object
-                  properties:
-                    content:
-                      type: array
-                      items: { $ref: '#/components/schemas/Society' }
-            - type: 'null'
+          items: { $ref: '#/components/schemas/SavedKey' }
         notificationsUnread:
           type: [object, 'null']
           properties:
@@ -15570,7 +16842,7 @@ components:
                   properties:
                     content:
                       type: array
-                      items: { $ref: '#/components/schemas/PropertyModerationRow' }
+                      items: { $ref: '#/components/schemas/OwnerListingCard' }
             - type: 'null'
         flatmatePosts:
           oneOf:
@@ -15590,7 +16862,7 @@ components:
                   properties:
                     content:
                       type: array
-                      items: { $ref: '#/components/schemas/FlatmateRoom' }
+                      items: { $ref: '#/components/schemas/FlatmateRoomCard' }
             - type: 'null'
         flatmateGroups:
           oneOf:
@@ -15600,7 +16872,7 @@ components:
                   properties:
                     content:
                       type: array
-                      items: { $ref: '#/components/schemas/FlatmateGroup' }
+                      items: { $ref: '#/components/schemas/FlatmateGroupCard' }
             - type: 'null'
         contactRequests:
           oneOf:
@@ -15672,21 +16944,7 @@ components:
                       type: array
                       items: { $ref: '#/components/schemas/Visit' }
             - type: 'null'
-        tenancies:
-          type: [array, 'null']
-          items: { $ref: '#/components/schemas/Tenancy' }
-        propertyReviews: { oneOf: [ { $ref: '#/components/schemas/PropertyReviewQueuePage' }, { type: 'null' } ] }
-        recentSearches:
-          type: [array, 'null']
-          items: { $ref: '#/components/schemas/RecentSearch' }
-        serviceRequestInvites:
-          type: [array, 'null']
-          items: { $ref: '#/components/schemas/ServiceRequestParty' }
-        managedProperties:
-          type: [array, 'null']
-          items: { $ref: '#/components/schemas/ManagedProperty' }
-        entitlements: { oneOf: [ { $ref: '#/components/schemas/Entitlements' }, { type: 'null' } ] }
-        deals:
+        propertyReviews:
           oneOf:
             - allOf:
                 - $ref: '#/components/schemas/PageEnvelope'
@@ -15694,8 +16952,19 @@ components:
                   properties:
                     content:
                       type: array
-                      items: { $ref: '#/components/schemas/Deal' }
+                      items: { $ref: '#/components/schemas/ReviewBadge' }
             - type: 'null'
+        recentSearches:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/RecentSearch' }
+        managedProperties:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/ManagedProperty' }
+        hasTenancy: { type: [boolean, 'null'], description: 'The caller holds a tenancy (decides the My Rental tab); null when that read failed.' }
+        hasRentalInvite: { type: [boolean, 'null'], description: 'The caller has a pending co-fill invite; null when that read failed.' }
+        entitlements:
+          description: Only with `listingTools=true`.
+          $ref: '#/components/schemas/Entitlements'
     GeoPolicy:
       type: object
       description: >
@@ -15941,7 +17210,7 @@ components:
                   team: { type: string }
                   service: { type: string }
                   customer: { type: string }
-                  mobile: { type: string }
+                  mobile: { type: string, description: Masked }
         ownerReplies:
           type: object
           properties:
@@ -16095,15 +17364,6 @@ components:
         signups: { type: integer }
         anonSharePct: { type: number }
         conversionRatePct: { type: number }
-        weeks:
-          type: array
-          description: The trend behind the two headline percentages.
-          items:
-            type: object
-            properties:
-              week: { type: string, format: date }
-              anonymous: { type: integer }
-              signedIn: { type: integer }
         pages:
           type: array
           items:
@@ -16231,9 +17491,8 @@ components:
     HelpFeedbackCreate:
       type: object
       description: >
-        One reader's verdict on one help article. Append-only on the server: voting twice leaves two
-        rows, because an article that was helpful in March and is not in September has changed
-        underneath its readers, and a single mutable verdict per person cannot express that.
+        One reader's current verdict on one help article. Voting again replaces it, so one reader
+        counts once per article and language.
       required: [slug, lang, helpful]
       properties:
         slug:
@@ -16270,6 +17529,12 @@ components:
             Bounded rather than forbidden -- the sentence a confused reader types is the most useful
             thing this endpoint collects, and the cap is only so an anonymous route cannot be used
             to store an arbitrary document.
+        voter:
+          type: string
+          pattern: '^[0-9a-fA-F-]{36}$'
+          description: >
+            The browser's random id, so signed-out readers behind one shared IP count separately.
+            Ignored when signed in.
     PageViewBatchCreate:
       type: object
       description: >
@@ -16553,6 +17818,49 @@ components:
             - description: >
                 **Always `0`.** A measurement, not a missing field - see the operation description
                 and the `serviceOrdersCounted` disclosure on `/admin/finance`.
+    AdminProviderHealth:
+      type: object
+      properties:
+        provider: { type: string, enum: [zeptomail, whatsapp, cashfree] }
+        live: { type: boolean, description: false when the mock implementation is wired }
+        ok24h: { type: integer, format: int64 }
+        failed24h: { type: integer, format: int64 }
+        skipped24h: { type: integer, format: int64 }
+        ok7d: { type: integer, format: int64 }
+        failed7d: { type: integer, format: int64 }
+        lastOkAt: { type: string, format: date-time, nullable: true }
+        lastFailureAt: { type: string, format: date-time, nullable: true }
+        lastFailureDetail: { type: string, nullable: true, description: vendor error code, never free text }
+    AdminProviderCall:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [zeptomail, whatsapp, cashfree] }
+        operation: { type: string, description: 'email, otp, identity-decision, create-order, refund or webhook' }
+        outcome: { type: string, enum: [ok, failed, skipped] }
+        recipient: { type: string, nullable: true, description: 'masked: 98XXXXX210 or ***@domain' }
+        reference: { type: string, nullable: true, description: payment order id, or the email subject }
+        detail: { type: string, nullable: true, description: vendor error code or webhook payment status }
+        durationMs: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+    AdminHelpFeedbackArticle:
+      type: object
+      properties:
+        slug: { type: string }
+        lang: { type: string, enum: [en, hi, mr] }
+        helpful: { type: integer, format: int64 }
+        notHelpful: { type: integer, format: int64 }
+        comments: { type: integer, format: int64, description: verdicts that carry a written reason }
+        lastAt: { type: string, format: date-time, nullable: true }
+    AdminHelpFeedbackComment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        lang: { type: string, enum: [en, hi, mr] }
+        helpful: { type: boolean }
+        comment: { type: string, description: 'reader free text, up to 500 characters; untrusted' }
+        createdAt: { type: string, format: date-time }
     AdminFinanceTransaction:
       type: object
       description: One movement of money the platform can evidence.
@@ -16605,7 +17913,6 @@ components:
             ownerProYearly: { type: integer }
             rentAgreementPlatform: { type: integer }
             seekerPlusTopup: { type: integer }
-            featuredListing: { type: integer }
             gstPercent: { type: number, example: 18 }
           additionalProperties: true
         movePack:
@@ -16670,63 +17977,25 @@ components:
           additionalProperties: true
     ContentItem:
       type: object
-      description: >
-        A CMS row of any of the four managed types. The endpoint is keyed by `{type}` in the path,
-        so the caller already knows which fields apply; fields belonging to the other three types
-        are null. Kept as one flat schema rather than a `oneOf` because the path parameter is
-        already the discriminator, and four write schemas plus four read schemas would restate it
-        eight more times.
+      description: An FAQ as the admin console edits it, keyed by `{type}` in the path (`faqs`, the only managed list).
       properties:
         id: { type: string, format: uuid }
-        type: { type: string, enum: [announcements, services, faqs, banners] }
+        type: { type: string, enum: [faqs] }
         archived: { type: boolean }
-        createdAt: { type: string, format: date-time }
-        # announcements
-        title: { type: [string, 'null'] }
-        body: { type: [string, 'null'] }
-        severity: { type: [string, 'null'] }
-        startsAt: { type: [string, 'null'], format: date-time }
-        endsAt: { type: [string, 'null'], format: date-time }
-        active: { type: [boolean, 'null'] }
-        # services
-        name: { type: [string, 'null'] }
-        icon: { type: [string, 'null'] }
-        description: { type: [string, 'null'] }
-        link: { type: [string, 'null'] }
-        # faqs
         question: { type: [string, 'null'] }
         answer: { type: [string, 'null'] }
         category: { type: [string, 'null'] }
-        # banners
-        image: { type: [string, 'null'] }
-        headline: { type: [string, 'null'] }
-        position: { type: [integer, 'null'] }
-        # every type
+        # list rows omit it unless `?translations=true`
         translations: { $ref: '#/components/schemas/ContentTranslations' }
     ContentItemWrite:
       type: object
       description: >
-        Create or update payload. Every field is optional here because the required set depends on
-        `{type}` and OpenAPI cannot express that against a path parameter; the server enforces it
-        (announcements need `title`, services `name`, faqs `question`, banners `image`) and answers
-        422 otherwise. On PATCH an absent field is left unchanged.
+        Create or update payload for an FAQ. `question` is required on create;
+        on PATCH an absent field is left unchanged.
       properties:
-        title: { type: string, maxLength: 200 }
-        body: { type: string, maxLength: 4000 }
-        severity: { type: string, enum: [info, success, warning] }
-        startsAt: { type: string, format: date-time }
-        endsAt: { type: string, format: date-time }
-        active: { type: boolean }
-        name: { type: string, maxLength: 120 }
-        icon: { type: string, maxLength: 60 }
-        description: { type: string, maxLength: 1000 }
-        link: { type: string, maxLength: 500 }
         question: { type: string, maxLength: 300 }
         answer: { type: string, maxLength: 4000 }
         category: { type: string, maxLength: 60 }
-        image: { type: string, maxLength: 500 }
-        headline: { type: string, maxLength: 200 }
-        position: { type: integer, minimum: 0, maximum: 999 }
     AuditEntry:
       type: object
       properties:
@@ -16743,19 +18012,17 @@ components:
     StaffActivityEntry:
       type: object
       # AuditEntry with the actor resolved to a person. `metadata` is filled for admins only, the same
-      # boundary as /admin/audit-log; managers get an empty object.
-      required: [id, actor, actorRole, action, entity, at]
+      # boundary as /admin/audit-log; for managers the key is absent.
+      required: [id, actorRole, action, entity, at]
       properties:
         id: { type: string, description: The audit row's id, so the feed can be reconciled against the audit log. }
-        actor: { type: string, description: The acting user's id; pass back as the `actor` filter. }
         actorName: { type: string, description: 'Resolved name, or the raw actor handle when no account matches — a deleted account still has to appear.' }
         actorRole: { type: string, enum: [staff, manager, admin] }
-        actorTeam: { type: [string, 'null'] }
         action: { type: string, example: user.suspend }
         entity: { type: string, example: user, description: The kind of record acted on; the console's category. }
         entityId: { type: [string, 'null'] }
         at: { type: string, format: date-time }
-        metadata: { type: object, additionalProperties: true, description: 'Context such as a from/to diff; empty unless the caller is an admin.' }
+        metadata: { type: object, additionalProperties: true, description: 'Context such as a from/to diff; present only for admins.' }
     StaffActivityCount:
       type: object
       required: [entity, count]
@@ -16802,6 +18069,36 @@ components:
         queues:
           type: array
           items: { $ref: '#/components/schemas/TeamPerformanceQueueMetric' }
+    MyWork:
+      type: object
+      required: [windowDays, staff, queues]
+      properties:
+        windowDays: { type: integer, enum: [7, 30] }
+        staff:
+          type: array
+          items: { $ref: '#/components/schemas/MyWorkStaff' }
+        queues:
+          type: array
+          items: { $ref: '#/components/schemas/MyWorkQueue' }
+    MyWorkStaff:
+      type: object
+      required: [name, functions, handled, byFunction]
+      properties:
+        name: { type: string }
+        functions:
+          type: array
+          items: { type: string }
+        handled: { type: integer, format: int64 }
+        byFunction:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+    MyWorkQueue:
+      type: object
+      required: [function, open, oldestWaitingSince]
+      properties:
+        function: { type: string, example: propertyVerification }
+        open: { type: integer, format: int64 }
+        oldestWaitingSince: { type: [string, 'null'], format: date-time }
     TeamPerformanceStaffMember:
       type: object
       required: [id, name, functions, handled, byFunction]

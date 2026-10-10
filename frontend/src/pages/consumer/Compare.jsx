@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf';
 import '../../styles/routes/compare.css';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
-import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
+import { compareProperties, listProperties } from '../../services/propertyService.js';
 import { fmtArea, fmtINR, isSqftUnit } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
 import useModalDialog from '../../hooks/useModalDialog.js';
@@ -88,12 +88,13 @@ export default function Compare() {
   const closeModal = useCallback(() => setModal(false), []);
   const modalRef = useModalDialog(modal, closeModal);
 
-  // Resolve exactly the compared ids rather than downloading the catalogue to find them. Ids that
-  // fail to resolve stay in the list as `available: false`.
+  // Ids that fail to resolve stay in the list as `available: false`.
   useEffect(() => {
     let alive = true;
     if (!ids.length) { setCompared([]); return () => { alive = false; }; }
-    getPropertiesByIds(ids).then((list) => { if (alive) setCompared(list); });
+    compareProperties(ids)
+      .catch(() => [])
+      .then((list) => { if (alive) setCompared(list); });
     return () => { alive = false; };
   }, [ids]);
 
@@ -121,8 +122,8 @@ export default function Compare() {
   const items = useMemo(() => {
     if (!compared) return [];
     return ids.map((id) => {
-      const p = compared.find((x) => x.id === id);
-      return p ? metric(p, t) : { id, available: false };
+      const p = compared.find((x) => x.id === id || x.uuid === id);
+      return p ? { ...metric(p, t), id } : { id, available: false };
     });
   }, [ids, compared, t]);
   const liveItems = useMemo(() => items.filter((m) => m.available), [items]);

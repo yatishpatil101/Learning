@@ -17,12 +17,13 @@ import { isInternal } from '../../../lib/auth.js';
 import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveOverlooking, deriveAge, possessionDateLabel, propertyKind } from './derivations.js';
 import { commercialSpecsFor } from '../list-property/constants.js';
 import { LANDUSE_LBL } from '../../../data/propertyTypes.js';
+import { propertyKey } from '../../../lib/listingSeo.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
 
 export default function useProperty() {
   const { t: tr } = useTranslation();
-  const { id } = useParams();
+  const id = propertyKey(useParams().id);
   const [p, setP] = useState(undefined);
   const [active, setActive] = useState(0);
   const [ovOpen, setOvOpen] = useState(false);
@@ -127,10 +128,11 @@ export default function useProperty() {
   if (!isApproved && !isOwner && !isAdmin) {
     const done = p.status === 'rented' || p.status === 'sold' || p.status === 'paused';
     if (!done) return { underReview: true, tr };
-    if (p.status === 'paused') return { listingPaused: true, tr };
+    if (p.status === 'paused') return { listingPaused: true, p, tr };
     return {
       dealClosed: true,
       closedWord: tr(p.status === 'rented' ? 'property.rentedOutWord' : 'property.soldWord'),
+      p,
       tr,
     };
   }
@@ -282,7 +284,7 @@ export default function useProperty() {
   if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-emerald', 'user-check', 'tag.verifiedOwner']);
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
   if (p.reraId) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
-  if (!p.postedByType || p.postedByType === 'owner') tags.push([tr('property.zeroBrokerageDirect'), '', 'hand-coins', 'tag.zeroBrokerage']);
+  tags.push([tr('property.zeroBrokerageDirect'), '', 'hand-coins', 'tag.zeroBrokerage']);
 
   /* Re-stated here only to spend a toast instead of a round trip; the server enforces both
    * independently. */

@@ -39,7 +39,15 @@ public interface FlatmateMapper {
     @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     @Mapping(target = "verified", expression = "java(hostVerified(room, view.reviewStatus()))")
     @Mapping(target = "cover", expression = "java(coverOf(room))")
+    @Mapping(target = "lat", source = "lat", qualifiedByName = "coarse")
+    @Mapping(target = "lng", source = "lng", qualifiedByName = "coarse")
     FlatmateRoomFeedDto toFeedDto(FlatmateRoom room, @Context RoomView view);
+
+    /** ~110 m: enough for a map pin, not enough to find the door. */
+    @Named("coarse")
+    default Double coarse(Double degrees) {
+        return degrees == null ? null : Math.round(degrees * 1000) / 1000.0;
+    }
 
     default String coverOf(FlatmateRoom room) {
         List<String> photos = room.getPhotos();
@@ -110,6 +118,9 @@ public interface FlatmateMapper {
     /** Members map name-for-name; no contact on a member, so nothing to gate. */
     FlatmateGroupDto.Member toMember(FlatmateGroupMember member);
 
+    @Mapping(target = "host", expression = "java(member.getUserId() != null && member.getUserId().equals(member.getGroup().getHostId()))")
+    FlatmateGroupFeedDto.Member toFeedMember(FlatmateGroupMember member);
+
     /** Whole-flat rent divided by the seats, computed on read so it can never drift from the rent. */
     default Long perHead(FlatmateGroup group) {
         return group.getSeatsTotal() > 0 ? group.getRent() / group.getSeatsTotal() : group.getRent();
@@ -117,6 +128,10 @@ public interface FlatmateMapper {
 
     @Mapping(target = "mobile", expression = "java(view.mobile())")
     FlatmateSeekerPostDto toDto(FlatmateSeekerPost post, @Context SeekerView view);
+
+    @Mapping(target = "lat", source = "lat", qualifiedByName = "coarse")
+    @Mapping(target = "lng", source = "lng", qualifiedByName = "coarse")
+    FlatmateSeekerFeedDto toFeedDto(FlatmateSeekerPost post);
 
     @BeanMapping(ignoreByDefault = true)
     @Mapping(target = "attachedBath", source = "attachedBath", qualifiedByName = "attachedBathOrShared")
@@ -280,7 +295,5 @@ public interface FlatmateMapper {
 
     /** A seeker post carries only its author's own number, and only back to that author. */
     record SeekerView(String mobile) {
-
-        static final SeekerView ANONYMOUS = new SeekerView(null);
     }
 }

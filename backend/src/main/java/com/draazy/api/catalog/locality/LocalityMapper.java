@@ -8,10 +8,9 @@ import org.mapstruct.ReportingPolicy;
 public interface LocalityMapper {
 
     @Mapping(target = "liveListings", source = "stats.live")
-    @Mapping(target = "rentListings", source = "stats.rent")
-    @Mapping(target = "saleListings", source = "stats.sale")
     @Mapping(target = "indexable", expression = "java(stats.indexable())")
     @Mapping(target = "avgRent", source = "stats.avgRent")
     @Mapping(target = "ratePerSqft", source = "stats.ratePerSqft")
+    @Mapping(target = "fromPrice", source = "stats.fromPrice")
     LocalityResponse toResponse(Locality locality, LocalityStats stats);
 }

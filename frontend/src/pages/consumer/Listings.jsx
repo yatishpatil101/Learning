@@ -8,7 +8,7 @@ import { recordSignal } from '../../services/demandService.js';
 import { getLocality, listLocalities } from '../../services/localityService.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { setLastSearch, getLastSearch } from '../../lib/localPrefs.js';
-import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
+import { useSavedSearchCreate } from '../../context/SavedSearchContext.jsx';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useCity } from '../../context/CityContext.jsx';
@@ -18,7 +18,7 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
-import { getSociety } from '../../services/societyService.js';
+import { getSocietyBrief } from '../../services/societyService.js';
 import { toFacetQuery } from '../../lib/listings/facetQuery.js';
 import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams, switchDealFilters, hasFilterParams } from '../../lib/listings/filterState.js';
 import { clampNearRadius, nearMaxFor } from '../../lib/nearParams.js';
@@ -79,7 +79,7 @@ export default function Listings() {
   const location = useLocation();
   const { toast } = useToast();
   const sendToSignIn = useSignInGate();
-  const { create: createSavedSearch } = useSavedSearches();
+  const createSavedSearch = useSavedSearchCreate();
   const { isIn } = useAuth();
   const { flagEnabled } = useAppFlags();
   const initialHadUrlParams = useRef(params.toString() !== '');
@@ -323,7 +323,7 @@ export default function Listings() {
     if (!missing.length) return undefined;
     let alive = true;
     missing.forEach((slug) => {
-      getSociety(slug)
+      getSocietyBrief(slug)
         .then((s) => { if (alive && s?.name) setSocNameBySlug((prev) => ({ ...prev, [slug]: s.name })); })
         .catch(() => {});
     });

@@ -32,7 +32,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-/** The duplicate guard must hold on the name as well as the slug, as the slug folds the locality in; {@code mintOrigin} must survive the round trip. */
+/** The duplicate guard must hold on the name as well as the slug, as the slug folds the locality in. */
 @DisplayName("Societies — community minting")
 class SocietyMintTest extends AbstractApiTest {
 
@@ -48,7 +48,8 @@ class SocietyMintTest extends AbstractApiTest {
         });
     }
 
-    /** Mobile block 98660000xx, used by no other class; no {@code REQUIRES_NEW} provisioning, so the class-level rollback needs no cleanup. */
+    /** Mobile block 98660000xx is used by no other class; no {@code REQUIRES_NEW} provisioning,
+     * so the class-level rollback needs no cleanup. */
     private User user(String mobile, String name) {
         User u = new User(mobile, Roles.Wire.BUYER);
         u.setName(name);
@@ -115,7 +116,7 @@ class SocietyMintTest extends AbstractApiTest {
                 + "\"name\":\"Sunview Heights D241\",\"localityLabel\":\"Wakad\",\"lat\":18.598,\"lng\":73.762}");
         created.andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Sunview Heights D241"))
-                .andExpect(jsonPath("$.source").value("community"));
+                .andExpect(jsonPath("$.source").doesNotExist());
 
         String slug = slugOf(created);
         // The locality is folded into the slug so two societies of the same name in different
@@ -310,10 +311,7 @@ class SocietyMintTest extends AbstractApiTest {
 
         // Old clients send none; it defaults to `listing` so demand can be under-reported but never invented.
         ResultActions created = mint(author, "NONE".equals(sent) ? body(name) : bodyFrom(name, sent))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.mintOrigin").value(expected))
-                // The other axis is untouched: how the record got here is still `community`.
-                .andExpect(jsonPath("$.source").value("community"));
+                .andExpect(status().isCreated());
 
         assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo(expected);
     }
@@ -352,8 +350,7 @@ class SocietyMintTest extends AbstractApiTest {
 
         // Real demand, deliberately not recorded: overwriting `listing` would say no flat was ever posted there.
         mint(searcher, bodyFrom("Fennel Heights D241", "demand"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mintOrigin").value("listing"));
+                .andExpect(status().isOk());
 
         assertThat(row(slug).get("mint_origin")).isEqualTo("listing");
     }
@@ -376,7 +373,7 @@ class SocietyMintTest extends AbstractApiTest {
         assertThat(json).contains(slug);
         // Curated and RERA rows are verified by construction. An operator asked to confirm 320
         // MahaRERA imports is an operator who stops reading the queue.
-        assertThat(json).doesNotContain("\"source\":\"rera\"").doesNotContain("\"source\":\"curated\"");
+        assertThat(json).doesNotContain("amanora-park-hadapsar");
     }
 
     @Test
@@ -400,6 +397,31 @@ class SocietyMintTest extends AbstractApiTest {
 
         assertThat(originIn(json, wanted)).isEqualTo("demand");
         assertThat(originIn(json, posted)).isEqualTo("listing");
+    }
+
+    @Test
+    @DisplayName("the candidates queue is paged and searched on the server")
+    void queueIsPagedAndSearchedServerSide() throws Exception {
+        User author = user("9866000041", "Lata Mint");
+        String ops = staff("9866000042");
+        String wanted = slugOf(mint(author, body("Quillon Meadows D245")).andExpect(status().isCreated()));
+        mint(author, body("Rowan Meadows D245")).andExpect(status().isCreated());
+
+        mvc.perform(get("/admin/society-candidates")
+                        .header(HttpHeaders.AUTHORIZATION, ops)
+                        .param("q", "quillon meadows").param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].slug").value(wanted))
+                .andExpect(jsonPath("$.content[0].mergedBy").doesNotExist());
+
+        mvc.perform(get("/admin/society-candidates")
+                        .header(HttpHeaders.AUTHORIZATION, ops)
+                        .param("q", "meadows d245").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
     }
 
     /** The {@code mintOrigin} of one queue row, found by its slug. */

@@ -8,13 +8,8 @@ import java.util.UUID;
 import java.util.function.ToLongFunction;
 import org.springframework.stereotype.Component;
 
-/**
- * Entity→wire projection for plans and subscriptions.
- *
- * <p>A paid plan's price is the admin fee schedule's figure, not {@code plans.price}, so the
- * catalogue, the checkout and the charge all follow the admin Fees tab. Keyed by the seeded id
- * because the seed may rename a plan but never re-ids one.
- */
+/** A paid plan's price is the admin fee schedule's figure, not {@code plans.price}.
+ * Keyed by seeded id because the seed may rename a plan but never re-ids one. */
 @Component
 public class PlanMapper {
 
@@ -57,8 +52,6 @@ public class PlanMapper {
                 subscription.getId().toString(),
                 subscription.getPlanId().toString(),
                 subscription.getStatus(),
-                subscription.getStartedAt(),
-                subscription.getRenewsAt(),
                 subscription.getPaymentRef(),
                 null);
     }

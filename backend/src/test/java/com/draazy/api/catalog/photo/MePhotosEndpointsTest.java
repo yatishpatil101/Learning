@@ -39,7 +39,7 @@ class MePhotosEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void uploadsToThePublicBucketAndReturnsAnUnsignedOwnerScopedCdnUrl() throws Exception {
+    void uploadsToThePublicBucketAndReturnsAnUnsignedCdnUrlNamingNoUser() throws Exception {
         User owner = user("9822003001");
 
         String json = mvc.perform(multipart(Routes.MePhotos.BASE)
@@ -49,7 +49,7 @@ class MePhotosEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.url").exists())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(json).contains(MOCK_PUBLIC + owner.getId() + "/");
+        assertThat(json).contains(MOCK_PUBLIC).doesNotContain(owner.getId().toString());
         assertThat(json).doesNotContain("sig=");
     }
 

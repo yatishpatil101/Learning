@@ -18,7 +18,7 @@ public record FlatmateGroupFeedDto(
         Long perHead,
         int seatsTotal,
         int seatsOpen,
-        List<FlatmateGroupDto.Member> members,
+        List<Member> members,
         UUID propertyId,
         String hostRole,
         String verificationTier,
@@ -30,4 +30,8 @@ public record FlatmateGroupFeedDto(
         String ownerName,
         Instant createdAt,
         FlatmateGroupPreferences preferences) {
+
+    /** No member-row id: only the host's own read needs it, to remove someone. */
+    public record Member(String name, String initials, boolean verified, boolean host) {
+    }
 }

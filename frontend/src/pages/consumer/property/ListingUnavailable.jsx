@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { getProperty } from '../../../services/propertyService.js';
 import { SimilarProperties } from './SimilarProperties.jsx';
 
 const listingsPathFor = (listing) => {
@@ -13,20 +12,10 @@ const listingsPathFor = (listing) => {
   return query ? `/listings?${query}` : '/listings';
 };
 
-export default function ListingUnavailable({ reason, listingId, closedWord, tr }) {
+export default function ListingUnavailable({ reason, listing = null, closedWord, tr }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [listing, setListing] = useState(null);
   const cameFromListings = String(location.state?.from || '').startsWith('/listings');
-
-  useEffect(() => {
-    if (!listingId) return undefined;
-    let alive = true;
-    getProperty(listingId)
-      .then((row) => { if (alive) setListing(row || null); })
-      .catch(() => { if (alive) setListing(null); });
-    return () => { alive = false; };
-  }, [listingId]);
 
   const browseTo = useMemo(() => listingsPathFor(listing), [listing]);
   const isClosed = reason === 'closed';

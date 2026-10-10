@@ -30,7 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** A duplicate Place ID is for an operator to merge: listings, follows and reviews accumulate against both rows until then. */
+/** A duplicate Place ID is for an operator to merge; listings, follows and reviews accumulate on both rows. */
 @Service
 public class SocietyMintService {
 
@@ -40,27 +40,32 @@ public class SocietyMintService {
     /** Google lookups one member may cause a day; a place we already hold costs none. */
     private static final int LOOKUPS_PER_DAY = 20;
 
+    /** Literal siblings of {@code /societies/{slug}}; a society minted under one would be unreachable. */
+    private static final Set<String> RESERVED_SLUGS = Set.of("resolve", "top");
+
     private static final Logger log = LoggerFactory.getLogger(SocietyMintService.class);
 
     private final SocietyRepository societies;
     private final SocietyService societyService;
+    private final SocietyMapper societyMapper;
     private final LocalityBinding localities;
     private final PlacesLookup places;
     private final TransactionTemplate tx;
     private final WriteRateLimitStore lookupBudget;
 
     public SocietyMintService(SocietyRepository societies, SocietyService societyService,
-            LocalityBinding localities, PlacesLookup places,
+            SocietyMapper societyMapper, LocalityBinding localities, PlacesLookup places,
             TransactionTemplate tx, WriteRateLimitStore.Factory stores) {
         this.societies = societies;
         this.societyService = societyService;
+        this.societyMapper = societyMapper;
         this.localities = localities;
         this.places = places;
         this.tx = tx;
         this.lookupBudget = stores.create("sm", LOOKUPS_PER_DAY, Duration.ofDays(1));
     }
 
-    /** Not one transaction: the Google call must not hold a database connection, so the lookup runs between two short ones. */
+    /** Not one transaction: the Google call must not hold a database connection, so it runs between two. */
     public MintedSociety mint(SocietyMintRequest request, AuthPrincipal caller) {
         UUID authorId = caller.userId();
         String placeId = SocietySpecs.trimmed(request.placeId());
@@ -70,14 +75,14 @@ public class SocietyMintService {
         String origin = mintOrigin(request.mintOrigin());
         SocietyPlaceRules.requireServed(request.lat(), request.lng());
 
-        MintedSociety known = tx.execute(status -> known(placeId, authorId));
+        MintedSociety known = tx.execute(status -> known(placeId));
         if (known != null) {
             return known;
         }
 
         Place place = verified(placeId, request, caller);
         if (!place.placeId().equals(placeId)) {
-            MintedSociety canonical = tx.execute(status -> known(place.placeId(), authorId));
+            MintedSociety canonical = tx.execute(status -> known(place.placeId()));
             if (canonical != null) {
                 return canonical;
             }
@@ -85,12 +90,12 @@ public class SocietyMintService {
         return tx.execute(status -> insertAndRead(place, request, origin, authorId));
     }
 
-    private MintedSociety known(String placeId, UUID authorId) {
+    private MintedSociety known(String placeId) {
         Optional<Society> existing = societies.findByPlaceId(placeId);
         if (existing.isEmpty()) {
             return null;
         }
-        return new MintedSociety(summary(existing.get(), authorId), false);
+        return new MintedSociety(summary(existing.get()), false);
     }
 
     private MintedSociety insertAndRead(Place place, SocietyMintRequest request, String origin, UUID authorId) {
@@ -102,14 +107,15 @@ public class SocietyMintService {
         String suffixed = slug + "-" + digest(placeId);
         String locality = knownLocality(request.localitySlug());
 
-        int inserted = insert(societies.findBySlug(slug).isPresent() ? suffixed : slug, place, locality, origin, authorId);
+        boolean taken = RESERVED_SLUGS.contains(slug) || societies.findBySlug(slug).isPresent();
+        int inserted = insert(taken ? suffixed : slug, place, locality, origin, authorId);
         Optional<Society> row = societies.findByPlaceId(placeId);
         if (row.isEmpty()) {
             inserted = insert(suffixed, place, locality, origin, authorId);
             row = societies.findByPlaceId(placeId);
         }
         Society minted = row.orElseThrow(() -> new IllegalStateException("society vanished after mint: " + placeId));
-        return new MintedSociety(summary(minted, authorId), inserted == 1);
+        return new MintedSociety(summary(minted), inserted == 1);
     }
 
     private int insert(String slug, Place place, String locality, String origin, UUID authorId) {
@@ -144,9 +150,9 @@ public class SocietyMintService {
         }
     }
 
-    private SocietyResponse summary(Society society, UUID viewerId) {
+    private SocietyResponse summary(Society society) {
         Society survivor = SocietyMergePointer.survivor(societies, society);
-        return societyService.summarise(List.of(survivor), viewerId).getFirst();
+        return societyService.summarise(List.of(survivor)).getFirst();
     }
 
     private static String digest(String placeId) {
@@ -159,12 +165,12 @@ public class SocietyMintService {
     }
 
     @Transactional(readOnly = true)
-    public Page<SocietyResponse> candidates(Pageable pageable, UUID viewerId) {
-        Page<Society> page = societies.candidates(pageable);
-        return page.map(society -> societyService.summarise(List.of(society), viewerId).getFirst());
+    public Page<SocietyCandidateResponse> candidates(String q, Pageable pageable) {
+        String like = SocietySpecs.likePattern(q);
+        return societies.candidates(like == null ? "%" : like, pageable).map(societyMapper::toCandidate);
     }
 
-    /** Computed on the server because the catalogue is: a hint list that cannot see community rows reads "no duplicate exists". */
+    /** Server-side, as the catalogue is: a client hint list that cannot see community rows says "no duplicate". */
     @Transactional(readOnly = true)
     public List<SocietyDuplicateSuggestion> duplicates(String slug, int limit) {
         if (limit < 1 || limit > MAX_DUPE_HINTS) {
@@ -208,7 +214,7 @@ public class SocietyMintService {
         return new SocietyDuplicateSuggestion((String) row[0], name, localitySlug, score);
     }
 
-    /** Absent defaults to {@link SocietyMintOrigins#LISTING} for older clients; unknown is a 422 because the CHECK would otherwise 500. */
+    /** Absent is {@link SocietyMintOrigins#LISTING} for old clients; unknown is a 422, not a CHECK 500. */
     private static String mintOrigin(String supplied) {
         String value = SocietySpecs.trimmed(supplied);
         if (value == null) {

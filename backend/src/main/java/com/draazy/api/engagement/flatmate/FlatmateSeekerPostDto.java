@@ -4,8 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** Contract schema {@code FlatmateSeekerPost}. {@link #mobile()} is null on the public feed, which
- * the contract declares {@code security: []} — a number there would be published to the internet. */
+/** Author's and staff's view only; everyone else gets {@link FlatmateSeekerFeedDto}. */
 public record FlatmateSeekerPostDto(
         UUID id,
         String title,

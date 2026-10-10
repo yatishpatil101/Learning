@@ -341,7 +341,7 @@ number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`) until appr
 
 ### Private listing fields on the detail response
 
-`PropertyResponse` carries three fields that are withheld by audience rather than merely unused, and
+`PropertyResponse` carries fields that are withheld by audience rather than merely unused, and
 each is absent (`NON_NULL`) rather than null so the response shape does not advertise that something
 is being withheld.
 
@@ -351,9 +351,8 @@ is being withheld.
   publish: the contact gate exists so a stranger cannot reach an owner uninvited, and a stranger
   holding "A-902, Rohan Nilay" does not need a phone number, they can knock. The exposure is worst
   for shared accommodation (flatmates), where the occupant is often a single woman living alone in that
-  unit. Nothing renders it — the public detail page is built from `society`, `locality` and
-  `pincode` — so it is emitted only to round-trip the owner's edit form and to let the desk
-  adjudicate a duplicate.
+  unit. Nothing renders it — the public detail page is built from `society` and `locality` — so it
+  is emitted only to round-trip the owner's edit form and to let the desk adjudicate a duplicate.
 - **`electricityMeterNo`** — owner and staff only, for the same two reasons: the owner typed it and
   must be able to correct it, and it is the evidence behind a duplicate flag. A meter number names a
   live utility account, one of the few things here a stranger could *act* on rather than merely read.
@@ -365,6 +364,10 @@ is being withheld.
   notice. Withheld from the owner too: the moderator's shorthand is written for the desk, and handing
   it back also hands back whatever the reporter said about them. What an owner is owed is an
   explanation, and that has its own surface in the verification thread.
+- **Listing internal state** — `recheckPending/Reason/RequestedAt`, `archived`, `featured`,
+  `qualityScore`, `societyId`, `pincode`: owner and staff only (`PrivateFieldVisibility`).
+  The public detail page draws none of them, and together they tell a scraper which listings the desk
+  is re-checking or promoting.
 
 ---
 
@@ -634,6 +637,11 @@ Membership is tested on path and not method, because Spring MVC dispatches HEAD 
 handlers and merely suppresses the body — allowing HEAD through unlimited would make the enumeration
 defence bypassable by a one-character change.
 
+**Anonymous listing reads** (`GET`/`HEAD` on `/properties` and below) have their own per-address
+bucket, `draazy.security.rate-limit.property-reads-per-window` (default 600 a minute), so a scraper
+walking the catalogue is refused while a person browsing never meets it. Signed-in callers are not
+metered here.
+
 **Provider callbacks get their own budget rather than an exemption.** They cannot share the ordinary
 bucket: they arrive from a handful of provider addresses, and a refused callback is a customer who
 paid and was not credited. Nor may they be exempt — they are `permitAll`, so an attacker can send
@@ -739,8 +747,10 @@ an image at all. Leading signatures identify the family; they do not prove the i
 **`PhotoService` is stateless and the key is server-minted.** It writes no row and touches no
 `Property` — in the create-listing wizard the photos are chosen before the property exists, and the
 listing contract already persists whatever image URLs it is given. The key is
-`photos/{ownerId}/{uuid}`, so the client's filename decides nothing: traversal and overwriting
-another owner's object are impossible by construction rather than by sanitising.
+`photos/{tag}/{uuid}[-{pHash}]`, so the client's filename decides nothing: traversal and overwriting
+another owner's object are impossible by construction rather than by sanitising. `tag` is 16 hex of
+HMAC(owner, uuid) (`PhotoKeys`): a public photo URL names no user, yet `ListingPhotoSources` can still
+prove the uploader. Keys minted before the tag (`photos/{ownerId}/?`) stay valid and were not backfilled.
 
 **`DocumentScanner` is a list, not a bean.** The caller injects `List<DocumentScanner>` because the
 implementations are not alternatives — the built-in structural checker and a clamd daemon answer
@@ -968,7 +978,8 @@ read retries, and resolving `true` would tell a surface its partial 28-row view 
 
 Every page render reads the same answers that do not vary by caller: `/bootstrap` (flags, geo,
 cities, pricing, listing policy, Move-in Pack, plans, the live listing `counts` and the `trustStats`
-headline in one body), `/fees`, `/localities`, `/faqs` and `/properties/featured`. Answering each from
+headline in one body), `/fees`, `/localities`, `/faqs`, `/properties/featured`,
+`/properties/search-index` and `/societies/top`. Answering each from
 Postgres every time spends the 20-connection budget (4 instances × pool 5) on a constant. Three free
 layers absorb them instead, without Redis:
 
@@ -976,8 +987,9 @@ layers absorb them instead, without Redis:
    `draazy.cache.public-reads.ttl` (`PUBLIC_READ_CACHE_TTL`, default 30s). It holds at most 256
    entries, evicting least-recently-used first. It runs after Spring Security, so a hit still passes
    the origin gate, CORS and the security headers. Non-200 answers are never stored.
-2. **Browser.** It answers `Cache-Control: max-age=<seconds left>, public` with an `ETag`, and answers
-   `304` to a matching `If-None-Match`. Because max-age counts down to the entry's expiry, memory and
+2. **Browser.** It answers `Cache-Control: max-age=<seconds left>, public` with a weak `ETag` (Tomcat
+   will not gzip a response carrying a strong one; `server.compression.enabled` gzips JSON over 2 KB),
+   and answers `304` to a matching `If-None-Match`. Because max-age counts down to the entry's expiry, memory and
    browser together never exceed one TTL.
 3. **Edge.** The Pages proxy (`functions/api/[[path]].js`) stores an anonymous GET in the Cloudflare
    Cache API only when the backend marked the 200 `public` with a positive max-age and set no cookie.
@@ -994,14 +1006,19 @@ A successful `/admin/**` write clears the filter's entries on the instance that 
 instances serve out their TTL. Property writers are too many, and bulk or native queries skip
 entity listeners, so for everything else the TTL is the contract. Add a path to `PATHS` only if its
 answer is identical for every caller: anything personalised would leak between users.
+`ANONYMOUS` holds the public catalogue reads (search, listing detail, cards, reviews, owner, locality,
+society and flatmate pages) whose answer varies only for a signed-in viewer; they are cached only
+for a request with no `Authorization` header and answer `Vary: Authorization`, so a browser never
+replays the anonymous copy after sign-in.
 `PermissionMap` stays uncached on purpose.
 
 In the browser, `http.js` shares one fetch between concurrent identical GETs, keeps `/bootstrap` for
 the same 30s, and drops every kept read on any successful write or `draazy-settings-change`. The
-signed-in shell's eight reads (profile, plan, identity, saved, saved searches, followed societies,
-both unread counts) arrive as one `GET /me/bootstrap`, which seeds those reads at boot and sign-in
+signed-in shell's five reads (profile, plan state, saved keys, both unread counts) arrive as one
+`GET /me/bootstrap`, which seeds those reads at boot and sign-in
 (`services/meBootstrapService.js`); a section that failed comes back `null` and the client re-reads
-it from its own endpoint. The owner dashboard and hub do the same with `GET /me/dashboard` (`services/meDashboardService.js`):
+it from its own endpoint. Identity, saved searches and followed societies are read only when a screen
+that draws them mounts. The owner dashboard and hub do the same with `GET /me/dashboard` (`services/meDashboardService.js`):
  `X-Draazy-Build`. A replayed stamp from before a deploy would raise a false
 "new version" banner, and every other response still carries the stamp.
 

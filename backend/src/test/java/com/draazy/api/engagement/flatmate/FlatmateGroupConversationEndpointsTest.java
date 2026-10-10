@@ -230,7 +230,7 @@ class FlatmateGroupConversationEndpointsTest extends AbstractApiTest {
         String conversation = threadOf(id, member);
         send(conversation, member, "bye soon").andExpect(status().isCreated());
 
-        mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, id))
+        mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, id).header(HttpHeaders.AUTHORIZATION, bearer(host)))
                 .andExpect(jsonPath("$.item.members[1].id").value(memberId(id, member)))
                 .andExpect(jsonPath("$.item.members[0].host").value(true))
                 .andExpect(jsonPath("$.item.members[1].host").value(false));

@@ -169,18 +169,17 @@ public interface PropertyRepository
     List<Object[]> countLiveByLocalitySlug(@Param("status") String status);
 
     /** One grouped pass over live listings: counts, then the flat samples behind the rent and rate
-     * averages. Rows are [slug, live, rent, sale, rentFlats, avgRent, saleFlatsWithArea, avgRate]. */
+     * averages. Rows are [slug, live, rentFlats, avgRent, saleFlatsWithArea, avgRate, fromPrice]. */
     @Query(nativeQuery = true, value = """
             select p.locality_slug,
                    count(*),
-                   count(*) filter (where p.deal = 'rent'),
-                   count(*) filter (where p.deal = 'buy'),
                    count(*) filter (where p.deal = 'rent' and p.property_type_key = 'flat'),
                    avg(p.price) filter (where p.deal = 'rent' and p.property_type_key = 'flat'),
                    count(*) filter (where p.deal = 'buy' and p.property_type_key = 'flat'
                                       and p.area > 0 and coalesce(lower(p.area_unit), 'sqft') = 'sqft'),
                    avg(p.price / p.area) filter (where p.deal = 'buy' and p.property_type_key = 'flat'
-                                      and p.area > 0 and coalesce(lower(p.area_unit), 'sqft') = 'sqft')
+                                      and p.area > 0 and coalesce(lower(p.area_unit), 'sqft') = 'sqft'),
+                   min(p.price)
             from properties p
             where p.status = :status and p.archived = false and p.locality_slug is not null
               and (cast(:slug as text) is null or p.locality_slug = cast(:slug as text))
@@ -190,9 +189,22 @@ public interface PropertyRepository
     @Query("""
             select p.societyId, count(p)
             from Property p
-            where p.status = :status and p.archived = false and p.societyId is not null
+            where p.status = :status and p.archived = false and p.societyId in :societyIds
             group by p.societyId""")
-    List<Object[]> countLiveBySocietyId(@Param("status") String status);
+    List<Object[]> countLiveBySocietyId(@Param("status") String status,
+            @Param("societyIds") Collection<UUID> societyIds);
+
+    /** Rows are [live, forSale, forRent, avgSaleRatePerArea, avgRent] over the given societies. */
+    @Query(nativeQuery = true, value = """
+            select count(*),
+                   count(*) filter (where p.deal = 'buy'),
+                   count(*) filter (where p.deal = 'rent'),
+                   avg(p.price / p.area) filter (where p.deal = 'buy' and p.area > 0),
+                   avg(p.price) filter (where p.deal = 'rent')
+            from properties p
+            where p.status = :status and p.archived = false and p.society_id in (:societyIds)""")
+    List<Object[]> societyHomeStats(@Param("status") String status,
+            @Param("societyIds") Collection<UUID> societyIds);
 
     @Query("""
             select lower(p.city), count(p)
@@ -200,8 +212,6 @@ public interface PropertyRepository
             where p.status = :status and p.archived = false
             group by lower(p.city)""")
     List<Object[]> countLiveByCity(@Param("status") String status);
-
-    long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
 
     /** How many listings this owner currently has live. Counted, never {@code users.listings_count},
      * which tallies every row ever posted (docs/system/data-model.md). */

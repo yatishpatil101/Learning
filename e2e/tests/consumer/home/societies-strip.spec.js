@@ -91,9 +91,7 @@ test('the strip asks for nothing until it is scrolled to', async ({ page }) => {
   const hits = [];
   page.on('request', (r) => {
     const url = new URL(r.url());
-    /* Exact, not `endsWith`: an SPA document navigation to `/societies` would otherwise count as
-       a catalogue read and make the first assertion fail on a page that fetched nothing. */
-    if (url.pathname === '/api/societies') hits.push(url.search);
+    if (url.pathname === '/api/societies/top') hits.push(url.search);
   });
 
   await page.goto(BASE);
@@ -102,7 +100,6 @@ test('the strip asks for nothing until it is scrolled to', async ({ page }) => {
 
   await renderedSlugs(page);
   expect(hits.length, 'exactly one read once the strip is reached').toBe(1);
-  expect(hits[0], 'one filtered page, not a walk of the directory').toContain('hasListings=true');
 });
 
 /** The page's own transform, duplicated so the expectation does not depend on the code under test. */

@@ -84,7 +84,7 @@ class MePhotosLiveTest extends AbstractApiTest {
         String url = JSON.readTree(body).get("url").asText();
 
         String base = stripTrailingSlash(props.publicBaseUrl());
-        assertThat(url).startsWith(base + "/photos/" + owner.getId() + "/");
+        assertThat(url).startsWith(base + "/photos/").doesNotContain(owner.getId().toString());
 
         String key = url.substring(base.length() + 1);
         try {

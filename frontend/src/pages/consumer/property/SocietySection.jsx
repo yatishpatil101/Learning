@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { getSociety } from '../../../services/societyService.js';
-import { getEntityReviewSummary } from '../../../services/reviewService.js';
+import { getSocietyBrief } from '../../../services/societyService.js';
 import { Stars } from './Stars.jsx';
 
 export function SocietySection({ p }) {
@@ -13,28 +12,16 @@ export function SocietySection({ p }) {
   useEffect(() => {
     if (!socSlug) { setSoc(null); return undefined; }
     let alive = true;
-    getSociety(socSlug)
+    getSocietyBrief(socSlug)
       .then((s) => { if (alive) setSoc(s); })
       .catch(() => { if (alive) setSoc(null); });
     return () => { alive = false; };
   }, [socSlug]);
-  /* `null` = not told yet or the read failed (builder only); `count === 0` is the only branch
-     entitled to say "Not rated yet". */
-  const [rating, setRating] = useState(null);
-  const slug = soc ? soc.slug : null;
-  useEffect(() => {
-    if (!slug) { setRating(null); return undefined; }
-    let alive = true;
-    setRating(null);
-    getEntityReviewSummary('society', slug)
-      .then((s) => { if (alive) setRating(s); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [slug]);
 
   /* No binding, no section: a heading over a generic name would still assert a society that was never picked. */
   if (!soc) return null;
 
+  const { rating } = soc;
   const quick = [
     ['home', soc.units != null ? t('property.homesCount', { count: soc.units }) : null],
     ['building-2', soc.towers != null ? t('property.towersCount', { count: soc.towers }) : null],
@@ -59,7 +46,7 @@ export function SocietySection({ p }) {
                     <span className="text-xs text-slate-500" data-testid="property-society-rating">{`${Number(rating.avg).toFixed(1)} · ${t('property.societyReviewCount', { count: rating.count })}`}</span>
                   </>
                 ) : (
-                  <span className="text-xs text-slate-500">{rating ? [t('property.societyNotRated'), soc.builder].filter(Boolean).join(' · ') : soc.builder}</span>
+                  <span className="text-xs text-slate-500">{[t('property.societyNotRated'), soc.builder].filter(Boolean).join(' · ')}</span>
                 )}
               </div>
             </div>

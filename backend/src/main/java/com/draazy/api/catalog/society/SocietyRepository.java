@@ -38,7 +38,8 @@ public interface SocietyRepository
     List<Society> withinBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
             @Param("minLng") double minLng, @Param("maxLng") double maxLng);
 
-    /** Ranked in the database; homes and rating total over the whole merge family, and ties fall to name then slug so offset paging stays stable. */
+    /** Ranked in the database; homes and rating total over the whole merge family. Ties fall to name then slug
+     * so offset paging stays stable. */
     @Query(value = """
             with base as (
                 select s.id from societies s
@@ -85,36 +86,25 @@ public interface SocietyRepository
             @Param("hasListings") boolean hasListings, @Param("mode") String mode,
             @Param("limit") int limit, @Param("offset") long offset);
 
-    /** Merged-away rows are excluded, so a duplicate an operator has dealt with does not come back. */
+    /** Merged-away rows are excluded so a duplicate already dealt with does not return;
+     * {@code like} is a lower-cased pattern over name and locality words. */
     @Query("select s from Society s where s.source = 'community' and s.mergedInto is null"
-            + " and s.archivedAt is null order by s.createdAt desc")
-    org.springframework.data.domain.Page<Society> candidates(org.springframework.data.domain.Pageable pageable);
+            + " and s.archivedAt is null"
+            + " and lower(concat(s.name, ' ', replace(coalesce(s.localitySlug, ''), '-', ' '))) like :like"
+            + " order by s.createdAt desc")
+    org.springframework.data.domain.Page<Society> candidates(@Param("like") String like,
+            org.springframework.data.domain.Pageable pageable);
 
-    /** Unpaged projection, as a duplicate on page 2 would never be found; merged-away rows are excluded, or the scan would propose chains. */
+    /** Unpaged, as a duplicate on page 2 would never be found; merged-away rows are excluded
+     * or the scan would propose chains. */
     @Query("""
             select s.slug, s.name, s.localitySlug, s.lat, s.lng
             from Society s
             where s.mergedInto is null and s.archivedAt is null and s.id <> :excludeId""")
     List<Object[]> duplicateScan(@Param("excludeId") UUID excludeId);
 
-    /** Rows of {@code [societyId, count]}; societies with no followers are absent. */
-    @Query(value = """
-            select society_id, count(*)
-            from society_follows
-            where society_id in (:societyIds)
-            group by society_id""", nativeQuery = true)
-    List<Object[]> countFollowersFor(@Param("societyIds") Collection<UUID> societyIds);
-
-    /** Which of these societies the user follows: {@code followedByMe} for a page in one query, not an N+1 {@code exists} per row on a public endpoint. */
-    @Query(value = """
-            select society_id
-            from society_follows
-            where user_id = :userId and society_id in (:societyIds)""", nativeQuery = true)
-    List<UUID> findFollowedAmong(@Param("userId") UUID userId,
-            @Param("societyIds") Collection<UUID> societyIds);
-
-    /** Coalesced for PATCH, with explicit casts as Postgres infers nothing for an untyped bind; {@code admin_note} is the
-     * exception, as {@code coalesce} could not clear it, so the caller says whether it was in the request. */
+    /** Coalesced for PATCH, with explicit casts as Postgres infers nothing for an untyped bind; {@code admin_note}
+     * is the exception, as {@code coalesce} cannot clear it, so the caller says whether it was sent. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
@@ -132,8 +122,8 @@ public interface SocietyRepository
             @Param("noteGiven") boolean noteGiven,
             @Param("adminNote") String adminNote);
 
-    /** {@code on conflict do nothing} with no target covers both the slug and the unique {@code place_id}, so a same-second race loses
-     * cleanly; {@code mint_origin} is in the insert so the loser's surface cannot overwrite the winner's. Returns 1 if created. */
+    /** Bare {@code on conflict do nothing} covers slug and unique {@code place_id}, so a race loses cleanly;
+     * {@code mint_origin} is inserted so the loser's surface cannot overwrite the winner's. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             insert into societies
@@ -154,8 +144,8 @@ public interface SocietyRepository
             @Param("mintOrigin") String mintOrigin,
             @Param("createdBy") UUID createdBy);
 
-    /** Guarded on {@code merged_into is null} in the statement, so the loser of a two-operator race is told and cannot silently
-     * reverse the first judgement; all three merge columns move together because of {@code ck_society_merged_trio}. */
+    /** Guarded on {@code merged_into is null} so the loser of a two-operator race is told, not silently reversing
+     * the first judgement; the three merge columns move together per {@code ck_society_merged_trio}. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
@@ -168,8 +158,8 @@ public interface SocietyRepository
             @Param("survivorId") UUID survivorId,
             @Param("operatorId") UUID operatorId);
 
-    /** One statement, as a merge moves nothing, so a wrong-pair merge costs a click, not a recovery; the three columns clear together and
-     * {@code merged_into is not null} guards so a racing undo returns 0. Returns 1 when a merge was undone. */
+    /** One statement, as a merge moves nothing, so undoing a wrong pair is cheap; {@code merged_into is not null}
+     * guards so a racing undo returns 0, and the three columns clear together. */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update societies set
@@ -180,19 +170,20 @@ public interface SocietyRepository
             where id = :societyId and merged_into is not null""", nativeQuery = true)
     int undoMerge(@Param("societyId") UUID societyId);
 
-    /** Page-scoped, as {@code GET /societies} is unauthenticated and a per-row query would be a free denial of service; rows are
-     * {@code [survivorId, mergedAwaySocietyId]}, and the partial {@code idx_society_merged_into} keeps it a lookup into tens of rows. */
+    /** Page-scoped: {@code GET /societies} is unauthenticated, so a per-row query would be a free denial of
+     * service. Rows are {@code [survivorId, mergedAwaySocietyId]}; the partial index keeps it cheap. */
     @Query(value = """
             select merged_into, id
             from societies
             where merged_into in (:survivorIds)""", nativeQuery = true)
     List<Object[]> findMergedInto(@Param("survivorIds") Collection<UUID> survivorIds);
 
-    /** Most recent first, sorted in the database like {@link #candidates} so the order belongs to the queue; the only place a merge can be found to undo. */
+    /** Newest first, sorted in the database like {@link #candidates}; the only place to find a merge to undo. */
     @Query("select s from Society s where s.mergedInto is not null order by s.mergedAt desc")
     org.springframework.data.domain.Page<Society> merged(org.springframework.data.domain.Pageable pageable);
 
-    /** The societies merged into this one, newest first, so the refusal can name them; unbounded because a {@code LIMIT} would turn "and 47 more" into a smaller number. */
+    /** Societies merged into this one, newest first, so the refusal can name them; unbounded because
+     * a {@code LIMIT} would turn "and 47 more" into a smaller number. */
     List<Society> findByMergedIntoOrderByMergedAtDesc(UUID survivorId);
 
     @Query("select count(s) from Society s where s.source = 'community' and s.mergedInto is null"

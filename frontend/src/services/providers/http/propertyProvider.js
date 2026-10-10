@@ -9,6 +9,7 @@ import {
   toQuery,
   toViewModel,
   toViewModelList,
+  toWriteResult,
   unsupportedFilters,
 } from './propertyMapper.js';
 import { bootstrapSection } from './bootstrap.js';
@@ -60,10 +61,28 @@ export async function searchForModeration(filters = {}, sort = 'newest', { page 
   };
 }
 
+/** The command palette's property hits: six fields each, linked by slug when there is one. */
+export async function lookupForModeration(q, { size = 6 } = {}) {
+  const res = await get('/admin/properties/lookup', { q, page: 0, size });
+  return {
+    items: (res?.content ?? []).map((l) => ({ id: l.slug || l.id, title: l.title, locality: l.locality, owner: l.owner, status: l.status })),
+    total: res?.totalElements ?? 0,
+  };
+}
 /** `GET /admin/properties/summary` — unfiltered by design: a KPI strip that followed the search box would be a second
  * copy of the table's row count, and counting the page paints confident zeroes. */
 export async function moderationSummary() {
   return get('/admin/properties/summary');
+}
+
+/** `GET /admin/properties/{id}` — the whole listing behind a queue row, by id or slug; `null` for an unknown one. */
+export async function getModerationProperty(id) {
+  try {
+    return toViewModel(await get(`/admin/properties/${encodeURIComponent(id)}`));
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
 }
 
 export async function getProperty(id) {
@@ -80,9 +99,7 @@ export async function getProperty(id) {
 }
 
 export async function featuredProperties(limit = 6) {
-  // The contract endpoint takes no limit — the strip is server-curated — so the cap is applied here.
-  const list = await get('/properties/featured', null, { auth: false });
-  return toViewModelList(list).slice(0, limit);
+  return toViewModelList(await get('/properties/featured', null, { auth: false })).slice(0, limit);
 }
 
 /** The three trust numbers, counted by the database over the whole live catalogue. No client-side arithmetic and no
@@ -104,11 +121,10 @@ export async function ownerProfile(id) {
   }
 }
 
-/** A facet on the ordinary public search, not a route of its own — which is what keeps the approved-and-unarchived
- * floor; without it an owner's page shows a stranger their rejected rows. */
+/** A facet on the ordinary public search, not a route of its own, which keeps the approved-and-unarchived floor;
+ * without it an owner's page would show a stranger their rejected rows. */
 export async function ownerListings(id) {
-  const page = await get('/properties', { owner: id, size: PAGE_SIZE }, { auth: false });
-  warnIfTruncated(page);
+  const page = await get('/properties', { owner: id, sort: 'createdAt,desc', size: 12 }, { auth: false });
   return toViewModelList(page);
 }
 
@@ -125,13 +141,32 @@ export async function getPropertiesByIds(ids = []) {
   return found.filter(Boolean);
 }
 
-/** Cards for up to 16 slugs or UUIDs in one search, in the order asked; ids not publicly live drop out. */
+function inAskedOrder(wanted, rows) {
+  const byId = new Map(rows.flatMap((p) => [[p.id, p], [p.uuid, p]]));
+  return wanted.map((id) => byId.get(id)).filter(Boolean);
+}
+
+/** Cards for up to 16 slugs or UUIDs in one read, in the order asked; ids not publicly live drop out. */
 export async function listPropertiesByIds(ids = []) {
   const wanted = ids.slice(0, 16);
   if (!wanted.length) return [];
-  const rows = toViewModelList(await get('/properties', { ids: wanted, size: wanted.length }, { auth: false }));
-  const byId = new Map(rows.flatMap((p) => [[p.id, p], [p.uuid, p]]));
-  return wanted.map((id) => byId.get(id)).filter(Boolean);
+  return inAskedOrder(wanted, toViewModelList(await get('/properties/cards', { ids: wanted }, { auth: false })));
+}
+
+/** Compare-table rows for up to four slugs or UUIDs; ids not publicly live drop out. */
+export async function compareProperties(ids = []) {
+  const wanted = ids.slice(0, 4);
+  if (!wanted.length) return [];
+  return inAskedOrder(wanted, toViewModelList(await get('/properties/compare', { ids: wanted }, { auth: false })));
+}
+
+export const searchIndex = () => get('/properties/search-index', null, { auth: false });
+
+export const propertyReels = (query) => get('/properties/reels', query, { auth: false });
+
+export async function similarProperties(query) {
+  const rows = await get('/properties/similar', query, { auth: false });
+  return (rows || []).map((r) => ({ ...toViewModel(r), _km: r.distanceKm }));
 }
 
 /** The `user` argument is ignored: ownership is the access token's, never the caller's to name. */
@@ -139,6 +174,11 @@ export async function myListings() {
   const page = await get('/me/listings', { size: PAGE_SIZE }, { ttl: PAGE_LOAD_TTL });
   warnIfTruncated(page);
   return toViewModelList(page);
+}
+
+/** `GET /me/listings/{id}/card` — one My Listings row, the re-read after an action that moved it. */
+export async function myListingCard(id) {
+  return toViewModel(await get(`/me/listings/${encodeURIComponent(id)}/card`));
 }
 
 /** `GET /me/listings/{id}` — owner-scoped, so the edit form prefills from the server and a non-owner gets a 404 by
@@ -160,8 +200,10 @@ export async function myListing(id) {
 }
 
 export async function addListing(listing) {
-  return toViewModel(await post('/me/listings', toListingCreate(listing)));
+  return toWriteResult(await post('/me/listings', toListingCreate(listing)));
 }
+
+export const listingSlots = () => get('/me/listings/quota');
 
 export async function checkOwnDuplicate({ fields } = {}) {
   const f = fields || {};
@@ -246,11 +288,11 @@ export async function dismissDuplicateCluster(ids) {
 }
 
 export async function updateListingFields(id, patchBody) {
-  return toViewModel(await patch(`/me/listings/${encodeURIComponent(id)}`, toListingUpdate(patchBody)));
+  return toWriteResult(await patch(`/me/listings/${encodeURIComponent(id)}`, toListingUpdate(patchBody)));
 }
 
 export async function takeListingDown(id) {
-  return toViewModel(await del(`/me/listings/${encodeURIComponent(id)}`));
+  return toWriteResult(await del(`/me/listings/${encodeURIComponent(id)}`));
 }
 
 export async function pauseListing(id) {

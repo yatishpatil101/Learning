@@ -4,9 +4,9 @@ import Icon from '../Icon.jsx';
 import PoweredByGoogle from '../ui/PoweredByGoogle.jsx';
 import Button from '../ui/Button.jsx';
 import { NEARBY, popularFor } from '../../data/homeData.js';
-import { listProperties } from '../../services/propertyService.js';
+import { searchIndex } from '../../services/propertyService.js';
 import { buildEntityIndex, searchEntities, slugOfName, KIND_ICON } from '../../lib/searchEntities.js';
-import { listSocietiesWithListings, resolveSociety } from '../../services/societyService.js';
+import { resolveSociety } from '../../services/societyService.js';
 import { resolveLocality } from '../../services/localityService.js';
 import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails, LOCALITY_TYPES } from '../../lib/places.js';
 import { useCity } from '../../context/CityContext.jsx';
@@ -48,7 +48,6 @@ export default function EntitySearchCombobox({
   const [resolving, setResolving] = useState(false);
   const [pickFailed, setPickFailed] = useState(false);
   const [listings, setListings] = useState([]);
-  const [societies, setSocieties] = useState(EMPTY);
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
@@ -68,7 +67,7 @@ export default function EntitySearchCombobox({
     if (closeSignal != null) setOpen(false);
   }, [closeSignal]);
 
-  // The index is ~100 listings, so it is read on first open rather than on every page that mounts a search box.
+  // Read on first open rather than on every page that mounts a search box.
   const [indexWanted, setIndexWanted] = useState(false);
   useEffect(() => { if (open) setIndexWanted(true); }, [open]);
 
@@ -76,19 +75,18 @@ export default function EntitySearchCombobox({
     if (!hasData) { setListings([]); return undefined; }
     if (!indexWanted) return undefined;
     let alive = true;
-    listProperties({}, 'newest')
+    searchIndex()
       .then((rows) => { if (alive) setListings(Array.isArray(rows) ? rows : []); })
-      .catch(() => {});
-    listSocietiesWithListings()
-      .then((res) => { if (alive) setSocieties(res?.rows || EMPTY); })
       .catch(() => {});
     return () => { alive = false; };
   }, [hasData, indexWanted]);
 
-  const index = useMemo(
-    () => buildEntityIndex(hasData ? listings.filter((p) => p.status === 'approved' && p.deal === deal) : [], societies),
-    [listings, deal, hasData, societies],
-  );
+  const index = useMemo(() => {
+    if (!hasData) return buildEntityIndex([], []);
+    const societies = [...new Map(listings.filter((p) => p.societySlug && p.societyName)
+      .map((p) => [p.societySlug, { slug: p.societySlug, name: p.societyName, localitySlug: p.localitySlug }])).values()];
+    return buildEntityIndex(listings.filter((p) => p.deal === deal), societies);
+  }, [listings, deal, hasData]);
 
   useEffect(() => {
     if (!open) return undefined;

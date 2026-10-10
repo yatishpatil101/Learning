@@ -46,7 +46,8 @@ test.describe('Fees — the rent-agreement sidebar prices from the admin fee sch
     // A failed read must not pass merely by lacking a wrong number.
     await expect(sidebar).not.toContainText(/couldn't load our current charges/i);
 
-    // The visible trace of the wizard deriving stamp duty and registration itself, because the published row says NULL for both.
+    // Visible trace that the wizard derives stamp duty and registration itself:
+    // the published row says NULL for both.
     await expect(sidebar).toContainText(/estimated total/i);
     await expect(sidebar).not.toContainText(/total payable/i);
   });
@@ -146,7 +147,7 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     // nothing; a URL the server minted cannot be one.
     expect(url).toBeTruthy();
     expect(url.startsWith('data:')).toBe(false);
-     expect(url).toMatch(/^\/api\/dev\/storage\/public\//);
+     expect(url).toMatch(/^\/api\/dev\/storage\/public\/photos\/[0-9a-f]{16}\/[0-9a-f-]{36}/);
 
      // `toBeVisible`, not merely attached, catches a host the browser cannot load.
      await expect(page.locator(`img[src="${url}"]`).first()).toBeVisible();
@@ -178,11 +179,12 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
     await page.goto('/plans');
     const res = await asked;
     expect(res.status()).toBe(200);
-    const prices = (await res.json()).pricing;
+    // Chromium hands Playwright an empty body for the gzipped head-script prefetch (index.html), so re-read it.
+    const prices = (await (await fetch(`${API}/bootstrap`)).json()).pricing;
 
     // Keys as a set because a missing fee renders as "₹0", not as missing UI.
     expect(Object.keys(prices).sort()).toEqual([
-      'featuredListing', 'gstPercent', 'ownerPlanYearly', 'ownerProYearly',
+      'gstPercent', 'ownerPlanYearly', 'ownerProYearly',
       'rentAgreementPlatform', 'seekerPlusTopup',
     ]);
     for (const [key, value] of Object.entries(prices)) {

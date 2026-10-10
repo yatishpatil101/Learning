@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.catalog.photo.PhotoKeys;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
 import com.draazy.api.catalog.property.PropertyStatus;
@@ -32,6 +33,8 @@ class ListingPhotoSourcesTest extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    PhotoKeys keys;
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
@@ -106,6 +109,16 @@ class ListingPhotoSourcesTest extends AbstractApiTest {
 
         create(o, "\"images\":[\"%s\"]".formatted(upload(other, "")))
                 .andExpect(status().isUnprocessableEntity());
+        create(o, "\"images\":[\"%s\"]".formatted(OURS.replace("photos/", "") + keys.newKey(other.getId())))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @DisplayName("a tagged upload, which names no user, is accepted from its uploader")
+    void aTaggedUploadIsAccepted() throws Exception {
+        User o = owner("9861500008");
+        create(o, "\"images\":[\"%s\"]".formatted(OURS.replace("photos/", "") + keys.newKey(o.getId()) + "-ffff0000ffff0000"))
+                .andExpect(status().isCreated());
     }
 
     @Test

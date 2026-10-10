@@ -14,6 +14,8 @@ import { TAB_IDS, REVIEW_CATS, REVIEW_CAT_KEYS, NOW_YEAR, HERO, titleCase } from
 import { genericSociety } from './helpers.jsx';
 
 const MIN_REVIEWS_FOR_TAB = 3;
+/** The reviews tab shows five; list and summary share one request at this size. */
+const REVIEW_READ = { size: 5 };
 const EMPTY_HOMES = [];
 
 export function useSocietyHub() {
@@ -80,18 +82,17 @@ export function useSocietyHub() {
     let alive = true;
     setSummary(null);
     setSummaryFailed(false);
-    listEntityReviews('society', soc.slug)
+    listEntityReviews('society', soc.slug, REVIEW_READ)
       .then((res) => { if (alive) setReviews(res.items); })
       .catch(() => { if (alive) setReviews([]); });
-    // Independent of the list above: the list is one page of 20, the summary is the whole corpus.
-    getEntityReviewSummary('society', soc.slug)
+    // The summary covers the whole corpus, not just the page above.
+    getEntityReviewSummary('society', soc.slug, REVIEW_READ)
       .then((s) => { if (alive) setSummary(s); })
       .catch(() => { if (alive) setSummaryFailed(true); });
     return () => { alive = false; };
   }, [soc.slug]);
 
-  // The summary endpoint is the authority: the on-screen list is paged at 20, so reducing it would
-  // pass off the twenty most recent reviews as the society's rating. `failed` ≠ `count === 0`.
+  // The summary is the authority: reducing the on-screen page would pass the newest few off as the rating.
   const rating = useMemo(() => ({
     avg: summary ? summary.avg : null,
     count: summary ? summary.count : 0,
@@ -109,15 +110,7 @@ export function useSocietyHub() {
     return rated ? +rating.avg.toFixed(1) : null;
   }, [rating]);
 
-  const priceStats = useMemo(() => {
-    const buys = listings.filter((l) => l.deal === 'buy' && l.area);
-    const rents = listings.filter((l) => l.deal === 'rent');
-    return {
-      psf: buys.length ? Math.round(buys.reduce((s, l) => s + l.price / l.area, 0) / buys.length) : null,
-      rentAvg: rents.length ? Math.round(rents.reduce((s, l) => s + l.price, 0) / rents.length) : null,
-      forSale: buys.length, forRent: rents.length,
-    };
-  }, [listings]);
+  const priceStats = { psf: soc.psf, rentAvg: soc.rentAvg, forSale: soc.forSale || 0, forRent: soc.forRent || 0 };
 
   const commute = commuteInfo(soc.lat, soc.lng);
   const hasCoords = soc.lat != null && soc.lng != null;
@@ -144,8 +137,8 @@ export function useSocietyHub() {
         // Both reads: the headline comes from the summary, so re-reading only the cards would
         // leave a stale average beside the reviewer's own rating.
         : Promise.all([
-          listEntityReviews('society', soc.slug),
-          getEntityReviewSummary('society', soc.slug),
+          listEntityReviews('society', soc.slug, REVIEW_READ),
+          getEntityReviewSummary('society', soc.slug, REVIEW_READ),
         ])))
       .then((res) => {
         if (!res) return;
@@ -178,7 +171,7 @@ export function useSocietyHub() {
   ].filter((l) => l[2] != null && l[2] !== '');
   const tabs = [
     { id: 'overview', labelKey: 'society.tabOverview', icon: 'file-text', show: true },
-    { id: 'homes', labelKey: 'society.tabHomes', icon: 'building-2', show: listings.length > 0, count: listings.length },
+    { id: 'homes', labelKey: 'society.tabHomes', icon: 'building-2', show: listings.length > 0, count: soc.listingCount || listings.length },
     { id: 'reviews', labelKey: 'society.tabReviews', icon: 'star', show: (rating.count || 0) >= MIN_REVIEWS_FOR_TAB, count: rating.count || 0 },
     { id: 'location', labelKey: 'society.tabLocation', icon: 'map-pin', show: !soc._generic },
   ].filter((t) => t.show);

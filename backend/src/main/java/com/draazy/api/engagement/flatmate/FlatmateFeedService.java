@@ -41,7 +41,7 @@ public class FlatmateFeedService {
         this.reviewStatuses = reviewStatuses;
     }
 
-    /** {@code verifiedTotal} is across every match, as the browser cannot see enough rows once the server pages; the other tab's total saves a request. */
+    /** {@code verifiedTotal} spans every match: once the server pages, the browser cannot see enough rows. */
     public record FeedResult(Page<Object> page, long verifiedTotal, long otherTabTotal) {
     }
 
@@ -55,7 +55,7 @@ public class FlatmateFeedService {
                 search.total(facets.otherTab()));
     }
 
-    /** One read per supply type, with the sort re-imposed from the refs as {@code findAllById} makes no promise about order. */
+    /** Sort is re-imposed from the refs because {@code findAllById} makes no promise about order. */
     private List<Object> load(List<FlatmateSearchQueries.Ref> refs) {
         Map<UUID, FlatmateRoom> roomsById = index(rooms.findAllById(idsOf(refs, "room")),
                 FlatmateRoom::getId);
@@ -111,8 +111,7 @@ public class FlatmateFeedService {
             case FlatmateGroup g -> (Object) mapper.toFeedDto(g,
                     FlatmateMapper.PartyView.anonymous(
                             names.get(g.getHostId()), groupVerdicts.get(g.getId())));
-            case FlatmateSeekerPost p -> (Object) mapper.toDto(p,
-                    FlatmateMapper.SeekerView.ANONYMOUS);
+            case FlatmateSeekerPost p -> (Object) mapper.toFeedDto(p);
             default -> throw new IllegalStateException("Unmappable feed entry: " + source.getClass());
         }).toList();
     }

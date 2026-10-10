@@ -62,6 +62,32 @@ class LocalityReadEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the admin list is a slim staff read: pin, archived flag and live count, no market stats")
+    void adminListIsSlim() throws Exception {
+        locality("zz-admin-slim", "Zz Admin Slim", false);
+        live("zz-admin-slim", "rent", 20000, "800");
+        User staff = new User("9861000002", "staff");
+        staff.setName("Locality Ops");
+        staff.setMobileVerified(true);
+        staff = users.saveAndFlush(staff);
+
+        mvc.perform(get("/admin/localities")
+                        .header(org.springframework.http.HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.slug == 'zz-admin-slim')].liveListings")
+                        .value(org.hamcrest.Matchers.contains(1)))
+                .andExpect(jsonPath("$[?(@.slug == 'zz-admin-slim')].archived")
+                        .value(org.hamcrest.Matchers.contains(false)))
+                .andExpect(jsonPath("$[?(@.slug == 'zz-admin-slim')].avgRent").isEmpty())
+                .andExpect(jsonPath("$[?(@.slug == 'zz-admin-slim')].medianRent").isEmpty());
+
+        mvc.perform(get("/admin/localities")
+                        .header(org.springframework.http.HttpHeaders.AUTHORIZATION, bearer(owner())))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/admin/localities")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("below three live listings the page exists but carries no stats and is not indexable")
     void statsHiddenBelowThree() throws Exception {
         locality("zz-stats-low", "Zz Stats Low", false);
@@ -92,12 +118,12 @@ class LocalityReadEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/localities/zz-stats-ok"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.liveListings").value(6))
-                .andExpect(jsonPath("$.rentListings").value(3))
-                .andExpect(jsonPath("$.saleListings").value(3))
+                .andExpect(jsonPath("$.rentListings").doesNotExist())
                 .andExpect(jsonPath("$.indexable").value(true))
                 .andExpect(jsonPath("$.archived").value(false))
                 .andExpect(jsonPath("$.avgRent").value(30000))
-                .andExpect(jsonPath("$.ratePerSqft").value(7000));
+                .andExpect(jsonPath("$.ratePerSqft").value(7000))
+                .andExpect(jsonPath("$.fromPrice").value(20000));
     }
 
     @Test

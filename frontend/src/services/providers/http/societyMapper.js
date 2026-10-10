@@ -24,7 +24,6 @@ export function toSociety(row) {
     name: row.name || '',
     builder: row.builder || '',
     localitySlug: row.localitySlug || '',
-    pincode: row.pincode || row.pinCode || row.postalCode || '',
     lat: num(row.lat),
     lng: num(row.lng),
     placeId: row.placeId || '',
@@ -41,13 +40,27 @@ export function toSociety(row) {
     petPolicy: row.petPolicy || '',
     vegPolicy: row.vegPolicy || '',
     rera: row.rera || '',
-    registration: !!row.registration,
-    conveyance: !!row.conveyance,
     amenities: Array.isArray(row.amenities) ? row.amenities : [],
-    source: row.source || '',
-    // The server's count of live listings across the merge family; `0` is a real zero, so it is
-    // always projected.
+    // Live listings across the merge family; `0` is a real zero, so it is always projected.
     listingCount: Number(row.listingCount) || 0,
+    forSale: Number(row.forSale) || 0,
+    forRent: Number(row.forRent) || 0,
+    psf: num(row.psf),
+    rentAvg: num(row.rentAvg),
     homes: Array.isArray(row.homes) ? row.homes.map(toViewModel) : [],
+  };
+}
+
+export function toSocietyBrief(row) {
+  if (!row?.slug) return null;
+  return {
+    slug: row.slug,
+    name: row.name || '',
+    builder: row.builder || '',
+    units: row.units ?? null,
+    towers: row.towers ?? null,
+    year: row.year ?? null,
+    occupancy: num(row.occupancy),
+    rating: { avg: num(row.avgRating), count: Number(row.reviewCount) || 0 },
   };
 }

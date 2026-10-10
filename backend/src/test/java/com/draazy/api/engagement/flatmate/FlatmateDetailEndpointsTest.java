@@ -80,7 +80,7 @@ class FlatmateDetailEndpointsTest extends AbstractApiTest {
                 {"bhk":"2","roomType":"Private room","attachedBath":"attached",
                  "furnishing":"semi","locality":"DetailTown","society":"Detail Heights",
                  "rentShare":15000,"deposit":30000,"availableFrom":"2026-09-01",
-                 "lookingFor":"any","foodPref":"any",
+                 "lookingFor":"any","foodPref":"any","lat":18.5912345,"lng":73.7712345,
                  "photos":["https://cdn.example/1.jpg"],"hostRole":"owner","note":"Sunny."}
                 """);
     }
@@ -185,7 +185,9 @@ class FlatmateDetailEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.owned").value(false))
                 .andExpect(jsonPath("$.photos", Matchers.hasSize(1)))
                 .andExpect(jsonPath("$.item.addressFingerprint").doesNotExist())
-                .andExpect(jsonPath("$.item.ownerMobile").doesNotExist());
+                .andExpect(jsonPath("$.item.ownerMobile").doesNotExist())
+                .andExpect(jsonPath("$.item.lat").value(18.591))
+                .andExpect(jsonPath("$.item.lng").value(73.771));
     }
 
     @Test
@@ -198,6 +200,20 @@ class FlatmateDetailEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("post"))
                 .andExpect(jsonPath("$.owned").value(false))
-                .andExpect(jsonPath("$.item.mobile").doesNotExist());
+                .andExpect(jsonPath("$.item.mobile").doesNotExist())
+                .andExpect(jsonPath("$.item.modStatus").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("a visitor's group card names its members without their row ids")
+    void visitorGroupHasNoMemberIds() throws Exception {
+        User host = seeker("9812000008", "Host");
+        String id = group(host);
+        approve("flatmate_groups", id);
+
+        mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.item.members[0].host").value(true))
+                .andExpect(jsonPath("$.item.members[0].id").doesNotExist());
     }
 }

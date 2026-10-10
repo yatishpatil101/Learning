@@ -26,7 +26,7 @@ test.describe('Locality guides — indexable before listings exist', () => {
   test('a guided locality shows its guide, is indexable and links to the other guides', async ({ page, consoleErrors }) => {
     await page.goto('/locality/baner');
     await expect(page.getByRole('heading', { level: 1, name: 'Baner' })).toBeVisible();
-    await expect(page.getByTestId('locality-guide').getByRole('heading', { name: 'At a glance' })).toBeVisible();
+    await expect(page.getByTestId('locality-guide').getByRole('heading', { name: 'Key facts' })).toBeVisible();
     await expect(noindex(page)).toHaveCount(0);
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://draazy.com/locality/baner');
     await expect(page).toHaveTitle(/^Baner, Pune: area guide/);

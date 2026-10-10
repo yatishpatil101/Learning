@@ -24,8 +24,8 @@ public class PlansController {
 
     /** {@code GET /me/subscription} (contract {@code getSubscription}). */
     @GetMapping(Routes.Plans.SUBSCRIPTION)
-    public SubscriptionDto getSubscription(@CurrentUser AuthPrincipal principal) {
-        return service.getSubscription(principal);
+    public SubscriptionState getSubscription(@CurrentUser AuthPrincipal principal) {
+        return SubscriptionState.of(service.getSubscription(principal));
     }
 
     /** A repeated {@code Idempotency-Key} returns the original row. */

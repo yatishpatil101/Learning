@@ -2,33 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { getSubscription, subscribe as subscribeToPlan } from '../services/planService.js';
 import { useAuth } from './AuthContext.jsx';
 
-/**
- * The caller's subscription plan, held once for the whole app.
- *
- * ## Why this exists
- *
- * The plan answers questions the app asks *during render* — whether to offer the Feature action,
- * how many listings the paywall allows, which pricing card is current. Those were synchronous
- * localStorage reads. Against an API each one is a network call, and converting them in place would
- * mean six requests to draw one dashboard plus six copies of the answer free to disagree the moment
- * a purchase changes one of them.
- *
- * So the plan is fetched once and the sync questions are answered from memory. Same shape as
- * `SavedContext` (shortlist membership) and `SavedSearchContext` (alerts), for the same reason.
- *
- * ## The free tier is the floor, never an error
- *
- * A signed-out visitor, an unreachable API, a lapsed subscription and a plan the app has no card
- * for all resolve to `{ id: 'free', listingLimit: 1, isPaidOwner: false }`. That is the safe
- * direction: it can only ever *under*-grant. Failing open would hand somebody a paid entitlement
- * because a request timed out.
- *
- * ## Buying does not grant
- *
- * `subscribe` returns the resulting subscription and refreshes this context, but for a priced plan
- * that subscription is `pending` — the payment webhook is what activates it, and no browser can
- * make that happen. Consumers must read `status`; `isPaidOwner` stays false until the money lands.
- */
+/** The free tier is the floor, never an error: failing open would grant a paid entitlement on a timeout.
+ * Buying does not grant: a priced plan stays `pending` until the payment webhook, so read `status`. */
 const PlanContext = createContext(null);
 
 /** What every consumer sees before the first load settles, and whenever there is no session. */
@@ -40,8 +15,6 @@ const FREE_TIER = {
   pendingSlug: null,
   paymentRef: null,
   paymentSessionId: null,
-  startedAt: null,
-  renewsAt: null,
   isPaidOwner: false,
   listingLimit: 1,
 };
@@ -73,13 +46,7 @@ export function PlanProvider({ children }) {
     return () => { alive = false; };
   }, [isIn]);
 
-  /**
-   * Buy a plan, then re-read.
-   *
-   * Deliberately **not** optimistic, unlike the saved-property heart. A heart that flips early is
-   * corrected a moment later at no cost; a plan that flips early tells someone a payment succeeded
-   * before the gateway has said so. The returned subscription is what the caller should render.
-   */
+  /** Not optimistic: a plan that flips early claims a payment succeeded before the gateway has said so. */
   const subscribe = useCallback(async (slug, paymentMethod) => {
     const next = await subscribeToPlan(slug, paymentMethod);
     setPlan(next);
@@ -92,9 +59,8 @@ export function PlanProvider({ children }) {
     planName: plan.name,
     status: plan.status,
     isPaidOwner: plan.isPaidOwner,
-    /* The plan's own ceiling. Referral bonus slots are added by the caller (`Refer.jsx`,
-       `ListProperty`) because referrals are still a localStorage domain — folding them in here
-       would make this context lie about what the *plan* allows. */
+    /* The plan's own ceiling; referral bonus slots are added by the caller, since referrals are still
+       localStorage, and folding them in here would misstate what the plan allows. */
     listingLimit: plan.listingLimit,
     loading,
     refresh,

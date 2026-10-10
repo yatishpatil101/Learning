@@ -79,8 +79,6 @@ export function toViewModel(p) {
     type: p.propertyType,
     image: p.coverImage,
     gallery: p.images ?? [],
-    // Summaries carry counts without loading every photo.
-    photoCount: p.imageCount ?? (p.images?.length ?? 0),
     video: p.video ?? null,
     desc: p.description,
     bhkNum: p.bhk ?? null,
@@ -121,7 +119,6 @@ export function toViewModel(p) {
     owner: p.owner?.name,
     ownerId: p.owner?.id,
     ownerMobile: p.owner?.mobile,
-    postedByType: p.postedByType ?? null,
     slug: p.slug,
     title: p.title,
     deal: p.deal,
@@ -160,6 +157,10 @@ export function toViewModel(p) {
     views: p.views ?? 0,
     enquiries: p.enquiries ?? 0,
     docsCount: p.docsCount ?? 0,
+    pendingLeads: p.pendingLeads ?? 0,
+    photoCount: p.photoCount ?? null,
+    descLength: p.descLength ?? null,
+    amenityCount: p.amenityCount ?? null,
     /* Null rather than 0: a listing the scorer has not reached has no score, and showing a reviewer
        "0/100" for that is a verdict the server never gave. */
     qualityScore: p.qualityScore ?? null,
@@ -193,6 +194,20 @@ export function toViewModel(p) {
     // owner's silence as "not allowed".
     pets: p.pets ?? null,
     shareType: p.room ? 'flatmates' : null,
+  };
+}
+
+/** `ListingWriteResult` — the owner's create, edit and take-down answer; the full row is `GET /me/listings/{id}`. */
+export function toWriteResult(r) {
+  if (!r) return r;
+  return {
+    id: r.slug || r.id,
+    uuid: r.id,
+    status: r.status,
+    archived: r.archived ?? false,
+    recheckPending: r.recheckPending ?? false,
+    recheckReason: r.recheckReason ?? '',
+    recheckRequestedAt: r.recheckRequestedAt ?? '',
   };
 }
 

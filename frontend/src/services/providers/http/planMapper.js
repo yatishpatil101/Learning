@@ -1,7 +1,5 @@
-/**
- * Wire ↔ seam translation for billing plans. Plans join on **name**: the wire's identity is a UUID,
- * the app's is a shipped slug, and keying on order would re-point every slug when one is inserted.
- */
+/** Plans join on **name**: the wire's identity is a UUID, the app's a shipped slug,
+ * and keying on order would re-point every slug when one is inserted. */
 const NAME_TO_SLUG = new Map([
   ['Owner Free', 'owner-free'],
   ['Owner Plus', 'owner2'],
@@ -17,28 +15,20 @@ export const slugForPlanName = (name) => NAME_TO_SLUG.get(String(name || '').tri
 /** The app's slug → the server plan name, for resolving a UUID out of the catalogue. */
 export const planNameForSlug = (slug) => SLUG_TO_NAME.get(String(slug || '').trim()) ?? null;
 
-/**
- * Entitlements are numbers off the wire, never parsed from feature prose. A null `listingLimit`
- * grants no allowance of its own and resolves to this free-tier floor, which can only under-grant.
- */
+/** Entitlements are numbers off the wire, never parsed from prose; a null `listingLimit` resolves
+ * to the free-tier floor, which can only under-grant. */
 const FREE_TIER_LISTING_LIMIT = 1;
 
 /** The slugs that unlock self-serve promotion. Seeker Plus is a tenant plan and buys no owner tools. */
 export const PAID_OWNER_PLAN_SLUGS = ['owner2', 'owner5'];
 
-/**
- * Entitlement is `status === 'active'`, never "the POST returned 200": a priced plan lands `pending`
- * until the signature-verified webhook lands, so an abandoned checkout must not grant it.
- */
+/** Entitlement is `status === 'active'`, never "the POST returned 200": a priced plan stays `pending`
+ * until the signature-verified webhook lands. */
 export const isEntitled = (status) => status === 'active';
 
 /** Statuses that mean money is owed or in flight, so the checkout is not finished. */
 export const isAwaitingPayment = (status) => status === 'pending';
 
-/**
- * @param {object|null} row  `SubscriptionDto`, possibly all-null — which means the free tier
- * @param {object[]} plans   the catalogue, for resolving `planId` back to a name and slug
- */
 export function toPlanViewModel(row, plans = []) {
   const byId = new Map((plans || []).map((p) => [p.id, p]));
   const plan = row?.planId ? byId.get(row.planId) : null;
@@ -63,8 +53,6 @@ export function toPlanViewModel(row, plans = []) {
     // Single-use hosted-checkout session, present only on the `subscribe` response for a priced
     // plan, so a held plan never carries a stale session the checkout could try to reopen.
     paymentSessionId: row?.paymentSessionId ?? null,
-    startedAt: row?.startedAt ?? null,
-    renewsAt: row?.renewsAt ?? null,
     isPaidOwner: entitled && PAID_OWNER_PLAN_SLUGS.includes(slug),
     // The plan's own ceiling, off the wire. An unsubscribed or unknown-plan caller, and a held
     // plan that states no listing number, all fall to the one-listing floor.

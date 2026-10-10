@@ -1,16 +1,16 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import Byline from '../../components/Byline.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useSignInGate } from '../../lib/useSignInGate.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
-import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
+import { useSavedSearchCreate } from '../../context/SavedSearchContext.jsx';
 import { getLocality } from '../../services/localityService.js';
 import { listSocietiesPage } from '../../services/societyService.js';
-import { listProperties } from '../../services/propertyService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { guides } from 'virtual:locality-guides';
@@ -32,7 +32,7 @@ export default function Locality() {
   const { t } = useTranslation();
   const rootRef = useScrollReveal();
   const { isIn } = useAuth();
-  const { create: createSavedSearch } = useSavedSearches();
+  const createSavedSearch = useSavedSearchCreate();
   const { toast } = useToast();
   const sendToSignIn = useSignInGate();
   const { slug } = useParams();
@@ -70,29 +70,19 @@ export default function Locality() {
     return () => { document.title = prev; };
   }, [name, guide]);
 
-  const [props, setProps] = useState([]);
   const [societies, setSocieties] = useState([]);
   useEffect(() => {
     if (!loc) return undefined;
     let alive = true;
-    setProps([]);
     setSocieties([]);
-    listProperties({ locality: loc.slug, includeAllStatuses: false }, 'newest')
-      .then((ps) => { if (alive) setProps(ps.filter((p) => p.status === 'approved')); })
-      .catch(() => {});
     listSocietiesPage({ locality: loc.slug, size: 6, sort: 'homes' })
       .then((res) => { if (alive) setSocieties(res?.rows || []); })
       .catch(() => {});
     return () => { alive = false; };
   }, [loc]);
-  const inv = useMemo(() => {
-    if (!props.length) return null;
-    const from = props.reduce((m, p) => (p.price && p.price < m ? p.price : m), Infinity);
-    return { count: props.length, from };
-  }, [props]);
 
   const [reviews, setReviews] = useState([]);
-  /* `'error'` keeps a failed read from rendering as "no reviews yet", a false claim about the area. */
+  /* `'error'` keeps a failed read from rendering as "no reviews yet", which would say something false. */
   const [summary, setSummary] = useState(null);
   const [revText, setRevText] = useState('');
   const [pick, setPick] = useState(5);
@@ -173,15 +163,22 @@ export default function Locality() {
             <p className="text-gray-400 text-sm mt-2">
               <Trans i18nKey="locality.intro" values={{ name }} components={{ 1: <span className="text-teal-400 font-semibold" /> }} />
             </p>
+            {guide && <Byline updated={guide.updated} label={guide.updatedLabel} className="mt-3" />}
             <div className="flex flex-wrap items-center gap-3 mt-5">
               <Link to={`/listings?loc=${encodeURIComponent(listingsSlug)}`} className="btn-teal px-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2"><Icon name="search" className="w-4 h-4" /> {t('locality.ctaView')}</Link>
               {loc && <AlertButton activeName={name} onClick={setLocalityAlert} />}
             </div>
+            {guide && (
+              <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm font-semibold">
+                <Link to={`/rent/${guide.slug}`} className="text-teal-400 hover:underline">Flats for rent in {name}</Link>
+                <Link to={`/buy/${guide.slug}`} className="text-teal-400 hover:underline">Property for sale in {name}</Link>
+              </p>
+            )}
           </div>
 
           {loc ? (
             <>
-              <div className="reveal"><InventoryBar inv={inv} activeName={name} slug={loc.slug} /></div>
+              <div className="reveal"><InventoryBar inv={{ count: loc.liveListings, from: loc.fromPrice }} activeName={name} slug={loc.slug} /></div>
               {stats.length ? (
                 <div className="grid grid-cols-2 gap-3 sm:gap-4" data-testid="locality-stats">
                   {stats.map((s) => (
@@ -211,7 +208,7 @@ export default function Locality() {
 
           {loc && (
             <>
-              <MapCard activeName={name} activeCoords={loc.lat != null && loc.lng != null ? [loc.lat, loc.lng] : null} locProps={props} />
+              <MapCard key={loc.slug} slug={loc.slug} activeName={name} activeCoords={loc.lat != null && loc.lng != null ? [loc.lat, loc.lng] : null} />
               <SocietiesBlock localSocieties={societies} activeName={name} activeSlug={loc.slug} />
               <ReviewsBlock activeName={name} locReviews={reviews} summary={summary === 'error' ? null : summary} summaryFailed={summary === 'error'} onSubmit={postReview} revText={revText} setRevText={setRevText} pick={pick} setPick={setPick} />
             </>

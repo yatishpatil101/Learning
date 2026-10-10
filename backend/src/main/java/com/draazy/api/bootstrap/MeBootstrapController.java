@@ -2,51 +2,36 @@ package com.draazy.api.bootstrap;
 
 import com.draazy.api.billing.plan.PlansController;
 import com.draazy.api.common.web.Routes;
-import com.draazy.api.engagement.follow.SocietyFollowController;
 import com.draazy.api.engagement.notification.NotificationController;
 import com.draazy.api.engagement.saved.SavedPropertyController;
-import com.draazy.api.engagement.search.SavedSearchController;
 import com.draazy.api.identity.user.MeController;
-import com.draazy.api.identity.verification.IdentityVerificationController;
 import com.draazy.api.leads.conversation.ConversationsController;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Composed from the handlers the client would otherwise call one by one, so no section drifts from its own endpoint. */
+/** Composed from the handlers the client would otherwise call one by one, so no section drifts from them. */
 @RestController
 public class MeBootstrapController {
 
     private static final Logger log = LoggerFactory.getLogger(MeBootstrapController.class);
 
-    // spring.data.web.pageable.max-page-size: what the shell's own size=500 reads are clamped to.
-    private static final Pageable SHELL_PAGE = PageRequest.of(0, 100);
-
     private final MeController me;
     private final PlansController plans;
-    private final IdentityVerificationController identity;
     private final SavedPropertyController saved;
-    private final SavedSearchController savedSearches;
-    private final SocietyFollowController following;
     private final NotificationController notifications;
     private final ConversationsController conversations;
 
     public MeBootstrapController(MeController me, PlansController plans,
-            IdentityVerificationController identity, SavedPropertyController saved,
-            SavedSearchController savedSearches, SocietyFollowController following,
-            NotificationController notifications, ConversationsController conversations) {
+            SavedPropertyController saved, NotificationController notifications,
+            ConversationsController conversations) {
         this.me = me;
         this.plans = plans;
-        this.identity = identity;
         this.saved = saved;
-        this.savedSearches = savedSearches;
-        this.following = following;
         this.notifications = notifications;
         this.conversations = conversations;
     }
@@ -57,10 +42,7 @@ public class MeBootstrapController {
         return new MeBootstrapResponse(
                 me.getMe(principal),
                 section("subscription", () -> plans.getSubscription(principal)),
-                section("identity", () -> identity.status(principal)),
-                section("saved", () -> saved.listSaved(principal, SHELL_PAGE)),
-                section("savedSearches", () -> savedSearches.list(principal)),
-                section("following", () -> following.listFollowing(principal, SHELL_PAGE)),
+                section("saved", () -> saved.listKeys(principal)),
                 section("notificationsUnread", () -> notifications.unreadCount(principal)),
                 section("messagesUnread", () -> conversations.unreadCount(principal)));
     }

@@ -1,6 +1,8 @@
 package com.draazy.api.catalog.property;
 
 import com.draazy.api.catalog.listing.ListingCreate;
+import com.draazy.api.catalog.listing.ListingWriteResult;
+import com.draazy.api.catalog.listing.OwnerListingCard;
 import com.draazy.api.common.trust.BackOfficeVisibility;
 import com.draazy.api.common.trust.ContactVisibility;
 import com.draazy.api.common.trust.FlagReasonVisibility;
@@ -11,6 +13,7 @@ import com.draazy.api.identity.user.User;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Context;
@@ -25,23 +28,59 @@ import org.mapstruct.ReportingPolicy;
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface PropertyMapper {
 
-    /** The freshness tier, derived at map time and shared by the card and detail mappings so there is
-     * exactly one definition. {@link Freshness} takes the clock, so boundaries stay testable. */
+    /** The freshness tier, derived at map time. {@link Freshness} takes the clock, so boundaries stay testable. */
     String FRESHNESS = "java(Freshness.of(property.getLastConfirmedAt(), property.getCreatedAt(),"
             + " java.time.Instant.now()).wire())";
 
     /** The cover, derived at map time so a listing's own photos are its card image. */
     String COVER = "java(coverImage(property))";
 
+    /** Prefix of an expression that emits the value only on the owner's and the desk's views. */
+    String OWN_SIDE = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE ? ";
+
     List<String> LAND_KEYS = List.of("plotZone", "waterSource", "naStatus", "otherRights",
             "buyerEligibility", "openSides", "roadWidth", "plotLength", "plotWidth", "cornerPlot",
             "boundaryWall", "naSanctioned", "electricity", "roadAccess", "satbara");
 
-    @Mapping(target = "imageCount",
-            expression = "java(property.getImages() == null ? 0 : property.getImages().size())")
     @Mapping(target = "coverImage", expression = COVER)
-    @Mapping(target = "freshness", expression = FRESHNESS)
     PropertySummary toSummary(Property property);
+
+    @Mapping(target = "coverImage", expression = COVER)
+    PropertyCard toCard(Property property);
+
+    @Mapping(target = "coverImage", expression = COVER)
+    @Mapping(target = "available", expression = "java(PropertyStatus.APPROVED.equals(property.getStatus()))")
+    SavedCard toSaved(Property property);
+
+    @Mapping(target = "coverImage", expression = COVER)
+    @Mapping(target = "progress", expression = "java(ListingProgress.of(property, false))")
+    @Mapping(target = "freshness", expression = FRESHNESS)
+    @Mapping(target = "pendingLeads", expression = "java(pendingLeads.getOrDefault(property.getId(), 0))")
+    @Mapping(target = "photoCount", expression = "java(photoCount(property))")
+    @Mapping(target = "descLength", expression = "java(property.getDescription() == null ? 0"
+            + " : property.getDescription().length())")
+    @Mapping(target = "amenityCount", expression = "java(property.getAmenities() == null ? 0"
+            + " : property.getAmenities().size())")
+    OwnerListingCard toOwnerCard(Property property, @Context Map<UUID, Integer> pendingLeads);
+
+    @Mapping(target = "archived", ignore = true)
+    ListingWriteResult toWriteResult(Property property);
+
+    @Mapping(target = "archived", expression = "java((Boolean) property.isArchived())")
+    ListingWriteResult toTakenDown(Property property);
+
+    @Mapping(target = "coverImage", expression = COVER)
+    PropertyCompare toCompare(Property property);
+
+    SearchIndexEntry toIndexEntry(Property property);
+
+    @Mapping(target = "photos", expression = "java(property.getImages() == null ? java.util.List.of()"
+            + " : property.getImages().stream().limit(PropertyReel.MAX_PHOTOS).toList())")
+    PropertyReel toReel(Property property);
+
+    @Mapping(target = "coverImage", expression = COVER)
+    @Mapping(target = "distanceKm", expression = "java(Double.isFinite(km) ? km : null)")
+    SimilarListing toSimilar(Property property, double km);
 
     @Mapping(target = "adminPipeline", expression = "java(toAdminPipeline(property, backOffice, outreach))")
     @Mapping(target = "progress", expression = "java(toProgress(property, backOffice, privateFields))")
@@ -50,24 +89,23 @@ public interface PropertyMapper {
     @Mapping(target = "flagReason",
             expression = "java(flagReason == com.draazy.api.common.trust.FlagReasonVisibility.VISIBLE"
                     + " ? property.getFlagReason() : null)")
-    @Mapping(target = "electricityMeterNo",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getElectricityMeterNo() : null)")
-    @Mapping(target = "address",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getAddress() : null)")
-    @Mapping(target = "formDetails",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getFormDetails() : null)")
-    @Mapping(target = "resubmittedAt",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getResubmittedAt() : null)")
-    @Mapping(target = "ownershipRequestedAt",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getOwnershipRequestedAt() : null)")
+    @Mapping(target = "electricityMeterNo", expression = OWN_SIDE + "property.getElectricityMeterNo() : null)")
+    @Mapping(target = "address", expression = OWN_SIDE + "property.getAddress() : null)")
+    @Mapping(target = "formDetails", expression = OWN_SIDE + "property.getFormDetails() : null)")
+    @Mapping(target = "resubmittedAt", expression = OWN_SIDE + "property.getResubmittedAt() : null)")
+    @Mapping(target = "ownershipRequestedAt", expression = OWN_SIDE + "property.getOwnershipRequestedAt() : null)")
     @Mapping(target = "ownershipDeclinedReason",
-            expression = "java(privateFields == com.draazy.api.common.trust.PrivateFieldVisibility.VISIBLE"
-                    + " ? property.getOwnershipDeclinedReason() : null)")
+            expression = OWN_SIDE + "property.getOwnershipDeclinedReason() : null)")
+    @Mapping(target = "recheckPending", expression = OWN_SIDE + "(Boolean) property.isRecheckPending() : null)")
+    @Mapping(target = "recheckReason", expression = OWN_SIDE + "property.getRecheckReason() : null)")
+    @Mapping(target = "recheckRequestedAt", expression = OWN_SIDE + "property.getRecheckRequestedAt() : null)")
+    @Mapping(target = "archived", expression = OWN_SIDE + "(Boolean) property.isArchived() : null)")
+    @Mapping(target = "featured", expression = OWN_SIDE + "(Boolean) property.isFeatured() : null)")
+    @Mapping(target = "qualityScore",
+            expression = OWN_SIDE + "(property.getQualityScore() == null ? null : property.getQualityScore().intValue()) : null)")
+    @Mapping(target = "societyId",
+            expression = OWN_SIDE + "(property.getSocietyId() == null ? null : property.getSocietyId().toString()) : null)")
+    @Mapping(target = "pincode", expression = OWN_SIDE + "property.getPincode() : null)")
     @Mapping(target = "ownership", expression = "java(formDetailText(property, \"ownership\"))")
     @Mapping(target = "loanAvailable", expression = "java(formDetailBoolean(property, \"loanAvailable\"))")
     @Mapping(target = "agreementDuration", expression = "java(formDetailText(property, \"agreementDuration\"))")
@@ -264,6 +302,15 @@ public interface PropertyMapper {
         }
         var images = property.getImages();
         return images == null || images.isEmpty() ? null : images.get(0);
+    }
+
+    /** The gallery size, or one for a lone cover: what the quality score counts as photos. */
+    default int photoCount(Property property) {
+        var images = property.getImages();
+        if (images != null && !images.isEmpty()) {
+            return images.size();
+        }
+        return coverImage(property) == null ? 0 : 1;
     }
 
     /** Hand-written back-office projection — null for everyone but staff, and null for listings staff

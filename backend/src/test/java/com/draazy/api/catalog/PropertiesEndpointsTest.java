@@ -17,6 +17,7 @@ import com.draazy.api.security.JwtService;
 import com.draazy.api.security.Roles;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.util.List;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -320,9 +321,11 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 {"title":"New Launch Tower","deal":"buy","propertyType":"apartment","price":9000000,
                  "locality":"Baner","city":"Pune","possession":"new-launch"}
                 """;
-        mvc.perform(post("/me/listings").header("Authorization", bearer(o))
+        String created = mvc.perform(post("/me/listings").header("Authorization", bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        storedListing(o, com.jayway.jsonpath.JsonPath.read(created, "$.id"))
                 .andExpect(jsonPath("$.possession").value("new-launch"));
 
         properties.findAll().forEach(p -> {
@@ -357,7 +360,9 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].propertyType").value("apartment"))
                 .andExpect(jsonPath("$.content[0].bhk").value(2))
-                .andExpect(jsonPath("$.content[0].priceUnit").value("per-month"))
+                .andExpect(jsonPath("$.content[0].priceUnit").doesNotExist())
+                .andExpect(jsonPath("$.content[0].qualityScore").doesNotExist())
+                .andExpect(jsonPath("$.content[0].freshness").doesNotExist())
                 .andExpect(jsonPath("$.content[0].coverImage").value("https://img/x.jpg"))
 
                 // owner contact must never appear in the card projection
@@ -380,8 +385,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         User o = owner("9810000005");
         User paying = owner("9810000025");
         grants.grant(paying.getId(), TestPlanGrants.OWNER_PLUS);
-        save(o, "Plain", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
         save(paying, "Featured", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        save(o, "Plain", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
 
         em.clear();
 
@@ -389,8 +394,9 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].title").value("Featured"))
-                .andExpect(jsonPath("$[0].featured").value(true))
-                .andExpect(jsonPath("$[1].featured").value(false));
+                .andExpect(jsonPath("$[1].title").value("Plain"))
+                .andExpect(jsonPath("$[0].ownerId").doesNotExist())
+                .andExpect(jsonPath("$[0].featured").doesNotExist());
     }
 
     @Test
@@ -398,13 +404,112 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         User paying = owner("9810000026");
         grants.grant(paying.getId(), TestPlanGrants.OWNER_PLUS);
         save(paying, "Was featured", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        save(owner("9810000091"), "Plain", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
         jdbc.update("update subscriptions set renews_at = now() - interval '1 day' where user_id = ?", paying.getId());
         em.clear();
 
         mvc.perform(get("/properties/featured"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].title").value("Was featured"))
-                .andExpect(jsonPath("$[0].featured").value(false));
+                .andExpect(jsonPath("$[0].title").value("Plain"))
+                .andExpect(jsonPath("$[1].title").value("Was featured"));
+    }
+
+    @Test
+    void cardsAnswerOnlyPublicRowsAmongTheIds() throws Exception {
+        User o = owner("9810000092");
+        Property live = save(o, "Live", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        Property pending = save(o, "Pending", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "pending", false);
+
+        mvc.perform(get("/properties/cards").param("ids", live.getId().toString(), pending.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("Live"))
+                .andExpect(jsonPath("$[0].ownerId").doesNotExist());
+    }
+
+    @Test
+    void searchIndexCarriesOnlyDealAndPlaceOfLiveRows() throws Exception {
+        User o = owner("9810000093");
+        save(o, "Live", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        save(o, "Pending", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "pending", false);
+
+        mvc.perform(get("/properties/search-index"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].deal").value("rent"))
+                .andExpect(jsonPath("$[0].locality").value("Baner"))
+                .andExpect(jsonPath("$[0].id").doesNotExist())
+                .andExpect(jsonPath("$[0].title").doesNotExist())
+                .andExpect(jsonPath("$[0].price").doesNotExist());
+    }
+
+    @Test
+    void compareAnswersOnlyTheTableColumnsOfPublicRows() throws Exception {
+        User o = owner("9810000094");
+        Property live = save(o, "Live", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        Property pending = save(o, "Pending", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "pending", false);
+
+        mvc.perform(get("/properties/compare").param("ids", live.getId().toString(), pending.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].price").value(25000))
+                .andExpect(jsonPath("$[0].title").doesNotExist())
+                .andExpect(jsonPath("$[0].owner").doesNotExist())
+                .andExpect(jsonPath("$[0].status").doesNotExist());
+    }
+
+    @Test
+    void reelsCarryAtMostFivePhotosOfLiveRowsWithEnough() throws Exception {
+        User o = owner("9810000096");
+        Property many = save(o, "Many", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        many.setImages(List.of("/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg"));
+        properties.saveAndFlush(many);
+        Property one = save(o, "One", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        one.setImages(List.of("/1.jpg"));
+        properties.saveAndFlush(one);
+
+        mvc.perform(get("/properties/reels").param("minPhotos", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("Many"))
+                .andExpect(jsonPath("$[0].photos.length()").value(5))
+                .andExpect(jsonPath("$[0].status").doesNotExist())
+                .andExpect(jsonPath("$[0].lat").doesNotExist());
+    }
+
+    @Test
+    void similarAnswersSameDealLiveRowsOtherThanTheOneViewed() throws Exception {
+        User o = owner("9810000097");
+        Property viewed = save(o, "Viewed", "rent", "apartment", new BigDecimal("2"), 25000, "Baner", "approved", false);
+        save(o, "Alike", "rent", "apartment", new BigDecimal("2"), 26000, "Baner", "approved", false);
+        save(o, "Pending", "rent", "apartment", new BigDecimal("2"), 26000, "Baner", "pending", false);
+        save(o, "For sale", "buy", "apartment", new BigDecimal("2"), 9000000, "Baner", "approved", false);
+
+        mvc.perform(get("/properties/similar").param("deal", "rent").param("bhk", "2").param("price", "25000")
+                        .param("exclude", viewed.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("Alike"))
+                .andExpect(jsonPath("$[0].status").doesNotExist())
+                .andExpect(jsonPath("$[0].distanceKm").doesNotExist());
+    }
+
+    @Test
+    void publicDetailWithholdsListingInternalState() throws Exception {
+        Property p = save(owner("9810000095"), "Detail", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
+        p.setPincode("411038");
+        p.requestRecheck(java.util.List.of("price"));
+        properties.saveAndFlush(p);
+
+        mvc.perform(get("/properties/" + p.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").doesNotExist())
+                .andExpect(jsonPath("$.recheckReason").doesNotExist())
+                .andExpect(jsonPath("$.archived").doesNotExist())
+                .andExpect(jsonPath("$.featured").doesNotExist())
+                .andExpect(jsonPath("$.qualityScore").doesNotExist())
+                .andExpect(jsonPath("$.pincode").doesNotExist());
     }
 
     @Test
@@ -476,10 +581,15 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         String body = "{\"title\":\"New Flat\",\"deal\":\"rent\",\"propertyType\":\"apartment\","
                 + "\"price\":30000,\"locality\":\"Kothrud\",\"city\":\"Pune\",\"bhk\":2}";
 
-        mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
+        String created = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.priceUnit").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist())
+                .andExpect(jsonPath("$.title").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        storedListing(o, com.jayway.jsonpath.JsonPath.read(created, "$.id"))
                 .andExpect(jsonPath("$.priceUnit").value("per-month"))
                 .andExpect(jsonPath("$.owner.id").value(o.getId().toString()));
     }
@@ -491,10 +601,11 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         String body = "{\"title\":\"Owner Typed\",\"deal\":\"rent\",\"propertyType\":\"apartment\","
                 + "\"price\":31000,\"locality\":\"kothrud\",\"city\":\"Pune\",\"bhk\":2}";
 
-        mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
+        String created = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content(withPhoto(body, o)))
                 .andExpect(status().isCreated())
-
+                .andReturn().getResponse().getContentAsString();
+        storedListing(o, com.jayway.jsonpath.JsonPath.read(created, "$.id"))
                 .andExpect(jsonPath("$.locality").value("Kothrud"))
                 .andExpect(jsonPath("$.localitySlug").value("kothrud"));
 
@@ -536,10 +647,10 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"locality\":\"Baner\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.localitySlug").value("baner"))
 
                 // locality is a foundation field, so the edit also costs re-moderation
                 .andExpect(jsonPath("$.status").value("pending"));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.localitySlug").value("baner"));
     }
 
     // Coordinates are non-foundation; re-resolving them would silently move
@@ -560,8 +671,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"lat\":18.591,\"lng\":73.738}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.localitySlug").value("kothrud"))
                 .andExpect(jsonPath("$.status").value("approved"));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.localitySlug").value("kothrud"));
     }
 
     @Test
@@ -602,9 +713,9 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"bhk\":3}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bhk").value(3))
                 .andExpect(jsonPath("$.status").value("pending"))
                 .andExpect(jsonPath("$.recheckPending").value(false));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.bhk").value(3));
     }
 
     @Test
@@ -615,10 +726,12 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"price\":28000}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.price").value(28000))
                 .andExpect(jsonPath("$.status").value("approved"))
                 .andExpect(jsonPath("$.recheckPending").value(true))
-                .andExpect(jsonPath("$.recheckReason").value("price"));
+                .andExpect(jsonPath("$.recheckReason").value("price"))
+                .andExpect(jsonPath("$.recheckRequestedAt").exists())
+                .andExpect(jsonPath("$.price").doesNotExist());
+        storedListing(o, p.getId()).andExpect(jsonPath("$.price").value(28000));
     }
 
     @Test
@@ -629,8 +742,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"description\":\"Updated copy\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.description").value("Updated copy"))
                 .andExpect(jsonPath("$.status").value("approved"));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.description").value("Updated copy"));
     }
 
     // PATCH semantics: null on a foundation field means "leave unchanged" — must not clear the
@@ -644,8 +757,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bhk\":null,\"description\":\"Just a copy tweak\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bhk").value(3))
                 .andExpect(jsonPath("$.status").value("approved"));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.bhk").value(3));
     }
 
     @Test

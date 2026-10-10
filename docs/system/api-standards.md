@@ -255,8 +255,11 @@ not be frozen out of its first member or lock its own operators out. `maintenanc
 and the same default would strand a fresh or malformed install behind the maintenance page with no
 way in to fix it.
 
-Both `signupsEnabled` and `staffLoginEnabled` are **server-enforced, not merely published on
-`GET /bootstrap` (`flags`)**. `signupsEnabled` decides whether a row is written and `POST /auth/login` provisions
+`GET /bootstrap` (`flags`) publishes only the keys the consumer app reads
+(`AppFlagsController.PUBLIC`); `staffLoginEnabled` and any unknown key stay in `/admin/settings`.
+A flag added to the consumer UI must be added to that set, or the client reads it as absent (on).
+
+Both `signupsEnabled` and `staffLoginEnabled` are **server-enforced**. `signupsEnabled` decides whether a row is written and `POST /auth/login` provisions
 on first verified sign-in, so a client-only guard would leave the only account-creating consumer path
 wide open while the back office reported onboarding shut. `staffLoginEnabled` is reached for during
 an incident, and an attacker posts to the endpoint rather than clicking the button — and it binds
@@ -508,6 +511,20 @@ Rules:
 > `useIncrementalCompilation` is also disabled so a bad class can never be carried forward.
 > If you ever see those errors again, check that `-DbuildDirName=target-cli` is in effect.
 > See `tasks/lessons.md`.
+
+### 8.2 Every response carries only what its screen draws
+
+- **One slim record per use** (`PropertyCard`, `SocietyCard`, `SelfResponse`, `SavedKey`), never
+  `@JsonIgnore` on a shared fat record. Lists ship card/row records; detail fields stay on `/{id}`.
+- **Never on the wire unless rendered**, and then in the least form (masked, rounded, label not id):
+  other people's UUIDs, mobile/email, document numbers, payment/order/gateway refs, internal
+  status/flag/reviewer/assignee/notes, unused timestamps, storage URLs with user UUIDs, exact lat/lng
+  where only a locality is drawn, ip/user-agent.
+- **Counts are server-side** (`/summary`, `counts=true`, `/keys`, `?ids=`), never a `size=500` download.
+  A read only a tab/modal needs fires when it opens.
+- **Caller-independent public reads** go in `PublicReadCacheFilter.PATHS` (weak ETag → gzip + `304`).
+- **Guards:** `SpecSchemaParityTest` (record ↔ schema), a backend `doesNotExist()` test for removed
+  fields, and an e2e payload spec in the style of `consumer/home/home-payload.spec.js`.
 
 ## 9. Provider seams
 

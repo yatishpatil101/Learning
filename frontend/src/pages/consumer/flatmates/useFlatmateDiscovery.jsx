@@ -25,8 +25,8 @@ const NEAR_TUNING_KEYS = ['nearLabel', 'nearRadius', 'nearMode'];
 
 const LIST_PAGE = 24;
 /* The map draws one pin per area with a count on it, so a screenful would claim "Baner 3" for
- * an area holding ninety. */
-const MAP_PAGE = 300;
+ * an area holding ninety. 100 is the server's page cap. */
+const MAP_PAGE = 100;
 const URL_REPLACE_KEYS = new Set(['q', 'budget', 'nearRadius']);
 
 const isoInDays = (n) => {

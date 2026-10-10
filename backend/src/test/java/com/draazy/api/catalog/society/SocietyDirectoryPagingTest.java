@@ -208,6 +208,23 @@ class SocietyDirectoryPagingTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the home rail is at most eight cards, most homes first, carrying only what a card draws")
+    void topRailIsSlimAndRankedByHomes() throws Exception {
+        fixtures();
+
+        String body = mvc.perform(get("/societies/top"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").doesNotExist())
+                .andExpect(jsonPath("$[0].builder").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        List<Integer> counts = JsonPath.read(body, "$[*].listingCount");
+        assertThat(counts).hasSizeBetween(1, 8).allMatch(c -> c > 0)
+                .isSortedAccordingTo(java.util.Comparator.reverseOrder());
+        assertThat(JsonPath.<java.util.Map<String, Object>>read(body, "$[0]").keySet())
+                .containsExactlyInAnyOrder("slug", "name", "localitySlug", "listingCount");
+    }
+
+    @Test
     @DisplayName("hasListings=true keeps societies with a live home, counting a merged-away duplicate's")
     void hasListingsFilterKeepsSocietiesWithHomes() throws Exception {
         fixtures();

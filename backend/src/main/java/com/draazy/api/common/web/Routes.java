@@ -47,6 +47,21 @@ public final class Routes {
 
         public static final String FEATURED = BASE + "/featured";
 
+        /** Public card read for up to 16 ids; the rails that show recently viewed listings. */
+        public static final String CARDS = BASE + "/cards";
+
+        /** Public; the hero search's locality, society and landmark counts are built from it. */
+        public static final String SEARCH_INDEX = BASE + "/search-index";
+
+        /** Public; the compare table's columns for up to 4 ids. */
+        public static final String COMPARE = BASE + "/compare";
+
+        /** Public; the reels feed with each reel's first photos. */
+        public static final String REELS = BASE + "/reels";
+
+        /** Public; the property page's similar-homes cards. */
+        public static final String SIMILAR = BASE + "/similar";
+
         public static final String BY_ID = BASE + "/{id}";
 
         /** Security-chain matcher for the public single-listing read. Single-segment ({@code *}) so
@@ -93,6 +108,14 @@ public final class Routes {
 
         public static final String BASE = "/localities";
 
+        /** Staff with {@code localities:read} - every locality row the console lists, with its live count. */
+        public static final String ADMIN = "/admin/localities";
+
+        /** Staff with {@code localities:write} - {@code POST} closes the area to new listings; existing ones stay. */
+        public static final String ADMIN_RETIRE = ADMIN + "/{slug}/retire";
+
+        public static final String ADMIN_RESTORE = ADMIN + "/{slug}/restore";
+
         /** Public {@code POST} - the locality a Google place pick is, minting the row when none exists. */
         public static final String RESOLVE = BASE + "/resolve";
 
@@ -115,10 +138,17 @@ public final class Routes {
         /** Public {@code GET} - what a Google place pick already is in the catalogue, or might duplicate. */
         public static final String RESOLVE = BASE + "/resolve";
 
+        /** Public {@code GET} - the home rail: the societies with the most live homes. */
+        public static final String TOP = BASE + "/top";
+
         public static final String BY_SLUG = BASE + "/{slug}";
+
+        public static final String BRIEF = BY_SLUG + "/brief";
 
         /** Security-chain matcher; single-segment for the same reason as {@link Localities#ANY_SINGLE}. */
         public static final String ANY_SINGLE = BASE + "/*";
+
+        public static final String ANY_BRIEF = BASE + "/*/brief";
     }
 
     /** Staff — the queue of societies members added because the catalogue did not have them. */
@@ -147,7 +177,9 @@ public final class Routes {
         private AdminSocieties() {
         }
 
-        public static final String SUMMARY = "/admin/societies/summary";
+        public static final String BASE = "/admin/societies";
+
+        public static final String SUMMARY = BASE + "/summary";
 
         public static final String BY_SLUG = "/admin/societies/{slug}";
     }
@@ -186,14 +218,19 @@ public final class Routes {
 
         public static final String BY_ID = BASE + "/{id}";
 
+        public static final String CARD = BY_ID + "/card";
+
         public static final String CONFIRM_AVAILABLE = BY_ID + "/confirm-available";
 
         public static final String PAUSE = BY_ID + "/pause";
+
 
         public static final String RESUME = BY_ID + "/resume";
 
         /** Owner-only — "have I already listed this?", asked before the wizard submits. */
         public static final String DUPLICATE_CHECK = BASE + "/duplicate-check";
+
+        public static final String QUOTA = BASE + "/quota";
     }
 
     /** The authenticated owner's private "single-player" property records — the Owner Hub /
@@ -349,7 +386,6 @@ public final class Routes {
         private Deals() {
         }
 
-        /** Authenticated — all deals on the caller's own listings. */
         public static final String BASE = "/me/deals";
 
         /** Authenticated — deal status for one property. */
@@ -506,6 +542,9 @@ public final class Routes {
 
         public static final String SAVED_BY_PROPERTY = SAVED + "/{propId}";
 
+        /** Authenticated — the caller's shortlist as bare keys, unpaged. */
+        public static final String SAVED_KEYS = SAVED + "/keys";
+
         /** Authenticated — the caller's flatmate shortlist, as full card projections. */
         public static final String FLATMATE_SAVES = "/me/flatmate-saves";
 
@@ -536,6 +575,9 @@ public final class Routes {
 
         public static final String NOTIFICATIONS_UNREAD_COUNT = NOTIFICATIONS + "/unread-count";
 
+        /** Authenticated — dismisses the caller's given ids in one call; a collapsed row holds several. */
+        public static final String NOTIFICATIONS_DISMISS = NOTIFICATIONS + "/dismiss";
+
         public static final String NOTIFICATION_BY_ID = NOTIFICATIONS + "/{id}";
 
         /** Authenticated — {@code GET}/{@code PUT} channel switches, the master match-alert switch,
@@ -562,6 +604,9 @@ public final class Routes {
         /** Authenticated — the caller's own ad, as its author sees it. */
         public static final String MY_POSTS = "/me/flatmate-posts";
 
+        /** Authenticated — one of the caller's own ads, for the edit form. A stranger's id is a 404. */
+        public static final String MY_POST_BY_ID = MY_POSTS + "/{id}";
+
         /** Authenticated — the caller's incoming requests (host inbox). */
         public static final String MY_REQUESTS = "/me/flatmate-requests";
 
@@ -570,6 +615,8 @@ public final class Routes {
 
         /** Authenticated — every ask the caller has <em>sent</em>, through any of the three doors. */
         public static final String MY_INTERESTS = "/me/flatmate-interests";
+
+        public static final String MY_INTEREST_KEYS = MY_INTERESTS + "/keys";
 
         /** Authenticated — take back an ask, while it is still unanswered. */
         public static final String INTEREST_BY_TARGET = "/flatmates/{kind}/{id}/interest";
@@ -658,6 +705,8 @@ public final class Routes {
 
         public static final String BY_ID = BASE + "/{propId}/{docId}";
 
+        public static final String URL = BASE + "/{docId}/url";
+
         /** The caller's own KYC papers (list + upload) — Aadhaar, PAN, a passport photo. */
         public static final String PERSONAL = BASE + "/personal";
 
@@ -683,6 +732,10 @@ public final class Routes {
 
         /** Public but token-scoped — read the documents a grant unlocked. */
         public static final String SHARED = BASE + "/shared";
+
+        /** Public but token-scoped: one file's signed URL, {@code ?docId=}, so its path can be rate limited
+         * like {@link #SHARED}. */
+        public static final String SHARED_URL = SHARED + "/url";
     }
 
     public static final class MeDocumentRequests {
@@ -694,6 +747,8 @@ public final class Routes {
 
         /** Buyer — the documents one of their own granted requests unlocked, read while signed in. */
         public static final String DOCUMENTS_BY_ID = BASE + "/{reqId}/documents";
+
+        public static final String DOCUMENT_URL = DOCUMENTS_BY_ID + "/{docId}/url";
     }
 
     public static final class MeRentAgreements {
@@ -713,7 +768,11 @@ public final class Routes {
 
         public static final String QUEUE_SUMMARY = BASE + "/queue-summary";
 
+        public static final String QUEUE = BASE + "/queue";
+
         public static final String BY_ID = BASE + "/{id}";
+
+        public static final String DOC_URL = BY_ID + "/docs/{docId}/url";
 
         public static final String CO_FILL_CREATE = BASE + "/co-fill";
 
@@ -820,6 +879,8 @@ public final class Routes {
 
         public static final String BY_ID = BASE + "/{id}";
 
+        public static final String SUMMARY = BASE + "/summary";
+
         public static final String NOTES = BY_ID + "/notes";
     }
 
@@ -866,11 +927,12 @@ public final class Routes {
 
         public static final String VERIFICATION_OWNERSHIP_DOCUMENTS = VERIFICATION_OWNERSHIP + "/documents";
 
+        public static final String VERIFICATION_OWNERSHIP_DOCUMENT_URL =
+                VERIFICATION_OWNERSHIP_DOCUMENTS + "/{docId}/url";
+
         public static final String VERIFICATION_OWNERSHIP_REQUEST = VERIFICATION_OWNERSHIP + "/request";
 
         public static final String VERIFICATION_OWNERSHIP_DECLINE = VERIFICATION_OWNERSHIP + "/decline";
-
-        public static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
 
         public static final String ME_PROPERTY_REVIEWS = "/me/property-reviews";
 
@@ -886,11 +948,14 @@ public final class Routes {
 
         public static final String ADMIN_PROPERTIES = "/admin/properties";
 
+        public static final String ADMIN_PROPERTY = ADMIN_PROPERTIES + "/{id}";
+
         public static final String ADMIN_PROPERTIES_SUMMARY = ADMIN_PROPERTIES + "/summary";
 
         public static final String ADMIN_PROPERTIES_OWNER_STANDING =
                 ADMIN_PROPERTIES + "/owner-standing";
 
+        public static final String ADMIN_PROPERTIES_LOOKUP = ADMIN_PROPERTIES + "/lookup";
         public static final String ADMIN_PROPERTIES_DUPLICATES = ADMIN_PROPERTIES + "/duplicates";
 
         public static final String ADMIN_PROPERTIES_DUPLICATES_MERGE =
@@ -901,12 +966,15 @@ public final class Routes {
 
         public static final String PROPERTY_OUTREACH = Properties.BY_ID + "/outreach";
 
+        public static final String PROPERTY_OUTREACH_SENT = PROPERTY_OUTREACH + "/{messageId}/sent";
+
         public static final String ADMIN_ENQUIRIES = "/admin/enquiries";
 
         public static final String ADMIN_VISITS = "/admin/visits";
 
         public static final String ADMIN_DEALS = "/admin/deals";
 
+        public static final String ADMIN_ENQUIRIES_SUMMARY = ADMIN_ENQUIRIES + "/summary";
         public static final String ADMIN_ENQUIRY_BY_ID = ADMIN_ENQUIRIES + "/{id}";
 
         /** Admin — one site visit, visitor's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}. */
@@ -940,6 +1008,8 @@ public final class Routes {
         public static final String FLATMATE_MODERATION = "/admin/flatmates/{id}/moderation";
 
         public static final String FLATMATE_MODERATION_QUEUE = "/admin/flatmates/moderation";
+
+        public static final String FLATMATE_MODERATION_SUMMARY = FLATMATE_MODERATION_QUEUE + "/summary";
 
         public static final String FLATMATE_MODERATION_DETAIL = "/admin/flatmates/{id}";
 
@@ -1040,6 +1110,15 @@ public final class Routes {
         public static final String FINANCE_TRANSACTIONS = FINANCE + "/transactions";
 
         public static final String SETTINGS = "/admin/settings";
+        public static final String SETTINGS_FLAGS = SETTINGS + "/flags";
+
+        public static final String INTEGRATIONS = "/admin/integrations";
+
+        public static final String INTEGRATION_CALLS = INTEGRATIONS + "/calls";
+
+        public static final String HELP_FEEDBACK = "/admin/help-feedback";
+
+        public static final String HELP_FEEDBACK_COMMENTS = HELP_FEEDBACK + "/comments";
 
         /** Admin only — one curated city's launch state. */
         public static final String CITY_BY_SLUG = "/admin/cities/{slug}";
@@ -1050,6 +1129,8 @@ public final class Routes {
         public static final String FUNCTION_CATALOGUE = "/admin/function-catalogue";
 
         public static final String TEAM = "/admin/team";
+
+        public static final String TEAM_ASSIGNEES = TEAM + "/assignees";
 
         public static final String MESSAGE_TEMPLATES = "/admin/message-templates";
 
@@ -1086,8 +1167,8 @@ public final class Routes {
         private HelpFeedback() {
         }
 
-        /** POST is public and capped per caller by {@code WriteRateLimitFilter}. There is no GET — the
-         * verdicts are for whoever maintains the articles, not for the next reader. */
+        /** POST is public and capped per caller by {@code WriteRateLimitFilter}. The only read is
+         * {@link Admin#HELP_FEEDBACK}: the verdicts are for whoever maintains the articles, not for the next reader. */
         public static final String BASE = "/help/feedback";
     }
 

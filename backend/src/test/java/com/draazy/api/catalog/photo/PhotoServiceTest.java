@@ -24,7 +24,7 @@ class PhotoServiceTest {
     @Test
     void storesStrippedBytes() {
         CapturingStorage storage = new CapturingStorage();
-        PhotoService service = new PhotoService(storage);
+        PhotoService service = new PhotoService(storage, new PhotoKeys("test-secret"));
         byte[] jpeg = jpeg(
                 segment(0xE1, "Exif\0\0GPS=home".getBytes(StandardCharsets.ISO_8859_1)),
                 segment(0xDA, new byte[] {0, 0}),
@@ -43,7 +43,7 @@ class PhotoServiceTest {
     @Test
     void aDecodableUploadCarriesItsServerComputedHashInTheKey() throws Exception {
         CapturingStorage storage = new CapturingStorage();
-        PhotoService service = new PhotoService(storage);
+        PhotoService service = new PhotoService(storage, new PhotoKeys("test-secret"));
         byte[] png = encode(scene(800, 600), "png");
 
         PhotoDto dto = service.upload(UUID.randomUUID(),
@@ -63,7 +63,7 @@ class PhotoServiceTest {
         CapturingStorage storage = new CapturingStorage();
         byte[] jpeg = jpeg(segment(0xDA, new byte[] {0, 0}), new byte[] {1, 2, 3, (byte) 0xFF, (byte) 0xD9});
 
-        PhotoDto dto = new PhotoService(storage).upload(UUID.randomUUID(),
+        PhotoDto dto = new PhotoService(storage, new PhotoKeys("test-secret")).upload(UUID.randomUUID(),
                 new MockMultipartFile("file", "room.jpg", "image/jpeg", jpeg));
 
         assertThat(PhotoHash.fromGallery(List.of(dto.url()))).isEmpty();
@@ -75,7 +75,7 @@ class PhotoServiceTest {
         CapturingStorage storage = new CapturingStorage();
         byte[] png = encode(scene(2400, 1600), "png");
 
-        PhotoDto dto = new PhotoService(storage).upload(UUID.randomUUID(),
+        PhotoDto dto = new PhotoService(storage, new PhotoKeys("test-secret")).upload(UUID.randomUUID(),
                 new MockMultipartFile("file", "room.png", "image/png", png));
 
         String original = storage.key;
@@ -93,7 +93,7 @@ class PhotoServiceTest {
     void aCopyIsNeverWiderThanTheOriginal() throws Exception {
         CapturingStorage storage = new CapturingStorage();
 
-        new PhotoService(storage).upload(UUID.randomUUID(),
+        new PhotoService(storage, new PhotoKeys("test-secret")).upload(UUID.randomUUID(),
                 new MockMultipartFile("file", "room.png", "image/png", encode(scene(600, 400), "png")));
 
         assertThat(widthOf(storage.stored.get(storage.key + ".w960.jpg"))).isEqualTo(600);
@@ -108,12 +108,26 @@ class PhotoServiceTest {
     void aTallNarrowPhotoIsSubsampledOnBothAxesButKeepsItsShape() throws Exception {
         CapturingStorage storage = new CapturingStorage();
 
-        new PhotoService(storage).upload(UUID.randomUUID(),
+        new PhotoService(storage, new PhotoKeys("test-secret")).upload(UUID.randomUUID(),
                 new MockMultipartFile("file", "tower.png", "image/png", encode(scene(1200, 9000), "png")));
 
         BufferedImage card = ImageIO.read(new ByteArrayInputStream(storage.stored.get(storage.key + ".w480.jpg")));
         assertThat(card.getWidth()).isEqualTo(480);
         assertThat(card.getHeight()).isBetween(3590, 3610);
+    }
+
+    @Test
+    void anUploadKeyNamesNoUserButStillProvesItsUploader() {
+        PhotoKeys keys = new PhotoKeys("test-secret");
+        UUID owner = UUID.randomUUID();
+        String key = keys.newKey(owner);
+
+        assertThat(key).doesNotContain(owner.toString());
+        assertThat(keys.uploadedBy(key + "-00ff00ff00ff00ff", List.of(owner))).isTrue();
+        assertThat(keys.uploadedBy(key, List.of(UUID.randomUUID()))).isFalse();
+        assertThat(new PhotoKeys("other-secret").uploadedBy(key, List.of(owner))).isFalse();
+        assertThat(keys.uploadedBy("photos/" + owner + "/" + UUID.randomUUID(), List.of(owner)))
+                .as("a pre-tag key still names its owner").isTrue();
     }
 
     @Test

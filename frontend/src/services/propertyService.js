@@ -27,6 +27,15 @@ export const getPropertiesByIds = async (ids) => (await provider()).getPropertie
 // Public cards rather than detail reads, so it is one request however many ids.
 export const listPropertiesByIds = async (ids) => (await provider()).listPropertiesByIds(ids);
 
+export const compareProperties = async (ids) => (await provider()).compareProperties(ids);
+
+/** The newest live homes reduced to deal and place, for the hero search's suggestion counts. */
+export const searchIndex = async () => (await provider()).searchIndex();
+
+export const propertyReels = async (query) => (await provider()).propertyReels(query);
+
+export const similarProperties = async (query) => (await provider()).similarProperties(query);
+
 // Separate from `listProperties` because `{ total, verifiedTotal, unstatedTotal, pageCount }`
 // describe the whole match and cannot be recovered from a page.
 export const searchListings = async (query, paging) => (await provider()).searchListings(query, paging);
@@ -38,6 +47,9 @@ export const listForModeration = async (filters, sort, opts) => (await provider(
 // database rather than by the fetched page.
 export const searchForModeration = async (filters, sort, paging) =>
   (await provider()).searchForModeration(filters, sort, paging);
+export const lookupForModeration = async (q, paging) => (await provider()).lookupForModeration(q, paging);
+
+export const getModerationProperty = async (id) => (await provider()).getModerationProperty(id);
 
 // Never derive these from a fetched page: a page of pending rows paints `Active 0`, which is read
 // as "nothing is live".
@@ -50,9 +62,13 @@ export const myListings = async (user) => (await provider()).myListings(user);
 // Resolves `null` when it is not the caller's — existence is itself owner-only knowledge. Returns
 // the edit-form shape the buyer view omits.
 export const myListing = async (id, user) => (await provider()).myListing(id, user);
+export const myListingCard = async (id) => (await provider()).myListingCard(id);
 
 /** Owner: create a listing. It enters the catalogue as `pending`. */
 export const addListing = async (listing) => (await provider()).addListing(listing);
+
+/** `{ allowance, used }` — the wizard paywall's two numbers; same values as `/me/entitlements`' `listings`. */
+export const listingSlots = async () => (await provider()).listingSlots();
 
 // Scoped to the caller's own listings. The address must be composed exactly as `toListingCreate`
 // does, or the key names another property.
